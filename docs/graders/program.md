@@ -44,6 +44,7 @@ Waza writes the same run evidence that inline [`code`](code.md) graders receive 
 | `transcript` | list | Transcript events (`[]` when none) |
 | `tool_calls` | list | Tool calls derived from the transcript (`[]` when none) |
 | `tool_events` | list or `null` | Normalized per-call tool records |
+| `host_lifecycle` | object or `null` | Model turns and host shell calls/exits from native session events; `null` when unavailable |
 | `command_invocations` | list or `null` | Sanitized calls handled by `command_mocks`: `command`, `response_index`, and optional `args` and `exit_code` (absent when the attempt did not complete) |
 | `user_input_requests` | list or `null` | Native SDK user-input requests in arrival order: `sequence`, `session_id`, `question`, `choices`, `source`, and `answer`/`was_freeform` or `error` |
 | `duration_ms` | int | Run duration in milliseconds |

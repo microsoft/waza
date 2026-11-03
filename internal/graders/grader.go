@@ -61,6 +61,9 @@ type Context struct {
 	// legacy SessionDigest.ToolCalls only has typed built-in fields.
 	ToolEvents []models.ToolEvent
 
+	// HostLifecycle holds model-turn and host shell evidence; nil means unavailable.
+	HostLifecycle *models.HostLifecycle
+
 	// CommandInvocations holds sanitized arguments for mocked CLI calls.
 	CommandInvocations []models.CommandInvocation
 

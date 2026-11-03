@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/runner-terminal-1.0.schema.json",
+  "title": "Waza runner terminal envelope 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "outcome", "exit_code", "failure_boundary", "validation", "engine_calls", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.runner-terminal"},
+    "schema_version": {"const": "1.0"},
+    "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input"]},
+    "exit_code": {"type": "integer", "minimum": 0, "maximum": 6},
+    "failure_boundary": {"enum": ["none", "input", "negotiation", "validation", "identity", "startup", "execution", "shutdown", "output", "terminalization"]},
+    "validation": {"enum": ["not_checked", "invalid", "valid"]},
+    "engine_calls": {"type": "integer", "minimum": 0, "maximum": 1},
+    "selection": {"$ref": "#/$defs/selection"},
+    "identity": {"$ref": "#/$defs/identity"},
+    "observation": {"$ref": "#/$defs/observation"},
+    "diagnostics": {
+      "type": "array", "maxItems": 16,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"},
+          "message": {"type": "string", "minLength": 1, "maxLength": 4096}
+        }
+      }
+    }
+  },
+  "dependentRequired": {
+    "identity": ["selection"],
+    "selection": ["identity"],
+    "observation": ["identity", "selection"]
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "success"}}},
+      "then": {
+        "required": ["identity", "selection", "observation"],
+        "properties": {
+          "exit_code": {"const": 0}, "validation": {"const": "valid"},
+          "failure_boundary": {"const": "none"}, "diagnostics": {"maxItems": 0},
+          "observation": {"properties": {"status": {"const": "passed"}}}
+        }
+      },
+      "else": {"properties": {"diagnostics": {"minItems": 1}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "evaluation_failure"}}},
+      "then": {
+        "required": ["identity", "selection", "observation"],
+        "properties": {
+          "exit_code": {"const": 1}, "validation": {"const": "valid"},
+          "failure_boundary": {"const": "none"},
+          "observation": {"properties": {"status": {"const": "failed"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "infrastructure_failure"}}},
+      "then": {
+        "properties": {
+          "exit_code": {"const": 2},
+          "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown", "output", "terminalization"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "cancelled"}}},
+      "then": {
+        "properties": {
+          "exit_code": {"const": 3},
+          "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "timeout"}}},
+      "then": {
+        "properties": {
+          "exit_code": {"const": 4},
+          "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "unsupported_capability"}}},
+      "then": {
+        "properties": {
+          "exit_code": {"const": 5}, "validation": {"enum": ["not_checked", "invalid"]},
+          "failure_boundary": {"enum": ["negotiation", "validation"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "invalid_input"}}},
+      "then": {
+        "properties": {
+          "exit_code": {"const": 6}, "validation": {"enum": ["not_checked", "invalid"]},
+          "failure_boundary": {"enum": ["input", "validation"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"validation": {"enum": ["not_checked", "invalid"]}}},
+      "then": {
+        "properties": {"engine_calls": {"const": 0}},
+        "not": {"anyOf": [{"required": ["identity"]}, {"required": ["selection"]}, {"required": ["observation"]}]}
+      }
+    },
+    {
+      "if": {"properties": {"validation": {"const": "valid"}}, "not": {"required": ["identity"]}},
+      "then": {
+        "properties": {
+          "failure_boundary": {"const": "identity"},
+          "outcome": {"enum": ["infrastructure_failure", "cancelled", "timeout"]}
+        }
+      }
+    },
+    {
+      "if": {"required": ["observation"], "properties": {"observation": {"properties": {"status": {"const": "error"}}}}},
+      "then": {"properties": {"outcome": {"enum": ["infrastructure_failure", "cancelled", "timeout"]}}}
+    },
+    {
+      "if": {"required": ["observation"]},
+      "then": {
+        "properties": {
+          "engine_calls": {"const": 1},
+          "failure_boundary": {"enum": ["none", "execution", "shutdown", "output", "terminalization"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"failure_boundary": {"enum": ["startup", "execution", "shutdown"]}}},
+      "then": {"required": ["identity", "selection"], "properties": {"validation": {"const": "valid"}}}
+    },
+    {
+      "if": {"properties": {"failure_boundary": {"const": "identity"}}},
+      "then": {
+        "properties": {"engine_calls": {"const": 0}, "validation": {"const": "valid"}},
+        "not": {"required": ["identity"]}
+      }
+    },
+    {
+      "if": {"properties": {"failure_boundary": {"enum": ["input", "negotiation", "validation"]}}},
+      "then": {"properties": {"validation": {"enum": ["not_checked", "invalid"]}, "engine_calls": {"const": 0}}}
+    },
+    {
+      "if": {"properties": {"failure_boundary": {"const": "startup"}}},
+      "then": {"properties": {"engine_calls": {"const": 0}}}
+    }
+  ],
+  "$defs": {
+    "selection": {
+      "type": "object", "additionalProperties": false, "required": ["shard", "task", "trial", "attempt"],
+      "properties": {
+        "shard": {"type": "string", "minLength": 1, "maxLength": 256},
+        "task": {"type": "string", "minLength": 1, "maxLength": 256},
+        "trial": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "attempt": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+      }
+    },
+    "identity": {
+      "description": "Canonical admitted runneridentity.Identity; no independent derivation or attestation.",
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "canonical_digest", "run", "shard", "task", "trial", "attempt"],
+      "properties": {
+        "version": {"const": "sha256-waza-c14n-v1"},
+        "canonical_digest": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"},
+        "run": {"type": "string", "minLength": 68, "maxLength": 68, "pattern": "^run-[0-9a-f]{64}$"},
+        "shard": {"type": "string", "minLength": 70, "maxLength": 70, "pattern": "^shard-[0-9a-f]{64}$"},
+        "task": {"type": "string", "minLength": 69, "maxLength": 69, "pattern": "^task-[0-9a-f]{64}$"},
+        "trial": {"type": "string", "minLength": 70, "maxLength": 70, "pattern": "^trial-[0-9a-f]{64}$"},
+        "attempt": {"type": "string", "minLength": 72, "maxLength": 72, "pattern": "^attempt-[0-9a-f]{64}$"}
+      }
+    },
+    "verdict": {
+      "type": "object", "additionalProperties": false, "required": ["identifier", "passed"],
+      "properties": {
+        "identifier": {"type": "string", "minLength": 1, "maxLength": 256},
+        "passed": {"type": "boolean"}
+      }
+    },
+    "observation": {
+      "description": "Explicit observed summary, not a complete RunResult, billing record, or live execution attestation.",
+      "type": "object", "additionalProperties": false,
+      "required": ["execution_mode", "engine_calls", "selection", "run_number", "attempts", "status", "validations"],
+      "properties": {
+        "execution_mode": {"const": "mock"},
+        "engine_calls": {"const": 1},
+        "selection": {"$ref": "#/$defs/selection"},
+        "run_number": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "attempts": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "status": {"enum": ["passed", "failed", "error"]},
+        "validations": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/verdict"}},
+        "error_msg": {"type": "string", "minLength": 1, "maxLength": 4096}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "error"}}},
+          "then": {"required": ["error_msg"]},
+          "else": {"not": {"required": ["error_msg"]}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "passed"}}},
+          "then": {"properties": {"validations": {"items": {"properties": {"passed": {"const": true}}}}}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "failed"}}},
+          "then": {"properties": {"validations": {"contains": {"properties": {"passed": {"const": false}}}}}}
+        }
+      ]
+    }
+  }
+}

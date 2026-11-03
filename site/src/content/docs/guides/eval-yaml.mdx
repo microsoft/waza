@@ -520,6 +520,45 @@ mcp_mocks:
 
 Each `.json` fixture can either contain a single tool definition (tool name from the filename) or a `{ "tools": { ... } }` object with multiple tools.
 
+### Task-level MCP mocks
+
+A task can declare `mcp_mocks` when one case needs a different response, for example approving a question that other tasks must decline. Each task entry replaces the eval mock with the same name for that task only, and a new name adds a mock. Other eval mocks still apply, so a task restates only the servers it changes.
+
+```yaml
+# tasks/publish.yaml
+id: publish
+name: Publish when the user confirms
+inputs:
+  prompt: Publish the reviewed version.
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_schema:
+              type: object
+              required: [choices]
+              properties:
+                choices: { type: array, contains: { const: Publish this version } }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
+```
+
+Task mocks follow the enclosing eval's `schemaVersion` (1.1 or newer, and scenario `2.0` for finite sequences) and require `executor: copilot-sdk`. Relative `fixtures` paths resolve from the eval directory, like task `command_mocks` fixtures. An eval mock that every selected task replaces has its fixtures skipped only when no trigger phase needs it; its inline tools are still validated. An empty task list is rejected; omit the field to use the eval mocks.
+
+Fixture entries must be regular JSON files; symlinks to regular files remain supported. On Unix, admission opens fixtures nonblocking and validates the opened file, rejecting FIFOs without waiting for a writer so `after_run` can run. This does not bound unresponsive filesystem operations or promise race-free/nonblocking opening on Windows.
+
+The CLI discovers `trigger_tests.yaml` after `before_run`, before starting the engine, and reuses that parsed spec during execution. Trigger tests use eval-level MCP mocks and live servers rather than task overrides. Preflight inspects those dependencies using local reads only, including when a trigger file cannot be parsed; independent mock diagnostics are retained. The mock executor synthesizes trigger results without MCP. Task filtering, `--skip-graders`, `--no-skills`, and cached task results do not skip trigger tests.
+
+Admission validates selected fixture-backed tool `input_schema` declarations offline, including fixtures needed only by trigger tests. Omitted/null schemas retain the default; whole-tool overrides and genuinely unused fixture metadata are not admitted.
+
+SDK startup cancellation releases the waiting run and cleans up partial startup without tying a successfully started client's lifetime to its original caller. Reinitializing a healthy client remains idempotent even with a canceled caller context. A canceled shared startup is replaceable after successful cleanup; global shared-client shutdown still rejects new clients. A custom client factory must honor startup-context cancellation or expose `ForceStop`. Each partial-startup cleanup wait has a two-second deadline and reports an error if cleanup has not settled; it cannot guarantee goroutine termination for a noncooperating custom client. Pending or failed cleanup remains tracked.
+
+Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
+
+After completed startup, the lifetime context stays alive through graceful SDK cleanup. Authentication failure cleans up an owned client immediately and retains cleanup errors; engine shutdown still performs final cleanup. Shared clients are stopped only by their top-level owner. Partial-startup cleanup remains once-only.
+
 ## Command Mocks
 
 Use `command_mocks` when a skill shells out to a CLI such as Azure CLI (`az`), GitHub CLI (`gh`), or `kubectl`. Waza materializes temporary executable shims per task and prepends their directory to the Copilot runtime's existing `PATH`, preserving the host path. Command mocks require `executor: copilot-sdk` and `schemaVersion: "1.3"` or newer.
@@ -1394,6 +1433,8 @@ hooks:
 | `after_run`   | Once, after all tasks complete            |
 | `before_task` | Before each individual task               |
 | `after_task`  | After each individual task                |
+
+`before_run` runs before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets. The runner repeats admission after engine initialization and after each new pass's setup, retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. In `--baseline` mode each pass runs `before_run`, MCP admission, and `after_run`, including when the second pass generates changed task or fixture files. If the run is interrupted (Ctrl+C), `after_run` still runs once, for at most one minute.
 
 Each hook entry:
 

@@ -36,8 +36,9 @@ const (
 	// 1.6 adds optional run evidence and requirement_explanations.
 	// 1.7 adds frozen judge_evidence, prompt_judging, and separate regrade_usage.
 	// It also adds optional configured dependency modes to each run.
-	// 1.8 adds optional native user_input_requests records to each run.
-	CurrentResultSchemaVersion = "1.8"
+	// 1.8 adds optional run host_lifecycle evidence from native session events.
+	// 1.9 adds optional native user_input_requests records to each run.
+	CurrentResultSchemaVersion = "1.9"
 
 	// ScenarioSchemaVersion is eval-only. A major boundary makes older
 	// executables reject no-ambient-discovery semantics instead of ignoring them.

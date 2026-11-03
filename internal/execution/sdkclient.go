@@ -70,7 +70,10 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		return &startupErrorClient{err: errSharedClientClosed}
 	}
 	if client := sharedClients[key]; client != nil {
-		return client
+		if managed, ok := client.(*startupClient); !ok || !managed.replaceable() {
+			return client
+		}
+		delete(sharedClients, key)
 	}
 
 	logLevel := opts.LogLevel
@@ -83,7 +86,7 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		sharedClients[key] = &startupErrorClient{err: err}
 		return sharedClients[key]
 	}
-	sharedClients[key] = sharedConstruct(clientOptions)
+	sharedClients[key] = manageStartup(sharedConstruct(clientOptions))
 	return sharedClients[key]
 }
 

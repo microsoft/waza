@@ -200,7 +200,8 @@ func DecodeRecord(raw []byte, admitted *Admitted) (*Record, error) {
 	run := r.ActualRow.Run
 	if run.Evidence != nil || run.SnapshotPath != "" || run.WorkspaceDir != "" || run.Responder != nil ||
 		len(run.Checkpoints) != 0 || len(run.SkillInvocations) != 0 || len(run.ToolEvents) != 0 ||
-		len(run.CommandInvocations) != 0 || run.UserInputRequests != nil || len(r.Summary.References) != 0 {
+		run.HostLifecycle != nil || run.UserInputRequests != nil ||
+		len(run.CommandInvocations) != 0 || len(r.Summary.References) != 0 {
 		return nil, fmt.Errorf("native text primitive cannot certify extra capture/dependency evidence")
 	}
 	if r.Summary.Runtime.Availability != "unavailable" || r.Summary.Runtime.ModelVersion != "" ||

@@ -25,6 +25,8 @@ eval_context = {
     "tool_events": data.get('tool_events') or [],
     "command_invocations": data.get('command_invocations') or [],
     "user_input_requests": data.get('user_input_requests') or [],
+    # None means host lifecycle evidence is unavailable, not that nothing ran.
+    "host_lifecycle": data.get('host_lifecycle'),
     "errors": [t for t in data['transcript'] if "error" in t.get("type") or "error" in str(t.get("content", ""))],
     "duration_ms": data['duration_ms'],
     "len": len,
@@ -49,7 +51,8 @@ evaluation_errors: dict[int, str] = {}
 
 for index, assertion in enumerate(data['assertions']):
     try:
-        result = eval(assertion, {"__builtins__": {}}, eval_context)
+        # Nested comprehensions resolve names in globals, so use one restricted namespace.
+        result = eval(assertion, {"__builtins__": {}, **eval_context})
         results.append("" if not not result else "fail")
     except Exception as e:
         message = str(e)

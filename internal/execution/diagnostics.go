@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/microsoft/waza/internal/models"
 )
@@ -76,15 +77,16 @@ func (e *DiagnosticError) Error() string {
 }
 
 type diagnosticState struct {
-	mu         sync.Mutex
-	observerMu sync.Mutex
-	observer   func(ExecutionDiagnostic) error
-	active     sync.WaitGroup
-	closed     bool
-	busy       map[string]bool
-	pending    map[string]bool
-	initOnce   sync.Once
-	initErr    error
+	mu           sync.Mutex
+	observerMu   sync.Mutex
+	observer     func(ExecutionDiagnostic) error
+	active       sync.WaitGroup
+	closed       bool
+	busy         map[string]bool
+	pending      map[string]bool
+	initMu       initializationMutex
+	initErr      error
+	initComplete atomic.Bool
 }
 
 // Each lifecycle invocation owns its aggregate, including pre-session failures
@@ -196,27 +198,53 @@ func (e *CopilotEngine) initializeDiagnostic(ctx context.Context) error {
 		return op.err()
 	}
 	defer done()
-	s.initOnce.Do(func() {
-		switch {
-		case e.provider.err != nil:
-			op.report(StageInitialize, CodeProvider, "")
-		default:
-			if err := e.client.Start(context.Background()); err != nil {
-				op.report(StageInitialize, CodeStart, "")
-			} else if !e.provider.enabled() {
-				auth, err := e.client.GetAuthStatus(ctx)
-				if err != nil || auth == nil || !auth.IsAuthenticated {
-					op.report(StageInitialize, CodeAuth, "")
-					if e.ownsClient {
-						if err := e.client.Stop(); err != nil {
-							op.report(StageClientStop, CodeCleanup, "")
-						}
+	if s.initComplete.Load() {
+		return s.initErr
+	}
+	var startErr error
+	if e.provider.err == nil {
+		startErr = e.client.Start(ctx)
+	}
+	lockContext := ctx
+	if e.provider.err != nil {
+		lockContext = context.WithoutCancel(ctx)
+	}
+	if err := s.initMu.lock(lockContext); err != nil {
+		op.report(StageInitialize, CodeStart, "")
+		return errors.Join(err, op.err())
+	}
+	defer s.initMu.unlock()
+	if s.initComplete.Load() {
+		return s.initErr
+	}
+	if e.provider.err == nil && ctx.Err() != nil {
+		op.report(StageInitialize, CodeStart, "")
+		return errors.Join(ctx.Err(), op.err())
+	}
+	switch {
+	case e.provider.err != nil:
+		op.report(StageInitialize, CodeProvider, "")
+	case startErr != nil:
+		op.report(StageInitialize, CodeStart, "")
+	default:
+		if !e.provider.enabled() {
+			auth, err := e.client.GetAuthStatus(ctx)
+			if ctx.Err() != nil {
+				op.report(StageInitialize, CodeAuth, "")
+				return errors.Join(ctx.Err(), op.err())
+			}
+			if err != nil || auth == nil || !auth.IsAuthenticated {
+				op.report(StageInitialize, CodeAuth, "")
+				if e.ownsClient {
+					if err := e.client.Stop(); err != nil {
+						op.report(StageClientStop, CodeCleanup, "")
 					}
 				}
 			}
 		}
-		s.initErr = op.err()
-	})
+	}
+	s.initErr = op.err()
+	s.initComplete.Store(true)
 	return s.initErr
 }
 

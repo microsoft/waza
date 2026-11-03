@@ -23,6 +23,12 @@ SDK fakes rather than copying them into a second suite. It includes all CLI
 subpackages, every grader and the ownership areas below. Do not substitute
 only the new `Compatibility` selector for the release gate.
 
+Ordinary and `--runner-compat` benchmark summaries use the command's configured
+output writer and propagate write failures, including short writes, as output
+errors (exit 2), before saving the requested result file. The summary text is
+unchanged. Direct `runSingleModel` callers without a Cobra command retain stdout
+output and the same write-error checks.
+
 The recovery lifecycle regressions include a forced readiness deadline and a
 joined child safety kill; an incomplete invocation keeps its exit code
 unavailable. Session inspection and finalization are serialized, including
@@ -113,7 +119,7 @@ known-field types/constraints. Do not infer a task major-version policy from
 the eval/result policy. Eval/result versionless inputs default to the current
 v1 reader version (`1.4`); explicit same-major versions load, cross-major versions
 require migration. New evaluations and regrades independently write result
-version `1.8`; reading/re-saving historical inputs keeps their declared version
+version `1.9`; reading/re-saving historical inputs keeps their declared version
 and never invents reliability fields. Snapshot versioning is independent of
 result versioning.
 
@@ -137,11 +143,11 @@ stripped from those assertions.
 The frozen `cmd/waza/testdata/compatibility-run-1.4.json` oracle was verified by executing
 the CLI built from an isolated `git archive` of baseline `04e7b4c6` against
 the fixed eval/task inputs. The current CLI process test compares each full raw
-JSON artifact against `compatibility-run-1.8.json`: a separate expected writer
+JSON artifact against `compatibility-run-1.9.json`: a separate expected writer
 artifact differing only in the explicitly advanced result version. A regression
 asserts that this is the only difference; neither schema versions nor reliability
 fields are added to the normalization allowlist. Historical corpus files and the
-original `1.4`, prior-writer `1.5`, `1.6`, and `1.7` oracles are not rewritten. A separate two-run comparison still checks repeatability.
+original `1.4`, prior-writer `1.5`, `1.6`, `1.7` and `1.8` oracles are not rewritten. A separate two-run comparison still checks repeatability.
 Mutation tests prove prompt, checkpoint, configuration, billing, score, output
 and removed-field, null/empty, omitted/zero and cardinality drift cannot be
 normalized away. Its volatile allowlist is `eval_id`, `timestamp`,

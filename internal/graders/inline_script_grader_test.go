@@ -83,7 +83,7 @@ func TestInlineScriptRecoveryEvidence(t *testing.T) {
 	}
 }
 
-func TestInlineScriptNativeUserInputEvidence(t *testing.T) {
+func TestInlineScriptHostLifecyclePresence(t *testing.T) {
 	for _, language := range []models.Language{models.LanguagePython, models.LanguageJavascript} {
 		t.Run(string(language), func(t *testing.T) {
 			if language == models.LanguagePython {
@@ -91,40 +91,103 @@ func TestInlineScriptNativeUserInputEvidence(t *testing.T) {
 			} else {
 				skipIfNoJavascript(t)
 			}
-			answer := "staging"
-			ctx := &Context{UserInputRequests: []models.UserInputRecord{{
-				Sequence: 1, SessionID: "s-1", Question: "Deploy where?", Choices: []string{"staging", "prod"},
-				Source: models.UserInputSourceScript, Answer: &answer, WasFreeform: new(false),
-			}}}
-			absent := []string{"len(user_input_requests) == 0"}
-			present := []string{
-				"len(user_input_requests) == 1",
-				"user_input_requests[0]['answer'] == 'staging'",
-				"user_input_requests[0]['was_freeform'] == False",
-				"user_input_requests[0]['choices'] == ['staging', 'prod']",
-			}
-			if language == models.LanguageJavascript {
-				absent = []string{"user_input_requests.length == 0"}
-				present = []string{
-					"user_input_requests.length == 1",
-					"user_input_requests[0].answer == 'staging'",
-					"user_input_requests[0].was_freeform === false",
-					"user_input_requests[0].choices.join(',') == 'staging,prod'",
-				}
-			}
-			for _, tc := range []struct {
-				ctx        *Context
-				assertions []string
-				pass       bool
-			}{{&Context{}, absent, true}, {ctx, present, true}, {&Context{}, present[:1], false}} {
-				grader, err := Create("questions", models.InlineScriptGraderParameters{Language: language, Assertions: tc.assertions})
-				require.NoError(t, err)
-				result, err := grader.Grade(t.Context(), tc.ctx)
-				require.NoError(t, err)
-				require.Equal(t, tc.pass, result.Passed, "%+v", result)
+			for _, present := range []bool{false, true} {
+				t.Run(fmt.Sprint(present), func(t *testing.T) {
+					ctx := &Context{}
+					assertions := []string{"host_lifecycle is None"}
+					if language == models.LanguageJavascript {
+						assertions = []string{"host_lifecycle === null"}
+					}
+					if present {
+						ctx.HostLifecycle = &models.HostLifecycle{ModelTurns: []models.ModelTurn{}, Shells: []models.ShellLifecycle{{
+							ShellID: "build", Calls: []models.ShellToolCall{},
+							Exits: []models.ShellExitEvent{{Source: models.ShellExitSourceNotification, Kind: "shell_completed", Index: 2}},
+						}}}
+						assertions = []string{
+							"host_lifecycle['shells'][0]['exits'][0]['index'] == 2",
+							"len(host_lifecycle['model_turns']) == 0",
+							"'exit_code' not in host_lifecycle['shells'][0]['exits'][0]",
+						}
+						if language == models.LanguageJavascript {
+							assertions[1] = "host_lifecycle.model_turns.length == 0"
+							assertions[2] = "!('exit_code' in host_lifecycle.shells[0].exits[0])"
+						}
+					}
+					grader, err := Create("lifecycle", models.InlineScriptGraderParameters{Language: language, Assertions: assertions})
+					require.NoError(t, err)
+					result, err := grader.Grade(t.Context(), ctx)
+					require.NoError(t, err)
+					require.True(t, result.Passed, "%+v", result)
+				})
 			}
 		})
 	}
+}
+
+func TestInlineScriptHostLifecycleNestedPython(t *testing.T) {
+	require.NoError(t, exec.Command(resolvePythonBin(), "--version").Run(), "this regression requires a working Python runtime")
+	const ordering = "host_lifecycle is not None and any(e.get('exit_code') == 3 and any(turn['start_index'] > e['index'] for turn in host_lifecycle['model_turns']) for s in host_lifecycle['shells'] for e in s['exits'])"
+	const comprehension = "host_lifecycle is not None and True in [turn['start_index'] > e['index'] for s in host_lifecycle['shells'] for e in s['exits'] for turn in host_lifecycle['model_turns']]"
+	const helpers = "host_lifecycle is not None and any(all([bool(int(float(str(e['exit_code'])))), len(list(dict(e))) > 0, re.fullmatch('build', str(s['shell_id'])) is not None]) for s in host_lifecycle['shells'] for e in s['exits'])"
+	for _, tc := range []struct {
+		name      string
+		lifecycle *models.HostLifecycle
+		orderOK   bool
+		helpersOK bool
+	}{
+		{name: "absent"},
+		{name: "observed empty", lifecycle: &models.HostLifecycle{ModelTurns: []models.ModelTurn{}, Shells: []models.ShellLifecycle{}}},
+		{name: "exit before turn", lifecycle: &models.HostLifecycle{
+			ModelTurns: []models.ModelTurn{{TurnID: "next", StartIndex: 5}},
+			Shells: []models.ShellLifecycle{{ShellID: "build", Calls: []models.ShellToolCall{},
+				Exits: []models.ShellExitEvent{{Index: 4, ExitCode: new(int64(3))}}}},
+		}, orderOK: true, helpersOK: true},
+		{name: "exit after turn", lifecycle: &models.HostLifecycle{
+			ModelTurns: []models.ModelTurn{{TurnID: "previous", StartIndex: 3}},
+			Shells: []models.ShellLifecycle{{ShellID: "build", Calls: []models.ShellToolCall{},
+				Exits: []models.ShellExitEvent{{Index: 4, ExitCode: new(int64(3))}}}},
+		}, helpersOK: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, assertion := range []struct {
+				name string
+				code string
+				pass bool
+			}{
+				{"cross-list ordering", ordering, tc.orderOK},
+				{"cross-list comprehension", comprehension, tc.orderOK},
+				{"allowed helpers in nested scopes", helpers, tc.helpersOK},
+			} {
+				t.Run(assertion.name, func(t *testing.T) {
+					grader, err := Create("nested", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{assertion.code}})
+					require.NoError(t, err)
+					result, err := grader.Grade(t.Context(), &Context{HostLifecycle: tc.lifecycle})
+					require.NoError(t, err)
+					require.Equal(t, assertion.pass, result.Passed, "%+v", result)
+					if assertion.pass {
+						require.Equal(t, 1.0, result.Score)
+						require.Equal(t, "All assertions passed", result.Feedback)
+					} else {
+						require.Zero(t, result.Score)
+						require.Equal(t, "Failed: "+assertion.code, result.Feedback, "a false predicate must not be a name-resolution error")
+					}
+				})
+			}
+		})
+	}
+	t.Run("restricted builtins remain unavailable", func(t *testing.T) {
+		grader, err := Create("restricted", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
+			"any(open for _ in [1])",
+			"any(__import__ for _ in [1])",
+		}})
+		require.NoError(t, err)
+		result, err := grader.Grade(t.Context(), &Context{})
+		require.NoError(t, err)
+		require.False(t, result.Passed)
+		require.Zero(t, result.Score)
+		require.Contains(t, result.Feedback, "name 'open' is not defined")
+		require.Contains(t, result.Feedback, "name '__import__' is not defined")
+	})
 }
 
 func TestInlineScriptGrader(t *testing.T) {
@@ -540,4 +603,48 @@ func convertToTranscriptEvents(sessionEvents []copilot.SessionEvent) []models.Tr
 	}
 
 	return transcript
+}
+
+func TestInlineScriptNativeUserInputEvidence(t *testing.T) {
+	for _, language := range []models.Language{models.LanguagePython, models.LanguageJavascript} {
+		t.Run(string(language), func(t *testing.T) {
+			if language == models.LanguagePython {
+				skipIfNoPython(t)
+			} else {
+				skipIfNoJavascript(t)
+			}
+			answer := "staging"
+			ctx := &Context{UserInputRequests: []models.UserInputRecord{{
+				Sequence: 1, SessionID: "s-1", Question: "Deploy where?", Choices: []string{"staging", "prod"},
+				Source: models.UserInputSourceScript, Answer: &answer, WasFreeform: new(false),
+			}}}
+			absent := []string{"len(user_input_requests) == 0"}
+			present := []string{
+				"len(user_input_requests) == 1",
+				"user_input_requests[0]['answer'] == 'staging'",
+				"user_input_requests[0]['was_freeform'] == False",
+				"user_input_requests[0]['choices'] == ['staging', 'prod']",
+			}
+			if language == models.LanguageJavascript {
+				absent = []string{"user_input_requests.length == 0"}
+				present = []string{
+					"user_input_requests.length == 1",
+					"user_input_requests[0].answer == 'staging'",
+					"user_input_requests[0].was_freeform === false",
+					"user_input_requests[0].choices.join(',') == 'staging,prod'",
+				}
+			}
+			for _, tc := range []struct {
+				ctx        *Context
+				assertions []string
+				pass       bool
+			}{{&Context{}, absent, true}, {ctx, present, true}, {&Context{}, present[:1], false}} {
+				grader, err := Create("questions", models.InlineScriptGraderParameters{Language: language, Assertions: tc.assertions})
+				require.NoError(t, err)
+				result, err := grader.Grade(t.Context(), tc.ctx)
+				require.NoError(t, err)
+				require.Equal(t, tc.pass, result.Passed, "%+v", result)
+			}
+		})
+	}
 }

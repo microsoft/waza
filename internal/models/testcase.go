@@ -37,7 +37,10 @@ type TestCase struct {
 	// nil leaves the SDK callback unregistered; an empty list registers it
 	// so that any question fails closed.
 	UserInputResponses *[]UserInputResponseConfig `yaml:"user_input_responses,omitempty" json:"user_input_responses,omitempty"`
-	Validators         []ValidatorInline          `yaml:"graders,omitempty" json:"validators,omitempty"`
+	// MCPMocks replace same-named eval mcp_mocks for this task and add new
+	// names; other eval mocks still apply. See EffectiveMCPMocks.
+	MCPMocks   []MCPMockConfig   `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
+	Validators []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
 	// Checkpoints attach graders to intermediate turn boundaries in a
 	// multi-turn run. Each checkpoint specifies `after_turn: N` (1-based,
 	// where turn 1 is the initial prompt) and a list of graders that run
@@ -437,6 +440,9 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 	if tc.UserInputResponses != nil && executor != "copilot-sdk" {
 		return fmt.Errorf("test case %q: user_input_responses requires executor copilot-sdk", tc.TestID)
 	}
+	if len(tc.MCPMocks) > 0 && executor != "copilot-sdk" {
+		return fmt.Errorf("test case %q: mcp_mocks requires executor copilot-sdk", tc.TestID)
+	}
 	for _, v := range tc.Validators {
 		if err := validateGraderReasoningEffort(v.Identifier, v.Parameters, executor); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
@@ -461,6 +467,14 @@ func (tc *TestCase) Validate() error {
 	}
 	if tc.UserInputResponses != nil {
 		if err := ValidateUserInputResponses(*tc.UserInputResponses); err != nil {
+			return fmt.Errorf("test case %q: %w", tc.TestID, err)
+		}
+	}
+	if tc.MCPMocks != nil {
+		if len(tc.MCPMocks) == 0 {
+			return fmt.Errorf("test case %q: mcp_mocks must not be empty; omit it to use the eval mcp_mocks", tc.TestID)
+		}
+		if err := ValidateMCPMockNames(tc.MCPMocks); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
 		}
 	}

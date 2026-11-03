@@ -81,6 +81,7 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 	var spec struct {
 		Tasks         []string `yaml:"tasks"`
 		SchemaVersion string   `yaml:"schemaVersion"`
+		Scenario      string   `yaml:"scenario"`
 		Config        struct {
 			Executor        string `yaml:"executor"`
 			NativeUserInput bool   `yaml:"native_user_input"`
@@ -128,6 +129,14 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 					}
 					if inputErr := models.ValidateTaskUserInput(nativeConfig, &task); inputErr != nil {
 						errs = append(errs, inputErr.Error())
+					}
+					if nameErr := models.ValidateMCPMockNames(task.MCPMocks); nameErr != nil {
+						errs = append(errs, nameErr.Error())
+					}
+					if len(task.MCPMocks) > 0 {
+						if versionErr := models.ValidateMCPMocksSchemaVersion(&models.EvalSpec{SchemaVersion: version, Scenario: spec.Scenario}); versionErr != nil {
+							errs = append(errs, versionErr.Error())
+						}
 					}
 				}
 			}

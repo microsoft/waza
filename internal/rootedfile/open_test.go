@@ -30,3 +30,20 @@ func TestOpenRegularAndMissing(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 	require.Nil(t, missing)
 }
+
+func TestOpenPathRegularAndMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input")
+	require.NoError(t, os.WriteFile(path, []byte("native path bytes"), 0o600))
+	file, err := OpenPath(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, file.Close()) })
+	info, err := file.Stat()
+	require.NoError(t, err)
+	require.True(t, info.Mode().IsRegular())
+	data, err := io.ReadAll(file)
+	require.NoError(t, err)
+	require.Equal(t, "native path bytes", string(data))
+	missing, err := OpenPath(path + ".missing")
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.Nil(t, missing)
+}

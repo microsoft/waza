@@ -101,10 +101,9 @@ func TestCapturedRequestShapeRemainsCompatibleWithoutExecution(t *testing.T) {
 	require.Equal(t, 2, request.Selection.Trial)
 	require.False(t, request.AllowPaidExecution)
 	response := Negotiate(data)
-	require.Equal(t, "unsupported_capability", response.Status)
-	require.Len(t, response.Diagnostics, 1)
-	require.Contains(t, response.Diagnostics[0].Message, "terminal-result")
-	require.Empty(t, response.Negotiation.Selected)
+	require.Equal(t, "compatible", response.Status)
+	require.Empty(t, response.Diagnostics)
+	require.Contains(t, response.Negotiation.Selected, "terminal-result")
 	request.AllowPaidExecution = true
 	request.RequiredCapabilities = []string{"negotiation"}
 	paidShape, err := json.Marshal(request)
@@ -158,7 +157,7 @@ func TestNegotiationExampleAndDetachedAdvertisement(t *testing.T) {
 	first.Versions[0] = "99.0"
 	first.Capabilities[0] = "exact-unit"
 	require.Equal(t, []string{"1.0"}, Capabilities().Versions)
-	require.Equal(t, []string{"negotiation", "exact-unit", "inline.mock-text"}, Capabilities().Capabilities)
+	require.Equal(t, []string{"negotiation", "exact-unit", "inline.mock-text", "terminal-result"}, Capabilities().Capabilities)
 	schema, err := compileSchema(schemas.RunnerCapabilitiesSchemaJSON)
 	require.NoError(t, err)
 	encoded, err := json.Marshal(Capabilities())

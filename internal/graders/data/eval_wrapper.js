@@ -23,6 +23,8 @@ const evalContext = {
   tool_events: data.tool_events || [],
   command_invocations: data.command_invocations || [],
   user_input_requests: data.user_input_requests || [],
+  // null means host lifecycle evidence is unavailable, not that nothing ran.
+  host_lifecycle: data.host_lifecycle ?? null,
   errors: data.transcript.filter(
     (t) =>
       (t.type && t.type.includes("error")) ||
