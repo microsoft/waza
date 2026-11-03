@@ -64,13 +64,17 @@ func TestSendAndWaitBoundedAbandonsSessionAfterForceStopGrace(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	forced := false
+	forced := make(chan struct{}, 1)
 	_, abandoned, retire, err := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
-		forced = true
+		forced <- struct{}{}
 	})
 
 	require.ErrorIs(t, err, context.Canceled)
-	require.True(t, forced)
+	select {
+	case <-forced:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("force-stop callback was not invoked")
+	}
 	require.True(t, abandoned)
 	require.True(t, retire)
 }

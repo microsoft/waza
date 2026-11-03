@@ -41,10 +41,14 @@ func (r *blockingBenchmarkRunner) RunBenchmark(ctx context.Context) (*models.Eva
 
 type persistentCancellationEngine struct {
 	execution.AgentEngine
-	forced chan struct{}
+	started chan struct{}
+	forced  chan struct{}
 }
 
 func (e *persistentCancellationEngine) Shutdown(ctx context.Context) error {
+	if e.started != nil {
+		close(e.started)
+	}
 	<-e.forced
 	return ctx.Err()
 }
@@ -117,6 +121,33 @@ func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
 	case <-engine.forced:
 	default:
 		t.Fatal("cancellation-time shutdown did not force-stop the persistent engine")
+	}
+}
+
+func TestShutdownRunEngineBoundsCancellationAfterShutdownStarts(t *testing.T) {
+	oldGrace := runEngineShutdownGrace
+	t.Cleanup(func() { runEngineShutdownGrace = oldGrace })
+	runEngineShutdownGrace = 5 * time.Millisecond
+
+	engine := &persistentCancellationEngine{
+		AgentEngine: execution.NewMockEngine("test-model"),
+		started:     make(chan struct{}),
+		forced:      make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- shutdownRunEngine(ctx, engine) }()
+
+	<-engine.started
+	start := time.Now()
+	cancel()
+
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.Less(t, time.Since(start), 250*time.Millisecond)
+	select {
+	case <-engine.forced:
+	default:
+		t.Fatal("cancellation during shutdown did not force-stop the persistent engine")
 	}
 }
 
