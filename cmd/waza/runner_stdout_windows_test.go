@@ -13,6 +13,7 @@ import (
 	"unsafe"
 
 	"github.com/microsoft/waza/internal/runnerterminal"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
 )
@@ -72,6 +73,11 @@ func TestRunnerTerminalWindowsInheritedStdout(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	request, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
+	admitted := runnerunit.Validate(request)
+	require.Equal(t, "ready", admitted.Status)
+	require.NotNil(t, admitted.Resolved)
+	require.NotNil(t, admitted.Identity)
+	binding := &runnerterminal.Binding{Selection: *admitted.Resolved, Identity: admitted.Identity, GraderIDs: []string{"_output_contains"}}
 	for _, control := range []string{"blocked", "nonblocking-full", "broken", "writable"} {
 		t.Run(control, func(t *testing.T) {
 			var read, write windows.Handle
@@ -215,7 +221,7 @@ func TestRunnerTerminalWindowsInheritedStdout(t *testing.T) {
 				case <-ctx.Done():
 					t.Fatal("writable-pipe reader did not finish after writer cleanup")
 				}
-				envelope, err := runnerterminal.Validate(output, nil)
+				envelope, err := runnerterminal.Validate(output, binding)
 				require.NoError(t, err, "%s", output)
 				require.Equal(t, runnerterminal.Success, envelope.Outcome)
 				require.Zero(t, envelope.ExitCode)
