@@ -111,10 +111,9 @@ func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	resultPath := filepath.Join(t.TempDir(), "result.json")
 	cmd := newRunCommand()
 	cmd.SetContext(ctx)
-	cmd.SetArgs([]string{createTestSpec(t, "mock"), "--output", resultPath})
+	cmd.SetArgs([]string{createTestSpec(t, "mock")})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
@@ -170,6 +169,7 @@ func TestRunCommandPropagatesCancellationDuringShutdown(t *testing.T) {
 		newRunEngine = oldEngineFactory
 		newBenchmarkRunner = oldRunnerFactory
 		runEngineShutdownGrace = oldGrace
+		resetRunGlobals()
 	})
 	runEngineShutdownGrace = 5 * time.Millisecond
 
@@ -186,9 +186,10 @@ func TestRunCommandPropagatesCancellationDuringShutdown(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
+	resultPath := filepath.Join(t.TempDir(), "result.json")
 	cmd := newRunCommand()
 	cmd.SetContext(ctx)
-	cmd.SetArgs([]string{createTestSpec(t, "mock")})
+	cmd.SetArgs([]string{createTestSpec(t, "mock"), "--output", resultPath})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
