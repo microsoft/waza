@@ -333,7 +333,10 @@ local builds, not a published v0.40.0 image. Native Linux AMD64 acceptance and
 the pinned public-image gate remain tracked under #762. A manual-only GHCR
 publisher is defined in source, but has not been dispatched; its signed image
 provenance and package-creation permission have not been verified, and public
-visibility remains unverified.
+visibility remains unverified. A separate manual verifier is prepared to
+anonymously pull the exact published digest, check its source/platform and signed
+provenance, and run mock plus bundled-native production-caller controls against
+that digest; neither workflow has been dispatched.
 
 ### `waza preflight <eval.yaml>`
 

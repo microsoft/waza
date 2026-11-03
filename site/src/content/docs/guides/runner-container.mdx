@@ -16,7 +16,10 @@ Issue [#762](https://github.com/microsoft/waza/issues/762) remains open until th
 public image and pinned published-image acceptance run are verified.
 There is **no published v0.40.0 runner image or registry digest** to copy today.
 A manual-only GHCR publisher is defined in source, but has not been dispatched;
-package creation permission and public visibility remain unverified.
+package creation permission and public visibility remain unverified. A separate
+manual verifier is also prepared; it must anonymously pull the exact digest and
+pass mock and bundled-native production-caller controls before that image is
+accepted. Neither workflow has been dispatched.
 No Lab dashboard change is required: this adds no new evidence or status surface.
 
 ## Host and build requirements
@@ -214,6 +217,31 @@ controls demonstrate current-bundle startup and a synthetic native text turn,
 not paid inference, real-provider behavior, billing assurance or model quality.
 The native targets and their local image IDs are not published; they do not
 complete #762's immutable public-manifest acceptance gate.
+
+## Verify an authorized public digest
+
+After a separately authorized publisher run, confirm the package is actually
+public in GHCR; the first push may create a private package. Then run the
+manual-only **Verify Published Runner Reference** workflow with the source
+revision and `sha256:...` digest from the publisher summary. Its isolated
+provenance job has `contents: read` and `attestations: read`; the production
+container-test job has only `contents: read`. Neither has package permission or
+logs in to GHCR. It uses a fresh, empty Docker configuration for an anonymous
+pull, so a private package fails the gate rather than silently using credentials.
+
+The workflow must be dispatched from the current `main` tip, and the image
+source revision must still be reachable from current `main`. On a native Linux
+AMD64 runner, it checks that the immutable registry reference resolves to the
+expected source/revision labels and only the claimed runtime
+platform, and verifies the signed provenance for that digest and publisher
+workflow. It then runs the production CLI's mock exact-unit profile and the
+actual bundled Copilot CLI against an in-container synthetic provider, with
+network isolation and all six native lifecycle/discovery controls. The probe
+binaries and fixture come from the validated source checkout and are mounted
+read-only; `/waza` remains the binary from the pulled digest. Only a successful
+verifier run proves anonymous access and caller behavior for that published
+digest. A failed publisher finalization or verifier leaves the candidate
+unaccepted; no rollback is implied.
 
 ## Troubleshooting and limits
 

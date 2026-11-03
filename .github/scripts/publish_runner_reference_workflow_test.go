@@ -180,6 +180,14 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 	if login == nil || login.Env["GHCR_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" {
 		t.Fatal("only the publication job should expose its scoped GITHUB_TOKEN to GHCR login")
 	}
+	if guard := findStep(publish.Steps, "Revalidate protected main immediately before push"); guard == nil ||
+		!hasRun([]runnerReferenceStep{*guard}, "go run ./.github/scripts/publish-runner-reference-guard") {
+		t.Fatal("publisher must revalidate current main immediately before the image push")
+	}
+	if guard := findStep(publish.Steps, "Revalidate protected main after push and attestation"); guard == nil ||
+		!hasRun([]runnerReferenceStep{*guard}, "go run ./.github/scripts/publish-runner-reference-guard") {
+		t.Fatal("publisher must reject an image if main moves during push or attestation")
+	}
 	var attestation *runnerReferenceStep
 	for i := range publish.Steps {
 		step := &publish.Steps[i]
@@ -192,12 +200,30 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 		attestation.With["push-to-registry"] != "true" {
 		t.Fatalf("signed provenance must bind the image package to the exact build digest: %#v", attestation)
 	}
-	summary := findStep(publish.Steps, "Record published digest")
+	stepIndex := func(steps []runnerReferenceStep, name string) int {
+		for i, step := range steps {
+			if step.Name == name {
+				return i
+			}
+		}
+		return -1
+	}
+	if stepIndex(publish.Steps, "Revalidate protected main immediately before push") >= stepIndex(publish.Steps, build.Name) ||
+		stepIndex(publish.Steps, attestation.Name) >= stepIndex(publish.Steps, "Revalidate protected main after push and attestation") {
+		t.Fatal("main must be revalidated around publication and attestation")
+	}
+	summary := findStep(publish.Steps, "Record pushed candidate digest")
 	if summary == nil || summary.Shell != "bash" ||
 		!strings.Contains(summary.Run, `>> "$GITHUB_STEP_SUMMARY"`) ||
+		!strings.Contains(summary.Run, "not accepted for use") ||
 		summary.Env["CANDIDATE_SHA"] != "${{ needs.validate-candidate.outputs.candidate_sha }}" ||
 		summary.Env["IMAGE_DIGEST"] != "${{ steps.build.outputs.digest }}" {
-		t.Fatalf("publication summary must record the validated source and immutable build digest: %#v", summary)
+		t.Fatalf("push summary must defer acceptance until public digest verification: %#v", summary)
+	}
+	failureSummary := findStep(publish.Steps, "Mark pushed digest as unaccepted when finalization fails")
+	if failureSummary == nil || !strings.Contains(failureSummary.If, "steps.build.outcome == 'success'") ||
+		!strings.Contains(failureSummary.Run, "No rollback is claimed") {
+		t.Fatalf("partial push or attestation failure must be explicitly unaccepted: %#v", failureSummary)
 	}
 
 	for _, workflowName := range []string{
@@ -210,12 +236,137 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantCommand := "go test -count=1 ./.github/scripts ./.github/scripts/publish-runner-reference-guard"
+		wantCommand := "go test -count=1 ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
 		if strings.Contains(workflowName, "release") {
-			wantCommand = "go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard"
+			wantCommand = "go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
 		}
 		if !strings.Contains(string(workflow), wantCommand) {
-			t.Errorf("%s must explicitly select the hidden publisher guard package's negative-path tests", workflowName)
+			t.Errorf("%s must explicitly select both hidden image guard packages' negative-path tests", workflowName)
+		}
+	}
+}
+
+func TestRunnerReferenceVerifierIsManualAnonymousAndUsesPublishedDigest(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "verify-runner-reference.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow runnerReferenceWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	if workflow.On.Kind != yaml.MappingNode || len(workflow.On.Content) != 2 ||
+		workflow.On.Content[0].Value != "workflow_dispatch" {
+		t.Fatalf("verifier triggers = %v; want workflow_dispatch only", workflow.On.Content)
+	}
+	var dispatch struct {
+		Inputs map[string]struct {
+			Required bool   `yaml:"required"`
+			Type     string `yaml:"type"`
+		} `yaml:"inputs"`
+	}
+	if err := workflow.On.Content[1].Decode(&dispatch); err != nil {
+		t.Fatal(err)
+	}
+	if len(dispatch.Inputs) != 2 ||
+		!dispatch.Inputs["source_revision"].Required || dispatch.Inputs["source_revision"].Type != "string" ||
+		!dispatch.Inputs["image_digest"].Required || dispatch.Inputs["image_digest"].Type != "string" {
+		t.Fatalf("verifier inputs = %#v; want required source revision and immutable digest", dispatch.Inputs)
+	}
+	if workflow.Permissions["contents"] != "read" || len(workflow.Permissions) != 1 {
+		t.Fatalf("verifier workflow permissions = %#v; want contents: read only", workflow.Permissions)
+	}
+	if len(workflow.Jobs) != 2 {
+		t.Fatalf("verifier jobs = %d; want isolated provenance and container-test jobs", len(workflow.Jobs))
+	}
+	attestationJob, ok := workflow.Jobs["validate-public-digest"]
+	if !ok || attestationJob.TimeoutMinutes <= 0 || attestationJob.RunsOn != "ubuntu-24.04" ||
+		attestationJob.Permissions["contents"] != "read" || attestationJob.Permissions["attestations"] != "read" ||
+		attestationJob.Permissions["packages"] != "" || len(attestationJob.Permissions) != 2 {
+		t.Fatalf("provenance job must be bounded and read-only, with no package credentials: %#v", attestationJob)
+	}
+	job, ok := workflow.Jobs["verify-public-image"]
+	if !ok || job.Needs != "validate-public-digest" || job.TimeoutMinutes <= 0 ||
+		job.RunsOn != "ubuntu-24.04" || job.Permissions["contents"] != "read" ||
+		job.Permissions["attestations"] != "" || job.Permissions["packages"] != "" ||
+		len(job.Permissions) != 1 {
+		t.Fatalf("container test must be isolated from provenance credentials and bounded: %#v", job)
+	}
+
+	pinnedAction := regexp.MustCompile(`^[^@]+@[0-9a-f]{40}$`)
+	for _, step := range append(append([]runnerReferenceStep{}, attestationJob.Steps...), job.Steps...) {
+		if step.Uses != "" && !pinnedAction.MatchString(step.Uses) {
+			t.Errorf("action %q is not pinned to a full commit SHA", step.Uses)
+		}
+		if strings.Contains(step.Run, "${{") {
+			t.Errorf("shell command in %q interpolates an Actions expression; pass values through env", step.Name)
+		}
+	}
+	if !hasRun(attestationJob.Steps, "git fetch --no-tags origin refs/heads/main") ||
+		!hasRun(attestationJob.Steps, "go run ./.github/scripts/verify-runner-reference-guard") ||
+		!hasRun(job.Steps, "node --test examples/runner/container/published-image-test.mjs") {
+		t.Fatal("verifier must validate inputs/main ancestry and run the published-image production caller")
+	}
+	if runner := findStep(job.Steps, "Require native Linux AMD64 runner"); runner == nil ||
+		runner.If != "runner.os != 'Linux' || runner.arch != 'X64'" {
+		t.Fatalf("verifier must reject non-native Linux AMD64 runners: %#v", runner)
+	}
+	guard := findStep(attestationJob.Steps, "Validate source and immutable digest inputs")
+	if guard == nil || guard.Env["SOURCE_SHA"] != "${{ inputs.source_revision }}" ||
+		guard.Env["IMAGE_DIGEST"] != "${{ inputs.image_digest }}" {
+		t.Fatalf("verifier must pass untrusted inputs through environment variables: %#v", guard)
+	}
+	sourceCheckout := findStep(job.Steps, "Check out validated source fixtures and probes")
+	if sourceCheckout == nil || sourceCheckout.With["ref"] != "${{ needs.validate-public-digest.outputs.source_sha }}" ||
+		sourceCheckout.With["path"] != "candidate" || sourceCheckout.With["persist-credentials"] != "false" {
+		t.Fatalf("production callers must come from the validated source without persisted credentials: %#v", sourceCheckout)
+	}
+	goSetup := findStep(job.Steps, "Set up Go")
+	if goSetup == nil || goSetup.With["go-version-file"] != "candidate/go.mod" ||
+		goSetup.With["cache"] != "false" {
+		t.Fatalf("native probe binaries must use the validated source's Go toolchain without cache writes: %#v", goSetup)
+	}
+	if findStep(job.Steps, "Log in to GHCR") != nil {
+		t.Fatal("anonymous verification must not authenticate to GHCR")
+	}
+	attestation := findStep(attestationJob.Steps, "Verify signed provenance for the exact digest")
+	if attestation == nil || attestation.Env["GH_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" ||
+		!strings.Contains(attestation.Run, "gh attestation verify") ||
+		!strings.Contains(attestation.Run, "--source-digest \"$SOURCE_REVISION\"") ||
+		!strings.Contains(attestation.Run, "--signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml") {
+		t.Fatalf("verifier must validate the exact source-bound publisher attestation: %#v", attestation)
+	}
+	callers := findStep(job.Steps, "Verify anonymous immutable digest and production callers")
+	if callers == nil || callers.Env["GH_TOKEN"] != "" || callers.Env["GITHUB_TOKEN"] != "" {
+		t.Fatalf("anonymous Docker pull must not receive the attestation API token: %#v", callers)
+	}
+	if !hasRun(job.Steps, "Anonymous public pull and production-caller smoke passed") {
+		t.Fatal("success summary must record anonymous pull and caller evidence")
+	}
+
+	testSource, err := os.ReadFile(filepath.Join("..", "..", "examples", "runner", "container", "published-image-test.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"ghcr.io/microsoft/waza-runner-reference",
+		"command(['pull'",
+		"--platform=linux/amd64",
+		"DOCKER_CONFIG",
+		"org.opencontainers.image.revision",
+		"org.opencontainers.image.source",
+		"linux/amd64",
+		"native-bundle-probe",
+		"reply-after-positive",
+		"hang_stopped",
+	} {
+		if !strings.Contains(string(testSource), required) {
+			t.Errorf("published-image test does not assert %q", required)
+		}
+	}
+	for _, secret := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GHCR_TOKEN", "DOCKER_AUTH_CONFIG"} {
+		if !strings.Contains(string(testSource), secret) {
+			t.Errorf("published-image test must remove %s from the anonymous Docker environment", secret)
 		}
 	}
 }

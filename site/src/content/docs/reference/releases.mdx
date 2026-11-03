@@ -53,7 +53,10 @@ exact-unit Debian/glibc target, which is tested with the actual bundled CLI and 
 local synthetic provider without external runtime networking. Both image IDs are
 local only; pinned published-image acceptance remains outstanding. The
 manual-only GHCR publisher is defined in source but has not been dispatched, and
-package permission or visibility is not established.
+package permission or visibility is not established. A separate manual verifier
+is prepared to anonymously pull the exact digest, verify source/platform and
+signed provenance, and run mock/native production-caller controls against it;
+it has not been dispatched.
 See [roadmap #754](https://github.com/microsoft/waza/issues/754)
 for the remaining release requirements.
 

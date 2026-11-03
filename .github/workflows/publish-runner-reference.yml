@@ -105,6 +105,18 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+      - name: Revalidate protected main immediately before push
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          CANDIDATE_SHA: ${{ needs.validate-candidate.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/main
+          go run ./.github/scripts/publish-runner-reference-guard
       - name: Build and publish exact candidate
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -131,15 +143,29 @@ jobs:
             exit 1
           fi
       - name: Attest published image digest
+        id: attestation
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-name: ghcr.io/microsoft/waza-runner-reference
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+      - name: Revalidate protected main after push and attestation
+        id: final_guard
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          CANDIDATE_SHA: ${{ needs.validate-candidate.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/main
+          go run ./.github/scripts/publish-runner-reference-guard
       - name: Log out of GHCR
         if: always() && steps.login.outcome == 'success'
         run: docker logout ghcr.io
-      - name: Record published digest
+      - name: Record pushed candidate digest
         if: success()
         env:
           CANDIDATE_SHA: ${{ needs.validate-candidate.outputs.candidate_sha }}
@@ -148,5 +174,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf 'Candidate: `%s`\n\nTag: `%s`\n\nImmutable digest reference: `ghcr.io/microsoft/waza-runner-reference@%s`\n\nPlatform: `linux/amd64`\n' \
+          printf 'Push and signed provenance creation succeeded for candidate `%s`.\n\nTag: `%s`\n\nImmutable digest reference: `ghcr.io/microsoft/waza-runner-reference@%s`\n\nPlatform: `linux/amd64`\n\nThis digest is not accepted for use until the separate anonymous public-digest verification workflow succeeds. Package visibility is not established by this push.\n' \
             "$CANDIDATE_SHA" "$IMAGE_TAG" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - name: Mark pushed digest as unaccepted when finalization fails
+        if: always() && steps.build.outcome == 'success' && (steps.attestation.outcome != 'success' || steps.final_guard.outcome != 'success')
+        env:
+          CANDIDATE_SHA: ${{ needs.validate-candidate.outputs.candidate_sha }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_TAG: ghcr.io/microsoft/waza-runner-reference:candidate-${{ needs.validate-candidate.outputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'INCOMPLETE — do not use this candidate. The push may have completed, but signed provenance or the post-push current-main check did not succeed.\n\nCandidate: `%s`\n\nTag: `%s`\n\nDigest, if recorded: `%s`\n\nNo rollback is claimed. Verify registry state and rerun the complete publication acceptance only after the cause is resolved.\n' \
+            "$CANDIDATE_SHA" "$IMAGE_TAG" "${IMAGE_DIGEST:-unavailable}" >> "$GITHUB_STEP_SUMMARY"

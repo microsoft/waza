@@ -68,7 +68,7 @@ jobs:
       - name: Test release gate failure handling
         run: |
           bash .github/scripts/release_gate_test.sh
-          go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard
+          go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard
 
       - name: Run Go Vet
         run: go vet ./...

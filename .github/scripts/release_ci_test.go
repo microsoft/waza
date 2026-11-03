@@ -98,7 +98,7 @@ func TestReleaseWorkflowGates(t *testing.T) {
 				}
 			}
 			if steps["Install and prove rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
-				steps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard\n" ||
+				steps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
 				steps["Integration Test"].Run != "bash .github/scripts/release_integration_test.sh ./waza" {
 				t.Fatal("release must exercise the proven offline runtime and integration failure controls")
 			}

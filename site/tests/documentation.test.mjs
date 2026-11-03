@@ -62,7 +62,22 @@ test('manual runner publisher remains fail-closed and unpublished', () => {
   assert.match(maintainers, /permissions are\s+declared but have not been verified/);
   assert.match(maintainers, /signed\s+GitHub provenance\s+attestation binds the published image digest/);
   assert.doesNotMatch(maintainers, /spboyer-native-container-integration/);
-  assert.match(maintainers, /clean unauthenticated Docker configuration/);
+  assert.match(maintainers, /empty Docker configuration/);
+  assert.match(maintainers, /manual-only `\.github\/workflows\/verify-runner-reference\.yml` workflow/);
+
+  const verifier = read('.github/workflows/verify-runner-reference.yml');
+  assert.match(verifier, /^on:\n  workflow_dispatch:/m);
+  assert.doesNotMatch(verifier, /^  (push|pull_request|pull_request_target):/m);
+  assert.match(verifier, /attestations: read/);
+  assert.doesNotMatch(verifier, /packages: (read|write)/);
+  assert.match(verifier, /node --test examples\/runner\/container\/published-image-test\.mjs/);
+  assert.match(verifier, /gh attestation verify/);
+  assert.doesNotMatch(verifier, /docker login/);
+  const publishedTest = read('examples/runner/container/published-image-test.mjs');
+  assert.match(publishedTest, /RepoDigests\.includes\(imageReference\)/);
+  assert.match(publishedTest, /org\.opencontainers\.image\.revision/);
+  assert.match(publishedTest, /runNamedContainer\(command, mockName/);
+  assert.match(publishedTest, /runNamedContainer\(command, nativeName/);
 });
 
 test('runner identity fixtures trigger consumer validation and publication without skipping new specs', () => {
@@ -72,6 +87,13 @@ test('runner identity fixtures trigger consumer validation and publication witho
   }
   const site = read('.github/workflows/site-ci.yml');
   const deploy = read('.github/workflows/pages.yml');
+  for (const path of [
+    '.github/workflows/publish-runner-reference.yml',
+    '.github/workflows/verify-runner-reference.yml',
+  ]) {
+    assert.equal(site.split(`'${path}'`).length - 1, 2,
+      `${path} must select both push and PR site documentation checks`);
+  }
   for (const path of ['internal/runnerunit/testdata/**', 'internal/runneridentity/testdata/**', 'internal/runnerterminal/testdata/**']) {
     assert.ok(site.includes(`'${path}'`), `${path} must select the site build`);
     assert.ok(deploy.includes(`'${path}'`), `${path} must select publication`);
@@ -462,6 +484,7 @@ test('new feature guides identify the unpublished source-build boundary', () => 
   assert.match(overview ?? '', /\[local container foundation\]\(\.\.\/\.\.\/guides\/runner-container\/\)/);
   assert.match(overview ?? '', /pinned published-image acceptance remains outstanding/);
   assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
+  assert.match(overview ?? '', /separate manual verifier\s+is prepared to anonymously pull the exact digest/);
 
   for (const [path, heading] of [
     ['site/src/content/docs/guides/eval-yaml.mdx', '### Task-level MCP mocks'],

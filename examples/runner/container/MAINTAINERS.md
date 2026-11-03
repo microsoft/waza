@@ -54,7 +54,8 @@ published pinned image and native-layer acceptance are not satisfied.
 The workflow accepts a full candidate SHA and fails unless the dispatch is from
 `microsoft/waza` on protected `main`, the input matches the workflow event and
 checked-out commit, and the commit is still the exact current `main` tip. It
-repeats these checks immediately before building, requires a clean checkout, and
+requires a clean checkout, rechecks `main` immediately before pushing and again
+after push/attestation, and
 uses `packages: write` only in the publishing job. The protected-main ruleset is
 the gate for required reviews and status checks; operators must additionally
 confirm the native Linux AMD64 container check and the independent infrastructure
@@ -69,14 +70,34 @@ consumers must pin the immutable `@sha256:` digest instead.
 The `GITHUB_TOKEN` package-write permission and attestation permissions are
 declared but have not been verified against repository, organization, or package
 policy. Do not claim the workflow can create or push the package until a
-separately authorized run demonstrates that. A first GHCR publication may be private. After an authorized
-publication, an operator must verify the package's actual visibility, inspect
-the manifest to confirm only the claimed `linux/amd64` platform, and pull the
-reported digest from a clean unauthenticated Docker configuration. Inspect the
-pulled image's `org.opencontainers.image.source` and
-`org.opencontainers.image.revision` labels against the reviewed candidate SHA.
-The workflow's clean-checkout gate records source cleanliness; a local image ID,
-tag, or successful authenticated push is not proof of public availability.
+separately authorized run demonstrates that. A first GHCR publication may be
+private. A successful push/attestation is not public-image acceptance; a failed
+attestation or final-main check can leave a pushed candidate behind. The
+publisher summary marks such a digest unaccepted, makes no rollback claim, and
+must not be treated as permission to use it.
+
+After an authorized push, an operator with package-admin authority must verify
+the package's actual visibility and make it public if required. Then run the
+manual-only `.github/workflows/verify-runner-reference.yml` workflow with the
+source revision and immutable digest from the publisher summary. Its verifier
+has an isolated provenance job with `contents: read` and `attestations: read`;
+the production container-test job has only `contents: read`. Neither has
+package permission. The test job creates an empty Docker configuration, strips
+auth environment variables and pulls
+`ghcr.io/microsoft/waza-runner-reference@sha256:...` anonymously. It
+requires dispatch from the current `main` tip and the image source revision to
+be reachable from current `main`, checks the
+pulled image's source/revision labels and `linux/amd64` platform, and verifies
+the signed provenance for the exact digest and publisher workflow.
+
+The verifier then runs the mock exact-unit caller and all six bundled-native
+synthetic-provider controls against that same digest on a native Linux AMD64
+runner. It mounts only read-only probe binaries and the fixture from the
+validated source checkout, plus the test's evidence directory; it never
+replaces the digest's `/waza`. Only a successful verifier run demonstrates
+anonymous visibility and production-caller behavior for that immutable digest.
+Record its exact source, digest, platform, attestation and test results. A local
+image ID, tag, or authenticated push is not proof of public availability.
 
 For any proposed update, review base-image release/security changes and resolve
 new index digests explicitly, update the Dockerfile and applicable lockfiles,
