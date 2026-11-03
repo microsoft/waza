@@ -94,6 +94,7 @@ func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
 		newRunEngine = oldEngineFactory
 		newBenchmarkRunner = oldRunnerFactory
 		runEngineShutdownGrace = oldGrace
+		resetRunGlobals()
 	})
 	runEngineShutdownGrace = 5 * time.Millisecond
 
@@ -110,9 +111,10 @@ func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
+	resultPath := filepath.Join(t.TempDir(), "result.json")
 	cmd := newRunCommand()
 	cmd.SetContext(ctx)
-	cmd.SetArgs([]string{createTestSpec(t, "mock")})
+	cmd.SetArgs([]string{createTestSpec(t, "mock"), "--output", resultPath})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
@@ -196,6 +198,8 @@ func TestRunCommandPropagatesCancellationDuringShutdown(t *testing.T) {
 	cancel()
 
 	require.ErrorIs(t, <-done, context.Canceled)
+	_, err := os.Stat(resultPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func runCommandCancelsOnSIGTERM(t *testing.T, identity string) {
