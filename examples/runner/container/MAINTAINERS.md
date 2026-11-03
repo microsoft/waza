@@ -52,6 +52,9 @@ change; no path-filtered success substitutes for execution evidence.
 Both push and pull-request filters explicitly retain the existing
 `examples/runner/unit.json` input and all nested `examples/runner/container/**`
 inputs, guarded by the script and documentation regression tests.
+The site workflow's main-push paths and PR `site` filter also select
+`.github/workflows/docker-ci.yml`, so workflow-only changes execute the prebuild
+guard. Discovery mutation controls reject removing either site selector.
 Dependency rollup #820 is part of the v0.40.0 target. Rebuild and rerun acceptance
 against its final integrated source before release; older SDK/runtime evidence
 does not validate the updated bundles or raised Node minimum.

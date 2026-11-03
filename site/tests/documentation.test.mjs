@@ -132,8 +132,7 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
   }
 });
 
-test('every catalog and release input enables PR site checks and the main push workflow', () => {
-  const workflow = read('.github/workflows/site-ci.yml');
+function assertSiteDiscovery(workflow, inputs) {
   const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
   const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
   const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
@@ -144,7 +143,7 @@ test('every catalog and release input enables PR site checks and the main push w
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
-  for (const input of [...Object.values(catalogInputs).flat(), ...releaseInputs]) {
+  for (const input of inputs) {
     assert.ok(paths(site).some((pattern) => matches(pattern, input)), `${input}: PR site filter excludes documentation input`);
     assert.ok(paths(push).some((pattern) => matches(pattern, input)), `${input}: main push gate excludes documentation input`);
   }
@@ -156,6 +155,24 @@ test('every catalog and release input enables PR site checks and the main push w
   const scripts = JSON.parse(read('site/package.json')).scripts;
   assert.equal(scripts.prebuild, 'npm run test:docs');
   assert.equal(scripts['test:docs'], 'node --test tests/documentation.test.mjs');
+}
+
+test('every catalog, release and Docker workflow input enables PR site checks and the main push workflow', () => {
+  assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml']);
+});
+
+test('Docker guard discovery rejects removal from either production site selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const input = '.github/workflows/docker-ci.yml';
+  for (const [selector, line, diagnostic] of [
+    ['push', `      - '${input}'\n`, /main push gate excludes documentation input/],
+    ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
+    assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
 });
 
 test('site validation and deployment pin a supported Astro Node runtime', () => {
