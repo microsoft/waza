@@ -198,7 +198,16 @@ inputs, not identity-bound content. Validation proves no runtime readiness.
 
 Deterministic tests use SDK fakes, including a send that ignores cancellation
 until its transport is killed. They do not prove live-provider behavior or
-native-platform coverage. No termination guarantee covers a custom transport
+native-platform coverage. Additional maintainer controls build the production
+CLI and run it against a synthetic stdio subprocess with no inherited
+credentials/provider configuration. They validate terminal JSON, identities,
+the exact selected tuple, grader verdicts and the full RPC inventory for
+success, failed checks, session error, timeout, startup failure, protocol
+mismatch and unsupported capability. See the
+[offline production-process controls](https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md#offline-production-process-controls)
+for exact commands and limitations. Synthetic responses are not bundled-runtime,
+inference, billing, sandbox or container-image assurance.
+No termination guarantee covers a custom transport
 whose force-stop operation never returns, arbitrary filesystem hangs or host loss.
 The identity algorithm and historical mock IDs do not change: the authored
 executor/model already participate in the canonical eval digest. General
