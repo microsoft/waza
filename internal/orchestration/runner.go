@@ -123,6 +123,7 @@ type EvalRunner struct {
 	partialUsage    *execution.UsageScope
 	partialErr      error
 	partialCancel   context.CancelCauseFunc
+	partialPrimary  *models.EvaluationOutcome
 }
 
 // ProgressListener receives progress updates
@@ -398,6 +399,9 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 		return r.runBaselineComparison(evalCtx)
 	}
 
+	r.partialMu.Lock()
+	r.partialPrimary = nil
+	r.partialMu.Unlock()
 	return r.runNormalBenchmark(evalCtx)
 }
 
@@ -550,6 +554,14 @@ func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 	if err != nil {
 		return nil, fmt.Errorf("skills-enabled run failed: %w", err)
 	}
+	r.partialMu.Lock()
+	r.partialPrimary = outcomesWithSkills
+	r.partialMu.Unlock()
+	defer func() {
+		r.partialMu.Lock()
+		r.partialPrimary = nil
+		r.partialMu.Unlock()
+	}()
 
 	// PASS 2: Skills Disabled (baseline)
 	savedSkillPaths := spec.Config.SkillPaths
@@ -1078,17 +1090,25 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		cacheKey, err := cache.CacheKeyWithSpecDir(spec, tc, r.cfg.FixtureDir(), r.cfg.SpecDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found && cache.RecordedMCPMocksMatch(cachedOutcome, models.EffectiveMCPMocks(spec, tc)) {
-				// Return cached outcome with cached flag. Stats derive from the
-				// cached runs, so recompute them in case an older waza wrote them.
-				cachedOutcome.Cached = true
-				cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
-				return *cachedOutcome, true
+				if len(cachedOutcome.Runs) != spec.Config.TrialsPerTask {
+					fmt.Fprintf(os.Stderr, "[WARN] Ignoring incomplete cache entry for test %q: got %d/%d trials\n",
+						tc.DisplayName, len(cachedOutcome.Runs), spec.Config.TrialsPerTask)
+				} else {
+					// Return cached outcome with cached flag. Stats derive from the
+					// cached runs, so recompute them in case an older waza wrote them.
+					cachedOutcome.Cached = true
+					cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
+					r.publishPartialTestOutcome(testNum, *cachedOutcome)
+					return *cachedOutcome, true
+				}
 			}
 			// Run the test and cache the result
 			outcome := r.runTestUncached(taskCtx, tc, testNum, totalTests)
 			// Store in cache and log any failures
-			if err := r.cache.Put(cacheKey, &outcome); err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] Failed to write cache for test %q: %v\n", tc.DisplayName, err)
+			if len(outcome.Runs) == spec.Config.TrialsPerTask && taskCtx.Err() == nil {
+				if err := r.cache.Put(cacheKey, &outcome); err != nil {
+					fmt.Fprintf(os.Stderr, "[WARN] Failed to write cache for test %q: %v\n", tc.DisplayName, err)
+				}
 			}
 			return outcome, false
 		}
@@ -1577,6 +1597,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 }
 
 func (r *EvalRunner) publishPartialOutcome(testNum int, tc *models.TestCase, runs []models.RunResult) {
+	r.publishPartialTestOutcome(testNum, r.buildTestOutcome(tc, append([]models.RunResult(nil), runs...)))
+}
+
+func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.TestOutcome) {
 	if r.partialWriter == nil {
 		return
 	}
@@ -1586,7 +1610,7 @@ func (r *EvalRunner) publishPartialOutcome(testNum int, tc *models.TestCase, run
 		return
 	}
 
-	r.partialOutcomes[testNum-1] = r.buildTestOutcome(tc, append([]models.RunResult(nil), runs...))
+	r.partialOutcomes[testNum-1] = testOutcome
 	testOutcomes := make([]models.TestOutcome, 0, len(r.partialOutcomes))
 	for _, outcome := range r.partialOutcomes {
 		if outcome.TestID != "" || outcome.DisplayName != "" {
@@ -1595,6 +1619,13 @@ func (r *EvalRunner) publishPartialOutcome(testNum int, tc *models.TestCase, run
 	}
 	outcome := r.buildOutcome(testOutcomes, r.partialStart, r.partialUsage.Snapshot())
 	execution.UpdateOutcomeUsage(outcome, r.engine)
+	if r.partialPrimary != nil {
+		primary := *r.partialPrimary
+		primary.Metadata = maps.Clone(r.partialPrimary.Metadata)
+		primary.IsBaseline = true
+		primary.BaselineOutcome = outcome
+		outcome = &primary
+	}
 	if outcome.Metadata == nil {
 		outcome.Metadata = make(map[string]any)
 	}

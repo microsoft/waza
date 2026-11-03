@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -670,9 +671,12 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	for _, modelID := range modelsToRun {
 		// Override spec model for this iteration
 		spec.Config.ModelID = modelID
-		partialPath := partialOutcomePath(spec)
+		partialPath, err := allocatePartialOutcomePath(spec)
+		if err != nil {
+			return nil, err
+		}
 
-		outcome, err := runSingleModel(cmd, spec, specPath, defaultSkills)
+		outcome, err := runSingleModelWithPartialPath(cmd, spec, specPath, defaultSkills, partialPath)
 		if err != nil {
 			var testErr *TestFailureError
 			if errors.As(err, &testErr) {
@@ -742,6 +746,14 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
 func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
+	partialPath, err := allocatePartialOutcomePath(spec)
+	if err != nil {
+		return nil, err
+	}
+	return runSingleModelWithPartialPath(cmd, spec, specPath, defaultSkills, partialPath)
+}
+
+func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string, partialPath string) (*models.EvaluationOutcome, error) {
 	// Get spec directory for resolving relative paths
 	specDir := filepath.Dir(specPath)
 	if !filepath.IsAbs(specDir) {
@@ -863,7 +875,6 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		orchestration.WithTagFilters(tagFilters...),
 		orchestration.WithSupplementalEvalMCP(usesEvalMCP),
 	}
-	partialPath := partialOutcomePath(spec)
 	if partialPath != "" {
 		runnerOpts = append(runnerOpts, orchestration.WithPartialOutcomeWriter(func(outcome *models.EvaluationOutcome) error {
 			return savePartialOutcome(outcome, partialPath)
@@ -1930,7 +1941,28 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := file.Name()
+	defer os.Remove(tempPath)
+	if err := file.Chmod(0o644); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return replaceOutcomeFile(tempPath, path)
 }
 
 func savePartialOutcome(outcome *models.EvaluationOutcome, path string) error {
@@ -1940,16 +1972,20 @@ func savePartialOutcome(outcome *models.EvaluationOutcome, path string) error {
 	return saveOutcome(outcome, path)
 }
 
-func partialOutcomePath(spec *models.EvalSpec) string {
+func allocatePartialOutcomePath(spec *models.EvalSpec) (string, error) {
 	if outputDir == "" {
-		return ""
+		return "", nil
 	}
 	name := spec.SkillName
 	if strings.TrimSpace(name) == "" {
 		name = spec.Name
 	}
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", fmt.Errorf("allocate partial results path: %w", err)
+	}
 	return filepath.Join(outputDir, ".partial",
-		sanitizePathSegment(name)+"_"+sanitizePathSegment(spec.Config.ModelID)+".json")
+		fmt.Sprintf("%s_%s_%x.json", sanitizePathSegment(name), sanitizePathSegment(spec.Config.ModelID), suffix)), nil
 }
 
 func removePartialOutcomes(results []modelResult) error {

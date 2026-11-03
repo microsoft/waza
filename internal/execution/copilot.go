@@ -61,7 +61,7 @@ func sendAndWaitBounded(
 	defer timer.Stop()
 	select {
 	case result := <-done:
-		return result.event, result.err, false
+		return result.event, errors.Join(ctx.Err(), result.err), false
 	case <-timer.C:
 		forceStop()
 	}
@@ -69,9 +69,33 @@ func sendAndWaitBounded(
 	timer.Reset(sendCancellationGrace)
 	select {
 	case result := <-done:
-		return result.event, result.err, false
+		return result.event, errors.Join(ctx.Err(), result.err), false
 	case <-timer.C:
 		return nil, ctx.Err(), true
+	}
+}
+
+func disconnectBounded(ctx context.Context, session CopilotSession, forceStop func()) (error, bool) {
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Disconnect()
+	}()
+
+	timer := time.NewTimer(sendCancellationGrace)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err, false
+	case <-timer.C:
+		forceStop()
+	}
+
+	timer.Reset(sendCancellationGrace)
+	select {
+	case err := <-done:
+		return err, false
+	case <-timer.C:
+		return ctx.Err(), true
 	}
 }
 
@@ -653,7 +677,16 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
-		if err := session.Disconnect(); err != nil {
+		err, abandoned := disconnectBounded(ctx, session, func() {
+			if force, ok := e.client.(interface{ ForceStop() }); ok {
+				force.ForceStop()
+			}
+		})
+		if abandoned {
+			slog.Warn("abandoned Copilot session after disconnect exceeded cancellation grace", "sessionID", sessionID)
+			return
+		}
+		if err != nil {
 			if op := operationFrom(ctx); op != nil {
 				op.report(StageDisconnect, CodeCleanup, sessionID)
 			} else {
