@@ -395,15 +395,16 @@ test('release entry points agree on published versions and the current runner re
 test('new feature guides identify the unpublished source-build boundary', () => {
   const homepage = read('site/src/content/docs/index.mdx')
     .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
-  assert.match(homepage ?? '', /Runner execution is limited to\s+mock\/text/);
-  assert.match(homepage ?? '', /Native runner execution,\s+the container reference and full external task\/suite interoperability remain incomplete/);
+  assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
+  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+full external task\/suite interoperability remain incomplete/);
+  assert.match(homepage ?? '', /\[local mock\/text container foundation\]\(\/waza\/guides\/runner-container\/\)/);
   assert.match(homepage ?? '', /\[selected AgentV assertion preview\]\(\/waza\/guides\/external-interoperability\/\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
     .split('## Source-build v0.40.0 preview')[1]?.split('<span id=')[0];
   assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
-  assert.match(overview ?? '', /mock\/text profile/);
-  assert.match(overview ?? '', /native runner\s+execution and full external task\/suite interoperability are not available/);
+  assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
+  assert.match(overview ?? '', /General native file\/tool\/skill workflows and full external task\/suite interoperability remain incomplete/);
   assert.match(overview ?? '', /\[selected AgentV assertion preview\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
   assert.match(overview ?? '', /`waza interop import\/export`/);
   assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);

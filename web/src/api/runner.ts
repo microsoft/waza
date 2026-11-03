@@ -64,7 +64,7 @@ export interface RunnerTerminal {
   selection?: WorkSelection;
   identity?: RunnerIdentity;
   observation?: {
-    execution_mode: "mock";
+    execution_mode: "mock" | "copilot";
     engine_calls: 1;
     selection: WorkSelection;
     run_number: number;
@@ -89,6 +89,7 @@ export async function runRunnerUnit(request: string, signal: AbortSignal): Promi
   const admitted = await validateRunnerSelection(request, signal);
   // Validation has its own 10s limit; reserve 5s each for admission, cleanup and delivery.
   let terminalTimeoutMS = 15_000;
+  let executionMode: "mock" | "copilot" | undefined;
   if (admitted.status === "ready") {
     const captured = parseStrictJSON(request);
     if (typeof captured !== "object" || captured === null || !("timeout_ms" in captured) ||
@@ -97,6 +98,10 @@ export async function runRunnerUnit(request: string, signal: AbortSignal): Promi
       throw new Error("Admitted runner request has an invalid timeout_ms.");
     }
     terminalTimeoutMS += captured.timeout_ms;
+    if (!("required_capabilities" in captured) || !Array.isArray(captured.required_capabilities)) {
+      throw new Error("Admitted runner request has invalid required_capabilities.");
+    }
+    executionMode = captured.required_capabilities.includes("inline.copilot-text") ? "copilot" : "mock";
   }
   const response = await fetch("/api/v1/runner/run", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: request,
@@ -119,6 +124,7 @@ export async function runRunnerUnit(request: string, signal: AbortSignal): Promi
     const observed = value.observation;
     const ids = observed.validations.map((verdict) => verdict.identifier);
     if (!sameSelection(observed.selection, value.selection) ||
+        observed.execution_mode !== executionMode ||
         observed.run_number !== value.selection?.trial || observed.attempts !== value.selection?.attempt ||
         observed.engine_calls !== value.engine_calls || new Set(ids).size !== ids.length) {
       throw new Error("Terminal observation contradicts its admitted binding.");

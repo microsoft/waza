@@ -104,9 +104,10 @@ type Envelope struct {
 // derivation. GraderIDs is the complete admitted set, including explicit [].
 // It is comparison context, not a second serialized identity or execution proof.
 type Binding struct {
-	Selection runnercontract.Selection
-	Identity  *runneridentity.Identity
-	GraderIDs []string
+	Selection     runnercontract.Selection
+	Identity      *runneridentity.Identity
+	GraderIDs     []string
+	ExecutionMode string
 }
 
 var (
@@ -271,6 +272,9 @@ func consistent(e Envelope, expected *Binding) error {
 	o := e.Observation
 	if o == nil {
 		return nil
+	}
+	if expected.ExecutionMode != "" && o.ExecutionMode != expected.ExecutionMode {
+		return errors.New("execution mode does not match admitted profile")
 	}
 	ids := make(map[string]bool, len(expected.GraderIDs))
 	if expected.GraderIDs == nil {

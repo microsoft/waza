@@ -7,7 +7,7 @@ import ZoomImage from '../../../components/ZoomImage.astro';
 import producerVectors from '../../../../../internal/runnerunit/testdata/identities.json';
 
 **Source-build preview for v0.40.0, not a release announcement.** The
-[runner contract](../runner-contract/) admits one captured mock/text unit.
+[runner contract](../runner-contract/) admits one captured inline text unit.
 After exact admission, its CLI/API receipt includes `identity`, using algorithm
 version **`sha256-waza-c14n-v1`**. Validation derives identities without creating
 an engine. Native execution and archives remain unavailable.
@@ -57,8 +57,10 @@ model output, billing or session ID contributes.
 
 Version offers, required/optional capability arrays and `allow_paid_execution`
 are excluded negotiation/permission metadata. They must still pass admission;
-their exclusion neither enables native execution nor waives the required
-`exact-unit` and `inline.mock-text` capabilities.
+their exclusion neither enables native execution nor waives `exact-unit` and
+exactly one required execution profile. The authored executor/model are already
+part of the canonical eval input, so adding `inline.copilot-text` does not
+change the algorithm or historical mock identities.
 
 ## Source and numeric grammar
 

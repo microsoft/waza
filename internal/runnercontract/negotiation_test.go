@@ -157,7 +157,7 @@ func TestNegotiationExampleAndDetachedAdvertisement(t *testing.T) {
 	first.Versions[0] = "99.0"
 	first.Capabilities[0] = "exact-unit"
 	require.Equal(t, []string{"1.0"}, Capabilities().Versions)
-	require.Equal(t, []string{"negotiation", "exact-unit", "inline.mock-text", "terminal-result"}, Capabilities().Capabilities)
+	require.Equal(t, []string{"negotiation", "exact-unit", "inline.mock-text", "terminal-result", "inline.copilot-text"}, Capabilities().Capabilities)
 	schema, err := compileSchema(schemas.RunnerCapabilitiesSchemaJSON)
 	require.NoError(t, err)
 	encoded, err := json.Marshal(Capabilities())

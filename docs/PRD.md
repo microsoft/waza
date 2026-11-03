@@ -33,25 +33,33 @@ The historical skill-specific requirements below remain product context, not
 authority to infer current native grader keys or completed feature scope.
 
 The v0.40.0 runner preview adds offline version/capability negotiation (#757)
-and one exact captured mock/text task/trial/attempt through CLI and HTTP (#758).
+and one exact captured inline text task/trial/attempt through CLI and HTTP (#758).
+The additive `inline.copilot-text` profile uses a private production SDK runtime,
+explicit model and paid opt-in, disabled skills and deny-all tools. Both exact
+profiles accept validated eval metrics as uncomputed, identity-bound metadata;
+terminal success claims only the selected attempt, not aggregate values,
+metric-threshold decisions or whole-evaluation success. Existing metric-free
+mock/text requests and the mock-only local adapter remain unchanged; the adapter
+still rejects nonempty metrics. General native
+file/tool/skill workflows and live-provider conformance remain out of scope.
 Admitted receipts carry deterministic logical identities and their derivation
 version (#759). Live Lab displays input-derived lineage and pre-execution
-selection validation without launching a runtime. The explicit **Run mock unit**
+selection validation without launching a runtime. The explicit **Run selected unit**
 action consumes the same producer's terminal outcome, exit category, boundary,
 identity and diagnostics and exports the response (#760).
 The exact path bypasses discovery, cache and retries; local commands/artifacts
 are unchanged. CLI/HTTP execution emits a schema-checked terminal envelope with
 seven stable exit categories. The bounded local compatibility adapter (#761)
 captures exact legacy sources offline and routes explicit `run --runner-compat`
-through the same mock-only execution service while writing result schema 1.8
+through the service's unchanged mock-only profile while writing result schema 1.8
 and retaining local 0/1/2 exits. Historical 1.7 results remain readable.
 Unsupported mappings fail with migration guidance; ordinary
 local defaults and historical artifact readers remain available. No Lab change
 is required: adaptation introduces no new runtime status or evidence.
 The [local container foundation](../site/src/content/docs/guides/runner-container.mdx)
 builds and tests the existing mock/text profile with local input/output (#762);
-it adds no Lab status surface. Native runner execution, pinned published-image
-acceptance and full external task/suite interoperability remain outstanding under #754;
+it adds no Lab status surface. General native file/tool/skill workflows, pinned
+published-image acceptance and full external task/suite interoperability remain outstanding under #754;
 this foundation does not complete #762.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).

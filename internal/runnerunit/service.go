@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/microsoft/waza/internal/config"
@@ -100,7 +101,14 @@ func admit(data []byte) (Report, *admitted) {
 	selected := req.Selection
 	report.Resolved = &selected
 	report.Identity = identity
-	report.binding = &runnerterminal.Binding{Selection: selected, Identity: identity, GraderIDs: graderIDs(input)}
+	mode := input.spec.Config.EngineType
+	if mode == "copilot-sdk" {
+		mode = "copilot"
+	}
+	report.binding = &runnerterminal.Binding{
+		Selection: selected, Identity: identity, GraderIDs: graderIDs(input),
+		ExecutionMode: mode,
+	}
 	report.Status, report.Validation = "ready", "valid"
 	return report, input
 }
@@ -114,22 +122,30 @@ func (r *Report) reject(err error) {
 }
 
 func resolve(req *runnercontract.Request) (*admitted, error) {
-	if !slices.Contains(req.RequiredCapabilities, "exact-unit") ||
-		!slices.Contains(req.RequiredCapabilities, "inline.mock-text") {
-		return nil, fmt.Errorf("execution requires required_capabilities exact-unit and inline.mock-text")
+	mockProfile := slices.Contains(req.RequiredCapabilities, "inline.mock-text")
+	copilotProfile := slices.Contains(req.RequiredCapabilities, "inline.copilot-text")
+	if !slices.Contains(req.RequiredCapabilities, "exact-unit") || mockProfile == copilotProfile {
+		return nil, fmt.Errorf("execution requires exact-unit and exactly one required profile: inline.mock-text or inline.copilot-text")
+	}
+	profile, engineType := "inline.mock-text", "mock"
+	if copilotProfile {
+		profile, engineType = "inline.copilot-text", "copilot-sdk"
 	}
 	spec, err := models.ParseCapturedEvalSpecOffline([]byte(req.Input.Eval), "eval.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("captured eval: %w", err)
 	}
+	if copilotProfile && spec.CapturedMetricsExplicitNull() {
+		return nil, fmt.Errorf("inline.copilot-text does not accept explicit metrics: null; omit the field or provide an array")
+	}
 	task, err := models.ParseCapturedTestCaseOffline([]byte(req.Input.Task), "task.yaml", func(string) ([]byte, error) {
-		return nil, fmt.Errorf("inline.mock-text requires inputs.prompt; prompt_file cannot read host files")
+		return nil, fmt.Errorf("%s requires inputs.prompt; prompt_file cannot read host files", profile)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("captured task: %w", err)
 	}
 	if !task.HasCapturedInlinePrompt() {
-		return nil, fmt.Errorf("inline.mock-text requires an explicit inputs.prompt; an empty string is allowed")
+		return nil, fmt.Errorf("%s requires an explicit inputs.prompt; an empty string is allowed", profile)
 	}
 	if req.Selection.Shard != req.Input.Shard || req.Selection.Task != task.TestID {
 		return nil, fmt.Errorf("selection conflicts with declared input shard/task")
@@ -144,19 +160,22 @@ func resolve(req *runnercontract.Request) (*admitted, error) {
 	if task.Active != nil && !*task.Active {
 		return nil, fmt.Errorf("selected task is disabled; explicitly enable it before dispatch")
 	}
-	if spec.Config.EngineType != "mock" {
-		return nil, fmt.Errorf("only inline.mock-text is implemented; native/paid execution is unavailable even with allow_paid_execution")
+	if spec.Config.EngineType != engineType {
+		return nil, fmt.Errorf("%s requires config.executor: %s", profile, engineType)
+	}
+	if copilotProfile && (!req.AllowPaidExecution || strings.TrimSpace(spec.Config.ModelID) == "") {
+		return nil, fmt.Errorf("inline.copilot-text requires allow_paid_execution: true and an explicit nonblank config.model")
 	}
 	if err := orchestration.ValidateInlineConfiguration(spec, task); err != nil {
-		return nil, fmt.Errorf("inline.mock-text: %w; retain waza run for unsupported semantics", err)
+		return nil, fmt.Errorf("%s: %w; retain waza run for unsupported semantics", profile, err)
 	}
 	if spec.TasksFrom != "" || spec.Range != [2]int{} || spec.Adversarial != nil ||
-		len(spec.Inputs) != 0 || len(spec.Metrics) != 0 || len(task.Requirements) != 0 ||
+		len(spec.Inputs) != 0 || len(task.Requirements) != 0 ||
 		len(spec.Config.InstructionFiles) != 0 || len(task.InstructionFiles) != 0 ||
 		task.ContextRoot != "" || task.Stimulus.WorkDir != "" ||
 		len(task.Stimulus.Metadata) != 0 || len(task.Stimulus.Resources) != 0 ||
 		len(task.Stimulus.Environment) != 0 {
-		return nil, fmt.Errorf("inline.mock-text cannot consume CSV, inputs, metrics, requirements, context, files, workdir or instruction-file semantics; retain waza run")
+		return nil, fmt.Errorf("%s cannot consume CSV, inputs, requirements, context, files, workdir or instruction-file semantics; retain waza run", profile)
 	}
 	prepared, err := orchestration.NewEvalRunner(config.NewEvalConfig(spec), nil).PrepareInlineInput(task)
 	if err != nil {
@@ -165,7 +184,7 @@ func resolve(req *runnercontract.Request) (*admitted, error) {
 	return &admitted{request: req, spec: spec, task: task, input: prepared}, nil
 }
 
-// EngineFactory must return a non-nil concrete *execution.MockEngine.
+// EngineFactory must return a non-nil concrete engine matching the admitted profile.
 // Wrappers and other implementations are rejected without lifecycle calls.
 type EngineFactory func(models.Config) (execution.AgentEngine, error)
 
@@ -178,6 +197,15 @@ type Service struct {
 func NewService(factory EngineFactory) *Service {
 	if factory == nil {
 		factory = func(cfg models.Config) (execution.AgentEngine, error) {
+			if cfg.EngineType == "copilot-sdk" {
+				return execution.NewCopilotEngineBuilder(cfg.ModelID, &execution.CopilotEngineBuilderOptions{
+					OwnClient: true, DisableCommandMocks: true,
+					DisableAmbientDiscovery: true,
+					// Diagnostic mode propagates lifecycle failures to the
+					// terminal envelope, without a second logging sink.
+					DiagnosticObserver: func(execution.ExecutionDiagnostic) error { return nil },
+				}).Build(), nil
+			}
 			return execution.NewMockEngine(cfg.ModelID), nil
 		}
 	}
@@ -194,11 +222,28 @@ func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRe
 		return nil, fmt.Errorf("exact-unit forbids a second engine call")
 	}
 	e.calls++
+	if native, ok := e.AgentEngine.(*execution.CopilotEngine); ok {
+		stop := interruptRunnerRuntime(ctx, native.ForceStopRunnerText)
+		defer stop()
+	}
 	response, err := e.AgentEngine.Execute(ctx, request)
 	if err == nil && response != nil && !response.Success {
 		return response, fmt.Errorf("engine execution failed: %s", response.ErrorMsg)
 	}
 	return response, err
+}
+
+func interruptRunnerRuntime(ctx context.Context, interrupt func()) func() {
+	finished := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		defer close(finished)
+		interrupt()
+	})
+	return func() {
+		if !stop() {
+			<-finished
+		}
+	}
 }
 
 // Run invokes shared negotiation and exact admission before constructing a
@@ -210,6 +255,14 @@ func (s *Service) Run(ctx context.Context, data []byte) (report Report) {
 func (s *Service) run(ctx context.Context, data []byte, local bool) (report Report) {
 	report, input := admit(data)
 	if input == nil {
+		return report
+	}
+	if local && input.spec.Config.EngineType != "mock" {
+		report.executionError("startup", fmt.Errorf("local compatibility execution supports only inline.mock-text"))
+		return report
+	}
+	if local && len(input.spec.Metrics) != 0 {
+		report.executionError("startup", fmt.Errorf("local compatibility execution cannot project uncomputed eval metrics"))
 		return report
 	}
 	// Local orchestration limits Execute, not grading; external requests retain
@@ -228,17 +281,30 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 		report.executionError("startup", errors.Join(fmt.Errorf("constructing runtime: %w", err), ctx.Err()))
 		return report
 	}
-	mock, ok := engine.(*execution.MockEngine)
-	if !ok || mock == nil {
-		report.executionError("startup", errors.Join(fmt.Errorf("admitting runtime: inline.mock-text requires a non-nil concrete *execution.MockEngine; factory returned %T", engine), ctx.Err()))
-		return report
+	if input.spec.Config.EngineType == "copilot-sdk" {
+		native, ok := engine.(*execution.CopilotEngine)
+		if !ok || native == nil {
+			report.executionError("startup", errors.Join(fmt.Errorf("admitting runtime: inline.copilot-text requires a non-nil concrete *execution.CopilotEngine; factory returned %T", engine), ctx.Err()))
+			return report
+		}
+		if err := native.ValidateRunnerTextRuntime(); err != nil {
+			report.executionError("startup", err)
+			return report
+		}
+		report.Mode = "copilot"
+	} else {
+		mock, ok := engine.(*execution.MockEngine)
+		if !ok || mock == nil {
+			report.executionError("startup", errors.Join(fmt.Errorf("admitting runtime: inline.mock-text requires a non-nil concrete *execution.MockEngine; factory returned %T", engine), ctx.Err()))
+			return report
+		}
+		report.Mode = "mock"
 	}
-	report.Mode = "mock"
 	if err := ctx.Err(); err != nil {
 		report.executionError("startup", err)
 		return report
 	}
-	return executeWithProjection(ctx, report, input, mock, local)
+	return executeWithProjection(ctx, report, input, engine, local)
 }
 
 func (r *Report) executionError(boundary string, err error) {
@@ -260,11 +326,21 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	started := time.Now()
 	ctx, usage := execution.NewUsageScope(ctx)
 	observed := &onceEngine{AgentEngine: engine}
+	interrupt := func() {}
+	if native, ok := engine.(*execution.CopilotEngine); ok {
+		interrupt = native.ForceStopRunnerText
+	}
+	defer interruptRunnerRuntime(ctx, interrupt)()
 	defer func() {
 		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer stop()
+		stopShutdownInterrupt := interruptRunnerRuntime(shutdownCtx, interrupt)
 		if err := engine.Shutdown(shutdownCtx); err != nil {
 			result.executionError("shutdown", fmt.Errorf("runtime shutdown: %w", err))
+		}
+		stopShutdownInterrupt()
+		if err := shutdownCtx.Err(); err != nil {
+			result.executionError("shutdown", fmt.Errorf("runtime shutdown deadline: %w", err))
 		}
 		result.Calls = observed.calls
 		if err := ctx.Err(); err != nil && !errors.Is(result.failure, err) {

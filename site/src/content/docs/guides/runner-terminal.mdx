@@ -7,9 +7,10 @@ import ZoomImage from '../../../components/ZoomImage.astro';
 import examples from '../../../../../internal/runnerterminal/testdata/envelopes.json';
 
 **Source-build preview for v0.40.0.** The `terminal-result` capability is now
-implemented for [exact captured mock/text units](../runner-contract/).
-Native/paid execution, archives, local adapters and container publication are
-not enabled by this capability.
+implemented for [exact captured inline text units](../runner-contract/).
+Copilot/text execution additionally requires `inline.copilot-text`, an explicit
+model and paid consent; terminal capability alone does not enable it.
+Archives and container publication are not enabled by this capability.
 
 ## Run and save the actual response
 
@@ -44,12 +45,12 @@ deadline transport 500, with the same terminal body when writable.
 
 | Outcome | Exit | Meaning and action |
 |---|---|---|
-| `success` | 0 | A complete passed observation contains every admitted check. This is mock evidence, not live model assurance. |
+| `success` | 0 | A complete passed observation contains every admitted check. Inspect execution mode; this is not independently witnessed model assurance. |
 | `evaluation_failure` | 1 | At least one observed check failed. Inspect the explicit verdicts; do not relabel it an infrastructure retry. |
 | `infrastructure_failure` | 2 | Startup, execution, shutdown, terminalization or delivery failed. Inspect the boundary and diagnostic; a completed observation cannot override this failure. |
 | `cancelled` | 3 | Cancellation was observed, including SIGINT/SIGTERM during blocked stdin or active HTTP request shutdown. |
 | `timeout` | 4 | An input, request or execution deadline expired. Inspect the boundary before changing a budget. |
-| `unsupported_capability` | 5 | Required capability or runner version is unavailable. `unsupported_version` distinguishes a version rejection. Negotiate supported requirements; consent does not enable native execution. |
+| `unsupported_capability` | 5 | Required capability or runner version is unavailable. `unsupported_version` distinguishes a version rejection. Negotiate supported requirements; consent alone never enables a profile. |
 | `invalid_input` | 6 | JSON/schema, captured source, exact selection, flags or arguments are invalid. Correct the request rather than dropping unsupported semantics. |
 
 `failure_boundary` is `none` only for completed evaluation verdicts; other
@@ -79,7 +80,7 @@ outcome/exit pairs and invalid presence fail closed. Schema shape alone is not
 proof that the identity was derived or that execution occurred.
 
 `observation` is a bounded projection of the **actual returned attempt**, not a
-full `RunResult` or authored expected response. It includes mock mode, call count,
+full `RunResult` or authored expected response. It includes `mock` or `copilot` mode, call count,
 bound selection, `run_number`, selected `attempts`, status, explicit grader
 verdicts and an error for an error observation. The production `attempts` field
 is the selected ordinal (example: 2), not a newly invented local retry count.
@@ -173,9 +174,9 @@ Fully read requests retain keep-alive, including admitted terminal failures.
 
 ## Lab and export
 
-In live **Runner contract**, use **Run mock unit** explicitly. Compatibility and
+In live **Runner contract**, use **Run selected unit** explicitly. Compatibility and
 **Validate selection** remain offline. The result shows the producer outcome,
-exit, boundary, validation, mock observation, unavailable billing and linked
+exit, boundary, validation, observed execution mode, unavailable billing and linked
 diagnostics. The browser validates the schema and any claimed input identity binding; the
 producer checks the complete grader binding. **Export terminal JSON** saves the
 actual envelope. Editing the request or starting a new run removes old success;

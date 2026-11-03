@@ -42,8 +42,12 @@ v0.40.0 release: the [runner contract and exact work-unit guide](../../guides/ru
 [terminal outcomes](../../guides/runner-terminal/),
 [local compatibility and migration](../../guides/runner-compatibility/), and the
 [local container foundation](../../guides/runner-container/).
-Runner execution is limited to the documented mock/text profile; native runner
-execution and full external task/suite interoperability are not available. The container
+Runner execution supports the documented mock/text and explicitly opted-in
+Copilot/text profiles, with tools and skills disabled for Copilot execution.
+Admitted eval metrics are identity-bound, uncomputed metadata, not aggregate
+values or threshold decisions. Paid native HTTP execution is local-only; see
+the [peer, Host and origin policy](../../guides/runner-contract/#http-api).
+General native file/tool/skill workflows and full external task/suite interoperability remain incomplete. The container
 foundation builds locally; pinned published-image acceptance remains outstanding.
 See [roadmap #754](https://github.com/microsoft/waza/issues/754)
 for the remaining release requirements.

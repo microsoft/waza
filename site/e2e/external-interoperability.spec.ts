@@ -4,7 +4,7 @@ test('release preview links the narrow assertion adapter without claiming suite 
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
   await expect(main).toContainText('not a published v0.40.0 release');
-  await expect(main).toContainText('full external task/suite interoperability are not available');
+  await expect(main).toContainText('full external task/suite interoperability remain incomplete');
   await expect(main).toContainText('waza interop import/export');
   await expect(main).toContainText('This is assertion conformance, not whole-suite or agent-quality evidence.');
   const preview = page.getByRole('link', { name: 'selected AgentV assertion preview', exact: true });
