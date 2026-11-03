@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import test from 'node:test';
 import { runNamedContainer } from './native-lifecycle.mjs';
 
@@ -9,7 +9,7 @@ const competitor = 'b'.repeat(64);
 const ok = { status: 0, stdout: '', stderr: '' };
 const rejected = { status: 125, stdout: '', stderr: 'invalid mount: source does not exist' };
 
-function exercise(run, createdID = id, removal = ok, verify = () => 'verified') {
+function exercise(run, createdID = id, removal = ok, verify = () => 'verified', removeOwnership) {
   const calls = [];
   const containers = new Map();
   const command = args => {
@@ -33,7 +33,7 @@ function exercise(run, createdID = id, removal = ok, verify = () => 'verified') 
     }
     assert.fail(`unexpected Docker command ${args}`);
   };
-  return { calls, containers, invoke: () => runNamedContainer(command, name, ['run', '--name', name], {}, verify) };
+  return { calls, containers, invoke: () => runNamedContainer(command, name, ['run', '--name', name], {}, verify, removeOwnership) };
 }
 
 test('pre-creation rejection retains original error and reports unproven ownership', () => {
@@ -108,4 +108,47 @@ test('invalid ownership and cleanup failure cannot become success', () => {
   }
   const control = exercise(ok, id, { ...ok, status: 1, stderr: 'removal denied' });
   assert.throws(control.invoke, /removal denied/);
+});
+
+test('primary, container and temporary-directory failures are all retained with residue path', () => {
+  let residue;
+  const control = exercise(new Error('docker run timed out'), id,
+    { ...ok, status: 1, stderr: 'removal denied' }, undefined, path => {
+      residue = path;
+      throw new Error('temporary directory removal denied');
+    });
+  try {
+    assert.throws(control.invoke, error => {
+      assert.ok(error instanceof AggregateError);
+      assert.equal(error.errors.length, 3);
+      assert.match(error.errors[0].message, /timed out/);
+      assert.match(error.errors[1].message, /removal denied/);
+      assert.match(error.errors[2].message, /residue remains: temporary directory removal denied/);
+      assert.ok(error.errors[2].message.includes(residue));
+      assert.ok(existsSync(residue), 'fault must leave the reported residue');
+      return true;
+    });
+    assert.deepEqual(control.calls.at(-1), ['rm', '-f', id]);
+  } finally {
+    if (residue) rmSync(residue, { recursive: true, force: true });
+  }
+});
+
+test('temporary-directory cleanup failure alone cannot report success', () => {
+  let residue;
+  const control = exercise(ok, id, ok, undefined, path => {
+    residue = path;
+    throw new Error('temporary directory removal denied');
+  });
+  try {
+    assert.throws(control.invoke, error => {
+      assert.ok(!(error instanceof AggregateError));
+      assert.match(error.message, /residue remains: temporary directory removal denied/);
+      assert.ok(error.message.includes(residue));
+      return true;
+    });
+    assert.ok(!control.containers.has(id), 'container cleanup still precedes temporary-directory cleanup');
+  } finally {
+    if (residue) rmSync(residue, { recursive: true, force: true });
+  }
 });

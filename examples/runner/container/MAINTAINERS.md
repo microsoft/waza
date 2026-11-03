@@ -72,6 +72,8 @@ The harness preserves original Docker errors and reports cleanup failures
 separately. A private Docker `--cidfile` binds cleanup to the immutable ID created
 by that invocation, never its reusable name. Unproven ownership reports potential
 residue for manual inspection rather than deleting a competing container.
+Temporary cidfile-directory cleanup failures retain the residue path and are
+aggregated with any original Docker and container-removal failures.
 Deterministic collision/replacement controls and an actual Docker name collision
 verify that existing containers survive failed admission.
 The peer's authentication, text and zero-usage responses
