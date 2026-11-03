@@ -29,7 +29,8 @@ const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)
 test('local container conformance is selected by its production build inputs', () => {
   const workflow = read('.github/workflows/docker-ci.yml');
   for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
-    '.github/scripts/testdata/runner-runtime/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
+    '.github/scripts/testdata/runner-runtime/**', '.github/scripts/testdata/native-bundle-probe/**',
+    'cmd/**', 'internal/**', 'web/**', 'schemas/**',
     'go.mod', 'go.sum', 'version.txt', 'docs.go', 'docs/graders/**', '.dockerignore',
     '.github/workflows/docker-ci.yml']) {
     assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
@@ -48,6 +49,37 @@ test('local container conformance is selected by its production build inputs', (
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
 });
 
+test('manual runner publisher remains fail-closed and unpublished', () => {
+  const workflow = read('.github/workflows/publish-runner-reference.yml');
+  assert.match(workflow, /^on:\n  workflow_dispatch:/m);
+  assert.doesNotMatch(workflow, /^  (push|pull_request|pull_request_target):/m);
+  assert.match(workflow, /packages: write/);
+  assert.match(workflow, /linux\/amd64/);
+  assert.match(workflow, /org\.opencontainers\.image\.revision/);
+  const maintainers = read('examples/runner/container/MAINTAINERS.md');
+  assert.match(maintainers, /manual-only GHCR publisher/);
+  assert.match(maintainers, /has not been dispatched/);
+  assert.match(maintainers, /permissions are\s+declared but have not been verified/);
+  assert.match(maintainers, /signed\s+GitHub provenance\s+attestation binds the published image digest/);
+  assert.doesNotMatch(maintainers, /spboyer-native-container-integration/);
+  assert.match(maintainers, /empty Docker configuration/);
+  assert.match(maintainers, /manual-only `\.github\/workflows\/verify-runner-reference\.yml` workflow/);
+
+  const verifier = read('.github/workflows/verify-runner-reference.yml');
+  assert.match(verifier, /^on:\n  workflow_dispatch:/m);
+  assert.doesNotMatch(verifier, /^  (push|pull_request|pull_request_target):/m);
+  assert.match(verifier, /attestations: read/);
+  assert.doesNotMatch(verifier, /packages: (read|write)/);
+  assert.match(verifier, /node --test examples\/runner\/container\/published-image-test\.mjs/);
+  assert.match(verifier, /gh attestation verify/);
+  assert.doesNotMatch(verifier, /docker login/);
+  const publishedTest = read('examples/runner/container/published-image-test.mjs');
+  assert.match(publishedTest, /RepoDigests\.includes\(imageReference\)/);
+  assert.match(publishedTest, /org\.opencontainers\.image\.revision/);
+  assert.match(publishedTest, /runNamedContainer\(command, mockName/);
+  assert.match(publishedTest, /runNamedContainer\(command, nativeName/);
+});
+
 test('runner identity fixtures trigger consumer validation and publication without skipping new specs', () => {
   const web = read('.github/workflows/web-ci.yml');
   for (const path of ['internal/runnerunit/**', 'internal/runneridentity/**', 'internal/runnerterminal/**', 'examples/runner/**']) {
@@ -55,6 +87,13 @@ test('runner identity fixtures trigger consumer validation and publication witho
   }
   const site = read('.github/workflows/site-ci.yml');
   const deploy = read('.github/workflows/pages.yml');
+  for (const path of [
+    '.github/workflows/publish-runner-reference.yml',
+    '.github/workflows/verify-runner-reference.yml',
+  ]) {
+    assert.equal(site.split(`'${path}'`).length - 1, 2,
+      `${path} must select both push and PR site documentation checks`);
+  }
   for (const path of ['internal/runnerunit/testdata/**', 'internal/runneridentity/testdata/**', 'internal/runnerterminal/testdata/**']) {
     assert.ok(site.includes(`'${path}'`), `${path} must select the site build`);
     assert.ok(deploy.includes(`'${path}'`), `${path} must select publication`);
@@ -450,7 +489,8 @@ test('new feature guides identify the unpublished source-build boundary', () => 
     .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
   assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
   assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+full external task\/suite interoperability remain incomplete/);
-  assert.match(homepage ?? '', /\[local mock\/text container foundation\]\(\/waza\/guides\/runner-container\/\)/);
+  assert.match(homepage ?? '', /\[source-built container guide\]\(\/waza\/guides\/runner-container\/\)/);
+  assert.match(homepage ?? '', /default mock-only scratch image from the native-capable exact-unit reference/);
   assert.match(homepage ?? '', /\[selected AgentV assertion preview\]\(\/waza\/guides\/external-interoperability\/\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
@@ -458,6 +498,7 @@ test('new feature guides identify the unpublished source-build boundary', () => 
   assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
   assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
   assert.match(overview ?? '', /General native file\/tool\/skill workflows and full external task\/suite interoperability remain incomplete/);
+  assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
   assert.match(overview ?? '', /\[selected AgentV assertion preview\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
   assert.match(overview ?? '', /`waza interop import\/export`/);
   assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);
@@ -468,6 +509,8 @@ test('new feature guides identify the unpublished source-build boundary', () => 
   assert.match(unreleased ?? '', /#789 remains open/);
   assert.match(overview ?? '', /\[local container foundation\]\(\.\.\/\.\.\/guides\/runner-container\/\)/);
   assert.match(overview ?? '', /pinned published-image acceptance remains outstanding/);
+  assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
+  assert.match(overview ?? '', /separate manual verifier\s+is prepared to anonymously pull the exact digest/);
 
   for (const [path, heading] of [
     ['site/src/content/docs/guides/eval-yaml.mdx', '### Task-level MCP mocks'],

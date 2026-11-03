@@ -48,7 +48,15 @@ Admitted eval metrics are identity-bound, uncomputed metadata, not aggregate
 values or threshold decisions. Paid native HTTP execution is local-only; see
 the [peer, Host and origin policy](../../guides/runner-contract/#http-api).
 General native file/tool/skill workflows and full external task/suite interoperability remain incomplete. The container
-foundation builds locally; pinned published-image acceptance remains outstanding.
+guide distinguishes the default mock-only scratch target from the native-capable
+exact-unit Debian/glibc target, which is tested with the actual bundled CLI and a
+local synthetic provider without external runtime networking. Both image IDs are
+local only; pinned published-image acceptance remains outstanding. The
+manual-only GHCR publisher is defined in source but has not been dispatched, and
+package permission or visibility is not established. A separate manual verifier
+is prepared to anonymously pull the exact digest, verify source/platform and
+signed provenance, and run mock/native production-caller controls against it;
+it has not been dispatched.
 See [roadmap #754](https://github.com/microsoft/waza/issues/754)
 for the remaining release requirements.
 

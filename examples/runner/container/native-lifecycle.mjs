@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
 
+export function bindMountArgs(mounts) {
+  return mounts.flatMap(([destination, source, writable]) => [
+    '--mount', `type=bind,source=${source},target=${destination}${writable ? '' : ',readonly'}`,
+  ]);
+}
+
 export function runNamedContainer(command, name, args, options, verify) {
   let id;
   let verified;
