@@ -107,8 +107,9 @@ func TestUserInputScriptPreservesOfferedChoicesPresence(t *testing.T) {
 }
 
 func TestUserInputScriptReportsUnusedAnswers(t *testing.T) {
+	unasked := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("1")}, {Answer: strPtr("2")}})
+	require.ErrorContains(t, unasked.Finish(), "2 scripted answer(s) were not used, starting at user_input_responses[0]")
 	script := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("1")}, {Answer: strPtr("2")}})
-	require.ErrorContains(t, script.Finish(), "2 scripted answer(s) were not used, starting at user_input_responses[0]")
 	_, err := script.Handler()(copilot.UserInputRequest{Question: "A"}, copilot.UserInputInvocation{})
 	require.NoError(t, err)
 	require.ErrorContains(t, script.Finish(), "1 scripted answer(s) were not used, starting at user_input_responses[1]")
@@ -137,6 +138,7 @@ func TestUserInputScriptFallbackAnswersUnscriptedQuestions(t *testing.T) {
 		}
 		return "typed", nil
 	})
+	defer script.BindTurn(context.Background())()
 	handler := script.Handler()
 
 	resp, err := handler(copilot.UserInputRequest{Question: "Your name?"}, copilot.UserInputInvocation{SessionID: "s"})
@@ -180,6 +182,7 @@ func TestUserInputScriptFallbackFailsClosed(t *testing.T) {
 				calls++
 				return tc.answer, tc.err
 			})
+			defer script.BindTurn(context.Background())()
 			resp, err := script.Handler()(tc.request, copilot.UserInputInvocation{})
 			require.ErrorContains(t, err, tc.reason)
 			require.Equal(t, copilot.UserInputResponse{}, resp)
@@ -195,6 +198,7 @@ func TestUserInputScriptFallbackFailsClosed(t *testing.T) {
 func TestUserInputScriptFallbackKeepsUnusedEntriesFailing(t *testing.T) {
 	script := newTestScript(t, []models.UserInputResponseConfig{{Question: "Never asked", Answer: strPtr("x")}})
 	script.SetFallback(func(context.Context, copilot.UserInputRequest) (string, error) { return "y", nil })
+	defer script.BindTurn(context.Background())()
 	_, err := script.Handler()(copilot.UserInputRequest{Question: "Other"}, copilot.UserInputInvocation{})
 	require.NoError(t, err)
 	require.ErrorContains(t, script.Finish(), "1 scripted answer(s) were not used")
@@ -280,7 +284,6 @@ func TestCopilotUserInputCallbackOnCreateAndResume(t *testing.T) {
 	require.Equal(t, 1, second.UserInputRequests[0].Sequence)
 	require.Equal(t, 2, second.UserInputRequests[1].Sequence)
 	require.True(t, *second.UserInputRequests[1].WasFreeform)
-	require.NoError(t, script.Finish())
 
 	third, err := engine.Execute(context.Background(), &ExecutionRequest{
 		Message: "again", SessionID: "session-q", WorkspaceDir: first.WorkspaceDir, UserInput: script,
@@ -291,6 +294,7 @@ func TestCopilotUserInputCallbackOnCreateAndResume(t *testing.T) {
 	require.Len(t, third.UserInputRequests, 3)
 	require.NotEmpty(t, third.UserInputRequests[2].Error)
 	require.Nil(t, third.UserInputRequests[2].Answer)
+	require.ErrorContains(t, script.Finish(), "no scripted user_input_responses entry remains")
 }
 
 func TestCopilotLeavesUserInputCallbackUnsetWithoutScript(t *testing.T) {
@@ -346,7 +350,7 @@ func TestUserInputScriptFallbackDoesNotHoldLockAndUsesTurnContext(t *testing.T) 
 		return "", ctx.Err()
 	})
 	turnCtx, cancelTurn := context.WithCancel(context.Background())
-	release := script.bindTurn(turnCtx)
+	release := script.BindTurn(turnCtx)
 	defer release()
 
 	done := make(chan error, 1)
@@ -378,16 +382,33 @@ func TestUserInputScriptFallbackDoesNotHoldLockAndUsesTurnContext(t *testing.T) 
 	require.Contains(t, script.Records()[0].Error, "responder could not answer")
 }
 
-func TestUserInputScriptFallbackWithoutBoundTurnUsesBackground(t *testing.T) {
+func TestUserInputScriptFallbackRejectsQuestionOutsideTurn(t *testing.T) {
 	script := newTestScript(t, nil)
-	script.SetFallback(func(ctx context.Context, _ copilot.UserInputRequest) (string, error) {
-		require.NoError(t, ctx.Err())
+	calls := 0
+	script.SetFallback(func(context.Context, copilot.UserInputRequest) (string, error) {
+		calls++
 		return "ok", nil
 	})
-	release := script.bindTurn(context.Background())
+	release := script.BindTurn(context.Background())
 	release()
 	_, err := script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
+	require.ErrorContains(t, err, "outside an active agent turn")
+	require.Zero(t, calls, "the responder must not run without the asking turn's context")
+	require.Contains(t, script.Records()[0].Error, "outside an active agent turn")
+	require.ErrorContains(t, script.Finish(), "outside an active agent turn")
+}
+
+func TestUserInputScriptRejectsQuestionAfterRunEnded(t *testing.T) {
+	script := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("a")}})
+	defer script.BindTurn(context.Background())()
+	_, err := script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
 	require.NoError(t, err)
+	require.NoError(t, script.Finish())
+	saved := script.Records()
+
+	_, err = script.Handler()(copilot.UserInputRequest{Question: "Late?"}, copilot.UserInputInvocation{})
+	require.ErrorContains(t, err, "the run already ended")
+	require.Equal(t, saved, script.Records(), "a question after the run ended must not change the saved records")
 }
 
 // TestCopilotEngineBindsTurnContextForUserInput checks the production engine
@@ -447,6 +468,7 @@ func TestUserInputScriptFinishWaitsForInflightResponder(t *testing.T) {
 		<-release
 		return "late answer", nil
 	})
+	defer script.BindTurn(context.Background())()
 	go func() {
 		_, _ = script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
 	}()
@@ -475,6 +497,7 @@ func TestUserInputScriptDrainEndsStuckResponderAsError(t *testing.T) {
 		<-release
 		return "too late", nil
 	})
+	defer script.BindTurn(context.Background())()
 	callback := make(chan error, 1)
 	go func() {
 		_, err := script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})

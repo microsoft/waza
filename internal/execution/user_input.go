@@ -29,6 +29,7 @@ type UserInputScript struct {
 	fallback   UserInputFallback
 	turnCtx    context.Context
 	inflight   sync.WaitGroup
+	ended      bool
 }
 
 // UserInputDrainTimeout bounds how long Drain waits for callbacks still answering.
@@ -79,9 +80,10 @@ func (s *UserInputScript) Handler() copilot.UserInputHandler {
 	return s.handle
 }
 
-// bindTurn makes ctx the context passed to the fallback until the returned
-// release function is called. The engine binds each agent turn.
-func (s *UserInputScript) bindTurn(ctx context.Context) func() {
+// BindTurn makes ctx the context passed to the fallback until the returned
+// release function is called. An engine must bind each agent turn; the
+// fallback rejects questions that arrive outside one.
+func (s *UserInputScript) BindTurn(ctx context.Context) func() {
 	if s == nil {
 		return func() {}
 	}
@@ -98,10 +100,14 @@ func (s *UserInputScript) bindTurn(ctx context.Context) func() {
 }
 
 func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation copilot.UserInputInvocation) (copilot.UserInputResponse, error) {
-	s.inflight.Add(1)
-	defer s.inflight.Done()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.ended {
+		// The run's records are already saved; a late question cannot be recorded.
+		return copilot.UserInputResponse{}, errors.New("native user input request rejected: the run already ended")
+	}
+	s.inflight.Add(1)
+	defer s.inflight.Done()
 
 	// Reserve the record slot so arrival order is kept while the lock is
 	// released for a responder call.
@@ -123,7 +129,7 @@ func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation co
 		s.records[index].Source = models.UserInputSourceResponder
 		fallback, ctx := s.fallback, s.turnCtx
 		if ctx == nil {
-			ctx = context.Background()
+			return s.reject(index, "the question arrived outside an active agent turn")
 		}
 		s.mu.Unlock()
 		reply, err := fallback(ctx, request)
@@ -199,13 +205,16 @@ func (s *UserInputScript) rejectionsSince(mark int) error {
 	return errors.Join(s.rejections[mark:]...)
 }
 
-// Drain waits, within a bound, for callbacks still answering, then ends any
-// request that is still pending as an error so no record is left without
-// an answer or error.
+// Drain stops accepting new requests, waits within a bound for callbacks
+// still answering, then ends any request that is still pending as an error so
+// no record is left without an answer or error.
 func (s *UserInputScript) Drain() {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	s.ended = true
+	s.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		s.inflight.Wait()

@@ -36,7 +36,7 @@ func (e *questionEngine) Initialize(context.Context) error       { return nil }
 func (e *questionEngine) Shutdown(context.Context) error         { return nil }
 func (e *questionEngine) SessionUsage(string) *models.UsageStats { return nil }
 
-func (e *questionEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+func (e *questionEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.scripts = append(e.scripts, req.UserInput)
@@ -49,6 +49,7 @@ func (e *questionEngine) Execute(_ context.Context, req *execution.ExecutionRequ
 		FinalOutput: "response to: " + req.Message, SessionID: sessionID,
 		WorkspaceDir: "/workspace/q", DurationMs: 1, Success: true,
 	}
+	defer req.UserInput.BindTurn(ctx)()
 	if handler := req.UserInput.Handler(); handler != nil {
 		for _, question := range e.questions[req.Message] {
 			if _, err := handler(question, copilot.UserInputInvocation{SessionID: sessionID}); err != nil {
@@ -599,7 +600,8 @@ type detachedQuestionEngine struct {
 	started chan struct{}
 }
 
-func (e *detachedQuestionEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+func (e *detachedQuestionEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	defer req.UserInput.BindTurn(ctx)()
 	handler := req.UserInput.Handler()
 	go func() {
 		_, _ = handler(copilot.UserInputRequest{Question: "Your name?"}, copilot.UserInputInvocation{SessionID: "s"})
