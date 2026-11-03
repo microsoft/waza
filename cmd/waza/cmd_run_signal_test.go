@@ -177,6 +177,27 @@ func TestRunCommandCancellationBoundsSharedClientShutdown(t *testing.T) {
 	}
 }
 
+func TestSharedClientShutdownObservesCancellationDuringCleanup(t *testing.T) {
+	resetRunGlobals()
+	t.Cleanup(resetRunGlobals)
+	shutdownStarted := make(chan struct{})
+	shutdownSharedClientForRun = func(ctx context.Context) error {
+		close(shutdownStarted)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- shutdownSharedClientAfterRun(ctx) }()
+	<-shutdownStarted
+	start := time.Now()
+	cancel()
+
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.Less(t, time.Since(start), 250*time.Millisecond)
+}
+
 func TestShutdownRunEngineBoundsCancellationAfterShutdownStarts(t *testing.T) {
 	oldGrace := runEngineShutdownGrace
 	oldTimeout := runEngineShutdownTimeout

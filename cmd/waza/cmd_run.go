@@ -235,9 +235,7 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	// graders can reuse one SDK process. See
 	// docs/design/135-improve-concurrency.md (R2).
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), runSharedClientShutdownTimeout)
-		defer cancel()
-		if err := shutdownSharedClientForRun(shutdownCtx); err != nil {
+		if err := shutdownSharedClientAfterRun(cmd.Context()); err != nil {
 			slog.Warn("shared copilot client shutdown failed", "error", err)
 		}
 	}()
@@ -745,6 +743,22 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	}
 
 	return allResults, nil
+}
+
+func shutdownSharedClientAfterRun(parent context.Context) error {
+	if parent == nil {
+		parent = context.Background()
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), runSharedClientShutdownTimeout)
+	stopCancellation := context.AfterFunc(parent, cancel)
+	defer func() {
+		stopCancellation()
+		cancel()
+	}()
+	if parent.Err() != nil {
+		cancel()
+	}
+	return shutdownSharedClientForRun(shutdownCtx)
 }
 
 // runSingleModel executes a benchmark for one model and returns the outcome.
