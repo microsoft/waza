@@ -1099,7 +1099,9 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	}
 
 	// shut down the engine and update outcome with final usage data
-	_ = shutdownEngine()
+	if err := shutdownEngine(); err != nil {
+		return nil, fmt.Errorf("shutting down engine: %w", err)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

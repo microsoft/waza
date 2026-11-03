@@ -1,16 +1,34 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+type cancelOnSecondExecutionEngine struct {
+	*execution.MockEngine
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (e *cancelOnSecondExecutionEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.calls++
+	if e.calls == 2 {
+		e.cancel()
+		return &execution.ExecutionResponse{FinalOutput: "partial output"}, context.Canceled
+	}
+	return &execution.ExecutionResponse{Success: true, FinalOutput: "completed"}, nil
+}
 
 func TestRunCommandOutputDirRemovesPartialAfterFinalWrite(t *testing.T) {
 	resetRunGlobals()
@@ -86,6 +104,94 @@ tasks:
 	}))
 	require.NotEmpty(t, finalFiles)
 	require.Empty(t, partialFiles)
+}
+
+func TestRunCommandCancellationRetainsPartialOutput(t *testing.T) {
+	resetRunGlobals()
+	oldEngineFactory := newRunEngine
+	t.Cleanup(func() {
+		newRunEngine = oldEngineFactory
+		resetRunGlobals()
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	engine := &cancelOnSecondExecutionEngine{
+		MockEngine: execution.NewMockEngine("test-model"),
+		cancel:     cancel,
+	}
+	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+		return engine, nil
+	}
+
+	specPath := createTestSpec(t, "mock")
+	specData, err := os.ReadFile(specPath)
+	require.NoError(t, err)
+	specData = []byte(strings.Replace(string(specData), "trials_per_task: 1", "trials_per_task: 3", 1))
+	require.NoError(t, os.WriteFile(specPath, specData, 0o644))
+	dir := t.TempDir()
+
+	cmd := newRunCommand()
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{specPath, "--output-dir", dir})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	require.ErrorIs(t, cmd.Execute(), context.Canceled)
+	require.Equal(t, 2, engine.calls)
+
+	finalFiles, partialFiles := outcomeJSONFiles(t, dir)
+	require.Empty(t, finalFiles)
+	require.Len(t, partialFiles, 1)
+
+	var partial models.EvaluationOutcome
+	data, err := os.ReadFile(partialFiles[0])
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &partial))
+	require.Equal(t, true, partial.Metadata["incomplete"])
+	require.Len(t, partial.TestOutcomes, 1)
+	require.Len(t, partial.TestOutcomes[0].Runs, 2)
+	require.Equal(t, models.StatusPassed, partial.TestOutcomes[0].Runs[0].Status)
+	require.Equal(t, models.StatusError, partial.TestOutcomes[0].Runs[1].Status)
+}
+
+func TestRunCommandShutdownTimeoutRetainsPartialOutput(t *testing.T) {
+	resetRunGlobals()
+	oldEngineFactory := newRunEngine
+	oldGrace := runEngineShutdownGrace
+	oldTimeout := runEngineShutdownTimeout
+	t.Cleanup(func() {
+		newRunEngine = oldEngineFactory
+		runEngineShutdownGrace = oldGrace
+		runEngineShutdownTimeout = oldTimeout
+		resetRunGlobals()
+	})
+	runEngineShutdownGrace = 5 * time.Millisecond
+	runEngineShutdownTimeout = 5 * time.Millisecond
+
+	engine := &persistentCancellationEngine{
+		AgentEngine: execution.NewMockEngine("test-model"),
+		forced:      make(chan struct{}),
+	}
+	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+		return engine, nil
+	}
+	dir := t.TempDir()
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{createTestSpec(t, "mock"), "--output-dir", dir})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	require.ErrorContains(t, cmd.Execute(), "engine shutdown exceeded maximum duration")
+	select {
+	case <-engine.forced:
+	default:
+		t.Fatal("timed-out shutdown did not force-stop the persistent engine")
+	}
+
+	finalFiles, partialFiles := outcomeJSONFiles(t, dir)
+	require.Empty(t, finalFiles)
+	require.Len(t, partialFiles, 1)
 }
 
 func TestSaveOutcomePreservesPreviousCheckpointWhenReplacementFails(t *testing.T) {
@@ -182,4 +288,24 @@ func TestCreateOutcomeTempFileIsPrivateBeforePublication(t *testing.T) {
 
 	require.Equal(t, privateInfo.Mode().Perm(), info.Mode().Perm())
 	require.Equal(t, publicInfo.Mode().Perm(), publishMode)
+}
+
+func outcomeJSONFiles(t *testing.T, dir string) ([]string, []string) {
+	t.Helper()
+	var finalFiles, partialFiles []string
+	require.NoError(t, filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".json" {
+			return nil
+		}
+		if strings.Contains(path, string(filepath.Separator)+".partial"+string(filepath.Separator)) {
+			partialFiles = append(partialFiles, path)
+		} else {
+			finalFiles = append(finalFiles, path)
+		}
+		return nil
+	}))
+	return finalFiles, partialFiles
 }
