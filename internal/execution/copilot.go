@@ -46,7 +46,9 @@ type CopilotEngine struct {
 	// command must call [ShutdownSharedClient] to actually stop it.
 	ownsClient bool
 
-	startOnce sync.Once
+	startMu      initializationMutex
+	startErr     error
+	authComplete atomic.Bool
 
 	workspacesMu  sync.Mutex
 	workspaces    []string      // workspaces to clean up at Shutdown
@@ -171,6 +173,8 @@ type CopilotEngineBuilder struct {
 }
 
 type CopilotEngineBuilderOptions struct {
+	// Custom clients must unblock Start on lifetime-context cancellation or
+	// implement ForceStop(). A healthy client's context outlives Initialize.
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) CopilotClient
 	// OwnClient selects a fresh production client instead of SharedClient.
 	OwnClient bool
@@ -244,6 +248,9 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 		},
 	}
 
+	if ownsClient {
+		client = manageStartup(client)
+	}
 	builder.engine.client = client
 	if options != nil && options.DiagnosticObserver != nil {
 		builder.engine.diagnostics = &diagnosticState{
@@ -298,53 +305,54 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 	if e.diagnostics != nil {
 		return e.initializeDiagnostic(ctx)
 	}
-	var startErr error
+	if e.provider.err != nil {
+		return fmt.Errorf("copilot failed to start: %w", e.provider.err)
+	}
+	authenticated := e.authComplete.Load()
+	if authenticated && e.startErr != nil {
+		return fmt.Errorf("copilot failed to start: %w", e.startErr)
+	}
+	if err := e.client.Start(ctx); err != nil {
+		return fmt.Errorf("copilot failed to start: %w", err)
+	}
 
-	e.startOnce.Do(func() {
-		if e.provider.err != nil {
-			startErr = e.provider.err
-			return
+	if err := e.startMu.lock(ctx); err != nil {
+		if authenticated {
+			return nil
 		}
-
-		// NOTE: we _have_ to use context.Background() - the copilot SDK is using exec.CommandContext() to run
-		// the background process which means we _cannot_ cancel the context passed to this function or else
-		// it'll kill the copilot process.
-		// Tracking here: https://github.com/github/copilot-sdk/issues/668
-		startErr = e.client.Start(context.Background())
-
-		if startErr != nil {
-			return
+		return fmt.Errorf("copilot failed to start: %w", err)
+	}
+	defer e.startMu.unlock()
+	if !e.authComplete.Load() {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("copilot failed to start: %w", err)
 		}
-
 		// BYOK mode: a custom provider redirects model traffic away from
 		// GitHub Copilot MaaS, so the Copilot auth check is irrelevant.
 		if e.provider.enabled() {
-			return
+			e.authComplete.Store(true)
+			return nil
 		}
 
 		authStatusResp, err := e.client.GetAuthStatus(ctx)
-
+		if ctx.Err() != nil {
+			return fmt.Errorf("copilot failed to start: %w", ctx.Err())
+		}
 		if err != nil {
-			if e.ownsClient {
-				_ = e.client.Stop()
-			}
-
-			startErr = fmt.Errorf("failed to get copilot authentication status. Use any installed instance of copilot CLI and run \"copilot login\" before using this command: %w", err)
-			return
+			e.startErr = fmt.Errorf("failed to get copilot authentication status. Use any installed instance of copilot CLI and run \"copilot login\" before using this command: %w", err)
+		} else if authStatusResp == nil || !authStatusResp.IsAuthenticated {
+			e.startErr = fmt.Errorf("copilot is not authenticated. Use any installed instance of copilot CLI and run \"copilot login\" before using this command")
 		}
-
-		if !authStatusResp.IsAuthenticated {
-			if e.ownsClient {
-				_ = e.client.Stop()
+		if e.startErr != nil && e.ownsClient {
+			if err := e.client.Stop(); err != nil {
+				e.startErr = errors.Join(e.startErr, fmt.Errorf("failed to stop unauthenticated Copilot client: %w", err))
 			}
-
-			startErr = fmt.Errorf("copilot is not authenticated. Use any installed instance of copilot CLI and run \"copilot login\" before using this command")
-			return
 		}
-	})
+		e.authComplete.Store(true)
+	}
 
-	if startErr != nil {
-		return fmt.Errorf("copilot failed to start: %w", startErr)
+	if e.startErr != nil {
+		return fmt.Errorf("copilot failed to start: %w", e.startErr)
 	}
 
 	return nil
@@ -878,6 +886,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 // error.
 func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 	e.shutdownOnce.Do(func() {
+		e.cancelPendingStartup()
 		if e.diagnostics != nil {
 			e.shutdownErr = e.shutdownDiagnostic(ctx)
 		} else {

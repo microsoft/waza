@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
+	"github.com/microsoft/waza/internal/runnerterminal"
 )
 
 // Report is an invocation-local selection/attempt receipt, not a persisted
@@ -33,6 +34,10 @@ type Report struct {
 	Calls         int                         `json:"engine_calls"`
 	Observation   *models.RunResult           `json:"observation,omitempty"`
 	Diagnostics   []runnercontract.Diagnostic `json:"diagnostics"`
+	binding       *runnerterminal.Binding
+	failure       error
+	boundary      string
+	localOutcome  *models.EvaluationOutcome
 }
 
 func (r Report) ExitCode() int {
@@ -95,6 +100,7 @@ func admit(data []byte) (Report, *admitted) {
 	selected := req.Selection
 	report.Resolved = &selected
 	report.Identity = identity
+	report.binding = &runnerterminal.Binding{Selection: selected, Identity: identity, GraderIDs: graderIDs(input)}
 	report.Status, report.Validation = "ready", "valid"
 	return report, input
 }
@@ -198,55 +204,75 @@ func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRe
 // Run invokes shared negotiation and exact admission before constructing a
 // fresh runtime. Each explicit repeat executes again; there is no deduplication.
 func (s *Service) Run(ctx context.Context, data []byte) (report Report) {
+	return s.run(ctx, data, false)
+}
+
+func (s *Service) run(ctx context.Context, data []byte, local bool) (report Report) {
 	report, input := admit(data)
 	if input == nil {
 		return report
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
-	defer cancel()
+	// Local orchestration limits Execute, not grading; external requests retain
+	// their end-to-end deadline, including grading and lifecycle.
+	if !local {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
+		defer cancel()
+	}
 	if err := ctx.Err(); err != nil {
-		report.executionError(err)
+		report.executionError("startup", err)
 		return report
 	}
 	engine, err := s.factory(input.spec.Config)
 	if err != nil {
-		report.executionError(fmt.Errorf("constructing runtime: %w", err))
+		report.executionError("startup", errors.Join(fmt.Errorf("constructing runtime: %w", err), ctx.Err()))
 		return report
 	}
 	mock, ok := engine.(*execution.MockEngine)
 	if !ok || mock == nil {
-		report.executionError(fmt.Errorf("admitting runtime: inline.mock-text requires a non-nil concrete *execution.MockEngine; factory returned %T", engine))
+		report.executionError("startup", errors.Join(fmt.Errorf("admitting runtime: inline.mock-text requires a non-nil concrete *execution.MockEngine; factory returned %T", engine), ctx.Err()))
 		return report
 	}
 	report.Mode = "mock"
 	if err := ctx.Err(); err != nil {
-		report.executionError(err)
+		report.executionError("startup", err)
 		return report
 	}
-	return execute(ctx, report, input, mock)
+	return executeWithProjection(ctx, report, input, mock, local)
 }
 
-func (r *Report) executionError(err error) {
+func (r *Report) executionError(boundary string, err error) {
 	r.Status = "execution_error"
+	r.failure = errors.Join(r.failure, err)
+	r.boundary = boundary
 	diagnostic := runnercontract.Rejected(err.Error()).Diagnostics[0]
 	diagnostic.Code = "execution_error"
 	r.Diagnostics = append(r.Diagnostics, diagnostic)
 }
 
 // execute owns lifecycle only after Run admits the concrete mock runtime.
-func execute(ctx context.Context, report Report, input *admitted, engine execution.AgentEngine) (result Report) {
+func execute(ctx context.Context, report Report, input *admitted, engine execution.AgentEngine) Report {
+	return executeWithProjection(ctx, report, input, engine, false)
+}
+
+func executeWithProjection(ctx context.Context, report Report, input *admitted, engine execution.AgentEngine, local bool) (result Report) {
 	result = report
+	started := time.Now()
+	ctx, usage := execution.NewUsageScope(ctx)
 	observed := &onceEngine{AgentEngine: engine}
 	defer func() {
 		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer stop()
 		if err := engine.Shutdown(shutdownCtx); err != nil {
-			result.executionError(fmt.Errorf("runtime shutdown: %w", err))
+			result.executionError("shutdown", fmt.Errorf("runtime shutdown: %w", err))
 		}
 		result.Calls = observed.calls
+		if err := ctx.Err(); err != nil && !errors.Is(result.failure, err) {
+			result.executionError("shutdown", err)
+		}
 	}()
 	if err := engine.Initialize(ctx); err != nil {
-		result.executionError(fmt.Errorf("initializing runtime: %w", err))
+		result.executionError("startup", errors.Join(fmt.Errorf("initializing runtime: %w", err), ctx.Err()))
 		return result
 	}
 	runner := orchestration.NewEvalRunner(config.NewEvalConfig(input.spec), observed)
@@ -254,15 +280,40 @@ func execute(ctx context.Context, report Report, input *admitted, engine executi
 	result.Observation = run
 	switch {
 	case ctx.Err() != nil:
-		result.executionError(ctx.Err())
+		result.executionError("execution", errors.Join(ctx.Err(), err))
 	case err != nil:
-		result.executionError(err)
+		result.executionError("execution", err)
 	case run == nil:
-		result.executionError(fmt.Errorf("execution returned no observation"))
+		result.executionError("execution", fmt.Errorf("execution returned no observation"))
 	case run.Status != models.StatusPassed && run.Status != models.StatusFailed:
-		result.executionError(errors.New("execution did not produce a graded observation: " + run.ErrorMsg))
+		result.executionError("execution", errors.New("execution did not produce a graded observation: "+run.ErrorMsg))
 	default:
 		result.Status = "completed"
 	}
+	if local && run != nil {
+		result.localOutcome, err = runner.ProjectInlineOutcome(input.task, run, started, usage.Snapshot())
+		if err != nil {
+			result.executionError("projection", err)
+		}
+	}
 	return result
+}
+
+// RunLocal projects the same admitted execution used by RunTerminal into the
+// historical result writer contract, not the terminal transport envelope.
+func (s *Service) RunLocal(ctx context.Context, data []byte) (*models.EvaluationOutcome, error) {
+	report := s.run(ctx, data, true)
+	// Legacy run saves observed execution errors as failed task artifacts.
+	// Keep their typed causes for terminal callers, not the local exit policy.
+	if report.localOutcome != nil && report.boundary == "execution" &&
+		report.Observation != nil && report.Observation.Status == models.StatusError {
+		return report.localOutcome, nil
+	}
+	if report.Status != "completed" || report.failure != nil || report.localOutcome == nil {
+		if report.failure != nil {
+			return nil, fmt.Errorf("local runner execution: %w", report.failure)
+		}
+		return nil, fmt.Errorf("local runner rejected input: %v %v", report.Compatibility.Diagnostics, report.Diagnostics)
+	}
+	return report.localOutcome, nil
 }

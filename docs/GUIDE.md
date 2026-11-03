@@ -479,7 +479,13 @@ live Lab displays pre-execution selection validation and input-derived logical
 identity lineage, with a validation JSON export. CLI stdout can be saved using
 `waza runner validate < examples/runner/unit.json > validation.json`.
 Identity version `sha256-waza-c14n-v1` names input, not observed execution;
-older receipts without it remain unavailable. See the
+older receipts without it remain unavailable. `runner run` and HTTP `/runner/run`
+now return `waza.runner-terminal` rather than the earlier source-preview unit
+receipt. Lab's explicit **Run mock unit** shows the actual terminal outcome and
+exports that envelope. Execution preserves typed eval/task deadline causes as
+`timeout` / exit 4 even before the outer request deadline; task timeout settings
+override eval settings. Historical local `waza run` exit/artifact behavior is
+unchanged. See [outcomes, exits and migration](../site/src/content/docs/guides/runner-terminal.mdx), the
 [identity guide](../site/src/content/docs/guides/runner-identities.mdx) and
 [canonical contract and migration guide](../site/src/content/docs/guides/runner-contract.mdx).
 
@@ -593,6 +599,15 @@ results.
 ### `waza run [eval.yaml | skill-name]`
 
 Run an evaluation benchmark.
+
+The source-build `--runner-compat` mode routes one explicit compatible mock/text
+suite through runner 1.0 without changing local result JSON or 0/1/2 exits.
+Unsupported mappings fail rather than falling back; omit the flag for ordinary
+local semantics. `runner adapt` captures compatible sources offline, requiring
+an eval-relative task entry and shared runner admission before output. Its
+complete emitted JSON, including any trailing LF, fits the 4 MiB runner limit.
+See the [migration guide](RUNNER_COMPATIBILITY_MIGRATION.md) and
+[developer mapping reference](RUNNER_COMPATIBILITY_MAPPING.md).
 
 **Arguments:**
 - `[eval.yaml]` — Path to evaluation spec file
@@ -1234,7 +1249,7 @@ Replay checks stored event sequencing and grader score/pass consistency without 
 
 Portable evidence (manifest `1.0`, snapshot `1.1`) keeps missing-version defaults
 for legacy eval/results readers at `1.4`, while newly generated results use result
-schema `1.7`. Task YAML has no independent schema-version field or default.
+schema `1.8`. Task YAML has no independent schema-version field or default.
 It describes every trial, full source origin, source/content
 digests, availability, completeness, redaction, unavailable versions, requested
 `no_skills`/native skill control, and operational uncertainty. Requested

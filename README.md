@@ -260,16 +260,30 @@ waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
 ```
 
-The source preview implements `negotiation`, `exact-unit` and `inline.mock-text`.
+The source preview implements `negotiation`, `exact-unit`, `inline.mock-text` and `terminal-result`.
 Only `runner run` starts an engine; each dispatch runs its selected task/trial/
 attempt once, without discovery, cache or retries. Admitted receipts include
 versioned [logical identities](site/src/content/docs/guides/runner-identities.mdx)
 derived from the original captured input, not proof of execution or deduplication.
-Native/paid execution and terminal envelopes remain unavailable. Existing
+`runner run` writes one [terminal envelope](site/src/content/docs/guides/runner-terminal.mdx):
+success 0, failed checks 1, infrastructure failure 2, cancellation 3, timeout 4,
+unsupported capability/version 5, invalid input 6. Validation remains an offline
+receipt, not execution evidence. An eval/task execution deadline still yields
+timeout 4 when the outer request budget remains active; task timeouts override
+the eval budget. Native/paid execution remains unavailable. Existing
 local commands and artifacts are unchanged. Captured tasks must explicitly
 declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
 `inputs: {}` is rejected before runtime construction. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+
+For one explicit mock/text suite, `waza run custom-suite.yaml --runner-compat
+--output local-results.json` routes through that same runner service while
+retaining historical result JSON and local 0/1/2 exits. `waza runner adapt`
+captures compatible sources offline as runner request JSON. Unsupported mappings
+are hard errors; remove `--runner-compat` to retain ordinary local workflows.
+The task entry must be eval-relative, and successful adaptation passes shared
+offline admission within the complete 4 MiB emitted-byte limit.
+See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
 
 ### `waza preflight <eval.yaml>`
 
@@ -702,7 +716,7 @@ New captures set each artifact's `redacted` flag from changes to its own materia
 
 The manifest fingerprints the captured environment allow-list/configuration (`environment`, snapshot pointer `/env`) and engine configuration (`engine-config`, `/engine`), not the full host environment. Optional `--interpret` output reports per-trial scoped check observations and evidence metadata without changing legacy no-metadata text; malformed evidence is withheld.
 
-Portable evidence uses independent manifest version **1.0** and ordinary snapshot schema **1.1**, retaining legacy task semantics and historical result readers; newly generated results use **1.7**. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
+Portable evidence uses independent manifest version **1.0** and ordinary snapshot schema **1.1**, retaining legacy task semantics and historical result readers; newly generated results use **1.8**. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
 
 Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. Capture adds no export, upload, or local-path fetch. Existing explicitly configured result storage still uploads results, including evidence metadata, but does not fetch or upload the separate snapshot files. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
 
@@ -785,9 +799,9 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while new result writers independently emit `1.7`. Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
+Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while new result writers independently emit `1.8`. Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
 Compatibility reports use the current version for the artifact type: legacy eval
-`1.4` or result writer `1.7`. Unversioned/`1.4` results explicitly distinguish
+`1.4` or result writer `1.8`. Unversioned/`1.4` results explicitly distinguish
 their legacy reader default from the current writer version without upgrading them.
 
 ```bash
@@ -1582,7 +1596,7 @@ Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, 
 
 With explicit effort, choose a concrete model from `waza models`. Waza checks the runtime's supported-effort metadata before creating or resuming hosted Copilot sessions; unknown models, unavailable metadata, and unsupported efforts produce actionable errors instead of silently using a different effort. Custom-provider efforts are forwarded directly because the hosted catalog does not describe those models. Result setup metadata and cache keys include both eval-level effort settings; regrading replaces the judge effort, including clearing a previously pinned value when omitted.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. New evaluations and regrades emit results `1.7`, separately from their input version. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. New evaluations and regrades emit results `1.8`, separately from their input version. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
 Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
 `scenario: <workflow-name>`. Only this exact scenario version is supported;
@@ -1678,7 +1692,7 @@ checks reject group/world-writable cache parents and private children with
 group/other mode bits. These retained-root checks do not certify Windows ACLs,
 cache confidentiality or whole-filesystem ancestry.
 
-`results.json` is currently emitted at `schemaVersion` `1.7`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` adds optional frozen `runs[].judge_evidence`, metadata-only `runs[].prompt_judging` observations and separate current-regrade `regrade_usage.sessions` for evidence-enabled prompt graders, plus configured live/mocked `runs[].dependency_modes`. The saved bundle contains sanitized evidence, whereas API/report metadata does not copy its bodies. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.8`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` adds optional frozen `runs[].judge_evidence`, metadata-only `runs[].prompt_judging` observations and separate current-regrade `regrade_usage.sessions` for evidence-enabled prompt graders, plus configured live/mocked `runs[].dependency_modes`. Version `1.8` adds optional `runs[].host_lifecycle` model-turn and host shell evidence projected from structured native session events (omitted when unavailable). The saved bundle contains sanitized evidence, whereas API/report metadata does not copy its bodies. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 The dashboard displays these recorded Wilson intervals and pass^k estimates separately from bootstrap weighted-score intervals, with available trial counts. Missing historical statistics show **Not assessed**; readers never infer them from scores or successful outcomes. None of these intervals is a significance test between runs.
 
@@ -1697,7 +1711,44 @@ mcp_mocks:
 
 Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
 
+Fixture entries must be regular JSON files; symlinks to regular files remain supported. On Unix, fixture admission uses nonblocking opens and checks the opened file, rejecting FIFOs without waiting for a writer so `after_run` can execute. This is not a deadline for unresponsive filesystems or a race-free/nonblocking opening guarantee on Windows.
+
 Unmatched MCP diagnostics omit argument values to avoid exposing credentials or private payloads. In scenario evals (`scenario` plus exact `schemaVersion: "2.0"`), a response may use a finite `sequence` of at most 100 `return` or `error` steps, optionally delayed up to 300,000 ms. Each matching call consumes one step; exhaustion returns an MCP error and never falls through to a live server. This can simulate an upstream timeout error, but not transport cancellation. Mock responses verify controlled interactions, not the external server implementation.
+
+A task can declare its own `mcp_mocks` when one case needs a different answer. Each task entry replaces the eval mock with the same name for that task only, a new name adds a mock, and the other eval mocks still apply. This keeps a case-specific response, such as approving one question, out of every other task. Task mocks follow the enclosing eval's `schemaVersion` and require `executor: copilot-sdk`; relative `fixtures` paths resolve from the eval directory. An empty task list is rejected; omit the field to use the eval mocks.
+
+Task loading and filter errors are reported before engine startup. The runner repeats admission after engine initialization and after each new pass's `before_run` setup (including the second baseline pass), retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. Inline mock `input_schema` declarations are validated offline during admission, including declarations on replaced eval mocks; use self-contained schemas (internal `$ref` values are supported), or omit the schema for the default.
+
+Admission also validates selected fixture-backed tool `input_schema` declarations, including eval fixtures needed only by trigger tests. Omitted/null schemas retain the default; whole-tool overrides and genuinely unused fixture metadata remain excluded.
+
+The CLI discovers `trigger_tests.yaml` after `before_run` and before engine startup, and uses that same parsed spec for the trigger phase. Trigger tests use eval-level MCP dependencies, not task overrides: an eval mock's fixtures can be skipped only when every selected task replaces it **and no trigger phase needs it**. Offline preflight applies the same dependency rule without constructing a trigger runner or starting servers. The mock executor synthesizes trigger results without MCP execution. Task filters, `--skip-graders`, `--no-skills`, and task cache hits do not disable trigger tests.
+
+Canceling during Copilot SDK startup stops waiting and cleans up partial startup; canceling the original caller after successful startup does not terminate the healthy shared client. Reinitializing a healthy client remains idempotent even with a canceled caller context. A canceled shared startup can be replaced on the next client lookup once its cleanup has succeeded, but global shared-client shutdown still rejects new clients. Custom client factories must unblock `Start` on its lifetime-context cancellation or `ForceStop`; each partial-startup cleanup wait reports an error after its two-second deadline. This bounds caller waiting, not goroutine termination for a noncooperating custom client; pending or failed cleanup remains tracked rather than being treated as completed.
+
+Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
+
+Completed startup keeps its lifetime context alive through graceful SDK cleanup. Authentication failure immediately cleans up an owned client and retains any cleanup error; later engine shutdown still performs final SDK cleanup. Shared clients remain the top-level owner's responsibility. Partial-startup cleanup remains once-only.
+
+```yaml
+# tasks/publish.yaml
+id: publish
+name: Publish when the user confirms
+inputs:
+  prompt: Publish the reviewed version.
+mcp_mocks:
+  - name: host # replaces the eval-level "host" mock for this task
+    tools:
+      ask_user:
+        responses:
+          - match_schema:
+              type: object
+              required: [choices]
+              properties:
+                choices: { type: array, contains: { const: Publish this version } }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
+```
 
 ### Command Mocks
 
@@ -1960,8 +2011,8 @@ hooks:
 - `error_on_fail` — Fail entire evaluation if hook fails (default: `false`)
 
 **Lifecycle Points:**
-- `before_run` — Execute once before all tasks
-- `after_run` — Execute once after all tasks
+- `before_run` — Execute once before all tasks, before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets
+- `after_run` — Execute once after all tasks, including after an interrupted run (bounded to one minute)
 - `before_task` — Execute before each task
 - `after_task` — Execute after each task
 
