@@ -153,3 +153,29 @@ func TestSaveOutcomePreservesDestinationPermissions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, before.Mode().Perm(), info.Mode().Perm())
 }
+
+func TestCreateOutcomeTempFileIsPrivateBeforePublication(t *testing.T) {
+	dir := t.TempDir()
+	publicControl, err := os.OpenFile(filepath.Join(dir, "public-control"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	require.NoError(t, err)
+	publicInfo, err := publicControl.Stat()
+	require.NoError(t, err)
+	require.NoError(t, publicControl.Close())
+
+	privateControl, err := os.OpenFile(filepath.Join(dir, "private-control"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	require.NoError(t, err)
+	privateInfo, err := privateControl.Stat()
+	require.NoError(t, err)
+	require.NoError(t, privateControl.Close())
+
+	file, publishMode, err := createOutcomeTempFile(filepath.Join(dir, "result.json"))
+	require.NoError(t, err)
+	tempPath := file.Name()
+	t.Cleanup(func() { _ = os.Remove(tempPath) })
+	info, err := file.Stat()
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+
+	require.Equal(t, privateInfo.Mode().Perm(), info.Mode().Perm())
+	require.Equal(t, publicInfo.Mode().Perm(), publishMode)
+}

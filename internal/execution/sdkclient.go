@@ -31,6 +31,7 @@ type SharedClientOptions struct {
 var (
 	sharedMu        sync.Mutex
 	sharedClients   map[string]CopilotClient
+	sharedRetired   []CopilotClient
 	sharedClosed    bool
 	sharedShutdown  sync.Once
 	sharedErr       error
@@ -88,6 +89,22 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 	}
 	sharedClients[key] = manageStartup(sharedConstruct(clientOptions))
 	return sharedClients[key]
+}
+
+func retireSharedClient(client CopilotClient) {
+	managed, ok := client.(*startupClient)
+	if !ok {
+		return
+	}
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+	for key, current := range sharedClients {
+		if current == managed {
+			delete(sharedClients, key)
+			sharedRetired = append(sharedRetired, managed)
+			return
+		}
+	}
 }
 
 func sharedClientKey(cliArgs []string) string {
@@ -187,10 +204,11 @@ func (c *startupErrorClient) ListModels(context.Context) ([]copilot.ModelInfo, e
 // all graders have completed.
 func ShutdownSharedClient(_ context.Context) error {
 	sharedMu.Lock()
-	clients := make([]CopilotClient, 0, len(sharedClients))
+	clients := make([]CopilotClient, 0, len(sharedClients)+len(sharedRetired))
 	for _, client := range sharedClients {
 		clients = append(clients, client)
 	}
+	clients = append(clients, sharedRetired...)
 	if len(clients) > 0 {
 		sharedClosed = true
 	}
@@ -221,6 +239,7 @@ func resetSharedClientForTest() {
 	defer sharedMu.Unlock()
 	sharedShutdown = sync.Once{}
 	sharedClients = nil
+	sharedRetired = nil
 	sharedClosed = false
 	sharedErr = nil
 }

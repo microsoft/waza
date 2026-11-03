@@ -44,7 +44,7 @@ func sendAndWaitBounded(
 	session CopilotSession,
 	options copilot.MessageOptions,
 	forceStop func(),
-) (*copilot.SessionEvent, error, bool) {
+) (*copilot.SessionEvent, error, bool, bool) {
 	done := make(chan sendAndWaitResult, 1)
 	go func() {
 		event, err := session.SendAndWait(ctx, options)
@@ -53,7 +53,7 @@ func sendAndWaitBounded(
 
 	select {
 	case result := <-done:
-		return result.event, result.err, false
+		return result.event, result.err, false, false
 	case <-ctx.Done():
 	}
 
@@ -61,21 +61,30 @@ func sendAndWaitBounded(
 	defer timer.Stop()
 	select {
 	case result := <-done:
-		return result.event, errors.Join(ctx.Err(), result.err), false
+		return result.event, errors.Join(ctx.Err(), result.err), false, false
 	case <-timer.C:
-		forceStop()
 	}
 
+	forceDone := make(chan struct{})
+	go func() {
+		defer close(forceDone)
+		forceStop()
+	}()
 	timer.Reset(sendCancellationGrace)
 	select {
 	case result := <-done:
-		return result.event, errors.Join(ctx.Err(), result.err), false
+		select {
+		case <-forceDone:
+			return result.event, errors.Join(ctx.Err(), result.err), false, false
+		default:
+			return result.event, errors.Join(ctx.Err(), result.err), false, true
+		}
 	case <-timer.C:
-		return nil, ctx.Err(), true
+		return nil, ctx.Err(), true, true
 	}
 }
 
-func disconnectBounded(ctx context.Context, session CopilotSession, forceStop func()) (error, bool) {
+func disconnectBounded(ctx context.Context, session CopilotSession, forceStop func()) (error, bool, bool) {
 	done := make(chan error, 1)
 	go func() {
 		done <- session.Disconnect()
@@ -83,7 +92,7 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 
 	select {
 	case err := <-done:
-		return err, false
+		return err, false, false
 	case <-ctx.Done():
 	}
 
@@ -91,17 +100,26 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 	defer timer.Stop()
 	select {
 	case err := <-done:
-		return errors.Join(ctx.Err(), err), false
+		return errors.Join(ctx.Err(), err), false, false
 	case <-timer.C:
-		forceStop()
 	}
 
+	forceDone := make(chan struct{})
+	go func() {
+		defer close(forceDone)
+		forceStop()
+	}()
 	timer.Reset(sendCancellationGrace)
 	select {
 	case err := <-done:
-		return errors.Join(ctx.Err(), err), false
+		select {
+		case <-forceDone:
+			return errors.Join(ctx.Err(), err), false, false
+		default:
+			return errors.Join(ctx.Err(), err), false, true
+		}
 	case <-timer.C:
-		return ctx.Err(), true
+		return ctx.Err(), true, true
 	}
 }
 
@@ -145,6 +163,8 @@ type CopilotEngine struct {
 
 	shutdownOnce sync.Once
 	shutdownErr  error
+
+	retired atomic.Bool
 
 	provider    customProviderConfig
 	diagnostics *diagnosticState
@@ -478,6 +498,9 @@ func validateReasoningEffort(ctx context.Context, client CopilotClient, modelID,
 
 // Execute runs a test with Copilot SDK
 func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error) {
+	if e.retired.Load() {
+		return nil, errors.New("copilot client retired after unresponsive cleanup")
+	}
 	if e.diagnostics != nil {
 		return e.executeDiagnostic(ctx, req)
 	}
@@ -719,11 +742,14 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
-		err, abandoned := disconnectBounded(sendCtx, session, func() {
+		err, abandoned, retireClient := disconnectBounded(sendCtx, session, func() {
 			if force, ok := e.client.(interface{ ForceStop() }); ok {
 				force.ForceStop()
 			}
 		})
+		if retireClient {
+			e.retireClient()
+		}
 		if abandoned {
 			slog.Warn("abandoned Copilot session after disconnect exceeded cancellation grace", "sessionID", sessionID)
 		}
@@ -908,7 +934,8 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	// Send prompt with updated API
-	_, err, sessionAbandoned = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
+	var retireClient bool
+	_, err, sessionAbandoned, retireClient = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
 	}, func() {
@@ -916,6 +943,9 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			force.ForceStop()
 		}
 	})
+	if retireClient {
+		e.retireClient()
+	}
 	stopFirstEventWatchdog()
 	finishEvents()
 
@@ -1053,6 +1083,12 @@ func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 func (e *CopilotEngine) ForceStop() {
 	if force, ok := e.client.(interface{ ForceStop() }); ok {
 		force.ForceStop()
+	}
+}
+
+func (e *CopilotEngine) retireClient() {
+	if e.retired.CompareAndSwap(false, true) {
+		retireSharedClient(e.client)
 	}
 }
 

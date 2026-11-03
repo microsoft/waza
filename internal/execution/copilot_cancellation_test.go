@@ -38,12 +38,13 @@ func TestSendAndWaitBoundedForceStopsContextIgnoringSession(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
-	_, err, abandoned := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+	_, err, abandoned, retire := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
 		releaseOnce.Do(func() { close(release) })
 	})
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.False(t, abandoned)
+	require.False(t, retire)
 }
 
 func TestSendAndWaitBoundedAbandonsSessionAfterForceStopGrace(t *testing.T) {
@@ -64,13 +65,14 @@ func TestSendAndWaitBoundedAbandonsSessionAfterForceStopGrace(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	forced := false
-	_, err, abandoned := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+	_, err, abandoned, retire := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
 		forced = true
 	})
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.True(t, forced)
 	require.True(t, abandoned)
+	require.True(t, retire)
 }
 
 func TestSendAndWaitBoundedReturnsCancellationAfterLateSuccess(t *testing.T) {
@@ -89,13 +91,14 @@ func TestSendAndWaitBoundedReturnsCancellationAfterLateSuccess(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	event, err, abandoned := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+	event, err, abandoned, retire := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
 		close(release)
 	})
 
 	require.NotNil(t, event)
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, abandoned)
+	require.False(t, retire)
 }
 
 func TestDisconnectBoundedForceStopsBlockingDisconnect(t *testing.T) {
@@ -113,7 +116,7 @@ func TestDisconnectBoundedForceStopsBlockingDisconnect(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	forced := false
-	err, abandoned := disconnectBounded(ctx, session, func() {
+	err, abandoned, retire := disconnectBounded(ctx, session, func() {
 		forced = true
 		close(release)
 	})
@@ -121,6 +124,126 @@ func TestDisconnectBoundedForceStopsBlockingDisconnect(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.True(t, forced)
 	require.False(t, abandoned)
+	require.False(t, retire)
+}
+
+func TestSendAndWaitBoundedDoesNotWaitForBlockedForceStop(t *testing.T) {
+	oldGrace := sendCancellationGrace
+	sendCancellationGrace = 5 * time.Millisecond
+	t.Cleanup(func() { sendCancellationGrace = oldGrace })
+
+	session := NewMockCopilotSession(gomock.NewController(t))
+	releaseSend := make(chan struct{})
+	releaseForce := make(chan struct{})
+	t.Cleanup(func() {
+		close(releaseSend)
+		close(releaseForce)
+	})
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			<-releaseSend
+			return nil, nil
+		},
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	start := time.Now()
+	_, err, abandoned, retire := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+		<-releaseForce
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.True(t, abandoned)
+	require.True(t, retire)
+	require.Less(t, time.Since(start), 100*time.Millisecond)
+}
+
+func TestDisconnectBoundedDoesNotWaitForBlockedForceStop(t *testing.T) {
+	oldGrace := sendCancellationGrace
+	sendCancellationGrace = 5 * time.Millisecond
+	t.Cleanup(func() { sendCancellationGrace = oldGrace })
+
+	session := NewMockCopilotSession(gomock.NewController(t))
+	releaseDisconnect := make(chan struct{})
+	releaseForce := make(chan struct{})
+	t.Cleanup(func() {
+		close(releaseDisconnect)
+		close(releaseForce)
+	})
+	session.EXPECT().Disconnect().DoAndReturn(func() error {
+		<-releaseDisconnect
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	start := time.Now()
+	err, abandoned, retire := disconnectBounded(ctx, session, func() {
+		<-releaseForce
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.True(t, abandoned)
+	require.True(t, retire)
+	require.Less(t, time.Since(start), 100*time.Millisecond)
+}
+
+func TestExecuteRetiresClientWhenForceStopRemainsBlocked(t *testing.T) {
+	oldGrace := sendCancellationGrace
+	sendCancellationGrace = 5 * time.Millisecond
+	t.Cleanup(func() { sendCancellationGrace = oldGrace })
+
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	session := newSessionMock(ctrl)
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	session.EXPECT().SessionID().Return("retired-session")
+	session.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sendStarted := make(chan struct{})
+	releaseSend := make(chan struct{})
+	releaseForce := make(chan struct{})
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			close(sendStarted)
+			<-releaseSend
+			return nil, nil
+		},
+	)
+	client := &forceStopTestClient{
+		MockCopilotClient: clientMock,
+		forceStop:         func() { <-releaseForce },
+	}
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+	}).Build()
+	require.NoError(t, engine.Initialize(t.Context()))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan *ExecutionResponse, 1)
+	errs := make(chan error, 1)
+	go func() {
+		response, err := engine.Execute(ctx, &ExecutionRequest{
+			Message:          "blocked force stop",
+			ModelID:          "test-model",
+			EphemeralSession: true,
+		})
+		done <- response
+		errs <- err
+	}()
+	<-sendStarted
+	cancel()
+	response, err := <-done, <-errs
+	require.NoError(t, err)
+	require.False(t, response.Success)
+	require.True(t, engine.retired.Load())
+
+	_, err = engine.Execute(t.Context(), &ExecutionRequest{Message: "later trial"})
+	require.ErrorContains(t, err, "retired after unresponsive cleanup")
+
+	close(releaseForce)
+	close(releaseSend)
+	require.NoError(t, engine.Shutdown(context.Background()))
 }
 
 func TestExecuteBoundsDisconnectAfterCanceledSend(t *testing.T) {

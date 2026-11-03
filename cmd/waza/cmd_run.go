@@ -1976,42 +1976,56 @@ func createOutcomeTempFile(path string) (*os.File, os.FileMode, error) {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	publishMode := os.FileMode(0)
+	hasPublishMode := false
 	if info, err := os.Stat(path); err == nil {
 		publishMode = info.Mode().Perm()
+		hasPublishMode = true
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, 0, err
 	}
 
+	if !hasPublishMode {
+		probe, err := createExclusiveOutcomeFile(dir, base+".mode", 0o644)
+		if err != nil {
+			return nil, 0, err
+		}
+		probePath := probe.Name()
+		info, statErr := probe.Stat()
+		closeErr := probe.Close()
+		removeErr := os.Remove(probePath)
+		if statErr != nil {
+			return nil, 0, statErr
+		}
+		if closeErr != nil {
+			return nil, 0, closeErr
+		}
+		if removeErr != nil {
+			return nil, 0, removeErr
+		}
+		publishMode = info.Mode().Perm()
+	}
+
+	file, err := createExclusiveOutcomeFile(dir, base, 0o600)
+	return file, publishMode, err
+}
+
+func createExclusiveOutcomeFile(dir, base string, mode os.FileMode) (*os.File, error) {
 	for range 100 {
 		var suffix [8]byte
 		if _, err := rand.Read(suffix[:]); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		tempPath := filepath.Join(dir, fmt.Sprintf(".%s.tmp-%x", base, suffix))
-		file, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		file, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 		if errors.Is(err, os.ErrExist) {
 			continue
 		}
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
-		if publishMode == 0 {
-			info, statErr := file.Stat()
-			if statErr != nil {
-				_ = file.Close()
-				_ = os.Remove(tempPath)
-				return nil, 0, statErr
-			}
-			publishMode = info.Mode().Perm()
-		}
-		if err := file.Chmod(0o600); err != nil {
-			_ = file.Close()
-			_ = os.Remove(tempPath)
-			return nil, 0, err
-		}
-		return file, publishMode, nil
+		return file, nil
 	}
-	return nil, 0, fmt.Errorf("allocate temporary outcome file for %s", path)
+	return nil, fmt.Errorf("allocate temporary outcome file for %s", filepath.Join(dir, base))
 }
 
 func savePartialOutcome(outcome *models.EvaluationOutcome, path string) error {
