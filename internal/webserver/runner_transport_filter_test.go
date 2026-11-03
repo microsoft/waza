@@ -43,6 +43,22 @@ func TestRunnerTransportRunFilter(t *testing.T) {
 
 func TestRunnerProductionTransportAdmissionFilters(t *testing.T) {
 	const root = "TestRunnerProductionTransportAdmission"
+	var instrumentedEntries int
+	if testing.CoverMode() != "" {
+		dir := t.TempDir()
+		profile := filepath.Join(dir, "baseline.txt")
+		// A no-test child identifies instrumentation without executing transport code.
+		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^$", "-test.gocoverdir="+dir, "-test.coverprofile="+profile)
+		command.Env = append(os.Environ(), runnerTransportActionEnv+"=")
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, "%s", output)
+		data, err := os.ReadFile(profile)
+		require.NoError(t, err)
+		var observed int
+		instrumentedEntries, observed, err = runnerTransportCoverageCounts(string(data), testing.CoverMode())
+		require.NoError(t, err)
+		require.Zero(t, observed, "instrumentation baseline must not execute transport code")
+	}
 	for _, tc := range []struct {
 		name, run, skip string
 		want            []string
@@ -90,33 +106,92 @@ func TestRunnerProductionTransportAdmissionFilters(t *testing.T) {
 					if covered {
 						data, err := os.ReadFile(profile)
 						require.NoError(t, err)
-						require.True(t, strings.HasPrefix(string(data), "mode: "+testing.CoverMode()+"\n"))
-						var transportEntries, observed int
-						for _, line := range strings.Split(string(data), "\n")[1:] {
-							fields := strings.Fields(line)
-							if len(fields) == 0 {
-								continue
-							}
-							require.Len(t, fields, 3)
-							if !strings.HasPrefix(fields[0], "github.com/microsoft/waza/internal/webserver/") {
-								continue
-							}
-							transportEntries++
-							count, err := strconv.ParseUint(fields[2], 10, 64)
-							require.NoError(t, err)
-							if count > 0 {
-								observed++
-							}
+						transportEntries, observed, err := runnerTransportCoverageCounts(string(data), testing.CoverMode())
+						require.NoError(t, err)
+						require.Equal(t, instrumentedEntries, transportEntries, "profile must retain the binary's transport instrumentation")
+						if instrumentedEntries == 0 {
+							t.Log("transport coverage unavailable: webserver was not instrumented; child emission checks still apply")
+							return
 						}
-						require.Positive(t, transportEntries, "profile must include transport-package instrumentation")
 						if len(tc.want) == 0 {
 							require.Zero(t, observed, "no selected action must execute production code")
 						} else {
 							require.Positive(t, observed, "selected child production coverage must reach the exported profile")
 						}
 					}
+
 				})
 			}
 		})
 	}
+}
+
+func runnerTransportCoverageCounts(profile, mode string) (transportEntries, observed int, err error) {
+	lines := strings.Split(profile, "\n")
+	if lines[0] != "mode: "+mode {
+		return 0, 0, fmt.Errorf("unexpected coverage mode: %q", lines[0])
+	}
+	location := regexp.MustCompile(`^.+:\d+\.\d+,\d+\.\d+$`)
+	var entries int
+	for _, line := range lines[1:] {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 3 || !location.MatchString(fields[0]) {
+			return 0, 0, fmt.Errorf("invalid coverage entry: %q", line)
+		}
+		if _, err := strconv.ParseUint(fields[1], 10, 64); err != nil {
+			return 0, 0, fmt.Errorf("parsing coverage statement count: %w", err)
+		}
+		count, err := strconv.ParseUint(fields[2], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("parsing coverage execution count: %w", err)
+		}
+		entries++
+		if strings.HasPrefix(fields[0], "github.com/microsoft/waza/internal/webserver/") {
+			transportEntries++
+			if count > 0 {
+				observed++
+			}
+		}
+	}
+	if entries == 0 {
+		return 0, 0, fmt.Errorf("instrumented coverage profile has no entries")
+	}
+	return transportEntries, observed, nil
+}
+
+func TestRunnerTransportCoverageCounts(t *testing.T) {
+	const transport = "github.com/microsoft/waza/internal/webserver/server.go:37.1,38.2 1 "
+	const other = "github.com/microsoft/waza/internal/runnercontract/negotiation.go:65.1,71.2 1 "
+	for _, tc := range []struct {
+		name, profile     string
+		entries, observed int
+		invalid           bool
+	}{
+		{"selected", transport + "2\n", 1, 1, false},
+		{"skipped", transport + "0\n", 1, 0, false},
+		{"other-only", other + "3\n", 0, 0, false},
+		{"broad", transport + "0\n" + other + "3\n", 1, 0, false},
+		{"near-namespace", strings.ReplaceAll(transport, "/webserver/", "/webserver-extra/") + "3\n", 0, 0, false},
+		{"empty", "", 0, 0, true},
+		{"malformed-location", "invalid 1 0\n", 0, 0, true},
+		{"malformed-statements", strings.ReplaceAll(other, " 1 ", " invalid ") + "0\n", 0, 0, true},
+		{"malformed-counter", other + "-1\n", 0, 0, true},
+		{"missing-counter", other, 0, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entries, observed, err := runnerTransportCoverageCounts("mode: atomic\n"+tc.profile, "atomic")
+			if tc.invalid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.entries, entries)
+			require.Equal(t, tc.observed, observed)
+		})
+	}
+	_, _, err := runnerTransportCoverageCounts("mode: set\n"+transport+"0\n", "atomic")
+	require.Error(t, err)
 }
