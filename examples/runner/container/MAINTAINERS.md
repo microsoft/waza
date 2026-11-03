@@ -52,6 +52,56 @@ change; no path-filtered success substitutes for execution evidence.
 Both push and pull-request filters explicitly retain the existing
 `examples/runner/unit.json` input and all nested `examples/runner/container/**`
 inputs, guarded by the script and documentation regression tests.
+The native control additionally selects `examples/runner/copilot-unit.json` and
+`.github/scripts/testdata/runner-runtime/**` on push and pull request.
+Docker push and pull-request checks select `main`. The temporary stacked-parent
+selector was removed after the native runner merged; final-head native Linux
+AMD64 evidence must be refreshed after reconciliation.
+Run
+`node --test examples/runner/container/native-test.mjs` as well as the unchanged
+mock harness. The Dockerfile's default final target remains the scratch reference;
+`synthetic-test` and `native-smoke` are explicit test targets, not published
+native deployment images. The former adds only the deterministic protocol peer;
+the latter uses pinned Alpine and the existing `internal/embedded` no-Send smoke.
+The build context admits only the peer's `main.go`/`main_test.go` and the specific embedded
+smoke test in addition to the existing production allowlist.
+
+All runtime controls disable networking and mount no credentials or source.
+Synthetic controls mount only a new empty RPC-log output directory; native
+smoke mounts nothing. Test-only logs are readable across container/host UIDs
+without granting other UIDs write access; no credentials or environment values
+are recorded. Run `node --test examples/runner/container/native-lifecycle.test.mjs`
+for deterministic pre-creation rejection, timeout and cleanup-failure controls.
+The harness preserves original Docker errors and reports cleanup failures
+separately. `docker create` returns an immutable ID directly through the owned
+subprocess stdout; the harness captures it once in memory and starts, inspects
+and removes only that ID, never its reusable name or a mutable cidfile.
+Unproven ownership reports potential
+residue for manual inspection rather than deleting a competing container.
+There is no ownership-directory or cidfile cleanup to race with filesystem
+replacement. Original execution and container-removal errors are aggregated;
+creation-time failure without a captured ID leaves potential residue explicitly
+unverified rather than deleting by name.
+Deterministic collision/replacement controls and an actual Docker name collision
+verify that existing containers survive failed admission.
+The peer's authentication, text and zero-usage responses
+are synthetic, not provider evidence. Assert all explicit context opt-outs,
+the required `session.options.update` before sending, and update rejection
+producing `infrastructure_failure`/`execute/create_failed` without `session.send`.
+Metrics remain identity-bound uncomputed metadata; success does not assert
+aggregate metric thresholds. Never relabel synthetic success as native runtime
+or live-provider assurance.
+
+The scratch reference must fail native startup with zero engine calls. The
+Alpine smoke must actually start the bundled CLI and pass its local-provider
+lifecycle with zero provider requests; it sends no inference prompt. This
+distinguishes missing native loader/dependencies from SDK protocol simulation.
+Runtime asset extraction also needs writable executable cache storage: the
+mock harness's 32 MiB `noexec` tmpfs is unsuitable; 256 MiB proved insufficient
+for the current bundle and the native test uses 1 GiB (not an exact minimum).
+Record the actual architecture, image IDs and outcomes; no other platform is
+proved by cross-compilation or emulation.
+
 The site workflow's main-push paths and PR `site` filter also select
 `.github/workflows/docker-ci.yml`, so workflow-only changes execute the prebuild
 guard. Discovery mutation controls reject removing either site selector.
