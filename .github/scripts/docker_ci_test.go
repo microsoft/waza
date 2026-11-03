@@ -23,17 +23,24 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 	if !strings.Contains(component, `import example from "../../../examples/runner/unit.json";`) {
 		t.Fatal("runner selection example import changed; update the Docker build-input contract")
 	}
-	dockerfile := read("Dockerfile")
+	dockerfile := read("examples/runner/container/Dockerfile")
 	copyLine := "COPY examples/runner/unit.json /build/examples/runner/unit.json\n"
 	copyIndex := strings.Index(dockerfile, copyLine)
 	buildIndex := strings.Index(dockerfile, "RUN npm run build\n")
 	if copyIndex < 0 || buildIndex < 0 || copyIndex >= buildIndex {
 		t.Fatal("Docker web-builder must copy the runner example before building the dashboard")
 	}
+	if !strings.Contains(dockerfile, "AS native-reference") || !strings.Contains(dockerfile, "AS native-bundle-test") {
+		t.Fatal("runner Dockerfile must distinguish the native reference from its test-only harness")
+	}
 	ignore := read(".dockerignore")
-	admission := "!examples/\nexamples/*\n!examples/runner/\nexamples/runner/*\n!examples/runner/unit.json\n"
+	admission := "!examples/\nexamples/*\n!examples/runner/\nexamples/runner/*\n!examples/runner/unit.json\n!examples/runner/copilot-unit.json\n"
 	if !strings.Contains(ignore, admission) {
 		t.Fatal("Docker context must admit the runner example and its parents without including other examples")
+	}
+	if !strings.Contains(ignore, "!.github/scripts/testdata/native-bundle-probe/harness/main.go") ||
+		!strings.Contains(ignore, "!.github/scripts/testdata/native-bundle-probe/positive/main.go") {
+		t.Fatal("Docker context must explicitly admit both native bundle probe sources")
 	}
 	if data := read("examples/runner/unit.json"); len(data) == 0 {
 		t.Fatal("runner example is empty")
@@ -50,7 +57,11 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 		if !slices.Contains(triggers[event]["paths"], "examples/runner/container/**") {
 			t.Errorf("%s must select changes to nested runner container inputs", event)
 		}
-		for _, path := range []string{"examples/runner/copilot-unit.json", ".github/scripts/testdata/runner-runtime/**"} {
+		for _, path := range []string{
+			"examples/runner/copilot-unit.json",
+			".github/scripts/testdata/runner-runtime/**",
+			".github/scripts/testdata/native-bundle-probe/**",
+		} {
 			if !slices.Contains(triggers[event]["paths"], path) {
 				t.Errorf("%s must select native container input %s", event, path)
 			}
@@ -60,18 +71,40 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 	if err := checkDockerRunnerBranches([]byte(workflow)); err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range []string{"push", "pull_request"} {
-		t.Run(event+"-main-target-removal", func(t *testing.T) {
-			selector := event + ":\n    branches: [main]"
-			mutated := strings.Replace(workflow, selector, event+":\n    branches: []", 1)
-			if mutated == workflow {
-				t.Fatal("mutation did not remove the main selector")
-			}
-			if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
-				t.Fatal("removing main must fail Docker discovery validation")
-			}
-		})
+	if !strings.Contains(workflow, "run: node --test examples/runner/container/native-bundle-test.mjs") {
+		t.Fatal("Docker CI must execute actual bundled-runtime container controls")
 	}
+	t.Run("push-main-removal", func(t *testing.T) {
+		mutated := strings.Replace(workflow, "push:\n    branches: [main]", "push:\n    branches: []", 1)
+		if mutated == workflow {
+			t.Fatal("mutation did not remove the push main selector")
+		}
+		if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
+			t.Fatal("removing main from Docker push discovery must fail")
+		}
+	})
+	t.Run("pull-request-main-removal", func(t *testing.T) {
+		mutated := strings.Replace(workflow,
+			"pull_request:\n    branches: [main]",
+			"pull_request:\n    branches: []", 1)
+		if mutated == workflow {
+			t.Fatal("mutation did not remove main from the pull request selector")
+		}
+		if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
+			t.Fatal("removing main from Docker pull request discovery must fail")
+		}
+	})
+	t.Run("temporary-parent-rejected", func(t *testing.T) {
+		mutated := strings.Replace(workflow,
+			"pull_request:\n    branches: [main]",
+			"pull_request:\n    branches: [main, spboyer-native-container-integration]", 1)
+		if mutated == workflow {
+			t.Fatal("mutation did not add the retired native image stacked-parent selector")
+		}
+		if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
+			t.Fatal("the retired native image stacked parent must fail Docker discovery validation")
+		}
+	})
 	if !strings.Contains(workflow, "run: node --test examples/runner/container/native-test.mjs") {
 		t.Fatal("Docker CI must execute native production-boundary controls")
 	}
@@ -85,8 +118,10 @@ func checkDockerRunnerBranches(source []byte) error {
 	if !slices.Equal(triggers["push"]["branches"], []string{"main"}) {
 		return fmt.Errorf("Docker pushes must remain limited to main")
 	}
-	if !slices.Equal(triggers["pull_request"]["branches"], []string{"main"}) {
-		return fmt.Errorf("Docker pull requests must select main")
+	if !slices.Equal(triggers["pull_request"]["branches"], []string{
+		"main",
+	}) {
+		return fmt.Errorf("Docker pull requests must select main only")
 	}
 	return nil
 }
