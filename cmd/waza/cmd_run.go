@@ -1946,7 +1946,7 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 		return err
 	}
 	tempPath := file.Name()
-	defer os.Remove(tempPath)
+	defer func() { _ = os.Remove(tempPath) }()
 	if err := file.Chmod(0o644); err != nil {
 		_ = file.Close()
 		return err
