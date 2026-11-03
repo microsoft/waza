@@ -62,6 +62,7 @@ type EvalRunner struct {
 	evidenceExecutor graders.Executor
 	verbose          bool
 	controlledOutput func(string)
+	usesEvalMCP      bool
 
 	// newClassifier builds a responder classifier for a task. Overridable in
 	// tests; defaults to a responder backed by the runner's engine.
@@ -152,6 +153,14 @@ type ProgressEvent struct {
 
 // RunnerOption configures a EvalRunner.
 type RunnerOption func(*EvalRunner)
+
+// WithSupplementalEvalMCP admits eval mocks needed by phases outside the benchmark.
+// Standalone runners default to admitting only selected-task dependencies.
+func WithSupplementalEvalMCP(enabled bool) RunnerOption {
+	return func(r *EvalRunner) {
+		r.usesEvalMCP = enabled
+	}
+}
 
 // WithTaskFilters sets glob patterns used to filter test cases by DisplayName or TestID.
 func WithTaskFilters(patterns ...string) RunnerOption {
@@ -692,7 +701,7 @@ func AdmitEvalMCPMocksForPhases(cfg *config.EvalConfig, taskFilters, tagFilters 
 }
 
 func (r *EvalRunner) admitEvalMCPMocks() error {
-	return r.admitMCPMocksForPhases(false)
+	return r.admitMCPMocksForPhases(r.usesEvalMCP)
 }
 
 func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {

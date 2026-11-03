@@ -66,12 +66,13 @@ func shortWaitDelay(t *testing.T) {
 func TestExecuteCanceledHookWithDescendantHoldingPipesReturnsPromptly(t *testing.T) {
 	shortWaitDelay(t)
 	marker := t.TempDir() + string(os.PathSeparator) + "started"
+	command := pipeHookCommand(t, "wait", marker)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
 	start := time.Now()
 	go func() {
-		done <- (&Runner{}).Execute(ctx, "after_run", []HookConfig{{Command: pipeHookCommand(t, "wait", marker), ErrorOnFail: true}})
+		done <- (&Runner{}).Execute(ctx, "after_run", []HookConfig{{Command: command, ErrorOnFail: true}})
 	}()
 	require.Eventually(t, func() bool { _, err := os.Stat(marker); return err == nil }, 30*time.Second, 20*time.Millisecond)
 	cancel()
@@ -89,9 +90,10 @@ func TestExecuteCanceledHookWithDescendantHoldingPipesReturnsPromptly(t *testing
 func TestExecuteSuccessfulHookWithBackgroundDescendantReturns(t *testing.T) {
 	shortWaitDelay(t)
 	marker := t.TempDir() + string(os.PathSeparator) + "started"
+	command := pipeHookCommand(t, "exit", marker)
 	done := make(chan error, 1)
 	go func() {
-		done <- (&Runner{}).Execute(context.Background(), "after_run", []HookConfig{{Command: pipeHookCommand(t, "exit", marker), ErrorOnFail: true}})
+		done <- (&Runner{}).Execute(context.Background(), "after_run", []HookConfig{{Command: command, ErrorOnFail: true}})
 	}()
 	select {
 	case err := <-done:

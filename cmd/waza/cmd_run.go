@@ -810,8 +810,8 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	if triggerErr != nil {
 		triggerErr = fmt.Errorf("loading trigger tests: %w", triggerErr)
 	}
-	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters,
-		triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType))
+	usesEvalMCP := triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType)
+	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, usesEvalMCP)
 	if err := errors.Join(triggerErr, admissionErr); err != nil {
 		return nil, err
 	}
@@ -844,6 +844,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	runnerOpts := []orchestration.RunnerOption{
 		orchestration.WithTaskFilters(taskFilters...),
 		orchestration.WithTagFilters(tagFilters...),
+		orchestration.WithSupplementalEvalMCP(usesEvalMCP),
 	}
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))

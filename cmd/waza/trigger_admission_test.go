@@ -184,6 +184,147 @@ mcp_mocks:
 	}
 }
 
+type triggerFixtureMutationEngine struct {
+	*triggerConfigCapture
+	initializations int
+	mutateAt        int
+	fixturePath     string
+	stagedPath      string
+}
+
+func (e *triggerFixtureMutationEngine) Initialize(ctx context.Context) error {
+	e.initializations++
+	if e.initializations == e.mutateAt {
+		if err := os.WriteFile(e.fixturePath, []byte("{"), 0o600); err != nil {
+			return fmt.Errorf("invalidating trigger fixture during initialization: %w", err)
+		}
+	}
+	return e.MockEngine.Initialize(ctx)
+}
+
+func (e *triggerFixtureMutationEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	response, err := e.triggerConfigCapture.Execute(ctx, req)
+	if err == nil && e.stagedPath != "" && req.Message == "task probe" {
+		err = os.WriteFile(e.stagedPath, []byte("{"), 0o600)
+		if err != nil {
+			err = fmt.Errorf("staging invalid trigger fixture for the next setup: %w", err)
+		}
+	}
+	return response, err
+}
+
+func TestRunCommandReadmitsChangedTriggerOnlyFixtures(t *testing.T) {
+	for _, mode := range []string{"valid", "cli-initialize", "runner-initialize", "second-baseline-setup", "unused"} {
+		t.Run(mode, func(t *testing.T) {
+			resetRunGlobals()
+			dir := t.TempDir()
+			fixtures := filepath.Join(dir, "fixtures")
+			require.NoError(t, os.Mkdir(fixtures, 0o700))
+			fixture := filepath.Join(fixtures, "ask_user.json")
+			validFixture := []byte(`{"responses":[{"return":{"answer":"eval"}}]}`)
+			require.NoError(t, os.WriteFile(fixture, validFixture, 0o600))
+			eval := `schemaVersion: "1.1"
+name: changed-trigger-fixtures
+skill: example
+config: {executor: copilot-sdk, model: test, trials_per_task: 1, timeout_seconds: 10}
+metrics: []
+tasks: [task.yaml]
+mcp_mocks:
+  - name: host
+    fixtures: fixtures
+`
+			log := filepath.Join(dir, "hooks.log")
+			eval += "hooks:\n  before_run:\n    - command: '" +
+				cliHookCommand(t, "append", log, "before") + "'\n      error_on_fail: true\n"
+			engine := &triggerFixtureMutationEngine{
+				triggerConfigCapture: &triggerConfigCapture{MockEngine: execution.NewMockEngine("test")},
+				fixturePath:          fixture,
+			}
+			switch mode {
+			case "cli-initialize", "unused":
+				engine.mutateAt = 1
+			case "runner-initialize":
+				engine.mutateAt = 2
+			case "second-baseline-setup":
+				engine.stagedPath = filepath.Join(dir, "staged.json")
+				require.NoError(t, os.WriteFile(engine.stagedPath, validFixture, 0o600))
+				eval += "    - command: '" + cliHookCommand(t, "copy", engine.stagedPath, fixture) +
+					"'\n      error_on_fail: true\n"
+				skills := filepath.Join(dir, "skills", "example")
+				require.NoError(t, os.MkdirAll(skills, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(skills, "SKILL.md"),
+					[]byte("---\nname: example\ndescription: An admission test skill.\n---\nAnswer the prompt.\n"), 0o600))
+				eval = strings.Replace(eval, "timeout_seconds: 10}", "timeout_seconds: 10, skill_directories: [skills]}", 1)
+			}
+			eval += "  after_run:\n    - command: '" + cliHookCommand(t, "append", log, "after") +
+				"'\n      error_on_fail: true\n"
+			spec, output := filepath.Join(dir, "eval.yaml"), filepath.Join(dir, "results.json")
+			require.NoError(t, os.WriteFile(spec, []byte(eval), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(triggerAdmissionTask), 0o600))
+			if mode != "unused" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "trigger_tests.yaml"), []byte(admissionTrigger), 0o600))
+			}
+			previous := newRunEngine
+			t.Cleanup(func() { newRunEngine = previous })
+			newRunEngine = func(models.Config) (execution.AgentEngine, error) { return engine, nil }
+			args := []string{spec, "--context-dir", dir, "--output", output, "--skip-graders"}
+			if mode == "second-baseline-setup" {
+				args = append(args, "--baseline")
+			} else {
+				args = append(args, "--no-skills")
+			}
+			cmd := newRunCommand()
+			cmd.SetArgs(args)
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err := cmd.Execute()
+			hookData, hookErr := os.ReadFile(log)
+			require.NoError(t, hookErr)
+			expectedHooks := "before\nafter\n"
+			if mode == "second-baseline-setup" {
+				expectedHooks += "before\nafter\n"
+			}
+			require.Equal(t, expectedHooks, string(hookData))
+			for _, readErr := range engine.readErrs {
+				require.NoError(t, readErr)
+			}
+			if mode != "valid" {
+				data, readErr := os.ReadFile(fixture)
+				require.NoError(t, readErr)
+				require.Equal(t, "{", string(data), "setup must actually invalidate the trigger-only fixture")
+			}
+			if mode == "valid" || mode == "unused" {
+				require.NoError(t, err)
+				expected := []string{"task", "eval"}
+				if mode == "unused" {
+					expected = []string{"task"}
+				}
+				require.Equal(t, expected, engine.answers)
+				data, readErr := os.ReadFile(output)
+				require.NoError(t, readErr)
+				var outcome models.EvaluationOutcome
+				require.NoError(t, json.Unmarshal(data, &outcome))
+				require.Len(t, outcome.TestOutcomes, 1)
+				if mode == "valid" {
+					require.Len(t, outcome.TriggerResults, 1)
+					require.Equal(t, "trigger probe", outcome.TriggerResults[0].Prompt)
+				} else {
+					require.Empty(t, outcome.TriggerResults)
+				}
+				return
+			}
+			require.ErrorContains(t, err, "MCP mock admission")
+			require.ErrorContains(t, err, "ask_user.json")
+			expected := []string(nil)
+			if mode == "second-baseline-setup" {
+				expected = []string{"task"}
+			}
+			require.Equal(t, expected, engine.answers, "reject changed trigger fixtures before starting this pass's tasks")
+			require.NoFileExists(t, output)
+		})
+	}
+}
+
 func (e *triggerConfigCapture) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	cfg, ok := req.MCPServers["host"].(copilot.MCPStdioServerConfig)
 	if !ok || len(cfg.Args) == 0 {

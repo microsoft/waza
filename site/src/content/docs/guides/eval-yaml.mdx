@@ -1402,7 +1402,7 @@ hooks:
 | `before_task` | Before each individual task               |
 | `after_task`  | After each individual task                |
 
-`before_run` runs before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets. The runner repeats admission after engine initialization and after each new pass's setup, returning detected configuration errors before task execution without repeating hooks. In `--baseline` mode each pass runs `before_run`, MCP admission, and `after_run`, including when the second pass generates changed task or fixture files. If the run is interrupted (Ctrl+C), `after_run` still runs once, for at most one minute.
+`before_run` runs before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets. The runner repeats admission after engine initialization and after each new pass's setup, retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. In `--baseline` mode each pass runs `before_run`, MCP admission, and `after_run`, including when the second pass generates changed task or fixture files. If the run is interrupted (Ctrl+C), `after_run` still runs once, for at most one minute.
 
 Each hook entry:
 
