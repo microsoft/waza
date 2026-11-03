@@ -46,5 +46,8 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 		if !slices.Contains(triggers[event]["paths"], "examples/runner/unit.json") {
 			t.Errorf("%s must select changes to the runner example", event)
 		}
+		if !slices.Contains(triggers[event]["paths"], "examples/runner/container/**") {
+			t.Errorf("%s must select changes to nested runner container inputs", event)
+		}
 	}
 }

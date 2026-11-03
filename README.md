@@ -304,6 +304,11 @@ The task entry must be eval-relative, and successful adaptation passes shared
 offline admission within the complete 4 MiB emitted-byte limit.
 See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
 
+The [local container reference](site/src/content/docs/guides/runner-container.mdx)
+builds and exercises this mock/text profile with local JSON input/output and
+no runtime network. It is not a published v0.40.0 image; native execution and
+published-image acceptance remain separate work under #762.
+
 ### `waza preflight <eval.yaml>`
 
 Inspect eval setup **offline and agent-free** before execution:

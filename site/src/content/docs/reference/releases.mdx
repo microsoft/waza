@@ -39,11 +39,13 @@ Run `waza update` to upgrade an existing standalone installation.
 The following guides describe merged source-build behavior, not a published
 v0.40.0 release: the [runner contract and exact work-unit guide](../../guides/runner-contract/),
 [logical identities](../../guides/runner-identities/),
-[terminal outcomes](../../guides/runner-terminal/), and
-[local compatibility and migration](../../guides/runner-compatibility/).
+[terminal outcomes](../../guides/runner-terminal/),
+[local compatibility and migration](../../guides/runner-compatibility/), and the
+[local container foundation](../../guides/runner-container/).
 Runner execution is limited to the documented mock/text profile; native runner
-execution, the runner container reference and the external schema adapter are
-not available. See [roadmap #754](https://github.com/microsoft/waza/issues/754)
+execution and the external schema adapter are not available. The container
+foundation builds locally; pinned published-image acceptance remains outstanding.
+See [roadmap #754](https://github.com/microsoft/waza/issues/754)
 for the remaining release requirements.
 
 The source preview also includes [task-level MCP mocks](../../guides/eval-yaml/#task-level-mcp-mocks),
