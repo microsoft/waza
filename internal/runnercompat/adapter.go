@@ -13,6 +13,7 @@ import (
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"gopkg.in/yaml.v3"
 )
@@ -170,6 +171,9 @@ func validateChecks(spec *models.EvalSpec, task *models.TestCase) error {
 		if strings.TrimSpace(name) == "" || strings.HasPrefix(name, "_") || seen[name] {
 			return fmt.Errorf("grader %q needs a unique nonblank name without the reserved '_' prefix", name)
 		}
+		if len(name) > runnerterminal.MaxIdentifierBytes {
+			return fmt.Errorf("grader name exceeds the terminal limit of %d UTF-8 bytes", runnerterminal.MaxIdentifierBytes)
+		}
 		seen[name] = true
 		if len(text.Contains)+len(text.NotContains)+len(text.ContainsCS)+len(text.NotContainsCS)+len(text.RegexMatch)+len(text.RegexNotMatch) == 0 {
 			return fmt.Errorf("text grader %q must declare a check", name)
@@ -199,6 +203,9 @@ func validateChecks(spec *models.EvalSpec, task *models.TestCase) error {
 	}
 	if count == 0 {
 		diagnostics = append(diagnostics, fmt.Errorf("at least one builtin text grader or expected-output assertion is required"))
+	}
+	if count > runnerterminal.MaxGraders {
+		diagnostics = append(diagnostics, fmt.Errorf("combined eval/task graders and expectation groups exceed the terminal limit of %d graders", runnerterminal.MaxGraders))
 	}
 	return errors.Join(diagnostics...)
 }

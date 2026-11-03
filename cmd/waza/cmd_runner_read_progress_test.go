@@ -30,7 +30,7 @@ import (
 
 const runnerReadProgressSize = (2 << 20) + 1
 const runnerReadProgressPrefix = "WAZA_TEST_STDIN_PROGRESS/"
-const runnerReadProgressOriginalSHA256 = "cd17c9e7da436c66052f666b3ab609bb199e327965f0b11dbf7afc18d081da7e"
+const runnerReadProgressOriginalSHA256 = "62934ad12d6e4c4751f4bda278b6c1d0ee2e75e9823dba409aea2584bdd4920b"
 
 // Sharing OS-independent process ownership lets portable fixtures run
 // the same sole-Wait/copy/cleanup path as the native Windows controller.
@@ -699,7 +699,7 @@ func TestRunnerTerminalReadProgressCheckout(t *testing.T) {
 				}
 				require.Equal(t, expected, physical)
 				if autocrlf {
-					require.Equal(t, "9b71e2ed723b093d707ac6a2952310b2ae3d28d62f412856aae2e4934196dd80",
+					require.Equal(t, "0b65da8b09adae5c8a6a8b586c05eb1959512cb8d0287e9426c71f875a2d4272",
 						fmt.Sprintf("%x", sha256.Sum256(physical)))
 				}
 				t.Chdir(directory)

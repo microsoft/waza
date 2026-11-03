@@ -21,8 +21,8 @@ permission to remove the unsupported declaration.
 | Execution | Explicit `config.executor: mock` and nonblank `config.model`; one task, one trial, one attempt. `max_attempts` omitted/0/1 retains the local effective single-attempt default. |
 | Skills | `skill` must be empty/omitted. Legacy suites must disable ambient skills with `disabled_skills: ["*"]`. Scenario suites can use native scenario no-skill resolution. Empty/null/omitted skill-directory lists are retained; populated paths are rejected. `inject_skill_body: true` is rejected. |
 | Task availability | Omitted/null `enabled` inherits true; explicit true is supported. False is rejected because the local command would skip the task rather than execute it. |
-| Deadline | Effective task `timeout_seconds` overrides eval timeout; omitted/null task timeout inherits. Effective timeout must be 1..86400 seconds. The optional `--timeout-ms` asserts the same deadline, not a new shorter timeout. |
-| Assertions | Builtin text graders at eval and task scopes and `expected.output_contains`, `output_not_contains`, `output_contains_any`. Names must be unique across both scopes without the reserved `_` prefix. At least one check is required; invalid regexes and blank expected-output assertions fail before execution. |
+| Deadline | Effective task `timeout_seconds` overrides eval timeout; omitted/null task timeout inherits. Effective timeout must be 1..86400 seconds. Local `run --runner-compat` retains the native execution-only budget; grading may finish later unless the caller cancels. External `runner run` retains its end-to-end request deadline. The optional `--timeout-ms` asserts the captured timeout, not a new shorter timeout. |
+| Assertions | Builtin text graders at eval and task scopes and `expected.output_contains`, `output_not_contains`, `output_contains_any`. Names must be unique across both scopes without the reserved `_` prefix and at most 256 UTF-8 bytes. The combined count is at most 128, including one result per populated expectation group. At least one check is required; invalid regexes and blank expected-output assertions fail before execution. |
 | Source fidelity | UTF-8 bytes, including LF/CRLF, comments, explicit values and ordering, are preserved inside `input.eval` and `input.task`. No YAML reserialization or source rewriting. |
 | Runner transport | Request 1.0 JSON, required capabilities `exact-unit` and `inline.mock-text`, no optional capabilities and `allow_paid_execution: false`. Invocation-local #758 reports are not terminal #760 envelopes. |
 
@@ -67,6 +67,9 @@ entry and unsupported flags before execution. Only `--output`, `--no-summary`,
 flags fail even when set to their default or false values. `--no-summary` is
 accepted because this single-suite path never creates a combined summary.
 No automatic upload or alternate output publication occurs.
+Bare skill-name operands are rejected, matching ordinary `run` routing: use
+`./suite` to select an extensionless local file, or remove `--runner-compat`
+for skill lookup. A same-named local file is never silently selected.
 
 The local output remains `EvaluationOutcome` schema 1.7 with historical eval/task
 IDs, statistics, grader details and unavailable usage. Generated run/session IDs,
@@ -77,6 +80,8 @@ observed attempt, lifecycle or output error). An observed execution error keeps
 the native run `error` status and failed-task aggregate, including cancellation
 observed during the attempt. The external runner's typed failure and 0-6
 transport taxonomy remain separate.
+Diagnostics, summaries and saved-output confirmations all detect short writes
+as output errors. A failed confirmation does not remove an already saved result.
 
 **After, explicitly choosing the external boundary instead:**
 

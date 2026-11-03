@@ -92,33 +92,136 @@ func TestRunnerCompatPreservesObservedExecutionErrorArtifact(t *testing.T) {
 func TestRunnerCompatPropagatesOutputWriterFailures(t *testing.T) {
 	for _, executionFailure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "saved confirmation", true: "execution diagnostic"}[executionFailure], func(t *testing.T) {
-			evalPath, _, _, _ := adapterCommandInputs(t)
-			directory := filepath.Dir(evalPath)
-			t.Chdir(directory)
-			if executionFailure {
-				blocked := filepath.Join(directory, "not-a-temporary-directory")
-				require.NoError(t, os.WriteFile(blocked, nil, 0o600))
-				for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
-					t.Setenv(key, blocked)
-				}
+			for _, mode := range []string{"error", "short", "complete"} {
+				t.Run(mode, func(t *testing.T) {
+					resetRunGlobals()
+					t.Cleanup(resetRunGlobals)
+					evalPath, _, _, _ := adapterCommandInputs(t)
+					directory := filepath.Dir(evalPath)
+					t.Chdir(directory)
+					if executionFailure {
+						blocked := filepath.Join(directory, "not-a-temporary-directory")
+						require.NoError(t, os.WriteFile(blocked, nil, 0o600))
+						for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+							t.Setenv(key, blocked)
+						}
+					}
+					output := filepath.Join(directory, "result.json")
+					sentinel := errors.New("local stdout unavailable")
+					cmd := newRootCommand()
+					cmd.SetArgs([]string{"run", evalPath, "--runner-compat", "--output", output})
+					writer := &adapterMessageWriter{target: "Results saved to:", mode: mode, err: sentinel}
+					if executionFailure {
+						writer.target = "[ERROR]"
+					}
+					cmd.SetOut(writer)
+					cmd.SetErr(io.Discard)
+					err := cmd.Execute()
+					require.Equal(t, 1, writer.matches, "only the selected production message exercises this writer")
+					if mode == "complete" {
+						if executionFailure {
+							var failed *TestFailureError
+							require.ErrorAs(t, err, &failed)
+						} else {
+							require.NoError(t, err)
+						}
+						require.Contains(t, writer.String(), " BENCHMARK RESULTS\n")
+					} else {
+						want := sentinel
+						if mode == "short" {
+							want = io.ErrShortWrite
+						}
+						require.ErrorIs(t, err, want)
+						var failed *TestFailureError
+						require.False(t, errors.As(err, &failed), "output loss must not use exit 1")
+						var exit *ExitCodeError
+						require.False(t, errors.As(err, &exit), "main must retain its default exit 2")
+					}
+					if executionFailure && mode != "complete" {
+						_, statErr := os.Stat(output)
+						require.ErrorIs(t, statErr, os.ErrNotExist)
+						require.NotContains(t, writer.String(), " BENCHMARK RESULTS\n")
+					} else {
+						outcome, loadErr := models.LoadEvaluationOutcome(output)
+						require.NoError(t, loadErr, "failed confirmation does not undo a saved artifact")
+						require.Len(t, outcome.TestOutcomes, 1)
+						require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+						if executionFailure {
+							require.Equal(t, models.StatusError, outcome.TestOutcomes[0].Runs[0].Status)
+						} else {
+							require.Equal(t, 1, outcome.Digest.Succeeded)
+						}
+					}
+				})
 			}
-			output := filepath.Join(directory, "result.json")
-			sentinel := errors.New("local stdout unavailable")
+		})
+	}
+}
+
+type adapterMessageWriter struct {
+	bytes.Buffer
+	target, mode string
+	err          error
+	matches      int
+}
+
+func (w *adapterMessageWriter) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte(w.target)) {
+		w.matches++
+		switch w.mode {
+		case "error":
+			return 0, w.err
+		case "short":
+			return w.Buffer.Write(p[:len(p)/2])
+		}
+	}
+	return w.Buffer.Write(p)
+}
+
+func (w *adapterMessageWriter) WriteString(p string) (int, error) {
+	return w.Write([]byte(p))
+}
+
+func TestRunnerCompatRequiresPathInsteadOfSkillName(t *testing.T) {
+	evalPath, _, eval, _ := adapterCommandInputs(t)
+	t.Chdir(filepath.Dir(evalPath))
+	require.NoError(t, os.WriteFile("suite", eval, 0o600))
+	for _, control := range []struct {
+		operand string
+		reject  bool
+	}{
+		{"suite", true},
+		{"./suite", false},
+		{evalPath, false},
+		{"custom-suite.yaml", false},
+	} {
+		t.Run(control.operand, func(t *testing.T) {
+			resetRunGlobals()
+			t.Cleanup(resetRunGlobals)
+			output := filepath.Join(t.TempDir(), "outcome.json")
 			cmd := newRootCommand()
-			cmd.SetArgs([]string{"run", evalPath, "--runner-compat", "--output", output})
-			if executionFailure {
-				cmd.SetOut(adapterBrokenWriter{sentinel})
-			} else {
-				cmd.SetOut(&adapterConfirmationBrokenWriter{err: sentinel})
-			}
+			cmd.SetArgs([]string{"run", control.operand, "--runner-compat", "--output", output})
+			cmd.SetOut(io.Discard)
 			cmd.SetErr(io.Discard)
-			require.ErrorIs(t, cmd.Execute(), sentinel)
-			_, err := os.Stat(output)
-			if executionFailure {
+			err := cmd.Execute()
+			if control.reject {
+				require.ErrorContains(t, err, `not skill name "suite"`)
+				require.ErrorContains(t, err, "./suite")
+				_, err = os.Stat(output)
 				require.ErrorIs(t, err, os.ErrNotExist)
-			} else {
-				require.NoError(t, err, "failed confirmation does not undo a saved artifact")
+				paths, resolveErr := resolveSpecPaths([]string{control.operand})
+				require.Error(t, resolveErr, "ordinary run must not select the same-named local file")
+				require.Empty(t, paths)
+				return
 			}
+			require.NoError(t, err)
+			outcome, err := models.LoadEvaluationOutcome(output)
+			require.NoError(t, err)
+			require.Equal(t, 1, outcome.Digest.Succeeded)
+			require.Len(t, outcome.TestOutcomes, 1)
+			require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+			require.Equal(t, "Mock response for: hello\nTask: Selected task\nDescription: Frozen local mock/text control",
+				outcome.TestOutcomes[0].Runs[0].FinalOutput)
 		})
 	}
 }
@@ -291,17 +394,6 @@ func TestRunnerCompatSummaryFailureProcessExit(t *testing.T) {
 	require.ErrorAs(t, err, &exit)
 	require.Equal(t, ExitError, exit.ExitCode(), string(output))
 	require.Contains(t, string(output), "printing local runner summary:")
-}
-
-type adapterConfirmationBrokenWriter struct {
-	err error
-}
-
-func (w *adapterConfirmationBrokenWriter) Write(p []byte) (int, error) {
-	if bytes.Contains(p, []byte("Results saved to:")) {
-		return 0, w.err
-	}
-	return len(p), nil
 }
 
 type adapterPartialWriter struct{ err error }

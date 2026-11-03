@@ -438,6 +438,32 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 	requireReceiptSchema(t, report)
 }
 
+func TestRunLocalPreservesCallerCancellation(t *testing.T) {
+	for _, phase := range []string{"before startup", "during factory"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			calls := 0
+			service := NewService(func(models.Config) (execution.AgentEngine, error) {
+				calls++
+				cancel()
+				return execution.NewMockEngine("mock"), nil
+			})
+			if phase == "before startup" {
+				cancel()
+			}
+			outcome, err := service.RunLocal(ctx, wire(t, fixture(t)))
+			require.ErrorIs(t, err, context.Canceled)
+			require.Nil(t, outcome, "cancellation must not manufacture a local success artifact")
+			if phase == "before startup" {
+				require.Zero(t, calls)
+			} else {
+				require.Equal(t, 1, calls)
+			}
+		})
+	}
+}
+
 func TestFactoryMutationAndCancellation(t *testing.T) {
 	for _, control := range []string{"mutation", "cancellation"} {
 		t.Run(control, func(t *testing.T) {

@@ -158,10 +158,28 @@ func TestRunnerTerminalAdmittedFailureKeepsConnection(t *testing.T) {
 
 type terminalDeadlineFailure struct {
 	http.ResponseWriter
-	writes int
+	writes      int
+	bodyCalls   int
+	headerCalls int
+	flushCalls  int
 }
 
 func (w *terminalDeadlineFailure) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *terminalDeadlineFailure) Write(data []byte) (int, error) {
+	w.bodyCalls++
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *terminalDeadlineFailure) WriteHeader(status int) {
+	w.headerCalls++
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *terminalDeadlineFailure) FlushError() error {
+	w.flushCalls++
+	return http.NewResponseController(w.ResponseWriter).Flush()
+}
 
 func (w *terminalDeadlineFailure) SetWriteDeadline(deadline time.Time) error {
 	w.writes++
@@ -171,35 +189,35 @@ func (w *terminalDeadlineFailure) SetWriteDeadline(deadline time.Time) error {
 	return http.NewResponseController(w.ResponseWriter).SetWriteDeadline(deadline)
 }
 
-func TestRunnerTerminalLateOutputFailureRetainsObservation(t *testing.T) {
+func TestRunnerTerminalLateOutputFailureAbortsTransport(t *testing.T) {
+	testRunnerTerminalLateOutputFailure(t, 1)
+}
+
+func testRunnerTerminalLateOutputFailure(t *testing.T, protocol int) {
+	t.Helper()
 	request, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
-	admitted := runnerunit.Validate(request)
-	require.NotNil(t, admitted.Identity)
-	binding := &runnerterminal.Binding{Selection: *admitted.Resolved, Identity: admitted.Identity,
-		GraderIDs: []string{"_output_contains"}}
+	var factories atomic.Int32
 	mux := http.NewServeMux()
-	RegisterRunnerRoutes(mux)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mux.ServeHTTP(&terminalDeadlineFailure{ResponseWriter: w}, r)
+	RegisterRunnerRoutesWithService(mux, runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+		factories.Add(1)
+		return execution.NewMockEngine("mock"), nil
 	}))
-	defer server.Close()
+	finished := make(chan *terminalDeadlineFailure, 1)
+	server := terminalProtocolServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		output := &terminalDeadlineFailure{ResponseWriter: w}
+		defer func() { finished <- output }()
+		mux.ServeHTTP(output, r)
+	}), protocol)
 	response, err := server.Client().Post(server.URL+"/api/v1/runner/run", "application/json", bytes.NewReader(request))
-	require.NoError(t, err)
-	body, err := io.ReadAll(response.Body)
-	require.NoError(t, err)
-	require.NoError(t, response.Body.Close())
-	require.Equal(t, http.StatusInternalServerError, response.StatusCode)
-	require.Equal(t, "2", response.Header.Get("X-Waza-Exit-Code"))
-	envelope, err := runnerterminal.Validate(body, binding)
-	require.NoError(t, err, "%s", body)
-	require.Equal(t, runnerterminal.InfrastructureFailure, envelope.Outcome)
-	require.Equal(t, "output", envelope.FailureBoundary)
-	require.Equal(t, binding.Identity, envelope.Identity)
-	require.Equal(t, "passed", envelope.Observation.Status)
-	require.Equal(t, 1, envelope.EngineCalls)
-	require.Contains(t, envelope.Diagnostics[0].Message, "after outcome success")
-	require.Equal(t, 1, bytes.Count(body, []byte{'\n'}))
+	require.Error(t, err, "an unbounded transport must not receive an implicit or explicit success")
+	require.Nil(t, response)
+	output := <-finished
+	require.Equal(t, int32(1), factories.Load(), "the late failure occurs after actual admitted execution")
+	require.Equal(t, 2, output.writes, "one support probe and one failed delivery deadline")
+	require.Zero(t, output.headerCalls, "even header emission can block")
+	require.Zero(t, output.bodyCalls)
+	require.Zero(t, output.flushCalls)
 }
 
 type delayedTerminalRunner struct {

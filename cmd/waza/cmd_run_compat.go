@@ -14,6 +14,7 @@ import (
 	"github.com/microsoft/waza/internal/runnercompat"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerunit"
+	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -32,6 +33,9 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 	}
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
 		return fmt.Errorf("--runner-compat requires one exact eval filename; remove the flag to use workspace discovery")
+	}
+	if !workspace.LooksLikePath(args[0]) {
+		return fmt.Errorf("--runner-compat requires an explicit eval path, not skill name %q; use ./%s for a local file or remove --runner-compat for skill lookup", args[0], args[0])
 	}
 	if _, err := projectconfig.FindPath("."); err == nil {
 		return fmt.Errorf("runner compatibility cannot preserve ambient .waza.yaml defaults, discovery or storage; run from an unconfigured directory or remove --runner-compat")
@@ -101,7 +105,7 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 	for _, task := range outcome.TestOutcomes {
 		for _, run := range task.Runs {
 			if run.ErrorMsg != "" {
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "[ERROR] %s\n\n", run.ErrorMsg); err != nil {
+				if _, err := strings.NewReader(fmt.Sprintf("[ERROR] %s\n\n", run.ErrorMsg)).WriteTo(cmd.OutOrStdout()); err != nil {
 					return fmt.Errorf("reporting local runner execution error: %w", err)
 				}
 			}
@@ -118,7 +122,7 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 		if err := saveOutcome(outcome, path); err != nil {
 			return fmt.Errorf("saving local runner output: %w", err)
 		}
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "\nResults saved to: %s\n", path); err != nil {
+		if _, err := strings.NewReader(fmt.Sprintf("\nResults saved to: %s\n", path)).WriteTo(cmd.OutOrStdout()); err != nil {
 			return fmt.Errorf("reporting saved local runner output: %w", err)
 		}
 	}

@@ -212,8 +212,13 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 	if input == nil {
 		return report
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
-	defer cancel()
+	// Local orchestration limits Execute, not grading; external requests retain
+	// their end-to-end deadline, including grading and lifecycle.
+	if !local {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
+		defer cancel()
+	}
 	if err := ctx.Err(); err != nil {
 		report.executionError("startup", err)
 		return report

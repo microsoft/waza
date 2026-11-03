@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -351,8 +352,11 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 	command := exec.CommandContext(ctx, "go", args...)
 	command.WaitDelay = 2 * time.Second
 	command.Dir = dir
-	t.Logf("nonnative exact-source controller fixture command: go %q", args)
-	output, err := command.CombinedOutput()
+	result := runRunnerConsoleFixture(ctx, command)
+	output, err := result.output, result.err
+	if err != nil {
+		t.Logf("nonnative exact-source controller fixture failure: %s", runnerConsoleFixtureDiagnostic(command, result))
+	}
 	require.NoError(t, err, "exact-source controller fixture (nonnative OS boundaries):\n%s", output)
 	for _, name := range []string{
 		"before-final/canceled", "before-final/deadline", "before-final/wall-clock",
@@ -372,6 +376,7 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 		require.Contains(t, string(output), `"Action":"pass","Package":"controllerfixture","Test":"TestActualController/`+name+`"`)
 		t.Logf("actual controller regression/control passed: %s", name)
 	}
+
 	require.NotContains(t, string(output), `"Action":"skip"`)
 	if testing.CoverMode() != "" {
 		profile, err := os.ReadFile(filepath.Join(dir, "controller.cover"))
@@ -398,6 +403,182 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 		require.Positive(t, covered, "actual controller statements, not only fixture fakes, must execute under atomic coverage")
 		t.Logf("actual controller covered statements=%d; nonnative OS boundaries", covered)
 		t.Logf("nested_controller_atomic_profile_hex=%x", profile)
+	}
+}
+
+type runnerConsoleFixtureResult struct {
+	output        []byte
+	err           error
+	started       time.Time
+	startReturned time.Time
+	waitStarted   time.Time
+	finished      time.Time
+	contextErr    error
+}
+
+func runRunnerConsoleFixture(ctx context.Context, command *exec.Cmd) runnerConsoleFixtureResult {
+	var output bytes.Buffer
+	command.Stdout, command.Stderr = &output, &output
+	result := runnerConsoleFixtureResult{started: time.Now()}
+	result.err = command.Start()
+	result.startReturned = time.Now()
+	if result.err == nil {
+		result.waitStarted = time.Now()
+		result.err = command.Wait()
+	}
+	result.finished, result.contextErr = time.Now(), ctx.Err()
+	result.output = output.Bytes()
+	return result
+}
+
+func runnerConsoleFixtureDiagnostic(command *exec.Cmd, result runnerConsoleFixtureResult) string {
+	var flags, presentKeys []string
+	omittedArguments := 0
+	for _, argument := range command.Args[1:] {
+		key, _, _ := strings.Cut(argument, "=")
+		switch key {
+		case "-count", "-json", "-timeout", "-race", "-covermode", "-coverprofile":
+			flags = append(flags, key)
+		default:
+			omittedArguments++
+		}
+	}
+	for _, key := range []string{"GOCACHE", "GOMODCACHE", "GOTMPDIR", "TMPDIR", "TEMP", "TMP", "GOFLAGS", "GORACE", "GOENV", "GOTOOLCHAIN", "GOPROXY", "GOSUMDB"} {
+		for _, variable := range command.Environ() {
+			if strings.HasPrefix(variable, key+"=") {
+				presentKeys = append(presentKeys, key)
+				break
+			}
+		}
+	}
+	pid, exitCode, state := 0, -1, "unavailable"
+	exited, success := false, false
+	if command.Process != nil {
+		pid = command.Process.Pid
+	}
+	if command.ProcessState != nil {
+		exitCode, state = command.ProcessState.ExitCode(), command.ProcessState.String()
+		exited, success = command.ProcessState.Exited(), command.ProcessState.Success()
+	}
+	phase := "start"
+	if !result.waitStarted.IsZero() {
+		phase = "wait"
+	}
+	return fmt.Sprintf(
+		"phase=%s pid=%d started=%s start_returned=%s wait_started=%s finished=%s elapsed=%s context_canceled=%t context_deadline=%t process_state=%q process_exited=%t process_success=%t exit_code=%d wait_delay=%t flags=%q omitted_arguments=%d environment_keys_present=%q",
+		phase, pid, result.started.UTC().Format(time.RFC3339Nano), result.startReturned.UTC().Format(time.RFC3339Nano),
+		result.waitStarted.UTC().Format(time.RFC3339Nano), result.finished.UTC().Format(time.RFC3339Nano),
+		result.finished.Sub(result.started), errors.Is(result.contextErr, context.Canceled),
+		errors.Is(result.contextErr, context.DeadlineExceeded), state, exited, success, exitCode,
+		errors.Is(result.err, exec.ErrWaitDelay), flags, omittedArguments, presentKeys,
+	)
+}
+
+func TestRunnerConsoleFixtureDiagnostics(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name        string
+		startFails  bool
+		cancel      bool
+		processFail bool
+	}{
+		{name: "success"},
+		{name: "process failure", processFail: true},
+		{name: "start failure", startFails: true},
+		{name: "canceled before start", cancel: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			if test.cancel {
+				cancel()
+			}
+			binary := executable
+			if test.startFails {
+				binary = filepath.Join(t.TempDir(), "missing-controller-fixture")
+			}
+			command := exec.CommandContext(ctx, binary, "-test.run=^TestRunnerConsoleFixtureDiagnosticHost$", "-test.count=1")
+			command.WaitDelay = time.Second
+			mode := "success"
+			if test.processFail {
+				mode = "failure"
+			}
+			command.Env = append(os.Environ(), "WAZA_CONSOLE_DIAGNOSTIC_HOST="+mode)
+			result := runRunnerConsoleFixture(ctx, command)
+			diagnostic := runnerConsoleFixtureDiagnostic(command, result)
+			require.False(t, result.started.IsZero())
+			require.False(t, result.startReturned.Before(result.started))
+			require.False(t, result.finished.Before(result.startReturned))
+			if test.startFails || test.cancel {
+				require.Error(t, result.err)
+				require.Nil(t, command.Process)
+				require.True(t, result.waitStarted.IsZero())
+				require.Contains(t, diagnostic, "phase=start pid=0")
+				require.Contains(t, diagnostic, `process_state="unavailable"`)
+				if test.cancel {
+					require.ErrorIs(t, result.err, context.Canceled)
+					require.Contains(t, diagnostic, "context_canceled=true")
+				} else {
+					require.True(t, recoveryMissingExecutable(result.err), "expected a typed missing-executable error")
+					require.Contains(t, diagnostic, "context_canceled=false")
+				}
+				return
+			}
+			require.Positive(t, command.Process.Pid)
+			require.False(t, result.waitStarted.IsZero())
+			require.Contains(t, diagnostic, fmt.Sprintf("phase=wait pid=%d", command.Process.Pid))
+			require.Contains(t, diagnostic, "context_canceled=false context_deadline=false")
+			require.Contains(t, diagnostic, "process_exited=true")
+			require.Contains(t, diagnostic, "wait_delay=false")
+			require.Contains(t, string(result.output), "controller diagnostic stdout")
+			require.Contains(t, string(result.output), "controller diagnostic stderr")
+			if test.processFail {
+				var exitError *exec.ExitError
+				require.ErrorAs(t, result.err, &exitError)
+				require.Equal(t, 1, exitError.ExitCode())
+				require.Contains(t, diagnostic, "process_success=false exit_code=1")
+			} else {
+				require.NoError(t, result.err)
+				require.Contains(t, diagnostic, "process_success=true exit_code=0")
+			}
+		})
+	}
+}
+
+func TestRunnerConsoleFixtureDiagnosticHost(t *testing.T) {
+	mode := os.Getenv("WAZA_CONSOLE_DIAGNOSTIC_HOST")
+	if mode == "" {
+		return
+	}
+	_, err := fmt.Fprintln(os.Stdout, "controller diagnostic stdout")
+	require.NoError(t, err)
+	_, err = fmt.Fprintln(os.Stderr, "controller diagnostic stderr")
+	require.NoError(t, err)
+	if mode == "failure" {
+		t.Error("controlled controller diagnostic process failure")
+	}
+}
+
+func TestRunnerConsoleFixtureDiagnosticRedaction(t *testing.T) {
+	const private = "must-not-appear-in-controller-diagnostics"
+	command := &exec.Cmd{
+		Args: []string{private, "-count=1", "-json", "-timeout=30s", "-race", "-covermode=atomic", "-coverprofile=" + private, "--" + private},
+		Env:  []string{"GOCACHE=" + private, "GOFLAGS=" + private, "PRIVATE_" + private + "=" + private},
+	}
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		result := runnerConsoleFixtureResult{
+			err:        errors.Join(exec.ErrWaitDelay, errors.New(private)),
+			contextErr: errors.Join(cause, errors.New(private)),
+		}
+		diagnostic := runnerConsoleFixtureDiagnostic(command, result)
+		require.NotContains(t, diagnostic, private)
+		require.Contains(t, diagnostic, `flags=["-count" "-json" "-timeout" "-race" "-covermode" "-coverprofile"]`)
+		require.Contains(t, diagnostic, "omitted_arguments=1")
+		require.Contains(t, diagnostic, `environment_keys_present=["GOCACHE" "GOFLAGS"]`)
+		require.Contains(t, diagnostic, "wait_delay=true")
+		require.Contains(t, diagnostic, fmt.Sprintf("context_canceled=%t context_deadline=%t",
+			errors.Is(cause, context.Canceled), errors.Is(cause, context.DeadlineExceeded)))
 	}
 }
 

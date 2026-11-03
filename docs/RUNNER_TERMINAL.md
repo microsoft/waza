@@ -196,23 +196,38 @@ Supplied pollable files are never closed; their
 deadline is reset after the read. In-process embedders supplying arbitrary
 `io.Reader` or `io.Writer` implementations must provide prompt/cancellation-aware
 I/O: Go cannot interrupt arbitrary synchronous code safely.
-Windows relies on Go's pipe I/O cancellation; native execution evidence must be
-obtained from the required Windows CI, not inferred from Unix signal tests.
-Descriptors without deadline support and arbitrary embedding writers do not
-have a bounded-output guarantee.
+On Windows, the CLI bounds its one inherited-stdout emission attempt with a
+five-second process-only wait, including pipes without write-deadline support.
+It does not change shared handle modes/deadlines, close stdout, retry the record
+or emit a fallback. Completed emission preserves the selected terminal outcome;
+native write failure, short write or exhausted output budget instead selects
+transport exit 2. A partial record or blocked write may remain until process
+exit; this does not preempt arbitrary supplied writers or prove receipt.
+Inherited-input interruption callbacks return joined typed Close/deadline errors
+after callback completion instead of synchronously writing inherited stderr.
+Cancellation/deadline classification and reset-error propagation are preserved;
+the native interruption operations themselves must still return.
+Native Windows execution evidence must come from the required Windows CI, not
+cross-compilation or Unix signal tests.
 
 HTTP body admission installs a five-second deadline before media-type validation,
 failing closed if read deadlines are unavailable, and supports context interruption. A body
 deadline also cancels net/http's request context; the actual read error and
 whether cancellation interrupted it before the deadline distinguish timeout
-from cancellation. The hook is joined before response delivery. Output gets a
-fresh five-second write deadline. Short writes/flush failures are logged and
-never trigger a second response. Rejections before body admission close the HTTP/1.1 connection without draining
+from cancellation. The hook is joined before response delivery. Before admission,
+write-deadline support is checked with a zero deadline, failing closed if unavailable.
+No write timer runs during admission or execution: on HTTP/2 an expired write
+timer resets the stream even without a write, preventing later terminal delivery.
+Execution retains its configured request/eval/task budgets. Only output gets a
+fresh five-second write deadline, including input-timeout rejections. Short
+writes/flush failures are logged and never trigger a second response.
+Rejections before body admission close the HTTP/1.1 connection without draining
 the unadmitted body, even if the client already sent it completely; clients
 must reconnect. Fully read requests retain keep-alive, including admitted
-terminal failures. A late write-deadline setup failure becomes an
-output infrastructure failure while retaining the admitted identity and actual
-observation. HTTP success and `X-Waza-Exit-Code` describe
+terminal failures. If the delivery deadline cannot be installed, the handler logs
+the transport failure and aborts the HTTP connection/stream without writing headers,
+a body, or a fallback. No terminal envelope or observation is delivered in that
+case: attempting even an error response could block indefinitely. HTTP success and `X-Waza-Exit-Code` describe
 the encoded decision, not consumer receipt or durable publication.
 
 Lab validates original JSON and the terminal schema, compares identity/selection

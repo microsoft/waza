@@ -28,6 +28,10 @@ overrides it. Omitted/null `enabled` inherits true; false is rejected because
 ordinary local execution would skip it. The adapter rejects unsupported
 declarations even when explicitly null, empty or false. Preserve the originals
 and remove `--runner-compat` if those declarations matter.
+Local compatibility limits execution, not grading, just like ordinary `run`;
+external `runner run` keeps its end-to-end deadline. At most 128 grader results
+can be captured across eval graders, task graders and populated expectation
+groups, and grader names are limited to 256 UTF-8 bytes.
 
 ## Before and after: local artifacts
 
@@ -79,6 +83,11 @@ Both use historical result schema 1.7. Generated eval/session IDs, timestamps,
 workspace paths and durations vary per invocation. Missing usage is unavailable,
 not inferred credits or zero billing. `--no-summary` is accepted because this
 single-suite mode creates no combined summary.
+An extensionless local filename must be spelled as a path, such as `./suite`.
+A bare `suite` is a skill-name operand in ordinary `run` and is rejected by
+compatibility mode rather than selecting a same-named file.
+Short writes in diagnostics, summaries or saved-output confirmations return an
+output error; a failed confirmation leaves an already saved artifact intact.
 
 | Local exit | Meaning |
 |---|---|

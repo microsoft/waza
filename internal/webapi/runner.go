@@ -101,15 +101,11 @@ func runTerminal(w http.ResponseWriter, r *http.Request, service terminalRunner)
 			w.Header().Set("Connection", "close")
 		}
 		if err := controller.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			message := fmt.Sprintf("Setting terminal write deadline failed after outcome %s at %s: %.600s",
-				envelope.Outcome, envelope.FailureBoundary, err)
-			if len(envelope.Diagnostics) == runnerterminal.MaxDiagnostics {
-				envelope.Diagnostics = envelope.Diagnostics[:runnerterminal.MaxDiagnostics-1]
-				message += "; one additional original diagnostic is unavailable"
-			}
-			envelope.Outcome, envelope.ExitCode, envelope.FailureBoundary = runnerterminal.InfrastructureFailure, 2, "output"
-			envelope.Diagnostics = append(envelope.Diagnostics, runnerterminal.Diagnostic{Code: "output_deadline", Message: message})
-			status = http.StatusInternalServerError
+			slog.Error("setting runner terminal write deadline; aborting transport without output",
+				"outcome", envelope.Outcome, "boundary", envelope.FailureBoundary, "error", err)
+			// Returning normally would let net/http write an implicit success.
+			// No response operation is safe without the delivery deadline.
+			panic(http.ErrAbortHandler)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Waza-Exit-Code", strconv.Itoa(envelope.ExitCode))
@@ -130,6 +126,8 @@ func runTerminal(w http.ResponseWriter, r *http.Request, service terminalRunner)
 		fail(http.StatusInternalServerError, fmt.Errorf("setting runner read deadline: %w", err))
 		return
 	}
+	// Probe deadline support without starting an HTTP/2 stream timer during
+	// admission or execution. Only emit owns the bounded delivery phase.
 	if err := controller.SetWriteDeadline(time.Time{}); err != nil {
 		emit(http.StatusInternalServerError, runnerterminal.NewFailure(runnerterminal.InfrastructureFailure, "output", "not_checked",
 			"output_deadline", fmt.Sprintf("Probing runner write deadline support: %.600s", err)), nil)

@@ -111,6 +111,14 @@ producer conformance runs through CLI/HTTP and the frozen admitted identity vect
 Input admission is bounded to 4 MiB. HTTP body reads install a five-second deadline
 before media-type validation and fail closed if read deadlines are unavailable;
 server cancellation interrupts partial uploads and waits for handler cleanup.
+Write-deadline support is also required before admission, checked without arming
+a timer. The five-second write budget starts only when terminal delivery begins,
+including input-timeout rejections; it does not limit configured execution time.
+This keeps HTTP/2 streams open during admission and longer evaluations rather
+than resetting them before their terminal envelope can be written.
+If the delivery deadline cannot be installed, the server logs the failure and
+aborts the connection/stream without attempting headers, an envelope or a fallback;
+no terminal result is available over that failed transport.
 CLI signal cancellation does not require the stdin producer to close its pipe.
 Execution observes request/eval/task deadlines and performs synchronous cleanup.
 Host-owned factories must return promptly: arbitrary host callback code is not
@@ -129,6 +137,13 @@ without changing shared open-file-description flags. Retained stdin/stdout
 peers keep their status flags, including legitimate flag changes made by peers
 during I/O; cleanup does not restore stale flags over them. This is a
 process-exit bound, not a deadline guarantee for arbitrary embedding writers.
+The Windows CLI likewise bounds one inherited-stdout emission attempt to five
+seconds, including pipes without write-deadline support, without changing shared
+handle modes/deadlines or closing stdout. Completed emission preserves the
+selected terminal outcome; native write failure, short write or an exhausted
+output budget selects transport exit 2. A partial record or blocked write may
+remain until process exit; this does not prove receipt or preempt arbitrary
+embedding writers.
 Before exit, Cobra and the final CLI error diagnostic share a separate 100 ms
 cumulative stderr write-wait budget; time between writes does not consume it.
 Writable stderr retains the same message bytes. Blocked, failed or short diagnostic delivery can be
@@ -137,8 +152,10 @@ selected exit code or adds a stdout terminal record. A full retained stderr
 pipe therefore adds at most this budget after the five-second stdout decision,
 not an unbounded exit delay. The process-only policy does not close inherited
 stderr, change shared flags, or bound unrelated command logging or arbitrary
-embedding writers. Supplied-input interruption errors return through the normal
-error path rather than printing synchronously from cancellation callbacks.
+embedding writers. Supplied-input and inherited-Windows interruption errors
+return through the normal joined-error path rather than printing synchronously
+from cancellation callbacks. Callback completion and deadline-reset errors remain
+joined; native interruption operations themselves must still return.
 A request rejected before HTTP body admission is not drained before its terminal
 response. Its HTTP/1.1 connection closes even if the client sent the full body;
 clients must reconnect rather than relying on keep-alive for these rejections.
