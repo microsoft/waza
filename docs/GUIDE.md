@@ -114,7 +114,7 @@ export PATH="$HOME/bin:$PATH"
 
 ### 2. Install from Source
 
-Requires **Go 1.26+, Git LFS, Make, Node.js and npm**. `make build` installs
+Requires **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+**. `make build` installs
 locked dashboard dependencies and generates embedded assets before Go compilation:
 
 ```bash

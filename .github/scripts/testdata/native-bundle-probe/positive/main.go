@@ -33,7 +33,7 @@ func run() error {
 		directory = ""
 	}
 	client := copilot.NewClient(&copilot.ClientOptions{
-		Connection:      copilot.StdioConnection{Path: root + "/home/.copilot/cache/copilot-sdk/1.0.101/" + directory + "copilot"},
+		Connection:      copilot.StdioConnection{Path: root + "/home/.copilot/cache/copilot-sdk/1.0.105/" + directory + "copilot"},
 		UseLoggedInUser: copilot.Bool(false),
 	})
 	if err := client.Start(ctx); err != nil {

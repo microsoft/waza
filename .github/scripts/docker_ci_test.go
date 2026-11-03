@@ -42,6 +42,10 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 		!strings.Contains(ignore, "!.github/scripts/testdata/native-bundle-probe/positive/main.go") {
 		t.Fatal("Docker context must explicitly admit both native bundle probe sources")
 	}
+	positiveProbe := read(".github/scripts/testdata/native-bundle-probe/positive/main.go")
+	if !strings.Contains(positiveProbe, "copilot-sdk/1.0.105/") {
+		t.Fatal("native bundle positive control must launch the SDK 1.0.28 bundled CLI 1.0.105")
+	}
 	if data := read("examples/runner/unit.json"); len(data) == 0 {
 		t.Fatal("runner example is empty")
 	}

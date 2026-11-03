@@ -112,6 +112,8 @@ func TestDiagnosticNativeTransportCallbackPolicy(t *testing.T) {
 						case "session.send":
 							sends.Add(1)
 							response["result"] = map[string]any{"messageId": "policy-message"}
+						case "session.sendAndWait":
+							response["error"] = map[string]any{"code": -32601, "message": "offline fixture uses callback completion"}
 						case "session.permissions.handlePendingPermissionRequest":
 							if req.Params.RequestID == "deny" {
 								require.Equal(t, "reject", req.Params.Result.Kind)
@@ -132,6 +134,8 @@ func TestDiagnosticNativeTransportCallbackPolicy(t *testing.T) {
 						write(response)
 						switch req.Method {
 						case "session.send":
+							messageID := "policy-message"
+							emit(&copilot.UserMessageData{MessageID: &messageID})
 							denyPermission()
 						case "session.permissions.handlePendingPermissionRequest":
 							if req.Params.RequestID == "deny" {
