@@ -260,16 +260,30 @@ waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
 ```
 
-The source preview implements `negotiation`, `exact-unit` and `inline.mock-text`.
+The source preview implements `negotiation`, `exact-unit`, `inline.mock-text` and `terminal-result`.
 Only `runner run` starts an engine; each dispatch runs its selected task/trial/
 attempt once, without discovery, cache or retries. Admitted receipts include
 versioned [logical identities](site/src/content/docs/guides/runner-identities.mdx)
 derived from the original captured input, not proof of execution or deduplication.
-Native/paid execution and terminal envelopes remain unavailable. Existing
+`runner run` writes one [terminal envelope](site/src/content/docs/guides/runner-terminal.mdx):
+success 0, failed checks 1, infrastructure failure 2, cancellation 3, timeout 4,
+unsupported capability/version 5, invalid input 6. Validation remains an offline
+receipt, not execution evidence. An eval/task execution deadline still yields
+timeout 4 when the outer request budget remains active; task timeouts override
+the eval budget. Native/paid execution remains unavailable. Existing
 local commands and artifacts are unchanged. Captured tasks must explicitly
 declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
 `inputs: {}` is rejected before runtime construction. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+
+For one explicit mock/text suite, `waza run custom-suite.yaml --runner-compat
+--output local-results.json` routes through that same runner service while
+retaining historical result JSON and local 0/1/2 exits. `waza runner adapt`
+captures compatible sources offline as runner request JSON. Unsupported mappings
+are hard errors; remove `--runner-compat` to retain ordinary local workflows.
+The task entry must be eval-relative, and successful adaptation passes shared
+offline admission within the complete 4 MiB emitted-byte limit.
+See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
 
 ### `waza preflight <eval.yaml>`
 

@@ -35,10 +35,19 @@ The v0.40.0 runner preview adds offline version/capability negotiation (#757)
 and one exact captured mock/text task/trial/attempt through CLI and HTTP (#758).
 Admitted receipts carry deterministic logical identities and their derivation
 version (#759). Live Lab displays input-derived lineage and pre-execution
-selection validation without launching a runtime.
+selection validation without launching a runtime. The explicit **Run mock unit**
+action consumes the same producer's terminal outcome, exit category, boundary,
+identity and diagnostics and exports the response (#760).
 The exact path bypasses discovery, cache and retries; local commands/artifacts
-are unchanged. Native execution, terminal envelopes, compatibility
-adapters and the container reference remain unavailable under #754.
+are unchanged. CLI/HTTP execution emits a schema-checked terminal envelope with
+seven stable exit categories. The bounded local compatibility adapter (#761)
+captures exact legacy sources offline and routes explicit `run --runner-compat`
+through the same mock-only execution service while retaining result 1.7 and
+local 0/1/2 exits. Unsupported mappings fail with migration guidance; ordinary
+local defaults and historical artifact readers remain available. No Lab change
+is required: adaptation introduces no new runtime status or evidence.
+Native execution and the container reference remain unavailable under #754.
+See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
 ### The Problem

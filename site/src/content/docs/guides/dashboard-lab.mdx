@@ -28,7 +28,12 @@ and resolved shard/task/trial/attempt, validation state, zero engine calls and
 that adjacent work was not selected. Admitted results also show the input-derived
 logical run/shard/task/trial/attempt hierarchy, canonical digest and derivation
 version, and export the same validation JSON. Identity is not execution evidence;
-older or rejected receipts show it as unavailable. These Lab actions never start an evaluation.
+older or rejected receipts show it as unavailable. Compatibility and validation
+never start an evaluation. The separate **Run mock unit** action executes the
+captured mock request once, showing the actual terminal outcome, exit, failure
+boundary, schema/input binding checks, observed verdicts and linked diagnostics.
+It exports the exact terminal JSON; edits, new runs and reload errors clear
+previous success. See [terminal interpretation](../runner-terminal/).
 This is separate from saved run evidence and is
 unavailable in the synthetic demo. See [Runner contract and API](../runner-contract/)
 and [logical identity normalization and migration](../runner-identities/).

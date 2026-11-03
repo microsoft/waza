@@ -103,6 +103,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 |------|-------|------|---------|-------------|
 | `--context-dir` | `-c` | string | `./fixtures` | Fixtures directory path |
 | `--output` | `-o` | string | | Save results JSON to file |
+| `--runner-compat` | | bool | false | Source-build preview: route one compatible inline mock/text suite through runner 1.0, retaining local results and exits; unsupported mappings/flags fail. |
 | `--output-dir` | `-d` | string | | Directory for structured output; each run creates a UTC-timestamped subdirectory of the specified directory. Mutually exclusive with `--output`. |
 | `--verbose` | `-v` | bool | false | Detailed progress output |
 | `--parallel` | | bool | false | Run tasks concurrently |
@@ -1573,6 +1574,13 @@ waza session view <session-file>
 
 ## waza runner
 
+`runner adapt --eval <file> --task <file> --run-key <key> --shard <key>
+--task-id <id> --trial 1 --attempt 1` captures a compatible local mock/text suite
+offline as request JSON. `--timeout-ms` optionally asserts its effective timeout.
+To preserve local result JSON instead, use `run <file> --runner-compat --output
+<file>`. See [local compatibility and migration](../../guides/runner-compatibility/)
+for the exact supported profile, rejected flags and before/after examples.
+
 **Source-build preview:** inspect supported runner versions/capabilities and
 check compatibility without starting an eval or model:
 
@@ -1589,10 +1597,11 @@ unsupported version/capability, 6 means invalid request, and 2 means output
 failure. These are negotiation exits, not new meanings for local `waza run`.
 `validate` checks a complete captured request without a runtime; `run` executes
 exactly one mock/text attempt with no discovery, cache or retries. The receipt
-is `waza.runner-unit`, not the later terminal envelope. Unit-command exits:
-0 ready/completed with passing checks, 1 completed with failing checks,
-2 execution/input/output failure, 5 incompatible runner requirements,
-6 invalid selection. Native execution is unavailable even with paid consent.
+is `waza.runner-unit` for offline validation, and `waza.runner-terminal` for run.
+Run exits: 0 success, 1 failed checks, 2 infrastructure/output failure,
+3 cancellation, 4 timeout, 5 incompatible runner requirements,
+6 invalid input. Native execution is unavailable even with paid consent.
+See [terminal outcomes, schema and migration](../../guides/runner-terminal/).
 Admitted receipts carry `identity` version `sha256-waza-c14n-v1`, canonical input
 digest and logical lineage; validation alone derives it without execution.
 Save stdout with `> validation.json`; identity is not proof of execution or
