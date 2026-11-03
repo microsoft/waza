@@ -21,7 +21,7 @@ on:
       - 'docs/graders/**'
       - '.github/workflows/docker-ci.yml'
   pull_request:
-    branches: [main]
+    branches: [main, spboyer-native-runner-execution]
     paths: *docker-paths
 
 permissions:

@@ -53,7 +53,11 @@ Both push and pull-request filters explicitly retain the existing
 `examples/runner/unit.json` input and all nested `examples/runner/container/**`
 inputs, guarded by the script and documentation regression tests.
 The native control additionally selects `examples/runner/copilot-unit.json` and
-`.github/scripts/testdata/runner-runtime/**` on push and pull request. Run
+`.github/scripts/testdata/runner-runtime/**` on push and pull request.
+Docker pull-request checks also select the `spboyer-native-runner-execution`
+stacked parent, so native Linux AMD64 controls execute before retargeting to
+`main`; push checks remain limited to `main`.
+Run
 `node --test examples/runner/container/native-test.mjs` as well as the unchanged
 mock harness. The Dockerfile's default final target remains the scratch reference;
 `synthetic-test` and `native-smoke` are explicit test targets, not published

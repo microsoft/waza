@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -56,7 +57,33 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 		}
 	}
 	workflow := read(".github/workflows/docker-ci.yml")
+	if err := checkDockerRunnerBranches([]byte(workflow)); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("stacked-parent-removal", func(t *testing.T) {
+		mutated := strings.Replace(workflow, "branches: [main, spboyer-native-runner-execution]", "branches: [main]", 1)
+		if mutated == workflow {
+			t.Fatal("mutation did not remove the stacked parent selector")
+		}
+		if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
+			t.Fatal("removing the stacked parent must fail Docker discovery validation")
+		}
+	})
 	if !strings.Contains(workflow, "run: node --test examples/runner/container/native-test.mjs") {
 		t.Fatal("Docker CI must execute native production-boundary controls")
 	}
+}
+
+func checkDockerRunnerBranches(source []byte) error {
+	triggers, err := readTriggers(source)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(triggers["push"]["branches"], []string{"main"}) {
+		return fmt.Errorf("Docker pushes must remain limited to main")
+	}
+	if !slices.Equal(triggers["pull_request"]["branches"], []string{"main", "spboyer-native-runner-execution"}) {
+		return fmt.Errorf("Docker pull requests must select main and the stacked runner parent")
+	}
+	return nil
 }
