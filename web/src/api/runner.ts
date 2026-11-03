@@ -87,8 +87,20 @@ function sameSelection(a: WorkSelection | undefined, b: WorkSelection | undefine
 // it neither derives identities nor treats them as proof of live execution.
 export async function runRunnerUnit(request: string, signal: AbortSignal): Promise<RunnerTerminal> {
   const admitted = await validateRunnerSelection(request, signal);
+  // Validation has its own 10s limit; reserve 5s each for admission, cleanup and delivery.
+  let terminalTimeoutMS = 15_000;
+  if (admitted.status === "ready") {
+    const captured = parseStrictJSON(request);
+    if (typeof captured !== "object" || captured === null || !("timeout_ms" in captured) ||
+        typeof captured.timeout_ms !== "number" || !Number.isInteger(captured.timeout_ms) ||
+        captured.timeout_ms < 1 || captured.timeout_ms > 86_400_000) {
+      throw new Error("Admitted runner request has an invalid timeout_ms.");
+    }
+    terminalTimeoutMS += captured.timeout_ms;
+  }
   const response = await fetch("/api/v1/runner/run", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: request, signal,
+    method: "POST", headers: { "Content-Type": "application/json" }, body: request,
+    signal: AbortSignal.any([signal, AbortSignal.timeout(terminalTimeoutMS)]),
   });
   const value = parseStrictJSON(await response.text());
   if (!validateTerminal(value)) throw new Error("Runner API returned an invalid terminal envelope.");

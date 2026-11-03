@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Route } from "@playwright/test";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtemp, mkdir, rm, copyFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -390,6 +390,143 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toBeVisible();
     await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Export terminal JSON" })).toHaveCount(0);
+  });
+
+  test("terminal client budget honors captured timeout after validation and remains bounded", async ({ page }) => {
+    await page.clock.install();
+    await page.addInitScript(() => {
+      const budgets: number[] = [];
+      Object.defineProperty(window, "runnerTimeoutBudgets", { value: budgets });
+      // Native timeout signals do not use the JS clock. Keep real abort behavior
+      // while making the production-selected budgets deterministically advanceable.
+      AbortSignal.timeout = (milliseconds) => {
+        budgets.push(milliseconds);
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new DOMException("The operation timed out.", "TimeoutError")), milliseconds);
+        return controller.signal;
+      };
+    });
+    await page.reload();
+    const input = page.getByRole("textbox", { name: "Exact work request (JSON)" });
+    const initial = JSON.parse(await input.inputValue());
+    expect(initial.input.eval).toContain("timeout_seconds: 30");
+    for (const timeout of [120_000, 1_000]) {
+      const captured = structuredClone(initial);
+      captured.timeout_ms = timeout;
+      captured.input.eval = captured.input.eval.replace("timeout_seconds: 30", "timeout_seconds: 120");
+      const body = JSON.stringify(captured);
+      await input.fill(body);
+      const validationReady = Promise.withResolvers<void>();
+      const validationRelease = Promise.withResolvers<void>();
+      const terminalReady = Promise.withResolvers<void>();
+      const terminalRelease = Promise.withResolvers<void>();
+      let produced: unknown;
+      const validateRoute = async (route: Route) => {
+        expect(route.request().postData()).toBe(body);
+        const response = await route.fetch({ url: `${base}/api/v1/runner/validate` });
+        expect((await response.json()).status).toBe("ready");
+        validationReady.resolve();
+        await validationRelease.promise;
+        await route.fulfill({ response });
+      };
+      const runRoute = async (route: Route) => {
+        expect(route.request().postData()).toBe(body);
+        const response = await route.fetch({ url: `${base}/api/v1/runner/run` });
+        produced = await response.json();
+        expect(produced).toMatchObject({ outcome: "success", engine_calls: 1, selection: captured.selection });
+        terminalReady.resolve();
+        await terminalRelease.promise;
+        await route.fulfill({ response });
+      };
+      await page.route("**/api/v1/runner/validate", validateRoute);
+      await page.route("**/api/v1/runner/run", runRoute);
+      try {
+        await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+        await validationReady.promise;
+        await page.clock.runFor(9_000);
+        validationRelease.resolve();
+        await terminalReady.promise;
+        expect(await page.evaluate(() => Reflect.get(window, "runnerTimeoutBudgets").slice(-2)))
+          .toEqual([10_000, timeout + 15_000]);
+        if (timeout === 120_000) {
+          await page.clock.runFor(90_000);
+          await expect(page.getByRole("button", { name: "Running mock unit...", exact: true })).toBeVisible();
+          await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toHaveCount(0);
+          terminalRelease.resolve();
+          const result = page.getByRole("status", { name: "Terminal result" });
+          await expect(result).toContainText("success");
+          await expect(result).toContainText("Schema checked; input identity bound");
+          const download = page.waitForEvent("download");
+          await result.getByRole("button", { name: "Export terminal JSON" }).click();
+          expect(JSON.parse(readFileSync((await (await download).path())!, "utf8"))).toEqual(produced);
+        } else {
+          await page.clock.runFor(timeout + 15_001);
+          await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toContainText("timed out");
+          terminalRelease.resolve();
+          await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
+          await expect(page.getByRole("button", { name: "Export terminal JSON" })).toHaveCount(0);
+        }
+      } finally {
+        validationRelease.resolve();
+        terminalRelease.resolve();
+        await page.unroute("**/api/v1/runner/validate", validateRoute);
+        await page.unroute("**/api/v1/runner/run", runRoute);
+      }
+    }
+  });
+
+  test("terminal client cancellation survives request edits and unmount", async ({ page }) => {
+    const input = page.getByRole("textbox", { name: "Exact work request (JSON)" });
+    const original = await input.inputValue();
+    for (const action of ["edit", "unmount"]) {
+      const ready = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const runRoute = async (route: Route) => {
+        const response = await route.fetch({ url: `${base}/api/v1/runner/run` });
+        expect((await response.json()).outcome).toBe("success");
+        ready.resolve();
+        await release.promise;
+        await route.fulfill({ response });
+      };
+      await page.route("**/api/v1/runner/run", runRoute);
+      try {
+        await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+        await ready.promise;
+        const aborted = page.waitForEvent("requestfailed", (request) => request.url().endsWith("/api/v1/runner/run"));
+        if (action === "edit") {
+          await input.fill(original + "\n");
+          await expect(page.getByRole("button", { name: "Run mock unit", exact: true })).toBeEnabled();
+        } else {
+          await page.goto("/#/lab/demo/runner");
+        }
+        await aborted;
+        release.resolve();
+        await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Export terminal JSON" })).toHaveCount(0);
+      } finally {
+        release.resolve();
+        await page.unroute("**/api/v1/runner/run", runRoute);
+      }
+    }
+  });
+
+  test("terminal client rejects invalid captured budgets rather than trusting replayed admission", async ({ page, request }) => {
+    const admission = await request.post(`${base}/api/v1/runner/validate`, { data: unitExample });
+    expect((await admission.json()).status).toBe("ready");
+    // Replaying a real receipt for different, invalid input is a negative server control.
+    await page.route("**/api/v1/runner/validate", (route) => route.fulfill({ response: admission }));
+    let runs = 0;
+    await page.route("**/api/v1/runner/run", (route) => { runs++; return route.abort(); });
+    const input = page.getByRole("textbox", { name: "Exact work request (JSON)" });
+    const initial = JSON.parse(await input.inputValue());
+    for (const timeout of [undefined, null, false, "60000", 0, 1.5, 86_400_001]) {
+      await input.fill(JSON.stringify({ ...initial, timeout_ms: timeout }));
+      await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+      await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert"))
+        .toContainText("Admitted runner request has an invalid timeout_ms.");
+      await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
+      expect(runs).toBe(0);
+    }
   });
 
   test("terminal input transport rejection remains visible after successful offline admission", async ({ page, request }) => {

@@ -16,7 +16,7 @@ export default function RunnerTerminal({ request }: { request: string }) {
     const controller = new AbortController();
     active.current = controller;
     try {
-      const value = await runRunnerUnit(request, AbortSignal.any([controller.signal, AbortSignal.timeout(65_000)]));
+      const value = await runRunnerUnit(request, controller.signal);
       if (!controller.signal.aborted) setResult(value);
     } catch (error) {
       if (!controller.signal.aborted) {

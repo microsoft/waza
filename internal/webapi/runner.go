@@ -18,6 +18,23 @@ import (
 	"github.com/microsoft/waza/internal/runnerunit"
 )
 
+var runnerDiagnosticActive atomic.Bool
+var runnerDiagnosticsSuppressed atomic.Uint64
+
+func logRunnerError(message string, args ...any) {
+	// A blocked logging sink may retain one reporter, never one per request.
+	if !runnerDiagnosticActive.CompareAndSwap(false, true) {
+		runnerDiagnosticsSuppressed.Add(1)
+		return
+	}
+	logger := slog.Default()
+	go func() {
+		defer runnerDiagnosticActive.Store(false)
+		args = append(args, "suppressed_diagnostics", runnerDiagnosticsSuppressed.Swap(0))
+		logger.Error(message, args...)
+	}()
+}
+
 // RegisterRunnerRoutes retains offline negotiation and adds explicit single-unit
 // validation/execution. No host input paths or saved artifacts are consumed.
 func RegisterRunnerRoutes(mux *http.ServeMux) {
@@ -66,7 +83,7 @@ func RegisterRunnerRoutesWithService(mux *http.ServeMux, service *runnerunit.Ser
 			stop := context.AfterFunc(r.Context(), func() {
 				defer close(interrupted)
 				if err := controller.SetReadDeadline(time.Now()); err != nil {
-					slog.Error("interrupting runner body admission", "error", err)
+					logRunnerError("interrupting runner body admission", "error", err)
 				}
 			})
 			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, runnercontract.MaxRequestBytes))
@@ -101,7 +118,7 @@ func runTerminal(w http.ResponseWriter, r *http.Request, service terminalRunner)
 			w.Header().Set("Connection", "close")
 		}
 		if err := controller.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			slog.Error("setting runner terminal write deadline; aborting transport without output",
+			logRunnerError("setting runner terminal write deadline; aborting transport without output",
 				"outcome", envelope.Outcome, "boundary", envelope.FailureBoundary, "error", err)
 			// Returning normally would let net/http write an implicit success.
 			// No response operation is safe without the delivery deadline.
@@ -111,11 +128,11 @@ func runTerminal(w http.ResponseWriter, r *http.Request, service terminalRunner)
 		w.Header().Set("X-Waza-Exit-Code", strconv.Itoa(envelope.ExitCode))
 		w.WriteHeader(status)
 		if _, err := runnerterminal.NewEmitter(w).Emit(envelope, binding); err != nil {
-			slog.Error("writing runner terminal output; no retry", "error", err)
+			logRunnerError("writing runner terminal output; no retry", "error", err)
 			return
 		}
 		if err := controller.Flush(); err != nil {
-			slog.Error("flushing runner terminal output; no retry", "error", err)
+			logRunnerError("flushing runner terminal output; no retry", "error", err)
 		}
 	}
 	fail := func(status int, err error) {
@@ -145,7 +162,7 @@ func runTerminal(w http.ResponseWriter, r *http.Request, service terminalRunner)
 		defer close(interrupted)
 		canceledRead.Store(time.Now().Before(inputDeadline))
 		if err := controller.SetReadDeadline(time.Now()); err != nil {
-			slog.Error("interrupting runner terminal body admission", "error", err)
+			logRunnerError("interrupting runner terminal body admission", "error", err)
 		}
 	})
 	data, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, runnercontract.MaxRequestBytes))

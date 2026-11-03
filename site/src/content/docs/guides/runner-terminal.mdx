@@ -116,7 +116,7 @@ a timer. The five-second write budget starts only when terminal delivery begins,
 including input-timeout rejections; it does not limit configured execution time.
 This keeps HTTP/2 streams open during admission and longer evaluations rather
 than resetting them before their terminal envelope can be written.
-If the delivery deadline cannot be installed, the server logs the failure and
+If the delivery deadline cannot be installed, the server reports the failure and
 aborts the connection/stream without attempting headers, an envelope or a fallback;
 no terminal result is available over that failed transport.
 CLI signal cancellation does not require the stdin producer to close its pipe.
@@ -129,6 +129,16 @@ and HTTP flush errors are never followed by a second envelope or fallback.
 CLI output failure exits 2 even if partial bytes already contain another encoded
 exit. HTTP write/flush failures are logged; a peer may see no response or partial
 bytes. A successful write is not downstream receipt, durability or atomic publication.
+HTTP runner error reporting is nonblocking: at most one diagnostic reporter may
+wait on the logging sink. Additional reports are counted in
+`suppressed_diagnostics` on the next accepted report, not queued as more blocked
+goroutines. A permanently blocked sink cannot guarantee diagnostic delivery;
+transport abort, handler return and cancellation completion do not wait for it.
+The Lab validates the captured request with a separate ten-second client limit.
+After validation, its terminal-response limit uses the captured `timeout_ms`
+plus fifteen seconds for body admission, runtime cleanup and delivery (five
+seconds each). Rejected requests receive only that fifteen-second allowance.
+Editing the request or leaving the view cancels the active request.
 SIGKILL, process crashes and host loss cannot guarantee a terminal record.
 There is no scheduler retry, cross-worker deduplication or exactly-once execution.
 Unix signal tests do not establish native Windows signal coverage.
