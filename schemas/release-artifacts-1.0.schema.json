@@ -514,6 +514,34 @@
       ],
       "type": "object"
     },
+    "models_HostLifecycle": {
+      "additionalProperties": false,
+      "properties": {
+        "model_turns": {
+          "items": {
+            "$ref": "#/$defs/models_ModelTurn"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "shells": {
+          "items": {
+            "$ref": "#/$defs/models_ShellLifecycle"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "model_turns",
+        "shells"
+      ],
+      "type": "object"
+    },
     "models_JudgeEvidence": {
       "additionalProperties": false,
       "properties": {
@@ -746,6 +774,28 @@
         "availability",
         "completeness",
         "items"
+      ],
+      "type": "object"
+    },
+    "models_ModelTurn": {
+      "additionalProperties": false,
+      "properties": {
+        "end_index": {
+          "type": "integer"
+        },
+        "parent_tool_call_id": {
+          "type": "string"
+        },
+        "start_index": {
+          "type": "integer"
+        },
+        "turn_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "turn_id",
+        "start_index"
       ],
       "type": "object"
     },
@@ -994,6 +1044,9 @@
             "null"
           ]
         },
+        "host_lifecycle": {
+          "$ref": "#/$defs/models_HostLifecycle"
+        },
         "judge_evidence": {
           "$ref": "#/$defs/models_JudgeEvidence"
         },
@@ -1143,6 +1196,103 @@
         "tool_call_count",
         "tools_used",
         "errors"
+      ],
+      "type": "object"
+    },
+    "models_ShellExitEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "exit_code": {
+          "type": "integer"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "tool_call_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "kind",
+        "index"
+      ],
+      "type": "object"
+    },
+    "models_ShellLifecycle": {
+      "additionalProperties": false,
+      "properties": {
+        "calls": {
+          "items": {
+            "$ref": "#/$defs/models_ShellToolCall"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "exits": {
+          "items": {
+            "$ref": "#/$defs/models_ShellExitEvent"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "shell_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "shell_id",
+        "calls",
+        "exits"
+      ],
+      "type": "object"
+    },
+    "models_ShellToolCall": {
+      "additionalProperties": false,
+      "properties": {
+        "complete_index": {
+          "type": "integer"
+        },
+        "detach": {
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "start_index": {
+          "type": "integer"
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "tool_call_id": {
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "tool_name",
+        "role",
+        "start_index"
       ],
       "type": "object"
     },

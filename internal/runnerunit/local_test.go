@@ -39,7 +39,7 @@ func TestLocalServiceUsesOneAdmittedMockAndHistoricalAggregation(t *testing.T) {
 	outcome, err := service.RunLocal(t.Context(), localRequest(t))
 	require.NoError(t, err)
 	require.Equal(t, 1, constructed)
-	require.Equal(t, "1.7", outcome.SchemaVersion)
+	require.Equal(t, "1.8", outcome.SchemaVersion)
 	require.Equal(t, "adapter-frozen", outcome.BenchName)
 	require.Len(t, outcome.TestOutcomes, 1)
 	task := outcome.TestOutcomes[0]

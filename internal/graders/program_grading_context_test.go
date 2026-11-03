@@ -139,6 +139,7 @@ func TestProgramGrader_GradingContextMatchesInlineScriptPayload(t *testing.T) {
 			Args:     []string{"account", "show"},
 			ExitCode: &exitCode,
 		}},
+		HostLifecycle: &models.HostLifecycle{ModelTurns: []models.ModelTurn{{TurnID: "0", StartIndex: 0}}, Shells: []models.ShellLifecycle{}},
 	}
 
 	results, report := runProgramContextHelper(t, "pass", gradingContext)
@@ -154,7 +155,7 @@ func TestProgramGrader_GradingContextMatchesInlineScriptPayload(t *testing.T) {
 	require.NoError(t, err)
 	var inlineFields map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(inline, &inlineFields))
-	for _, key := range []string{"output", "outcome", "transcript", "tool_calls", "tool_events", "command_invocations", "duration_ms"} {
+	for _, key := range []string{"output", "outcome", "transcript", "tool_calls", "tool_events", "host_lifecycle", "command_invocations", "duration_ms"} {
 		require.Contains(t, programFields, key)
 		require.JSONEq(t, string(inlineFields[key]), string(programFields[key]), key)
 	}
@@ -164,6 +165,9 @@ func TestProgramGrader_GradingContextMatchesInlineScriptPayload(t *testing.T) {
 	var invocations []models.CommandInvocation
 	require.NoError(t, json.Unmarshal(programFields["command_invocations"], &invocations))
 	require.Equal(t, gradingContext.CommandInvocations, invocations)
+	var lifecycle *models.HostLifecycle
+	require.NoError(t, json.Unmarshal(programFields["host_lifecycle"], &lifecycle))
+	require.Equal(t, gradingContext.HostLifecycle, lifecycle)
 }
 
 func TestProgramGrader_GradingContextDistinguishesMissingAndEmptyEvidence(t *testing.T) {
@@ -190,6 +194,9 @@ func TestProgramGrader_GradingContextDistinguishesMissingAndEmptyEvidence(t *tes
 				require.True(t, ok, "%s must be present", key)
 				require.Equal(t, tc.want, strings.TrimSpace(string(raw)), key)
 			}
+			raw, ok := fields["host_lifecycle"]
+			require.True(t, ok, "host_lifecycle must be present")
+			require.Equal(t, "null", strings.TrimSpace(string(raw)), "unrecorded host lifecycle must stay null")
 		})
 	}
 }
