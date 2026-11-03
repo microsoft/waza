@@ -175,6 +175,31 @@ test('Docker guard discovery rejects removal from either production site selecto
   }
 });
 
+function assertInteropExampleDiscovery(workflow) {
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
+  const examples = workflow.match(/^            examples:\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  for (const [name, block] of [['main push gate', push], ['PR examples filter', examples]]) {
+    assert.ok(block, `${name} must exist`);
+    const patterns = [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
+    assert.ok(patterns.includes('examples/interop/**'), `${name} must select script-only interop changes`);
+  }
+  assert.match(workflow, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(workflow, /if: needs\.build\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/);
+}
+
+test('interop script-only changes select executable controls and selector removal fails closed', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertInteropExampleDiscovery(workflow);
+  for (const [line, diagnostic] of [
+    ["      - 'examples/interop/**'\n", /main push gate must select script-only interop changes/],
+    ["              - 'examples/interop/**'\n", /PR examples filter must select script-only interop changes/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, 'mutation must remove the actual selector');
+    assert.throws(() => assertInteropExampleDiscovery(mutated), diagnostic);
+  }
+});
+
 test('site validation and deployment pin a supported Astro Node runtime', () => {
   const lock = JSON.parse(read('site/package-lock.json'));
   assert.match(lock.packages['node_modules/astro'].engines.node, />=22\.22\.0/);
