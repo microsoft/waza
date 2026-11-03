@@ -43,10 +43,17 @@ v0.40.0 release: the [runner contract and exact work-unit guide](../../guides/ru
 [local compatibility and migration](../../guides/runner-compatibility/), and the
 [local container foundation](../../guides/runner-container/).
 Runner execution is limited to the documented mock/text profile; native runner
-execution and the external schema adapter are not available. The container
+execution and full external task/suite interoperability are not available. The container
 foundation builds locally; pinned published-image acceptance remains outstanding.
 See [roadmap #754](https://github.com/microsoft/waza/issues/754)
 for the remaining release requirements.
+
+The [selected AgentV assertion preview](../../guides/external-interoperability/)
+adds offline, version-pinned `waza interop import/export` for one case-sensitive
+`contains` assertion and its single-check native grader mapping. Whole-task/suite
+imports, AgentEvals-spec/Harbor/ASSERT adapters and full evidence/provenance round
+trips remain unsupported; [#789](https://github.com/microsoft/waza/issues/789)
+remains open. This is assertion conformance, not whole-suite or agent-quality evidence.
 
 The source preview also includes [task-level MCP mocks](../../guides/eval-yaml/#task-level-mcp-mocks),
 [program-grader context](../../guides/graders/#program),

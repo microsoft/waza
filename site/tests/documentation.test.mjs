@@ -396,13 +396,22 @@ test('new feature guides identify the unpublished source-build boundary', () => 
   const homepage = read('site/src/content/docs/index.mdx')
     .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
   assert.match(homepage ?? '', /Runner execution is limited to\s+mock\/text/);
-  assert.match(homepage ?? '', /Native runner execution, the container reference and the external\s+schema adapter remain incomplete/);
+  assert.match(homepage ?? '', /Native runner execution,\s+the container reference and full external task\/suite interoperability remain incomplete/);
+  assert.match(homepage ?? '', /\[selected AgentV assertion preview\]\(\/waza\/guides\/external-interoperability\/\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
     .split('## Source-build v0.40.0 preview')[1]?.split('<span id=')[0];
   assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
   assert.match(overview ?? '', /mock\/text profile/);
-  assert.match(overview ?? '', /native runner\s+execution and the external schema adapter are not available/);
+  assert.match(overview ?? '', /native runner\s+execution and full external task\/suite interoperability are not available/);
+  assert.match(overview ?? '', /\[selected AgentV assertion preview\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
+  assert.match(overview ?? '', /`waza interop import\/export`/);
+  assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);
+  const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.39.1]')[0];
+  assert.match(unreleased ?? '', /Selected AgentV assertion interoperability \(v0\.40\.0 preview\)/);
+  assert.match(unreleased ?? '', /`waza interop import\/export`/);
+  assert.match(unreleased ?? '', /not whole-task\/suite support/);
+  assert.match(unreleased ?? '', /#789 remains open/);
   assert.match(overview ?? '', /\[local container foundation\]\(\.\.\/\.\.\/guides\/runner-container\/\)/);
   assert.match(overview ?? '', /pinned published-image acceptance remains outstanding/);
 
