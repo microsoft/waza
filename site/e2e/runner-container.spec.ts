@@ -14,4 +14,7 @@ test('container quickstart is navigable and distinguishes local IDs from publica
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Runner Contract & API', exact: true }).click();
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Local Runner Container', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/guides\/runner-container\/$/);
+  await page.goto('/waza/reference/releases/');
+  await page.getByRole('link', { name: 'local container foundation', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/guides\/runner-container\/$/);
 });

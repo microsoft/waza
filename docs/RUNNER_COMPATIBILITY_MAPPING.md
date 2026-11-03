@@ -128,7 +128,7 @@ except the specifically volatile `duration_ms`, `workspace_dir`,
 `session_digest.session_id` and each validation `duration_ms`. Its assertions
 retain full prompt/output, selection cardinality, attempts, all five verdicts,
 scores, weights, details, feedback, unavailable detail fields and tool inventory.
-Command tests separately assert writer version 1.7, eval/task identity and one
+Command tests separately assert current writer version 1.8, eval/task identity and one
 task/run. They preserve raw null-versus-empty in the oracle comparison and
 mutation-test prompt, score precision, passed state, optional detail shape,
 attempt and output drift.

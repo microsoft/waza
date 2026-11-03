@@ -33,6 +33,9 @@ test('local runner compatibility examples execute the actual CLI and retain loca
     const suite = examples.get('custom-suite.yaml');
     const task = examples.get('tasks/selected.case.yaml');
     assert.ok(suite && task);
+    const documentedWriter = guide
+      .match(/Both use (?:historical|the current local) result schema `?(\d+\.\d+)`?/)?.[1];
+    assert.ok(documentedWriter, 'the compatibility guide must identify the local result writer version');
     const cwd = fixture.directory;
     mkdirSync(join(cwd, 'tasks'));
     writeFileSync(join(cwd, 'custom-suite.yaml'), suite);
@@ -43,6 +46,7 @@ test('local runner compatibility examples execute the actual CLI and retain loca
     for (const path of ['before.json', 'after.json']) {
       const result = JSON.parse(readFileSync(join(cwd, path), 'utf8'));
       assert.equal(result.schemaVersion, '1.8');
+      assert.equal(result.schemaVersion, documentedWriter, `${path} must match the documented writer version`);
       assert.equal(result.eval_name, 'compatible-local');
       assert.equal(result.tasks.length, 1);
       assert.equal(result.tasks[0].test_id, 'selected');
