@@ -27,6 +27,7 @@ on:
       - 'Makefile'
       - 'web/**'
       - '.github/workflows/site-ci.yml'
+      - '.github/workflows/docker-ci.yml'
       - '.github/workflows/pages.yml'
   pull_request:
     branches: [main]
@@ -71,6 +72,7 @@ jobs:
               - 'internal/runnerterminal/testdata/**'
               - 'schemas/**'
               - '.github/workflows/site-ci.yml'
+              - '.github/workflows/docker-ci.yml'
               - '.github/workflows/pages.yml'
             examples:
               - 'site/**'
