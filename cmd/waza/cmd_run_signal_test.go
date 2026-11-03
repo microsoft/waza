@@ -25,13 +25,36 @@ import (
 const runSignalHelperEnv = "WAZA_RUN_SIGNAL_HELPER"
 const runSignalSpecEnv = "WAZA_RUN_SIGNAL_SPEC"
 
-type blockingBenchmarkRunner struct{}
+type blockingBenchmarkRunner struct {
+	started chan struct{}
+}
 
 func (r *blockingBenchmarkRunner) OnProgress(orchestration.ProgressListener) {}
 
 func (r *blockingBenchmarkRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+	if r.started != nil {
+		close(r.started)
+	}
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+type persistentCancellationEngine struct {
+	execution.AgentEngine
+	forced chan struct{}
+}
+
+func (e *persistentCancellationEngine) Shutdown(ctx context.Context) error {
+	<-e.forced
+	return ctx.Err()
+}
+
+func (e *persistentCancellationEngine) ForceStop() {
+	select {
+	case <-e.forced:
+	default:
+		close(e.forced)
+	}
 }
 
 func TestRunCommand_CancelsOnSIGTERM(t *testing.T) {
@@ -47,6 +70,53 @@ func TestRunCommand_CancelsOnSIGTERM(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			runCommandCancelsOnSIGTERM(t, tt.identity)
 		})
+	}
+}
+
+func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
+	resetRunGlobals()
+	oldEngineFactory := newRunEngine
+	oldRunnerFactory := newBenchmarkRunner
+	oldGrace := runEngineShutdownGrace
+	t.Cleanup(func() {
+		newRunEngine = oldEngineFactory
+		newBenchmarkRunner = oldRunnerFactory
+		runEngineShutdownGrace = oldGrace
+	})
+	runEngineShutdownGrace = 5 * time.Millisecond
+
+	engine := &persistentCancellationEngine{
+		AgentEngine: execution.NewMockEngine("test-model"),
+		forced:      make(chan struct{}),
+	}
+	started := make(chan struct{})
+	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+		return engine, nil
+	}
+	newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
+		return &blockingBenchmarkRunner{started: started}
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cmd := newRunCommand()
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{createTestSpec(t, "mock")})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+	<-started
+	start := time.Now()
+	cancel()
+
+	err := <-done
+	require.ErrorIs(t, err, context.Canceled)
+	require.Less(t, time.Since(start), 250*time.Millisecond)
+	select {
+	case <-engine.forced:
+	default:
+		t.Fatal("cancellation-time shutdown did not force-stop the persistent engine")
 	}
 }
 

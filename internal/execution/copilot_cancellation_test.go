@@ -118,7 +118,7 @@ func TestDisconnectBoundedForceStopsBlockingDisconnect(t *testing.T) {
 		close(release)
 	})
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, context.Canceled)
 	require.True(t, forced)
 	require.False(t, abandoned)
 }
@@ -223,4 +223,97 @@ func TestExecuteBoundsUsageCollectionAfterCanceledSend(t *testing.T) {
 	require.Less(t, time.Since(start), 250*time.Millisecond)
 	require.Contains(t, response.ErrorMsg, "trial timed out")
 	require.Nil(t, response.Usage)
+}
+
+func TestExecuteShortensUsageBudgetWhenCancellationArrivesLate(t *testing.T) {
+	oldGrace := sendCancellationGrace
+	sendCancellationGrace = 5 * time.Millisecond
+	t.Cleanup(func() { sendCancellationGrace = oldGrace })
+
+	ctrl := gomock.NewController(t)
+	client := newClientMock(ctrl)
+	session := NewMockCopilotSession(ctrl)
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	session.EXPECT().SessionID().Return("session-late-cancel")
+	session.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	metricsStarted := make(chan struct{})
+	session.EXPECT().UsageMetrics(gomock.Any()).DoAndReturn(
+		func(ctx context.Context) (*rpc.UsageGetMetricsResult, error) {
+			close(metricsStarted)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	)
+	session.EXPECT().ShutdownUsage(gomock.Any()).Return(nil, nil)
+	session.EXPECT().Disconnect().Return(nil)
+	client.EXPECT().DeleteSession(gomock.Any(), "session-late-cancel").Return(nil)
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+	}).Build()
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan *ExecutionResponse, 1)
+	go func() {
+		response, err := engine.Execute(ctx, &ExecutionRequest{
+			Message: "late cancellation",
+			ModelID: "test-model",
+		})
+		require.NoError(t, err)
+		done <- response
+	}()
+
+	<-metricsStarted
+	start := time.Now()
+	cancel()
+	response := <-done
+
+	require.Less(t, time.Since(start), 250*time.Millisecond)
+	require.False(t, response.Success)
+	require.Contains(t, response.ErrorMsg, "trial canceled during cleanup")
+}
+
+func TestExecuteReportsDeadlineExceededByBlockingDisconnect(t *testing.T) {
+	oldGrace := sendCancellationGrace
+	sendCancellationGrace = 5 * time.Millisecond
+	t.Cleanup(func() { sendCancellationGrace = oldGrace })
+
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	session := newSessionMock(ctrl)
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	session.EXPECT().SessionID().Return("session-blocked-disconnect")
+	session.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	releaseDisconnect := make(chan struct{})
+	session.EXPECT().Disconnect().DoAndReturn(func() error {
+		<-releaseDisconnect
+		return nil
+	})
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-blocked-disconnect").Return(nil)
+	client := &forceStopTestClient{
+		MockCopilotClient: clientMock,
+		forceStop:         func() { close(releaseDisconnect) },
+	}
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+	}).Build()
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	response, err := engine.Execute(ctx, &ExecutionRequest{
+		Message: "successful send",
+		ModelID: "test-model",
+	})
+
+	require.NoError(t, err)
+	require.False(t, response.Success)
+	require.Contains(t, response.ErrorMsg, "session teardown failed")
+	require.Contains(t, response.ErrorMsg, "context deadline exceeded")
 }

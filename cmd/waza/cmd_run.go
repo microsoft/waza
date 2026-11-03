@@ -863,10 +863,18 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	if err := engine.Initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
-	defer func() {
-		if err := engine.Shutdown(context.Background()); err != nil {
+	engineShutdown := false
+	shutdownEngine := func() {
+		if engineShutdown {
+			return
+		}
+		engineShutdown = true
+		if err := shutdownRunEngine(ctx, engine); err != nil {
 			slog.Warn("engine shutdown failed", "error", err)
 		}
+	}
+	defer func() {
+		shutdownEngine()
 	}()
 
 	// Create runner with optional task filters and cache
@@ -1088,9 +1096,7 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	}
 
 	// shut down the engine and update outcome with final usage data
-	if err := engine.Shutdown(context.Background()); err != nil {
-		slog.Warn("engine shutdown failed", "error", err)
-	}
+	shutdownEngine()
 	if outcome.EvaluationUsage != nil {
 		outcome.EvaluationUsage.Sessions = append(outcome.EvaluationUsage.Sessions, supplementalUsage.Snapshot().Sessions...)
 	}
@@ -2385,6 +2391,17 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 		printSkillRunSummary(allSkillResults)
 	}
 	fmt.Printf("Results: %d skills evaluated, %d passed, %d failed\n", len(allSkillResults), passed, failed)
+
+	if outputDir != "" {
+		if err := writeOutputDir(outputDir, allSkillResults); err != nil {
+			return fmt.Errorf("failed to write output directory: %w", err)
+		}
+		for _, result := range allSkillResults {
+			if err := removePartialOutcomes(result.outcomes); err != nil {
+				return err
+			}
+		}
+	}
 
 	return lastErr
 }

@@ -1597,6 +1597,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 }
 
 func (r *EvalRunner) publishPartialOutcome(testNum int, tc *models.TestCase, runs []models.RunResult) {
+	if r.partialWriter == nil {
+		return
+	}
 	r.publishPartialTestOutcome(testNum, r.buildTestOutcome(tc, cloneRunResultsForPartial(runs)))
 }
 

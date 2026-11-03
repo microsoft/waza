@@ -91,7 +91,7 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 	defer timer.Stop()
 	select {
 	case err := <-done:
-		return err, false
+		return errors.Join(ctx.Err(), err), false
 	case <-timer.C:
 		forceStop()
 	}
@@ -99,7 +99,7 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 	timer.Reset(sendCancellationGrace)
 	select {
 	case err := <-done:
-		return err, false
+		return errors.Join(ctx.Err(), err), false
 	case <-timer.C:
 		return ctx.Err(), true
 	}
@@ -704,7 +704,14 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}()
 	}
 	sessionAbandoned := false
+	var resp *ExecutionResponse
+	sendCtx := ctx
+	cancelSendCtx := func(error) {}
+	cancelSkillCtx := func() {}
+	var canceledForSkill atomic.Bool
 	defer func() {
+		defer cancelSkillCtx()
+		defer cancelSendCtx(nil)
 		if sessionAbandoned {
 			slog.Warn("abandoned unresponsive Copilot session after force stop", "sessionID", sessionID)
 			return
@@ -712,14 +719,13 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
-		err, abandoned := disconnectBounded(ctx, session, func() {
+		err, abandoned := disconnectBounded(sendCtx, session, func() {
 			if force, ok := e.client.(interface{ ForceStop() }); ok {
 				force.ForceStop()
 			}
 		})
 		if abandoned {
 			slog.Warn("abandoned Copilot session after disconnect exceeded cancellation grace", "sessionID", sessionID)
-			return
 		}
 		if err != nil {
 			if op := operationFrom(ctx); op != nil {
@@ -728,8 +734,24 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 				slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
 			}
 		}
+		if resp != nil && (err != nil || abandoned) && !canceledForSkill.Load() {
+			cleanupErr := err
+			if cleanupErr == nil {
+				cleanupErr = errors.New("session cleanup abandoned after cancellation grace")
+			}
+			resp.Success = false
+			cleanupMsg := fmt.Sprintf("session teardown failed: %v", cleanupErr)
+			if resp.ErrorMsg == "" {
+				resp.ErrorMsg = cleanupMsg
+			} else {
+				resp.ErrorMsg += "\n" + cleanupMsg
+			}
+		}
+		if abandoned {
+			return
+		}
 		if req.EphemeralSession && req.SessionID == "" {
-			deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
+			deleteCtx, cancelDelete := cleanupContext(sendCtx, 30*time.Second)
 			defer cancelDelete()
 			if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
 				if op := operationFrom(ctx); op != nil {
@@ -763,15 +785,14 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// can abort SendAndWait as soon as a skill invocation event arrives. This
 	// lets trigger tests terminate early once the skill fires, rather than
 	// waiting for the agent to finish its full turn.
-	var canceledForSkill atomic.Bool
 	if req.CancelOnSkillInvocation {
 		var cancelSkill context.CancelFunc
 		ctx, cancelSkill = context.WithCancel(ctx)
+		cancelSkillCtx = cancelSkill
 		eventsCollector.SetOnSkillInvoked(func(_ SkillInvocation) {
 			canceledForSkill.Store(true)
 			cancelSkill()
 		})
-		defer cancelSkill() // no-op if already called, ensures cleanup
 	}
 
 	// Event handler — NOT deferred for unsubscribe because we need to receive
@@ -855,12 +876,12 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// event arrives in time, and disarm it the moment the first event lands (the
 	// turn has started; the overall deadline governs the rest) or SendAndWait
 	// returns for any other reason.
-	sendCtx := ctx
+	sendCtx = ctx
 	stopFirstEventWatchdog := func() {}
 	if req.FirstEventTimeout > 0 {
 		var cancelFirst context.CancelCauseFunc
 		sendCtx, cancelFirst = context.WithCancelCause(ctx)
-		defer cancelFirst(nil)
+		cancelSendCtx = func(err error) { cancelFirst(err) }
 		timer := time.AfterFunc(req.FirstEventTimeout, func() {
 			cancelFirst(errFirstEventTimeout)
 		})
@@ -948,7 +969,15 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	// Build response
-	e.captureUsage(ctx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
+	e.captureUsage(sendCtx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
+	if err == nil && sendCtx.Err() != nil && !canceledForSkill.Load() {
+		if errors.Is(sendCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("trial timed out during cleanup: %w", context.DeadlineExceeded)
+		} else {
+			err = fmt.Errorf("trial canceled during cleanup: %w", sendCtx.Err())
+		}
+		errMsg = err.Error()
+	}
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
 	var finalOutput string
@@ -964,7 +993,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		skillInvocations = append([]SkillInvocation(nil), eventsCollector.SkillInvocations...)
 		toolCalls = eventsCollector.ToolCalls()
 	}()
-	resp := &ExecutionResponse{
+	resp = &ExecutionResponse{
 		FinalOutput:        finalOutput,
 		Events:             copilotevents.FromSDK(collectedEvents),
 		ModelID:            modelID,
@@ -1017,6 +1046,14 @@ func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 		}
 	})
 	return e.shutdownErr
+}
+
+// ForceStop interrupts the SDK transport when bounded cleanup cannot make
+// progress after cancellation.
+func (e *CopilotEngine) ForceStop() {
+	if force, ok := e.client.(interface{ ForceStop() }); ok {
+		force.ForceStop()
+	}
 }
 
 func (e *CopilotEngine) doShutdown(ctx context.Context) error {
@@ -1101,24 +1138,12 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	totalTimeout := timeout + 30*time.Second
-	metricsTimeout := timeout
-	if parent.Err() != nil {
-		if metricsTimeout > sendCancellationGrace {
-			metricsTimeout = sendCancellationGrace
-		}
-		if totalTimeout > 2*sendCancellationGrace {
-			totalTimeout = 2 * sendCancellationGrace
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), totalTimeout)
-	defer cancel()
-	metricsCtx, cancelMetrics := context.WithTimeout(ctx, metricsTimeout)
+	metricsCtx, cancelMetrics := cleanupContext(parent, timeout)
 	metrics, err := session.UsageMetrics(metricsCtx)
 	cancelMetrics()
 	if err == nil && metrics != nil {
 		collector.SetMetrics(metrics)
-		if op := operationFrom(ctx); op != nil {
+		if op := operationFrom(parent); op != nil {
 			reportUsageObservation(op, StageUsageMetrics, sessionID, collector.Observation())
 		}
 		return
@@ -1126,7 +1151,7 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if err == nil {
 		err = errors.New("empty usage metrics response")
 	}
-	if op := operationFrom(ctx); op != nil {
+	if op := operationFrom(parent); op != nil {
 		op.report(StageUsageMetrics, CodeUsageMissingOrPartial, sessionID)
 	} else {
 		slog.Warn("final usage metrics unavailable; using session events", "sessionID", sessionID, "error", err)
@@ -1134,7 +1159,29 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if !final {
 		return
 	}
-	e.captureShutdownUsage(ctx, sessionID, session, collector)
+	fallbackCtx, cancelFallback := cleanupContext(parent, 30*time.Second)
+	defer cancelFallback()
+	e.captureShutdownUsage(fallbackCtx, sessionID, session, collector)
+}
+
+func cleanupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if parent.Err() != nil && timeout > 2*sendCancellationGrace {
+		timeout = 2 * sendCancellationGrace
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	stopParent := context.AfterFunc(parent, func() {
+		timer := time.NewTimer(sendCancellationGrace)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			cancel()
+		case <-ctx.Done():
+		}
+	})
+	return ctx, func() {
+		stopParent()
+		cancel()
+	}
 }
 
 func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {

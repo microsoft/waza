@@ -383,3 +383,10 @@ func TestCloneTestOutcomeForPartialIsolatesGraderSessions(t *testing.T) {
 	require.Same(t, originalUsage, original.Runs[0].GraderSessions[0].Usage)
 	require.Equal(t, 1, original.Runs[0].GraderSessions[0].Usage.InputTokens)
 }
+
+func TestPublishPartialOutcomeSkipsWorkWithoutWriter(t *testing.T) {
+	runner := &EvalRunner{}
+	require.NotPanics(t, func() {
+		runner.publishPartialOutcome(1, nil, nil)
+	})
+}

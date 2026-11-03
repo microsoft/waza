@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
@@ -35,6 +36,52 @@ func TestRunCommandOutputDirRemovesPartialAfterFinalWrite(t *testing.T) {
 	}))
 	require.Len(t, resultFiles, 1)
 	require.NotContains(t, resultFiles[0], string(filepath.Separator)+".partial"+string(filepath.Separator))
+}
+
+func TestRunDiscoverModeOutputDirPublishesFinalResults(t *testing.T) {
+	resetRunGlobals()
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "discover-skill")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: discover-skill\ndescription: test\n---\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "tasks", "task.yaml"), []byte("id: task\nname: Task\ninputs:\n  prompt: hi\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "eval.yaml"), []byte(`
+name: discover-eval
+skill: discover-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  executor: mock
+  model: test-model
+tasks:
+  - "tasks/*.yaml"
+`), 0o600))
+	dir := t.TempDir()
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{"--discover", root, "--output-dir", dir})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	require.NoError(t, cmd.Execute())
+
+	var finalFiles, partialFiles []string
+	require.NoError(t, filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".json" {
+			return nil
+		}
+		if strings.Contains(path, string(filepath.Separator)+".partial"+string(filepath.Separator)) {
+			partialFiles = append(partialFiles, path)
+		} else {
+			finalFiles = append(finalFiles, path)
+		}
+		return nil
+	}))
+	require.Len(t, finalFiles, 1)
+	require.Empty(t, partialFiles)
 }
 
 func TestSaveOutcomePreservesPreviousCheckpointWhenReplacementFails(t *testing.T) {
