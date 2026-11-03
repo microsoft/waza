@@ -11,6 +11,18 @@ const catalogInputs = {
   schema: 'schemas/eval.schema.json',
   catalogs: ['README.md', 'site/src/content/docs/guides/graders.mdx'],
 };
+const embeddedTargets = ['darwin_amd64', 'darwin_arm64', 'linux_amd64', 'linux_arm64', 'windows_amd64', 'windows_arm64'];
+const embeddedFiles = embeddedTargets.flatMap((target) => [
+  `internal/embedded/zcopilot_${target}.go`,
+  `internal/embedded/zcopilot_inprocess_${target}.go`,
+]);
+const embeddedAssets = embeddedFiles.flatMap((path) =>
+  [...read(path).matchAll(/^\/\/go:embed (\S+)$/gm)]
+    .map((match) => `internal/embedded/${match[1]}`));
+const releaseInputs = [
+  'version.txt', 'registry.json', 'go.mod', 'CHANGELOG.md',
+  'internal/models/schema_version.go', ...embeddedFiles, ...embeddedAssets,
+];
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
@@ -34,6 +46,7 @@ test('runner identity fixtures trigger consumer validation and publication witho
   assert.match(read('web/playwright.config.ts'), /testDir: "\.\/e2e"/);
   assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
   assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-compatibility.spec.ts')));
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-identities.spec.ts')));
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-terminal.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
@@ -99,7 +112,7 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
   }
 });
 
-test('every catalog input enables PR site checks and the main push workflow', () => {
+test('every catalog and release input enables PR site checks and the main push workflow', () => {
   const workflow = read('.github/workflows/site-ci.yml');
   const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
   const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
@@ -111,10 +124,11 @@ test('every catalog input enables PR site checks and the main push workflow', ()
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
-  for (const input of Object.values(catalogInputs).flat()) {
-    assert.ok(paths(site).some((pattern) => matches(pattern, input)), `${input}: PR site filter excludes catalog input`);
-    assert.ok(paths(push).some((pattern) => matches(pattern, input)), `${input}: main push gate excludes catalog input`);
+  for (const input of [...Object.values(catalogInputs).flat(), ...releaseInputs]) {
+    assert.ok(paths(site).some((pattern) => matches(pattern, input)), `${input}: PR site filter excludes documentation input`);
+    assert.ok(paths(push).some((pattern) => matches(pattern, input)), `${input}: main push gate excludes documentation input`);
   }
+  assert.ok(!paths(site).some((pattern) => matches(pattern, 'internal/cache/cache.go')), 'unrelated Go code must not select the PR site build');
   const build = workflow.match(/^      - name: Build site\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   assert.ok(build, 'site build step must exist');
   assert.match(build, /if: steps\.filter\.outputs\.site == 'true' \|\| github\.event_name == 'push'/);
@@ -285,9 +299,91 @@ test('extension installation guidance identifies the current registry version', 
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
 });
 
+test('release entry points agree on published versions and the current runner result writer', () => {
+  const published = read('version.txt').trim();
+  assert.match(published, /^\d+\.\d+\.\d+$/);
+  const readme = read('README.md').replace(/\s+/g, ' ');
+  assert.equal(readme.match(/published standalone CLI is `v([^`]+)`/)?.[1], published);
+  assert.equal(
+    read('site/src/content/docs/reference/releases.mdx')
+      .match(/^## Current published standalone release: v(\S+)$/m)?.[1],
+    published,
+  );
+
+  const registry = JSON.parse(read('registry.json'));
+  const extension = registry.extensions.find(({ id }) => id === 'microsoft.azd.waza');
+  assert.ok(extension);
+  const latest = extension.versions.map(({ version }) => version)
+    .toSorted((a, b) => a.localeCompare(b, 'en', { numeric: true })).at(-1);
+  assert.equal(readme.match(/registry currently lists through `([^`]+)`/)?.[1], latest);
+
+  const writer = read('internal/models/schema_version.go')
+    .match(/CurrentResultSchemaVersion = "([^"]+)"/)?.[1];
+  assert.match(writer ?? '', /^\d+\.\d+$/);
+  const escapedWriter = writer.replace('.', '\\.');
+  const compatibilityRow = read('site/src/content/docs/guides/runner-compatibility.mdx')
+    .match(/^\| Local results \| ([^|]+)\|/m)?.[1];
+  assert.match(compatibilityRow ?? '', new RegExp(`\\bschema ${escapedWriter}\\b`));
+  const preview = read('docs/PRD.md').split('The v0.40.0 runner preview')[1]?.split('### The Problem')[0];
+  assert.match(preview ?? '', new RegExp(`result schema ${escapedWriter}\\b`));
+  const changelogEntry = read('CHANGELOG.md').split('\n')
+    .find((line) => line.startsWith('- **Bounded local compatibility'));
+  assert.match(changelogEntry ?? '', new RegExp(`writer schema ${escapedWriter}\\b`));
+
+  const sdk = read('go.mod').match(/github\.com\/github\/copilot-sdk\/go v(\S+)/)?.[1];
+  const bundledCLI = read('internal/embedded/zcopilot_darwin_arm64.go').match(/Version:\s+"([^"]+)"/)?.[1];
+  assert.ok(sdk && bundledCLI);
+  for (const path of embeddedFiles) {
+    const target = path.match(/(darwin|linux|windows)_(amd64|arm64)\.go$/)?.[0].slice(0, -3);
+    assert.ok(target, `${path}: expected an embedded CLI target`);
+    const bundled = read(path);
+    const executable = `zcopilot_${bundledCLI}_${target}${target.startsWith('windows_') ? '.exe' : ''}`;
+    assert.equal(bundled.match(/Version:\s+"([^"]+)"/)?.[1], bundledCLI, `${path}: embedded CLI version mismatch`);
+    assert.ok(bundled.includes(`//go:embed ${executable}.zst`), `${path}: embedded CLI bundle mismatch`);
+    assert.ok(bundled.includes(`//go:embed ${executable}.license`), `${path}: embedded CLI license mismatch`);
+    const runtimeAssets = [...bundled.matchAll(/^\/\/go:embed (zcopilotruntime(?:wrapper|assets)?_\S+)$/gm)]
+      .map((match) => match[1]);
+    assert.equal(runtimeAssets.length, target.startsWith('linux_') ? 6 : 3, `${path}: missing runtime companions`);
+    for (const asset of [`${executable}.zst`, `${executable}.license`, ...runtimeAssets]) {
+      assert.ok(asset.includes(`_${bundledCLI}_`), `${path}: ${asset} version mismatch`);
+      const location = resolve(root, 'internal/embedded', asset);
+      assert.ok(existsSync(location) && statSync(location).isFile() && statSync(location).size > 0, `${path}: missing ${asset}`);
+    }
+  }
+  assert.ok(read('site/src/content/docs/reference/cli.mdx').includes(
+    `github.com/github/copilot-sdk/go\` v${sdk} with bundled CLI ${bundledCLI}`,
+  ));
+});
+
+test('new feature guides identify the unpublished source-build boundary', () => {
+  const homepage = read('site/src/content/docs/index.mdx')
+    .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
+  assert.match(homepage ?? '', /Runner execution is limited to\s+mock\/text/);
+  assert.match(homepage ?? '', /Native runner execution, the container reference and the external\s+schema adapter remain incomplete/);
+
+  const overview = read('site/src/content/docs/reference/releases.mdx')
+    .split('## Source-build v0.40.0 preview')[1]?.split('<span id=')[0];
+  assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
+  assert.match(overview ?? '', /mock\/text profile/);
+  assert.match(overview ?? '', /native runner\s+execution, the runner container reference and the external schema adapter are\s+not available/);
+
+  for (const [path, heading] of [
+    ['site/src/content/docs/guides/eval-yaml.mdx', '### Task-level MCP mocks'],
+    ['site/src/content/docs/guides/graders.mdx', '#### Background shell lifecycle'],
+    ['site/src/content/docs/guides/graders.mdx', '## Program'],
+    ['site/src/content/docs/guides/dependency-recovery.mdx', '### Multi-turn MCP sequences'],
+    ['site/src/content/docs/guides/dashboard-lab.mdx', '### Read a multi-turn conversation'],
+  ]) {
+    const section = read(path).split(heading)[1]?.split(/\n#{2,4} /)[0];
+    assert.match(section ?? '', /\*\*Source-build preview:\*\*/, `${path}: ${heading}`);
+    assert.match(section ?? '', /v0\.39\.1/, `${path}: ${heading}`);
+  }
+});
+
 test('published workflow guides do not require unreleased main for v0.39.0 features', () => {
   const paths = [
     'README.md', 'docs/GETTING-STARTED.md', 'docs/GUIDE.md',
+    'docs/TUTORIAL.md', 'docs/CONTROLLED-COMPARISONS.md',
     'site/src/content/docs/index.mdx',
     'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/quick-start.mdx',
     'site/src/content/docs/concepts.mdx', 'site/src/content/docs/about.mdx',
