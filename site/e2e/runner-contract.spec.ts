@@ -9,6 +9,11 @@ test('runner CLI/API navigation, schemas and screenshot retain deployed base', a
   await expect(page.getByRole('heading', { name: 'Opt-in production Copilot text execution', exact: true })).toBeVisible();
   await expect(page.locator('main')).toContainText('examples/runner/copilot-unit.json');
   await expect(page.locator('main')).toContainText('allow_paid_execution: true');
+  await expect(page.locator('main')).toContainText('synthetic stdio subprocess');
+  await expect(page.getByRole('link', { name: 'offline production-process controls', exact: true })).toHaveAttribute(
+    'href',
+    'https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md#offline-production-process-controls',
+  );
   for (const name of ['Negotiation request 1.0 schema', 'Negotiation response 1.0 schema', 'Complete runner request 1.0 schema', 'Capability advertisement 1.0 schema', 'Exact unit receipt 1.0 schema']) {
     const href = await page.getByRole('link', { name, exact: true }).getAttribute('href');
     expect(href).not.toBeNull();
