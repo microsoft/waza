@@ -1,0 +1,83 @@
+---
+title: External Assertion Interoperability
+description: Project a pinned AgentV contains assertion offline without claiming whole-suite compatibility.
+---
+
+This **source-build preview**, targeted for v0.40.0, converts **one explicitly
+selected AgentV case-sensitive `contains` assertion** to a native text grader.
+It does not import AgentEvals, AgentV, Harbor or ASSERT tasks or whole suites.
+Issue #789 remains open.
+
+## Import a selected assertion
+
+From the repository root, with a binary built from this source:
+
+```bash
+adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
+waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
+  < internal/interop/testdata/agentv/suite.yaml
+```
+
+Stdout is **one native grader mapping**, not a runnable eval. Place it in a native
+eval's `graders` list. Stderr reports **ASSERTION-ONLY PROJECTION**: task inputs,
+providers, fixtures, sibling assertions, thresholds, suite metadata and execution
+settings are **not converted or validated**. Selected assertions with unsupported
+fields fail rather than losing semantics. Excluded scripts or hooks are never
+executed. Source digest comments are advisory and **unverified**.
+
+The exact commit pin is mandatory. Only `type: contains`, a nonempty string
+`value` and optional nonblank string `metric` are supported. Case-sensitive
+substring matching maps to native `contains_cs`, **not** case-insensitive
+`contains`. Scores are binary 0/1, higher is better. No regex, negation, `required`,
+weights, thresholds, provider settings, evidence or whole-task translation is
+claimed.
+
+## Export one native grader
+
+```bash
+waza interop export --adapter "$adapter" < one-native-grader.yaml
+```
+
+Input must have exactly `name`, `type: text`, and
+`config: {contains_cs: [one-nonempty-string]}`. Output is a single AgentV
+assertion for an upstream `assert` list, not a suite. Multiple native checks are
+rejected because their fractional scores would change the upstream assertion.
+A missing upstream `metric` imports as `agentv-contains`; export makes that
+metric explicit. Round trips preserve supported meaning, not original bytes.
+
+Both commands use stdin/stdout only. They reject unknown adapter versions,
+duplicate/merge keys, aliases, anchors, multiple documents, custom tags,
+non-UTF-8 input and input exceeding 4 MiB. No model/tool calls, ambient config
+loading or reference reads occur. A value resembling a path remains literal
+text. Selected strings containing `${`, `{{` or `}}` are rejected rather than
+performing environment/template interpolation. Conversion/selection errors
+return exit 2; no converted stdout is emitted.
+
+## Coverage and evidence
+
+| Source | Current coverage |
+|---|---|
+| AgentV `68df6d22`, MIT | Selected literal `contains` assertion import/export only |
+| AgentEvals specification `61ec10dc`, MIT | No direct adapter; specification dialect differs from AgentV |
+| Harbor `f6cf2e2e`, Apache-2.0 | No adapter; real task success depends on container and executable verifier semantics |
+| ASSERT `45da4c56`, MIT | No adapter; interchangeable definition schema and offline scoring oracle not established |
+
+The retained real upstream YAML suite, executable TypeScript assertion oracle,
+and MIT license are checksum-pinned. Production Waza CLI conformance compares
+supported positive **and negative** decisions and scores against that oracle
+without inference. This is not whole-suite or agent-quality evidence.
+
+```bash
+go build -o /tmp/waza-interop ./cmd/waza
+bash examples/interop/run.sh /tmp/waza-interop
+```
+
+The example uses a mock executor and checks one passing and one failing control.
+It requires Bash, `jq`, and the repository fixtures. The Go conformance tests
+additionally require Node 22.18+ or 24+ for TypeScript type stripping.
+
+See the [verified compatibility matrix, source pins, licensing and remaining acceptance gaps](https://github.com/microsoft/waza/blob/main/docs/INTEROPERABILITY.md)
+and the [native eval authoring guide](/waza/guides/eval-yaml/).
+Full fixture/model/tool/task semantics, combined suite decisions, and full
+evidence/provenance round trips remain unsupported. No Lab/result schema changes
+are introduced.

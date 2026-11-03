@@ -922,6 +922,29 @@ waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml \
   --format github-actions
 ```
 
+## waza interop (source-build preview)
+
+Offline stdin/stdout conversion of **one selected AgentV `contains` assertion**,
+not an upstream task or suite:
+
+```bash
+adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
+waza interop import --adapter "$adapter" --test contains-check --assertion 1 < suite.yaml
+waza interop export --adapter "$adapter" < one-native-grader.yaml
+```
+
+`--adapter` requires the exact pin. Import requires an exact `--test` ID and
+1-based `--assertion` index, outputs one native grader mapping, and explicitly
+diagnoses excluded suite semantics. Export accepts one named text grader with
+exactly one `contains_cs` check and outputs one AgentV assertion. Unknown fields
+on the selected assertion/native grader fail; no silent grader substitution.
+Unknown versions, malformed/ambiguous YAML and invalid selections return exit 2.
+Input is bounded to 4 MiB; no providers, scripts, reference reads or model calls.
+
+See [External Assertion Interoperability](/waza/guides/external-interoperability/)
+for supported fields, licensing, upstream oracle evidence and acceptance gaps.
+AgentEvals-spec, Harbor, ASSERT and whole-suite AgentV imports are unsupported.
+
 ## waza migrate
 
 Check or migrate a public schema artifact.

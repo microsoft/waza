@@ -1,5 +1,10 @@
 # Existing-workflow compatibility corpus
 
+External definition conversion is separate from preservation of existing native
+workflows. See [External evaluation interoperability](INTEROPERABILITY.md) for
+the assertion-only AgentV preview, exact version pin, oracle evidence, rejected
+lossy mappings and unsupported whole-suite semantics.
+
 This is the offline preservation gate for #658 and the additive work under
 #657. The contract is intended existing v1 behavior, not a new assurance
 feature. The baseline is commit `04e7b4c6d593555834e71221227326c63274a921`;

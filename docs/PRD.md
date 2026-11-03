@@ -50,6 +50,16 @@ Native execution and the container reference remain unavailable under #754.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
+External-schema interoperability (#789) remains partial. The source-build
+preview projects one explicitly selected, commit-pinned AgentV case-sensitive
+`contains` assertion to a single native text grader and exports the same
+single-check subset. Conversion is offline and reports excluded task, provider,
+fixture and sibling-assertion semantics. A retained upstream fixture and runnable
+assertion oracle cover positive and negative production-CLI decisions without
+inference. Whole-task/suite import, AgentEvals-spec/Harbor/ASSERT support and full
+evidence/provenance round trips are not delivered. See the
+[verified interoperability matrix](INTEROPERABILITY.md).
+
 ### The Problem
 
 The microsoft/skills repository hosts 132+ skills for AI coding agents, but the contribution process lacks automated tooling for:
