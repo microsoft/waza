@@ -73,11 +73,15 @@ without granting other UIDs write access; no credentials or environment values
 are recorded. Run `node --test examples/runner/container/native-lifecycle.test.mjs`
 for deterministic pre-creation rejection, timeout and cleanup-failure controls.
 The harness preserves original Docker errors and reports cleanup failures
-separately. A private Docker `--cidfile` binds cleanup to the immutable ID created
-by that invocation, never its reusable name. Unproven ownership reports potential
+separately. `docker create` returns an immutable ID directly through the owned
+subprocess stdout; the harness captures it once in memory and starts, inspects
+and removes only that ID, never its reusable name or a mutable cidfile.
+Unproven ownership reports potential
 residue for manual inspection rather than deleting a competing container.
-Temporary cidfile-directory cleanup failures retain the residue path and are
-aggregated with any original Docker and container-removal failures.
+There is no ownership-directory or cidfile cleanup to race with filesystem
+replacement. Original execution and container-removal errors are aggregated;
+creation-time failure without a captured ID leaves potential residue explicitly
+unverified rather than deleting by name.
 Deterministic collision/replacement controls and an actual Docker name collision
 verify that existing containers survive failed admission.
 The peer's authentication, text and zero-usage responses

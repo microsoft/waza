@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { runNamedContainer } from './native-lifecycle.mjs';
 
@@ -7,148 +9,128 @@ const name = 'waza-native-test';
 const id = 'a'.repeat(64);
 const competitor = 'b'.repeat(64);
 const ok = { status: 0, stdout: '', stderr: '' };
-const rejected = { status: 125, stdout: '', stderr: 'invalid mount: source does not exist' };
 
-function exercise(run, createdID = id, removal = ok, verify = () => 'verified', removeOwnership) {
+function exercise({ create = { ...ok, stdout: id }, start = ok, remove = ok,
+  exit = 0, verify = () => 'verified' } = {}) {
   const calls = [];
-  const containers = new Map();
+  const containers = new Map([[competitor, { name }]]);
   const command = args => {
     calls.push(args);
-    if (args[0] === 'run') {
-      assert.equal(args[1], '--cidfile');
-      if (createdID !== null) {
-        writeFileSync(args[2], createdID, { flag: 'wx' });
-        containers.set(createdID, { name });
-      }
-      if (run instanceof Error) throw run;
-      return run;
+    if (args[0] === 'create') {
+      if (create instanceof Error) throw create;
+      if (create.status === 0) containers.set(create.stdout, { name });
+      return create;
     }
-    if (args[0] === 'inspect') {
-      assert.equal(args[1], id);
-      return { ...ok, stdout: JSON.stringify([{ Id: id, State: { Running: false } }]) };
+    assert.equal(args.at(-1), id, 'all post-create operations must use captured immutable ID');
+    if (args[0] === 'start') {
+      if (start instanceof Error) throw start;
+      return start;
     }
+    if (args[0] === 'inspect') return { ...ok,
+      stdout: JSON.stringify([{ Id: id, State: { Running: false, ExitCode: exit } }]) };
     if (args[0] === 'rm') {
-      if (removal.status === 0) containers.delete(args[2]);
-      return removal;
+      if (remove.status === 0) containers.delete(id);
+      return remove;
     }
     assert.fail(`unexpected Docker command ${args}`);
   };
-  return { calls, containers, invoke: () => runNamedContainer(command, name, ['run', '--name', name], {}, verify, removeOwnership) };
+  return { calls, containers, invoke: () => runNamedContainer(command, name,
+    ['run', '--name', name, '-i', 'image'], { input: 'request' }, verify) };
 }
 
-test('pre-creation rejection retains original error and reports unproven ownership', () => {
-  const control = exercise(rejected, null);
-  assert.throws(control.invoke, error => {
-    assert.ok(error instanceof AggregateError);
-    assert.match(error.errors[0].message, /invalid mount: source does not exist/);
-    assert.match(error.errors[1].message, /ownership unproven.*potential residue/);
-    return true;
-  });
-  assert.deepEqual(control.calls.map(args => args[0]), ['run']);
-});
-
-test('collision never removes a pre-existing container with the requested name', () => {
-  const control = exercise({ ...rejected, stderr: `Conflict: name owned by ${competitor}` }, null);
-  control.containers.set(competitor, { name });
-  assert.throws(control.invoke, /Conflict.*ownership unproven/);
-  assert.deepEqual(control.calls.map(args => args[0]), ['run']);
-  assert.ok(control.containers.has(competitor));
-});
-
-test('name replacement does not redirect cleanup to the competing container', () => {
-  const control = exercise(ok, id, ok, () => {
-    control.containers.get(id).name = 'renamed-owned-container';
-    control.containers.set(competitor, { name });
-    return 'verified';
-  });
-  assert.equal(control.invoke(), 'verified');
-  assert.deepEqual(control.calls.at(-1), ['rm', '-f', id]);
-  assert.ok(control.calls.every(args => args[0] === 'run' || !args.includes(name)));
-  assert.ok(control.calls.every(args => !args.includes(competitor)));
-  assert.ok(control.containers.has(competitor), 'replacement must survive cleanup');
-  assert.ok(!control.containers.has(id), 'original immutable ID must be cleaned up despite rename');
-});
-
-test('timeout after creation still removes the invocation-owned immutable ID', () => {
-  const failure = new Error('docker run timed out');
-  const control = exercise(failure);
-  assert.throws(control.invoke, error => error === failure);
-  assert.deepEqual(control.calls.at(-1), ['rm', '-f', id]);
-});
-
-test('primary error and real cleanup failure are both retained', () => {
-  const control = exercise(new Error('docker run timed out'), id,
-    { ...ok, status: 1, stderr: 'removal denied' });
-  assert.throws(control.invoke, error => {
-    assert.ok(error instanceof AggregateError);
-    assert.equal(error.errors.length, 2);
-    assert.match(error.errors[0].message, /timed out/);
-    assert.match(error.errors[1].message, /removal denied/);
-    return true;
-  });
-});
-
-test('successful verification and nonzero expected CLI exits still clean up', () => {
-  for (const status of [0, 2]) {
-    const control = exercise({ ...ok, status }, id, ok, (result, container) => {
-      assert.equal(result.status, status);
-      assert.equal(container.State.Running, false);
-      return 'verified';
-    });
-    assert.equal(control.invoke(), 'verified');
-    assert.deepEqual(control.calls.map(args => args[0]), ['run', 'inspect', 'rm']);
-  }
-});
-
-test('invalid ownership and cleanup failure cannot become success', () => {
-  for (const invalid of ['', '../other', 'bad', `${id}\n${competitor}`]) {
-    const control = exercise(ok, invalid);
-    assert.throws(control.invoke, /ownership unproven/);
-    assert.deepEqual(control.calls.map(args => args[0]), ['run']);
-  }
-  const control = exercise(ok, id, { ...ok, status: 1, stderr: 'removal denied' });
-  assert.throws(control.invoke, /removal denied/);
-});
-
-test('primary, container and temporary-directory failures are all retained with residue path', () => {
-  let residue;
-  const control = exercise(new Error('docker run timed out'), id,
-    { ...ok, status: 1, stderr: 'removal denied' }, undefined, path => {
-      residue = path;
-      throw new Error('temporary directory removal denied');
-    });
-  try {
+test('create rejection and timeout report primary cause plus unverified residue without deletion', () => {
+  for (const create of [{ ...ok, status: 125, stderr: 'Conflict: name already owned' },
+    new Error('docker create timed out')]) {
+    const control = exercise({ create });
     assert.throws(control.invoke, error => {
       assert.ok(error instanceof AggregateError);
-      assert.equal(error.errors.length, 3);
-      assert.match(error.errors[0].message, /timed out/);
+      assert.match(error.errors[0].message, /Conflict|timed out/);
+      assert.match(error.errors[1].message, /ownership unproven.*potential residue/);
+      return true;
+    });
+    assert.deepEqual(control.calls.map(args => args[0]), ['create']);
+    assert.ok(control.containers.has(competitor));
+  }
+});
+
+test('name replacement does not redirect captured ownership', () => {
+  const control = exercise({ verify: () => {
+    control.containers.get(id).name = 'renamed-original';
+    control.containers.set(competitor, { name });
+    return 'verified';
+  } });
+  assert.equal(control.invoke(), 'verified');
+  assert.ok(control.containers.has(competitor));
+  assert.ok(!control.containers.has(id));
+});
+
+test('cidfile and parent replacement cannot influence daemon-captured ownership or delete competing files', () => {
+  const work = mkdtempSync(join(tmpdir(), 'waza-ownership-regression-'));
+  const parent = join(work, 'ownership');
+  const displaced = join(work, 'displaced');
+  mkdirSync(parent);
+  writeFileSync(join(parent, 'container.id'), id);
+  const control = exercise({ verify: () => {
+    writeFileSync(join(parent, 'container.id'), competitor);
+    renameSync(parent, displaced);
+    mkdirSync(parent);
+    writeFileSync(join(parent, 'container.id'), competitor);
+    writeFileSync(join(parent, 'competing-file'), 'preserve');
+    return 'verified';
+  } });
+  try {
+    assert.equal(control.invoke(), 'verified');
+    assert.equal(readFileSync(join(parent, 'container.id'), 'utf8'), competitor);
+    assert.equal(readFileSync(join(displaced, 'container.id'), 'utf8'), competitor);
+    assert.equal(readFileSync(join(parent, 'competing-file'), 'utf8'), 'preserve');
+    assert.ok(control.containers.has(competitor));
+    assert.ok(!control.containers.has(id));
+    assert.ok(control.calls.every(args => !args.includes('--cidfile')));
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test('start timeout cleans captured ID and retains simultaneous removal failure', () => {
+  const primary = new Error('docker start timed out');
+  for (const remove of [ok, { ...ok, status: 1, stderr: 'removal denied' }]) {
+    const control = exercise({ start: primary, remove });
+    assert.throws(control.invoke, error => {
+      if (remove.status === 0) return error === primary;
+      assert.ok(error instanceof AggregateError);
+      assert.equal(error.errors[0], primary);
       assert.match(error.errors[1].message, /removal denied/);
-      assert.match(error.errors[2].message, /residue remains: temporary directory removal denied/);
-      assert.ok(error.errors[2].message.includes(residue));
-      assert.ok(existsSync(residue), 'fault must leave the reported residue');
+      assert.ok(error.errors[1].message.includes(id));
       return true;
     });
     assert.deepEqual(control.calls.at(-1), ['rm', '-f', id]);
-  } finally {
-    if (residue) rmSync(residue, { recursive: true, force: true });
   }
 });
 
-test('temporary-directory cleanup failure alone cannot report success', () => {
-  let residue;
-  const control = exercise(ok, id, ok, undefined, path => {
-    residue = path;
-    throw new Error('temporary directory removal denied');
-  });
-  try {
-    assert.throws(control.invoke, error => {
-      assert.ok(!(error instanceof AggregateError));
-      assert.match(error.message, /residue remains: temporary directory removal denied/);
-      assert.ok(error.message.includes(residue));
-      return true;
-    });
-    assert.ok(!control.containers.has(id), 'container cleanup still precedes temporary-directory cleanup');
-  } finally {
-    if (residue) rmSync(residue, { recursive: true, force: true });
+test('observed container status, not attached client status, drives expected CLI failures', () => {
+  for (const exit of [0, 1, 2, 4, 5]) {
+    const control = exercise({ exit, verify: (result, container) => {
+      assert.equal(result.status, exit);
+      assert.equal(container.State.Running, false);
+      return 'verified';
+    } });
+    assert.equal(control.invoke(), 'verified');
+    assert.deepEqual(control.calls.map(args => args[0]), ['create', 'start', 'inspect', 'rm']);
   }
+});
+
+test('invalid creation identity and removal failure cannot report success', () => {
+  for (const stdout of ['', '../other', 'bad', `${id}\n${competitor}`]) {
+    const control = exercise({ create: { ...ok, stdout } });
+    assert.throws(control.invoke, /ownership unproven/);
+    assert.deepEqual(control.calls.map(args => args[0]), ['create']);
+  }
+  const control = exercise({ remove: { ...ok, status: 1, stderr: 'removal denied' } });
+  assert.throws(control.invoke, /removal denied/);
+});
+
+test('attached client failure is not repaired into a successful container exit', () => {
+  const control = exercise({ start: { ...ok, status: 1, stderr: 'attach failed' } });
+  assert.throws(control.invoke, /docker start failed.*attach failed/);
+  assert.ok(!control.containers.has(id), 'failed attach must still clean owned container');
 });

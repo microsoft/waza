@@ -57,7 +57,7 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
         'run', '--name', collisionName, '--network=none', '--read-only',
         images.reference, '--version',
       ], {}, () => assert.fail('colliding run must not reach verification')),
-      /docker run rejected container[\s\S]*Conflict[\s\S]*ownership unproven/);
+      /docker create rejected container[\s\S]*Conflict[\s\S]*ownership unproven/);
       const retained = command(['inspect', competingID]);
       assert.equal(retained.status, 0, 'name collision must not remove the competing container');
       assert.equal(JSON.parse(retained.stdout)[0].Id, competingID);
@@ -114,7 +114,7 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
     const request = structuredClone(fixture);
     assert.throws(() => invoke('synthetic-test', request, undefined, 'validate', [
       '--mount', `type=bind,source=${join(work, 'missing-input')},target=/invalid`,
-    ]), /docker run rejected container[\s\S]*bind source path does not exist/,
+    ]), /docker create rejected container[\s\S]*bind source path does not exist/,
     'pre-creation rejection must retain the actual Docker mount error');
     request.input.eval = request.input.eval.replace('gpt-4.1', 'synthetic-no-provider');
     assert.notEqual(request.input.eval, fixture.input.eval);
