@@ -145,7 +145,11 @@ The guard validates metadata shape, not independent hash reconstruction.
 | #759 | Implemented original-source identity derivation, versioned metadata in CLI/API receipts and Lab lineage/validation JSON export. Negotiation alone derives no identity. |
 | #760 | Implemented independent terminal schema, seven execution exit categories, shared CLI/HTTP terminal projection, cancellation and Lab/export. No archive or durable publication. |
 | #761 | Add explicit local compatibility adapters and historical regression evidence; this layer does not reroute `waza run` or artifact readers. |
-| #762 | Add pinned container proof/publication only after execution is implemented and independently reviewed. |
+| #762 | Local mock/text container build/test foundation only. Native integration and pinned published-image acceptance remain outstanding; the issue stays open. |
+
+The [local container quickstart](../site/src/content/docs/guides/runner-container.mdx)
+and [maintainer procedure](../examples/runner/container/MAINTAINERS.md) use the
+existing public CLI unchanged. No scheduler integration or Lab change is added.
 
 Source #779 at frozen `4fdbaf62e9dcf4ded2055c1919544973bc42761d`
 is source material, not approval. This layer adapts only its captured admission

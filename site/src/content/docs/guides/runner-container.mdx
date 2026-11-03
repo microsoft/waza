@@ -1,0 +1,125 @@
+---
+title: Local runner container reference
+description: Build a local image and execute one captured mock/text unit through JSON stdin/stdout without paid execution.
+---
+
+**Source-build foundation for v0.40.0, not a published image.**
+This reference uses the existing [public runner contract](../runner-contract/)
+and [terminal envelope](../runner-terminal/). It executes only `inline.mock-text`.
+Native execution is a separate dependency; consent does not enable it here.
+Issue [#762](https://github.com/microsoft/waza/issues/762) remains open until the
+native layer and a pinned published-image acceptance run are verified.
+There is **no published v0.40.0 runner image or registry digest** to copy today.
+No Lab dashboard change is required: this adds no new evidence or status surface.
+
+## Host and build requirements
+
+Use a reviewed source checkout with hydrated Git LFS objects, Docker Engine with
+BuildKit and Linux containers, and a POSIX shell. The reference targets native
+Linux `amd64` or `arm64` containers, including Docker Desktop's Linux VM on macOS.
+Windows-native containers, cross-platform emulation and alternate container
+engines are not established by this reference.
+
+Builds need network access for the digest-pinned Node/Go base images, locked npm
+dependencies and checksummed Go modules. Runtime uses no network, credentials,
+host checkout mount or paid provider. The image embeds the real dashboard build;
+it does not replace assets or native CLI payloads with compile stubs.
+Only the mock/text path is exercised, not the embedded native runtime.
+If your network requires a public npm mirror, pass
+`--build-arg NPM_CONFIG_REGISTRY=https://your-mirror.example/npm/` to the build.
+For the test command below, set `NPM_CONFIG_REGISTRY` to that same URL.
+Do not pass credentials in build arguments; no private registry authentication
+mechanism is provided.
+
+From the repository root:
+
+```bash
+work=$(mktemp -d)
+cp examples/runner/unit.json "$work/request.json"
+docker build --file examples/runner/container/Dockerfile \
+  --iidfile "$work/image.id" .
+image=$(docker image inspect --format '{{.Id}}' "$(cat "$work/image.id")")
+docker image inspect "$image"
+```
+
+The inspected image ID is `sha256:` followed by 64 hex digits. It is an
+**immutable local image identifier**, not evidence of publication or a pullable
+registry reference. Its meaning depends on Docker's image store: Docker 29's
+containerd store can report an OCI index digest rather than a configuration
+digest. Neither `--iidfile` nor `.Id` is a published-image acceptance result.
+The build does not push, tag a release or publish anything. Keep the work
+directory until you have inspected its outputs.
+
+## Execute and inspect local outputs
+
+```bash
+docker run --rm --pull=never --network=none --read-only \
+  --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=64 \
+  --memory=256m --cpus=1 \
+  --tmpfs /tmp:rw,noexec,nosuid,size=32m,mode=1777 \
+  -i "$image" runner run \
+  < "$work/request.json" > "$work/terminal.json" 2> "$work/stderr.log"
+code=$?
+printf 'Container exit: %s\n' "$code"
+cat "$work/terminal.json"
+```
+
+The clean request selects exactly
+`{"shard":"shard-a","task":"selected","trial":2,"attempt":2}`.
+Its eval permits three trials and attempts, but these are selectors, not loops.
+The captured adjacent task glob is never expanded. The only task is the inline
+captured task; no neighboring source files are supplied to the container.
+
+Expect exit **0**, empty stderr, and exactly one JSON envelope with
+`kind: "waza.runner-terminal"`, `schema_version: "1.0"`, `outcome: "success"`,
+`exit_code: 0`, `engine_calls: 1`, `validation: "valid"` and
+`failure_boundary: "none"`. Both `selection` and `observation.selection` equal
+the tuple above; `observation` has `execution_mode: "mock"`, `engine_calls: 1`,
+`run_number: 2`, `attempts: 2`, `status: "passed"` and one passed validation.
+`identity` is input-derived lineage, not an isolation or delivery attestation.
+The producer validates the terminal schema before its single emission.
+
+The host shell writes `terminal.json` and `stderr.log`; the container writes
+only ephemeral temporary workspace data. There is no mounted output directory,
+archive, upload, ingestion service or scheduler. Docker's own launch errors can
+produce stderr and no envelope (typically exit 125); do not interpret those as
+Waza verdicts. Redirection is neither exclusive creation nor atomic/durable
+publication: use a fresh work directory, never overwrite valuable outputs, and
+retain partial bytes on failure for diagnosis. A successful write is not proof
+that another process received the result.
+
+## Smoke and production-boundary controls
+
+With Node.js 24 available on the host, run:
+
+```bash
+node --test examples/runner/container/test.mjs
+```
+
+This builds the image, resolves its local ID, starts actual Linux containers and
+uses the production CLI, admission, mock engine and terminal producer. It checks
+capability discovery, zero-call offline validation, exact 2/2 and alternative
+3/3 selection, one failed text check (exit 1), wrong shard/task, out-of-range
+trial/attempt, external prompt-file and malformed JSON rejection (exit 6), and
+unavailable native capability even with paid consent (exit 5). Rejected requests
+have no observation or invented execution identity. Fresh host input/output
+files round-trip the real envelope; no host files or credentials are mounted.
+The test prints the actual local image ID and cleans only its own temporary
+directory. It leaves the built image in Docker's local store.
+
+## Troubleshooting and limits
+
+- **Cannot connect to Docker:** start the daemon/Desktop and select Linux containers.
+- **Build fails fetching dependencies:** check network, registry access and LFS hydration; no offline build is claimed.
+- **Exit 6:** compare the exact shard/task and one-based bounds; retain the inline mock/text profile rather than dropping unsupported semantics.
+- **Exit 5:** negotiate currently advertised capabilities; native consent cannot activate an absent capability.
+- **Exit 1:** inspect the actual false verdict, not an infrastructure retry.
+- **Empty/partial terminal output:** inspect stderr and Docker's exit; process loss, output failure and SIGKILL cannot guarantee an envelope.
+
+The non-root user, read-only filesystem, network denial, resource bounds and
+dropped capabilities reduce exposure but **do not establish strong isolation**.
+The image contains the full Waza binary and embedded assets, not a sandboxed
+mock-only binary. Do not mount secrets or run untrusted native workloads.
+There is no scheduler integration, automatic retry or exactly-once delivery.
+See the [maintainer procedure](https://github.com/microsoft/waza/blob/main/examples/runner/container/MAINTAINERS.md)
+for pinning and update limitations.
