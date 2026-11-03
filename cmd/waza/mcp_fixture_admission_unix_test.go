@@ -86,30 +86,44 @@ hooks:
 					source    *mcpmock.SourceConfig
 					sourceErr error
 				}
-				done := make(chan fixtureResult, 1)
-				go func() {
-					runErr := cmd.ExecuteContext(ctx)
-					source, sourceErr := mcpmock.FromEvalConfigWithSources(
-						models.MCPMockConfig{Name: "host", Fixtures: fixtures}, dir, nil, "1.1")
-					done <- fixtureResult{runErr, source, sourceErr}
-				}()
 				var result fixtureResult
-				blocked := false
-				select {
-				case result = <-done:
-				case <-time.After(5 * time.Second):
-					cancel()
-					if !fifo {
-						t.Fatal("regular fixture admission did not return")
+				for _, admission := range []struct {
+					name string
+					run  func()
+				}{
+					{"CLI", func() { result.runErr = cmd.ExecuteContext(ctx) }},
+					{"source API", func() {
+						result.source, result.sourceErr = mcpmock.FromEvalConfigWithSources(
+							models.MCPMockConfig{Name: "host", Fixtures: fixtures}, dir, nil, "1.1")
+					}},
+				} {
+					done := make(chan struct{})
+					go func() {
+						admission.run()
+						close(done)
+					}()
+					blocked := false
+					select {
+					case <-done:
+					case <-time.After(5 * time.Second):
+						cancel()
+						if !fifo {
+							t.Fatalf("%s regular fixture admission did not return", admission.name)
+						}
+						// Release this API's test-owned pipe and bound its join
+						// before starting another reader.
+						fd, err := unix.Open(target, unix.O_RDWR|unix.O_NONBLOCK, 0)
+						require.NoError(t, err)
+						require.NoError(t, unix.Close(fd))
+						select {
+						case <-done:
+						case <-time.After(5 * time.Second):
+							t.Fatalf("%s fixture reader did not exit after FIFO release", admission.name)
+						}
+						blocked = true
 					}
-					// Release only the test-owned pipe so a regressed reader can exit.
-					fd, err := unix.Open(target, unix.O_RDWR|unix.O_NONBLOCK, 0)
-					require.NoError(t, err)
-					require.NoError(t, unix.Close(fd))
-					result = <-done
-					blocked = true
+					require.False(t, blocked, "%s admission waited for a FIFO writer instead of rejecting the opened special file", admission.name)
 				}
-				require.False(t, blocked, "fixture admission waited for a FIFO writer instead of rejecting the opened special file")
 				if fifo {
 					require.ErrorContains(t, result.runErr, "regular")
 					require.ErrorContains(t, result.runErr, "ask_user.json")
