@@ -39,6 +39,14 @@ func (r *blockingBenchmarkRunner) RunBenchmark(ctx context.Context) (*models.Eva
 	return nil, ctx.Err()
 }
 
+type successfulBenchmarkRunner struct{}
+
+func (*successfulBenchmarkRunner) OnProgress(orchestration.ProgressListener) {}
+
+func (*successfulBenchmarkRunner) RunBenchmark(context.Context) (*models.EvaluationOutcome, error) {
+	return &models.EvaluationOutcome{}, nil
+}
+
 type persistentCancellationEngine struct {
 	execution.AgentEngine
 	started chan struct{}
@@ -149,6 +157,45 @@ func TestShutdownRunEngineBoundsCancellationAfterShutdownStarts(t *testing.T) {
 	default:
 		t.Fatal("cancellation during shutdown did not force-stop the persistent engine")
 	}
+}
+
+func TestRunCommandPropagatesCancellationDuringShutdown(t *testing.T) {
+	resetRunGlobals()
+	oldEngineFactory := newRunEngine
+	oldRunnerFactory := newBenchmarkRunner
+	oldGrace := runEngineShutdownGrace
+	t.Cleanup(func() {
+		newRunEngine = oldEngineFactory
+		newBenchmarkRunner = oldRunnerFactory
+		runEngineShutdownGrace = oldGrace
+	})
+	runEngineShutdownGrace = 5 * time.Millisecond
+
+	engine := &persistentCancellationEngine{
+		AgentEngine: execution.NewMockEngine("test-model"),
+		started:     make(chan struct{}),
+		forced:      make(chan struct{}),
+	}
+	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+		return engine, nil
+	}
+	newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
+		return &successfulBenchmarkRunner{}
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cmd := newRunCommand()
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{createTestSpec(t, "mock")})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+	<-engine.started
+	cancel()
+
+	require.ErrorIs(t, <-done, context.Canceled)
 }
 
 func runCommandCancelsOnSIGTERM(t *testing.T, identity string) {

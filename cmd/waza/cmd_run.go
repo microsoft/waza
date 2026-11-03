@@ -864,17 +864,20 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
 	engineShutdown := false
-	shutdownEngine := func() {
+	var engineShutdownErr error
+	shutdownEngine := func() error {
 		if engineShutdown {
-			return
+			return engineShutdownErr
 		}
 		engineShutdown = true
-		if err := shutdownRunEngine(ctx, engine); err != nil {
-			slog.Warn("engine shutdown failed", "error", err)
+		engineShutdownErr = shutdownRunEngine(ctx, engine)
+		if engineShutdownErr != nil {
+			slog.Warn("engine shutdown failed", "error", engineShutdownErr)
 		}
+		return engineShutdownErr
 	}
 	defer func() {
-		shutdownEngine()
+		_ = shutdownEngine()
 	}()
 
 	// Create runner with optional task filters and cache
@@ -1096,7 +1099,10 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	}
 
 	// shut down the engine and update outcome with final usage data
-	shutdownEngine()
+	_ = shutdownEngine()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if outcome.EvaluationUsage != nil {
 		outcome.EvaluationUsage.Sessions = append(outcome.EvaluationUsage.Sessions, supplementalUsage.Snapshot().Sessions...)
 	}
