@@ -10,7 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
+	"regexp"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,45 +25,92 @@ const runnerTransportActionEnv = "WAZA_RUNNER_TRANSPORT_ACTION"
 
 func TestRunnerProductionTransportAdmission(t *testing.T) {
 	if action := os.Getenv(runnerTransportActionEnv); action != "" {
-		runRunnerProductionTransportAdmission(t, action)
+		t.Run(action, func(t *testing.T) {
+			runRunnerProductionTransportAdmission(t, action)
+		})
 		return
 	}
 
-	actions := []string{"negotiate", "validate", "run"}
 	coverDir := flag.Lookup("test.gocoverdir").Value.String()
-	results := make([]struct {
-		output []byte
-		err    error
-		pid    int
-	}, len(actions))
-	var group sync.WaitGroup
-	for index, action := range actions {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestRunnerProductionTransportAdmission$")
+	runFilter, err := runnerTransportRunFilter(flag.Lookup("test.run").Value.String())
+	require.NoError(t, err)
+	skipFilter := flag.Lookup("test.skip").Value.String()
+	for _, action := range []string{"negotiate", "validate", "run"} {
+		t.Run(action, func(t *testing.T) {
+			t.Parallel()
+			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run="+runFilter, "-test.skip="+skipFilter, "-test.v")
 			// GOCOVERDIR alone does not make test binaries emit into the parent's coverage directory.
 			if coverDir != "" {
 				command.Args = append(command.Args, "-test.gocoverdir="+coverDir)
 			}
 			command.Env = append(os.Environ(), runnerTransportActionEnv+"="+action)
-			results[index].output, results[index].err = command.CombinedOutput()
-			if command.Process != nil {
-				results[index].pid = command.Process.Pid
-			}
-		}()
-	}
-	group.Wait()
-	for index, action := range actions {
-		t.Run(action, func(t *testing.T) {
-			require.NoError(t, results[index].err, "%s", results[index].output)
+			output, err := command.CombinedOutput()
+			t.Logf("%s", output)
+			require.NoError(t, err, "%s", output)
 			if coverDir != "" {
-				counters, err := filepath.Glob(filepath.Join(coverDir, fmt.Sprintf("covcounters.*.%d.*", results[index].pid)))
+				counters, err := filepath.Glob(filepath.Join(coverDir, fmt.Sprintf("covcounters.*.%d.*", command.Process.Pid)))
 				require.NoError(t, err)
 				require.Len(t, counters, 1, "each action must contribute counters to the parent's coverage directory")
 			}
 		})
 	}
+}
+
+func runnerTransportRunFilter(filter string) (string, error) {
+	const testName = "TestRunnerProductionTransportAdmission"
+	var selected []string
+	start, slash, brackets, parentheses := 0, -1, 0, 0
+	add := func(end int) error {
+		first, suffix := filter[start:end], ""
+		if slash >= 0 {
+			first, suffix = filter[start:slash], filter[slash:end]
+		}
+		matches, err := regexp.MatchString(first, testName)
+		if err != nil {
+			return fmt.Errorf("matching transport test filter: %w", err)
+		}
+		if matches {
+			selected = append(selected, "^"+testName+"$"+suffix)
+		}
+		return nil
+	}
+	// Go separates filter paths and alternatives only outside brackets and parentheses.
+	for i := 0; i < len(filter); i++ {
+		switch filter[i] {
+		case '\\':
+			i++
+		case '[':
+			brackets++
+		case ']':
+			brackets = max(0, brackets-1)
+		case '(':
+			if brackets == 0 {
+				parentheses++
+			}
+		case ')':
+			if brackets == 0 {
+				parentheses--
+			}
+		case '/':
+			if brackets == 0 && parentheses == 0 && slash < 0 {
+				slash = i
+			}
+		case '|':
+			if brackets == 0 && parentheses == 0 {
+				if err := add(i); err != nil {
+					return "", err
+				}
+				start, slash = i+1, -1
+			}
+		}
+	}
+	if err := add(len(filter)); err != nil {
+		return "", err
+	}
+	if len(selected) == 0 {
+		return "^$", nil
+	}
+	return strings.Join(selected, "|"), nil
 }
 
 func runRunnerProductionTransportAdmission(t *testing.T, action string) {
