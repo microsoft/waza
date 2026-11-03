@@ -324,9 +324,13 @@ offline admission within the complete 4 MiB emitted-byte limit.
 See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
 
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
-builds and exercises this mock/text profile with local JSON input/output and
-no runtime network. It is not a published v0.40.0 image; native execution and
-published-image acceptance remain separate work under #762.
+keeps the default scratch image mock-only and provides an explicit
+`native-reference` target for the exact-unit native Copilot text profile. The
+native target includes the glibc runtime dependencies and is exercised against
+an isolated synthetic provider with no external network or paid requests; this
+is execution evidence, not provider/model-quality evidence. Both targets are
+local builds, not a published v0.40.0 image. Native Linux AMD64 acceptance and
+the pinned public-image gate remain tracked under #762.
 
 ### `waza preflight <eval.yaml>`
 

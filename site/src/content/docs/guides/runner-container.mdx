@@ -1,32 +1,40 @@
 ---
 title: Local runner container reference
-description: Build a local image and execute one captured mock/text unit through JSON stdin/stdout without paid execution.
+description: Build mock-only and native-capable runner images and verify the exact native unit with a local synthetic provider.
 ---
 
 **Source-build foundation for v0.40.0, not a published image.**
 This reference uses the existing [public runner contract](../runner-contract/)
-and [terminal envelope](../runner-terminal/). The default scratch image is tested
-for `inline.mock-text`, not authenticated native inference. Separate test-only
-targets exercise synthetic SDK subprocesses and the bundled runtime's no-inference
-lifecycle; they are not deployable native-provider references.
+and [terminal envelope](../runner-terminal/). The default `reference` target
+remains a scratch image for `inline.mock-text` only. The explicit
+`native-reference` target adds a digest-pinned Debian/glibc runtime and supports
+the exact-unit native Copilot text profile. It is tested with the actual bundled
+CLI and an isolated synthetic provider; no live provider, paid request or
+external network is used by that test. This is native execution evidence, not
+inference-quality or provider assurance.
 Issue [#762](https://github.com/microsoft/waza/issues/762) remains open until the
-native layer and a pinned published-image acceptance run are verified.
+public image and pinned published-image acceptance run are verified.
 There is **no published v0.40.0 runner image or registry digest** to copy today.
 No Lab dashboard change is required: this adds no new evidence or status surface.
 
 ## Host and build requirements
 
 Use a reviewed source checkout with hydrated Git LFS objects, Docker Engine with
-BuildKit and Linux containers, and a POSIX shell. The reference targets native
-Linux `amd64` or `arm64` containers, including Docker Desktop's Linux VM on macOS.
+BuildKit and Linux containers, and a POSIX shell. The source-built targets have
+been exercised on matching native Linux architectures; the CI gate specifically
+requires native Linux AMD64. Local ARM64 evidence is not AMD64 evidence.
 Windows-native containers, cross-platform emulation and alternate container
 engines are not established by this reference.
 
-Builds need network access for the digest-pinned Node/Go base images, locked npm
-dependencies and checksummed Go modules. Runtime uses no network, credentials,
-host checkout mount or paid provider. The image embeds the real dashboard build;
-it does not replace assets or native CLI payloads with compile stubs.
-The default image's mock/text path needs no embedded runtime extraction.
+Builds need network access for the digest-pinned Node/Go/runtime base images,
+Debian packages, locked npm dependencies and checksummed Go modules. The
+`native-reference` build uses Debian Bookworm glibc and installs Bash, CA
+certificates and Git for the bundled CLI's runtime features. It embeds the real
+dashboard and native CLI payloads, not compile stubs. The mock profile does not
+need runtime extraction. Tests deny runtime networking and use only a local
+synthetic HTTP provider; they do not supply credentials or contact a paid
+provider. A real native provider may require network access and caller-managed
+authentication when you run it.
 If your network requires a public npm mirror, pass
 `--build-arg NPM_CONFIG_REGISTRY=https://your-mirror.example/npm/` to the build.
 For the test command below, set `NPM_CONFIG_REGISTRY` to that same URL.
@@ -42,6 +50,12 @@ docker build --file examples/runner/container/Dockerfile \
   --iidfile "$work/image.id" .
 image=$(docker image inspect --format '{{.Id}}' "$(cat "$work/image.id")")
 docker image inspect "$image"
+
+# Build the native-capable reference separately; the default remains scratch.
+docker build --file examples/runner/container/Dockerfile \
+  --target native-reference --iidfile "$work/native-image.id" .
+native_image=$(docker image inspect --format '{{.Id}}' "$(cat "$work/native-image.id")")
+docker image inspect "$native_image"
 ```
 
 The inspected image ID is `sha256:` followed by 64 hex digits. It is an
@@ -51,6 +65,26 @@ containerd store can report an OCI index digest rather than a configuration
 digest. Neither `--iidfile` nor `.Id` is a published-image acceptance result.
 The build does not push, tag a release or publish anything. Keep the work
 directory until you have inspected its outputs.
+
+The `native-reference` image is configured as non-root UID/GID `65532:65532`
+with `HOME=/home/waza`, `COPILOT_HOME=/home/waza/.copilot` and `TMPDIR=/tmp`.
+The bundled runtime extracts executable files under `COPILOT_HOME`, so that
+directory and temporary storage must be writable and executable. With a
+read-only root filesystem, provide them explicitly:
+
+```bash
+docker run --rm --pull=never --network=none --read-only \
+  --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=64 \
+  --memory=2g --cpus=1 \
+  --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g,mode=1777 \
+  --tmpfs /home/waza/.copilot:rw,exec,nosuid,nodev,size=1g,uid=65532,gid=65532,mode=700 \
+  "$native_image" runner capabilities
+```
+
+One GiB was exercised for the current bundled CLI; it is not a measured minimum.
+Use a persistent writable executable mount at `COPILOT_HOME` if retaining the
+downloaded bundle is desired. These settings provide runtime storage, not a
+container sandbox or hermetic build.
 
 ## Execute and inspect local outputs
 
@@ -149,9 +183,35 @@ even when its executable exists. Alpine supplies the musl loader and `ldd`,
 which the SDK uses to select the musl bundle. Native extraction additionally
 needs a writable, executable cache/temp area: 256 MiB proved insufficient for
 CLI 1.0.101 assets; the smoke control uses 1 GiB, not a measured minimum. The
-mock walkthrough's 32 MiB `noexec` tmpfs is intentionally not reused. Neither
-test target is published, nor does either turn #762's published-image acceptance
-into a completed gate.
+mock walkthrough's 32 MiB `noexec` tmpfs is intentionally not reused.
+
+### Native-capable reference controls
+
+```bash
+node --test examples/runner/container/native-bundle-test.mjs
+```
+
+This builds the `native-reference` target and a separate test-only
+`native-bundle-test` target. It verifies the native reference's mock path, then
+executes `/waza runner run` from the Debian-based target with the actual bundled
+Copilot CLI. A loopback OpenAI-compatible provider runs inside the same
+`--network=none` container and returns deterministic synthetic text and usage.
+The controls assert one exact selected unit and one provider request, deny
+ambient instruction/configuration discovery and hooks on the runner path, and
+prove those canaries activate in a separate positive SDK control. They also
+exercise timeout, a stopped native child, SIGTERM cancellation, terminal exits,
+native-process reaping and cleanup. The bind mount contains only two
+synthetic-evidence files; they are written by the non-root container and checked
+for cross-UID host readability. No checkout, credentials or host environment is
+mounted into the test container.
+
+The script requires the Docker daemon architecture to match the image. Docker
+CI additionally requires Linux AMD64 and rejects cross-architecture execution;
+the architecture printed by a local run describes only that local run. These
+controls demonstrate current-bundle startup and a synthetic native text turn,
+not paid inference, real-provider behavior, billing assurance or model quality.
+The native targets and their local image IDs are not published; they do not
+complete #762's immutable public-manifest acceptance gate.
 
 ## Troubleshooting and limits
 

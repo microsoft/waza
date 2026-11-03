@@ -22,6 +22,11 @@ RUN CGO_ENABLED=0 GOTOOLCHAIN=local go test -count=1 ./.github/scripts/testdata/
 RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /synthetic-runtime ./.github/scripts/testdata/runner-runtime
 RUN CGO_ENABLED=0 GOTOOLCHAIN=local go test -c -o /embedded.test ./internal/embedded
 
+FROM build AS native-controls-build
+COPY .github/scripts/testdata/native-bundle-probe/ /build/.github/scripts/testdata/native-bundle-probe/
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /native-bundle-probe ./.github/scripts/testdata/native-bundle-probe/harness
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /sdk-positive ./.github/scripts/testdata/native-bundle-probe/positive
+
 FROM scratch AS synthetic-test
 COPY --from=build /waza /waza
 COPY --from=controls-build /synthetic-runtime /synthetic-runtime
@@ -37,6 +42,27 @@ USER 65532:65532
 WORKDIR /
 ENTRYPOINT ["/waza"]
 CMD ["runner", "capabilities"]
+
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS native-reference
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y bash ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /waza /waza
+RUN groupadd --system --gid 65532 waza \
+    && useradd --system --uid 65532 --gid 65532 --home-dir /home/waza --create-home --shell /usr/sbin/nologin waza \
+    && mkdir -p /home/waza/.copilot \
+    && chown -R 65532:65532 /home/waza
+ENV HOME=/home/waza COPILOT_HOME=/home/waza/.copilot TMPDIR=/tmp
+USER 65532:65532
+WORKDIR /
+ENTRYPOINT ["/waza"]
+CMD ["runner", "capabilities"]
+
+FROM native-reference AS native-bundle-test
+COPY --from=native-controls-build /native-bundle-probe /native-bundle-probe
+COPY --from=native-controls-build /sdk-positive /sdk-positive
+COPY examples/runner/copilot-unit.json /input/copilot-unit.json
+ENTRYPOINT ["/native-bundle-probe"]
 
 FROM scratch AS reference
 COPY --from=build /waza /waza

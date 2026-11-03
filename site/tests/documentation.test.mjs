@@ -424,7 +424,8 @@ test('new feature guides identify the unpublished source-build boundary', () => 
     .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
   assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
   assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+full external task\/suite interoperability remain incomplete/);
-  assert.match(homepage ?? '', /\[local mock\/text container foundation\]\(\/waza\/guides\/runner-container\/\)/);
+  assert.match(homepage ?? '', /\[source-built container guide\]\(\/waza\/guides\/runner-container\/\)/);
+  assert.match(homepage ?? '', /default mock-only scratch image from the native-capable exact-unit reference/);
   assert.match(homepage ?? '', /\[selected AgentV assertion preview\]\(\/waza\/guides\/external-interoperability\/\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
@@ -432,6 +433,7 @@ test('new feature guides identify the unpublished source-build boundary', () => 
   assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
   assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
   assert.match(overview ?? '', /General native file\/tool\/skill workflows and full external task\/suite interoperability remain incomplete/);
+  assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
   assert.match(overview ?? '', /\[selected AgentV assertion preview\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
   assert.match(overview ?? '', /`waza interop import\/export`/);
   assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);

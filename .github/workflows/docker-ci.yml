@@ -17,11 +17,12 @@ on:
       - 'examples/runner/copilot-unit.json'
       - 'examples/runner/container/**'
       - '.github/scripts/testdata/runner-runtime/**'
+      - '.github/scripts/testdata/native-bundle-probe/**'
       - 'docs.go'
       - 'docs/graders/**'
       - '.github/workflows/docker-ci.yml'
   pull_request:
-    branches: [main]
+    branches: [main, spboyer-native-container-integration]
     paths: *docker-paths
 
 permissions:
@@ -57,7 +58,7 @@ jobs:
 
   runner-reference:
     name: Local runner container contract
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout Repository
@@ -74,3 +75,7 @@ jobs:
         run: node --test examples/runner/container/test.mjs
       - name: Execute offline synthetic subprocess and bundled-runtime controls
         run: node --test examples/runner/container/native-test.mjs examples/runner/container/native-lifecycle.test.mjs
+      - name: Execute native bundled-runtime container controls
+        env:
+          WAZA_REQUIRE_NATIVE_AMD64: '1'
+        run: node --test examples/runner/container/native-bundle-test.mjs
