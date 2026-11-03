@@ -1602,6 +1602,8 @@ Run exits: 0 success, 1 failed checks, 2 infrastructure/output failure,
 3 cancellation, 4 timeout, 5 incompatible runner requirements,
 6 invalid input. Native execution is unavailable even with paid consent.
 See [terminal outcomes, schema and migration](../../guides/runner-terminal/).
+For a local image build and exact mock/text stdin/stdout invocation, see the
+[local runner container reference](../../guides/runner-container/).
 Admitted receipts carry `identity` version `sha256-waza-c14n-v1`, canonical input
 digest and logical lineage; validation alone derives it without execution.
 Save stdout with `> validation.json`; identity is not proof of execution or

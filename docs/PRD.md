@@ -46,7 +46,10 @@ through the same mock-only execution service while retaining result 1.7 and
 local 0/1/2 exits. Unsupported mappings fail with migration guidance; ordinary
 local defaults and historical artifact readers remain available. No Lab change
 is required: adaptation introduces no new runtime status or evidence.
-Native execution and the container reference remain unavailable under #754.
+The [local container foundation](../site/src/content/docs/guides/runner-container.mdx)
+builds and tests the existing mock/text profile with local input/output (#762);
+it adds no Lab status surface. Native execution and pinned published-image
+acceptance remain outstanding under #754; this foundation does not complete #762.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 

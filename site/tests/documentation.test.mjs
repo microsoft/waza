@@ -14,6 +14,26 @@ const catalogInputs = {
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
+test('local container conformance is selected by its production build inputs', () => {
+  const workflow = read('.github/workflows/docker-ci.yml');
+  for (const path of ['examples/runner/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
+    'go.mod', 'go.sum', 'version.txt', 'docs.go', 'docs/graders/**', '.dockerignore',
+    '.github/workflows/docker-ci.yml']) {
+    assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
+  }
+  assert.match(workflow, /paths: &docker-paths/);
+  assert.match(workflow, /paths: \*docker-paths/);
+  assert.match(workflow, /^permissions:\n  contents: read/m);
+  const job = workflow.split('\n  runner-reference:\n')[1];
+  assert.ok(job, 'real container job exists');
+  assert.match(job, /timeout-minutes: 30/);
+  assert.match(job, /lfs: true/);
+  assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
+  assert.doesNotMatch(job, /continue-on-error|if:/);
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
+  assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
+
 test('runner identity fixtures trigger consumer validation and publication without skipping new specs', () => {
   const web = read('.github/workflows/web-ci.yml');
   for (const path of ['internal/runnerunit/**', 'internal/runneridentity/**', 'internal/runnerterminal/**', 'examples/runner/**']) {
