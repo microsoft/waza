@@ -1101,7 +1101,7 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	totalTimeout := timeout
+	totalTimeout := timeout + 30*time.Second
 	metricsTimeout := timeout
 	if parent.Err() != nil {
 		if metricsTimeout > sendCancellationGrace {
