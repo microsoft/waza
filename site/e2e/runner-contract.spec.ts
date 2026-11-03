@@ -9,6 +9,11 @@ test('runner CLI/API navigation, schemas and screenshot retain deployed base', a
   await expect(page.getByRole('heading', { name: 'Opt-in production Copilot text execution', exact: true })).toBeVisible();
   await expect(page.locator('main')).toContainText('examples/runner/copilot-unit.json');
   await expect(page.locator('main')).toContainText('allow_paid_execution: true');
+  await expect(page.locator('main')).toContainText('synthetic stdio subprocess');
+  await expect(page.getByRole('link', { name: 'offline production-process controls', exact: true })).toHaveAttribute(
+    'href',
+    'https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md#offline-production-process-controls',
+  );
   await expect(page.locator('main')).toContainText('The eval executor is copilot-sdk; the terminal mode is separately copilot.');
   await expect(page.locator('main')).toContainText('session.options.update');
   await expect(page.locator('main')).toContainText('rejection fails before any prompt is sent');

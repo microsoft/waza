@@ -22,3 +22,16 @@ web/node_modules/
 web/dist/
 web/test-results/
 web/playwright-report/
+
+# Explicit test-target inputs; the default reference image does not copy them.
+!internal/embedded/path_test.go
+!.github/
+.github/*
+!.github/scripts/
+.github/scripts/*
+!.github/scripts/testdata/
+.github/scripts/testdata/*
+!.github/scripts/testdata/runner-runtime/
+.github/scripts/testdata/runner-runtime/*
+!.github/scripts/testdata/runner-runtime/main.go
+!.github/scripts/testdata/runner-runtime/main_test.go

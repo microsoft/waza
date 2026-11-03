@@ -8,7 +8,12 @@ test('container quickstart is navigable and distinguishes local IDs from publica
   await expect(page.getByText('no published v0.40.0 runner image or registry digest', { exact: false })).toBeVisible();
   await expect(page.locator('pre').filter({ hasText: '--iidfile' })).toContainText('examples/runner/container/Dockerfile');
   await expect(page.locator('pre').filter({ hasText: '--pull=never' })).toContainText('--network=none');
-  await expect(page.locator('pre').filter({ hasText: 'node --test' })).toContainText('examples/runner/container/test.mjs');
+  await expect(page.locator('pre').filter({ hasText: 'node --test examples/runner/container/test.mjs' })).toHaveCount(1);
+  await expect(page.locator('pre').filter({ hasText: 'node --test examples/runner/container/native-test.mjs' })).toHaveCount(1);
+  await expect(page.locator('main')).toContainText('zero provider requests');
+  await expect(page.locator('main')).toContainText('synthetic');
+  await expect(page.locator('main')).toContainText('session.options.update');
+  await expect(page.locator('main')).toContainText('success does not assert aggregate thresholds');
   const contract = page.getByRole('link', { name: 'public runner contract', exact: true });
   expect(new URL((await contract.getAttribute('href'))!, page.url()).pathname).toBe('/waza/guides/runner-contract/');
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Runner Contract & API', exact: true }).click();
