@@ -66,7 +66,7 @@ func Capabilities() Advertisement {
 	return Advertisement{
 		SchemaVersion: NegotiationVersion,
 		Versions:      []string{"1.0"},
-		Capabilities:  []string{"negotiation", "exact-unit", "inline.mock-text", "terminal-result"},
+		Capabilities:  []string{"negotiation", "exact-unit", "inline.mock-text", "terminal-result", "inline.copilot-text"},
 	}
 }
 

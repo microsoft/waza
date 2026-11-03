@@ -251,7 +251,7 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ### `waza runner` (source-build preview)
 
-Negotiate, validate offline, then explicitly execute one captured mock/text unit:
+Negotiate, validate offline, then explicitly execute one captured inline text unit:
 
 ```bash
 waza runner capabilities
@@ -260,7 +260,8 @@ waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
 ```
 
-The source preview implements `negotiation`, `exact-unit`, `inline.mock-text` and `terminal-result`.
+The source preview implements `negotiation`, `exact-unit`, `inline.mock-text`,
+`terminal-result` and opt-in `inline.copilot-text`.
 Only `runner run` starts an engine; each dispatch runs its selected task/trial/
 attempt once, without discovery, cache or retries. Admitted receipts include
 versioned [logical identities](site/src/content/docs/guides/runner-identities.mdx)
@@ -270,7 +271,11 @@ success 0, failed checks 1, infrastructure failure 2, cancellation 3, timeout 4,
 unsupported capability/version 5, invalid input 6. Validation remains an offline
 receipt, not execution evidence. An eval/task execution deadline still yields
 timeout 4 when the outer request budget remains active; task timeouts override
-the eval budget. Native/paid execution remains unavailable. Existing
+the eval budget. Copilot/text execution requires the new profile, an explicit
+model and `allow_paid_execution: true`; all tools and skills are disabled.
+`examples/runner/copilot-unit.json` can be validated offline; running it may
+incur charges on every dispatch. General native file/tool/skill workflows remain
+unsupported. Existing
 local commands and artifacts are unchanged. Captured tasks must explicitly
 declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
 `inputs: {}` is rejected before runtime construction. See the

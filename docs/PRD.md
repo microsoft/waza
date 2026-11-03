@@ -32,10 +32,14 @@ The historical skill-specific requirements below remain product context, not
 authority to infer current native grader keys or completed feature scope.
 
 The v0.40.0 runner preview adds offline version/capability negotiation (#757)
-and one exact captured mock/text task/trial/attempt through CLI and HTTP (#758).
+and one exact captured inline text task/trial/attempt through CLI and HTTP (#758).
+The additive `inline.copilot-text` profile uses a private production SDK runtime,
+explicit model and paid opt-in, disabled skills and deny-all tools. Mock/text
+requests and the mock-only local adapter remain unchanged. General native
+file/tool/skill workflows and live-provider conformance remain out of scope.
 Admitted receipts carry deterministic logical identities and their derivation
 version (#759). Live Lab displays input-derived lineage and pre-execution
-selection validation without launching a runtime. The explicit **Run mock unit**
+selection validation without launching a runtime. The explicit **Run selected unit**
 action consumes the same producer's terminal outcome, exit category, boundary,
 identity and diagnostics and exports the response (#760).
 The exact path bypasses discovery, cache and retries; local commands/artifacts

@@ -2,7 +2,7 @@
 
 This source preview of [v0.40.0](https://github.com/microsoft/waza/issues/754)
 implements negotiation [#757](https://github.com/microsoft/waza/issues/757)
-and bounded exact mock/text execution [#758](https://github.com/microsoft/waza/issues/758),
+and bounded exact inline text execution [#758](https://github.com/microsoft/waza/issues/758),
 with input-derived [logical identities](RUNNER_IDENTITIES.md) (#759). It is available
 when built from this source, not retroactively in a published older binary.
 The [documentation-site guide](../site/src/content/docs/guides/runner-contract.mdx)
@@ -57,24 +57,47 @@ The CLI `runner validate` / `runner run` and HTTP
 `POST /api/v1/runner/{validate,run}` are public callers. Run uses
 `Service.RunTerminal` to project the same invocation into the
 [terminal envelope](RUNNER_TERMINAL.md); validation keeps the receipt.
-Lab separates offline validation from the explicit **Run mock unit** action.
-`exact-unit` and `inline.mock-text` must be required explicitly;
-the only admitted runtime is mock. No native startup is reachable even with paid
-consent. This bounded profile avoids importing the source draft's demonstrated
-native cleanup/startup defects; adding native capability requires its own
-request-owned cancellation/cleanup implementation and regression evidence.
+Lab separates offline validation from the explicit **Run selected unit** action.
+`exact-unit` and exactly one profile (`inline.mock-text` or
+`inline.copilot-text`) must be required explicitly. Optional capabilities and
+paid consent alone never select a profile. Copilot additionally requires
+`config.executor: copilot`, an explicit nonblank model and
+`allow_paid_execution: true`. Both profiles retain identical selection limits;
+neither enables file, tool, skill, MCP, hook or multi-turn execution.
 
 The exported factory retains its `EngineFactory` signature, but its result must
-be a non-nil concrete `*execution.MockEngine`. Runtime admission uses Go's
+be a non-nil concrete `*execution.MockEngine` for mock input or
+`*execution.CopilotEngine` for Copilot input. Runtime admission uses Go's
 concrete type, not a model name, marker method, embedded mock, or mode claim.
 Other engines and wrappers are rejected before `Initialize`, `Execute`, or
 `Shutdown`; calling shutdown on a rejected engine could itself start native
 work. This is an execution error with valid selection, zero calls, no observation
 and no `execution_mode`, not a mock execution. Factory errors likewise do not
 claim a runtime mode. The embedding host remains responsible for side effects
-inside its own factory; this boundary never invokes a returned non-mock runtime.
+inside its own factory; this boundary never invokes a mismatched runtime.
 Lifecycle fault injection is package-private test coverage, not an exported
 runtime-admission exception.
+
+Copilot admission also requires a private managed, force-stoppable client,
+disabled command mocks and failure-retaining diagnostic mode. The default
+factory uses the existing owned SDK builder, not the process-wide shared
+client. `ExecuteInlineAttempt` applies the existing deny-all `ToolPolicy` to
+the frozen request, so SDK tool filtering, permission checks and pre-tool
+hooks agree. Skills remain explicitly disabled at the SDK boundary.
+Diagnostic failures, including incomplete usage and cleanup failures, propagate
+to terminal failure instead of becoming successful partial evidence. The
+terminal summary still does not export billing.
+
+Request cancellation and the effective task/eval execution deadline interrupt
+the private SDK transport with `ForceStop`; the separate five-second shutdown
+budget also interrupts it on expiry. Each callback is joined before returning.
+This handles RPCs that ignore their caller context but unblock when the owned
+transport is killed. It is not a guarantee against a non-cooperating custom
+transport whose `ForceStop` itself blocks, arbitrary filesystem hangs, SIGKILL
+or host loss. Deterministic production-caller tests cover hanging startup,
+send and stop, including send ignoring context, plus cancellation, task timeout,
+denied tools and disconnect/delete failure. They are SDK-fake evidence on the
+tested host, not live-provider or native Windows/Linux execution evidence.
 
 The single declared candidate is `input.task`; shard labels and task ID must
 match, and trial/attempt must lie within the eval's declared bounds. Eval `tasks`
@@ -118,7 +141,7 @@ The guard validates metadata shape, not independent hash reconstruction.
 
 | Issue | Interface to extend later |
 |---|---|
-| #758 | Implemented captured inline mock/text exact-unit admission and execution, CLI/API and Lab selection validation. Native execution remains unavailable. |
+| #758 | Captured inline mock/text and explicitly opted-in Copilot/text exact execution, CLI/API and Lab selection validation. Files, tools, skills and general native eval workflows remain unsupported. |
 | #759 | Implemented original-source identity derivation, versioned metadata in CLI/API receipts and Lab lineage/validation JSON export. Negotiation alone derives no identity. |
 | #760 | Implemented independent terminal schema, seven execution exit categories, shared CLI/HTTP terminal projection, cancellation and Lab/export. No archive or durable publication. |
 | #761 | Add explicit local compatibility adapters and historical regression evidence; this layer does not reroute `waza run` or artifact readers. |
@@ -127,8 +150,8 @@ The guard validates metadata shape, not independent hash reconstruction.
 Source #779 at frozen `4fdbaf62e9dcf4ded2055c1919544973bc42761d`
 is source material, not approval. This layer adapts only its captured admission
 and single-attempt seam; the separate #759 layer adds canonical identities.
-It imports no local adapter, native lifecycle,
-publication or archive code. Terminalization is independently integrated from
+The current additive Copilot/text layer uses the owned production lifecycle;
+it adds no publication or archive code. Terminalization is independently integrated from
 the focused #760 preparation. Source review findings about
 empty/invalid graders are addressed by offline parameter validation. Open-pipe
 stdin cancellation and HTTP cancellation during execution/partial upload have

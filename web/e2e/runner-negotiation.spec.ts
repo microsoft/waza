@@ -141,7 +141,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(result).toContainText("Compatible (no execution)");
     await expect(result.locator("dd").nth(0)).toHaveText("1.0");
     await expect(result.locator("dd").nth(1)).toHaveText("2.0, 1.0");
-    await expect(result.locator("dd").nth(4)).toHaveText("negotiation, exact-unit, inline.mock-text, terminal-result");
+    await expect(result.locator("dd").nth(4)).toHaveText("negotiation, exact-unit, inline.mock-text, terminal-result, inline.copilot-text");
     await expect(result.locator("dd").nth(6)).toHaveText("None");
   });
 
@@ -153,7 +153,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await page.getByRole("button", { name: "Check compatibility" }).click();
     const result = page.getByRole("status", { name: "Negotiation result" });
     await expect(result).toContainText("Incompatible request");
-    await expect(result).toContainText('required capability "inline.native-text" is unavailable; available: negotiation, exact-unit, inline.mock-text, terminal-result');
+    await expect(result).toContainText('required capability "inline.native-text" is unavailable; available: negotiation, exact-unit, inline.mock-text, terminal-result, inline.copilot-text');
     await expect(result.locator("dd").nth(5)).toHaveText("None");
     await page.setViewportSize({ width: 1440, height: 1100 });
     const screenshot = "../docs/images/dashboard-lab-negotiation.png";
@@ -284,6 +284,32 @@ test.describe("Runner negotiation through the real Go API", () => {
     });
   }
 
+  test("Copilot profile validates offline and reports guarded native startup without inference", async ({ page, request }) => {
+    const captured = JSON.parse(readFileSync(new URL("../../examples/runner/copilot-unit.json", import.meta.url), "utf8"));
+    const admitted = await request.post(`${base}/api/v1/runner/validate`, { data: captured });
+    const report = await admitted.json();
+    expect(report.status).toBe("ready");
+    expect(report.engine_calls).toBe(0);
+    expect(report.adjacent_work_selected).toBe(false);
+    expect(report.resolved).toEqual(captured.selection);
+    const input = page.getByRole("textbox", { name: "Exact work request (JSON)" });
+    await input.fill(JSON.stringify({ ...captured, allow_paid_execution: false }));
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    const terminal = page.getByRole("status", { name: "Terminal result" });
+    await expect(terminal).toContainText("invalid_input");
+    await expect(terminal).toContainText("allow_paid_execution: true");
+    await input.fill(JSON.stringify(captured));
+    await page.getByRole("button", { name: "Validate selection" }).click();
+    const selection = page.getByRole("status", { name: "Selection validation result" });
+    await expect(selection).toContainText("Valid selection (not executed)");
+    await expect(selection).toContainText("shard-a / selected / trial 2 / attempt 2");
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    await expect(terminal).toContainText("infrastructure_failure");
+    await expect(terminal).toContainText("initialize/start_failed");
+    await expect(terminal).toContainText(report.identity.attempt);
+    await expect(terminal.getByRole("list", { name: "Observed grader verdicts" })).toHaveCount(0);
+  });
+
   test("identity guard preserves absence and rejects malformed or contradictory real reports", async ({ page, request }) => {
     const response = await request.post(`${base}/api/v1/runner/validate`, {
       headers: { "Content-Type": "application/json" }, data: identityVectors[0].request,
@@ -350,7 +376,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       await input.fill(JSON.stringify(request));
       const observed = page.waitForResponse((response) =>
         response.url().endsWith("/api/v1/runner/run") && response.request().method() === "POST");
-      await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+      await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
       const response = await observed;
       const envelope = await response.json();
       expect(envelope.kind).toBe("waza.runner-terminal");
@@ -386,7 +412,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await input.fill(JSON.stringify(initial));
     await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
     await page.route("**/api/v1/runner/run", (route) => route.fulfill({ status: 503, body: "unavailable" }));
-    await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
     await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toBeVisible();
     await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Export terminal JSON" })).toHaveCount(0);
@@ -441,7 +467,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       await page.route("**/api/v1/runner/validate", validateRoute);
       await page.route("**/api/v1/runner/run", runRoute);
       try {
-        await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+        await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
         await validationReady.promise;
         await page.clock.runFor(9_000);
         validationRelease.resolve();
@@ -450,7 +476,7 @@ test.describe("Runner negotiation through the real Go API", () => {
           .toEqual([10_000, timeout + 15_000]);
         if (timeout === 120_000) {
           await page.clock.runFor(90_000);
-          await expect(page.getByRole("button", { name: "Running mock unit...", exact: true })).toBeVisible();
+          await expect(page.getByRole("button", { name: "Running selected unit...", exact: true })).toBeVisible();
           await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toHaveCount(0);
           terminalRelease.resolve();
           const result = page.getByRole("status", { name: "Terminal result" });
@@ -490,12 +516,12 @@ test.describe("Runner negotiation through the real Go API", () => {
       };
       await page.route("**/api/v1/runner/run", runRoute);
       try {
-        await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+        await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
         await ready.promise;
         const aborted = page.waitForEvent("requestfailed", (request) => request.url().endsWith("/api/v1/runner/run"));
         if (action === "edit") {
           await input.fill(original + "\n");
-          await expect(page.getByRole("button", { name: "Run mock unit", exact: true })).toBeEnabled();
+          await expect(page.getByRole("button", { name: "Run selected unit", exact: true })).toBeEnabled();
         } else {
           await page.goto("/#/lab/demo/runner");
         }
@@ -521,7 +547,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     const initial = JSON.parse(await input.inputValue());
     for (const timeout of [undefined, null, false, "60000", 0, 1.5, 86_400_001]) {
       await input.fill(JSON.stringify({ ...initial, timeout_ms: timeout }));
-      await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+      await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
       await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert"))
         .toContainText("Admitted runner request has an invalid timeout_ms.");
       await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
@@ -538,7 +564,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     expect(actual.outcome).toBe("invalid_input");
     expect(actual.identity).toBeUndefined();
     await page.route("**/api/v1/runner/run", (route) => route.fulfill({ response }));
-    await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
     const result = page.getByRole("status", { name: "Terminal result" });
     await expect(result).toContainText("invalid_media_type");
     await expect(result).toContainText("Schema checked; no execution identity claimed");
@@ -559,20 +585,21 @@ test.describe("Runner negotiation through the real Go API", () => {
       { ...actual, identity: { ...actual.identity, run: actual.identity.run + "\n" } },
       { ...actual, selection: { ...actual.selection, task: "neighbor" } },
       { ...actual, observation: { ...actual.observation, attempts: 1 } },
+      { ...actual, observation: { ...actual.observation, execution_mode: "copilot" } },
       { ...actual, observation: { ...actual.observation, validations: [...actual.observation.validations, ...actual.observation.validations] } },
       { ...actual, observation: null },
     ]) {
       await page.route("**/api/v1/runner/run", (route) => route.fulfill({
         json: bad, headers: { "X-Waza-Exit-Code": String(bad.exit_code) },
       }));
-      await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+      await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
       await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toBeVisible();
       await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
     }
     await page.route("**/api/v1/runner/run", (route) => route.fulfill({
       json: actual, headers: { "X-Waza-Exit-Code": "6" },
     }));
-    await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("exit header contradicts its body");
   });
 });

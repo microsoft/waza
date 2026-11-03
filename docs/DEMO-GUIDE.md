@@ -16,7 +16,7 @@ an engine. Execute the same mock-only example explicitly with
 the input-derived identity hierarchy/version/digest and exports the same JSON;
 identity does not prove execution. See the
 [runner guide](../site/src/content/docs/guides/runner-contract.mdx).
-The separate **Run mock unit** action actually executes once and displays
+The separate **Run selected unit** action actually executes once and displays
 the [terminal outcome and diagnostics](../site/src/content/docs/guides/runner-terminal.mdx),
 with an exact terminal JSON export. Native execution and release publication
 remain unavailable.

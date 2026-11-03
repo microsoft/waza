@@ -1596,7 +1596,13 @@ The `negotiate` command takes one JSON request on stdin and writes one
 unsupported version/capability, 6 means invalid request, and 2 means output
 failure. These are negotiation exits, not new meanings for local `waza run`.
 `validate` checks a complete captured request without a runtime; `run` executes
-exactly one mock/text attempt with no discovery, cache or retries. The receipt
+exactly one inline text attempt with no discovery, cache or retries.
+Mock requests require `inline.mock-text`; production Copilot/text requests
+require `inline.copilot-text`, an explicit model and `allow_paid_execution: true`.
+Both disable ambient skills; Copilot/text also denies all tools. Validate
+`examples/runner/copilot-unit.json` offline before explicitly running it
+(each dispatch may incur charges). General native file/tool/skill workflows
+remain unsupported. The receipt
 is `waza.runner-unit` for offline validation, and `waza.runner-terminal` for run.
 Run exits: 0 success, 1 failed checks, 2 infrastructure/output failure,
 3 cancellation, 4 timeout, 5 incompatible runner requirements,

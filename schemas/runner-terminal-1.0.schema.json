@@ -186,7 +186,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["execution_mode", "engine_calls", "selection", "run_number", "attempts", "status", "validations"],
       "properties": {
-        "execution_mode": {"const": "mock"},
+        "execution_mode": {"enum": ["mock", "copilot"]},
         "engine_calls": {"const": 1},
         "selection": {"$ref": "#/$defs/selection"},
         "run_number": {"type": "integer", "minimum": 1, "maximum": 2147483647},

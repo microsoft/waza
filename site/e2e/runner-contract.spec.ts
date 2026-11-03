@@ -6,6 +6,9 @@ test('runner CLI/API navigation, schemas and screenshot retain deployed base', a
   await expect(page).toHaveURL(/\/waza\/guides\/runner-contract\/$/);
   await expect(page.getByRole('heading', { name: 'HTTP API', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Execute one exact work unit', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Opt-in production Copilot text execution', exact: true })).toBeVisible();
+  await expect(page.locator('main')).toContainText('examples/runner/copilot-unit.json');
+  await expect(page.locator('main')).toContainText('allow_paid_execution: true');
   for (const name of ['Negotiation request 1.0 schema', 'Negotiation response 1.0 schema', 'Complete runner request 1.0 schema', 'Capability advertisement 1.0 schema', 'Exact unit receipt 1.0 schema']) {
     const href = await page.getByRole('link', { name, exact: true }).getAttribute('href');
     expect(href).not.toBeNull();
