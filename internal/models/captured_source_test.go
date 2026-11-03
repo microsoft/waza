@@ -234,7 +234,9 @@ tags: null
 
 	source := strings.Replace(capturedEvalFixture, "timeout_seconds: 30}",
 		"timeout_seconds: 30, inject_skill_body: null, instruction_files: null, mcp_servers: null}", 1)
-	source += "inputs: null\n"
+	// Restore the exact null-bearing source and nil expectations retained by the
+	// pre-guard compatibility test (92b84a92d).
+	source += "inputs: null\nmetrics: null\n"
 	spec, err := ParseCapturedEvalSpecOffline([]byte(source), "eval.yaml")
 	require.NoError(t, err)
 	require.Nil(t, spec.Config.InjectSkillBody)
@@ -242,8 +244,7 @@ tags: null
 	require.Nil(t, spec.Config.ServerConfigs)
 	require.Nil(t, spec.Inputs)
 	require.Nil(t, spec.Metrics)
-	_, err = ParseCapturedEvalSpecOffline([]byte(source+"metrics: null\n"), "eval.yaml")
-	require.ErrorContains(t, err, "captured metrics must not be null")
+	require.True(t, spec.CapturedMetricsExplicitNull())
 }
 
 func TestCapturedStringGuardsDoNotChangeLegacyLoaderCoercion(t *testing.T) {

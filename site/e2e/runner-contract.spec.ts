@@ -19,6 +19,10 @@ test('runner CLI/API navigation, schemas and screenshot retain deployed base', a
   await expect(page.locator('main')).toContainText('rejection fails before any prompt is sent');
   await expect(page.locator('main')).toContainText('An effective nonzero first_event_timeout_seconds is rejected before runtime construction');
   await expect(page.locator('main')).toContainText('uncomputed, identity-bound metadata');
+  await expect(page.locator('main')).toContainText('Paid native HTTP execution is local-only.');
+  await expect(page.locator('main')).toContainText('not server-owner authorization');
+  await expect(page.locator('main')).toContainText('native_http_denied');
+  await expect(page.locator('main')).toContainText('isolated runner sessions do not resume solely to retrieve shutdown usage');
   await expect(page.locator('main')).toContainText('it does not report aggregate metric values, metric-threshold decisions or whole-evaluation success');
   for (const name of ['Negotiation request 1.0 schema', 'Negotiation response 1.0 schema', 'Complete runner request 1.0 schema', 'Capability advertisement 1.0 schema', 'Exact unit receipt 1.0 schema']) {
     const href = await page.getByRole('link', { name, exact: true }).getAttribute('href');

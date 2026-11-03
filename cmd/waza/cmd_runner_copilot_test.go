@@ -362,7 +362,7 @@ func TestRunnerMetricsCLIHTTP(t *testing.T) {
 					{"one-threshold", "metrics: [{name: quality, weight: 1, threshold: 1, enabled: true}]", true},
 					{"disabled", "metrics: [{name: quality, weight: 0.5, threshold: 0.8, enabled: false}]", true},
 					{"small-weight", "metrics: [{name: quality, weight: 1e-300, threshold: 0.8}]", true},
-					{"null", "metrics: null", false},
+					{"null", "metrics: null", profile == "mock"},
 					{"mapping", "metrics: {name: quality, weight: 1, threshold: 1}", false},
 					{"null-entry", "metrics: [null]", false},
 					{"missing-name", "metrics: [{weight: 1, threshold: 1}]", false},

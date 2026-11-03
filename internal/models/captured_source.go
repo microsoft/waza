@@ -37,9 +37,6 @@ func validateCapturedModelSource(data []byte, task bool) (*yaml.Node, error) {
 	if err := checkCapturedFields(&doc, target); err != nil {
 		return nil, err
 	}
-	if !task && mappingValue(doc.Content[0], "metrics").Tag == "!!null" {
-		return nil, fmt.Errorf("captured metrics must not be null; omit the field or provide an array")
-	}
 	for _, g := range mappingValue(doc.Content[0], "graders").Content {
 		kind := mappingValue(g, "type")
 		if kind.Value == string(GraderKindText) {

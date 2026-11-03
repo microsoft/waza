@@ -1038,9 +1038,9 @@ func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID stri
 	var err error
 	if op := operationFrom(ctx); op != nil {
 		if reporter, ok := session.(interface {
-			shutdownUsageDiagnostic(context.Context, func(DiagnosticCode)) (*copilot.SessionShutdownData, error)
+			shutdownUsageDiagnostic(context.Context, func(DiagnosticCode), bool) (*copilot.SessionShutdownData, error)
 		}); ok {
-			shutdown, err = reporter.shutdownUsageDiagnostic(ctx, func(code DiagnosticCode) { op.report(StageShutdownUsage, code, sessionID) })
+			shutdown, err = reporter.shutdownUsageDiagnostic(ctx, func(code DiagnosticCode) { op.report(StageShutdownUsage, code, sessionID) }, !e.disableAmbientDiscovery)
 		} else {
 			shutdown, err = session.ShutdownUsage(ctx)
 			if err != nil {
@@ -1056,7 +1056,11 @@ func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID stri
 		reportUsageObservation(op, StageShutdownUsage, sessionID, collector.Observation())
 		return
 	}
-	shutdown, err = session.ShutdownUsage(ctx)
+	if wrapper, ok := session.(*copilotSessionWrapper); ok {
+		shutdown, err = wrapper.shutdownUsage(ctx, nil, !e.disableAmbientDiscovery)
+	} else {
+		shutdown, err = session.ShutdownUsage(ctx)
+	}
 	if err != nil {
 		slog.Warn("shutdown usage unavailable", "sessionID", sessionID, "error", err)
 		return

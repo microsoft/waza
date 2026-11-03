@@ -286,6 +286,10 @@ test.describe("Runner negotiation through the real Go API", () => {
   }
 
   test("Copilot profile validates offline and reports guarded native startup without inference", async ({ page, request }) => {
+    // Native execution must reach the actual same-origin server, not the
+    // preview proxy used by mock-only controls.
+    await page.unroute("**/api/v1/runner/**");
+    await page.goto(`${base}/#/lab/runner`);
     const captured = JSON.parse(readFileSync(new URL("../../examples/runner/copilot-unit.json", import.meta.url), "utf8"));
     const admitted = await request.post(`${base}/api/v1/runner/validate`, { data: captured });
     const report = await admitted.json();
@@ -309,6 +313,32 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(terminal).toContainText("initialize/start_failed");
     await expect(terminal).toContainText(report.identity.attempt);
     await expect(terminal.getByRole("list", { name: "Observed grader verdicts" })).toHaveCount(0);
+  });
+
+  test("native HTTP trust rejection is produced by the real server and preserved by Lab export", async ({ page, request }) => {
+    const captured = JSON.parse(readFileSync(new URL("../../examples/runner/copilot-unit.json", import.meta.url), "utf8"));
+    const response = await request.post(`${base}/api/v1/runner/run`, {
+      headers: { Host: "attacker.example", Origin: "http://attacker.example" }, data: captured,
+    });
+    expect(response.status()).toBe(403);
+    const actual = await response.json();
+    expect(actual.outcome).toBe("invalid_input");
+    expect(actual.engine_calls).toBe(0);
+    expect(actual.identity).toBeUndefined();
+    expect(actual.observation).toBeUndefined();
+    expect(actual.diagnostics[0].code).toBe("native_http_denied");
+    await page.getByRole("textbox", { name: "Exact work request (JSON)" }).fill(JSON.stringify(captured));
+    await page.getByRole("button", { name: "Validate selection" }).click();
+    await expect(page.getByRole("status", { name: "Selection validation result" })).toContainText("Valid selection (not executed)");
+    await page.route("**/api/v1/runner/run", (route) => route.fulfill({ response }));
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    const result = page.getByRole("status", { name: "Terminal result" });
+    await expect(result).toContainText("native_http_denied");
+    await expect(result).toContainText("Unavailable (not admitted)");
+    const download = page.waitForEvent("download");
+    await result.getByRole("button", { name: "Export terminal JSON" }).click();
+    const artifact = await download;
+    expect(JSON.parse(readFileSync((await artifact.path())!, "utf8"))).toEqual(actual);
   });
 
   test("identity guard preserves absence and rejects malformed or contradictory real reports", async ({ page, request }) => {
