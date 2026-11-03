@@ -105,6 +105,7 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
       ['timeout', 'timeout', 4, 1],
       ['startup-failure', 'infrastructure_failure', 2, 0],
       ['bad-protocol', 'infrastructure_failure', 2, 0],
+      ['options-failure', 'infrastructure_failure', 2, 1],
       ['unsupported', 'unsupported_capability', 5, 0],
     ]) {
       const input = structuredClone(request);
@@ -133,8 +134,12 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
         const expected = { 'fixture.start': 1 };
         if (mode !== 'startup-failure') expected.connect = 1;
         if (calls === 1) {
-          Object.assign(expected, { 'auth.getStatus': 1, 'session.create': 1, 'session.send': 1 });
-          if (mode !== 'timeout') Object.assign(expected, {
+          Object.assign(expected, { 'auth.getStatus': 1, 'session.create': 1, 'session.options.update': 1 });
+          if (mode === 'options-failure') Object.assign(expected, {
+            'session.detach': 1, 'runtime.shutdown': 1,
+          });
+          else expected['session.send'] = 1;
+          if (mode !== 'timeout' && mode !== 'options-failure') Object.assign(expected, {
             'session.usage.getMetrics': 1, 'session.detach': 1, 'session.delete': 1, 'runtime.shutdown': 1,
           });
         }
@@ -145,7 +150,19 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
             assert.equal(entry.params.model, 'synthetic-no-provider');
             assert.equal(entry.params.enableSkills, false);
             assert.deepEqual(entry.params.availableTools, []);
+            for (const field of [
+              'enableConfigDiscovery', 'enableFileHooks', 'enableOnDemandInstructionDiscovery',
+              'enableSessionStore', 'enableHostGitOperations',
+            ]) assert.equal(entry.params[field], false, `${field} must explicitly disable runtime defaults`);
+            assert.equal(entry.params.skipCustomInstructions, true);
+            assert.equal(entry.params.skipEmbeddingRetrieval, true);
+            assert.deepEqual(entry.params.memory, { enabled: false });
           }
+          if (entry.method === 'session.options.update') assert.equal(entry.params.skipCustomInstructions, true);
+        }
+        if (mode === 'options-failure') {
+          assert.ok(terminal.diagnostics.some(item => item.message.includes('execute/create_failed')));
+          assert.ok(!JSON.stringify(terminal).includes('synthetic options update rejection'));
         }
         if (['success', 'failed-check'].includes(mode)) {
           assert.equal(terminal.observation.execution_mode, 'copilot');

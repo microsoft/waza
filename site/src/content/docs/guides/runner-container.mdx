@@ -128,7 +128,11 @@ The host reads only its test RPC log after the container stops.
 The controls compare emitted identities with offline admission, exact 2/2
 selection, one create/send, text verdicts, complete RPC inventories, startup
 rejection, protocol mismatch, execution errors, timeout and unsupported-capability
-rejection. The default scratch reference is separately required to report a
+rejection. They also require explicit context-discovery/file-hook/store/git/memory
+opt-outs and `session.options.update` before sending. An update rejection must
+produce infrastructure failure without a prompt. Declared eval metrics remain
+uncomputed identity metadata; success does not assert aggregate thresholds.
+The default scratch reference is separately required to report a
 native startup failure with zero engine calls; synthetic success does not make
 that image native-ready.
 

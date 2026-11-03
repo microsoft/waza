@@ -56,6 +56,7 @@ func TestRunnerNativeProductionProcess(t *testing.T) {
 		{"timeout", runnerterminal.Timeout, 1},
 		{"startup-failure", runnerterminal.InfrastructureFailure, 0},
 		{"bad-protocol", runnerterminal.InfrastructureFailure, 0},
+		{"options-failure", runnerterminal.InfrastructureFailure, 1},
 		{"unsupported", runnerterminal.UnsupportedCapability, 0},
 	} {
 		t.Run(control.mode, func(t *testing.T) {
@@ -149,6 +150,17 @@ func TestRunnerNativeProductionProcess(t *testing.T) {
 					require.Equal(t, []any{}, entry.Params["availableTools"])
 					require.Empty(t, entry.Params["mcpServers"])
 					require.Empty(t, entry.Params["tools"])
+					for _, field := range []string{
+						"enableConfigDiscovery", "enableFileHooks", "enableOnDemandInstructionDiscovery",
+						"enableSessionStore", "enableHostGitOperations",
+					} {
+						require.Equal(t, false, entry.Params[field], "%s must explicitly disable runtime defaults", field)
+					}
+					require.Equal(t, true, entry.Params["skipCustomInstructions"])
+					require.Equal(t, true, entry.Params["skipEmbeddingRetrieval"])
+					require.Equal(t, map[string]any{"enabled": false}, entry.Params["memory"])
+				case "session.options.update":
+					require.Equal(t, true, entry.Params["skipCustomInstructions"])
 				case "session.send":
 					require.Equal(t, "hello", entry.Params["prompt"])
 				}
@@ -160,8 +172,14 @@ func TestRunnerNativeProductionProcess(t *testing.T) {
 			if control.calls == 1 {
 				expectedCounts["auth.getStatus"] = 1
 				expectedCounts["session.create"] = 1
-				expectedCounts["session.send"] = 1
-				if control.mode != "timeout" {
+				expectedCounts["session.options.update"] = 1
+				if control.mode == "options-failure" {
+					expectedCounts["session.detach"] = 1
+					expectedCounts["runtime.shutdown"] = 1
+				} else {
+					expectedCounts["session.send"] = 1
+				}
+				if control.mode != "timeout" && control.mode != "options-failure" {
 					expectedCounts["session.usage.getMetrics"] = 1
 					expectedCounts["session.detach"] = 1
 					expectedCounts["session.delete"] = 1
@@ -169,6 +187,10 @@ func TestRunnerNativeProductionProcess(t *testing.T) {
 				}
 			}
 			require.Equal(t, expectedCounts, counts, "no adjacent session, retry, resume or other RPC is permitted")
+			if control.mode == "options-failure" {
+				require.Contains(t, terminal.Diagnostics[0].Message, "execute/create_failed")
+				require.NotContains(t, terminal.Diagnostics[0].Message, "synthetic options update rejection")
+			}
 			if control.outcome == runnerterminal.Success || control.outcome == runnerterminal.EvaluationFailure {
 				require.NotNil(t, terminal.Observation)
 				require.Equal(t, []runnerterminal.Verdict{{

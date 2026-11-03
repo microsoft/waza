@@ -52,6 +52,36 @@ change; no path-filtered success substitutes for execution evidence.
 Both push and pull-request filters explicitly retain the existing
 `examples/runner/unit.json` input and all nested `examples/runner/container/**`
 inputs, guarded by the script and documentation regression tests.
+The native control additionally selects `examples/runner/copilot-unit.json` and
+`.github/scripts/testdata/runner-runtime/**` on push and pull request. Run
+`node --test examples/runner/container/native-test.mjs` as well as the unchanged
+mock harness. The Dockerfile's default final target remains the scratch reference;
+`synthetic-test` and `native-smoke` are explicit test targets, not published
+native deployment images. The former adds only the deterministic protocol peer;
+the latter uses pinned Alpine and the existing `internal/embedded` no-Send smoke.
+The build context admits only the peer's `main.go`/`main_test.go` and the specific embedded
+smoke test in addition to the existing production allowlist.
+
+All runtime controls disable networking and mount no credentials or source.
+Synthetic controls mount only a new empty RPC-log output directory; native
+smoke mounts nothing. The peer's authentication, text and zero-usage responses
+are synthetic, not provider evidence. Assert all explicit context opt-outs,
+the required `session.options.update` before sending, and update rejection
+producing `infrastructure_failure`/`execute/create_failed` without `session.send`.
+Metrics remain identity-bound uncomputed metadata; success does not assert
+aggregate metric thresholds. Never relabel synthetic success as native runtime
+or live-provider assurance.
+
+The scratch reference must fail native startup with zero engine calls. The
+Alpine smoke must actually start the bundled CLI and pass its local-provider
+lifecycle with zero provider requests; it sends no inference prompt. This
+distinguishes missing native loader/dependencies from SDK protocol simulation.
+Runtime asset extraction also needs writable executable cache storage: the
+mock harness's 32 MiB `noexec` tmpfs is unsuitable; 256 MiB proved insufficient
+for the current bundle and the native test uses 1 GiB (not an exact minimum).
+Record the actual architecture, image IDs and outcomes; no other platform is
+proved by cross-compilation or emulation.
+
 The site workflow's main-push paths and PR `site` filter also select
 `.github/workflows/docker-ci.yml`, so workflow-only changes execute the prebuild
 guard. Discovery mutation controls reject removing either site selector.

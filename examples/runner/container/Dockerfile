@@ -18,6 +18,7 @@ RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -ldflags=
 RUN /waza runner capabilities
 
 FROM build AS controls-build
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go test -count=1 ./.github/scripts/testdata/runner-runtime
 RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /synthetic-runtime ./.github/scripts/testdata/runner-runtime
 RUN CGO_ENABLED=0 GOTOOLCHAIN=local go test -c -o /embedded.test ./internal/embedded
 

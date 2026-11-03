@@ -34,3 +34,4 @@ web/playwright-report/
 !.github/scripts/testdata/runner-runtime/
 .github/scripts/testdata/runner-runtime/*
 !.github/scripts/testdata/runner-runtime/main.go
+!.github/scripts/testdata/runner-runtime/main_test.go

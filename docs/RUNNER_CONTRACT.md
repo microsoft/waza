@@ -281,3 +281,11 @@ execute on their actual target platform with networking disabled and no
 credential mounts; host passes and cross-compilation alone do not prove that
 the bundled runtime starts in an image. No image, release or tag is published
 by these controls.
+
+The [shared container controls](../examples/runner/container/MAINTAINERS.md)
+also exercise these boundaries with runtime networking disabled. Their synthetic
+target asserts all explicit ambient-context opt-outs and the required
+`session.options.update`; rejecting that update must emit infrastructure failure
+without sending a prompt. The unchanged default scratch reference is not
+native-ready. A separate pinned Alpine no-Send smoke starts the actual bundle
+and checks its local-provider lifecycle with zero provider requests, not inference.
