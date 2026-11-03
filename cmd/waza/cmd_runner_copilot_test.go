@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -25,8 +28,12 @@ import (
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
+	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/internal/webapi"
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // The fake is below the concrete production engine, not a replacement engine.
@@ -70,6 +77,12 @@ func (c *runnerSDKClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatus
 	return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
 }
 
+func (c *runnerSDKClient) ListModels(context.Context) ([]copilot.ModelInfo, error) {
+	model := copilot.ModelInfo{ID: "explicit-test-model", SupportedReasoningEfforts: []string{"low"}}
+	model.Capabilities.Supports.ReasoningEffort = true
+	return []copilot.ModelInfo{model}, nil
+}
+
 func (c *runnerSDKClient) DeleteSession(context.Context, string) error {
 	c.deletes.Add(1)
 	if c.mode == "delete-failure" {
@@ -83,6 +96,17 @@ func (c *runnerSDKClient) CreateSession(_ context.Context, cfg *copilot.SessionC
 	c.config = cfg
 	require.Equal(c.t, "explicit-test-model", cfg.Model)
 	require.Equal(c.t, copilot.Bool(false), cfg.EnableSkills)
+	require.Equal(c.t, copilot.Bool(false), cfg.EnableConfigDiscovery)
+	require.Equal(c.t, copilot.Bool(false), cfg.EnableFileHooks)
+	require.Equal(c.t, copilot.Bool(false), cfg.EnableOnDemandInstructionDiscovery)
+	require.Equal(c.t, copilot.Bool(true), cfg.SkipCustomInstructions)
+	require.Equal(c.t, copilot.Bool(true), cfg.SkipEmbeddingRetrieval)
+	require.Equal(c.t, copilot.Bool(false), cfg.EnableSessionStore)
+	require.Equal(c.t, copilot.Bool(false), cfg.EnableHostGitOperations)
+	require.Equal(c.t, &copilot.MemoryConfiguration{Enabled: false}, cfg.Memory)
+	require.Empty(c.t, cfg.HookDirectories)
+	require.Empty(c.t, cfg.PluginDirectories)
+	require.Empty(c.t, cfg.InstructionDirectories)
 	require.Empty(c.t, cfg.SkillDirectories)
 	require.Empty(c.t, cfg.MCPServers)
 	require.Empty(c.t, cfg.Tools)
@@ -92,6 +116,10 @@ func (c *runnerSDKClient) CreateSession(_ context.Context, cfg *copilot.SessionC
 	require.NotNil(c.t, cfg.Hooks.OnPreToolUse)
 	c.workspace = cfg.WorkingDirectory
 	require.NotEmpty(c.t, c.workspace)
+	if c.mode == "create-hang" {
+		<-c.forced
+		return nil, errors.New("transport killed during session creation/options update")
+	}
 	return &runnerSDKSession{client: c}, nil
 }
 
@@ -161,9 +189,10 @@ func runnerSDKService(t *testing.T, mode string) (*runnerunit.Service, *[]*runne
 		client := &runnerSDKClient{t: t, mode: mode, forced: make(chan struct{})}
 		clients = append(clients, client)
 		return execution.NewCopilotEngineBuilder(cfg.ModelID, &execution.CopilotEngineBuilderOptions{
-			NewCopilotClient:    func(*copilot.ClientOptions) execution.CopilotClient { return client },
-			DisableCommandMocks: true,
-			DiagnosticObserver:  func(execution.ExecutionDiagnostic) error { return nil },
+			NewCopilotClient:        func(*copilot.ClientOptions) execution.CopilotClient { return client },
+			DisableCommandMocks:     true,
+			DisableAmbientDiscovery: true,
+			DiagnosticObserver:      func(execution.ExecutionDiagnostic) error { return nil },
 		}).Build(), nil
 	})
 	return service, &clients
@@ -180,11 +209,7 @@ func runCopilotCLI(t *testing.T, ctx context.Context, service *runnerunit.Servic
 	cmd.SetOut(&output)
 	cmd.SetErr(io.Discard)
 	runErr := cmd.ExecuteContext(ctx)
-	raw := bytes.Clone(output.Bytes())
-	var envelope runnerterminal.Envelope
-	decoder := json.NewDecoder(&output)
-	require.NoError(t, decoder.Decode(&envelope))
-	require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
+	envelope := validateRunnerEnvelope(t, output.Bytes(), request)
 	if envelope.ExitCode == 0 {
 		require.NoError(t, runErr)
 	} else {
@@ -192,14 +217,46 @@ func runCopilotCLI(t *testing.T, ctx context.Context, service *runnerunit.Servic
 		require.True(t, ok, "%v", runErr)
 		require.Equal(t, envelope.ExitCode, exit.Code)
 	}
+	return envelope
+}
+
+func validateRunnerEnvelope(t *testing.T, raw []byte, request runnercontract.Request) runnerterminal.Envelope {
+	t.Helper()
+	var envelope runnerterminal.Envelope
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	require.NoError(t, decoder.Decode(&envelope))
+	require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
 	var binding *runnerterminal.Binding
 	if envelope.Identity != nil {
 		id, err := runneridentity.Derive(&request)
 		require.NoError(t, err)
-		binding = &runnerterminal.Binding{Selection: request.Selection, Identity: id, GraderIDs: []string{"_output_contains"}}
+		mode := "mock"
+		for _, capability := range request.RequiredCapabilities {
+			if capability == "inline.copilot-text" {
+				mode = "copilot"
+			}
+		}
+		binding = &runnerterminal.Binding{
+			Selection: request.Selection, Identity: id, GraderIDs: []string{"_output_contains"}, ExecutionMode: mode,
+		}
 	}
-	_, err = runnerterminal.Validate(raw, binding)
+	_, err := runnerterminal.Validate(raw, binding)
 	require.NoError(t, err)
+	return envelope
+}
+
+func runRunnerHTTP(t *testing.T, server *httptest.Server, request runnercontract.Request) runnerterminal.Envelope {
+	t.Helper()
+	data, err := json.Marshal(request)
+	require.NoError(t, err)
+	response, err := server.Client().Post(server.URL+"/api/v1/runner/run", "application/json", bytes.NewReader(data))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, response.Body.Close()) }()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	raw, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	envelope := validateRunnerEnvelope(t, raw, request)
+	require.Equal(t, strconv.Itoa(envelope.ExitCode), response.Header.Get("X-Waza-Exit-Code"))
 	return envelope
 }
 
@@ -212,7 +269,7 @@ func TestRunnerCopilotExactCLIHTTP(t *testing.T) {
 			webapi.RegisterRunnerRoutesWithService(mux, service)
 			server := httptest.NewServer(mux)
 			defer server.Close()
-			for _, control := range []string{"selected", "neighbor", "repeat", "last", "failed-check"} {
+			for _, control := range []string{"selected", "neighbor", "repeat", "last", "failed-check", "reasoning-effort", "first-event-disabled"} {
 				request := copilotRunnerRequest(t)
 				switch control {
 				case "neighbor":
@@ -221,22 +278,18 @@ func TestRunnerCopilotExactCLIHTTP(t *testing.T) {
 					request.Selection.Trial, request.Selection.Attempt = 3, 3
 				case "failed-check":
 					request.Input.Task = strings.Replace(request.Input.Task, "- hello", "- absent-marker", 1)
+				case "reasoning-effort":
+					request.Input.Eval = strings.Replace(request.Input.Eval, "  executor:", "  reasoning_effort: low\n  executor:", 1)
+				case "first-event-disabled":
+					request.Input.Eval = strings.Replace(request.Input.Eval, "  executor:", "  first_event_timeout_seconds: 1\n  executor:", 1)
+					request.Input.Task += "first_event_timeout_seconds: 0\n"
 				}
 				before := len(*clients)
 				var envelope runnerterminal.Envelope
 				if transport == "cli" {
 					envelope = runCopilotCLI(t, t.Context(), service, request)
 				} else {
-					data, err := json.Marshal(request)
-					require.NoError(t, err)
-					response, err := server.Client().Post(server.URL+"/api/v1/runner/run", "application/json", bytes.NewReader(data))
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, response.StatusCode)
-					decoder := json.NewDecoder(response.Body)
-					require.NoError(t, decoder.Decode(&envelope))
-					require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
-					require.Equal(t, strconv.Itoa(envelope.ExitCode), response.Header.Get("X-Waza-Exit-Code"))
-					require.NoError(t, response.Body.Close())
+					envelope = runRunnerHTTP(t, server, request)
 				}
 				if control == "neighbor" {
 					require.Equal(t, before, len(*clients))
@@ -245,6 +298,9 @@ func TestRunnerCopilotExactCLIHTTP(t *testing.T) {
 				}
 				require.Len(t, *clients, before+1)
 				c := (*clients)[before]
+				if control == "reasoning-effort" {
+					require.Equal(t, "low", c.config.ReasoningEffort)
+				}
 				require.EqualValues(t, 1, c.starts.Load())
 				require.EqualValues(t, 1, c.creates.Load())
 				require.EqualValues(t, 1, c.sends.Load())
@@ -267,8 +323,104 @@ func TestRunnerCopilotExactCLIHTTP(t *testing.T) {
 	}
 }
 
+func TestRunnerMetricsCLIHTTP(t *testing.T) {
+	for _, profile := range []string{"mock", "copilot"} {
+		for _, transport := range []string{"cli", "http"} {
+			t.Run(profile+"/"+transport, func(t *testing.T) {
+				base := copilotRunnerRequest(t)
+				if profile == "mock" {
+					base.RequiredCapabilities = []string{"exact-unit", "inline.mock-text"}
+					base.Input.Eval = strings.Replace(base.Input.Eval, "executor: copilot-sdk", "executor: mock", 1)
+					base.AllowPaidExecution = false
+				}
+				prefix, rest, ok := strings.Cut(base.Input.Eval, "metrics:\n")
+				require.True(t, ok)
+				_, suffix, ok := strings.Cut(rest, "tasks:")
+				require.True(t, ok)
+				var constructed int
+				service, clients := runnerSDKService(t, "")
+				if profile == "mock" {
+					service = runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+						constructed++
+						return execution.NewMockEngine(cfg.ModelID), nil
+					})
+				}
+				mux := http.NewServeMux()
+				webapi.RegisterRunnerRoutesWithService(mux, service)
+				server := httptest.NewServer(mux)
+				defer server.Close()
+				var previousIdentity string
+				for _, control := range []struct {
+					name, declaration string
+					valid             bool
+				}{
+					{"omitted", "", true},
+					{"empty", "metrics: []", true},
+					{"canonical", "metrics: [{name: quality, weight: 1, threshold: 0.8}]", true},
+					{"changed-threshold", "metrics: [{name: quality, weight: 1, threshold: 0.9}]", true},
+					{"zero-threshold", "metrics: [{name: quality, weight: 1, threshold: 0}]", true},
+					{"one-threshold", "metrics: [{name: quality, weight: 1, threshold: 1, enabled: true}]", true},
+					{"disabled", "metrics: [{name: quality, weight: 0.5, threshold: 0.8, enabled: false}]", true},
+					{"small-weight", "metrics: [{name: quality, weight: 1e-300, threshold: 0.8}]", true},
+					{"null", "metrics: null", false},
+					{"mapping", "metrics: {name: quality, weight: 1, threshold: 1}", false},
+					{"null-entry", "metrics: [null]", false},
+					{"missing-name", "metrics: [{weight: 1, threshold: 1}]", false},
+					{"empty-name", "metrics: [{name: '', weight: 1, threshold: 1}]", false},
+					{"missing-weight", "metrics: [{name: quality, threshold: 1}]", false},
+					{"zero-weight", "metrics: [{name: quality, weight: 0, threshold: 1}]", false},
+					{"negative-weight", "metrics: [{name: quality, weight: -1, threshold: 1}]", false},
+					{"string-weight", "metrics: [{name: quality, weight: '1', threshold: 1}]", false},
+					{"null-weight", "metrics: [{name: quality, weight: null, threshold: 1}]", false},
+					{"missing-threshold", "metrics: [{name: quality, weight: 1}]", false},
+					{"null-threshold", "metrics: [{name: quality, weight: 1, threshold: null}]", false},
+					{"negative-threshold", "metrics: [{name: quality, weight: 1, threshold: -0.00000000000000000001}]", false},
+					{"above-one", "metrics: [{name: quality, weight: 1, threshold: 1.00000000000000000001}]", false},
+					{"null-enabled", "metrics: [{name: quality, weight: 1, threshold: 1, enabled: null}]", false},
+					{"string-enabled", "metrics: [{name: quality, weight: 1, threshold: 1, enabled: 'false'}]", false},
+					{"unknown-field", "metrics: [{name: quality, weight: 1, threshold: 1, extra: true}]", false},
+					{"duplicate-field", "metrics: [{name: quality, weight: 1, threshold: 0, threshold: 1}]", false},
+					{"alias", "metrics: [&metric {name: quality, weight: 1, threshold: 1}, *metric]", false},
+					{"nan", "metrics: [{name: quality, weight: .nan, threshold: 1}]", false},
+					{"infinite", "metrics: [{name: quality, weight: .inf, threshold: 1}]", false},
+					{"underflow", "metrics: [{name: quality, weight: 1e-999999999, threshold: 1}]", false},
+				} {
+					t.Run(control.name, func(t *testing.T) {
+						request := base
+						request.Input.Eval = prefix + control.declaration + "\ntasks:" + suffix
+						before := constructed + len(*clients)
+						var envelope runnerterminal.Envelope
+						if transport == "cli" {
+							envelope = runCopilotCLI(t, t.Context(), service, request)
+						} else {
+							envelope = runRunnerHTTP(t, server, request)
+						}
+						if !control.valid {
+							require.Equal(t, runnerterminal.InvalidInput, envelope.Outcome, "%+v", envelope.Diagnostics)
+							require.Zero(t, envelope.EngineCalls)
+							require.Nil(t, envelope.Identity)
+							require.Equal(t, before, constructed+len(*clients))
+							return
+						}
+						require.Equal(t, runnerterminal.Success, envelope.Outcome, "%+v", envelope.Diagnostics)
+						require.Equal(t, before+1, constructed+len(*clients))
+						require.Equal(t, 1, envelope.EngineCalls)
+						require.Equal(t, profile, envelope.Observation.ExecutionMode)
+						require.NotEmpty(t, envelope.Observation.Validations)
+						identity, err := runneridentity.Derive(&request)
+						require.NoError(t, err)
+						require.Equal(t, identity, envelope.Identity)
+						require.NotEqual(t, previousIdentity, identity.CanonicalDigest, "changed metric metadata must remain identity-bound")
+						previousIdentity = identity.CanonicalDigest
+					})
+				}
+			})
+		}
+	}
+}
+
 func TestRunnerCopilotAdmissionNeverConstructsRuntime(t *testing.T) {
-	for _, control := range []string{"no-payment", "missing-profile", "optional-profile", "conflict", "wrong-engine", "empty-model", "skills", "prompt-file", "out-of-range", "unsupported-version"} {
+	for _, control := range []string{"no-payment", "missing-profile", "optional-profile", "conflict", "wrong-engine", "noncanonical-engine", "empty-model", "skills", "prompt-file", "out-of-range", "unsupported-version", "first-event-eval", "first-event-task"} {
 		t.Run(control, func(t *testing.T) {
 			request := copilotRunnerRequest(t)
 			switch control {
@@ -282,7 +434,9 @@ func TestRunnerCopilotAdmissionNeverConstructsRuntime(t *testing.T) {
 			case "conflict":
 				request.RequiredCapabilities = append(request.RequiredCapabilities, "inline.mock-text")
 			case "wrong-engine":
-				request.Input.Eval = strings.Replace(request.Input.Eval, "executor: copilot", "executor: mock", 1)
+				request.Input.Eval = strings.Replace(request.Input.Eval, "executor: copilot-sdk", "executor: mock", 1)
+			case "noncanonical-engine":
+				request.Input.Eval = strings.Replace(request.Input.Eval, "executor: copilot-sdk", "executor: copilot", 1)
 			case "empty-model":
 				request.Input.Eval = strings.Replace(request.Input.Eval, "model: explicit-test-model", `model: ""`, 1)
 			case "skills":
@@ -293,8 +447,12 @@ func TestRunnerCopilotAdmissionNeverConstructsRuntime(t *testing.T) {
 				request.Selection.Attempt = 4
 			case "unsupported-version":
 				request.Versions = []string{"99.0"}
+			case "first-event-eval":
+				request.Input.Eval = strings.Replace(request.Input.Eval, "  executor:", "  first_event_timeout_seconds: 1\n  executor:", 1)
+			case "first-event-task":
+				request.Input.Task += "first_event_timeout_seconds: 1\n"
 			}
-			service, clients := runnerSDKService(t, "")
+			service, clients := runnerSDKService(t, "send-hang")
 			envelope := runCopilotCLI(t, t.Context(), service, request)
 			require.Contains(t, []runnerterminal.Outcome{runnerterminal.InvalidInput, runnerterminal.UnsupportedCapability}, envelope.Outcome)
 			require.Empty(t, *clients)
@@ -304,8 +462,58 @@ func TestRunnerCopilotAdmissionNeverConstructsRuntime(t *testing.T) {
 	}
 }
 
+func TestRunnerCopilotMissingRuntimePreservesCause(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-copilot")
+	t.Setenv("COPILOT_CLI_PATH", path)
+	envelope := runCopilotCLI(t, t.Context(), runnerunit.NewService(nil), copilotRunnerRequest(t))
+	require.Equal(t, runnerterminal.InfrastructureFailure, envelope.Outcome)
+	require.Zero(t, envelope.EngineCalls)
+	require.Nil(t, envelope.Observation)
+	require.Contains(t, envelope.Diagnostics[0].Message, path)
+	require.NotContains(t, envelope.Diagnostics[0].Message, "force-stoppable")
+}
+
+func TestRunnerCopilotExampleSchemaParity(t *testing.T) {
+	request := copilotRunnerRequest(t)
+	for _, fixture := range []struct {
+		name, source, schema string
+	}{
+		{"eval", request.Input.Eval, schemas.EvalSchemaJSON},
+		{"task", request.Input.Task, schemas.TaskSchemaJSON},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			var schemaDocument any
+			require.NoError(t, json.Unmarshal([]byte(fixture.schema), &schemaDocument))
+			compiler := jsonschema.NewCompiler()
+			compiler.UseLoader(schemaloader.Offline{})
+			require.NoError(t, compiler.AddResource("fixture.schema.json", schemaDocument))
+			schema, err := compiler.Compile("fixture.schema.json")
+			require.NoError(t, err)
+			var document any
+			require.NoError(t, yaml.Unmarshal([]byte(fixture.source), &document))
+			data, err := json.Marshal(document)
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(data, &document))
+			require.NoError(t, schema.Validate(document))
+			if fixture.name == "eval" {
+				root, ok := document.(map[string]any)
+				require.True(t, ok)
+				config, ok := root["config"].(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, "copilot-sdk", config["executor"])
+				config["executor"] = "copilot"
+				require.Error(t, schema.Validate(document), "terminal mode is not a valid eval executor")
+			}
+		})
+	}
+}
+
 func TestRunnerCopilotBoundedLifecycle(t *testing.T) {
-	for _, control := range []string{"startup-failure", "startup-hang", "send-hang", "task-timeout", "cancel", "shutdown-hang", "denied-tool", "delete-failure", "disconnect-failure"} {
+	// Signal registration belongs outside virtual-time bubbles; keep the OS
+	// handler active while the real Cobra command registers its own listener.
+	_, stopSignals := signal.NotifyContext(t.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	for _, control := range []string{"startup-failure", "startup-hang", "create-hang", "send-hang", "task-timeout", "cancel", "shutdown-hang", "denied-tool", "delete-failure", "disconnect-failure"} {
 		t.Run(control, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				request := copilotRunnerRequest(t)
@@ -335,7 +543,7 @@ func TestRunnerCopilotBoundedLifecycle(t *testing.T) {
 				require.Len(t, *clients, 1)
 				c := (*clients)[0]
 				switch control {
-				case "startup-hang", "send-hang", "task-timeout", "shutdown-hang":
+				case "startup-hang", "create-hang", "send-hang", "task-timeout", "shutdown-hang":
 					require.Equal(t, runnerterminal.Timeout, envelope.Outcome)
 					require.LessOrEqual(t, time.Since(started), 6*time.Second)
 					if control == "shutdown-hang" {
@@ -352,6 +560,10 @@ func TestRunnerCopilotBoundedLifecycle(t *testing.T) {
 					require.Nil(t, envelope.Observation)
 					require.Contains(t, envelope.Diagnostics[0].Message, "initialize/start_failed")
 					require.Zero(t, time.Since(started), "rejection is not an expired deadline")
+				}
+				if control == "create-hang" {
+					require.EqualValues(t, 1, c.creates.Load())
+					require.Zero(t, c.sends.Load())
 				}
 
 				require.LessOrEqual(t, c.sends.Load(), int32(1))

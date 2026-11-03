@@ -61,7 +61,7 @@ Lab separates offline validation from the explicit **Run selected unit** action.
 `exact-unit` and exactly one profile (`inline.mock-text` or
 `inline.copilot-text`) must be required explicitly. Optional capabilities and
 paid consent alone never select a profile. Copilot additionally requires
-`config.executor: copilot`, an explicit nonblank model and
+`config.executor: copilot-sdk`, an explicit nonblank model and
 `allow_paid_execution: true`. Both profiles retain identical selection limits;
 neither enables file, tool, skill, MCP, hook or multi-turn execution.
 
@@ -79,11 +79,24 @@ Lifecycle fault injection is package-private test coverage, not an exported
 runtime-admission exception.
 
 Copilot admission also requires a private managed, force-stoppable client,
-disabled command mocks and failure-retaining diagnostic mode. The default
+disabled command mocks, disabled ambient discovery and failure-retaining diagnostic mode. The default
 factory uses the existing owned SDK builder, not the process-wide shared
 client. `ExecuteInlineAttempt` applies the existing deny-all `ToolPolicy` to
 the frozen request, so SDK tool filtering, permission checks and pre-tool
 hooks agree. Skills remain explicitly disabled at the SDK boundary.
+Session configuration explicitly sets `EnableConfigDiscovery`, `EnableFileHooks`
+and `EnableOnDemandInstructionDiscovery` to false, rather than inheriting runtime
+defaults; no explicit hook/plugin/instruction discovery roots are supplied.
+It also skips custom instructions and embedding retrieval, disables the shared
+session store and memory, and disables host git context. The configuration
+executor remains `copilot-sdk`; the separate terminal execution mode is `copilot`.
+The SDK also sends `skipCustomInstructions: true` in its post-create/resume
+`session.options.update`; a rejected update fails execution before any prompt
+is sent.
+Ordinary execution retains its previous discovery defaults. Production CLI/HTTP
+captures and an offline real-SDK wire control verify those settings, not actual
+provider behavior or a host filesystem sandbox. The synthetic peer does not
+reproduce or attest execution of ambient hooks.
 Diagnostic failures, including incomplete usage and cleanup failures, propagate
 to terminal failure instead of becoming successful partial evidence. The
 terminal summary still does not export billing.
@@ -98,6 +111,26 @@ or host loss. Deterministic production-caller tests cover hanging startup,
 send and stop, including send ignoring context, plus cancellation, task timeout,
 denied tools and disconnect/delete failure. They are SDK-fake evidence on the
 tested host, not live-provider or native Windows/Linux execution evidence.
+Effective nonzero `first_event_timeout_seconds` is rejected before runtime
+construction for this profile: its legacy child-context watchdog cannot bound
+an uncooperative RPC. Use `timeout_seconds` or request `timeout_ms` instead.
+A task override of zero explicitly disables an eval-level first-event setting.
+
+### Attempt-only metric metadata
+
+Both exact-unit profiles accept eval `metrics` as **uncomputed, identity-bound
+metadata**. Nonempty declarations are validated offline against the canonical
+eval schema's metric definition, before numeric decoding can round a threshold.
+Numbers must be finite and must not underflow the native numeric range.
+Malformed, null, wrong-type or out-of-range declarations reject before runtime
+construction. Existing omitted and empty arrays remain accepted; the canonical
+schema-valid Copilot example supplies a nonempty declaration.
+
+Terminal `success` describes only the selected graded attempt. No aggregate
+metric values, metric-threshold decisions or whole-evaluation success are
+computed or claimed. Changing authored metric metadata changes the input
+identity, not this scope. The local compatibility adapter still rejects
+nonempty metrics rather than projecting uncomputed aggregate evidence.
 
 The single declared candidate is `input.task`; shard labels and task ID must
 match, and trial/attempt must lie within the eval's declared bounds. Eval `tasks`

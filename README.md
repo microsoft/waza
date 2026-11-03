@@ -273,6 +273,11 @@ receipt, not execution evidence. An eval/task execution deadline still yields
 timeout 4 when the outer request budget remains active; task timeouts override
 the eval budget. Copilot/text execution requires the new profile, an explicit
 model and `allow_paid_execution: true`; all tools and skills are disabled.
+The eval executor is `copilot-sdk`, while the terminal execution mode is `copilot`.
+For both profiles, eval metrics are validated, identity-bound metadata only:
+success describes the selected attempt, not aggregate metrics, metric thresholds
+or whole-evaluation success. The local compatibility adapter still rejects
+nonempty metrics.
 `examples/runner/copilot-unit.json` can be validated offline; running it may
 incur charges on every dispatch. General native file/tool/skill workflows remain
 unsupported. Existing

@@ -101,9 +101,13 @@ func admit(data []byte) (Report, *admitted) {
 	selected := req.Selection
 	report.Resolved = &selected
 	report.Identity = identity
+	mode := input.spec.Config.EngineType
+	if mode == "copilot-sdk" {
+		mode = "copilot"
+	}
 	report.binding = &runnerterminal.Binding{
 		Selection: selected, Identity: identity, GraderIDs: graderIDs(input),
-		ExecutionMode: input.spec.Config.EngineType,
+		ExecutionMode: mode,
 	}
 	report.Status, report.Validation = "ready", "valid"
 	return report, input
@@ -125,7 +129,7 @@ func resolve(req *runnercontract.Request) (*admitted, error) {
 	}
 	profile, engineType := "inline.mock-text", "mock"
 	if copilotProfile {
-		profile, engineType = "inline.copilot-text", "copilot"
+		profile, engineType = "inline.copilot-text", "copilot-sdk"
 	}
 	spec, err := models.ParseCapturedEvalSpecOffline([]byte(req.Input.Eval), "eval.yaml")
 	if err != nil {
@@ -163,12 +167,12 @@ func resolve(req *runnercontract.Request) (*admitted, error) {
 		return nil, fmt.Errorf("%s: %w; retain waza run for unsupported semantics", profile, err)
 	}
 	if spec.TasksFrom != "" || spec.Range != [2]int{} || spec.Adversarial != nil ||
-		len(spec.Inputs) != 0 || len(spec.Metrics) != 0 || len(task.Requirements) != 0 ||
+		len(spec.Inputs) != 0 || len(task.Requirements) != 0 ||
 		len(spec.Config.InstructionFiles) != 0 || len(task.InstructionFiles) != 0 ||
 		task.ContextRoot != "" || task.Stimulus.WorkDir != "" ||
 		len(task.Stimulus.Metadata) != 0 || len(task.Stimulus.Resources) != 0 ||
 		len(task.Stimulus.Environment) != 0 {
-		return nil, fmt.Errorf("%s cannot consume CSV, inputs, metrics, requirements, context, files, workdir or instruction-file semantics; retain waza run", profile)
+		return nil, fmt.Errorf("%s cannot consume CSV, inputs, requirements, context, files, workdir or instruction-file semantics; retain waza run", profile)
 	}
 	prepared, err := orchestration.NewEvalRunner(config.NewEvalConfig(spec), nil).PrepareInlineInput(task)
 	if err != nil {
@@ -190,9 +194,10 @@ type Service struct {
 func NewService(factory EngineFactory) *Service {
 	if factory == nil {
 		factory = func(cfg models.Config) (execution.AgentEngine, error) {
-			if cfg.EngineType == "copilot" {
+			if cfg.EngineType == "copilot-sdk" {
 				return execution.NewCopilotEngineBuilder(cfg.ModelID, &execution.CopilotEngineBuilderOptions{
 					OwnClient: true, DisableCommandMocks: true,
+					DisableAmbientDiscovery: true,
 					// Diagnostic mode propagates lifecycle failures to the
 					// terminal envelope, without a second logging sink.
 					DiagnosticObserver: func(execution.ExecutionDiagnostic) error { return nil },
@@ -253,6 +258,10 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 		report.executionError("startup", fmt.Errorf("local compatibility execution supports only inline.mock-text"))
 		return report
 	}
+	if local && len(input.spec.Metrics) != 0 {
+		report.executionError("startup", fmt.Errorf("local compatibility execution cannot project uncomputed eval metrics"))
+		return report
+	}
 	// Local orchestration limits Execute, not grading; external requests retain
 	// their end-to-end deadline, including grading and lifecycle.
 	if !local {
@@ -269,7 +278,7 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 		report.executionError("startup", errors.Join(fmt.Errorf("constructing runtime: %w", err), ctx.Err()))
 		return report
 	}
-	if input.spec.Config.EngineType == "copilot" {
+	if input.spec.Config.EngineType == "copilot-sdk" {
 		native, ok := engine.(*execution.CopilotEngine)
 		if !ok || native == nil {
 			report.executionError("startup", errors.Join(fmt.Errorf("admitting runtime: inline.copilot-text requires a non-nil concrete *execution.CopilotEngine; factory returned %T", engine), ctx.Err()))

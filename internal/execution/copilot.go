@@ -65,9 +65,10 @@ type CopilotEngine struct {
 	usageCollectorsMu   sync.RWMutex
 	usageMetricsTimeout time.Duration
 
-	commandMocksMu      sync.Mutex
-	commandMockSessions map[string]*commandmock.Session
-	disableCommandMocks bool
+	commandMocksMu          sync.Mutex
+	commandMockSessions     map[string]*commandmock.Session
+	disableCommandMocks     bool
+	disableAmbientDiscovery bool
 
 	shutdownOnce sync.Once
 	shutdownErr  error
@@ -181,6 +182,9 @@ type CopilotEngineBuilderOptions struct {
 	// DisableCommandMocks omits the shim registry and rejects command mocks.
 	// Requires OwnClient or a supplied NewCopilotClient factory.
 	DisableCommandMocks bool
+	// DisableAmbientDiscovery disables ambient instructions/configuration,
+	// file hooks, shared retrieval/memory and host git context for these sessions.
+	DisableAmbientDiscovery bool
 	// DiagnosticObserver enables sanitized, failure-retaining lifecycle diagnostics.
 	// Calls are serialized outside engine state locks. Observers must not reenter
 	// engine lifecycle methods (including Execute, Initialize, DeleteSession, Shutdown).
@@ -240,11 +244,12 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 
 	builder := &CopilotEngineBuilder{
 		engine: &CopilotEngine{
-			defaultModelID:      defaultModelID,
-			ownsClient:          ownsClient,
-			provider:            provider,
-			commandMockSessions: make(map[string]*commandmock.Session),
-			disableCommandMocks: disableCommandMocks,
+			defaultModelID:          defaultModelID,
+			ownsClient:              ownsClient,
+			provider:                provider,
+			commandMockSessions:     make(map[string]*commandmock.Session),
+			disableCommandMocks:     disableCommandMocks,
+			disableAmbientDiscovery: options != nil && options.DisableAmbientDiscovery,
 		},
 	}
 
@@ -514,6 +519,14 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if preToolUseHook != nil {
 		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
+	var enableAmbientDiscovery *bool
+	var skipAmbientRetrieval *bool
+	var memory *copilot.MemoryConfiguration
+	if e.disableAmbientDiscovery {
+		enableAmbientDiscovery = copilot.Bool(false)
+		skipAmbientRetrieval = copilot.Bool(true)
+		memory = &copilot.MemoryConfiguration{Enabled: false}
+	}
 
 	if req.SessionID == "" {
 		// Create session with updated API
@@ -526,13 +539,21 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
-			SkillDirectories: skillDirs,
-			EnableSkills:     enableSkills,
-			WorkingDirectory: workingDir,
-			SystemMessage:    systemMessage,
-			Streaming:        streamingPtr(req.Streaming),
-			MCPServers:       req.MCPServers,
-			Provider:         e.provider.sessionConfig(),
+			SkillDirectories:                   skillDirs,
+			EnableSkills:                       enableSkills,
+			WorkingDirectory:                   workingDir,
+			SystemMessage:                      systemMessage,
+			Streaming:                          streamingPtr(req.Streaming),
+			MCPServers:                         req.MCPServers,
+			Provider:                           e.provider.sessionConfig(),
+			EnableConfigDiscovery:              enableAmbientDiscovery,
+			EnableFileHooks:                    enableAmbientDiscovery,
+			EnableOnDemandInstructionDiscovery: enableAmbientDiscovery,
+			SkipCustomInstructions:             skipAmbientRetrieval,
+			SkipEmbeddingRetrieval:             skipAmbientRetrieval,
+			EnableSessionStore:                 enableAmbientDiscovery,
+			EnableHostGitOperations:            enableAmbientDiscovery,
+			Memory:                             memory,
 		})
 
 		if err != nil {
@@ -553,13 +574,21 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Hooks:               sessionHooks,
 
 			// these are the directory for the skill itself.
-			SkillDirectories: skillDirs,
-			EnableSkills:     enableSkills,
-			WorkingDirectory: workingDir,
-			SystemMessage:    systemMessage,
-			Streaming:        streamingPtr(req.Streaming),
-			MCPServers:       req.MCPServers,
-			Provider:         e.provider.sessionConfig(),
+			SkillDirectories:                   skillDirs,
+			EnableSkills:                       enableSkills,
+			WorkingDirectory:                   workingDir,
+			SystemMessage:                      systemMessage,
+			Streaming:                          streamingPtr(req.Streaming),
+			MCPServers:                         req.MCPServers,
+			Provider:                           e.provider.sessionConfig(),
+			EnableConfigDiscovery:              enableAmbientDiscovery,
+			EnableFileHooks:                    enableAmbientDiscovery,
+			EnableOnDemandInstructionDiscovery: enableAmbientDiscovery,
+			SkipCustomInstructions:             skipAmbientRetrieval,
+			SkipEmbeddingRetrieval:             skipAmbientRetrieval,
+			EnableSessionStore:                 enableAmbientDiscovery,
+			EnableHostGitOperations:            enableAmbientDiscovery,
+			Memory:                             memory,
 		})
 
 		if err != nil {

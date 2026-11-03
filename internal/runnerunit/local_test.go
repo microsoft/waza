@@ -57,6 +57,19 @@ func TestLocalServiceUsesOneAdmittedMockAndHistoricalAggregation(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist, "service must finish cleanup before publication")
 }
 
+func TestLocalServiceRejectsUncomputedMetricsBeforeRuntime(t *testing.T) {
+	request, err := runnercontract.Parse(localRequest(t))
+	require.NoError(t, err)
+	request.Input.Eval += "\nmetrics: [{name: quality, weight: 1, threshold: 0.8}]\n"
+	service := NewService(func(models.Config) (execution.AgentEngine, error) {
+		t.Fatal("local metric rejection must precede runtime construction")
+		return nil, nil
+	})
+	outcome, err := service.RunLocal(t.Context(), wire(t, *request))
+	require.ErrorContains(t, err, "cannot project uncomputed eval metrics")
+	require.Nil(t, outcome)
+}
+
 func TestLocalServiceErrorsNeverReturnOutcome(t *testing.T) {
 	request := localRequest(t)
 	sentinel := errors.New("injected local startup")

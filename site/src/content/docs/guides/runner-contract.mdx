@@ -141,6 +141,18 @@ and the request/eval/task deadlines bound the attempt, and shutdown is attempted
 with a separate five-second budget. HTTP server shutdown cancels active
 requests and waits for handler cleanup.
 
+Both exact-unit profiles accept eval `metrics` as **uncomputed, identity-bound
+metadata**. A successful terminal result reports only the selected attempt:
+it does not report aggregate metric values, metric-threshold decisions or
+whole-evaluation success. Nonempty declarations are validated offline against
+the canonical eval schema's metric definition using original numeric values;
+malformed, null, wrong-type and out-of-range values reject before runtime
+construction. Numeric values must be finite and must not underflow the native
+numeric range. Existing omitted/empty arrays remain accepted. The public
+Copilot example includes a nonempty schema-valid declaration; changing it
+changes identity, not the attempt-only execution scope. The local compatibility
+adapter still rejects nonempty metrics rather than projecting aggregate claims.
+
 Offline validation returns **`waza.runner-unit`**, an invocation-local selection
 receipt. Execution now returns [**`waza.runner-terminal`**](../runner-terminal/),
 with a bounded observed summary and stable exit category. Internal unit receipt
@@ -172,7 +184,7 @@ Paid consent alone never enables an unadvertised or optional profile.
 ### Opt-in production Copilot text execution
 
 Require `exact-unit` and **`inline.copilot-text`** (not `inline.mock-text`),
-set `config.executor: copilot`, choose an explicit nonblank `config.model`, and
+set `config.executor: copilot-sdk`, choose an explicit nonblank `config.model`, and
 set `allow_paid_execution: true`. The captured example uses the same 2/2 tuple:
 
 ```bash
@@ -185,7 +197,18 @@ waza runner run < examples/runner/copilot-unit.json
 
 The profile keeps the mock profile's input restrictions and builtin text checks.
 The SDK receives skills disabled, an empty tool allowlist, deny-all permission
-checks and a denying pre-tool hook. It cannot consume fixtures, files, MCP,
+checks and a denying pre-tool hook. Runtime configuration discovery,
+repository-origin file hooks and on-demand instruction discovery are explicitly
+disabled in the SDK session settings, not left at runtime defaults. No explicit
+hook/plugin/instruction roots are supplied. Ordinary execution defaults are
+unchanged. Custom instructions and embedding retrieval are skipped, shared
+session-store access and memory are disabled, and host git context is disabled.
+The eval executor is `copilot-sdk`; the terminal mode is separately `copilot`.
+The post-create/resume `session.options.update` also carries
+`skipCustomInstructions: true`; rejection fails before any prompt is sent.
+SDK capture/wire controls verify the requested settings; they do not
+attest runtime discovery behavior or a host filesystem sandbox.
+It cannot consume fixtures, files, MCP,
 agent definitions, responders or follow-ups. A tool attempt is an execution
 failure, not permission to broaden the request.
 
@@ -196,6 +219,10 @@ incomplete-usage diagnostics fail explicitly. The terminal reports the observed
 `copilot` mode but does not publish billing or attest provider provenance.
 Credentials and supported provider/runtime environment settings remain deployment
 inputs, not identity-bound content. Validation proves no runtime readiness.
+An effective nonzero `first_event_timeout_seconds` is rejected before runtime
+construction because its legacy child-context watchdog cannot interrupt an
+uncooperative RPC. Use task/eval `timeout_seconds` or request `timeout_ms`.
+A task override of zero can disable the eval-level first-event setting.
 
 Deterministic tests use SDK fakes, including a send that ignores cancellation
 until its transport is killed. They do not prove live-provider behavior or

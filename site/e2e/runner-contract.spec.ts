@@ -14,6 +14,12 @@ test('runner CLI/API navigation, schemas and screenshot retain deployed base', a
     'href',
     'https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md#offline-production-process-controls',
   );
+  await expect(page.locator('main')).toContainText('The eval executor is copilot-sdk; the terminal mode is separately copilot.');
+  await expect(page.locator('main')).toContainText('session.options.update');
+  await expect(page.locator('main')).toContainText('rejection fails before any prompt is sent');
+  await expect(page.locator('main')).toContainText('An effective nonzero first_event_timeout_seconds is rejected before runtime construction');
+  await expect(page.locator('main')).toContainText('uncomputed, identity-bound metadata');
+  await expect(page.locator('main')).toContainText('it does not report aggregate metric values, metric-threshold decisions or whole-evaluation success');
   for (const name of ['Negotiation request 1.0 schema', 'Negotiation response 1.0 schema', 'Complete runner request 1.0 schema', 'Capability advertisement 1.0 schema', 'Exact unit receipt 1.0 schema']) {
     const href = await page.getByRole('link', { name, exact: true }).getAttribute('href');
     expect(href).not.toBeNull();

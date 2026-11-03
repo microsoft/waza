@@ -17,9 +17,9 @@ func ValidateInlineConfiguration(spec *models.EvalSpec, task *models.TestCase) e
 	if spec == nil || task == nil {
 		return fmt.Errorf("inline configuration requires a spec and task")
 	}
-	if (spec.Config.EngineType != "mock" && spec.Config.EngineType != "copilot") ||
+	if (spec.Config.EngineType != "mock" && spec.Config.EngineType != "copilot-sdk") ||
 		!spec.SkillsDisabledForTask(task.SkillPaths) {
-		return fmt.Errorf("inline execution requires mock or copilot configuration with ambient skills disabled")
+		return fmt.Errorf("inline execution requires mock or copilot-sdk configuration with ambient skills disabled")
 	}
 	if err := validateSingleTurnTextConfiguration(spec, task); err != nil {
 		return err
@@ -33,6 +33,15 @@ func ValidateInlineConfiguration(spec *models.EvalSpec, task *models.TestCase) e
 	for _, value := range []*int{task.TimeoutSec, task.FirstEventTimeoutSec} {
 		if value != nil && (*value < 0 || int64(*value) > 2147483647) {
 			return fmt.Errorf("inline task timeouts must fit nonnegative signed 32-bit integers")
+		}
+	}
+	if spec.Config.EngineType == "copilot-sdk" {
+		firstEvent := spec.Config.FirstEventTimeoutSec
+		if task.FirstEventTimeoutSec != nil {
+			firstEvent = *task.FirstEventTimeoutSec
+		}
+		if firstEvent != 0 {
+			return fmt.Errorf("inline.copilot-text does not support first_event_timeout_seconds; use timeout_seconds or the request timeout_ms to bound execution")
 		}
 	}
 	for _, g := range spec.Graders {
@@ -104,7 +113,7 @@ func (r *EvalRunner) ExecuteInlineAttempt(ctx context.Context, task *models.Test
 	if err != nil {
 		return nil, err
 	}
-	if r.cfg.Spec().Config.EngineType == "copilot" {
+	if r.cfg.Spec().Config.EngineType == "copilot-sdk" {
 		// This profile never grants tools, even when runtime defaults change.
 		frozen.ToolPolicy = execution.NewToolPolicy(new([]string{}))
 	}
