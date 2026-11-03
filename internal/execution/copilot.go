@@ -1101,12 +1101,21 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	if parent.Err() != nil && timeout > sendCancellationGrace {
-		timeout = sendCancellationGrace
+	totalTimeout := timeout
+	metricsTimeout := timeout
+	if parent.Err() != nil {
+		if metricsTimeout > sendCancellationGrace {
+			metricsTimeout = sendCancellationGrace
+		}
+		if totalTimeout > 2*sendCancellationGrace {
+			totalTimeout = 2 * sendCancellationGrace
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), totalTimeout)
 	defer cancel()
-	metrics, err := session.UsageMetrics(ctx)
+	metricsCtx, cancelMetrics := context.WithTimeout(ctx, metricsTimeout)
+	metrics, err := session.UsageMetrics(metricsCtx)
+	cancelMetrics()
 	if err == nil && metrics != nil {
 		collector.SetMetrics(metrics)
 		if op := operationFrom(ctx); op != nil {
@@ -1125,7 +1134,7 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if !final {
 		return
 	}
-	e.captureShutdownUsage(context.WithoutCancel(parent), sessionID, session, collector)
+	e.captureShutdownUsage(ctx, sessionID, session, collector)
 }
 
 func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {
