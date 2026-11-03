@@ -949,7 +949,7 @@ up, returns an error to the SDK (never a default answer) and the run ends with
 status `error`. Unused entries also fail the run. Every request is recorded in
 `runs[].user_input_requests` and passed to inline `code` graders as
 `user_input_requests`. With the flag on, a run with no questions records `[]`;
-without it the field is absent. This is the SDK-native callback, not an MCP `ask_user` tool
+without it the field is absent and graders receive `null`. This is the SDK-native callback, not an MCP `ask_user` tool
 mock, and structured elicitation forms are not supported.
 
 #### Adaptive responder answers

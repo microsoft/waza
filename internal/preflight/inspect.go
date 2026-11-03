@@ -236,7 +236,11 @@ func inspectBlockedTaskMCPMocks(r *Report, spec *models.EvalSpec, data []byte, p
 
 func inspectTaskUserInput(r *Report, spec *models.EvalSpec, task *models.TestCase, path string) {
 	if err := models.ValidateTaskUserInput(spec.Config, task); err != nil {
-		r.add("task.user_input", Invalid, path, task.TestID, "", "Task user_input_responses require config.native_user_input: true in the eval.", "Enable native_user_input in a scenario eval (schemaVersion 2.0) with executor copilot-sdk.")
+		if !spec.Config.NativeUserInput {
+			r.add("task.user_input", Invalid, path, task.TestID, "", "Task user_input_responses require config.native_user_input: true in the eval.", "Enable native_user_input in a scenario eval (schemaVersion 2.0) with executor copilot-sdk.")
+			return
+		}
+		r.add("task.user_input", Invalid, path, task.TestID, "", "Task user_input_responses are invalid.", "Give each entry a string answer and, optionally, a valid question regular expression.")
 	}
 }
 

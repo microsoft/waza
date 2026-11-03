@@ -618,7 +618,8 @@ func TestInlineScriptNativeUserInputEvidence(t *testing.T) {
 				Sequence: 1, SessionID: "s-1", Question: "Deploy where?", Choices: []string{"staging", "prod"},
 				Source: models.UserInputSourceScript, Answer: &answer, WasFreeform: new(false),
 			}}}
-			absent := []string{"len(user_input_requests) == 0"}
+			unavailable := []string{"user_input_requests is None"}
+			empty := []string{"len(user_input_requests) == 0"}
 			present := []string{
 				"len(user_input_requests) == 1",
 				"user_input_requests[0]['answer'] == 'staging'",
@@ -626,7 +627,8 @@ func TestInlineScriptNativeUserInputEvidence(t *testing.T) {
 				"user_input_requests[0]['choices'] == ['staging', 'prod']",
 			}
 			if language == models.LanguageJavascript {
-				absent = []string{"user_input_requests.length == 0"}
+				unavailable = []string{"user_input_requests === null"}
+				empty = []string{"user_input_requests.length == 0"}
 				present = []string{
 					"user_input_requests.length == 1",
 					"user_input_requests[0].answer == 'staging'",
@@ -634,11 +636,20 @@ func TestInlineScriptNativeUserInputEvidence(t *testing.T) {
 					"user_input_requests[0].choices.join(',') == 'staging,prod'",
 				}
 			}
+			// Without the flag the evidence is unavailable (null); with it and no
+			// questions it is an empty list. Graders must be able to tell them apart.
+			none := &Context{UserInputRequests: []models.UserInputRecord{}}
 			for _, tc := range []struct {
 				ctx        *Context
 				assertions []string
 				pass       bool
-			}{{&Context{}, absent, true}, {ctx, present, true}, {&Context{}, present[:1], false}} {
+			}{
+				{&Context{}, unavailable, true},
+				{none, empty, true},
+				{none, unavailable, false},
+				{ctx, present, true},
+				{none, present[:1], false},
+			} {
 				grader, err := Create("questions", models.InlineScriptGraderParameters{Language: language, Assertions: tc.assertions})
 				require.NoError(t, err)
 				result, err := grader.Grade(t.Context(), tc.ctx)

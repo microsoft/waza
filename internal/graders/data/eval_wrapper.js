@@ -22,7 +22,8 @@ const evalContext = {
   tool_calls: data.tool_calls,
   tool_events: data.tool_events || [],
   command_invocations: data.command_invocations || [],
-  user_input_requests: data.user_input_requests || [],
+  // null means native user input was not enabled, not that nothing was asked.
+  user_input_requests: data.user_input_requests ?? null,
   // null means host lifecycle evidence is unavailable, not that nothing ran.
   host_lifecycle: data.host_lifecycle ?? null,
   errors: data.transcript.filter(

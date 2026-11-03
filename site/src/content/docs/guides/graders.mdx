@@ -269,11 +269,11 @@ Evaluates Python or JavaScript assertion expressions against the execution conte
 | `tool_events` | `list` | Canonical per-call evidence including arbitrary tool arguments, success, error, and result |
 | `command_invocations` | `list` | Sanitized mocked CLI attempts; omitted `exit_code` means no completed result was captured |
 | `host_lifecycle` | `dict` or `None` | Model turns and host shell calls/exits from native session events; `None` when unavailable |
-| `user_input_requests` | `list` | Native SDK user-input requests answered or rejected in arrival order; `source` is `script` or `responder` |
+| `user_input_requests` | `list` or `None` | Native SDK user-input requests answered or rejected in arrival order; `source` is `script` or `responder`. `None` when `native_user_input` is off; `[]` when it is on and nothing was asked |
 | `errors`      | `list` | Errors from transcript               |
 | `duration_ms` | `int`  | Execution wall-clock time            |
 
-The evidence arrays default to empty when unavailable; absence is not proof that
+The other evidence arrays default to empty when unavailable; absence is not proof that
 a dependency succeeded. Use `tool_events` for MCP operation arguments rather than
 the legacy typed `tool_calls` view. `command_invocations` preserves completed
 exit zero distinctly from an interrupted attempt with no `exit_code`.

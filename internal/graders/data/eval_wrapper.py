@@ -24,7 +24,8 @@ eval_context = {
     "tool_calls": data['tool_calls'],
     "tool_events": data.get('tool_events') or [],
     "command_invocations": data.get('command_invocations') or [],
-    "user_input_requests": data.get('user_input_requests') or [],
+    # None means native user input was not enabled, not that nothing was asked.
+    "user_input_requests": data.get('user_input_requests'),
     # None means host lifecycle evidence is unavailable, not that nothing ran.
     "host_lifecycle": data.get('host_lifecycle'),
     "errors": [t for t in data['transcript'] if "error" in t.get("type") or "error" in str(t.get("content", ""))],
