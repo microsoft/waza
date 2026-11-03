@@ -15,6 +15,7 @@ on:
     paths:
       - 'site/**'
       - 'docs/**'
+      - 'examples/interop/**'
       - 'README.md'
       - 'CHANGELOG.md'
       - 'version.txt'
@@ -77,6 +78,7 @@ jobs:
             examples:
               - 'site/**'
               - 'docs/**'
+              - 'examples/interop/**'
               - 'README.md'
               - 'registry.json'
               - 'cmd/waza/**'

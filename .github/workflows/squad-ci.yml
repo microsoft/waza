@@ -46,8 +46,7 @@ jobs:
       - name: Download Dependencies
         run: go mod download
 
-      - name: Setup Node.js (for web UI build)
-        if: matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''
+      - name: Setup Node.js (web build and offline assertion oracle)
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'

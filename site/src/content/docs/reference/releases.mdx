@@ -47,10 +47,17 @@ Copilot/text profiles, with tools and skills disabled for Copilot execution.
 Admitted eval metrics are identity-bound, uncomputed metadata, not aggregate
 values or threshold decisions. Paid native HTTP execution is local-only; see
 the [peer, Host and origin policy](../../guides/runner-contract/#http-api).
-General native file/tool/skill workflows and the external schema adapter remain incomplete. The container
+General native file/tool/skill workflows and full external task/suite interoperability remain incomplete. The container
 foundation builds locally; pinned published-image acceptance remains outstanding.
 See [roadmap #754](https://github.com/microsoft/waza/issues/754)
 for the remaining release requirements.
+
+The [selected AgentV assertion preview](../../guides/external-interoperability/)
+adds offline, version-pinned `waza interop import/export` for one case-sensitive
+`contains` assertion and its single-check native grader mapping. Whole-task/suite
+imports, AgentEvals-spec/Harbor/ASSERT adapters and full evidence/provenance round
+trips remain unsupported; [#789](https://github.com/microsoft/waza/issues/789)
+remains open. This is assertion conformance, not whole-suite or agent-quality evidence.
 
 The source preview also includes [task-level MCP mocks](../../guides/eval-yaml/#task-level-mcp-mocks),
 [program-grader context](../../guides/graders/#program),
