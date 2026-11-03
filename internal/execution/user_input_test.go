@@ -464,9 +464,9 @@ func TestUserInputScriptFinishWaitsForInflightResponder(t *testing.T) {
 }
 
 func TestUserInputScriptDrainEndsStuckResponderAsError(t *testing.T) {
-	previous := drainTimeout
-	drainTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { drainTimeout = previous })
+	previous := UserInputDrainTimeout
+	UserInputDrainTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { UserInputDrainTimeout = previous })
 
 	script := newTestScript(t, nil)
 	started, release := make(chan struct{}), make(chan struct{})

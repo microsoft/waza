@@ -31,9 +31,9 @@ type UserInputScript struct {
 	inflight   sync.WaitGroup
 }
 
-// drainTimeout bounds how long Drain waits for callbacks still answering.
+// UserInputDrainTimeout bounds how long Drain waits for callbacks still answering.
 // Responder calls use the asking turn's context, so they normally end with it.
-var drainTimeout = 30 * time.Second
+var UserInputDrainTimeout = 30 * time.Second
 
 // UserInputFallback answers a native user-input request that no scripted
 // entry handles. ctx belongs to the agent turn that asked, so the call ends
@@ -213,7 +213,7 @@ func (s *UserInputScript) Drain() {
 	}()
 	select {
 	case <-done:
-	case <-time.After(drainTimeout):
+	case <-time.After(UserInputDrainTimeout):
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -1273,7 +1273,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		defer func() {
 			// Tear down the persistent responder session with a detached context so
 			// cleanup still runs even if ctx was canceled during the run.
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), responderCleanupTimeout)
 			defer cancel()
 			if err := classifier.Close(cleanupCtx); err != nil {
 				slog.WarnContext(ctx, "failed to clean up responder session",
@@ -1871,7 +1871,7 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 func (r *EvalRunner) newAttemptUserInput(tc *models.TestCase) (*execution.UserInputScript, responderClassifier, error) {
 	var classifier responderClassifier
 	if cfg := tc.Stimulus.Responder; cfg != nil {
-		classifier = &serializedClassifier{inner: r.newClassifier(*cfg, r.cfg.Spec().Config.ModelID)}
+		classifier = &serializedClassifier{sem: make(chan struct{}, 1), inner: r.newClassifier(*cfg, r.cfg.Spec().Config.ModelID)}
 	}
 	if !r.cfg.Spec().Config.NativeUserInput {
 		return nil, classifier, nil
@@ -1936,22 +1936,48 @@ func nativeQuestionMessage(request copilot.UserInputRequest) string {
 	return b.String()
 }
 
+// responderCleanupTimeout bounds closing the responder session after a run.
+var responderCleanupTimeout = 30 * time.Second
+
 // serializedClassifier keeps native questions and between-turn classification
-// on one responder session without concurrent use.
+// on one responder session without concurrent use. sem is a one-slot lock that
+// waiting callers can abandon when their context ends.
 type serializedClassifier struct {
-	mu    sync.Mutex
+	sem   chan struct{}
 	inner responderClassifier
 }
 
+func (c *serializedClassifier) lock(ctx context.Context) error {
+	select {
+	case c.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (c *serializedClassifier) Classify(ctx context.Context, agentMessage string) (responder.Decision, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.lock(ctx); err != nil {
+		return responder.Decision{}, err
+	}
+	defer func() { <-c.sem }()
 	return c.inner.Classify(ctx, agentMessage)
 }
 
+// Close does not wait past ctx for a call still using the session. In that
+// case the session is closed in the background once that call returns.
 func (c *serializedClassifier) Close(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.lock(ctx); err != nil {
+		go func() {
+			c.sem <- struct{}{}
+			defer func() { <-c.sem }()
+			closeCtx, cancel := context.WithTimeout(context.Background(), responderCleanupTimeout)
+			defer cancel()
+			_ = c.inner.Close(closeCtx)
+		}()
+		return fmt.Errorf("responder session still in use; closing it when the call returns: %w", err)
+	}
+	defer func() { <-c.sem }()
 	return c.inner.Close(ctx)
 }
 
@@ -2138,7 +2164,7 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 	if classifier == nil {
 		classifier = r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
 		defer func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), responderCleanupTimeout)
 			defer cancel()
 			if err := classifier.Close(cleanupCtx); err != nil {
 				slog.WarnContext(ctx, "failed to clean up responder session",

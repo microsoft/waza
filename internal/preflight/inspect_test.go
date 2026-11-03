@@ -724,3 +724,26 @@ func TestInspectLockedGraderMergeFailureNames(t *testing.T) {
 		}
 	}
 }
+
+func TestInspectUserInputCheckedWhenTaskDecodeIsBlocked(t *testing.T) {
+	blocked := "id: task\nname: Task\ninputs: {prompt: Inspect.}\n" + pipelineYAML(t, map[string]any{
+		"graders": []any{offlineMatcherDeclaration("external", map[string]any{"json_schema": map[string]any{"$ref": "https://never-contact.invalid/s.json"}})},
+	})
+	for _, tc := range []struct {
+		name, eval, entry string
+		invalid           bool
+	}{
+		{"no opt-in", recoveryEval("2.0"), "  - answer: \"yes\"\n", true},
+		{"invalid regex", nativeUserInputEval("2.0"), "  - question: \"(\"\n    answer: \"yes\"\n", true},
+		{"valid", nativeUserInputEval("2.0"), "  - question: \"Continue.*\"\n    answer: \"yes\"\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := writeSuite(t, tc.eval, blocked+"user_input_responses:\n"+tc.entry)
+			r := Inspect(path, Options{})
+			require.True(t, hasDiagnostic(r, "task.configuration", Unresolved), "the external reference must still block decoding: %+v", r.Diagnostics)
+			require.False(t, r.Complete)
+			require.Equal(t, tc.invalid, hasDiagnostic(r, "task.user_input", Invalid), "%+v", r.Diagnostics)
+			require.Equal(t, tc.invalid, r.Failed(false), "%+v", r.Diagnostics)
+		})
+	}
+}

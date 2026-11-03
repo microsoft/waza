@@ -182,6 +182,7 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 				addMixedExternalDiagnostic(r, err, path)
 				r.Complete = false
 				blockedMocks = append(blockedMocks, inspectBlockedTaskMCPMocks(r, spec, data, path, base))
+				inspectBlockedTaskUserInput(r, spec, data, path)
 				continue
 			}
 			if faultErr != nil {
@@ -195,9 +196,7 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 					r.add("task.version", Invalid, path, task.TestID, "", "Task command mocks require a supported enclosing schemaVersion.", "Select schemaVersion 1.3 or newer for legacy command mocks.")
 				}
 			}
-			if err := models.ValidateTaskUserInput(spec.Config, task); err != nil {
-				r.add("task.user_input", Invalid, path, task.TestID, "", "Task user_input_responses require config.native_user_input: true in the eval.", "Enable native_user_input in a scenario eval (schemaVersion 2.0) with executor copilot-sdk.")
-			}
+			inspectTaskUserInput(r, spec, task, path)
 			if len(task.MCPMocks) > 0 {
 				if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
 					r.add("task.version", Invalid, path, task.TestID, "", "Task MCP mocks require a supported enclosing schemaVersion.", "Select schemaVersion 1.1 or newer for MCP mocks.")
@@ -233,6 +232,25 @@ func inspectBlockedTaskMCPMocks(r *Report, spec *models.EvalSpec, data []byte, p
 		inspectMCPMock(r, spec, mock, base, path, declared.ID)
 	}
 	return declared.MCPMocks
+}
+
+func inspectTaskUserInput(r *Report, spec *models.EvalSpec, task *models.TestCase, path string) {
+	if err := models.ValidateTaskUserInput(spec.Config, task); err != nil {
+		r.add("task.user_input", Invalid, path, task.TestID, "", "Task user_input_responses require config.native_user_input: true in the eval.", "Enable native_user_input in a scenario eval (schemaVersion 2.0) with executor copilot-sdk.")
+	}
+}
+
+// inspectBlockedTaskUserInput checks the scripted answers of a task whose full
+// decode failed, so an unresolved prerequisite cannot hide them.
+func inspectBlockedTaskUserInput(r *Report, spec *models.EvalSpec, data []byte, path string) {
+	var declared struct {
+		ID                 string                            `yaml:"id"`
+		UserInputResponses *[]models.UserInputResponseConfig `yaml:"user_input_responses"`
+	}
+	if err := yaml.Unmarshal(data, &declared); err != nil {
+		return
+	}
+	inspectTaskUserInput(r, spec, &models.TestCase{TestID: declared.ID, UserInputResponses: declared.UserInputResponses}, path)
 }
 
 func inspectCapabilities(r *Report, spec *models.EvalSpec) {

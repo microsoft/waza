@@ -17,6 +17,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
 	"github.com/microsoft/waza/internal/testutil/copilotfake"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -640,4 +641,62 @@ func TestRunBenchmarkDrainsQuestionStillWithResponder(t *testing.T) {
 	require.Contains(t, record.Error, "responder could not answer: responder abstained: unknown",
 		"the saved record must be the drained outcome, not a pending entry")
 	require.Contains(t, run.ErrorMsg, "turn timed out")
+}
+
+type stuckClassifier struct {
+	started, release, closed chan struct{}
+	once                     sync.Once
+}
+
+func (c *stuckClassifier) Classify(context.Context, string) (responder.Decision, error) {
+	c.once.Do(func() { close(c.started) })
+	<-c.release
+	return responder.Decision{Kind: responder.DecisionAbstain, Reason: "late"}, nil
+}
+
+func (c *stuckClassifier) Close(context.Context) error {
+	close(c.closed)
+	return nil
+}
+
+func TestRunBenchmarkDoesNotBlockOnResponderOutlivingCleanup(t *testing.T) {
+	previousDrain, previousCleanup := execution.UserInputDrainTimeout, responderCleanupTimeout
+	execution.UserInputDrainTimeout, responderCleanupTimeout = 50*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { execution.UserInputDrainTimeout, responderCleanupTimeout = previousDrain, previousCleanup })
+	classifier := &stuckClassifier{started: make(chan struct{}), release: make(chan struct{}), closed: make(chan struct{})}
+	engine := &detachedQuestionEngine{started: classifier.started}
+	task := "id: a\nname: A\ninputs:\n  prompt: start\n  responder: {instructions: x, max_followups: 1}\n"
+	cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+	runner := NewEvalRunner(cfg, engine, WithSkipGraders())
+	runner.newClassifier = func(models.ResponderConfig, string) responderClassifier { return classifier }
+
+	done := make(chan *models.EvaluationOutcome, 1)
+	go func() {
+		outcome, err := runner.RunBenchmark(context.Background())
+		assert.NoError(t, err)
+		done <- outcome
+	}()
+	var outcome *models.EvaluationOutcome
+	select {
+	case outcome = <-done:
+	case <-time.After(10 * time.Second):
+		close(classifier.release)
+		t.Fatal("RunBenchmark blocked on a responder call that outlived drain and cleanup")
+	}
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusError, run.Status)
+	records := models.UserInputRecordsOf(run.UserInputRequests)
+	require.Len(t, records, 1)
+	require.Contains(t, records[0].Error, "did not answer before the run ended")
+	select {
+	case <-classifier.closed:
+		t.Fatal("the session must not be closed while the call still uses it")
+	default:
+	}
+	close(classifier.release)
+	select {
+	case <-classifier.closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the responder session was never closed after the call returned")
+	}
 }
