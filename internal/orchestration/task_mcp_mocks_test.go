@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -243,11 +244,85 @@ func TestTaskMCPMocksServeOverTheRealSubprocess(t *testing.T) {
 	require.Equal(t, `{"answer":"Not now","wasFreeform":false}`, answers["inherit"])
 }
 
+func TestMockToolStderrHelperProcess(t *testing.T) {
+	mode := os.Getenv("WAZA_TEST_MOCK_STDERR")
+	if mode == "" {
+		return
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	for range 2 {
+		if !scanner.Scan() {
+			os.Exit(2)
+		}
+	}
+	_, err := fmt.Fprintln(os.Stderr, "mock diagnostic sentinel")
+	require.NoError(t, err)
+	if mode == "error" {
+		require.NoError(t, os.Stdout.Close())
+		_, err := io.Copy(io.Discard, os.Stdin)
+		require.NoError(t, err)
+		os.Exit(3)
+	}
+	if mode == "malformed" {
+		_, err := fmt.Fprintln(os.Stdout, "not-json")
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, os.Stdin)
+		require.NoError(t, err)
+		os.Exit(3)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.WriteString(os.Stderr, strings.Repeat("mock stderr output\n", 65536))
+		done <- err
+	}()
+	_, err = fmt.Fprintln(os.Stdout, `{"jsonrpc":"2.0","id":2,"result":{"content":[{"text":"ready"}]}}`)
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+}
+
+func TestMockToolDiagnosticCallerHelperProcess(t *testing.T) {
+	if os.Getenv("WAZA_TEST_MOCK_STDERR") == "" {
+		return
+	}
+	answer := callMockTool(t, os.Args[0], []string{"-test.run=^TestMockToolStderrHelperProcess$"}, "probe", nil)
+	require.Equal(t, "ready", answer)
+}
+
+func TestMockToolDiagnosticsJoinStderrBeforeReading(t *testing.T) {
+	for _, mode := range []string{"success", "error", "malformed"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestMockToolDiagnosticCallerHelperProcess$")
+			cmd.Env = append(os.Environ(), "WAZA_TEST_MOCK_STDERR="+mode)
+			output, err := cmd.CombinedOutput()
+			require.NoError(t, ctx.Err(), "helper must join without reaching its deadline: %s", output)
+			require.NotContains(t, string(output), "DATA RACE")
+			if mode == "success" {
+				require.NoError(t, err, "%s", output)
+			} else {
+				var exit *exec.ExitError
+				require.ErrorAs(t, err, &exit, "%s", output)
+				require.Equal(t, 1, exit.ExitCode(), "expected caller assertion failure, not crash: %s", output)
+				if mode == "error" {
+					require.Contains(t, string(output), "reading mock response: EOF")
+					require.Contains(t, string(output), "joined wait:")
+				} else {
+					require.Contains(t, string(output), "invalid character")
+					require.Contains(t, string(output), "joined mock subprocess cleanup:")
+				}
+				require.Contains(t, string(output), "mock diagnostic sentinel")
+			}
+		})
+	}
+}
+
 func callMockTool(t *testing.T, binary string, args []string, tool string, arguments map[string]any) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	child := exec.CommandContext(ctx, binary, args...)
+	child.WaitDelay = 2 * time.Second
 	child.Env = append(os.Environ(), "WAZA_NO_UPDATE_CHECK=1")
 	stdin, err := child.StdinPipe()
 	require.NoError(t, err)
@@ -256,6 +331,18 @@ func callMockTool(t *testing.T, binary string, args []string, tool string, argum
 	var stderr strings.Builder
 	child.Stderr = &stderr
 	require.NoError(t, child.Start())
+	waited := false
+	defer func() {
+		cancel()
+		if !waited {
+			closeErr := errors.Join(stdin.Close(), stdout.Close())
+			waitErr := child.Wait()
+			require.NoError(t, closeErr, "closing mock subprocess pipes during cleanup")
+			if waitErr != nil {
+				t.Logf("joined mock subprocess cleanup: %v; stderr: %s", waitErr, stderr.String())
+			}
+		}
+	}()
 	params, err := json.Marshal(map[string]any{"name": tool, "arguments": arguments})
 	require.NoError(t, err)
 	_, err = fmt.Fprintf(stdin, "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1}\n{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"id\":2,\"params\":%s}\n", params)
@@ -264,7 +351,14 @@ func callMockTool(t *testing.T, binary string, args []string, tool string, argum
 	var text string
 	for text == "" {
 		line, err := reader.ReadBytes('\n')
-		require.NoError(t, err, "stderr: %s", stderr.String())
+		if err != nil {
+			cancel()
+			closeErr := errors.Join(stdin.Close(), stdout.Close())
+			waitErr := child.Wait()
+			waited = true
+			t.Fatalf("reading mock response: %v; closing pipes: %v; joined wait: %v; stderr: %s",
+				err, closeErr, waitErr, stderr.String())
+		}
 		var response struct {
 			ID     json.RawMessage `json:"id"`
 			Result struct {
@@ -283,7 +377,9 @@ func callMockTool(t *testing.T, binary string, args []string, tool string, argum
 	}
 	require.NoError(t, stdin.Close())
 	_, _ = io.Copy(io.Discard, reader)
-	require.NoError(t, child.Wait(), "stderr: %s", stderr.String())
+	waitErr := child.Wait()
+	waited = true
+	require.NoError(t, waitErr, "stderr: %s", stderr.String())
 	return text
 }
 
