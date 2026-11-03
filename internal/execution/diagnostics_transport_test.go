@@ -21,9 +21,17 @@ type diagnosticRPCRequest struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
 	Params struct {
-		SessionID      string   `json:"sessionId"`
-		Prompt         string   `json:"prompt"`
-		AvailableTools []string `json:"availableTools"`
+		SessionID                          string          `json:"sessionId"`
+		Prompt                             string          `json:"prompt"`
+		AvailableTools                     []string        `json:"availableTools"`
+		EnableConfigDiscovery              json.RawMessage `json:"enableConfigDiscovery"`
+		EnableFileHooks                    json.RawMessage `json:"enableFileHooks"`
+		EnableOnDemandInstructionDiscovery json.RawMessage `json:"enableOnDemandInstructionDiscovery"`
+		SkipCustomInstructions             json.RawMessage `json:"skipCustomInstructions"`
+		SkipEmbeddingRetrieval             json.RawMessage `json:"skipEmbeddingRetrieval"`
+		EnableSessionStore                 json.RawMessage `json:"enableSessionStore"`
+		EnableHostGitOperations            json.RawMessage `json:"enableHostGitOperations"`
+		Memory                             json.RawMessage `json:"memory"`
 	} `json:"params"`
 }
 

@@ -70,7 +70,7 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 	cmd.AddCommand(negotiate)
 	for _, action := range []string{"validate", "run"} {
 		unit := &cobra.Command{
-			Use: action, Short: "Read one complete JSON request from stdin (" + action + " exact inline.mock-text unit)",
+			Use: action, Short: "Read one complete JSON request from stdin (" + action + " exact inline text unit)",
 			SilenceErrors: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				if len(args) != 0 {
@@ -104,7 +104,7 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 			},
 		}
 		if action == "run" {
-			unit.Short = "Run one exact mock unit from JSON stdin; emit one terminal JSON result with exit 0-6"
+			unit.Short = "Run one exact inline text unit from JSON stdin; emit one terminal JSON result with exit 0-6"
 			unit.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 				return emitTerminal(cmd, runnerterminal.NewFailure(runnerterminal.InvalidInput, "input", "not_checked",
 					"invalid_flags", fmt.Sprintf("runner run flags: %v; send requirements in JSON", err)), nil)

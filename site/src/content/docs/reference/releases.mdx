@@ -39,11 +39,17 @@ Run `waza update` to upgrade an existing standalone installation.
 The following guides describe merged source-build behavior, not a published
 v0.40.0 release: the [runner contract and exact work-unit guide](../../guides/runner-contract/),
 [logical identities](../../guides/runner-identities/),
-[terminal outcomes](../../guides/runner-terminal/), and
-[local compatibility and migration](../../guides/runner-compatibility/).
-Runner execution is limited to the documented mock/text profile; native runner
-execution, the runner container reference and the external schema adapter are
-not available. See [roadmap #754](https://github.com/microsoft/waza/issues/754)
+[terminal outcomes](../../guides/runner-terminal/),
+[local compatibility and migration](../../guides/runner-compatibility/), and the
+[local container foundation](../../guides/runner-container/).
+Runner execution supports the documented mock/text and explicitly opted-in
+Copilot/text profiles, with tools and skills disabled for Copilot execution.
+Admitted eval metrics are identity-bound, uncomputed metadata, not aggregate
+values or threshold decisions. Paid native HTTP execution is local-only; see
+the [peer, Host and origin policy](../../guides/runner-contract/#http-api).
+General native file/tool/skill workflows and the external schema adapter remain incomplete. The container
+foundation builds locally; pinned published-image acceptance remains outstanding.
+See [roadmap #754](https://github.com/microsoft/waza/issues/754)
 for the remaining release requirements.
 
 The source preview also includes [task-level MCP mocks](../../guides/eval-yaml/#task-level-mcp-mocks),
@@ -69,7 +75,7 @@ Their opt-in, platform, and evidence boundaries still apply.
 | Controlled strict collection/release policy | v0.39.0, explicit policy | Offline mock by default; explicit fixed-model, single-turn Copilot SDK native-text profile may incur provider usage; no skills, deny-all client tools (not server isolation), no assurance/runtime-version/currency claim; native durable creation Linux/macOS only |
 | azd extension commands | Separate v0.39.1 artifact | Published and listed separately in the extension registry |
 
-Build main with **Go 1.26+, Git LFS, Make, Node.js and npm**:
+Build main with **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+**:
 
 ```bash
 git clone https://github.com/microsoft/waza.git

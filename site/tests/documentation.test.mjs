@@ -26,6 +26,26 @@ const releaseInputs = [
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
+test('local container conformance is selected by its production build inputs', () => {
+  const workflow = read('.github/workflows/docker-ci.yml');
+  for (const path of ['examples/runner/unit.json', 'examples/runner/container/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
+    'go.mod', 'go.sum', 'version.txt', 'docs.go', 'docs/graders/**', '.dockerignore',
+    '.github/workflows/docker-ci.yml']) {
+    assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
+  }
+  assert.match(workflow, /paths: &docker-paths/);
+  assert.match(workflow, /paths: \*docker-paths/);
+  assert.match(workflow, /^permissions:\n  contents: read/m);
+  const job = workflow.split('\n  runner-reference:\n')[1];
+  assert.ok(job, 'real container job exists');
+  assert.match(job, /timeout-minutes: 30/);
+  assert.match(job, /lfs: true/);
+  assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
+  assert.doesNotMatch(job, /continue-on-error|if:/);
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
+  assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
+
 test('runner identity fixtures trigger consumer validation and publication without skipping new specs', () => {
   const web = read('.github/workflows/web-ci.yml');
   for (const path of ['internal/runnerunit/**', 'internal/runneridentity/**', 'internal/runnerterminal/**', 'examples/runner/**']) {
@@ -112,8 +132,7 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
   }
 });
 
-test('every catalog and release input enables PR site checks and the main push workflow', () => {
-  const workflow = read('.github/workflows/site-ci.yml');
+function assertSiteDiscovery(workflow, inputs) {
   const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
   const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
   const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
@@ -124,7 +143,7 @@ test('every catalog and release input enables PR site checks and the main push w
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
-  for (const input of [...Object.values(catalogInputs).flat(), ...releaseInputs]) {
+  for (const input of inputs) {
     assert.ok(paths(site).some((pattern) => matches(pattern, input)), `${input}: PR site filter excludes documentation input`);
     assert.ok(paths(push).some((pattern) => matches(pattern, input)), `${input}: main push gate excludes documentation input`);
   }
@@ -136,6 +155,24 @@ test('every catalog and release input enables PR site checks and the main push w
   const scripts = JSON.parse(read('site/package.json')).scripts;
   assert.equal(scripts.prebuild, 'npm run test:docs');
   assert.equal(scripts['test:docs'], 'node --test tests/documentation.test.mjs');
+}
+
+test('every catalog, release and Docker workflow input enables PR site checks and the main push workflow', () => {
+  assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml']);
+});
+
+test('Docker guard discovery rejects removal from either production site selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const input = '.github/workflows/docker-ci.yml';
+  for (const [selector, line, diagnostic] of [
+    ['push', `      - '${input}'\n`, /main push gate excludes documentation input/],
+    ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
+    assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
 });
 
 test('site validation and deployment pin a supported Astro Node runtime', () => {
@@ -145,10 +182,30 @@ test('site validation and deployment pin a supported Astro Node runtime', () => 
     const versions = [...read(path).matchAll(/node-version: '([^']+)'/g)].map((match) => match[1]);
     assert.ok(versions.length > 0, `${path}: expected an explicit Node version`);
     for (const version of versions) {
-      assert.equal(version, '22.23.4', `${path}: keep site CI and deployment on the supported pinned runtime`);
+      assert.equal(version, '24', `${path}: keep site CI and deployment on the supported Node major`);
     }
   }
-  assert.match(read('site/README.md'), /Use Node\.js 22\.23\.4 or later/);
+  assert.match(read('site/README.md'), /Node\.js 22\.23\.4\+ \(22\.x\)/);
+  assert.match(read('site/README.md'), /Pages workflows use Node\.js 24/);
+});
+
+test('source development prerequisites agree with the locked frontend engines', () => {
+  const site = JSON.parse(read('site/package-lock.json')).packages;
+  const web = JSON.parse(read('web/package-lock.json')).packages;
+  assert.equal(site['node_modules/astro'].engines.node, '>=22.23.4');
+  assert.equal(site['node_modules/astro'].engines.npm, '>=9.6.5');
+  assert.equal(web['node_modules/eslint'].engines.node, '^20.19.0 || ^22.13.0 || >=24');
+  assert.equal(web['node_modules/vite'].engines.node, '^20.19.0 || >=22.12.0');
+  for (const path of [
+    'README.md', 'docs/GUIDE.md', 'site/src/content/docs/getting-started.mdx',
+    'site/src/content/docs/quick-start.mdx', 'site/src/content/docs/about.mdx',
+    'site/src/content/docs/reference/releases.mdx', 'site/src/content/docs/guides/ci-cd.mdx',
+    'site/src/content/docs/guides/docs-assistant.mdx',
+  ]) {
+    const text = read(path);
+    assert.match(text, /Node(?:\.js)? 22\.23\.4\+/, `${path}: document the shared Node 22 minimum`);
+    assert.match(text, /npm 9\.6\.5\+/, `${path}: document the site npm minimum`);
+  }
 });
 
 test('onboarding and active grader docs reject obsolete example contracts', () => {
@@ -353,19 +410,28 @@ test('release entry points agree on published versions and the current runner re
   assert.ok(read('site/src/content/docs/reference/cli.mdx').includes(
     `github.com/github/copilot-sdk/go\` v${sdk} with bundled CLI ${bundledCLI}`,
   ));
+  const runtimeEntry = read('CHANGELOG.md').split('\n')
+    .find((line) => line.startsWith('- **Copilot runtime dependencies**'));
+  assert.ok(runtimeEntry?.includes(`Go SDK to \`${sdk}\` and bundled CLI to \`${bundledCLI}\``));
+  assert.ok(read('site/src/content/docs/guides/custom-agents.mdx').includes(
+    `The bundled Copilot CLI ${bundledCLI} uses the \`workflow\` permission kind.`,
+  ));
 });
 
 test('new feature guides identify the unpublished source-build boundary', () => {
   const homepage = read('site/src/content/docs/index.mdx')
     .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
-  assert.match(homepage ?? '', /Runner execution is limited to\s+mock\/text/);
-  assert.match(homepage ?? '', /Native runner execution, the container reference and the external\s+schema adapter remain incomplete/);
+  assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
+  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+external schema adapter remain incomplete/);
+  assert.match(homepage ?? '', /\[local mock\/text container foundation\]\(\/waza\/guides\/runner-container\/\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
     .split('## Source-build v0.40.0 preview')[1]?.split('<span id=')[0];
   assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
-  assert.match(overview ?? '', /mock\/text profile/);
-  assert.match(overview ?? '', /native runner\s+execution, the runner container reference and the external schema adapter are\s+not available/);
+  assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
+  assert.match(overview ?? '', /General native file\/tool\/skill workflows and the external schema adapter remain incomplete/);
+  assert.match(overview ?? '', /\[local container foundation\]\(\.\.\/\.\.\/guides\/runner-container\/\)/);
+  assert.match(overview ?? '', /pinned published-image acceptance remains outstanding/);
 
   for (const [path, heading] of [
     ['site/src/content/docs/guides/eval-yaml.mdx', '### Task-level MCP mocks'],

@@ -8,6 +8,7 @@ import { closeSync, openSync, readFileSync } from "node:fs";
 
 const unitExample = JSON.parse(readFileSync(new URL("../../examples/runner/unit.json", import.meta.url), "utf8")) as {
   selection: { shard: string; task: string; trial: number; attempt: number };
+  input: { eval: string; task: string };
 };
 
 const identityVectors = JSON.parse(readFileSync(new URL("../../internal/runnerunit/testdata/identities.json", import.meta.url), "utf8")) as {
@@ -141,7 +142,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(result).toContainText("Compatible (no execution)");
     await expect(result.locator("dd").nth(0)).toHaveText("1.0");
     await expect(result.locator("dd").nth(1)).toHaveText("2.0, 1.0");
-    await expect(result.locator("dd").nth(4)).toHaveText("negotiation, exact-unit, inline.mock-text, terminal-result");
+    await expect(result.locator("dd").nth(4)).toHaveText("negotiation, exact-unit, inline.mock-text, terminal-result, inline.copilot-text");
     await expect(result.locator("dd").nth(6)).toHaveText("None");
   });
 
@@ -153,7 +154,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await page.getByRole("button", { name: "Check compatibility" }).click();
     const result = page.getByRole("status", { name: "Negotiation result" });
     await expect(result).toContainText("Incompatible request");
-    await expect(result).toContainText('required capability "inline.native-text" is unavailable; available: negotiation, exact-unit, inline.mock-text, terminal-result');
+    await expect(result).toContainText('required capability "inline.native-text" is unavailable; available: negotiation, exact-unit, inline.mock-text, terminal-result, inline.copilot-text');
     await expect(result.locator("dd").nth(5)).toHaveText("None");
     await page.setViewportSize({ width: 1440, height: 1100 });
     const screenshot = "../docs/images/dashboard-lab-negotiation.png";
@@ -284,6 +285,62 @@ test.describe("Runner negotiation through the real Go API", () => {
     });
   }
 
+  test("Copilot profile validates offline and reports guarded native startup without inference", async ({ page, request }) => {
+    // Native execution must reach the actual same-origin server, not the
+    // preview proxy used by mock-only controls.
+    await page.unroute("**/api/v1/runner/**");
+    await page.goto(`${base}/#/lab/runner`);
+    const captured = JSON.parse(readFileSync(new URL("../../examples/runner/copilot-unit.json", import.meta.url), "utf8"));
+    const admitted = await request.post(`${base}/api/v1/runner/validate`, { data: captured });
+    const report = await admitted.json();
+    expect(report.status).toBe("ready");
+    expect(report.engine_calls).toBe(0);
+    expect(report.adjacent_work_selected).toBe(false);
+    expect(report.resolved).toEqual(captured.selection);
+    const input = page.getByRole("textbox", { name: "Exact work request (JSON)" });
+    await input.fill(JSON.stringify({ ...captured, allow_paid_execution: false }));
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    const terminal = page.getByRole("status", { name: "Terminal result" });
+    await expect(terminal).toContainText("invalid_input");
+    await expect(terminal).toContainText("allow_paid_execution: true");
+    await input.fill(JSON.stringify(captured));
+    await page.getByRole("button", { name: "Validate selection" }).click();
+    const selection = page.getByRole("status", { name: "Selection validation result" });
+    await expect(selection).toContainText("Valid selection (not executed)");
+    await expect(selection).toContainText("shard-a / selected / trial 2 / attempt 2");
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    await expect(terminal).toContainText("infrastructure_failure");
+    await expect(terminal).toContainText("initialize/start_failed");
+    await expect(terminal).toContainText(report.identity.attempt);
+    await expect(terminal.getByRole("list", { name: "Observed grader verdicts" })).toHaveCount(0);
+  });
+
+  test("native HTTP trust rejection is produced by the real server and preserved by Lab export", async ({ page, request }) => {
+    const captured = JSON.parse(readFileSync(new URL("../../examples/runner/copilot-unit.json", import.meta.url), "utf8"));
+    const response = await request.post(`${base}/api/v1/runner/run`, {
+      headers: { Host: "attacker.example", Origin: "http://attacker.example" }, data: captured,
+    });
+    expect(response.status()).toBe(403);
+    const actual = await response.json();
+    expect(actual.outcome).toBe("invalid_input");
+    expect(actual.engine_calls).toBe(0);
+    expect(actual.identity).toBeUndefined();
+    expect(actual.observation).toBeUndefined();
+    expect(actual.diagnostics[0].code).toBe("native_http_denied");
+    await page.getByRole("textbox", { name: "Exact work request (JSON)" }).fill(JSON.stringify(captured));
+    await page.getByRole("button", { name: "Validate selection" }).click();
+    await expect(page.getByRole("status", { name: "Selection validation result" })).toContainText("Valid selection (not executed)");
+    await page.route("**/api/v1/runner/run", (route) => route.fulfill({ response }));
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    const result = page.getByRole("status", { name: "Terminal result" });
+    await expect(result).toContainText("native_http_denied");
+    await expect(result).toContainText("Unavailable (not admitted)");
+    const download = page.waitForEvent("download");
+    await result.getByRole("button", { name: "Export terminal JSON" }).click();
+    const artifact = await download;
+    expect(JSON.parse(readFileSync((await artifact.path())!, "utf8"))).toEqual(actual);
+  });
+
   test("identity guard preserves absence and rejects malformed or contradictory real reports", async ({ page, request }) => {
     const response = await request.post(`${base}/api/v1/runner/validate`, {
       headers: { "Content-Type": "application/json" }, data: identityVectors[0].request,
@@ -350,7 +407,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       await input.fill(JSON.stringify(request));
       const observed = page.waitForResponse((response) =>
         response.url().endsWith("/api/v1/runner/run") && response.request().method() === "POST");
-      await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+      await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
       const response = await observed;
       const envelope = await response.json();
       expect(envelope.kind).toBe("waza.runner-terminal");
@@ -386,7 +443,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await input.fill(JSON.stringify(initial));
     await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
     await page.route("**/api/v1/runner/run", (route) => route.fulfill({ status: 503, body: "unavailable" }));
-    await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
     await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toBeVisible();
     await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Export terminal JSON" })).toHaveCount(0);
@@ -441,7 +498,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       await page.route("**/api/v1/runner/validate", validateRoute);
       await page.route("**/api/v1/runner/run", runRoute);
       try {
-        await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+        await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
         await validationReady.promise;
         await page.clock.runFor(9_000);
         validationRelease.resolve();
@@ -450,7 +507,7 @@ test.describe("Runner negotiation through the real Go API", () => {
           .toEqual([10_000, timeout + 15_000]);
         if (timeout === 120_000) {
           await page.clock.runFor(90_000);
-          await expect(page.getByRole("button", { name: "Running mock unit...", exact: true })).toBeVisible();
+          await expect(page.getByRole("button", { name: "Running selected unit...", exact: true })).toBeVisible();
           await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toHaveCount(0);
           terminalRelease.resolve();
           const result = page.getByRole("status", { name: "Terminal result" });
@@ -490,12 +547,12 @@ test.describe("Runner negotiation through the real Go API", () => {
       };
       await page.route("**/api/v1/runner/run", runRoute);
       try {
-        await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+        await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
         await ready.promise;
         const aborted = page.waitForEvent("requestfailed", (request) => request.url().endsWith("/api/v1/runner/run"));
         if (action === "edit") {
           await input.fill(original + "\n");
-          await expect(page.getByRole("button", { name: "Run mock unit", exact: true })).toBeEnabled();
+          await expect(page.getByRole("button", { name: "Run selected unit", exact: true })).toBeEnabled();
         } else {
           await page.goto("/#/lab/demo/runner");
         }
@@ -521,12 +578,43 @@ test.describe("Runner negotiation through the real Go API", () => {
     const initial = JSON.parse(await input.inputValue());
     for (const timeout of [undefined, null, false, "60000", 0, 1.5, 86_400_001]) {
       await input.fill(JSON.stringify({ ...initial, timeout_ms: timeout }));
-      await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+      await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
       await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert"))
         .toContainText("Admitted runner request has an invalid timeout_ms.");
       await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
       expect(runs).toBe(0);
     }
+  });
+
+  test("metric metadata stays identity-bound without aggregate terminal or export claims", async ({ page, request }) => {
+    const baseline = await request.post(`${base}/api/v1/runner/run`, { data: unitExample });
+    expect(baseline.ok()).toBe(true);
+    const original = await baseline.json();
+    expect(original.outcome).toBe("success");
+    const captured = structuredClone(unitExample);
+    captured.input.eval += "\nmetrics: [{name: quality, weight: 1, threshold: 0.99}]\n";
+    await page.getByRole("textbox", { name: "Exact work request (JSON)" }).fill(JSON.stringify(captured));
+    const region = page.getByRole("region", { name: "Runner terminal outcome" });
+    await expect(region).toContainText("Success describes only the selected attempt.");
+    await expect(region).toContainText("no aggregate metric values, threshold decisions, or whole-evaluation success");
+    const response = page.waitForResponse("**/api/v1/runner/run");
+    await region.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    const executionResponse = await response;
+    expect(executionResponse.request().postDataJSON().input.eval).toBe(captured.input.eval);
+    const actual = await executionResponse.json();
+    expect(actual.outcome).toBe("success");
+    expect(actual.engine_calls).toBe(1);
+    expect(actual.identity.canonical_digest).not.toBe(original.identity.canonical_digest);
+    expect(actual.metrics).toBeUndefined();
+    expect(actual.summary).toBeUndefined();
+    expect(actual.observation.metrics).toBeUndefined();
+    const result = page.getByRole("status", { name: "Terminal result" });
+    await expect(result).toContainText("mock / passed");
+    await expect(result).not.toContainText("quality");
+    const downloaded = page.waitForEvent("download");
+    await result.getByRole("button", { name: "Export terminal JSON" }).click();
+    const artifact = await downloaded;
+    expect(JSON.parse(readFileSync((await artifact.path())!, "utf8"))).toEqual(actual);
   });
 
   test("terminal input transport rejection remains visible after successful offline admission", async ({ page, request }) => {
@@ -538,7 +626,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     expect(actual.outcome).toBe("invalid_input");
     expect(actual.identity).toBeUndefined();
     await page.route("**/api/v1/runner/run", (route) => route.fulfill({ response }));
-    await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
     const result = page.getByRole("status", { name: "Terminal result" });
     await expect(result).toContainText("invalid_media_type");
     await expect(result).toContainText("Schema checked; no execution identity claimed");
@@ -559,20 +647,21 @@ test.describe("Runner negotiation through the real Go API", () => {
       { ...actual, identity: { ...actual.identity, run: actual.identity.run + "\n" } },
       { ...actual, selection: { ...actual.selection, task: "neighbor" } },
       { ...actual, observation: { ...actual.observation, attempts: 1 } },
+      { ...actual, observation: { ...actual.observation, execution_mode: "copilot" } },
       { ...actual, observation: { ...actual.observation, validations: [...actual.observation.validations, ...actual.observation.validations] } },
       { ...actual, observation: null },
     ]) {
       await page.route("**/api/v1/runner/run", (route) => route.fulfill({
         json: bad, headers: { "X-Waza-Exit-Code": String(bad.exit_code) },
       }));
-      await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+      await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
       await expect(page.getByRole("region", { name: "Runner terminal outcome" }).getByRole("alert")).toBeVisible();
       await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
     }
     await page.route("**/api/v1/runner/run", (route) => route.fulfill({
       json: actual, headers: { "X-Waza-Exit-Code": "6" },
     }));
-    await page.getByRole("button", { name: "Run mock unit", exact: true }).click();
+    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("exit header contradicts its body");
   });
 });

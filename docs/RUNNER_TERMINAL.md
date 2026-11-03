@@ -1,6 +1,6 @@
 # Runner terminal envelope 1.0
 
-This source-build preview implements #760 over the exact mock/text runner.
+This source-build preview implements #760 over the exact inline text runner.
 `waza runner run` and `POST /api/v1/runner/run` share
 `runnerunit.Service.RunTerminal`: one admission, one execution and synchronous
 cleanup, then one schema-validated output attempt. Negotiation and offline
@@ -71,8 +71,9 @@ Version 1.0 rejects unknown fields, including nested fields and case aliases.
 `models.RunResult`, transcript, artifact manifest, billing record, or live
 execution attestation. The producer projects it from the actual
 returned #758 observation and captured resolved selection, not from configured
-mock text or a declared expected result. The current supported execution mode
-is `mock`; native execution is not advertised by this foundation.
+mock text or a declared expected result. Supported execution modes are `mock`
+and explicitly opted-in `copilot` text execution; see the
+[profile restrictions and lifecycle boundary](RUNNER_CONTRACT.md#exact-unit-execution-boundary).
 
 The summary retains the admitted selection, observed `run_number`, selected `attempts`,
 status, explicit per-grader verdicts, and an error when status is `error`.
@@ -171,7 +172,8 @@ retaining any completed observation and earlier error cause. Input rejection
 precedes runtime construction. The host-owned factory is synchronous, not a
 sandbox: hosts must return promptly and own any work they start; the service
 does not launch detached constructor goroutines or preempt arbitrary host code.
-The concrete-mock admission guard remains unchanged.
+The concrete-mock admission guard remains unchanged for mock requests; the
+separate Copilot profile admits only an owned diagnostic force-stoppable engine.
 
 On Unix, the CLI does not change flags or close inherited stdin/stdout: duplicated
 descriptors share an open file description, including `O_NONBLOCK`. It performs

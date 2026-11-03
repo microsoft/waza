@@ -9,7 +9,11 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -197,6 +201,51 @@ func runTerminal(w http.ResponseWriter, r *http.Request, service terminalRunner)
 		return
 	}
 	inputComplete = true
+	if request, err := runnercontract.Parse(data); err == nil && slices.Contains(request.RequiredCapabilities, "inline.copilot-text") {
+		if err := authorizeNativeRunnerHTTP(r); err != nil {
+			emit(http.StatusForbidden, runnerterminal.NewFailure(runnerterminal.InvalidInput, "input", "not_checked",
+				"native_http_denied", err.Error()), nil)
+			return
+		}
+	}
 	envelope, binding := service.RunTerminal(r.Context(), data)
 	emit(http.StatusOK, envelope, binding)
+}
+
+// Paid execution is local-only. Neither forwarded headers nor a request's
+// paid-consent flag authorize a remote peer or an arbitrary browser origin.
+func authorizeNativeRunnerHTTP(r *http.Request) error {
+	deny := fmt.Errorf("native HTTP execution requires a loopback peer, a literal loopback Host, and a same-origin browser request; use waza runner run locally")
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return deny
+	}
+	address, err := netip.ParseAddr(peer)
+	if err != nil || !address.Unmap().IsLoopback() {
+		return deny
+	}
+	authority, err := url.Parse("http://" + r.Host)
+	if err != nil || authority.User != nil || authority.Host != r.Host || authority.Path != "" || authority.RawQuery != "" || authority.Fragment != "" {
+		return deny
+	}
+	host := authority.Hostname()
+	if !strings.EqualFold(host, "localhost") {
+		address, err := netip.ParseAddr(host)
+		if err != nil || !address.Unmap().IsLoopback() {
+			return deny
+		}
+	}
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+		return deny
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		if origin != scheme+"://"+r.Host {
+			return deny
+		}
+	}
+	return nil
 }
