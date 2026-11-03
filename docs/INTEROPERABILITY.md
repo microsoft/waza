@@ -41,10 +41,11 @@ agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
 # From the repository root, using a binary built from this source.
 adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
 waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
-  < internal/interop/testdata/agentv/suite.yaml
+  < internal/interop/testdata/agentv/suite.yaml > one-native-grader.yaml
 ```
 
-Stdout is one native grader mapping, suitable for a native eval's `graders`
+The command saves stdout to `one-native-grader.yaml`, which the export example
+below reads. Stdout is one native grader mapping, suitable for a native eval's `graders`
 list. It is **not** a task or runnable eval. Import requires an exact test ID
 and 1-based assertion index; no implicit selection or globs. Stderr explicitly
 reports the assertion-only projection and every excluded semantic category:

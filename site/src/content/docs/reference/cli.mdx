@@ -928,8 +928,10 @@ Offline stdin/stdout conversion of **one selected AgentV `contains` assertion**,
 not an upstream task or suite:
 
 ```bash
+# From the repository root, using a binary built from this source.
 adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
-waza interop import --adapter "$adapter" --test contains-check --assertion 1 < suite.yaml
+waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
+  < internal/interop/testdata/agentv/suite.yaml > one-native-grader.yaml
 waza interop export --adapter "$adapter" < one-native-grader.yaml
 ```
 

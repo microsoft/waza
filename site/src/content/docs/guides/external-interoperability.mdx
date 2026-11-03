@@ -13,11 +13,13 @@ Issue #789 remains open.
 From the repository root, with a binary built from this source:
 
 ```bash
+# From the repository root, using a binary built from this source.
 adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
 waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
-  < internal/interop/testdata/agentv/suite.yaml
+  < internal/interop/testdata/agentv/suite.yaml > one-native-grader.yaml
 ```
 
+The command saves stdout to `one-native-grader.yaml` for the export below.
 Stdout is **one native grader mapping**, not a runnable eval. Place it in a native
 eval's `graders` list. Stderr reports **ASSERTION-ONLY PROJECTION**: task inputs,
 providers, fixtures, sibling assertions, thresholds, suite metadata and execution
