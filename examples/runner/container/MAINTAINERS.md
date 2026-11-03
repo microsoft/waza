@@ -54,9 +54,9 @@ Both push and pull-request filters explicitly retain the existing
 inputs, guarded by the script and documentation regression tests.
 The native control additionally selects `examples/runner/copilot-unit.json` and
 `.github/scripts/testdata/runner-runtime/**` on push and pull request.
-Docker pull-request checks also select the `spboyer-native-runner-execution`
-stacked parent, so native Linux AMD64 controls execute before retargeting to
-`main`; push checks remain limited to `main`.
+Docker push and pull-request checks select `main`. The temporary stacked-parent
+selector was removed after the native runner merged; final-head native Linux
+AMD64 evidence must be refreshed after reconciliation.
 Run
 `node --test examples/runner/container/native-test.mjs` as well as the unchanged
 mock harness. The Dockerfile's default final target remains the scratch reference;
