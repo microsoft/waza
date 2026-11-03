@@ -51,7 +51,9 @@ General native file/tool/skill workflows and full external task/suite interopera
 guide distinguishes the default mock-only scratch target from the native-capable
 exact-unit Debian/glibc target, which is tested with the actual bundled CLI and a
 local synthetic provider without external runtime networking. Both image IDs are
-local only; pinned published-image acceptance remains outstanding.
+local only; pinned published-image acceptance remains outstanding. The
+manual-only GHCR publisher is defined in source but has not been dispatched, and
+package permission or visibility is not established.
 See [roadmap #754](https://github.com/microsoft/waza/issues/754)
 for the remaining release requirements.
 

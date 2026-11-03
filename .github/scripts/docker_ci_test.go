@@ -85,8 +85,8 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 	})
 	t.Run("pull-request-main-removal", func(t *testing.T) {
 		mutated := strings.Replace(workflow,
-			"branches: [main, spboyer-native-container-integration]",
-			"branches: [spboyer-native-container-integration]", 1)
+			"pull_request:\n    branches: [main]",
+			"pull_request:\n    branches: []", 1)
 		if mutated == workflow {
 			t.Fatal("mutation did not remove main from the pull request selector")
 		}
@@ -94,15 +94,15 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 			t.Fatal("removing main from Docker pull request discovery must fail")
 		}
 	})
-	t.Run("stacked-parent-removal", func(t *testing.T) {
+	t.Run("temporary-parent-rejected", func(t *testing.T) {
 		mutated := strings.Replace(workflow,
-			"branches: [main, spboyer-native-container-integration]",
-			"branches: [main]", 1)
+			"pull_request:\n    branches: [main]",
+			"pull_request:\n    branches: [main, spboyer-native-container-integration]", 1)
 		if mutated == workflow {
-			t.Fatal("mutation did not remove the native image stacked-parent selector")
+			t.Fatal("mutation did not add the retired native image stacked-parent selector")
 		}
 		if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
-			t.Fatal("removing the native image stacked parent must fail Docker discovery validation")
+			t.Fatal("the retired native image stacked parent must fail Docker discovery validation")
 		}
 	})
 	if !strings.Contains(workflow, "run: node --test examples/runner/container/native-test.mjs") {
@@ -119,9 +119,9 @@ func checkDockerRunnerBranches(source []byte) error {
 		return fmt.Errorf("Docker pushes must remain limited to main")
 	}
 	if !slices.Equal(triggers["pull_request"]["branches"], []string{
-		"main", "spboyer-native-container-integration",
+		"main",
 	}) {
-		return fmt.Errorf("Docker pull requests must select main and the active native image parent")
+		return fmt.Errorf("Docker pull requests must select main only")
 	}
 	return nil
 }

@@ -29,7 +29,8 @@ const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)
 test('local container conformance is selected by its production build inputs', () => {
   const workflow = read('.github/workflows/docker-ci.yml');
   for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
-    '.github/scripts/testdata/runner-runtime/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
+    '.github/scripts/testdata/runner-runtime/**', '.github/scripts/testdata/native-bundle-probe/**',
+    'cmd/**', 'internal/**', 'web/**', 'schemas/**',
     'go.mod', 'go.sum', 'version.txt', 'docs.go', 'docs/graders/**', '.dockerignore',
     '.github/workflows/docker-ci.yml']) {
     assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
@@ -46,6 +47,22 @@ test('local container conformance is selected by its production build inputs', (
   assert.doesNotMatch(job, /continue-on-error|if:/);
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
+
+test('manual runner publisher remains fail-closed and unpublished', () => {
+  const workflow = read('.github/workflows/publish-runner-reference.yml');
+  assert.match(workflow, /^on:\n  workflow_dispatch:/m);
+  assert.doesNotMatch(workflow, /^  (push|pull_request|pull_request_target):/m);
+  assert.match(workflow, /packages: write/);
+  assert.match(workflow, /linux\/amd64/);
+  assert.match(workflow, /org\.opencontainers\.image\.revision/);
+  const maintainers = read('examples/runner/container/MAINTAINERS.md');
+  assert.match(maintainers, /manual-only GHCR publisher/);
+  assert.match(maintainers, /has not been dispatched/);
+  assert.match(maintainers, /permissions are\s+declared but have not been verified/);
+  assert.match(maintainers, /signed\s+GitHub provenance\s+attestation binds the published image digest/);
+  assert.doesNotMatch(maintainers, /spboyer-native-container-integration/);
+  assert.match(maintainers, /clean unauthenticated Docker configuration/);
 });
 
 test('runner identity fixtures trigger consumer validation and publication without skipping new specs', () => {
@@ -444,6 +461,7 @@ test('new feature guides identify the unpublished source-build boundary', () => 
   assert.match(unreleased ?? '', /#789 remains open/);
   assert.match(overview ?? '', /\[local container foundation\]\(\.\.\/\.\.\/guides\/runner-container\/\)/);
   assert.match(overview ?? '', /pinned published-image acceptance remains outstanding/);
+  assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
 
   for (const [path, heading] of [
     ['site/src/content/docs/guides/eval-yaml.mdx', '### Task-level MCP mocks'],

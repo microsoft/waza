@@ -6,6 +6,8 @@ test('container quickstart is navigable and distinguishes local IDs from publica
   await expect(page).toHaveURL(/\/waza\/guides\/runner-container\/$/);
   await expect(page.getByRole('heading', { name: 'Execute and inspect local outputs', exact: true })).toBeVisible();
   await expect(page.getByText('no published v0.40.0 runner image or registry digest', { exact: false })).toBeVisible();
+  await expect(page.locator('main')).toContainText('manual-only GHCR publisher is defined in source, but has not been dispatched');
+  await expect(page.locator('main')).toContainText('package creation permission and public visibility remain unverified');
   await expect(page.locator('pre').filter({ hasText: '--iidfile' })).toContainText('examples/runner/container/Dockerfile');
   const offlineRuns = page.locator('pre').filter({ hasText: '--pull=never' });
   await expect(offlineRuns).toHaveCount(2);

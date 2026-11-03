@@ -22,7 +22,7 @@ on:
       - 'docs/graders/**'
       - '.github/workflows/docker-ci.yml'
   pull_request:
-    branches: [main, spboyer-native-container-integration]
+    branches: [main]
     paths: *docker-paths
 
 permissions:

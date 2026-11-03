@@ -45,9 +45,38 @@ pin, and do not infer publication from historical issue comments.
 
 ## Update and eventual publication policy
 
-No automatic publication or update job is added. Do not publish an image or a
-Waza release as part of this foundation. #762 stays open; its published pinned
-image and native-layer acceptance are not satisfied.
+A manual-only GHCR publisher is provided in
+`.github/workflows/publish-runner-reference.yml`; it has not been dispatched.
+There is no push, pull-request, or scheduled publication trigger. Do not publish
+an image or Waza release as part of this foundation. #762 stays open; its
+published pinned image and native-layer acceptance are not satisfied.
+
+The workflow accepts a full candidate SHA and fails unless the dispatch is from
+`microsoft/waza` on protected `main`, the input matches the workflow event and
+checked-out commit, and the commit is still the exact current `main` tip. It
+repeats these checks immediately before building, requires a clean checkout, and
+uses `packages: write` only in the publishing job. The protected-main ruleset is
+the gate for required reviews and status checks; operators must additionally
+confirm the native Linux AMD64 container check and the independent infrastructure
+review are complete before dispatching. The workflow builds only `linux/amd64`
+from the clean, LFS-hydrated checkout at the validated candidate SHA, sets source
+and revision labels, and attaches BuildKit provenance and an SBOM. A signed
+GitHub provenance attestation binds the published image digest to the workflow
+source revision; the candidate guard requires that revision to equal the
+requested SHA and current `main`. Its per-run tag is only a convenience;
+consumers must pin the immutable `@sha256:` digest instead.
+
+The `GITHUB_TOKEN` package-write permission and attestation permissions are
+declared but have not been verified against repository, organization, or package
+policy. Do not claim the workflow can create or push the package until a
+separately authorized run demonstrates that. A first GHCR publication may be private. After an authorized
+publication, an operator must verify the package's actual visibility, inspect
+the manifest to confirm only the claimed `linux/amd64` platform, and pull the
+reported digest from a clean unauthenticated Docker configuration. Inspect the
+pulled image's `org.opencontainers.image.source` and
+`org.opencontainers.image.revision` labels against the reviewed candidate SHA.
+The workflow's clean-checkout gate records source cleanliness; a local image ID,
+tag, or successful authenticated push is not proof of public availability.
 
 For any proposed update, review base-image release/security changes and resolve
 new index digests explicitly, update the Dockerfile and applicable lockfiles,
@@ -62,10 +91,8 @@ inputs, guarded by the script and documentation regression tests.
 The native control additionally selects `examples/runner/copilot-unit.json` and
 `.github/scripts/testdata/runner-runtime/**` and
 `.github/scripts/testdata/native-bundle-probe/**` on push and pull request.
-Docker push checks select only `main`. Pull-request checks select `main` and the
-current stacked parent, `spboyer-native-container-integration`, so native Linux
-AMD64 controls execute before the layer is retargeted to `main`. Remove that
-temporary parent selector after retargeting and rerun the final AMD64 gate.
+Docker push and pull-request checks select only `main`, where native Linux AMD64
+controls run against the integrated source.
 Run
 `node --test examples/runner/container/native-test.mjs` as well as the unchanged
 mock harness. The Dockerfile's default final target remains the scratch reference;

@@ -330,7 +330,10 @@ native target includes the glibc runtime dependencies and is exercised against
 an isolated synthetic provider with no external network or paid requests; this
 is execution evidence, not provider/model-quality evidence. Both targets are
 local builds, not a published v0.40.0 image. Native Linux AMD64 acceptance and
-the pinned public-image gate remain tracked under #762.
+the pinned public-image gate remain tracked under #762. A manual-only GHCR
+publisher is defined in source, but has not been dispatched; its signed image
+provenance and package-creation permission have not been verified, and public
+visibility remains unverified.
 
 ### `waza preflight <eval.yaml>`
 
