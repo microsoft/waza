@@ -49,5 +49,14 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 		if !slices.Contains(triggers[event]["paths"], "examples/runner/container/**") {
 			t.Errorf("%s must select changes to nested runner container inputs", event)
 		}
+		for _, path := range []string{"examples/runner/copilot-unit.json", ".github/scripts/testdata/runner-runtime/**"} {
+			if !slices.Contains(triggers[event]["paths"], path) {
+				t.Errorf("%s must select native container input %s", event, path)
+			}
+		}
+	}
+	workflow := read(".github/workflows/docker-ci.yml")
+	if !strings.Contains(workflow, "run: node --test examples/runner/container/native-test.mjs") {
+		t.Fatal("Docker CI must execute native production-boundary controls")
 	}
 }

@@ -5,8 +5,10 @@ description: Build a local image and execute one captured mock/text unit through
 
 **Source-build foundation for v0.40.0, not a published image.**
 This reference uses the existing [public runner contract](../runner-contract/)
-and [terminal envelope](../runner-terminal/). It executes only `inline.mock-text`.
-Native execution is a separate dependency; consent does not enable it here.
+and [terminal envelope](../runner-terminal/). The default scratch image is tested
+for `inline.mock-text`, not authenticated native inference. Separate test-only
+targets exercise synthetic SDK subprocesses and the bundled runtime's no-inference
+lifecycle; they are not deployable native-provider references.
 Issue [#762](https://github.com/microsoft/waza/issues/762) remains open until the
 native layer and a pinned published-image acceptance run are verified.
 There is **no published v0.40.0 runner image or registry digest** to copy today.
@@ -24,7 +26,7 @@ Builds need network access for the digest-pinned Node/Go base images, locked npm
 dependencies and checksummed Go modules. Runtime uses no network, credentials,
 host checkout mount or paid provider. The image embeds the real dashboard build;
 it does not replace assets or native CLI payloads with compile stubs.
-Only the mock/text path is exercised, not the embedded native runtime.
+The default image's mock/text path needs no embedded runtime extraction.
 If your network requires a public npm mirror, pass
 `--build-arg NPM_CONFIG_REGISTRY=https://your-mirror.example/npm/` to the build.
 For the test command below, set `NPM_CONFIG_REGISTRY` to that same URL.
@@ -106,6 +108,46 @@ have no observation or invented execution identity. Fresh host input/output
 files round-trip the real envelope; no host files or credentials are mounted.
 The test prints the actual local image ID and cleans only its own temporary
 directory. It leaves the built image in Docker's local store.
+
+### Offline SDK subprocess and bundled-runtime controls
+
+```bash
+node --test examples/runner/container/native-test.mjs
+```
+
+The same Dockerfile has explicit **test-only** targets. `synthetic-test` adds a
+deterministic stdio peer to the scratch image and selects it using the supported
+`COPILOT_CLI_PATH` override. The real built `waza runner run` consumes derivatives
+of `examples/runner/copilot-unit.json`, including its explicit paid-consent field.
+Every invocation nevertheless has `--network=none`, fresh tmpfs configuration
+directories and no credentials/provider settings. Only an empty, invocation-owned
+RPC output directory is mounted; no input/configuration or credentials are mounted. The peer does
+not perform inference. Its text, authentication and usage responses are synthetic.
+The host reads only its test RPC log after the container stops.
+
+The controls compare emitted identities with offline admission, exact 2/2
+selection, one create/send, text verdicts, complete RPC inventories, startup
+rejection, protocol mismatch, execution errors, timeout and unsupported-capability
+rejection. The default scratch reference is separately required to report a
+native startup failure with zero engine calls; synthetic success does not make
+that image native-ready.
+
+`native-smoke` uses a digest-pinned Alpine base and the existing bundled-runtime
+test. It checks actual native ping/status/session create/get-messages/detach/delete
+with a local rejecting provider and **zero provider requests**, without sending
+a prompt. This establishes only that bounded lifecycle on the executed Linux
+architecture. It does not prove inference, credentials, billing, provider quality
+or general native workflow support.
+
+The scratch image supplies no dynamic loader or runtime dependencies. The bundle
+can extract successfully yet fail `fork/exec` with “no such file or directory”
+even when its executable exists. Alpine supplies the musl loader and `ldd`,
+which the SDK uses to select the musl bundle. Native extraction additionally
+needs a writable, executable cache/temp area: 256 MiB proved insufficient for
+CLI 1.0.101 assets; the smoke control uses 1 GiB, not a measured minimum. The
+mock walkthrough's 32 MiB `noexec` tmpfs is intentionally not reused. Neither
+test target is published, nor does either turn #762's published-image acceptance
+into a completed gate.
 
 ## Troubleshooting and limits
 

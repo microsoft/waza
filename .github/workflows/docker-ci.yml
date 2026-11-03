@@ -14,7 +14,9 @@ on:
       - 'web/**'
       - 'schemas/**'
       - 'examples/runner/unit.json'
+      - 'examples/runner/copilot-unit.json'
       - 'examples/runner/container/**'
+      - '.github/scripts/testdata/runner-runtime/**'
       - 'docs.go'
       - 'docs/graders/**'
       - '.github/workflows/docker-ci.yml'
@@ -70,3 +72,5 @@ jobs:
           node-version: '24'
       - name: Build and execute production-boundary controls
         run: node --test examples/runner/container/test.mjs
+      - name: Execute offline synthetic subprocess and bundled-runtime controls
+        run: node --test examples/runner/container/native-test.mjs
