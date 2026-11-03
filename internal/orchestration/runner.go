@@ -1221,6 +1221,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			if run.ToolEvents == nil {
 				run.ToolEvents = buildToolEvents(copilotevents.ToSDK(resp.Events))
 			}
+			if run.HostLifecycle == nil {
+				run.HostLifecycle = buildHostLifecycle(copilotevents.ToSDK(resp.Events))
+			}
 			if run.CommandInvocations == nil {
 				run.CommandInvocations = resp.CommandInvocations
 			}
@@ -1527,6 +1530,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		Responder:          responderInfo,
 		Checkpoints:        checkpointOutcomes,
 		ToolEvents:         buildToolEvents(sdkEvents),
+		HostLifecycle:      buildHostLifecycle(sdkEvents),
 		CommandInvocations: commandInvocations,
 	}
 	return returnWithArtifacts(run, err)
@@ -2424,6 +2428,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		SessionID:          resp.SessionID,
 		Session:            &sessionDigest,
 		ToolEvents:         buildToolEvents(sdkEvents),
+		HostLifecycle:      buildHostLifecycle(sdkEvents),
 		CommandInvocations: resp.CommandInvocations,
 		Executor:           r.engine,
 		JudgeModelFallback: r.cfg.Spec().Config.ModelID,
