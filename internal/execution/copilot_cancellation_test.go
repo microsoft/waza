@@ -38,7 +38,7 @@ func TestSendAndWaitBoundedForceStopsContextIgnoringSession(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
-	_, err, abandoned, retire := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+	_, abandoned, retire, err := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
 		releaseOnce.Do(func() { close(release) })
 	})
 
@@ -65,7 +65,7 @@ func TestSendAndWaitBoundedAbandonsSessionAfterForceStopGrace(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	forced := false
-	_, err, abandoned, retire := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+	_, abandoned, retire, err := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
 		forced = true
 	})
 
@@ -91,7 +91,7 @@ func TestSendAndWaitBoundedReturnsCancellationAfterLateSuccess(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	event, err, abandoned, retire := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+	event, abandoned, retire, err := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
 		close(release)
 	})
 
@@ -116,7 +116,7 @@ func TestDisconnectBoundedForceStopsBlockingDisconnect(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	forced := false
-	err, abandoned, retire := disconnectBounded(ctx, session, func() {
+	abandoned, retire, err := disconnectBounded(ctx, session, func() {
 		forced = true
 		close(release)
 	})
@@ -149,7 +149,7 @@ func TestSendAndWaitBoundedDoesNotWaitForBlockedForceStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	start := time.Now()
-	_, err, abandoned, retire := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+	_, abandoned, retire, err := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
 		<-releaseForce
 	})
 
@@ -179,7 +179,7 @@ func TestDisconnectBoundedDoesNotWaitForBlockedForceStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	start := time.Now()
-	err, abandoned, retire := disconnectBounded(ctx, session, func() {
+	abandoned, retire, err := disconnectBounded(ctx, session, func() {
 		<-releaseForce
 	})
 
