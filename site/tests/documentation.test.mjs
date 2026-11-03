@@ -28,7 +28,8 @@ const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)
 
 test('local container conformance is selected by its production build inputs', () => {
   const workflow = read('.github/workflows/docker-ci.yml');
-  for (const path of ['examples/runner/unit.json', 'examples/runner/container/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
+  for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
+    '.github/scripts/testdata/runner-runtime/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
     'go.mod', 'go.sum', 'version.txt', 'docs.go', 'docs/graders/**', '.dockerignore',
     '.github/workflows/docker-ci.yml']) {
     assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
@@ -41,6 +42,7 @@ test('local container conformance is selected by its production build inputs', (
   assert.match(job, /timeout-minutes: 30/);
   assert.match(job, /lfs: true/);
   assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
+  assert.match(job, /run: node --test examples\/runner\/container\/native-test\.mjs/);
   assert.doesNotMatch(job, /continue-on-error|if:/);
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);

@@ -265,3 +265,51 @@ its highest implemented mutual version, independently of client ordering.
 Only 1.0 is implemented. Envelope `schema_version` is independent of offered
 runner versions: unsupported envelope shapes fail schema validation rather
 than being decoded as another profile. Unknown fields fail closed.
+
+### Offline production-process controls
+
+Run the bounded subprocess controls from the repository root:
+
+```bash
+NO_COLOR=1 go test -count=1 ./.github/scripts/testdata/runner-runtime
+NO_COLOR=1 go test -count=1 -run '^TestRunnerNativeProductionProcess$' -v ./.github/scripts
+```
+
+The second command builds the real `cmd/waza` executable and a **synthetic**
+stdio runtime peer, then invokes `waza runner run` with derivatives of the
+current `examples/runner/copilot-unit.json`. An absolute `COPILOT_CLI_PATH`
+selects the fixture; no embedded runtime or provider is used. Each invocation
+gets a fresh working directory and an environment containing only test-owned
+`HOME`, `COPILOT_HOME`, `TMPDIR`, `PATH`, the override, `NO_COLOR`, and the two
+synthetic fixture controls. Credentials, provider settings and proxy variables
+are not inherited. The SDK additionally injects its
+`COPILOT_RUNTIME_PROCESS_FILE_LOGGING` flag; the fixture records environment key
+names and asserts the complete inventory, including absence of deliberately
+seeded ambient credential/provider sentinels.
+
+The controls validate the actual terminal JSON against its schema and
+input-derived identity, the selected task/trial/attempt, grader verdicts, and
+the complete recorded RPC inventory. They cover successful execution, failed
+checks, session errors, request timeout, startup rejection, incompatible runtime
+protocol and unsupported capabilities. A selected ordinal of 2/2 still sends
+one prompt to one session; it does not execute prior or neighboring work.
+Unexpected fixture methods fail with JSON-RPC errors. Frame sizes and child
+process waiting are bounded.
+
+This is production CLI/SDK subprocess evidence with synthetic text, authentication
+and usage responses, **not** native Copilot runtime, inference, billing,
+credential-isolation or container-image assurance. The fixture itself makes no
+network requests; it does not sandbox the production CLI. Unix host process
+controls currently skip Windows. Container/runtime probes must additionally
+execute on their actual target platform with networking disabled and no
+credential mounts; host passes and cross-compilation alone do not prove that
+the bundled runtime starts in an image. No image, release or tag is published
+by these controls.
+
+The [shared container controls](../examples/runner/container/MAINTAINERS.md)
+also exercise these boundaries with runtime networking disabled. Their synthetic
+target asserts all explicit ambient-context opt-outs and the required
+`session.options.update`; rejecting that update must emit infrastructure failure
+without sending a prompt. The unchanged default scratch reference is not
+native-ready. A separate pinned Alpine no-Send smoke starts the actual bundle
+and checks its local-provider lifecycle with zero provider requests, not inference.
