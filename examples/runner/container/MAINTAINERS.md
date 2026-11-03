@@ -49,6 +49,9 @@ Record exact commands, platform and image ID; a build on one architecture does
 not prove another. Run the site build and Chromium suites for guide/navigation
 changes. Docker CI runs the container test whenever its source/build inputs
 change; no path-filtered success substitutes for execution evidence.
+Both push and pull-request filters explicitly retain the existing
+`examples/runner/unit.json` input and all nested `examples/runner/container/**`
+inputs, guarded by the script and documentation regression tests.
 Dependency rollup #820 is part of the v0.40.0 target. Rebuild and rerun acceptance
 against its final integrated source before release; older SDK/runtime evidence
 does not validate the updated bundles or raised Node minimum.

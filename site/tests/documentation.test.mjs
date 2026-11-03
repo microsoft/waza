@@ -28,7 +28,7 @@ const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)
 
 test('local container conformance is selected by its production build inputs', () => {
   const workflow = read('.github/workflows/docker-ci.yml');
-  for (const path of ['examples/runner/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
+  for (const path of ['examples/runner/unit.json', 'examples/runner/container/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
     'go.mod', 'go.sum', 'version.txt', 'docs.go', 'docs/graders/**', '.dockerignore',
     '.github/workflows/docker-ci.yml']) {
     assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
