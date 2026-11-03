@@ -30,7 +30,6 @@ import (
 	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
-	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/projectconfig"
@@ -793,8 +792,38 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 	}
 
-	if err := mcpmock.ValidateEvalMocks(spec.MCPMocks, specDir, spec.SchemaVersion); err != nil {
-		return nil, fmt.Errorf("MCP mock admission: %w", err)
+	// Use signal cancellation so Ctrl+C stops setup hooks and the long-running work.
+	var ctx context.Context
+	var stop context.CancelFunc
+	if cmd != nil {
+		ctx, stop = signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	} else {
+		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	}
+	defer stop()
+	// before_run may generate task inputs, so it runs before tasks are loaded
+	// for MCP admission and before the engine starts. The runner consumes this
+	// setup instead of running before_run again; after_run runs once on every exit.
+	setup, err := orchestration.StartRunSetup(ctx, cfg, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("benchmark failed: %w", err)
+	}
+	defer setup.Teardown(ctx)
+
+	// Admit MCP mocks before the engine starts, against the tasks this run
+	// selects; RunBenchmark repeats the same check. An interrupt during setup or
+	// admission stops here, before any engine is created.
+	triggerSpec, triggerErr := trigger.Discover(specDir)
+	if triggerErr != nil {
+		triggerErr = fmt.Errorf("loading trigger tests: %w", triggerErr)
+	}
+	usesEvalMCP := triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType)
+	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, usesEvalMCP)
+	if err := errors.Join(triggerErr, admissionErr); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("benchmark failed: %w", err)
 	}
 
 	// Create engine based on spec
@@ -808,7 +837,8 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 
 	}
-	if err := engine.Initialize(context.Background()); err != nil {
+	// The signal handler is already installed, so initialization must observe it.
+	if err := engine.Initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
 	defer func() {
@@ -821,6 +851,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	runnerOpts := []orchestration.RunnerOption{
 		orchestration.WithTaskFilters(taskFilters...),
 		orchestration.WithTagFilters(tagFilters...),
+		orchestration.WithSupplementalEvalMCP(usesEvalMCP),
 	}
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
@@ -853,6 +884,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 			runnerOpts = append(runnerOpts, orchestration.WithRedactionPolicy(policy))
 		}
 	}
+	runnerOpts = append(runnerOpts, orchestration.WithRunSetup(setup))
 	runner := newBenchmarkRunner(cfg, engine, runnerOpts...)
 
 	// Setup session logger if enabled
@@ -916,16 +948,6 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		runner.OnProgress(simpleProgressListener)
 	}
 
-	// Run benchmark with signal cancellation so Ctrl+C stops the long-running work.
-	var ctx context.Context
-	var stop context.CancelFunc
-	if cmd != nil {
-		ctx, stop = signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-	} else {
-		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	}
-	defer stop()
-
 	fmt.Printf("Running benchmark: %s\n", spec.Name)
 	if spec.Scenario != "" {
 		fmt.Printf("Scenario: %s\n", spec.Scenario)
@@ -975,10 +997,8 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	var triggerResults []models.TriggerResult
 	ctx, supplementalUsage := execution.NewUsageScope(ctx)
 
-	// Discover and run trigger tests if present alongside the eval spec
-	if triggerSpec, err := trigger.Discover(specDir); err != nil {
-		return outcome, fmt.Errorf("loading trigger tests: %w", err)
-	} else if triggerSpec != nil {
+	// Run the trigger spec admitted before engine startup, outside task caching.
+	if triggerSpec != nil {
 		var tm *models.TriggerMetrics
 		if spec.Config.EngineType == "mock" {
 			// return perfect results

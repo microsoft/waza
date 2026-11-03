@@ -99,6 +99,10 @@ func (w *copilotClientWrapper) Stop() error {
 	return w.inner.Stop()
 }
 
+func (w *copilotClientWrapper) ForceStop() {
+	w.inner.ForceStop()
+}
+
 func (w *copilotClientWrapper) GetAuthStatus(ctx context.Context) (*copilot.GetAuthStatusResponse, error) {
 	return w.inner.GetAuthStatus(ctx)
 }

@@ -62,6 +62,7 @@ type EvalRunner struct {
 	evidenceExecutor graders.Executor
 	verbose          bool
 	controlledOutput func(string)
+	usesEvalMCP      bool
 
 	// newClassifier builds a responder classifier for a task. Overridable in
 	// tests; defaults to a responder backed by the runner's engine.
@@ -84,6 +85,8 @@ type EvalRunner struct {
 
 	// Lifecycle hooks
 	hookRunner *hooks.Runner
+	// setup is a before_run execution not yet consumed by a benchmark pass.
+	setup *RunSetup
 
 	// Progress tracking
 	progressMu sync.Mutex
@@ -150,6 +153,14 @@ type ProgressEvent struct {
 
 // RunnerOption configures a EvalRunner.
 type RunnerOption func(*EvalRunner)
+
+// WithSupplementalEvalMCP admits eval mocks needed by phases outside the benchmark.
+// Standalone runners default to admitting only selected-task dependencies.
+func WithSupplementalEvalMCP(enabled bool) RunnerOption {
+	return func(r *EvalRunner) {
+		r.usesEvalMCP = enabled
+	}
+}
 
 // WithTaskFilters sets glob patterns used to filter test cases by DisplayName or TestID.
 func WithTaskFilters(patterns ...string) RunnerOption {
@@ -294,13 +305,58 @@ func (r *EvalRunner) notifyProgress(event ProgressEvent) {
 	}
 }
 
+// WithRunSetup hands a setup that already ran to the runner. Its first
+// benchmark pass uses it instead of running before_run again and owns its
+// teardown; the caller may still call Teardown, which is then a no-op.
+func WithRunSetup(setup *RunSetup) RunnerOption {
+	return func(r *EvalRunner) {
+		r.setup = setup
+	}
+}
+
+// takeSetup returns the pending setup for a benchmark pass, starting a new one
+// when none is pending (for example, the second baseline pass).
+func (r *EvalRunner) takeSetup(ctx context.Context) (*RunSetup, error) {
+	setup := r.setup
+	r.setup = nil
+	if setup != nil {
+		return setup, nil
+	}
+	return StartRunSetup(ctx, r.cfg, r.verbose)
+}
+
 // RunBenchmark executes the entire benchmark
 // If Baseline is enabled, runs twice: skills-enabled and skills-disabled
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
-	if err := mcpmock.ValidateEvalMocks(r.cfg.Spec().MCPMocks, r.cfg.SpecDir(), r.cfg.Spec().SchemaVersion); err != nil {
-		return nil, fmt.Errorf("MCP mock admission: %w", err)
+	// before_run may generate task inputs, so it runs before tasks are loaded
+	// for MCP admission and before the engine starts. The first benchmark pass
+	// consumes this setup; an earlier failure still runs after_run once.
+	if r.setup == nil {
+		setup, err := StartRunSetup(ctx, r.cfg, r.verbose)
+		if err != nil {
+			return nil, err
+		}
+		r.setup = setup
+	}
+	// A pass that never starts (admission or engine failure) must not leave
+	// this setup pending: it is torn down here, and a retry on the same runner
+	// must run before_run again.
+	setup := r.setup
+	defer func() {
+		r.setup = nil
+		setup.Teardown(ctx)
+	}()
+	if err := r.admitEvalMCPMocks(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if err := r.engine.Initialize(ctx); err != nil {
+		return nil, err
+	}
+	// Initialization can change task inputs; re-admit without repeating setup.
+	if err := r.admitEvalMCPMocks(); err != nil {
 		return nil, err
 	}
 
@@ -339,19 +395,18 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	spec := r.cfg.Spec()
 	r.hookRunner = &hooks.Runner{Verbose: r.verbose}
 
-	// Run after_run hooks on exit (even on error)
-	defer func() {
-		if len(spec.Hooks.AfterRun) > 0 {
-			if err := r.hookRunner.Execute(ctx, "after_run", spec.Hooks.AfterRun); err != nil {
-				fmt.Printf("[WARN] after_run hook error: %v\n", err)
-			}
-		}
-	}()
-
-	// Run before_run hooks
-	if len(spec.Hooks.BeforeRun) > 0 {
-		if err := r.hookRunner.Execute(ctx, "before_run", spec.Hooks.BeforeRun); err != nil {
-			return nil, fmt.Errorf("before_run hook failed: %w", err)
+	// The first pass uses the setup that ran before admission; a later pass
+	// (the second baseline pass) runs before_run again. after_run runs on exit,
+	// even on error.
+	alreadyAdmitted := r.setup != nil
+	setup, err := r.takeSetup(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer setup.Teardown(ctx)
+	if !alreadyAdmitted {
+		if err := r.admitEvalMCPMocks(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -634,6 +689,51 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	fmt.Println("════════════════════════════════════════════════════════════════")
 }
 
+// AdmitEvalMCPMocks admits the MCP mocks that a run with these filters would
+// start, without starting an engine: each selected active task's own mocks and
+// every eval mock that at least one selected task still uses. An eval mock that
+// every selected task replaces is never started, so only its inline
+// declarations are validated.
+func AdmitEvalMCPMocks(cfg *config.EvalConfig, taskFilters, tagFilters []string) error {
+	return AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, false)
+}
+
+// AdmitEvalMCPMocksForPhases includes eval dependencies consumed by a caller's
+// supplemental phase. Standalone EvalRunner executes only task phases.
+func AdmitEvalMCPMocksForPhases(cfg *config.EvalConfig, taskFilters, tagFilters []string, usesEvalMCP bool) error {
+	r := &EvalRunner{cfg: cfg, taskFilters: taskFilters, tagFilters: tagFilters}
+	return r.admitMCPMocksForPhases(usesEvalMCP)
+}
+
+func (r *EvalRunner) admitEvalMCPMocks() error {
+	return r.admitMCPMocksForPhases(r.usesEvalMCP)
+}
+
+func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
+	testCases, selectionErr := r.admissionTestCases()
+	// Failed selection cannot establish task overrides, but must not hide
+	// independent eval mock errors or allow engine initialization.
+	if err := mcpmock.ValidateMCPMocksForPhases(r.cfg.Spec(), testCases, r.cfg.SpecDir(), usesEvalMCP); err != nil {
+		return errors.Join(selectionErr, fmt.Errorf("MCP mock admission: %w", err))
+	}
+	return selectionErr
+}
+
+// admissionTestCases selects the active tasks a run would execute, after task
+// and tag filters, without starting an engine.
+func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
+	testCases, err := r.loadTestCases()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load test cases: %w", err)
+	}
+	if len(r.taskFilters) > 0 || len(r.tagFilters) > 0 {
+		testCases, err = FilterTestCases(testCases, r.taskFilters, r.tagFilters)
+		if err != nil {
+			return nil, fmt.Errorf("task/tag filter error: %w", err)
+		}
+	}
+	return testCases, nil
+}
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
 	spec := r.cfg.Spec()
 
@@ -691,6 +791,15 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		if tc.CommandMocks != nil {
 			if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+			}
+		}
+		if len(tc.MCPMocks) > 0 {
+			if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
+				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+			}
+			// Fixtures are admitted only for selected active tasks; see admitEvalMCPMocks.
+			if err := mcpmock.ValidateInlineMockDeclarations(tc.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion); err != nil {
+				return nil, fmt.Errorf("invalid test case %s: MCP mock admission: %w", path, err)
 			}
 		}
 		// Only include active test cases
@@ -932,7 +1041,7 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 	if r.cache != nil && spec.Scenario == "" && !models.UsesJudgeEvidence(spec.Graders, tc) {
 		cacheKey, err := cache.CacheKeyWithSpecDir(spec, tc, r.cfg.FixtureDir(), r.cfg.SpecDir())
 		if err == nil {
-			if cachedOutcome, found := r.cache.Get(cacheKey); found {
+			if cachedOutcome, found := r.cache.Get(cacheKey); found && cache.RecordedMCPMocksMatch(cachedOutcome, models.EffectiveMCPMocks(spec, tc)) {
 				// Return cached outcome with cached flag. Stats derive from the
 				// cached runs, so recompute them in case an older waza wrote them.
 				cachedOutcome.Cached = true
@@ -1128,7 +1237,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				run.FinalOutput = resp.FinalOutput
 			}
 		}
-		run.DependencyModes = configuredDependencyModes(req, r.cfg.Spec().MCPMocks)
+		run.DependencyModes = configuredDependencyModes(req, models.EffectiveMCPMocks(r.cfg.Spec(), tc))
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
@@ -1607,7 +1716,7 @@ func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {
 
 func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, error) {
 	return r.buildExecutionRequestWithMCP(tc, func(spec *models.EvalSpec) (map[string]copilot.MCPServerConfig, error) {
-		return copilotconfig.ResolveMCPServersWithVersion(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
+		return copilotconfig.ResolveMCPServersWithVersion(spec.Config.ServerConfigs, models.EffectiveMCPMocks(spec, tc), r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
 	})
 }
 
@@ -1615,7 +1724,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 func (r *EvalRunner) buildAttemptExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, *copilotconfig.MCPMockAttempt, error) {
 	var attempt *copilotconfig.MCPMockAttempt
 	req, err := r.buildExecutionRequestWithMCP(tc, func(spec *models.EvalSpec) (map[string]copilot.MCPServerConfig, error) {
-		servers, owned, err := copilotconfig.ResolveMCPServersForAttempt(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
+		servers, owned, err := copilotconfig.ResolveMCPServersForAttempt(spec.Config.ServerConfigs, models.EffectiveMCPMocks(spec, tc), r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
 		attempt = owned
 		return servers, err
 	})

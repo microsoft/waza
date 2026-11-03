@@ -534,8 +534,8 @@
           "description": "Tool description returned from tools/list."
         },
         "input_schema": {
-          "type": "object",
-          "description": "JSON Schema input schema returned from tools/list."
+          "type": ["object", "null"],
+          "description": "JSON Schema input schema returned from tools/list. Omit it or use null for the default tool schema."
         },
         "responses": {
           "type": "array",

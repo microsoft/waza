@@ -50,7 +50,7 @@ func ValidateControlledConfiguration(spec *models.EvalSpec, tc *models.TestCase)
 		return fmt.Errorf("controlled mock execution requires actual mock configuration with ambient skills disabled")
 	}
 	if spec.Baseline || spec.Config.Concurrent ||
-		!reflect.ValueOf(spec.Hooks).IsZero() || len(spec.MCPMocks) != 0 ||
+		!reflect.ValueOf(spec.Hooks).IsZero() || len(spec.MCPMocks) != 0 || len(tc.MCPMocks) != 0 ||
 		len(spec.Config.ServerConfigs) != 0 || len(spec.CommandMocks) != 0 ||
 		tc.CommandMocks != nil || len(tc.Checkpoints) != 0 || tc.Stimulus.Responder != nil ||
 		len(tc.Stimulus.FollowUps) != 0 || len(tc.Stimulus.Repos) != 0 {

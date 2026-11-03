@@ -1711,7 +1711,44 @@ mcp_mocks:
 
 Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
 
+Fixture entries must be regular JSON files; symlinks to regular files remain supported. On Unix, fixture admission uses nonblocking opens and checks the opened file, rejecting FIFOs without waiting for a writer so `after_run` can execute. This is not a deadline for unresponsive filesystems or a race-free/nonblocking opening guarantee on Windows.
+
 Unmatched MCP diagnostics omit argument values to avoid exposing credentials or private payloads. In scenario evals (`scenario` plus exact `schemaVersion: "2.0"`), a response may use a finite `sequence` of at most 100 `return` or `error` steps, optionally delayed up to 300,000 ms. Each matching call consumes one step; exhaustion returns an MCP error and never falls through to a live server. This can simulate an upstream timeout error, but not transport cancellation. Mock responses verify controlled interactions, not the external server implementation.
+
+A task can declare its own `mcp_mocks` when one case needs a different answer. Each task entry replaces the eval mock with the same name for that task only, a new name adds a mock, and the other eval mocks still apply. This keeps a case-specific response, such as approving one question, out of every other task. Task mocks follow the enclosing eval's `schemaVersion` and require `executor: copilot-sdk`; relative `fixtures` paths resolve from the eval directory. An empty task list is rejected; omit the field to use the eval mocks.
+
+Task loading and filter errors are reported before engine startup. The runner repeats admission after engine initialization and after each new pass's `before_run` setup (including the second baseline pass), retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. Inline mock `input_schema` declarations are validated offline during admission, including declarations on replaced eval mocks; use self-contained schemas (internal `$ref` values are supported), or omit the schema for the default.
+
+Admission also validates selected fixture-backed tool `input_schema` declarations, including eval fixtures needed only by trigger tests. Omitted/null schemas retain the default; whole-tool overrides and genuinely unused fixture metadata remain excluded.
+
+The CLI discovers `trigger_tests.yaml` after `before_run` and before engine startup, and uses that same parsed spec for the trigger phase. Trigger tests use eval-level MCP dependencies, not task overrides: an eval mock's fixtures can be skipped only when every selected task replaces it **and no trigger phase needs it**. Offline preflight applies the same dependency rule without constructing a trigger runner or starting servers. The mock executor synthesizes trigger results without MCP execution. Task filters, `--skip-graders`, `--no-skills`, and task cache hits do not disable trigger tests.
+
+Canceling during Copilot SDK startup stops waiting and cleans up partial startup; canceling the original caller after successful startup does not terminate the healthy shared client. Reinitializing a healthy client remains idempotent even with a canceled caller context. A canceled shared startup can be replaced on the next client lookup once its cleanup has succeeded, but global shared-client shutdown still rejects new clients. Custom client factories must unblock `Start` on its lifetime-context cancellation or `ForceStop`; each partial-startup cleanup wait reports an error after its two-second deadline. This bounds caller waiting, not goroutine termination for a noncooperating custom client; pending or failed cleanup remains tracked rather than being treated as completed.
+
+Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
+
+Completed startup keeps its lifetime context alive through graceful SDK cleanup. Authentication failure immediately cleans up an owned client and retains any cleanup error; later engine shutdown still performs final SDK cleanup. Shared clients remain the top-level owner's responsibility. Partial-startup cleanup remains once-only.
+
+```yaml
+# tasks/publish.yaml
+id: publish
+name: Publish when the user confirms
+inputs:
+  prompt: Publish the reviewed version.
+mcp_mocks:
+  - name: host # replaces the eval-level "host" mock for this task
+    tools:
+      ask_user:
+        responses:
+          - match_schema:
+              type: object
+              required: [choices]
+              properties:
+                choices: { type: array, contains: { const: Publish this version } }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
+```
 
 ### Command Mocks
 
@@ -1974,8 +2011,8 @@ hooks:
 - `error_on_fail` — Fail entire evaluation if hook fails (default: `false`)
 
 **Lifecycle Points:**
-- `before_run` — Execute once before all tasks
-- `after_run` — Execute once after all tasks
+- `before_run` — Execute once before all tasks, before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets
+- `after_run` — Execute once after all tasks, including after an interrupted run (bounded to one minute)
 - `before_task` — Execute before each task
 - `after_task` — Execute after each task
 
