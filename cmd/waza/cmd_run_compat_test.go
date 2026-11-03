@@ -436,7 +436,7 @@ func TestRunnerCompatPublicFailedAndAlternative(t *testing.T) {
 			}
 			outcome, err := models.LoadEvaluationOutcome(path)
 			require.NoError(t, err)
-			require.Equal(t, "1.7", outcome.SchemaVersion)
+			require.Equal(t, "1.8", outcome.SchemaVersion)
 			require.Len(t, outcome.TestOutcomes, 1)
 			require.Len(t, outcome.TestOutcomes[0].Runs, 1)
 			run := outcome.TestOutcomes[0].Runs[0]
