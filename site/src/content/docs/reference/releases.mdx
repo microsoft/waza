@@ -34,6 +34,23 @@ Run `waza update` to upgrade an existing standalone installation.
 - Updated documentation examples, Ask Waza configuration, and dashboard build
   dependencies are included in the [full comparison](https://github.com/microsoft/waza/compare/v0.39.0...v0.39.1).
 
+## Source-build v0.40.0 preview
+
+The following guides describe merged source-build behavior, not a published
+v0.40.0 release: the [runner contract and exact work-unit guide](../../guides/runner-contract/),
+[logical identities](../../guides/runner-identities/),
+[terminal outcomes](../../guides/runner-terminal/), and
+[local compatibility and migration](../../guides/runner-compatibility/).
+Runner execution is limited to the documented mock/text profile; native runner
+execution, the runner container reference and the external schema adapter are
+not available. See [roadmap #754](https://github.com/microsoft/waza/issues/754)
+for the remaining release requirements.
+
+The source preview also includes [task-level MCP mocks](../../guides/eval-yaml/#task-level-mcp-mocks),
+[program-grader context](../../guides/graders/#program),
+[host lifecycle evidence](../schema-changes/#host-lifecycle-evidence-in-results-18),
+and [Lab conversations](../../guides/dashboard-lab/#read-a-multi-turn-conversation).
+
 <span id="upcoming-main-only-capabilities"></span>
 
 ## Capabilities introduced in v0.39.0
@@ -50,7 +67,7 @@ Their opt-in, platform, and evidence boundaries still apply.
 | `assure` authored-case profiles | v0.39.0, explicitly selected | Bounded native file/output and offline cases; strict preserved-file publication has platform limits; private preserved-native APIs are not default reader authority |
 | `assure calibrate` | v0.39.0, separate opt-in | Reviewed inputs and explicit paid-call acknowledgment required; no default paid calibration |
 | Controlled strict collection/release policy | v0.39.0, explicit policy | Offline mock by default; explicit fixed-model, single-turn Copilot SDK native-text profile may incur provider usage; no skills, deny-all client tools (not server isolation), no assurance/runtime-version/currency claim; native durable creation Linux/macOS only |
-| azd extension commands | Separate v0.39.0 artifacts | Published separately; registry availability follows the release version-sync PR |
+| azd extension commands | Separate v0.39.1 artifact | Published and listed separately in the extension registry |
 
 Build main with **Go 1.26+, Git LFS, Make, Node.js and npm**:
 

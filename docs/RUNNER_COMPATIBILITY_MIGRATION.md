@@ -71,8 +71,9 @@ Bare skill-name operands are rejected, matching ordinary `run` routing: use
 `./suite` to select an extensionless local file, or remove `--runner-compat`
 for skill lookup. A same-named local file is never silently selected.
 
-The local output remains `EvaluationOutcome` schema 1.7 with historical eval/task
-IDs, statistics, grader details and unavailable usage. Generated run/session IDs,
+The local output uses current `EvaluationOutcome` writer schema 1.8 with native
+eval/task IDs, statistics, grader details and unavailable usage. Historical 1.7
+results remain readable. Generated run/session IDs,
 timestamps, workspace paths and timing measurements remain invocation-specific.
 Exits remain 0 (passed), 1 (failed checks or a recorded execution-error attempt,
 with requested results saved), and 2 (invalid configuration, failure before an
@@ -145,7 +146,7 @@ is a deliberate product choice, not an automatic migration.
 
 | Category | Source-build preview behavior |
 |---|---|
-| Preserved | Ordinary local commands/defaults and historical reader/writer families remain available; the adapted mock/text mode retains result 1.7 and local 0/1/2 exits, checked through the public command against an independent frozen observation. |
+| Preserved | Ordinary local commands/defaults and historical readers remain available; the adapted mock/text mode writes result 1.8 and retains local 0/1/2 exits, checked through the public command against an independent frozen observation. |
 | Additive | Offline byte-preserving `runner adapt` and opt-in `run --runner-compat`, routed through the shared runner service. |
 | Incompatible mapping | Every unsupported declaration is a hard error with local-command guidance; no silent feature dropping, native execution or automatic schema conversion. |
 | Deprecated | None. |
