@@ -11,7 +11,8 @@ assurance profile remains separately selected and does not change base 1.0.
 Historical outcomes are not fresh collection evidence; mock observations are
 not agent-quality evidence.
 
-This is upcoming/main-only behavior, not part of published standalone `v0.38.10`.
+The bounded comparison workflow was introduced in `v0.39.0` and remains in
+published standalone `v0.39.1`; its profile and platform limits still apply.
 See [source build and availability](../site/src/content/docs/reference/releases.mdx).
 
 Ordinary opt-in snapshot `run` capture and supported `grade` paths already
