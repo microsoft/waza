@@ -29,7 +29,7 @@ func main() {
 func run() error {
 	mode := os.Getenv("WAZA_SYNTHETIC_MODE")
 	switch mode {
-	case "success", "failed-check", "session-error", "timeout", "startup-failure", "bad-protocol":
+	case "success", "failed-check", "session-error", "timeout", "startup-failure", "bad-protocol", "options-failure":
 	default:
 		return fmt.Errorf("unknown synthetic mode %q", mode)
 	}
@@ -128,6 +128,12 @@ func respond(req request, mode string, writer io.Writer) error {
 	if len(req.Params) != 0 {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return err
+		}
+		if req.Method == "session.options.update" && mode == "options-failure" {
+			return writeFrame(writer, map[string]any{
+				"jsonrpc": "2.0", "id": req.ID,
+				"error": map[string]any{"code": -32000, "message": "synthetic options update rejection"},
+			})
 		}
 	}
 	var result any

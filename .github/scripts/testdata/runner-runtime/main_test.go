@@ -33,6 +33,7 @@ func TestUnexpectedMethodFails(t *testing.T) {
 	if err := respond(request{ID: json.RawMessage(`1`), Method: "models.list"}, "success", &wire); err != nil {
 		t.Fatal(err)
 	}
+
 	body, err := readFrame(bufio.NewReader(&wire))
 	if err != nil {
 		t.Fatal(err)
@@ -48,5 +49,47 @@ func TestUnexpectedMethodFails(t *testing.T) {
 	}
 	if response.Error.Code != -32601 || response.Result != nil {
 		t.Fatalf("unexpected method returned a success-shaped response: %s", body)
+	}
+}
+
+func TestOptionsUpdateRejection(t *testing.T) {
+	for _, mode := range []string{"success", "options-failure"} {
+		t.Run(mode, func(t *testing.T) {
+			var wire bytes.Buffer
+			if err := respond(request{
+				ID: json.RawMessage(`7`), Method: "session.options.update",
+				Params: json.RawMessage(`{"sessionId":"synthetic-session","skipCustomInstructions":true}`),
+			}, mode, &wire); err != nil {
+				t.Fatal(err)
+			}
+			reader := bufio.NewReader(&wire)
+			body, err := readFrame(reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var response struct {
+				ID     int             `json:"id"`
+				Result json.RawMessage `json:"result"`
+				Error  *struct {
+					Code int `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(body, &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.ID != 7 {
+				t.Fatalf("response is not bound to the options request: %s", body)
+			}
+			if mode == "options-failure" {
+				if response.Error == nil || response.Error.Code != -32000 || response.Result != nil {
+					t.Fatalf("missing explicit options rejection: %s", body)
+				}
+			} else if response.Error != nil || string(response.Result) != `{"success":true}` {
+				t.Fatalf("missing options acknowledgement: %s", body)
+			}
+			if reader.Buffered() != 0 {
+				t.Fatal("options update must not emit assistant output or completion")
+			}
+		})
 	}
 }
