@@ -91,19 +91,24 @@ func TestRunnerProductionTransportAdmissionFilters(t *testing.T) {
 						data, err := os.ReadFile(profile)
 						require.NoError(t, err)
 						require.True(t, strings.HasPrefix(string(data), "mode: "+testing.CoverMode()+"\n"))
-						var observed int
+						var transportEntries, observed int
 						for _, line := range strings.Split(string(data), "\n")[1:] {
 							fields := strings.Fields(line)
 							if len(fields) == 0 {
 								continue
 							}
 							require.Len(t, fields, 3)
+							if !strings.HasPrefix(fields[0], "github.com/microsoft/waza/internal/webserver/") {
+								continue
+							}
+							transportEntries++
 							count, err := strconv.ParseUint(fields[2], 10, 64)
 							require.NoError(t, err)
 							if count > 0 {
 								observed++
 							}
 						}
+						require.Positive(t, transportEntries, "profile must include transport-package instrumentation")
 						if len(tc.want) == 0 {
 							require.Zero(t, observed, "no selected action must execute production code")
 						} else {
