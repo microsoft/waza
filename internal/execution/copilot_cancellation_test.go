@@ -145,6 +145,137 @@ func TestSharedEngineCancellationDoesNotForceStopSiblingSession(t *testing.T) {
 	require.NoError(t, <-healthyDone)
 }
 
+func TestDefaultSharedEngineRefreshesRetiredClientForLaterTrial(t *testing.T) {
+	oldGrace := sendCancellationGrace
+	sendCancellationGrace = 5 * time.Millisecond
+	t.Cleanup(func() { sendCancellationGrace = oldGrace })
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+	t.Setenv("COPILOT_BASE_URL", "")
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "")
+	oldConstruct, oldEmbeddedPath := sharedConstruct, embeddedCLIPath
+	t.Cleanup(func() {
+		sharedConstruct = oldConstruct
+		embeddedCLIPath = oldEmbeddedPath
+	})
+	embeddedCLIPath = func() (string, error) { return "/tmp/embedded-copilot", nil }
+
+	ctrl := gomock.NewController(t)
+	firstClient := newClientMock(ctrl)
+	secondClient := newClientMock(ctrl)
+	blockedSession := newSessionMock(ctrl)
+	healthySibling := newSessionMock(ctrl)
+	replacementSession := newSessionMock(ctrl)
+	firstCreate := 0
+	firstClient.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, *copilot.SessionConfig) (CopilotSession, error) {
+			firstCreate++
+			if firstCreate == 1 {
+				return blockedSession, nil
+			}
+			return healthySibling, nil
+		},
+	).Times(2)
+	secondClient.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(replacementSession, nil)
+
+	sendStarted := make(chan struct{})
+	releaseSend := make(chan struct{})
+	blockedSession.EXPECT().SessionID().Return("retired-session")
+	blockedSession.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	blockedSession.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			close(sendStarted)
+			<-releaseSend
+			return nil, context.Canceled
+		},
+	)
+	healthyStarted := make(chan struct{})
+	releaseHealthy := make(chan struct{})
+	healthySibling.EXPECT().SessionID().Return("healthy-sibling")
+	healthySibling.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	healthySibling.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			close(healthyStarted)
+			<-releaseHealthy
+			return &copilot.SessionEvent{}, nil
+		},
+	)
+	healthySibling.EXPECT().Disconnect().Return(nil)
+	firstClient.EXPECT().DeleteSession(gomock.Any(), "healthy-sibling").Return(nil)
+
+	replacementSession.EXPECT().SessionID().Return("replacement-session")
+	replacementSession.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	replacementSession.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	replacementSession.EXPECT().Disconnect().Return(nil)
+	secondClient.EXPECT().DeleteSession(gomock.Any(), "replacement-session").Return(nil)
+
+	constructions := 0
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient {
+		constructions++
+		if constructions == 1 {
+			return firstClient
+		}
+		return secondClient
+	}
+
+	engine := NewCopilotEngineBuilder("test-model", nil).Build()
+	require.NoError(t, engine.Initialize(t.Context()))
+	require.Same(t, firstClient, engine.CopilotClient().(*startupClient).CopilotClient)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	firstDone := make(chan *ExecutionResponse, 1)
+	firstErr := make(chan error, 1)
+	go func() {
+		response, err := engine.Execute(ctx, &ExecutionRequest{
+			Message:          "ignore cancellation",
+			ModelID:          "test-model",
+			EphemeralSession: true,
+		})
+		firstDone <- response
+		firstErr <- err
+	}()
+	<-sendStarted
+
+	healthyDone := make(chan *ExecutionResponse, 1)
+	healthyErr := make(chan error, 1)
+	go func() {
+		response, err := engine.Execute(t.Context(), &ExecutionRequest{
+			Message:          "healthy sibling",
+			ModelID:          "test-model",
+			EphemeralSession: true,
+		})
+		healthyDone <- response
+		healthyErr <- err
+	}()
+	<-healthyStarted
+
+	cancel()
+	response, err := <-firstDone, <-firstErr
+	require.NoError(t, err)
+	require.False(t, response.Success)
+	require.True(t, engine.retired.Load())
+
+	response, err = engine.Execute(t.Context(), &ExecutionRequest{
+		Message:          "later trial",
+		ModelID:          "test-model",
+		EphemeralSession: true,
+	})
+	require.NoError(t, err)
+	require.True(t, response.Success)
+	require.False(t, engine.retired.Load())
+	require.Equal(t, 2, constructions)
+	require.Same(t, secondClient, engine.CopilotClient().(*startupClient).CopilotClient)
+
+	close(releaseHealthy)
+	response, err = <-healthyDone, <-healthyErr
+	require.NoError(t, err)
+	require.True(t, response.Success)
+	close(releaseSend)
+	require.NoError(t, engine.Shutdown(context.Background()))
+	require.NoError(t, ShutdownSharedClient(context.Background()))
+}
+
 func TestSendAndWaitBoundedReturnsCancellationAfterLateSuccess(t *testing.T) {
 	oldGrace := sendCancellationGrace
 	sendCancellationGrace = 20 * time.Millisecond
