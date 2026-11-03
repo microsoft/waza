@@ -81,6 +81,12 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 		done <- session.Disconnect()
 	}()
 
+	select {
+	case err := <-done:
+		return err, false
+	case <-ctx.Done():
+	}
+
 	timer := time.NewTimer(sendCancellationGrace)
 	defer timer.Stop()
 	select {
@@ -1066,6 +1072,9 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
+	if parent.Err() != nil && timeout > sendCancellationGrace {
+		timeout = sendCancellationGrace
+	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
 	defer cancel()
 	metrics, err := session.UsageMetrics(ctx)
@@ -1087,7 +1096,7 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if !final {
 		return
 	}
-	e.captureShutdownUsage(context.WithoutCancel(parent), sessionID, session, collector)
+	e.captureShutdownUsage(ctx, sessionID, session, collector)
 }
 
 func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {

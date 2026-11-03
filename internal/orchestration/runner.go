@@ -1597,7 +1597,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 }
 
 func (r *EvalRunner) publishPartialOutcome(testNum int, tc *models.TestCase, runs []models.RunResult) {
-	r.publishPartialTestOutcome(testNum, r.buildTestOutcome(tc, append([]models.RunResult(nil), runs...)))
+	r.publishPartialTestOutcome(testNum, r.buildTestOutcome(tc, cloneRunResultsForPartial(runs)))
 }
 
 func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.TestOutcome) {
@@ -1610,7 +1610,7 @@ func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.T
 		return
 	}
 
-	r.partialOutcomes[testNum-1] = testOutcome
+	r.partialOutcomes[testNum-1] = cloneTestOutcomeForPartial(testOutcome)
 	testOutcomes := make([]models.TestOutcome, 0, len(r.partialOutcomes))
 	for _, outcome := range r.partialOutcomes {
 		if outcome.TestID != "" || outcome.DisplayName != "" {
@@ -1634,6 +1634,19 @@ func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.T
 		r.partialErr = fmt.Errorf("write partial results: %w", err)
 		r.partialCancel(r.partialErr)
 	}
+}
+
+func cloneTestOutcomeForPartial(outcome models.TestOutcome) models.TestOutcome {
+	outcome.Runs = cloneRunResultsForPartial(outcome.Runs)
+	return outcome
+}
+
+func cloneRunResultsForPartial(runs []models.RunResult) []models.RunResult {
+	cloned := append([]models.RunResult(nil), runs...)
+	for i := range cloned {
+		cloned[i].GraderSessions = append([]models.SessionDigest(nil), runs[i].GraderSessions...)
+	}
+	return cloned
 }
 
 // captureSnapshot writes recorded snapshot observations for the given run

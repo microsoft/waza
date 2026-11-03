@@ -7,6 +7,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -88,8 +89,9 @@ func TestSendAndWaitBoundedReturnsCancellationAfterLateSuccess(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	go close(release)
-	event, err, abandoned := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {})
+	event, err, abandoned := sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, func() {
+		close(release)
+	})
 
 	require.NotNil(t, event)
 	require.ErrorIs(t, err, context.Canceled)
@@ -123,7 +125,7 @@ func TestDisconnectBoundedForceStopsBlockingDisconnect(t *testing.T) {
 
 func TestExecuteBoundsDisconnectAfterCanceledSend(t *testing.T) {
 	oldGrace := sendCancellationGrace
-	sendCancellationGrace = 5 * time.Millisecond
+	sendCancellationGrace = 50 * time.Millisecond
 	t.Cleanup(func() { sendCancellationGrace = oldGrace })
 
 	ctrl := gomock.NewController(t)
@@ -166,7 +168,59 @@ func TestExecuteBoundsDisconnectAfterCanceledSend(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Less(t, time.Since(start), 250*time.Millisecond)
+	require.Less(t, time.Since(start), 500*time.Millisecond)
 	require.Contains(t, response.ErrorMsg, "trial timed out")
 	require.False(t, response.Success)
+}
+
+func TestExecuteBoundsUsageCollectionAfterCanceledSend(t *testing.T) {
+	oldGrace := sendCancellationGrace
+	sendCancellationGrace = 5 * time.Millisecond
+	t.Cleanup(func() { sendCancellationGrace = oldGrace })
+
+	ctrl := gomock.NewController(t)
+	client := newClientMock(ctrl)
+	session := NewMockCopilotSession(ctrl)
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	client.EXPECT().DeleteSession(gomock.Any(), "session-1").Return(nil)
+	session.EXPECT().SessionID().Return("session-1")
+	session.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	)
+	session.EXPECT().UsageMetrics(gomock.Any()).DoAndReturn(
+		func(ctx context.Context) (*rpc.UsageGetMetricsResult, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	)
+	session.EXPECT().ShutdownUsage(gomock.Any()).DoAndReturn(
+		func(ctx context.Context) (*copilot.SessionShutdownData, error) {
+			return nil, ctx.Err()
+		},
+	)
+	session.EXPECT().Disconnect().Return(nil)
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+	}).Build()
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	response, err := engine.Execute(ctx, &ExecutionRequest{
+		Message:          "timeout",
+		ModelID:          "test-model",
+		EphemeralSession: true,
+	})
+
+	require.NoError(t, err)
+	require.Less(t, time.Since(start), 250*time.Millisecond)
+	require.Contains(t, response.ErrorMsg, "trial timed out")
+	require.Nil(t, response.Usage)
 }

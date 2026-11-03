@@ -197,6 +197,9 @@ func readLocalResults(dir string, previousFiles map[string]struct{}, walk func(s
 		}
 		_, known := previousFiles[path]
 		if d.IsDir() {
+			if path != dir && d.Name() == ".partial" {
+				return fs.SkipDir
+			}
 			if known {
 				return fmt.Errorf("previously loaded results artifact %q is now a directory", path)
 			}

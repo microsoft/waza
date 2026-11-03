@@ -368,3 +368,18 @@ inputs:
 	require.NotNil(t, partials[1].BaselineOutcome)
 	require.Len(t, partials[1].BaselineOutcome.TestOutcomes, 1)
 }
+
+func TestCloneTestOutcomeForPartialIsolatesGraderSessions(t *testing.T) {
+	originalUsage := &models.UsageStats{InputTokens: 1}
+	original := models.TestOutcome{
+		Runs: []models.RunResult{{
+			GraderSessions: []models.SessionDigest{{SessionID: "grader", Usage: originalUsage}},
+		}},
+	}
+
+	cloned := cloneTestOutcomeForPartial(original)
+	cloned.Runs[0].GraderSessions[0].Usage = &models.UsageStats{InputTokens: 2}
+
+	require.Same(t, originalUsage, original.Runs[0].GraderSessions[0].Usage)
+	require.Equal(t, 1, original.Runs[0].GraderSessions[0].Usage.InputTokens)
+}

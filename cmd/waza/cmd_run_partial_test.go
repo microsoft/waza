@@ -42,15 +42,22 @@ func TestSaveOutcomePreservesPreviousCheckpointWhenReplacementFails(t *testing.T
 	path := filepath.Join(dir, "checkpoint.json")
 	original := []byte(`{"schema_version":"preserved"}`)
 	require.NoError(t, os.WriteFile(path, original, 0o600))
+	previousReplace := replaceOutcomeFileForSave
+	t.Cleanup(func() { replaceOutcomeFileForSave = previousReplace })
+	replaceOutcomeFileForSave = func(_, destination string) error {
+		require.Equal(t, path, destination)
+		return os.ErrPermission
+	}
 
 	replacement := &models.EvaluationOutcome{SchemaVersion: models.CurrentResultSchemaVersion}
-	destination := filepath.Join(path, "invalid-child")
-	err := saveOutcome(replacement, destination)
-	require.Error(t, err)
+	require.ErrorIs(t, saveOutcome(replacement, path), os.ErrPermission)
 
 	got, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
 	require.Equal(t, original, got)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
 }
 
 func TestAllocatePartialOutcomePathIsInvocationSpecific(t *testing.T) {
@@ -84,4 +91,16 @@ func TestSaveOutcomePublishesValidReplacement(t *testing.T) {
 	var saved models.EvaluationOutcome
 	require.NoError(t, json.Unmarshal(data, &saved))
 	require.Equal(t, models.CurrentResultSchemaVersion, saved.SchemaVersion)
+}
+
+func TestSaveOutcomePreservesDestinationPermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "checkpoint.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"schema_version":"old"}`), 0o600))
+
+	require.NoError(t, saveOutcome(&models.EvaluationOutcome{SchemaVersion: models.CurrentResultSchemaVersion}, path))
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }

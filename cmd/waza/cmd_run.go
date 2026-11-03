@@ -1941,16 +1941,12 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 		return err
 	}
 
-	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	file, publishMode, err := createOutcomeTempFile(path)
 	if err != nil {
 		return err
 	}
 	tempPath := file.Name()
 	defer func() { _ = os.Remove(tempPath) }()
-	if err := file.Chmod(0o644); err != nil {
-		_ = file.Close()
-		return err
-	}
 	if _, err := file.Write(data); err != nil {
 		_ = file.Close()
 		return err
@@ -1962,7 +1958,54 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return replaceOutcomeFile(tempPath, path)
+	if err := os.Chmod(tempPath, publishMode); err != nil {
+		return err
+	}
+	return replaceOutcomeFileForSave(tempPath, path)
+}
+
+var replaceOutcomeFileForSave = replaceOutcomeFile
+
+func createOutcomeTempFile(path string) (*os.File, os.FileMode, error) {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	publishMode := os.FileMode(0)
+	if info, err := os.Stat(path); err == nil {
+		publishMode = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, 0, err
+	}
+
+	for range 100 {
+		var suffix [8]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return nil, 0, err
+		}
+		tempPath := filepath.Join(dir, fmt.Sprintf(".%s.tmp-%x", base, suffix))
+		file, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		if publishMode == 0 {
+			info, statErr := file.Stat()
+			if statErr != nil {
+				_ = file.Close()
+				_ = os.Remove(tempPath)
+				return nil, 0, statErr
+			}
+			publishMode = info.Mode().Perm()
+		}
+		if err := file.Chmod(0o600); err != nil {
+			_ = file.Close()
+			_ = os.Remove(tempPath)
+			return nil, 0, err
+		}
+		return file, publishMode, nil
+	}
+	return nil, 0, fmt.Errorf("allocate temporary outcome file for %s", path)
 }
 
 func savePartialOutcome(outcome *models.EvaluationOutcome, path string) error {
