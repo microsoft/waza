@@ -1982,7 +1982,7 @@ func createOutcomeTempFile(path string) (*os.File, os.FileMode, error) {
 			return nil, 0, err
 		}
 		tempPath := filepath.Join(dir, fmt.Sprintf(".%s.tmp-%x", base, suffix))
-		file, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		file, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if errors.Is(err, os.ErrExist) {
 			continue
 		}

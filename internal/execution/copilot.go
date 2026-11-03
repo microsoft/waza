@@ -1125,7 +1125,7 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if !final {
 		return
 	}
-	e.captureShutdownUsage(ctx, sessionID, session, collector)
+	e.captureShutdownUsage(context.WithoutCancel(parent), sessionID, session, collector)
 }
 
 func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {

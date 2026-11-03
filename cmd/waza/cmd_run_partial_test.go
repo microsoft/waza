@@ -97,10 +97,12 @@ func TestSaveOutcomePreservesDestinationPermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "checkpoint.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"schema_version":"old"}`), 0o600))
+	before, err := os.Stat(path)
+	require.NoError(t, err)
 
 	require.NoError(t, saveOutcome(&models.EvaluationOutcome{SchemaVersion: models.CurrentResultSchemaVersion}, path))
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	require.Equal(t, before.Mode().Perm(), info.Mode().Perm())
 }
