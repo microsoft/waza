@@ -316,6 +316,46 @@ func TestInvalidSelectionsNeverConstructRuntime(t *testing.T) {
 	}
 }
 
+func TestCopilotProfileRejectsOnlyExplicitNullMetricsBeforeRuntime(t *testing.T) {
+	for _, control := range []struct {
+		name        string
+		declaration string
+		wantErr     string
+	}{
+		{name: "omitted"},
+		{name: "empty", declaration: "\nmetrics: []\n"},
+		{name: "explicit null", declaration: "\nmetrics: null\n", wantErr: "does not accept explicit metrics: null"},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			request := fixture(t)
+			request.RequiredCapabilities = []string{"exact-unit", "inline.copilot-text"}
+			request.AllowPaidExecution = true
+			request.Input.Eval = strings.Replace(request.Input.Eval, "executor: mock", "executor: copilot-sdk", 1)
+			request.Input.Eval += control.declaration
+			if control.wantErr == "" {
+				admitted, err := resolve(&request)
+				require.NoError(t, err)
+				require.NotNil(t, admitted)
+				return
+			}
+
+			constructed := 0
+			service := NewService(func(models.Config) (execution.AgentEngine, error) {
+				constructed++
+				t.Fatal("invalid native metrics must reject before runtime construction")
+				return nil, nil
+			})
+			report := service.Run(t.Context(), wire(t, request))
+			require.Equal(t, "rejected", report.Status, "%+v", report.Diagnostics)
+			require.Nil(t, report.Identity)
+			require.Nil(t, report.Observation)
+			require.Zero(t, report.Calls)
+			require.Zero(t, constructed)
+			require.Contains(t, report.Diagnostics[0].Message, control.wantErr)
+		})
+	}
+}
+
 func TestSelectionPresenceAndAlternatives(t *testing.T) {
 	base := wire(t, fixture(t))
 	for _, field := range []string{"shard", "task", "trial", "attempt"} {

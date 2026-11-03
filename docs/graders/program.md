@@ -1,6 +1,9 @@
 ### `program` - External Program Grader
 
-Runs an external program or script to grade agent output. The agent output is passed via stdin, the workspace directory is available as the `WAZA_WORKSPACE_DIR` environment variable, and `WAZA_GRADING_CONTEXT` names a JSON file with the run's grading context.
+Runs an external program or script to grade agent output. The agent output is passed via stdin, and the workspace directory is available as `WAZA_WORKSPACE_DIR`.
+
+**Source-build preview:** `WAZA_GRADING_CONTEXT` names a JSON file with the
+run's grading context. Published `v0.39.1` does not provide this variable.
 
 ```yaml
 - type: program

@@ -29,10 +29,11 @@ export default function RunnerTerminal({ request }: { request: string }) {
 
   return (
     <section aria-label="Runner terminal outcome">
-      <h3>Execute one mock unit</h3>
-      <p>Runs the captured request once, without native or paid execution. Repeating runs executes again.</p>
+      <h3>Execute one selected unit</h3>
+      <p>Runs the captured request once. The Copilot profile requires explicit paid consent in the request and disables all tools. Repeating runs executes again and may incur charges.</p>
+      <p>Success describes only the selected attempt. Eval metrics are uncomputed, identity-bound metadata: no aggregate metric values, threshold decisions, or whole-evaluation success are reported.</p>
       <button className="lab-button" disabled={pending} onClick={() => void run()}>
-        {pending ? "Running mock unit..." : "Run mock unit"}
+        {pending ? "Running selected unit..." : "Run selected unit"}
       </button>
       {error && <p role="alert">{error} No previous terminal success is shown; execution may have occurred without a received response.</p>}
       {result && (
@@ -45,7 +46,7 @@ export default function RunnerTerminal({ request }: { request: string }) {
             <dt>Envelope validation</dt><dd>{result.identity
               ? "Schema checked; input identity bound. Producer checks observed grader bindings."
               : "Schema checked; no execution identity claimed."}</dd>
-            <dt>Observed execution</dt><dd>{result.observation ? `mock / ${result.observation.status}` : "Unavailable"}</dd>
+            <dt>Observed execution</dt><dd>{result.observation ? `${result.observation.execution_mode} / ${result.observation.status}` : "Unavailable"}</dd>
             <dt>Engine calls</dt><dd>{result.engine_calls}</dd>
             <dt>Billing and scores</dt><dd>Unavailable in this terminal summary; no inferred zeros.</dd>
             <dt>Attempt identity</dt><dd><code>{result.identity?.attempt ?? "Unavailable (not admitted)"}</code></dd>
