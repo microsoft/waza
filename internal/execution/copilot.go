@@ -728,6 +728,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 	sessionAbandoned := false
 	var resp *ExecutionResponse
+	cleanupBaseCtx := ctx
 	sendCtx := ctx
 	cancelSendCtx := func(error) {}
 	cancelSkillCtx := func() {}
@@ -742,7 +743,11 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
-		abandoned, retireClient, err := disconnectBounded(sendCtx, session, func() {
+		cleanupParent := sendCtx
+		if canceledForSkill.Load() {
+			cleanupParent = cleanupBaseCtx
+		}
+		abandoned, retireClient, err := disconnectBounded(cleanupParent, session, func() {
 			if force, ok := e.client.(interface{ ForceStop() }); ok {
 				force.ForceStop()
 			}
@@ -777,7 +782,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			return
 		}
 		if req.EphemeralSession && req.SessionID == "" {
-			deleteCtx, cancelDelete := cleanupContext(sendCtx, 30*time.Second)
+			deleteCtx, cancelDelete := cleanupContext(cleanupParent, 30*time.Second)
 			defer cancelDelete()
 			if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
 				if op := operationFrom(ctx); op != nil {
@@ -1201,12 +1206,13 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 }
 
 func cleanupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if parent.Err() != nil && timeout > 2*sendCancellationGrace {
-		timeout = 2 * sendCancellationGrace
+	grace := sendCancellationGrace
+	if parent.Err() != nil && timeout > 2*grace {
+		timeout = 2 * grace
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
 	stopParent := context.AfterFunc(parent, func() {
-		timer := time.NewTimer(sendCancellationGrace)
+		timer := time.NewTimer(grace)
 		defer timer.Stop()
 		select {
 		case <-timer.C:
