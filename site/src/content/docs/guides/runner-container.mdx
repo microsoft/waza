@@ -224,7 +224,7 @@ After a separately authorized publisher run, confirm the package is actually
 public in GHCR; the first push may create a private package. Then run the
 manual-only **Verify Published Runner Reference** workflow with the source
 revision and `sha256:...` digest from the publisher summary. Its isolated
-provenance job has `contents: read` and `attestations: read`; the production
+provenance job has `contents: read`, `attestations: read` and `actions: read`; the production
 container-test job has only `contents: read`. Neither has package permission or
 logs in to GHCR. It uses a fresh, empty Docker configuration for an anonymous
 pull, so a private package fails the gate rather than silently using credentials.
@@ -234,7 +234,10 @@ source revision must still be reachable from current `main`. On a native Linux
 AMD64 runner, it checks that the immutable registry reference resolves to the
 expected source/revision labels and only the claimed runtime
 platform, and verifies the signed provenance for that digest and publisher
-workflow. It then runs the production CLI's mock exact-unit profile and the
+workflow. It also checks the exact publisher run and attempt recorded in the
+verified provenance and requires successful publication/finalization steps.
+A signed digest left by a failed, cancelled or incomplete publisher is rejected.
+It then runs the production CLI's mock exact-unit profile and the
 actual bundled Copilot CLI against an in-container synthetic provider, with
 network isolation and all six native lifecycle/discovery controls. The probe
 binaries and fixture come from the validated source checkout and are mounted

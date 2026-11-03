@@ -80,7 +80,8 @@ After an authorized push, an operator with package-admin authority must verify
 the package's actual visibility and make it public if required. Then run the
 manual-only `.github/workflows/verify-runner-reference.yml` workflow with the
 source revision and immutable digest from the publisher summary. Its verifier
-has an isolated provenance job with `contents: read` and `attestations: read`;
+has an isolated provenance job with `contents: read`, `attestations: read` and
+`actions: read`;
 the production container-test job has only `contents: read`. Neither has
 package permission. The test job creates an empty Docker configuration, strips
 auth environment variables and pulls
@@ -88,7 +89,11 @@ auth environment variables and pulls
 requires dispatch from the current `main` tip and the image source revision to
 be reachable from current `main`, checks the
 pulled image's source/revision labels and `linux/amd64` platform, and verifies
-the signed provenance for the exact digest and publisher workflow.
+the signed provenance for the exact digest and publisher workflow. The signed
+invocation identifies the exact publisher run and attempt: the verifier requires
+that attempt and its publication/finalization steps to have succeeded. A valid
+attestation left by a failed, cancelled or incomplete publisher is not accepted,
+even if a later attempt or a different run succeeds for the same source.
 
 The verifier then runs the mock exact-unit caller and all six bundled-native
 synthetic-provider controls against that same digest on a native Linux AMD64

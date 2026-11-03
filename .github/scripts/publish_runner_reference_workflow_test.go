@@ -282,7 +282,8 @@ func TestRunnerReferenceVerifierIsManualAnonymousAndUsesPublishedDigest(t *testi
 	attestationJob, ok := workflow.Jobs["validate-public-digest"]
 	if !ok || attestationJob.TimeoutMinutes <= 0 || attestationJob.RunsOn != "ubuntu-24.04" ||
 		attestationJob.Permissions["contents"] != "read" || attestationJob.Permissions["attestations"] != "read" ||
-		attestationJob.Permissions["packages"] != "" || len(attestationJob.Permissions) != 2 {
+		attestationJob.Permissions["actions"] != "read" ||
+		attestationJob.Permissions["packages"] != "" || len(attestationJob.Permissions) != 3 {
 		t.Fatalf("provenance job must be bounded and read-only, with no package credentials: %#v", attestationJob)
 	}
 	job, ok := workflow.Jobs["verify-public-image"]
@@ -333,8 +334,17 @@ func TestRunnerReferenceVerifierIsManualAnonymousAndUsesPublishedDigest(t *testi
 	if attestation == nil || attestation.Env["GH_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" ||
 		!strings.Contains(attestation.Run, "gh attestation verify") ||
 		!strings.Contains(attestation.Run, "--source-digest \"$SOURCE_REVISION\"") ||
+		!strings.Contains(attestation.Run, "--signer-digest \"$SOURCE_REVISION\"") ||
+		!strings.Contains(attestation.Run, `--format json > "$RUNNER_TEMP/verified-runner-provenance.json"`) ||
 		!strings.Contains(attestation.Run, "--signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml") {
 		t.Fatalf("verifier must validate the exact source-bound publisher attestation: %#v", attestation)
+	}
+	finalization := findStep(attestationJob.Steps, "Require successful publisher run and finalization")
+	if finalization == nil || finalization.Env["GH_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" ||
+		finalization.Env["SOURCE_SHA"] != "${{ steps.guard.outputs.source_sha }}" ||
+		finalization.Env["IMAGE_DIGEST"] != "${{ steps.guard.outputs.image_digest }}" ||
+		finalization.Run != `go run ./.github/scripts/verify-runner-reference-guard --finalized-publication "$RUNNER_TEMP/verified-runner-provenance.json"` {
+		t.Fatalf("verifier must bind the verified digest to its successful publisher attempt: %#v", finalization)
 	}
 	callers := findStep(job.Steps, "Verify anonymous immutable digest and production callers")
 	if callers == nil || callers.Env["GH_TOKEN"] != "" || callers.Env["GITHUB_TOKEN"] != "" {

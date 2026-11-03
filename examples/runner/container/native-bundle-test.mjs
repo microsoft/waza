@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { runNamedContainer } from './native-lifecycle.mjs';
+import { bindMountArgs, runNamedContainer } from './native-lifecycle.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const mockFixture = JSON.parse(readFileSync(join(root, 'examples/runner/unit.json'), 'utf8'));
@@ -128,7 +128,7 @@ test('native reference supports mock and actual bundled Copilot execution offlin
       '--cap-drop=ALL', '--security-opt=no-new-privileges', '--pids-limit=128',
       '--memory=2g', '--cpus=1',
       '--tmpfs', '/tmp:rw,exec,nosuid,nodev,size=1g,mode=1777',
-      '--mount', `type=bind,source=${evidence},target=/evidence`,
+      ...bindMountArgs([['/evidence', evidence, true]]),
       native.Id,
     ], {}, (result, container) => {
       assertRuntimeContainer(container, evidence);

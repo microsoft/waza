@@ -82,6 +82,12 @@ func isAncestor(revision, main string) (bool, error) {
 }
 
 func run() error {
+	if len(os.Args) > 1 {
+		if len(os.Args) != 3 || os.Args[1] != "--finalized-publication" {
+			return errors.New("expected --finalized-publication followed by the verified provenance JSON path")
+		}
+		return runPublication(os.Args[2], os.Getenv("SOURCE_SHA"), os.Getenv("IMAGE_DIGEST"), githubAPI)
+	}
 	candidate := verificationContext{
 		EventName:   os.Getenv("EVENT_NAME"),
 		Repository:  os.Getenv("REPOSITORY"),

@@ -23,6 +23,7 @@ jobs:
     permissions:
       contents: read
       attestations: read
+      actions: read
     outputs:
       source_sha: ${{ steps.guard.outputs.source_sha }}
       image_digest: ${{ steps.guard.outputs.image_digest }}
@@ -61,8 +62,16 @@ jobs:
           gh attestation verify "oci://ghcr.io/microsoft/waza-runner-reference@$IMAGE_DIGEST" \
             --repo microsoft/waza \
             --signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml \
+            --signer-digest "$SOURCE_REVISION" \
             --source-digest "$SOURCE_REVISION" \
-            --source-ref refs/heads/main
+            --source-ref refs/heads/main \
+            --format json > "$RUNNER_TEMP/verified-runner-provenance.json"
+      - name: Require successful publisher run and finalization
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ steps.guard.outputs.source_sha }}
+          IMAGE_DIGEST: ${{ steps.guard.outputs.image_digest }}
+        run: go run ./.github/scripts/verify-runner-reference-guard --finalized-publication "$RUNNER_TEMP/verified-runner-provenance.json"
 
   verify-public-image:
     name: Verify anonymous Linux AMD64 digest

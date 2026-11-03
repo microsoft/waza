@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { runNamedContainer } from './native-lifecycle.mjs';
+import { bindMountArgs, runNamedContainer } from './native-lifecycle.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const repository = 'ghcr.io/microsoft/waza-runner-reference';
@@ -159,9 +159,7 @@ test('public immutable runner digest supports mock and bundled native execution'
       '--cap-drop=ALL', '--security-opt=no-new-privileges', '--pids-limit=128',
       '--memory=2g', '--cpus=1',
       '--tmpfs', '/tmp:rw,exec,nosuid,nodev,size=1g,mode=1777',
-      ...helperMounts.flatMap(([destination, source]) => [
-        '--mount', `type=bind,source=${source},target=${destination},readonly`,
-      ]),
+      ...bindMountArgs(helperMounts),
       '--entrypoint', '/native-bundle-probe', '-i', imageReference,
     ], { env: dockerEnv }, (result, container) => {
       assertRuntimeContainer(container, helperMounts);
