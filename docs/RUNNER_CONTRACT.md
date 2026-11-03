@@ -100,6 +100,24 @@ reproduce or attest execution of ambient hooks.
 Diagnostic failures, including incomplete usage and cleanup failures, propagate
 to terminal failure instead of becoming successful partial evidence. The
 terminal summary still does not export billing.
+If final usage is unavailable after disconnect, isolated runner sessions do not
+resume solely for shutdown-usage retrieval: that SDK fallback uses unrestricted
+defaults. Missing usage remains explicit and fails terminalization rather than
+being invented as zero. Ordinary execution retains its existing fallback.
+
+Paid native HTTP execution is local-only: the immediate peer must be a loopback
+IP, `Host` must be `localhost` or a literal loopback IP, and any browser `Origin`
+must exactly match that request's HTTP(S) scheme and authority. Cross-site or
+same-site (but not same-origin) Fetch Metadata is rejected. Untrusted forwarded
+headers cannot authorize execution. Rejection returns HTTP 403 with a
+`native_http_denied` terminal diagnostic, zero engine calls and no identity or
+observation, before constructing a runtime. Offline validation/negotiation,
+remote mock execution and existing remote read/static serving remain unchanged.
+Use local `waza runner run` for native execution outside this HTTP boundary.
+This is local-process trust, not authentication of OS-local users. Do not expose
+the paid endpoint through a reverse proxy that rewrites remote peer, Host or
+Origin into trusted local values; no proxy or remote-user authorization is
+provided. `allow_paid_execution` is request consent, not server-owner authorization.
 
 Request cancellation and the effective task/eval execution deadline interrupt
 the private SDK transport with `ForceStop`; the separate five-second shutdown
@@ -122,9 +140,15 @@ Both exact-unit profiles accept eval `metrics` as **uncomputed, identity-bound
 metadata**. Nonempty declarations are validated offline against the canonical
 eval schema's metric definition, before numeric decoding can round a threshold.
 Numbers must be finite and must not underflow the native numeric range.
-Malformed, null, wrong-type or out-of-range declarations reject before runtime
-construction. Existing omitted and empty arrays remain accepted; the canonical
-schema-valid Copilot example supplies a nonempty declaration.
+Malformed, wrong-type or out-of-range nonempty declarations reject before
+runtime construction. For historical compatibility, explicit `metrics: null`
+decodes as nil, like an omitted field, in the shared captured reader used by
+mock execution and native snapshot reconstruction; exact-unit Copilot admission
+still rejects explicit null. Existing empty arrays also remain accepted. The
+local compatibility adapter independently rejects an explicit `metrics` field,
+including null, rather than dropping unsupported metadata. This captured-reader
+compatibility does not relax strict canonical eval-schema admission, which still
+requires a nonempty metrics array.
 
 Terminal `success` describes only the selected graded attempt. No aggregate
 metric values, metric-threshold decisions or whole-evaluation success are

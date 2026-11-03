@@ -135,6 +135,9 @@ func resolve(req *runnercontract.Request) (*admitted, error) {
 	if err != nil {
 		return nil, fmt.Errorf("captured eval: %w", err)
 	}
+	if copilotProfile && spec.CapturedMetricsExplicitNull() {
+		return nil, fmt.Errorf("inline.copilot-text does not accept explicit metrics: null; omit the field or provide an array")
+	}
 	task, err := models.ParseCapturedTestCaseOffline([]byte(req.Input.Task), "task.yaml", func(string) ([]byte, error) {
 		return nil, fmt.Errorf("%s requires inputs.prompt; prompt_file cannot read host files", profile)
 	})

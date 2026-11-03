@@ -16,6 +16,97 @@ type runnerTextTransport struct {
 	interrupted bool
 }
 
+func TestRunnerTextUsageFallbackTransport(t *testing.T) {
+	for _, restricted := range []bool{false, true} {
+		for _, missing := range []bool{false, true} {
+			for _, diagnostic := range []bool{false, true} {
+				t.Run(fmt.Sprintf("restricted=%t/missing=%t/diagnostic=%t", restricted, missing, diagnostic), func(t *testing.T) {
+					server, address := newDiagnosticRPCServer(t, func(s *diagnosticRPCServer, req diagnosticRPCRequest) {
+						switch req.Method {
+						case "session.options.update":
+							s.respond(req, map[string]any{}, false)
+						case "session.send":
+							s.respond(req, map[string]any{"messageId": "offline-message"}, false)
+							s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "hello"}})
+							s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.SessionIdleData{}})
+						case "session.usage.getMetrics":
+							if missing {
+								s.respond(req, nil, true)
+							} else {
+								s.common(req)
+							}
+						case "session.shutdown":
+							s.respond(req, map[string]any{}, false)
+						case "session.getMessages":
+							s.respond(req, map[string]any{"events": []copilot.SessionEvent{{Data: &copilot.SessionShutdownData{
+								TotalNanoAiu: new(0.0), TotalPremiumRequests: new(0.0),
+								ModelMetrics: map[string]copilot.ShutdownModelMetric{"observed-model": {
+									TotalNanoAiu: new(0.0),
+									Requests:     copilot.ShutdownModelMetricRequests{Count: new(int64), Cost: new(0.0)},
+								}},
+							}}}}, false)
+						default:
+							s.common(req)
+						}
+					})
+					var observer func(ExecutionDiagnostic) error
+					if diagnostic {
+						observer = func(ExecutionDiagnostic) error { return nil }
+					}
+					engine := NewCopilotEngineBuilder("fixed-model", &CopilotEngineBuilderOptions{
+						NewCopilotClient: func(options *copilot.ClientOptions) CopilotClient {
+							options.Connection = copilot.URIConnection{URL: address}
+							return NewOwnedCopilotClient(options)
+						},
+						DisableCommandMocks: true, DisableAmbientDiscovery: restricted,
+						DiagnosticObserver: observer,
+					}).Build()
+					engine.provider = customProviderConfig{}
+					ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+					defer cancel()
+					t.Cleanup(engine.ForceStopRunnerText)
+					require.NoError(t, engine.Initialize(ctx))
+					response, err := engine.Execute(ctx, &ExecutionRequest{
+						Message: "hello", NoSkills: true, WorkspaceDir: t.TempDir(),
+					})
+					require.NotNil(t, response)
+					require.Equal(t, "hello", response.FinalOutput)
+					if missing && diagnostic {
+						require.ErrorContains(t, err, "usage_missing_or_partial")
+					} else {
+						require.NoError(t, err)
+					}
+					shutdownErr := engine.Shutdown(ctx)
+					if restricted && missing {
+						if diagnostic {
+							require.ErrorContains(t, shutdownErr, "shutdown_usage/usage_missing_or_partial")
+						} else {
+							require.NoError(t, shutdownErr)
+						}
+						require.Nil(t, engine.SessionUsage(response.SessionID), "unavailable billing must not become recorded zero")
+						require.False(t, engine.SessionUsageObservation(response.SessionID).Complete)
+					} else {
+						require.NoError(t, shutdownErr)
+						require.NotNil(t, engine.SessionUsage(response.SessionID))
+						require.Equal(t, 0.0, *engine.SessionUsage(response.SessionID).AICredits)
+						require.True(t, engine.SessionUsageObservation(response.SessionID).Complete)
+					}
+					expectedResume := 0
+					if missing && !restricted {
+						expectedResume = 1
+					}
+					require.Equal(t, expectedResume, server.count("session.resume", ""))
+					require.Equal(t, expectedResume, server.count("session.shutdown", ""))
+					require.Equal(t, expectedResume, server.count("session.getMessages", ""))
+					require.Equal(t, 1, server.count("session.create", ""))
+					require.Equal(t, 1, server.count("session.send", ""))
+					require.Equal(t, 1, server.count("session.delete", ""))
+				})
+			}
+		}
+	}
+}
+
 func TestRunnerTextDiscoveryTransport(t *testing.T) {
 	for _, control := range []string{"ordinary", "restricted", "update-failure"} {
 		for _, resume := range []bool{false, true} {

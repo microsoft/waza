@@ -57,6 +57,24 @@ func TestLocalServiceUsesOneAdmittedMockAndHistoricalAggregation(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist, "service must finish cleanup before publication")
 }
 
+func TestLocalServiceRunsHistoricalNullMetricsThroughExactMockPath(t *testing.T) {
+	request, err := runnercontract.Parse(localRequest(t))
+	require.NoError(t, err)
+	request.Input.Eval += "\nmetrics: null\n"
+	constructed := 0
+	service := NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+		constructed++
+		return execution.NewMockEngine(cfg.ModelID), nil
+	})
+	outcome, err := service.RunLocal(t.Context(), wire(t, *request))
+	require.NoError(t, err)
+	require.Equal(t, 1, constructed)
+	require.Len(t, outcome.TestOutcomes, 1)
+	require.Equal(t, models.StatusPassed, outcome.TestOutcomes[0].Runs[0].Status)
+	require.Nil(t, outcome.TestOutcomes[0].Runs[0].SessionDigest.Usage)
+	require.Nil(t, outcome.Digest.Usage, "historical nil metrics must not fabricate usage evidence")
+}
+
 func TestLocalServiceRejectsUncomputedMetricsBeforeRuntime(t *testing.T) {
 	request, err := runnercontract.Parse(localRequest(t))
 	require.NoError(t, err)

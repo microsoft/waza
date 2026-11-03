@@ -146,12 +146,20 @@ metadata**. A successful terminal result reports only the selected attempt:
 it does not report aggregate metric values, metric-threshold decisions or
 whole-evaluation success. Nonempty declarations are validated offline against
 the canonical eval schema's metric definition using original numeric values;
-malformed, null, wrong-type and out-of-range values reject before runtime
-construction. Numeric values must be finite and must not underflow the native
-numeric range. Existing omitted/empty arrays remain accepted. The public
-Copilot example includes a nonempty schema-valid declaration; changing it
-changes identity, not the attempt-only execution scope. The local compatibility
-adapter still rejects nonempty metrics rather than projecting aggregate claims.
+malformed, wrong-type and out-of-range nonempty declarations reject before
+runtime construction. For historical compatibility, explicit `metrics: null`
+decodes as nil, like an omitted field, in the shared captured reader used by
+mock execution and native snapshot reconstruction; exact-unit Copilot admission
+still rejects explicit null. Existing empty arrays also remain accepted.
+Numeric values must be finite and must not underflow the native numeric range.
+The local compatibility adapter independently rejects an explicit `metrics`
+field, including null, rather than dropping unsupported metadata. This
+captured-reader compatibility does not relax strict canonical eval-schema
+admission, which still requires a nonempty metrics array.
+The public Copilot example includes a nonempty schema-valid declaration;
+changing it changes identity, not the attempt-only execution scope. The local
+compatibility adapter still rejects nonempty metrics rather than projecting
+aggregate claims.
 
 Offline validation returns **`waza.runner-unit`**, an invocation-local selection
 receipt. Execution now returns [**`waza.runner-terminal`**](../runner-terminal/),
@@ -262,7 +270,7 @@ curl --silent --show-error \
   Use `--data-binary @examples/runner/unit.json` and the `/validate` or `/run`
   route for the same complete request used by the CLI.
 
-A complete JSON request returns HTTP 200; inspect negotiation/validation `status`
+A complete admitted JSON request returns HTTP 200; inspect negotiation/validation `status`
 or run `outcome`/`exit_code` rather than treating
 transport success as compatibility. Missing/non-JSON media type returns 415.
 Negotiation/validation oversized or failed uploads return 400.
@@ -279,7 +287,29 @@ retain keep-alive, including admitted terminal failures. Middleware must preserv
 response-controller read-deadline support; inability to install the deadline
 fails closed with HTTP 500. Transport failures are not evaluation verdicts.
 The API reads no host input paths and stores no runner receipts. It retains the existing
-loopback server; no cloud authentication, scheduler or worker registry is added.
+server; no cloud authentication, scheduler or worker registry is added.
+
+**Paid native HTTP execution is local-only.** The immediate peer must be a
+loopback IP and `Host` must be `localhost` or a literal loopback IP. A supplied
+browser `Origin` must exactly match the request's HTTP(S) scheme and authority;
+cross-site and same-site (not same-origin) Fetch Metadata are rejected. Forwarded
+headers are not trusted. Rejected requests return HTTP 403 and a
+`native_http_denied` terminal diagnostic with zero engine calls and no execution
+identity or observation, before runtime construction. DNS Host aliases are not
+resolved or admitted, including aliases that resolve to loopback.
+
+Offline validation/negotiation, remote mock execution and existing remote
+read/static serving retain their previous behavior. Use local `waza runner run`
+for native execution outside this HTTP boundary. This policy trusts local
+processes, not individual OS users, and adds no remote-user authentication.
+Do not expose the paid endpoint through a reverse proxy that rewrites remote
+peer, Host or Origin into trusted local values. `allow_paid_execution` is request
+consent, not server-owner authorization.
+
+If final usage is unavailable after disconnect, isolated runner sessions do not
+resume solely to retrieve shutdown usage, because that SDK fallback uses
+unrestricted defaults. Missing usage remains explicit and fails terminalization,
+not recorded zero. Ordinary execution retains its existing fallback.
 
 ## Schemas and presence
 
