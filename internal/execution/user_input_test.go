@@ -543,3 +543,37 @@ func TestUserInputScriptDrainEndsStuckResponderAsError(t *testing.T) {
 	require.Error(t, <-callback, "the late answer is not delivered after the request was ended")
 	require.Nil(t, script.Records()[0].Answer, "a late answer must not overwrite the ended request")
 }
+
+func TestUserInputScriptRejectsResponderReplyAfterTurnEnded(t *testing.T) {
+	for name, end := range map[string]func(release, cancel func()){
+		"released": func(release, _ func()) { release() },
+		"canceled": func(_, cancel func()) { cancel() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			script := newTestScript(t, nil)
+			started, answer := make(chan struct{}), make(chan struct{})
+			script.SetFallback(func(context.Context, copilot.UserInputRequest) (string, error) {
+				close(started)
+				<-answer
+				return "late", nil
+			})
+			turnCtx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			release := script.BindTurn(turnCtx)
+			defer release()
+			done := make(chan error, 1)
+			go func() {
+				_, err := script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
+				done <- err
+			}()
+			<-started
+			end(release, cancel)
+			close(answer)
+			require.ErrorContains(t, <-done, "the asking agent turn ended before the responder answered")
+			record := script.Records()[0]
+			require.Nil(t, record.Answer, "a reply after the turn ended must not be recorded as an answer")
+			require.Contains(t, record.Error, "turn ended before the responder answered")
+			require.ErrorContains(t, script.Finish(), "turn ended before the responder answered")
+		})
+	}
+}

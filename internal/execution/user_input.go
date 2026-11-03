@@ -146,6 +146,13 @@ func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation co
 		if err != nil {
 			return s.reject(index, fmt.Sprintf("responder could not answer: %v", err))
 		}
+		// The asking turn must still be active to accept the reply.
+		if s.turnCtx != ctx {
+			return s.reject(index, "the asking agent turn ended before the responder answered")
+		}
+		if err := ctx.Err(); err != nil {
+			return s.reject(index, fmt.Sprintf("the asking agent turn ended before the responder answered: %v", err))
+		}
 		answer = reply
 	case s.next < len(s.responses):
 		return s.reject(index, fmt.Sprintf("question does not match user_input_responses[%d].question", s.next))
