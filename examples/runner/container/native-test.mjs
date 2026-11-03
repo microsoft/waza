@@ -161,7 +161,7 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
           if (mode === 'options-failure') Object.assign(expected, {
             'session.detach': 1, 'runtime.shutdown': 1,
           });
-          else expected['session.send'] = 1;
+          else Object.assign(expected, { 'session.sendAndWait': 1, 'session.send': 1 });
           if (mode !== 'timeout' && mode !== 'options-failure') Object.assign(expected, {
             'session.usage.getMetrics': 1, 'session.detach': 1, 'session.delete': 1, 'runtime.shutdown': 1,
           });
