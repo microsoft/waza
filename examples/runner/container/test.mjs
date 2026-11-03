@@ -39,6 +39,7 @@ test('real image: public CLI, exact selection, local I/O and negative controls',
     const config = inspected.Config;
     assert.equal(inspected.Os, 'linux');
     assert.ok(['amd64', 'arm64'].includes(inspected.Architecture));
+    assert.equal(config.Labels?.['org.opencontainers.image.source'], 'https://github.com/microsoft/waza');
     assert.equal(config.User, '65532:65532');
     assert.deepEqual(config.Entrypoint, ['/waza']);
     console.log(`Tested local image ID: ${image}; image: ${inspected.Os}/${inspected.Architecture}; host: ${process.platform}/${process.arch}`);

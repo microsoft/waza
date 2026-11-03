@@ -72,6 +72,7 @@ test('native reference supports mock and actual bundled Copilot execution offlin
     assert.equal(reference.Os, 'linux');
     assert.equal(reference.Architecture, daemonArchitecture,
       'image architecture must match the Docker daemon; cross-architecture emulation is not native evidence');
+    assert.equal(reference.Config.Labels?.['org.opencontainers.image.source'], 'https://github.com/microsoft/waza');
     assert.equal(reference.Config.User, '65532:65532');
     assert.deepEqual(reference.Config.Entrypoint, ['/waza']);
     assert.ok(reference.Config.Env.includes('HOME=/home/waza'));

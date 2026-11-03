@@ -44,6 +44,7 @@ ENTRYPOINT ["/waza"]
 CMD ["runner", "capabilities"]
 
 FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS native-reference
+LABEL org.opencontainers.image.source="https://github.com/microsoft/waza"
 RUN apt-get update \
     && apt-get install --no-install-recommends -y bash ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
@@ -65,6 +66,7 @@ COPY examples/runner/copilot-unit.json /input/copilot-unit.json
 ENTRYPOINT ["/native-bundle-probe"]
 
 FROM scratch AS reference
+LABEL org.opencontainers.image.source="https://github.com/microsoft/waza"
 COPY --from=build /waza /waza
 USER 65532:65532
 WORKDIR /
