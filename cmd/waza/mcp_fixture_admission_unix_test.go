@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -80,12 +81,22 @@ hooks:
 				cmd.SetErr(io.Discard)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
-				done := make(chan error, 1)
-				go func() { done <- cmd.ExecuteContext(ctx) }()
-				var runErr error
+				type fixtureResult struct {
+					runErr    error
+					source    *mcpmock.SourceConfig
+					sourceErr error
+				}
+				done := make(chan fixtureResult, 1)
+				go func() {
+					runErr := cmd.ExecuteContext(ctx)
+					source, sourceErr := mcpmock.FromEvalConfigWithSources(
+						models.MCPMockConfig{Name: "host", Fixtures: fixtures}, dir, nil, "1.1")
+					done <- fixtureResult{runErr, source, sourceErr}
+				}()
+				var result fixtureResult
 				blocked := false
 				select {
-				case runErr = <-done:
+				case result = <-done:
 				case <-time.After(5 * time.Second):
 					cancel()
 					if !fifo {
@@ -95,16 +106,20 @@ hooks:
 					fd, err := unix.Open(target, unix.O_RDWR|unix.O_NONBLOCK, 0)
 					require.NoError(t, err)
 					require.NoError(t, unix.Close(fd))
-					runErr = <-done
+					result = <-done
 					blocked = true
 				}
 				require.False(t, blocked, "fixture admission waited for a FIFO writer instead of rejecting the opened special file")
 				if fifo {
-					require.ErrorContains(t, runErr, "regular")
-					require.ErrorContains(t, runErr, "ask_user.json")
+					require.ErrorContains(t, result.runErr, "regular")
+					require.ErrorContains(t, result.runErr, "ask_user.json")
+					require.ErrorContains(t, result.sourceErr, "regular")
+					require.ErrorContains(t, result.sourceErr, "ask_user.json")
 					require.Zero(t, constructions)
 				} else {
-					require.ErrorContains(t, runErr, "task admission startup sentinel")
+					require.ErrorContains(t, result.runErr, "task admission startup sentinel")
+					require.NoError(t, result.sourceErr)
+					require.Equal(t, map[string]any{"answer": "ready"}, result.source.Config.Tools["ask_user"].Responses[0].Return)
 					require.Equal(t, 1, constructions)
 				}
 				require.NoFileExists(t, output)

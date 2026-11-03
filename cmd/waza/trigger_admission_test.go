@@ -103,6 +103,87 @@ type triggerConfigCapture struct {
 	readErrs []error
 }
 
+func TestRunCommandTriggerFixtureInputSchemaAdmittedBeforeExecution(t *testing.T) {
+	for _, kind := range []string{"invalid", "valid", "null", "omitted", "overridden", "unused"} {
+		t.Run(kind, func(t *testing.T) {
+			resetRunGlobals()
+			dir := t.TempDir()
+			fixtures := filepath.Join(dir, "fixtures")
+			require.NoError(t, os.Mkdir(fixtures, 0o700))
+			tool := map[string]any{"responses": []any{map[string]any{"return": map[string]any{"answer": "eval"}}}}
+			switch kind {
+			case "invalid", "overridden", "unused":
+				tool["input_schema"] = map[string]any{"type": 42}
+			case "valid":
+				tool["input_schema"] = map[string]any{"type": "object"}
+			case "null":
+				tool["input_schema"] = nil
+			}
+			fixture, err := json.Marshal(tool)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(fixtures, "ask_user.json"), fixture, 0o600))
+			eval := `schemaVersion: "1.1"
+name: trigger-fixture-schema
+skill: example
+config: {executor: copilot-sdk, model: test, trials_per_task: 1, timeout_seconds: 10}
+metrics: []
+tasks: [task.yaml]
+mcp_mocks:
+  - name: host
+    fixtures: fixtures
+`
+			if kind == "overridden" {
+				eval += "    tools:\n      ask_user:\n        responses: [{return: {answer: eval}}]\n"
+			}
+			spec, output := filepath.Join(dir, "eval.yaml"), filepath.Join(dir, "results.json")
+			require.NoError(t, os.WriteFile(spec, []byte(eval), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(triggerAdmissionTask), 0o600))
+			if kind != "unused" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "trigger_tests.yaml"), []byte(admissionTrigger), 0o600))
+			}
+			previous := newRunEngine
+			t.Cleanup(func() { newRunEngine = previous })
+			engine := &triggerConfigCapture{MockEngine: execution.NewMockEngine("test")}
+			constructions := 0
+			newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+				constructions++
+				return engine, nil
+			}
+			cmd := newRunCommand()
+			cmd.SetArgs([]string{spec, "--context-dir", dir, "--output", output, "--no-skills", "--skip-graders"})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err = cmd.Execute()
+			if kind == "invalid" {
+				require.ErrorContains(t, err, "input schema")
+				require.ErrorContains(t, err, "ask_user")
+				require.Zero(t, constructions)
+				require.Empty(t, engine.prompts, "invalid trigger fixtures must fail before any task execution")
+				require.NoFileExists(t, output)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, 1, constructions)
+			for _, readErr := range engine.readErrs {
+				require.NoError(t, readErr)
+			}
+			expected := []string{"task", "eval"}
+			if kind == "unused" {
+				expected = []string{"task"}
+			}
+			require.Equal(t, expected, engine.answers)
+			data, err := os.ReadFile(output)
+			require.NoError(t, err)
+			var outcome models.EvaluationOutcome
+			require.NoError(t, json.Unmarshal(data, &outcome))
+			if kind != "unused" {
+				require.Len(t, outcome.TriggerResults, 1)
+				require.Equal(t, "trigger probe", outcome.TriggerResults[0].Prompt)
+			}
+		})
+	}
+}
+
 func (e *triggerConfigCapture) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	cfg, ok := req.MCPServers["host"].(copilot.MCPStdioServerConfig)
 	if !ok || len(cfg.Args) == 0 {

@@ -73,17 +73,35 @@ func ValidateEvalMocks(mocks []models.MCPMockConfig, baseDir, version string) er
 func validateMockAdmission(mock models.MCPMockConfig, baseDir, version string) error {
 	var errs []error
 	for name, tool := range mock.Tools {
-		if tool.InputSchema == nil {
-			continue
-		}
-		if err := models.ValidateMCPInputSchemaOffline(tool.InputSchema, filepath.Join(baseDir, "mock-input-schema.json")); err != nil {
-			errs = append(errs, fmt.Errorf("mcp mock %q tool %q input schema: %w", mock.Name, name, err))
+		if err := validateMockInputSchema(mock.Name, name, tool.InputSchema, baseDir); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	if _, err := FromEvalConfigWithVersion(mock, baseDir, version); err != nil {
+	cfg, err := FromEvalConfigWithVersion(mock, baseDir, version)
+	if err != nil {
 		errs = append(errs, err)
 	}
+	if cfg != nil {
+		for name, tool := range cfg.Tools {
+			if _, inline := mock.Tools[name]; inline {
+				continue
+			}
+			if err := validateMockInputSchema(mock.Name, name, tool.InputSchema, baseDir); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
 	return errors.Join(errs...)
+}
+
+func validateMockInputSchema(mockName, toolName string, schema any, baseDir string) error {
+	if schema == nil {
+		return nil
+	}
+	if err := models.ValidateMCPInputSchemaOffline(schema, filepath.Join(baseDir, "mock-input-schema.json")); err != nil {
+		return fmt.Errorf("mcp mock %q tool %q input schema: %w", mockName, toolName, err)
+	}
+	return nil
 }
 
 // InlineMockDeclarations returns the inline part of a mock, without its
