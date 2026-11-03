@@ -117,6 +117,7 @@ type EvalRunner struct {
 	evalRunID string
 
 	partialMu       sync.Mutex
+	partialWriteMu  sync.Mutex
 	partialWriter   func(*models.EvaluationOutcome) error
 	partialOutcomes []models.TestOutcome
 	partialStart    time.Time
@@ -1607,9 +1608,12 @@ func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.T
 	if r.partialWriter == nil {
 		return
 	}
+	r.partialWriteMu.Lock()
+	defer r.partialWriteMu.Unlock()
+
 	r.partialMu.Lock()
-	defer r.partialMu.Unlock()
 	if r.partialErr != nil {
+		r.partialMu.Unlock()
 		return
 	}
 
@@ -1617,25 +1621,40 @@ func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.T
 	testOutcomes := make([]models.TestOutcome, 0, len(r.partialOutcomes))
 	for _, outcome := range r.partialOutcomes {
 		if outcome.TestID != "" || outcome.DisplayName != "" {
-			testOutcomes = append(testOutcomes, outcome)
+			testOutcomes = append(testOutcomes, cloneTestOutcomeForPartial(outcome))
 		}
 	}
-	outcome := r.buildOutcome(testOutcomes, r.partialStart, r.partialUsage.Snapshot())
-	execution.UpdateOutcomeUsage(outcome, r.engine)
+	start := r.partialStart
+	usage := r.partialUsage
+	writer := r.partialWriter
+	cancel := r.partialCancel
+	var primary *models.EvaluationOutcome
 	if r.partialPrimary != nil {
-		primary := *r.partialPrimary
-		primary.Metadata = maps.Clone(r.partialPrimary.Metadata)
+		copy := *r.partialPrimary
+		copy.Metadata = maps.Clone(r.partialPrimary.Metadata)
+		primary = &copy
+	}
+	r.partialMu.Unlock()
+
+	outcome := r.buildOutcome(testOutcomes, start, usage.Snapshot())
+	execution.UpdateOutcomeUsage(outcome, r.engine)
+	if primary != nil {
 		primary.IsBaseline = true
 		primary.BaselineOutcome = outcome
-		outcome = &primary
+		outcome = primary
 	}
 	if outcome.Metadata == nil {
 		outcome.Metadata = make(map[string]any)
 	}
 	outcome.Metadata["incomplete"] = true
-	if err := r.partialWriter(outcome); err != nil {
-		r.partialErr = fmt.Errorf("write partial results: %w", err)
-		r.partialCancel(r.partialErr)
+	if err := writer(outcome); err != nil {
+		partialErr := fmt.Errorf("write partial results: %w", err)
+		r.partialMu.Lock()
+		if r.partialErr == nil {
+			r.partialErr = partialErr
+		}
+		r.partialMu.Unlock()
+		cancel(partialErr)
 	}
 }
 

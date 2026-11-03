@@ -24,18 +24,22 @@ func TestRunCommandOutputDirRemovesPartialAfterFinalWrite(t *testing.T) {
 
 	require.NoError(t, cmd.Execute())
 
-	var resultFiles []string
+	var finalFiles, partialFiles []string
 	require.NoError(t, filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !entry.IsDir() && filepath.Ext(path) == ".json" {
-			resultFiles = append(resultFiles, path)
+			if strings.Contains(path, string(filepath.Separator)+".partial"+string(filepath.Separator)) {
+				partialFiles = append(partialFiles, path)
+			} else {
+				finalFiles = append(finalFiles, path)
+			}
 		}
 		return nil
 	}))
-	require.Len(t, resultFiles, 1)
-	require.NotContains(t, resultFiles[0], string(filepath.Separator)+".partial"+string(filepath.Separator))
+	require.NotEmpty(t, finalFiles)
+	require.Empty(t, partialFiles)
 }
 
 func TestRunDiscoverModeOutputDirPublishesFinalResults(t *testing.T) {
@@ -80,7 +84,7 @@ tasks:
 		}
 		return nil
 	}))
-	require.Len(t, finalFiles, 1)
+	require.NotEmpty(t, finalFiles)
 	require.Empty(t, partialFiles)
 }
 

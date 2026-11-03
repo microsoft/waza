@@ -90,13 +90,16 @@ func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
 	oldEngineFactory := newRunEngine
 	oldRunnerFactory := newBenchmarkRunner
 	oldGrace := runEngineShutdownGrace
+	oldTimeout := runEngineShutdownTimeout
 	t.Cleanup(func() {
 		newRunEngine = oldEngineFactory
 		newBenchmarkRunner = oldRunnerFactory
 		runEngineShutdownGrace = oldGrace
+		runEngineShutdownTimeout = oldTimeout
 		resetRunGlobals()
 	})
 	runEngineShutdownGrace = 5 * time.Millisecond
+	runEngineShutdownTimeout = time.Second
 
 	engine := &persistentCancellationEngine{
 		AgentEngine: execution.NewMockEngine("test-model"),
@@ -135,8 +138,13 @@ func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
 
 func TestShutdownRunEngineBoundsCancellationAfterShutdownStarts(t *testing.T) {
 	oldGrace := runEngineShutdownGrace
-	t.Cleanup(func() { runEngineShutdownGrace = oldGrace })
+	oldTimeout := runEngineShutdownTimeout
+	t.Cleanup(func() {
+		runEngineShutdownGrace = oldGrace
+		runEngineShutdownTimeout = oldTimeout
+	})
 	runEngineShutdownGrace = 5 * time.Millisecond
+	runEngineShutdownTimeout = time.Second
 
 	engine := &persistentCancellationEngine{
 		AgentEngine: execution.NewMockEngine("test-model"),
@@ -160,18 +168,47 @@ func TestShutdownRunEngineBoundsCancellationAfterShutdownStarts(t *testing.T) {
 	}
 }
 
+func TestShutdownRunEngineBoundsUncanceledShutdown(t *testing.T) {
+	oldGrace := runEngineShutdownGrace
+	oldTimeout := runEngineShutdownTimeout
+	t.Cleanup(func() {
+		runEngineShutdownGrace = oldGrace
+		runEngineShutdownTimeout = oldTimeout
+	})
+	runEngineShutdownGrace = 5 * time.Millisecond
+	runEngineShutdownTimeout = 5 * time.Millisecond
+
+	engine := &persistentCancellationEngine{
+		AgentEngine: execution.NewMockEngine("test-model"),
+		forced:      make(chan struct{}),
+	}
+	start := time.Now()
+	err := shutdownRunEngine(t.Context(), engine)
+
+	require.ErrorContains(t, err, "engine shutdown exceeded maximum duration")
+	require.Less(t, time.Since(start), 250*time.Millisecond)
+	select {
+	case <-engine.forced:
+	default:
+		t.Fatal("timed-out shutdown did not force-stop the persistent engine")
+	}
+}
+
 func TestRunCommandPropagatesCancellationDuringShutdown(t *testing.T) {
 	resetRunGlobals()
 	oldEngineFactory := newRunEngine
 	oldRunnerFactory := newBenchmarkRunner
 	oldGrace := runEngineShutdownGrace
+	oldTimeout := runEngineShutdownTimeout
 	t.Cleanup(func() {
 		newRunEngine = oldEngineFactory
 		newBenchmarkRunner = oldRunnerFactory
 		runEngineShutdownGrace = oldGrace
+		runEngineShutdownTimeout = oldTimeout
 		resetRunGlobals()
 	})
 	runEngineShutdownGrace = 5 * time.Millisecond
+	runEngineShutdownTimeout = time.Second
 
 	engine := &persistentCancellationEngine{
 		AgentEngine: execution.NewMockEngine("test-model"),

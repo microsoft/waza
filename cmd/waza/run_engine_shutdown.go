@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
 )
 
 var runEngineShutdownGrace = 2 * time.Second
+var runEngineShutdownTimeout = 30 * time.Second
 
 func shutdownRunEngine(parent context.Context, engine execution.AgentEngine) error {
 	shutdownCtx, cancelShutdown := context.WithCancel(context.WithoutCancel(parent))
@@ -19,10 +21,16 @@ func shutdownRunEngine(parent context.Context, engine execution.AgentEngine) err
 		done <- engine.Shutdown(shutdownCtx)
 	}()
 
+	timeout := time.NewTimer(runEngineShutdownTimeout)
+	defer timeout.Stop()
+	var triggerErr error
 	select {
 	case err := <-done:
 		return err
 	case <-parent.Done():
+		triggerErr = parent.Err()
+	case <-timeout.C:
+		triggerErr = errors.New("engine shutdown exceeded maximum duration")
 	}
 	cancelShutdown()
 
@@ -30,7 +38,7 @@ func shutdownRunEngine(parent context.Context, engine execution.AgentEngine) err
 	defer timer.Stop()
 	select {
 	case err := <-done:
-		return errors.Join(parent.Err(), err)
+		return errors.Join(triggerErr, err)
 	case <-timer.C:
 	}
 
@@ -41,8 +49,8 @@ func shutdownRunEngine(parent context.Context, engine execution.AgentEngine) err
 	timer.Reset(runEngineShutdownGrace)
 	select {
 	case err := <-done:
-		return errors.Join(parent.Err(), err)
+		return errors.Join(triggerErr, err)
 	case <-timer.C:
-		return errors.New("engine shutdown exceeded cancellation grace after force stop")
+		return fmt.Errorf("%w; shutdown exceeded grace after force stop", triggerErr)
 	}
 }
