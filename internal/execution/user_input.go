@@ -81,8 +81,8 @@ func (s *UserInputScript) Handler() copilot.UserInputHandler {
 }
 
 // BindTurn makes ctx the context passed to the fallback until the returned
-// release function is called. An engine must bind each agent turn; the
-// fallback rejects questions that arrive outside one.
+// release function is called. An engine must bind each agent turn; questions
+// that arrive outside one, or after it was canceled, are rejected.
 func (s *UserInputScript) BindTurn(ctx context.Context) func() {
 	if s == nil {
 		return func() {}
@@ -119,6 +119,14 @@ func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation co
 		Choices:   slices.Clone(request.Choices),
 	})
 
+	// Answer only while the asking turn is active, whatever the answer source.
+	if s.turnCtx == nil {
+		return s.reject(index, "the question arrived outside an active agent turn")
+	}
+	if err := s.turnCtx.Err(); err != nil {
+		return s.reject(index, fmt.Sprintf("the asking agent turn already ended: %v", err))
+	}
+
 	var answer string
 	switch {
 	case s.next < len(s.responses) && s.matches(s.next, request.Question):
@@ -128,9 +136,6 @@ func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation co
 	case s.fallback != nil:
 		s.records[index].Source = models.UserInputSourceResponder
 		fallback, ctx := s.fallback, s.turnCtx
-		if ctx == nil {
-			return s.reject(index, "the question arrived outside an active agent turn")
-		}
 		s.mu.Unlock()
 		reply, err := fallback(ctx, request)
 		s.mu.Lock()

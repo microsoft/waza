@@ -16,6 +16,35 @@ func strPtr(s string) *string { return &s }
 
 func boolPtr(b bool) *bool { return &b }
 
+// newActiveTestScript returns a script bound to an active agent turn, as the
+// engine binds one around each turn.
+func newActiveTestScript(t *testing.T, responses []models.UserInputResponseConfig) *UserInputScript {
+	t.Helper()
+	script := newTestScript(t, responses)
+	t.Cleanup(script.BindTurn(context.Background()))
+	return script
+}
+
+func TestUserInputScriptScriptedAnswerRequiresActiveTurn(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, bind := range map[string]func(*UserInputScript){
+		"released": func(s *UserInputScript) { s.BindTurn(context.Background())() },
+		"canceled": func(s *UserInputScript) { s.BindTurn(canceled) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			script := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("a")}})
+			bind(script)
+			_, err := script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
+			require.Error(t, err)
+			require.Nil(t, script.Records()[0].Answer)
+			require.NotEmpty(t, script.Records()[0].Error)
+			require.Zero(t, script.next, "an out-of-turn request must not consume the scripted entry")
+			require.ErrorContains(t, script.Finish(), err.Error(), "the out-of-turn request must fail the run")
+		})
+	}
+}
+
 func newTestScript(t *testing.T, responses []models.UserInputResponseConfig) *UserInputScript {
 	t.Helper()
 	script, err := NewUserInputScript(responses)
@@ -24,7 +53,7 @@ func newTestScript(t *testing.T, responses []models.UserInputResponseConfig) *Us
 }
 
 func TestUserInputScriptAnswersInOrder(t *testing.T) {
-	script := newTestScript(t, []models.UserInputResponseConfig{
+	script := newActiveTestScript(t, []models.UserInputResponseConfig{
 		{Question: "Which region\\?", Answer: strPtr("west")},
 		{Answer: strPtr("demo-app")}, // no question: answers whatever is asked next
 	})
@@ -69,7 +98,7 @@ func TestUserInputScriptFailsClosed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			script := newTestScript(t, tc.responses)
+			script := newActiveTestScript(t, tc.responses)
 			resp, err := script.Handler()(tc.request, copilot.UserInputInvocation{SessionID: "s-9"})
 			require.ErrorContains(t, err, tc.reason)
 			require.Equal(t, copilot.UserInputResponse{}, resp, "a rejection must not supply a default answer")
@@ -87,7 +116,7 @@ func TestUserInputScriptFailsClosed(t *testing.T) {
 
 func TestUserInputScriptTypedAnswerAllowedWhenUnspecifiedOrTrue(t *testing.T) {
 	for _, allow := range []*bool{nil, boolPtr(true)} {
-		script := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("")}})
+		script := newActiveTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("")}})
 		resp, err := script.Handler()(copilot.UserInputRequest{Question: "Name?", Choices: []string{"x"}, AllowFreeform: allow}, copilot.UserInputInvocation{})
 		require.NoError(t, err)
 		require.Equal(t, copilot.UserInputResponse{Answer: "", WasFreeform: true}, resp)
@@ -95,7 +124,7 @@ func TestUserInputScriptTypedAnswerAllowedWhenUnspecifiedOrTrue(t *testing.T) {
 }
 
 func TestUserInputScriptPreservesOfferedChoicesPresence(t *testing.T) {
-	script := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("a")}, {Answer: strPtr("b")}})
+	script := newActiveTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("a")}, {Answer: strPtr("b")}})
 	_, err := script.Handler()(copilot.UserInputRequest{Question: "Q", Choices: []string{}}, copilot.UserInputInvocation{})
 	require.NoError(t, err)
 	_, err = script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
@@ -109,7 +138,7 @@ func TestUserInputScriptPreservesOfferedChoicesPresence(t *testing.T) {
 func TestUserInputScriptReportsUnusedAnswers(t *testing.T) {
 	unasked := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("1")}, {Answer: strPtr("2")}})
 	require.ErrorContains(t, unasked.Finish(), "2 scripted answer(s) were not used, starting at user_input_responses[0]")
-	script := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("1")}, {Answer: strPtr("2")}})
+	script := newActiveTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("1")}, {Answer: strPtr("2")}})
 	_, err := script.Handler()(copilot.UserInputRequest{Question: "A"}, copilot.UserInputInvocation{})
 	require.NoError(t, err)
 	require.ErrorContains(t, script.Finish(), "1 scripted answer(s) were not used, starting at user_input_responses[1]")
