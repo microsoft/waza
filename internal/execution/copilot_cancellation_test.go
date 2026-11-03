@@ -79,6 +79,72 @@ func TestSendAndWaitBoundedAbandonsSessionAfterForceStopGrace(t *testing.T) {
 	require.True(t, retire)
 }
 
+func TestSharedEngineCancellationDoesNotForceStopSiblingSession(t *testing.T) {
+	oldGrace := sendCancellationGrace
+	sendCancellationGrace = 5 * time.Millisecond
+	t.Cleanup(func() { sendCancellationGrace = oldGrace })
+
+	ctrl := gomock.NewController(t)
+	blockedSession := NewMockCopilotSession(ctrl)
+	healthySession := NewMockCopilotSession(ctrl)
+	blockedStarted := make(chan struct{})
+	healthyStarted := make(chan struct{})
+	releaseBlocked := make(chan struct{})
+	releaseHealthy := make(chan struct{})
+	t.Cleanup(func() { close(releaseBlocked) })
+	blockedSession.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			close(blockedStarted)
+			<-releaseBlocked
+			return nil, context.Canceled
+		},
+	)
+	healthySession.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			close(healthyStarted)
+			<-releaseHealthy
+			return &copilot.SessionEvent{}, nil
+		},
+	)
+	forced := make(chan struct{}, 1)
+	engine := &CopilotEngine{
+		client: &forceStopTestClient{forceStop: func() { forced <- struct{}{} }},
+	}
+
+	healthyDone := make(chan error, 1)
+	go func() {
+		_, _, _, err := sendAndWaitBounded(context.Background(), healthySession, copilot.MessageOptions{}, engine.forceStopTransport)
+		healthyDone <- err
+	}()
+	<-healthyStarted
+
+	ctx, cancel := context.WithCancel(t.Context())
+	type boundedResult struct {
+		abandoned bool
+		retire    bool
+		err       error
+	}
+	blockedDone := make(chan boundedResult, 1)
+	go func() {
+		_, abandoned, retire, err := sendAndWaitBounded(ctx, blockedSession, copilot.MessageOptions{}, engine.forceStopTransport)
+		blockedDone <- boundedResult{abandoned: abandoned, retire: retire, err: err}
+	}()
+	<-blockedStarted
+	cancel()
+	result := <-blockedDone
+	require.ErrorIs(t, result.err, context.Canceled)
+	require.True(t, result.abandoned)
+	require.True(t, result.retire)
+	select {
+	case <-forced:
+		t.Fatal("shared transport force-stop interrupted a healthy sibling")
+	default:
+	}
+
+	close(releaseHealthy)
+	require.NoError(t, <-healthyDone)
+}
+
 func TestSendAndWaitBoundedReturnsCancellationAfterLateSuccess(t *testing.T) {
 	oldGrace := sendCancellationGrace
 	sendCancellationGrace = 20 * time.Millisecond

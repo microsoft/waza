@@ -747,11 +747,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		if canceledForSkill.Load() {
 			cleanupParent = cleanupBaseCtx
 		}
-		abandoned, retireClient, err := disconnectBounded(cleanupParent, session, func() {
-			if force, ok := e.client.(interface{ ForceStop() }); ok {
-				force.ForceStop()
-			}
-		})
+		abandoned, retireClient, err := disconnectBounded(cleanupParent, session, e.forceStopTransport)
 		if retireClient {
 			e.retireClient()
 		}
@@ -943,11 +939,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	_, sessionAbandoned, retireClient, err = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
-	}, func() {
-		if force, ok := e.client.(interface{ ForceStop() }); ok {
-			force.ForceStop()
-		}
-	})
+	}, e.forceStopTransport)
 	if retireClient {
 		e.retireClient()
 	}
@@ -1086,6 +1078,13 @@ func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 // ForceStop interrupts the SDK transport when bounded cleanup cannot make
 // progress after cancellation.
 func (e *CopilotEngine) ForceStop() {
+	e.forceStopTransport()
+}
+
+func (e *CopilotEngine) forceStopTransport() {
+	if !e.ownsClient {
+		return
+	}
 	if force, ok := e.client.(interface{ ForceStop() }); ok {
 		force.ForceStop()
 	}

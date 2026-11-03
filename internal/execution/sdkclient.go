@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/commandmock"
@@ -38,6 +39,8 @@ var (
 	sharedConstruct = newCopilotClient // overridable for tests
 	embeddedCLIPath = embedded.Path    // overridable for tests
 )
+
+var sharedClientShutdownTimeout = 30 * time.Second
 
 var errSharedClientClosed = errors.New("shared Copilot client has been shut down")
 
@@ -202,7 +205,13 @@ func (c *startupErrorClient) ListModels(context.Context) ([]copilot.ModelInfo, e
 // client was ever constructed. Safe to call multiple times. Should be invoked
 // once from the top-level command after all engines have been Shutdown and
 // all graders have completed.
-func ShutdownSharedClient(_ context.Context) error {
+func ShutdownSharedClient(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	shutdownCtx, cancel := context.WithTimeout(ctx, sharedClientShutdownTimeout)
+	defer cancel()
+
 	sharedMu.Lock()
 	clients := make([]CopilotClient, 0, len(sharedClients)+len(sharedRetired))
 	for _, client := range sharedClients {
@@ -219,8 +228,14 @@ func ShutdownSharedClient(_ context.Context) error {
 	}
 	sharedShutdown.Do(func() {
 		var errs []error
+		stopErrs := make(chan error, len(clients))
 		for _, client := range clients {
-			if err := client.Stop(); err != nil {
+			go func(client CopilotClient) {
+				stopErrs <- stopSharedClient(shutdownCtx, client)
+			}(client)
+		}
+		for range clients {
+			if err := <-stopErrs; err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -230,6 +245,31 @@ func ShutdownSharedClient(_ context.Context) error {
 		sharedErr = errors.Join(errs...)
 	})
 	return sharedErr
+}
+
+func stopSharedClient(ctx context.Context, client CopilotClient) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- client.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+	}
+
+	if force, ok := client.(interface{ ForceStop() }); ok {
+		go force.ForceStop()
+	}
+	timer := time.NewTimer(startupCleanupTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return errors.Join(ctx.Err(), err)
+	case <-timer.C:
+		return errors.Join(ctx.Err(), errors.New("shared Copilot client cleanup exceeded force-stop grace"))
+	}
 }
 
 // resetSharedClientForTest restores SharedClient to a pristine state. For

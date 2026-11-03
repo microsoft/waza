@@ -107,6 +107,8 @@ var (
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return orchestration.NewEvalRunner(cfg, engine, opts...)
 	}
+	shutdownSharedClientForRun     = execution.ShutdownSharedClient
+	runSharedClientShutdownTimeout = 30 * time.Second
 
 	autoIssueLookPathFn   = exec.LookPath
 	autoIssueRunCommandFn = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
@@ -233,7 +235,9 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	// graders can reuse one SDK process. See
 	// docs/design/135-improve-concurrency.md (R2).
 	defer func() {
-		if err := execution.ShutdownSharedClient(context.Background()); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), runSharedClientShutdownTimeout)
+		defer cancel()
+		if err := shutdownSharedClientForRun(shutdownCtx); err != nil {
 			slog.Warn("shared copilot client shutdown failed", "error", err)
 		}
 	}()
@@ -1985,7 +1989,10 @@ func createOutcomeTempFile(path string) (*os.File, os.FileMode, error) {
 	base := filepath.Base(path)
 	publishMode := os.FileMode(0)
 	hasPublishMode := false
-	if info, err := os.Stat(path); err == nil {
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return nil, 0, fmt.Errorf("output destination %s is not a regular file", path)
+		}
 		publishMode = info.Mode().Perm()
 		hasPublishMode = true
 	} else if !errors.Is(err, os.ErrNotExist) {

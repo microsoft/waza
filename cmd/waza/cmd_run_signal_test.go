@@ -136,6 +136,47 @@ func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
 	}
 }
 
+func TestRunCommandCancellationBoundsSharedClientShutdown(t *testing.T) {
+	resetRunGlobals()
+	oldRunnerFactory := newBenchmarkRunner
+	t.Cleanup(func() {
+		newBenchmarkRunner = oldRunnerFactory
+		resetRunGlobals()
+	})
+	started := make(chan struct{})
+	newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
+		return &blockingBenchmarkRunner{started: started}
+	}
+	shutdownStarted := make(chan struct{})
+	shutdownSharedClientForRun = func(ctx context.Context) error {
+		close(shutdownStarted)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	runSharedClientShutdownTimeout = 5 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cmd := newRunCommand()
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{createTestSpec(t, "mock")})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+	<-started
+	start := time.Now()
+	cancel()
+
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.Less(t, time.Since(start), 250*time.Millisecond)
+	select {
+	case <-shutdownStarted:
+	default:
+		t.Fatal("run did not attempt bounded shared-client cleanup")
+	}
+}
+
 func TestShutdownRunEngineBoundsCancellationAfterShutdownStarts(t *testing.T) {
 	oldGrace := runEngineShutdownGrace
 	oldTimeout := runEngineShutdownTimeout
