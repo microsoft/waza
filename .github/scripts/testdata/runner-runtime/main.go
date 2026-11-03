@@ -37,6 +37,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("creating synthetic invocation log: %w", err)
 	}
+	// This test-only log crosses container/host UIDs and contains no credentials.
+	if err := log.Chmod(0644); err != nil {
+		return errors.Join(fmt.Errorf("making synthetic invocation log host-readable: %w", err), log.Close())
+	}
 	var environmentKeys []string
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { runNamedContainer } from './native-lifecycle.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const fixture = JSON.parse(readFileSync(join(root, 'examples/runner/copilot-unit.json'), 'utf8'));
@@ -51,9 +52,8 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
         mkdirSync(output);
         chmodSync(output, 0o777);
       }
-      try {
-        // Only a fresh empty output directory is mounted; never input/config/credentials.
-        const result = command([
+      // Only a fresh empty output directory is mounted; never input/config/credentials.
+      return runNamedContainer(command, name, [
           'run', '--name', name, '--pull=never', '--network=none', '--read-only',
           '--cap-drop=ALL', '--security-opt=no-new-privileges', '--pids-limit=64',
           `--memory=${synthetic ? '256m' : '1536m'}`, '--cpus=1',
@@ -65,10 +65,7 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
             '--mount', `type=bind,source=${output},target=/evidence`,
           ] : []),
           ...extra, '-i', images[target], ...(action === 'smoke' ? ['-test.run=^TestPath$', '-test.v'] : ['runner', action]),
-        ], { input: request === null ? '' : `${JSON.stringify(request)}\n` });
-        const inspect = command(['inspect', name]);
-        assert.equal(inspect.status, 0, inspect.stderr);
-        const container = JSON.parse(inspect.stdout)[0];
+        ], { input: request === null ? '' : `${JSON.stringify(request)}\n` }, (result, container) => {
         assert.equal(container.HostConfig.NetworkMode, 'none');
         assert.equal(container.HostConfig.ReadonlyRootfs, true);
         if (synthetic) {
@@ -81,18 +78,22 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
         }
         assert.equal(container.State.Running, false);
         const log = join(output, 'rpc.ndjson');
+        if (existsSync(log)) {
+          assert.equal(statSync(log).mode & 0o777, 0o644,
+            'test-only evidence must be readable by a different non-root host UID, without granting write access');
+        }
         const entries = existsSync(log)
           ? readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line))
           : [];
         return { result, entries };
-      } finally {
-        // A timed-out Docker client must not leave its specifically named container running.
-        const removed = command(['rm', '-f', name]);
-        assert.equal(removed.status, 0, removed.stderr);
-      }
+      });
     }
 
     const request = structuredClone(fixture);
+    assert.throws(() => invoke('synthetic-test', request, undefined, 'validate', [
+      '--mount', `type=bind,source=${join(work, 'missing-input')},target=/invalid`,
+    ]), /docker run rejected container[\s\S]*bind source path does not exist/,
+    'pre-creation rejection must retain the actual Docker mount error');
     request.input.eval = request.input.eval.replace('gpt-4.1', 'synthetic-no-provider');
     assert.notEqual(request.input.eval, fixture.input.eval);
     const admitted = invoke('synthetic-test', request, undefined, 'validate');

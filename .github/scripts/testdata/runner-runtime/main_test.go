@@ -4,9 +4,60 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestInvocationLogHostReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rpc.ndjson")
+	t.Setenv("WAZA_SYNTHETIC_MODE", "startup-failure")
+	t.Setenv("WAZA_SYNTHETIC_LOG", path)
+	const secret = "synthetic-secret-must-not-be-in-host-readable-log"
+	t.Setenv("WAZA_TEST_SECRET_SENTINEL", secret)
+	if err := run(); err == nil || err.Error() != "synthetic startup rejection" {
+		t.Fatalf("expected deliberate startup rejection after logging: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0644 {
+		t.Fatalf("test-only log must be host-readable without granting other UIDs write access: %v", info.Mode())
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var start struct {
+		Method          string   `json:"method"`
+		EnvironmentKeys []string `json:"environment_keys"`
+	}
+	if err := json.Unmarshal(body, &start); err != nil || start.Method != "fixture.start" {
+		t.Fatalf("missing invocation evidence: %s (%v)", body, err)
+	}
+	if bytes.Contains(body, []byte(secret)) {
+		t.Fatal("host-readable log contains an environment value")
+	}
+	found := false
+	for _, key := range start.EnvironmentKeys {
+		if strings.Contains(key, "=") {
+			t.Fatalf("environment entry includes a value: %q", key)
+		}
+		found = found || key == "WAZA_TEST_SECRET_SENTINEL"
+	}
+	if !found {
+		t.Fatal("environment key sentinel missing; secrecy assertion did not exercise the injected environment")
+	}
+	if err := run(); err == nil || !strings.Contains(err.Error(), "creating synthetic invocation log") {
+		t.Fatalf("existing evidence must not be overwritten: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(body, after) {
+		t.Fatalf("existing evidence changed: %s (%v)", after, err)
+	}
+}
 
 func TestFrameBounds(t *testing.T) {
 	for _, wire := range []string{

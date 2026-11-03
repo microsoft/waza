@@ -64,7 +64,13 @@ smoke test in addition to the existing production allowlist.
 
 All runtime controls disable networking and mount no credentials or source.
 Synthetic controls mount only a new empty RPC-log output directory; native
-smoke mounts nothing. The peer's authentication, text and zero-usage responses
+smoke mounts nothing. Test-only logs are readable across container/host UIDs
+without granting other UIDs write access; no credentials or environment values
+are recorded. Run `node --test examples/runner/container/native-lifecycle.test.mjs`
+for deterministic pre-creation rejection, timeout and cleanup-failure controls.
+The harness preserves original Docker errors and reports cleanup failures
+separately, removing only its specifically named container when present.
+The peer's authentication, text and zero-usage responses
 are synthetic, not provider evidence. Assert all explicit context opt-outs,
 the required `session.options.update` before sending, and update rejection
 producing `infrastructure_failure`/`execute/create_failed` without `session.send`.
