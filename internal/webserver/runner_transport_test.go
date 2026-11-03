@@ -3,6 +3,7 @@ package webserver
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net"
 	"net/http"
@@ -28,9 +29,11 @@ func TestRunnerProductionTransportAdmission(t *testing.T) {
 	}
 
 	actions := []string{"negotiate", "validate", "run"}
+	coverDir := flag.Lookup("test.gocoverdir").Value.String()
 	results := make([]struct {
 		output []byte
 		err    error
+		pid    int
 	}, len(actions))
 	var group sync.WaitGroup
 	for index, action := range actions {
@@ -38,14 +41,26 @@ func TestRunnerProductionTransportAdmission(t *testing.T) {
 		go func() {
 			defer group.Done()
 			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestRunnerProductionTransportAdmission$")
+			// GOCOVERDIR alone does not make test binaries emit into the parent's coverage directory.
+			if coverDir != "" {
+				command.Args = append(command.Args, "-test.gocoverdir="+coverDir)
+			}
 			command.Env = append(os.Environ(), runnerTransportActionEnv+"="+action)
 			results[index].output, results[index].err = command.CombinedOutput()
+			if command.Process != nil {
+				results[index].pid = command.Process.Pid
+			}
 		}()
 	}
 	group.Wait()
 	for index, action := range actions {
 		t.Run(action, func(t *testing.T) {
 			require.NoError(t, results[index].err, "%s", results[index].output)
+			if coverDir != "" {
+				counters, err := filepath.Glob(filepath.Join(coverDir, fmt.Sprintf("covcounters.*.%d.*", results[index].pid)))
+				require.NoError(t, err)
+				require.Len(t, counters, 1, "each action must contribute counters to the parent's coverage directory")
+			}
 		})
 	}
 }
