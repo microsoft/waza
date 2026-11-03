@@ -930,16 +930,17 @@ Check or migrate a public schema artifact.
 waza migrate <file>
 ```
 
-Legacy eval/task/result defaults remain `1.4`. Compatible legacy YAML evals use
+Legacy eval/result input and reader defaults remain `1.4`; task YAML has no
+independent version field. Compatible legacy YAML evals use
 the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
 their artifact shape, including custom `.json` filenames.
 
-This legacy input/reader policy is separate from new result emission: current
-evaluations and regrades write results `1.8`. Task YAML has no independent version
-field. Historical result versions and missing reliability metadata are preserved
+This legacy input/reader policy is separate from new result emission: evaluations
+and regrades from current source write results `1.9`; published `v0.39.1` writes
+`1.7`. Historical result versions and missing reliability metadata are preserved
 when reading/re-saving; migration does not upgrade them.
-Compatibility reports select the current version by artifact type: eval `1.4`
-or result writer `1.8`. Missing/`1.4` result versions are explicitly labeled as
+Compatibility reports select the executing binary's current version by artifact
+type: eval `1.4` or, for current source, result writer `1.9`. Missing/`1.4` result versions are explicitly labeled as
 the legacy reader default alongside the current writer version, not rewritten.
 
 A present `scenario` header requires a nonblank native string and exact schema
@@ -1666,7 +1667,7 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 | `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
-The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Main currently uses `github.com/github/copilot-sdk/go` v1.0.24 with bundled CLI 1.0.101; published standalone `v0.38.10` uses v1.0.15. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
+The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Main currently uses `github.com/github/copilot-sdk/go` v1.0.24 with bundled CLI 1.0.101; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
 ## Graders
 

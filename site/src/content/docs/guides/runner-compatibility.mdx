@@ -19,7 +19,7 @@ configuration.
 | Eval/task schemas | Versionless/native-supported same-major 1.x evals; explicit 2.0 scenario evals; unversioned task YAML. Exact UTF-8 bytes, LF/CRLF and supported presence distinctions are retained. | Task `schemaVersion`, unsupported/unknown fields, duplicate keys, aliases, invalid types or silently coerced values. Ordinary tolerant loaders are unchanged. |
 | Skills/resources | Disabled ambient skills; no populated skill paths; no fixture entry. | Skills, files, prompt files, instructions, dependencies, hooks and workdir/environment semantics. |
 | Checks/deadline | Eval/task builtin text graders, output expectations, effective task-over-eval timeout. | Non-text graders, authored weights, multi-turn/checkpoints, requirements and metrics. |
-| Local results | Existing schema 1.7, native eval/task IDs, statistics, grader details, unavailable usage and 0/1/2 exit policy. | No runner identities or terminal envelopes are invented for legacy results. |
+| Local results | Current writer schema 1.9, native eval/task IDs, statistics, grader details, unavailable usage and 0/1/2 exit policy. | No runner identities or terminal envelopes are invented for legacy results. |
 | Local invocation | Only `--output`, `--no-summary`, `--debug`, `--no-update-check` alongside `--runner-compat`; no ambient `.waza.yaml` or adjacent trigger tests. | All other explicit flags, including false/default values, fail before execution. No cache, uploads, snapshots, telemetry or alternative reporters. |
 | `runner adapt` | Exact named sources captured offline into request 1.0; caller explicitly supplies run/shard/task/trial/attempt. | No runtime, project-default loading, task discovery, automatic schema upgrade or claim of execution. |
 
@@ -79,7 +79,8 @@ After, through runner 1.0 while preserving local JSON:
 waza run custom-suite.yaml --runner-compat --output local-results.json --no-summary
 ```
 
-Both use historical result schema 1.7. Generated eval/session IDs, timestamps,
+Both use the current local result schema 1.9. Historical results, including
+version 1.7, remain readable. Generated eval/session IDs, timestamps,
 workspace paths and durations vary per invocation. Missing usage is unavailable,
 not inferred credits or zero billing. `--no-summary` is accepted because this
 single-suite mode creates no combined summary.
