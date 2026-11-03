@@ -24,6 +24,9 @@ func TestPinnedOriginalFixturesPreserveCheckoutBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := []string{
+		"internal/interop/testdata/agentv/suite.yaml",
+		"internal/interop/testdata/agentv/assertions.ts",
+		"internal/interop/testdata/agentv/LICENSE",
 		"internal/releasepolicy/testdata/journal_711867044.go.original",
 		"internal/nativesnapshot/testdata/g2-original/nativesnapshot-files.go.original",
 		"internal/nativesnapshot/testdata/g2-original/nativesnapshot-join.go.original",

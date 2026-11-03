@@ -28,7 +28,8 @@ const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)
 
 test('local container conformance is selected by its production build inputs', () => {
   const workflow = read('.github/workflows/docker-ci.yml');
-  for (const path of ['examples/runner/unit.json', 'examples/runner/container/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
+  for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
+    '.github/scripts/testdata/runner-runtime/**', 'cmd/**', 'internal/**', 'web/**', 'schemas/**',
     'go.mod', 'go.sum', 'version.txt', 'docs.go', 'docs/graders/**', '.dockerignore',
     '.github/workflows/docker-ci.yml']) {
     assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
@@ -41,6 +42,7 @@ test('local container conformance is selected by its production build inputs', (
   assert.match(job, /timeout-minutes: 30/);
   assert.match(job, /lfs: true/);
   assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
+  assert.match(job, /run: node --test examples\/runner\/container\/native-test\.mjs/);
   assert.doesNotMatch(job, /continue-on-error|if:/);
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
@@ -172,6 +174,31 @@ test('Docker guard discovery rejects removal from either production site selecto
     const mutated = workflow.replace(line, '');
     assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
     assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
+});
+
+function assertInteropExampleDiscovery(workflow) {
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
+  const examples = workflow.match(/^            examples:\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  for (const [name, block] of [['main push gate', push], ['PR examples filter', examples]]) {
+    assert.ok(block, `${name} must exist`);
+    const patterns = [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
+    assert.ok(patterns.includes('examples/interop/**'), `${name} must select script-only interop changes`);
+  }
+  assert.match(workflow, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(workflow, /if: needs\.build\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/);
+}
+
+test('interop script-only changes select executable controls and selector removal fails closed', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertInteropExampleDiscovery(workflow);
+  for (const [line, diagnostic] of [
+    ["      - 'examples/interop/**'\n", /main push gate must select script-only interop changes/],
+    ["              - 'examples/interop/**'\n", /PR examples filter must select script-only interop changes/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, 'mutation must remove the actual selector');
+    assert.throws(() => assertInteropExampleDiscovery(mutated), diagnostic);
   }
 });
 
@@ -422,14 +449,23 @@ test('new feature guides identify the unpublished source-build boundary', () => 
   const homepage = read('site/src/content/docs/index.mdx')
     .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
   assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
-  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+external schema adapter remain incomplete/);
+  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+full external task\/suite interoperability remain incomplete/);
   assert.match(homepage ?? '', /\[local mock\/text container foundation\]\(\/waza\/guides\/runner-container\/\)/);
+  assert.match(homepage ?? '', /\[selected AgentV assertion preview\]\(\/waza\/guides\/external-interoperability\/\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
     .split('## Source-build v0.40.0 preview')[1]?.split('<span id=')[0];
   assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
   assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
-  assert.match(overview ?? '', /General native file\/tool\/skill workflows and the external schema adapter remain incomplete/);
+  assert.match(overview ?? '', /General native file\/tool\/skill workflows and full external task\/suite interoperability remain incomplete/);
+  assert.match(overview ?? '', /\[selected AgentV assertion preview\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
+  assert.match(overview ?? '', /`waza interop import\/export`/);
+  assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);
+  const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.39.1]')[0];
+  assert.match(unreleased ?? '', /Selected AgentV assertion interoperability \(v0\.40\.0 preview\)/);
+  assert.match(unreleased ?? '', /`waza interop import\/export`/);
+  assert.match(unreleased ?? '', /not whole-task\/suite support/);
+  assert.match(unreleased ?? '', /#789 remains open/);
   assert.match(overview ?? '', /\[local container foundation\]\(\.\.\/\.\.\/guides\/runner-container\/\)/);
   assert.match(overview ?? '', /pinned published-image acceptance remains outstanding/);
 

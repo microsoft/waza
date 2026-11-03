@@ -249,6 +249,26 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ## Commands
 
+### `waza interop` (source-build preview)
+
+Project one explicitly selected, pinned AgentV case-sensitive `contains`
+assertion to a native grader, or export the same single-check native subset:
+
+```bash
+# From the repository root, using a binary built from this source.
+adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
+waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
+  < internal/interop/testdata/agentv/suite.yaml > one-native-grader.yaml
+waza interop export --adapter "$adapter" < one-native-grader.yaml
+```
+
+These are offline stdin/stdout conversions, **not whole-task or suite imports**.
+Import explicitly diagnoses excluded task/provider/fixture/sibling semantics;
+unsupported selected fields fail. No upstream scripts or model calls execute.
+Only one case-sensitive substring check is supported; AgentEvals-spec, Harbor
+and ASSERT formats are not supported. See the [pinned compatibility matrix,
+runnable example and remaining #789 gaps](docs/INTEROPERABILITY.md).
+
 ### `waza runner` (source-build preview)
 
 Negotiate, validate offline, then explicitly execute one captured inline text unit:
@@ -290,6 +310,9 @@ local commands and artifacts are unchanged. Captured tasks must explicitly
 declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
 `inputs: {}` is rejected before runtime construction. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+Maintainers can run the [offline production-process controls](docs/RUNNER_CONTRACT.md#offline-production-process-controls)
+with a synthetic stdio peer; these do not call a provider or prove bundled-runtime
+or container-image readiness.
 
 For one explicit mock/text suite, `waza run custom-suite.yaml --runner-compat
 --output local-results.json` routes through that same runner service while
