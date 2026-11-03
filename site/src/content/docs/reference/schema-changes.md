@@ -16,6 +16,9 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 ## Versioned artifacts
 
+This table describes the current source-build preview. Published standalone
+`v0.39.1` writes results `1.7`; see [release availability](/waza/reference/releases/).
+
 | Artifact | Field | Current version |
 |---|---|---|
 | Legacy `eval.yaml` | `schemaVersion` | `1.4` |
@@ -53,7 +56,7 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.
 - **MAJOR** changes are breaking. Legacy readers refuse artifacts from a different major version and point to `waza migrate <file>`; scenario-aware readers additionally accept explicitly selected scenario eval `2.0`.
 - Missing `schemaVersion` in legacy eval/result inputs continues to default to `1.4`. Declared same-major versions remain accepted and unchanged on read/re-save; unknown fields are warned about. Scenario-bearing evals must explicitly select `2.0` and cannot omit the version. Task YAML has no independent version field.
-- New evaluations and regrades write results `1.8`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
+- Current source evaluations and regrades write results `1.8`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
 
 Legacy results and snapshots without consumed evidence retain ordinary JSON
 decoding for opaque tool arguments, grader details and unknown fields, including
@@ -142,7 +145,8 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 - Added optional per-run `evidence` and scoped `requirement_explanations` to
   results without changing task semantics or historical result versions.
-  New results use the current `1.7` writer version. The dashboard exposes every trial via
+  This feature originally shipped with writer `1.7`; current source writes
+  results `1.8`. The dashboard exposes every trial via
   `evidenceRuns` when any task run has evidence or requirement explanations.
   When all runs lack both, the API omits that field to preserve the legacy
   response shape; the dashboard fallback reports unassessed.

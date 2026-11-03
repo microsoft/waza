@@ -2,7 +2,7 @@
 
 **Status:** Active requirements; original skill-platform plan retained below, not a shipping checklist
 **Version:** 1.0  
-**Last Updated:** 2026-10-15
+**Last Updated:** 2026-11-03
 **Owner:** @spboyer  
 **Source:** [Squad Proposal](https://github.com/spboyer/azure-mcp-v-skills/blob/main/squad-proposal.md)
 
@@ -15,11 +15,12 @@ custom agents. Repository, CLI and MCP scenarios provide a workflow-first path;
 `SKILL.md` and `.agent.md` context remain supported. See
 [Concepts](../site/src/content/docs/concepts.mdx) for the learning order.
 
-Upcoming main increments include recorded reliability, opt-in dashboard Lab,
+Features introduced in `v0.39.0` and retained in published standalone
+`v0.39.1` include recorded reliability, opt-in dashboard Lab,
 selected evidence/regrade, conservative release policies with an offline mock
 default and a separately selected bounded Copilot SDK collector, and bounded
-authored-case assurance with explicitly selected calibration. Stable standalone `v0.38.10` was published
-October 9, 2026; these main features are not declared part of it.
+authored-case assurance with explicitly selected calibration. See the
+[release availability matrix](../site/src/content/docs/reference/releases.mdx).
 This document does not assert current CI is green or announce a release.
 Scenario evals support finite MCP/CLI fault sequences and report configured
 dependency modes. These fixtures test agent behavior, not real CLI/server
@@ -42,11 +43,13 @@ The exact path bypasses discovery, cache and retries; local commands/artifacts
 are unchanged. CLI/HTTP execution emits a schema-checked terminal envelope with
 seven stable exit categories. The bounded local compatibility adapter (#761)
 captures exact legacy sources offline and routes explicit `run --runner-compat`
-through the same mock-only execution service while retaining result 1.7 and
-local 0/1/2 exits. Unsupported mappings fail with migration guidance; ordinary
+through the same mock-only execution service while writing result schema 1.8
+and retaining local 0/1/2 exits. Historical 1.7 results remain readable.
+Unsupported mappings fail with migration guidance; ordinary
 local defaults and historical artifact readers remain available. No Lab change
 is required: adaptation introduces no new runtime status or evidence.
-Native execution and the container reference remain unavailable under #754.
+Native runner execution, the container reference and the external schema
+adapter remain unavailable under #754.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
@@ -82,7 +85,7 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
-Portable evaluation evidence (#663): independently versioned manifest `1.0` in ordinary snapshot `1.1`, retaining legacy task semantics and historical result versions while new results use `1.8`, records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
+Portable evaluation evidence (#663): independently versioned manifest `1.0` in ordinary snapshot `1.1`, retaining legacy task semantics and historical result versions while current source writes results `1.8` (published `v0.39.1` writes `1.7`), records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
 
 Capture sanitizes typed JSON and structural sensitive keys before serialization, preserves numeric lexical tokens, rejects opaque bytes/unsafe identifiers/keys/duplicate or trailing JSON/excessive nesting, and isolates rule-match counters (including selected files). Pattern matching is not a confidentiality proof. Reviewed agent-visible UTF-8 regular-file capture is explicitly allow-listed, excludes evaluator-only files/credentials, bounded (1 MiB/file, 10 MiB total by default), private, non-overwriting, and supported only on Linux/macOS. Allow-listing is not authorization proof. Partial capture and publication failure have safe unavailable states; there is no automatic export/upload/path fetch.
 
