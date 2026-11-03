@@ -152,6 +152,11 @@ func respond(req request, mode string, writer io.Writer) error {
 		result = map[string]any{"isAuthenticated": true}
 	case "session.create":
 		result = map[string]any{"sessionId": params.SessionID}
+	case "session.sendAndWait":
+		return writeFrame(writer, map[string]any{
+			"jsonrpc": "2.0", "id": req.ID,
+			"error": map[string]any{"code": -32601, "message": "synthetic peer uses callback completion"},
+		})
 	case "session.send":
 		result = map[string]any{"messageId": "synthetic-message"}
 	case "session.usage.getMetrics":
@@ -191,11 +196,17 @@ func respond(req request, mode string, writer io.Writer) error {
 		})
 	}
 	if mode == "session-error" {
+		if err := emit("user.message", map[string]any{"content": "hello", "messageId": "synthetic-message"}); err != nil {
+			return err
+		}
 		return emit("session.error", map[string]any{"message": "synthetic execution rejection", "errorType": "fixture"})
 	}
 	content := "hello"
 	if mode == "failed-check" {
 		content = "synthetic near miss"
+	}
+	if err := emit("user.message", map[string]any{"content": "hello", "messageId": "synthetic-message"}); err != nil {
+		return err
 	}
 	if err := emit("assistant.message", map[string]any{"content": content, "messageId": "synthetic-message"}); err != nil {
 		return err
