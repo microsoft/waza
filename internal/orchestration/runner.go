@@ -1210,6 +1210,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			Validations:        make(map[string]models.GraderResults),
 			SessionDigest:      r.buildSessionDigest(resp),
 			GraderSessions:     resp.GraderSessions,
+			SkillInvocations:   buildSkillInvocations(resp.SkillInvocations),
 			ErrorMsg:           message,
 			WorkspaceDir:       resp.WorkspaceDir,
 			Responder:          responderInfo,
@@ -1414,11 +1415,6 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	// Build transcript (reuses the SDK conversion computed above)
 	transcript := transcript.BuildFromSessionEvents(sdkEvents)
 
-	skillInvocations := make([]models.SkillInvocation, len(resp.SkillInvocations))
-	for i, si := range resp.SkillInvocations {
-		skillInvocations[i] = models.SkillInvocation{Name: si.Name, Path: si.Path}
-	}
-
 	run := models.RunResult{
 		RunNumber:          runNum,
 		Prompt:             req.Message,
@@ -1430,7 +1426,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		Transcript:         transcript,
 		FinalOutput:        resp.FinalOutput,
 		ErrorMsg:           resp.ErrorMsg,
-		SkillInvocations:   skillInvocations,
+		SkillInvocations:   buildSkillInvocations(resp.SkillInvocations),
 		WorkspaceDir:       resp.WorkspaceDir,
 		Responder:          responderInfo,
 		Checkpoints:        checkpointOutcomes,
@@ -1901,28 +1897,20 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 
 		resp.CommandInvocations = followResp.CommandInvocations
 		markToolPolicyViolation(followResp)
-		if followResp.ErrorMsg != "" {
-			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-			turnSpan.End()
-			mergeToolPolicyResult(resp, followResp)
-			resp.WorkspaceCaptureError = followResp.WorkspaceCaptureError
-			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), followResp.ErrorMsg)
-			break
-		}
-
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 		turnSpan.End()
-
-		// Aggregate results
-		resp.Events = append(resp.Events, followResp.Events...)
-		resp.ToolCalls = append(resp.ToolCalls, followResp.ToolCalls...)
-		resp.SkillInvocations = append(resp.SkillInvocations, followResp.SkillInvocations...)
-		resp.DurationMs += followResp.DurationMs
-		resp.FinalOutput = followResp.FinalOutput
-		resp.WorkspaceFiles = followResp.WorkspaceFiles
-		resp.JudgeFiles = followResp.JudgeFiles
 		mergeToolPolicyResult(resp, followResp)
-		execution.MergeResponseUsage(resp, followResp)
+		if followResp.ErrorMsg == "" || followResp.WorkspaceCaptureError != "" {
+			mergeCompletedTurnResponse(resp, followResp)
+		}
+		message := followResp.ErrorMsg
+		if message == "" {
+			message = followResp.WorkspaceCaptureError
+		}
+		if message != "" {
+			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), message)
+			break
+		}
 
 		// Run any checkpoint scheduled after this turn. Turn number is
 		// i+2 because the initial Execute was turn 1 and follow-ups are
@@ -2055,25 +2043,46 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	}
 	resp.CommandInvocations = followResp.CommandInvocations
 	markToolPolicyViolation(followResp)
-	if followResp.ErrorMsg != "" {
-		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-		mergeToolPolicyResult(resp, followResp)
-		resp.WorkspaceCaptureError = followResp.WorkspaceCaptureError
-		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, followResp.ErrorMsg)
+	emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+	mergeToolPolicyResult(resp, followResp)
+	if followResp.ErrorMsg == "" || followResp.WorkspaceCaptureError != "" {
+		mergeCompletedTurnResponse(resp, followResp)
+	}
+	message := followResp.ErrorMsg
+	if message == "" {
+		message = followResp.WorkspaceCaptureError
+	}
+	if message != "" {
+		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, message)
 		return false
 	}
-
-	emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-	resp.Events = append(resp.Events, followResp.Events...)
-	resp.ToolCalls = append(resp.ToolCalls, followResp.ToolCalls...)
-	resp.SkillInvocations = append(resp.SkillInvocations, followResp.SkillInvocations...)
-	resp.DurationMs += followResp.DurationMs
-	resp.FinalOutput = followResp.FinalOutput
-	resp.WorkspaceFiles = followResp.WorkspaceFiles
-	resp.JudgeFiles = followResp.JudgeFiles
-	mergeToolPolicyResult(resp, followResp)
-	execution.MergeResponseUsage(resp, followResp)
 	return true
+}
+
+func mergeCompletedTurnResponse(resp, turn *execution.ExecutionResponse) {
+	resp.Events = append(resp.Events, turn.Events...)
+	resp.ToolCalls = append(resp.ToolCalls, turn.ToolCalls...)
+	resp.SkillInvocations = append(resp.SkillInvocations, turn.SkillInvocations...)
+	resp.DurationMs += turn.DurationMs
+	resp.FinalOutput = turn.FinalOutput
+	execution.MergeResponseUsage(resp, turn)
+	if turn.WorkspaceCaptureError != "" {
+		resp.Success = false
+		resp.WorkspaceCaptureError = turn.WorkspaceCaptureError
+		resp.WorkspaceFiles = nil
+		resp.JudgeFiles = nil
+		return
+	}
+	resp.WorkspaceFiles = turn.WorkspaceFiles
+	resp.JudgeFiles = turn.JudgeFiles
+}
+
+func buildSkillInvocations(invocations []execution.SkillInvocation) []models.SkillInvocation {
+	result := make([]models.SkillInvocation, len(invocations))
+	for i, invocation := range invocations {
+		result[i] = models.SkillInvocation{Name: invocation.Name, Path: invocation.Path}
+	}
+	return result
 }
 
 func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile {

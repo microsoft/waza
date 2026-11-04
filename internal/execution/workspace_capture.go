@@ -168,7 +168,7 @@ func walkWorkspaceCapture(root *os.Root, maxEntries int, captureFile func(path, 
 		dirPath := directories[index]
 		directories = directories[:index]
 
-		dir, err := root.Open(dirPath)
+		dir, err := openWorkspaceCaptureFile(root, dirPath)
 		if err != nil {
 			return fmt.Errorf("open directory %q: %w", filepath.ToSlash(dirPath), err)
 		}

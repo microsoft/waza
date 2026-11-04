@@ -3,6 +3,7 @@
 package execution
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -11,6 +12,50 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestWalkWorkspaceCaptureRejectsDirectoryReplacedWithFIFOAfterCancellation(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "queued")
+	require.NoError(t, os.Mkdir(target, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "trigger"), []byte("ready"), 0o600))
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, root.Close()) }()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- walkWorkspaceCapture(root, 10, func(_, _ string) error {
+			// The root's single ReadDir batch already contains the directory
+			// candidate, but it has not been opened for traversal yet.
+			if err := os.Remove(target); err != nil {
+				return err
+			}
+			if err := syscall.Mkfifo(target, 0o600); err != nil {
+				return err
+			}
+			cancel()
+			return nil
+		})
+	}()
+	select {
+	case err := <-done:
+		require.ErrorContains(t, err, `workspace directory "queued" changed during capture`)
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+	case <-time.After(time.Second):
+		// Release a regressed blocking reader before failing, so the test
+		// never leaks a goroutine or leaves its workspace open.
+		writer, err := os.OpenFile(target, os.O_RDWR|syscall.O_NONBLOCK, 0)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, writer.Close()) }()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("workspace capture did not unblock after opening the FIFO writer")
+		}
+		t.Fatal("workspace capture blocked on a replaced directory despite cancellation")
+	}
+}
 
 func TestCaptureWorkspaceFiles_SkipsFIFOWithoutBlocking(t *testing.T) {
 	dir := t.TempDir()

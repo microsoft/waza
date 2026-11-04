@@ -127,7 +127,7 @@ type ExecutionRequest struct {
 	// WorkspaceCapturePaths lists grader-relevant files that must be preserved
 	// even when they are inside an otherwise excluded metadata or dependency
 	// directory. Missing paths remain absent rather than failing capture.
-	WorkspaceCapturePaths []string
+	WorkspaceCapturePaths []string `json:"WorkspaceCapturePaths,omitempty"`
 
 	// ToolPolicy is the resolved tool-capability boundary derived from the
 	// target .agent.md `tools:` declaration (see [NewToolPolicy]). Nil means
