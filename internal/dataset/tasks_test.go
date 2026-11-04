@@ -34,6 +34,17 @@ func TestLoadTasksPreservesFallbacksAndSharedTemplateContext(t *testing.T) {
 	require.Equal(t, "NameOnly", tasks[0].TestID)
 }
 
+func TestLoadTasksPreservesBuiltInIndexForms(t *testing.T) {
+	dir := t.TempDir()
+	writeCSV(t, dir, "data.csv", "prompt\n\"{{index .Vars.marker 0}} {{index .Vars \"\"marker\"\" 0}}\"\n")
+	spec := &models.EvalSpec{TasksFrom: "data.csv", Inputs: map[string]string{"marker": "Go"}}
+
+	tasks, err := LoadTasks(spec, dir, time.Unix(0, 0))
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	require.Equal(t, "71 71", tasks[0].Stimulus.Message)
+}
+
 func TestLoadTasksRangedFallbackIdentityUsesOriginalRow(t *testing.T) {
 	dir := t.TempDir()
 	writeCSV(t, dir, "data.csv", "id,name,prompt\nexplicit,Named,{{.TaskName}}\n,,{{.TaskName}}\n,,{{.TaskName}}\n")
