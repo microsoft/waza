@@ -145,23 +145,31 @@ func TestRunBenchmark_RendersEvalInputsInLifecycleHooks(t *testing.T) {
 		key        string
 		value      string
 		expression string
+		missing    bool
+		wantErr    string
 	}{
 		{name: "plain", key: "marker", value: "DOGFOOD_VARIABLE", expression: "{{.Vars.marker}}"},
 		{name: "whitespace", key: "marker", value: "DOGFOOD VARIABLE", expression: "{{.Vars.marker}}"},
 		{name: "empty", key: "marker", value: "", expression: "{{.Vars.marker}}"},
 		{name: "spaced-action", key: "marker", value: "DOGFOOD_VARIABLE", expression: "{{ .Vars.marker }}"},
 		{name: "indexed-hyphen", key: "deployment-env", value: "DOGFOOD_VARIABLE", expression: `{{index .Vars "deployment-env"}}`},
+		{name: "indexed-empty", key: "deployment-env", value: "", expression: `{{index .Vars "deployment-env"}}`},
+		{name: "indexed-missing", expression: `{{index .Vars "deployment-env"}}`, missing: true, wantErr: `map has no entry for key "deployment-env"`},
+		{name: "quoted-closing-delimiter", key: "marker", value: "DOGFOOD_VARIABLE", expression: `{{printf "{{%s}}" .Vars.marker}}`},
 	}
 	for _, contract := range contracts {
 		for _, marker := range markers {
 			t.Run(contract.name+"/"+marker.name, func(t *testing.T) {
 				dir := t.TempDir()
 				output := filepath.Join(dir, "marker.txt")
+				inputs := "{}"
+				if !marker.missing {
+					inputs = fmt.Sprintf("{%q: %q}", marker.key, marker.value)
+				}
 				eval := fmt.Sprintf(`schemaVersion: %q
 name: hook-variable-repro
 %s
-inputs:
-  %q: %q
+inputs: %s
 config:
   executor: mock
   model: offline
@@ -182,7 +190,7 @@ hooks:
   after_run:
     - command: '%s'
       error_on_fail: true
-`, contract.schemaVersion, contract.identity, marker.key, marker.value,
+`, contract.schemaVersion, contract.identity, inputs,
 					hookMarkerCommand(t, output, "before_run", marker.expression),
 					hookMarkerCommand(t, output, "before_task", marker.expression),
 					hookMarkerCommand(t, output, "after_task", marker.expression),
@@ -202,16 +210,26 @@ inputs:
 					WithSkipGraders(),
 				)
 				outcome, err := runner.RunBenchmark(t.Context())
+				if marker.wantErr != "" {
+					require.ErrorContains(t, err, marker.wantErr)
+					require.Nil(t, outcome)
+					require.NoFileExists(t, output)
+					return
+				}
 				require.NoError(t, err)
 				require.Len(t, outcome.TestOutcomes, 1)
 
 				got, err := os.ReadFile(output)
 				require.NoError(t, err)
+				wantValue := marker.value
+				if marker.name == "quoted-closing-delimiter" {
+					wantValue = "{{" + marker.value + "}}"
+				}
 				require.Equal(t, []byte(
-					"before_run:"+marker.value+"\n"+
-						"before_task:"+marker.value+"\n"+
-						"after_task:"+marker.value+"\n"+
-						"after_run:"+marker.value+"\n",
+					"before_run:"+wantValue+"\n"+
+						"before_task:"+wantValue+"\n"+
+						"after_task:"+wantValue+"\n"+
+						"after_run:"+wantValue+"\n",
 				), got)
 			})
 		}

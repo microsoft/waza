@@ -127,12 +127,39 @@ func splitTemplateCommand(command string) []string {
 	parts := make([]string, 0, len(strings.Fields(command)))
 	var part strings.Builder
 	inTemplate := false
+	inComment := false
+	var quote rune
+	escaped := false
 	for i := 0; i < len(runes); i++ {
 		switch {
 		case !inTemplate && runes[i] == '{' && i+1 < len(runes) && runes[i+1] == '{':
 			inTemplate = true
 			part.WriteString("{{")
 			i++
+		case inTemplate && inComment:
+			part.WriteRune(runes[i])
+			if runes[i] == '*' && i+1 < len(runes) && runes[i+1] == '/' {
+				part.WriteRune('/')
+				i++
+				inComment = false
+			}
+		case inTemplate && quote != 0:
+			part.WriteRune(runes[i])
+			if quote != '`' && runes[i] == '\\' && !escaped {
+				escaped = true
+				continue
+			}
+			if runes[i] == quote && !escaped {
+				quote = 0
+			}
+			escaped = false
+		case inTemplate && runes[i] == '/' && i+1 < len(runes) && runes[i+1] == '*':
+			inComment = true
+			part.WriteString("/*")
+			i++
+		case inTemplate && (runes[i] == '"' || runes[i] == '\'' || runes[i] == '`'):
+			quote = runes[i]
+			part.WriteRune(runes[i])
 		case inTemplate && runes[i] == '}' && i+1 < len(runes) && runes[i+1] == '}':
 			inTemplate = false
 			part.WriteString("}}")

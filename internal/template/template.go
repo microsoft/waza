@@ -29,7 +29,9 @@ func Render(tmpl string, ctx *Context) (string, error) {
 		return tmpl, nil
 	}
 
-	t, err := template.New("").Option("missingkey=error").Parse(tmpl)
+	t, err := template.New("").Funcs(template.FuncMap{
+		"index": strictStringMapIndex,
+	}).Option("missingkey=error").Parse(tmpl)
 	if err != nil {
 		return "", fmt.Errorf("template: parse: %w", err)
 	}
@@ -40,4 +42,12 @@ func Render(tmpl string, ctx *Context) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+func strictStringMapIndex(values map[string]string, key string) (string, error) {
+	value, ok := values[key]
+	if !ok {
+		return "", fmt.Errorf("map has no entry for key %q", key)
+	}
+	return value, nil
 }

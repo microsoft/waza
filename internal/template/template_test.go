@@ -75,6 +75,18 @@ func TestRender(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "missing indexed Vars key",
+			tmpl:    `{{index .Vars "deployment-env"}}`,
+			ctx:     &Context{Vars: map[string]string{}},
+			wantErr: true,
+		},
+		{
+			name: "empty indexed Vars value",
+			tmpl: `{{index .Vars "deployment-env"}}`,
+			ctx:  &Context{Vars: map[string]string{"deployment-env": ""}},
+			want: "",
+		},
+		{
 			name:    "nil Vars map with Vars access",
 			tmpl:    "{{.Vars.key}}",
 			ctx:     &Context{},
