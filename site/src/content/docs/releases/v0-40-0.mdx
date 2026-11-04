@@ -82,15 +82,15 @@ provenance, isolation or delivery.
 and exit category. A caller can distinguish a failed assertion from a request
 it should correct, or a runtime failure it should investigate.
 
-| Outcome | Exit | What it tells you |
-| --- | --- | --- |
-| `success` | 0 | All admitted checks passed in a complete observed attempt. |
-| `evaluation_failure` | 1 | At least one observed check failed. |
-| `infrastructure_failure` | 2 | Startup, execution, cleanup or output failed. |
-| `cancelled` | 3 | Cancellation was observed. |
-| `timeout` | 4 | An applicable deadline expired. |
-| `unsupported_capability` | 5 | Required runner version or capability is unavailable. |
-| `invalid_input` | 6 | The request or selected input is invalid. |
+<ul aria-label="Runner terminal outcomes">
+  <li><strong><code>success</code> (exit 0)</strong>: All admitted checks passed in a complete observed attempt.</li>
+  <li><strong><code>evaluation_failure</code> (exit 1)</strong>: At least one observed check failed.</li>
+  <li><strong><code>infrastructure_failure</code> (exit 2)</strong>: Startup, execution, cleanup or output failed.</li>
+  <li><strong><code>cancelled</code> (exit 3)</strong>: Cancellation was observed.</li>
+  <li><strong><code>timeout</code> (exit 4)</strong>: An applicable deadline expired.</li>
+  <li><strong><code>unsupported_capability</code> (exit 5)</strong>: Required runner version or capability is unavailable.</li>
+  <li><strong><code>invalid_input</code> (exit 6)</strong>: The request or selected input is invalid.</li>
+</ul>
 
 Inspect `outcome`, `exit_code`, diagnostics and the recorded failure boundary,
 not just HTTP status: a complete HTTP runner request can return **200 even when

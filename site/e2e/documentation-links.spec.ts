@@ -110,14 +110,84 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       'main-only and unreleased',
       'Those main changes have not been republished as v0.40.0',
     ]) await expect(page.locator('main')).toContainText(text);
-    const outcomeRows = page.locator('main table').first().locator('tbody tr');
-    await expect(outcomeRows).toHaveCount(7);
-    for (const [index, outcome] of [
-      'success', 'evaluation_failure', 'infrastructure_failure', 'cancelled',
-      'timeout', 'unsupported_capability', 'invalid_input',
+    const outcomes = page.getByRole('list', { name: 'Runner terminal outcomes', exact: true }).getByRole('listitem');
+    await expect(outcomes).toHaveCount(7);
+    for (const [index, [outcome, meaning]] of [
+      ['success', 'All admitted checks passed in a complete observed attempt.'],
+      ['evaluation_failure', 'At least one observed check failed.'],
+      ['infrastructure_failure', 'Startup, execution, cleanup or output failed.'],
+      ['cancelled', 'Cancellation was observed.'],
+      ['timeout', 'An applicable deadline expired.'],
+      ['unsupported_capability', 'Required runner version or capability is unavailable.'],
+      ['invalid_input', 'The request or selected input is invalid.'],
     ].entries()) {
-      await expect(outcomeRows.nth(index).locator('td').nth(0)).toHaveText(outcome);
-      await expect(outcomeRows.nth(index).locator('td').nth(1)).toHaveText(String(index));
+      const item = outcomes.nth(index);
+      await expect(item).toHaveText(`${outcome} (exit ${index}): ${meaning}`);
+      await item.scrollIntoViewIfNeeded();
+      await expect(item.locator('strong')).toBeInViewport();
+    }
+    const clippedOutcomes = () => outcomes.evaluateAll((items) => items.flatMap((item, index) => {
+      const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.left < -1 || rect.right > window.innerWidth + 1) return [index];
+          for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+            if (!/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(parent).overflowX)) continue;
+            const bounds = parent.getBoundingClientRect();
+            const left = bounds.left + parent.clientLeft;
+            if (rect.left < left - 1 || rect.right > left + parent.clientWidth + 1) return [index];
+          }
+        }
+      }
+      return [];
+    }));
+    expect(await clippedOutcomes(), 'every outcome label and description fits without horizontal scrolling').toEqual([]);
+    if (viewport.width === 390) {
+      const original = await outcomes.first().evaluate((item) => {
+        const saved = { html: item.innerHTML, style: item.getAttribute('style') };
+        item.setAttribute('style', 'width: 120px; overflow-x: auto');
+        const wide = document.createElement('div');
+        wide.style.cssText = 'width: 220px; white-space: normal';
+        while (item.firstChild) wide.appendChild(item.firstChild);
+        item.appendChild(wide);
+        return saved;
+      });
+      try {
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        const injected = await outcomes.first().evaluate((item) => {
+          const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+          const rects: { left: number; right: number }[] = [];
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            if (!node.textContent?.trim()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            rects.push(...Array.from(range.getClientRects(), (rect) => ({ left: rect.left, right: rect.right })));
+          }
+          const bounds = item.getBoundingClientRect();
+          return {
+            rects,
+            viewportWidth: window.innerWidth,
+            clipLeft: bounds.left + item.clientLeft,
+            clipRight: bounds.left + item.clientLeft + item.clientWidth,
+          };
+        });
+        expect(injected.rects.length).toBeGreaterThan(0);
+        expect(injected.rects.every((rect) => rect.left >= 0 && rect.right <= injected.viewportWidth),
+          'negative-control text fits the viewport without using the viewport-overflow branch').toBe(true);
+        expect(injected.rects.some((rect) => rect.left < injected.clipLeft - 1 || rect.right > injected.clipRight + 1),
+          'negative-control text is clipped only by its narrower overflow ancestor').toBe(true);
+        expect(await clippedOutcomes(), 'detect text hidden inside a horizontal scroll container').toContain(0);
+      } finally {
+        await outcomes.first().evaluate((item, saved) => {
+          item.innerHTML = saved.html;
+          if (saved.style === null) item.removeAttribute('style');
+          else item.setAttribute('style', saved.style);
+        }, original);
+      }
+      expect(await clippedOutcomes(), 'restored production outcomes fit after the negative control').toEqual([]);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: join(screenshotDir, `site-v040-article-${viewport.width}.png`), fullPage: true });
