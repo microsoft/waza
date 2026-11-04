@@ -51,8 +51,7 @@ test('all built internal page routes, fragments and image assets resolve under t
 
 test('beginner learning order and published release availability are visible', async ({ page }) => {
   await page.goto('/waza/');
-  await expect(page.locator('main')).toContainText('v0.40.0 (November 4, 2026)');
-  await expect(page.locator('main')).toContainText('a source build is optional');
+  await expect(page.locator('main')).toContainText('New in v0.40.0');
   await expect(page.locator('main')).not.toContainText('building upcoming main');
   await page.goto('/waza/quick-start/');
   const navigation = page.getByRole('navigation', { name: 'Main' });
@@ -74,3 +73,67 @@ test('beginner learning order and published release availability are visible', a
   await expect(page.locator('main')).toContainText('not a provider spending cap');
   expect(readFileSync(join(dist, 'concepts/index.html'), 'utf8')).toContain('A graded result is not release authority');
 });
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  test(`compact homepage links to the release story at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/waza/');
+    const main = page.locator('main');
+    await expect(main.locator('.starlight-aside')).toHaveCount(0);
+    const announcement = main.getByRole('link', { name: 'Read the release article', exact: true });
+    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-40-0/');
+    await expect(announcement).toBeInViewport();
+    await expect(main.getByRole('heading', { name: 'What can waza do?', exact: true })).toBeInViewport();
+    const paragraph = announcement.locator('..');
+    expect(await paragraph.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(150);
+    await expect(main).toContainText('A mock pass proves harness wiring, not agent quality');
+    await expect(main).toContainText('authentication, permissions and possible-cost prerequisites');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await announcement.click();
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-0\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.40.0: run exactly the work you declared');
+    for (const text of [
+      'Released November 4, 2026',
+      'selectors, not loop counts',
+      'input-derived identities, not execution attestations',
+      'tools and skills disabled',
+      '200 even when execution fails',
+      'Linux AMD64',
+      'not live-provider reliability',
+      'WAZA_GRADING_CONTEXT',
+      'from the first repetition in saved order',
+      'whole-task/suite interoperability and full evidence/provenance round trips remain unsupported',
+      'not included in the published v0.40.0 artifacts',
+      'main-only and unreleased',
+      'Those main changes have not been republished as v0.40.0',
+    ]) await expect(page.locator('main')).toContainText(text);
+    const outcomeRows = page.locator('main table').first().locator('tbody tr');
+    await expect(outcomeRows).toHaveCount(7);
+    for (const [index, outcome] of [
+      'success', 'evaluation_failure', 'infrastructure_failure', 'cancelled',
+      'timeout', 'unsupported_capability', 'invalid_input',
+    ].entries()) {
+      await expect(outcomeRows.nth(index).locator('td').nth(0)).toHaveText(outcome);
+      await expect(outcomeRows.nth(index).locator('td').nth(1)).toHaveText(String(index));
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.locator('main').getByRole('link', { name: 'runner contract', exact: true }).click();
+    await expect(page).toHaveURL(/\/waza\/guides\/runner-contract\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Runner contract and capability negotiation');
+
+    await page.goto('/waza/reference/releases/');
+    await page.locator('main').getByRole('link', { name: 'Waza v0.40.0: run exactly the work you declared', exact: true }).click();
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-0\/$/);
+    if (viewport.width < 600) await page.locator('.sl-menu-button').click();
+    const navigation = page.getByRole('navigation', { name: 'Main', exact: true });
+    for (const name of ['Waza v0.40.0', 'Waza v0.39.0', 'Introducing Dashboard Lab']) {
+      await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible();
+    }
+    await navigation.getByRole('link', { name: 'Overview & downloads', exact: true }).click();
+    await expect(page).toHaveURL(/\/waza\/reference\/releases\/$/);
+    if (viewport.width < 600) await page.locator('.sl-menu-button').click();
+    await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('link', { name: 'Waza v0.40.0', exact: true }).click();
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-0\/$/);
+  });
+}

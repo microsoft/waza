@@ -1,0 +1,191 @@
+---
+title: "Waza v0.40.0: run exactly the work you declared"
+description: Execute one declared text attempt, trace input-derived identity, and inspect terminal outcomes and richer recorded evidence.
+---
+
+A failed evaluation should leave you with a useful next step: identify the work
+that ran, understand whether a check failed or the runtime failed, and inspect
+the evidence. That gets harder when a caller silently discovers more tasks,
+retries work, or treats a successful HTTP response as a passing evaluation.
+
+Waza v0.40.0 makes that boundary explicit. Its new runner accepts one declared
+text attempt, gives admitted input a deterministic identity, and returns a
+structured terminal outcome. Alongside it, task-level MCP mocks and richer
+grading and conversation evidence help you design and investigate ordinary
+evaluations.
+
+**Released November 4, 2026**, this version builds on
+[v0.39.0's scenario-first workflow](../v0-39-0/) and the v0.39.1 skill-target fix.
+Existing local commands and historical results remain supported; the runner is
+an additional, deliberately bounded interface, not a requirement to migrate.
+
+## Execute one attempt, not an implicit suite
+
+The runner's unit of work is an explicit **shard, task, trial and attempt**.
+It receives captured eval and task text rather than discovering a suite from
+the caller's filesystem. Capability negotiation lets a caller find out whether
+its requested profile is supported before starting a runtime.
+
+From a checkout of the `v0.40.0` tag, using the matching installed binary or a
+[tagged source build](../../reference/releases/#capabilities-introduced-in-v0390),
+try the credential-free example:
+
+```bash
+waza runner capabilities
+waza runner validate < examples/runner/unit.json
+waza runner run < examples/runner/unit.json
+```
+
+`capabilities` advertises the implemented profiles. `validate` checks admission
+without constructing an engine. Only `run` starts the selected runtime.
+
+The checked-in request selects
+`{"shard":"shard-a","task":"selected","trial":2,"attempt":2}`.
+Its eval allows three trials and three attempts, but **2/2 are selectors, not
+loop counts**. Waza executes just that attempt with one fresh engine call:
+no neighboring tasks, glob expansion, cached replay or automatic retries.
+This mock example returns a passed text check; it proves harness wiring, not
+agent quality. Explicitly dispatching it again executes again, with no
+cross-worker deduplication or exactly-once side-effect guarantee.
+
+The shipped profiles are **mock/text** and explicitly opted-in **Copilot/text**.
+Copilot requires a model and paid-execution consent, with tools and skills
+disabled. General native file/tool/skill workflows remain unsupported.
+The [runner contract](../../guides/runner-contract/) explains admission,
+deadlines, CLI/HTTP APIs and the additional local-only native HTTP policy.
+Keep ordinary `waza run` for broader workflows.
+
+## Know which input a result belongs to
+
+An admitted unit carries a canonical digest and logical
+**run / shard / task / trial / attempt** identities, using the versioned
+`sha256-waza-c14n-v1` algorithm. Validation and execution derive them from the
+same original input, so a caller can connect a validation receipt to its
+execution result without depending on timestamps, machine paths or model output.
+
+Presentation-only changes such as mapping key order or comments normalize.
+Meaningful distinctions such as absent, null, empty, zero and false remain
+distinct. Changing the attempt changes its attempt identity; changing the eval
+changes the whole hierarchy. The
+[identity guide and frozen vectors](../../guides/runner-identities/) define the
+precise stability rules.
+
+These are **input-derived identities, not execution attestations**. Offline
+validation has zero engine calls even when it returns an identity. A later
+runtime failure retains that identity; repeated execution of the same input
+uses the same IDs. Neither a hash nor an ID certifies success, trusted
+provenance, isolation or delivery.
+
+## Handle failed checks differently from failed infrastructure
+
+`runner run` returns one `waza.runner-terminal` envelope with a stable outcome
+and exit category. A caller can distinguish a failed assertion from a request
+it should correct, or a runtime failure it should investigate.
+
+| Outcome | Exit | What it tells you |
+| --- | --- | --- |
+| `success` | 0 | All admitted checks passed in a complete observed attempt. |
+| `evaluation_failure` | 1 | At least one observed check failed. |
+| `infrastructure_failure` | 2 | Startup, execution, cleanup or output failed. |
+| `cancelled` | 3 | Cancellation was observed. |
+| `timeout` | 4 | An applicable deadline expired. |
+| `unsupported_capability` | 5 | Required runner version or capability is unavailable. |
+| `invalid_input` | 6 | The request or selected input is invalid. |
+
+Inspect `outcome`, `exit_code`, diagnostics and the recorded failure boundary,
+not just HTTP status: a complete HTTP runner request can return **200 even when
+execution fails**. The bounded observation summarizes the selected attempt's
+actual checks; it is not a full transcript, aggregate evaluation score or
+billing report. Missing usage is unavailable, not zero.
+
+The [terminal guide](../../guides/runner-terminal/) covers response fields and
+transport failures. One emission attempt cannot guarantee receipt after a
+broken pipe, process crash or uncatchable termination.
+
+## Use the same boundary locally or in a container
+
+For a narrow local mock/text suite, `runner adapt` captures explicitly named
+sources offline. Opt-in `run --runner-compat` uses the shared service while
+retaining local result JSON and its existing **0/1/2** exit policy, rather than
+replacing it with terminal JSON. The adapter supports one literal task, one
+trial and one attempt; unsupported configuration is an error, not a silent
+fallback. Broader adaptation remains deferred under
+[#761](https://github.com/microsoft/waza/issues/761).
+The [compatibility table](../../guides/runner-compatibility/) helps choose the
+interface without deleting meaningful configuration to fit it.
+
+The container reference exercises the same exact-unit contract. Its default
+scratch target is mock-only; the explicit Debian/glibc native reference adds
+the bundled Copilot runtime for the restricted text profile.
+The published native image passed anonymous, digest-pinned acceptance on
+**Linux AMD64**, with mock and bundled-native synthetic-provider controls.
+That is not live-provider reliability, model-quality evidence or support for
+ARM64 and Windows. The image reports `dev`, not the standalone binary's
+`0.40.0`; identify it by its immutable digest and source.
+
+Use the [container guide's published-image record](../../guides/runner-container/#published-image-and-acceptance-evidence)
+for the exact digest, provenance, acceptance results and one-publication
+infrastructure-review waiver. Publication, automated acceptance and independent
+review are separate facts.
+
+## Design more focused tests and inspect better evidence
+
+These additions also improve ordinary evaluations, independently of adopting
+the runner:
+
+- **Change one task's MCP response.** [Task-level MCP mocks](../../guides/eval-yaml/#task-level-mcp-mocks)
+  replace same-named eval mocks for that task only; other eval mocks still apply.
+  One case can approve a question while another declines it. They require the
+  Copilot SDK executor, not the mock executor. Finite MCP sequences now continue
+  across follow-up turns within an attempt, while each task, trial and retry
+  starts fresh.
+- **Give an external grader recorded context.** [Program graders](../../guides/graders/#program)
+  receive a private JSON file through `WAZA_GRADING_CONTEXT`, including recorded
+  tool and mocked-command observations. Existing stdin output and
+  `WAZA_WORKSPACE_DIR` stay unchanged. Write and cleanup failures fail grading;
+  the program and same-user processes remain trusted.
+- **Check what the host actually recorded.** [Host lifecycle evidence](../../reference/schema-changes/#host-lifecycle-evidence-in-results-18)
+  adds structured model-turn and shell observations. A missing shell exit code
+  is unknown, not zero; command output text is not a substitute for a host event.
+  New results use schema **1.8**, independently of runner request/terminal **1.0**.
+- **Read a saved conversation without tool-event noise.** Lab's
+  [Conversation tab](../../guides/dashboard-lab/#read-a-multi-turn-conversation)
+  shows recorded user and agent text from the first repetition in saved order.
+  Missing messages are not reconstructed; Trajectory retains the underlying
+  events. The [Dashboard Lab article](../dashboard-lab/) introduces the workspace.
+
+There is also a small, useful interoperability step:
+`waza interop import/export` converts **one explicitly selected, pinned AgentV
+case-sensitive `contains` assertion** to or from a single native text check,
+offline. The [assertion adapter guide](../../guides/external-interoperability/)
+explains the excluded semantics. This is not a task or suite import:
+whole-task/suite interoperability and full evidence/provenance round trips
+remain unsupported under [#789](https://github.com/microsoft/waza/issues/789).
+
+## Upgrade with the published release's limits in view
+
+Install the [standalone v0.40.0 release](https://github.com/microsoft/waza/releases/tag/v0.40.0)
+or run `waza update`; no source build is required. The
+[download and extension reference](../../reference/releases/) lists platform
+assets and the separately published azd extension. Source builders should use
+`make build VERSION=0.40.0`: the immutable tag retains older metadata because
+version-file synchronization happens after tagging. The release includes
+Copilot SDK **1.0.28** and bundled CLI **1.0.105**.
+
+**Known limitations in the published archives:** exact-unit runner controls
+do not fix the separate legacy multi-trial timeout issue
+[#865](https://github.com/microsoft/waza/issues/865), which can prevent ordinary
+multi-trial runs from retaining completed results. The later timeout/persistence
+fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
+The JavaScript `code` grader can also fail intermittently with `EAGAIN` on large
+stdin contexts on Linux/macOS; its fix
+[#882](https://github.com/microsoft/waza/pull/882) is **main-only and unreleased**,
+as is the subsequent cancellation-cleanup follow-up recorded in the
+[Unreleased changelog](https://github.com/microsoft/waza/blob/main/CHANGELOG.md#unreleased).
+Those main changes have not been republished as v0.40.0.
+
+See the [full release comparison](https://github.com/microsoft/waza/compare/v0.39.1...v0.40.0)
+for the technical breakdown. Start with offline validation and the mock example;
+then opt into native text execution only when its scope, credentials and
+possible cost match the experiment you intend to run.
