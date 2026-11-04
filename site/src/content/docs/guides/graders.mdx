@@ -442,7 +442,10 @@ Each `expected_files` entry supports:
 <Aside type="caution">
   Waza preserves regular workspace files before the agent session disconnects.
   `.git` and `node_modules` trees are excluded by default, but diff-grader
-  target paths inside them are still preserved. Capture is bounded to 10,000
+  target paths inside them are still preserved when grading is enabled. With
+  `--skip-graders`, only these grader-derived preservation requirements are
+  omitted; ordinary workspace capture remains enabled with the same exclusions
+  and limits. Capture is bounded to 10,000
   files, 20,000 traversal entries, 16 MiB per file, and 64 MiB total; exceeding
   a limit reports a run error and skips workspace grading instead of grading a
   partial snapshot.

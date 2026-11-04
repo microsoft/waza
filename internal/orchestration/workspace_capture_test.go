@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -16,6 +17,132 @@ import (
 	"github.com/microsoft/waza/internal/responder"
 	"github.com/stretchr/testify/require"
 )
+
+type workspaceCaptureRecordingEngine struct {
+	*execution.MockEngine
+	requests  []*execution.ExecutionRequest
+	responses []*execution.ExecutionResponse
+}
+
+func (e *workspaceCaptureRecordingEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.requests = append(e.requests, req)
+	resp, err := e.MockEngine.Execute(ctx, req)
+	if resp != nil {
+		e.responses = append(e.responses, resp)
+	}
+	return resp, err
+}
+
+func TestSkipGradersOmitsOnlyGraderWorkspaceCapturePaths(t *testing.T) {
+	paths := []string{".git/task.txt", "node_modules/checkpoint.txt", "node_modules/global.txt"}
+	oversized := strings.Repeat("x", 16*1024*1024+1)
+	for _, mode := range []string{"regular", "missing", "directory", "oversized_grader_only", "oversized_workspace"} {
+		for _, skip := range []bool{false, true} {
+			t.Run(mode+map[bool]string{false: "/graded", true: "/execution_only"}[skip], func(t *testing.T) {
+				diff := func(path string) models.DiffGraderParameters {
+					return models.DiffGraderParameters{
+						ExpectedFiles: []models.DiffExpectedFileParameters{{Path: path, Contains: []string{"ready"}}},
+					}
+				}
+				spec := &models.EvalSpec{
+					Config:  models.Config{TimeoutSec: 30, ModelID: "mock-model"},
+					Graders: []models.GraderConfig{{Kind: models.GraderKindDiff, Identifier: "global", Parameters: diff(paths[2])}},
+				}
+				tc := &models.TestCase{
+					Stimulus: models.TaskStimulus{
+						Message: "execute", FollowUps: []string{"continue"},
+						Resources: []models.ResourceRef{{Location: "result.txt", Body: "independent output"}},
+					},
+					Validators: []models.ValidatorInline{{Kind: models.GraderKindDiff, Identifier: "task", Parameters: diff(paths[0])}},
+					Checkpoints: []models.Checkpoint{{AfterTurn: 1, Graders: []models.ValidatorInline{
+						{Kind: models.GraderKindDiff, Identifier: "checkpoint", Parameters: diff(paths[1])},
+					}}},
+				}
+				if mode != "missing" {
+					for i, path := range paths {
+						content := "ready"
+						if mode == "directory" {
+							path += "/nested.txt"
+						}
+						if mode == "oversized_grader_only" && i == 0 {
+							content = oversized
+						}
+						tc.Stimulus.Resources = append(tc.Stimulus.Resources, models.ResourceRef{Location: path, Body: content})
+					}
+				}
+				if mode == "oversized_workspace" {
+					tc.Stimulus.Resources = append(tc.Stimulus.Resources, models.ResourceRef{Location: "large.txt", Body: oversized})
+				}
+				engine := &workspaceCaptureRecordingEngine{MockEngine: execution.NewMockEngine("mock-model")}
+				require.NoError(t, engine.Initialize(t.Context()))
+				t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+				runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(t.TempDir())), engine)
+				if skip {
+					WithSkipGraders()(runner)
+				}
+				run := runner.executeRun(t.Context(), tc, 1)
+				captureFailure := mode == "oversized_workspace" || (!skip && (mode == "directory" || mode == "oversized_grader_only"))
+				wantStatus := models.StatusPassed
+				switch {
+				case captureFailure:
+					wantStatus = models.StatusError
+				case skip:
+					wantStatus = models.StatusSkipped
+				case mode == "missing":
+					wantStatus = models.StatusFailed
+				}
+				require.Equal(t, wantStatus, run.Status, run.ErrorMsg)
+				wantTurns := 2
+				if captureFailure {
+					wantTurns = 1
+					require.Contains(t, run.ErrorMsg, "workspace capture incomplete")
+				}
+				require.Len(t, engine.requests, wantTurns)
+				require.Len(t, engine.responses, wantTurns)
+				for i, req := range engine.requests {
+					require.False(t, req.SkipWorkspaceCapture, "execution-only must retain ordinary workspace capture")
+					if skip {
+						require.Nil(t, req.WorkspaceCapturePaths)
+					} else {
+						require.Equal(t, paths, req.WorkspaceCapturePaths)
+					}
+					resp := engine.responses[i]
+					if captureFailure {
+						require.NotEmpty(t, resp.WorkspaceCaptureError)
+						require.Nil(t, resp.WorkspaceFiles)
+					} else {
+						require.Empty(t, resp.WorkspaceCaptureError)
+						require.Equal(t, []byte("independent output"), resp.WorkspaceFiles["result.txt"])
+						for _, path := range paths {
+							if !skip && mode == "regular" {
+								require.Equal(t, []byte("ready"), resp.WorkspaceFiles[path])
+							} else {
+								require.NotContains(t, resp.WorkspaceFiles, path)
+							}
+						}
+					}
+				}
+				if skip {
+					require.Empty(t, run.Validations)
+					require.Empty(t, run.Checkpoints)
+				}
+				info, err := os.Stat(filepath.Join(engine.responses[0].WorkspaceDir, filepath.FromSlash(paths[0])))
+				switch mode {
+				case "directory":
+					require.NoError(t, err)
+					require.True(t, info.IsDir(), "fixture must be a non-readable-as-file grader target")
+				case "oversized_grader_only":
+					require.NoError(t, err)
+					require.EqualValues(t, len(oversized), info.Size())
+				case "missing":
+					require.True(t, os.IsNotExist(err))
+				default:
+					require.NoError(t, err)
+				}
+			})
+		}
+	}
+}
 
 func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 	for _, mode := range []struct {

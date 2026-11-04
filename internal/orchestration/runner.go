@@ -1656,6 +1656,10 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 	if err != nil {
 		return nil, err
 	}
+	var capturePaths []string
+	if !r.skipGraders {
+		capturePaths = workspaceCapturePaths(spec.Graders, tc)
+	}
 	var captureJudgeFiles func(string) *models.JudgeFileCapture
 	if !r.skipGraders && models.UsesJudgeEvidence(spec.Graders, tc) {
 		selection, err := judgeevidence.Selection(spec.Graders, tc)
@@ -1690,7 +1694,7 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 		ModelID:               spec.Config.ModelID,
 		ReasoningEffort:       spec.Config.ReasoningEffort,
 		CaptureJudgeFiles:     captureJudgeFiles,
-		WorkspaceCapturePaths: workspaceCapturePaths(spec.Graders, tc),
+		WorkspaceCapturePaths: capturePaths,
 	}, nil
 }
 

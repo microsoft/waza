@@ -96,4 +96,6 @@ The diff grader operates on the post-execution workspace directory. Each task ge
 
 Waza preserves regular workspace files before the agent session disconnects so this grader can observe edits that disconnect may restore. `.git` and `node_modules` trees are excluded by default, while every `expected_files[].path` remains explicitly preserved even inside those directories. Capture is limited to 10,000 files, 20,000 traversal entries, 16 MiB per file, and 64 MiB total. If a target or workspace exceeds those limits, the run reports a workspace-capture error and skips graders and snapshot updates rather than grading an incomplete snapshot.
 
+With `--skip-graders`, grader-only preservation requirements are omitted, including task and checkpoint diff targets. Ordinary workspace capture remains enabled with the same exclusions and limits; unused targets in excluded trees cannot fail execution-only runs.
+
 If capture fails after a follow-up or responder turn, the error result still retains that completed turn's output, transcript, tool calls, skill invocations, duration, and usage. Previously completed checkpoint results remain recorded, but the failed capture cannot supply workspace evidence or run later checkpoints and final graders.
