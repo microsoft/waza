@@ -14,6 +14,7 @@ import (
 
 type releaseStep struct {
 	Name string
+	If   string
 	Run  string
 	Uses string
 	Env  map[string]string
@@ -26,6 +27,175 @@ type releaseJob struct {
 	If             string
 	TimeoutMinutes int `yaml:"timeout-minutes"`
 	Steps          []releaseStep
+	Strategy       struct {
+		FailFast *bool `yaml:"fail-fast"`
+		Matrix   struct {
+			Shard []int
+		}
+	}
+}
+
+func checkNativeShardWorkflow(source []byte) error {
+	var workflow struct {
+		Permissions map[string]string
+		Jobs        map[string]releaseJob
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	job := workflow.Jobs["native"]
+	if workflow.Permissions["contents"] != "read" || job.TimeoutMinutes != 40 ||
+		job.Strategy.FailFast == nil || *job.Strategy.FailFast ||
+		!reflect.DeepEqual(job.Strategy.Matrix.Shard, []int{0, 1, 2, 3, 4}) {
+		return fmt.Errorf("native workflow must retain five exhaustive shards, permissions and 40-minute independent jobs")
+	}
+	foundExecution, foundUpload := false, false
+	for _, step := range job.Steps {
+		if step.Name == "Execute exhaustive native test shard" {
+			foundExecution = step.Env["SHARD"] == "${{ matrix.shard }}" &&
+				strings.Contains(step.Run, `bash .github/scripts/go_test_shard.sh "$SHARD" "coverage-native-$SHARD.txt"`)
+		}
+		if step.Name == "Retain coverage and test-selection evidence" {
+			foundUpload = strings.HasPrefix(step.Uses, "actions/upload-artifact@") &&
+				step.With["name"] == "go-coverage-native-${{ matrix.shard }}" &&
+				step.With["path"] == "coverage-native-${{ matrix.shard }}.txt*" &&
+				step.With["if-no-files-found"] == "error"
+		}
+	}
+	if !foundExecution || !foundUpload {
+		return fmt.Errorf("every matrix shard must execute and upload its atomic profile and selection inventories")
+	}
+	return nil
+}
+
+func TestNativeShardMatrixAndUploadedProfiles(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-native-shards.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkNativeShardWorkflow(source); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ from, to string }{
+		{"shard: [0, 1, 2, 3, 4]", "shard: [0, 1, 2, 3]"},
+		{"shard: [0, 1, 2, 3, 4]", "shard: [0, 1, 2, 3, 3]"},
+		{"timeout-minutes: 40", "timeout-minutes: 41"},
+		{"fail-fast: false", "fail-fast: true"},
+		{"fail-fast: false", "# fail-fast omitted"},
+		{`SHARD: ${{ matrix.shard }}`, "SHARD: 0"},
+		{"name: go-coverage-native-${{ matrix.shard }}", "name: go-coverage-native-0"},
+		{"path: coverage-native-${{ matrix.shard }}.txt*", "path: coverage-native-${{ matrix.shard }}.txt"},
+		{"if-no-files-found: error", "if-no-files-found: ignore"},
+	} {
+		mutated := strings.Replace(string(source), tc.from, tc.to, 1)
+		if mutated == string(source) || checkNativeShardWorkflow([]byte(mutated)) == nil {
+			t.Fatalf("native workflow mutation was not rejected: %s", tc.to)
+		}
+	}
+}
+
+func checkGoCoverageWorkflow(source []byte) error {
+	var workflow struct {
+		Jobs map[string]releaseJob
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	gate := workflow.Jobs["linux-gate"]
+	if workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" ||
+		!reflect.DeepEqual(gate.Needs, []string{"build-and-test", "native-test-shards"}) ||
+		gate.If != "${{ always() }}" || gate.TimeoutMinutes != 10 {
+		return fmt.Errorf("Linux coverage gate must require build and reusable native shards even after failure or skip")
+	}
+	want := []string{"coverage-reports/coverage.txt"}
+	for shard := range 5 {
+		want = append(want, fmt.Sprintf("coverage-reports/coverage-native-%d.txt", shard))
+	}
+	foundMain, foundDownload, foundVerify, foundUpload := false, false, false, false
+	for _, step := range workflow.Jobs["build-and-test"].Steps {
+		if step.Name == "Retain remaining-package coverage" {
+			foundMain = strings.HasPrefix(step.Uses, "actions/upload-artifact@") &&
+				step.If == "matrix.os == 'ubuntu-latest'" &&
+				step.With["name"] == "go-coverage-main" && step.With["path"] == "coverage.txt" &&
+				step.With["if-no-files-found"] == "error"
+		}
+	}
+	for _, step := range gate.Steps {
+		if step.Name == "Download all required coverage and discovery evidence" {
+			foundDownload = strings.HasPrefix(step.Uses, "actions/download-artifact@") &&
+				step.With["pattern"] == "go-coverage-*" && step.With["merge-multiple"] == "true" &&
+				step.With["path"] == "coverage-reports"
+		}
+		if step.Name == "Verify exhaustive native test selection and coverage" {
+			foundVerify = foundDownload && step.Run == "bash .github/scripts/go_test_shard_verify.sh coverage-reports"
+		}
+		if strings.HasPrefix(step.Uses, "codecov/codecov-action@") {
+			foundUpload = foundVerify && step.With["files"] == strings.Join(want, ",") &&
+				step.With["disable_search"] == "true"
+		}
+	}
+	if !foundMain || !foundDownload || !foundVerify || !foundUpload {
+		return fmt.Errorf("coverage upload must follow verification and explicitly include all six atomic profiles")
+	}
+	return nil
+}
+
+func TestGoWorkflowCoverageProfilesAndRequiredGate(t *testing.T) {
+	for _, name := range []string{"go-ci.yml", "squad-ci.yml"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkGoCoverageWorkflow(source); err != nil {
+				t.Fatal(err)
+			}
+			var workflow struct{ Jobs map[string]releaseJob }
+			if err := yaml.Unmarshal(source, &workflow); err != nil {
+				t.Fatal(err)
+			}
+			var gate releaseStep
+			for _, step := range workflow.Jobs["linux-gate"].Steps {
+				if step.Name == "Require every build and native test shard" {
+					gate = step
+				}
+			}
+			if gate.Env["BUILD_RESULT"] != "${{ needs.build-and-test.result }}" ||
+				gate.Env["NATIVE_RESULT"] != "${{ needs.native-test-shards.result }}" {
+				t.Fatal("gate must consume actual build and native results")
+			}
+			for _, build := range []string{"success", "failure", "cancelled", "skipped", ""} { //nolint:misspell // GitHub conclusion.
+				for _, native := range []string{"success", "failure", "cancelled", "skipped", ""} { //nolint:misspell // GitHub conclusion.
+					cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", gate.Run)
+					cmd.Env = append(os.Environ(), "BUILD_RESULT="+build, "NATIVE_RESULT="+native)
+					if err := cmd.Run(); (err == nil) != (build == "success" && native == "success") {
+						t.Fatalf("build=%q native=%q: gate error %v", build, native, err)
+					}
+				}
+			}
+			profiles := []string{"coverage-reports/coverage.txt"}
+			for shard := range 5 {
+				profiles = append(profiles, fmt.Sprintf("coverage-reports/coverage-native-%d.txt", shard))
+			}
+			for _, profile := range profiles {
+				mutated := strings.Replace(string(source), profile, profile+".missing", 1)
+				if mutated == string(source) || checkGoCoverageWorkflow([]byte(mutated)) == nil {
+					t.Fatalf("missing required coverage input was accepted: %s", profile)
+				}
+			}
+			for _, tc := range []struct{ from, to string }{
+				{"name: go-coverage-main", "name: go-coverage-main-missing"},
+				{"path: coverage.txt", "path: wrong-coverage.txt"},
+				{"pattern: go-coverage-*", "pattern: go-coverage-native-*"},
+				{"merge-multiple: true", "merge-multiple: false"},
+			} {
+				mutated := strings.Replace(string(source), tc.from, tc.to, 1)
+				if mutated == string(source) || checkGoCoverageWorkflow([]byte(mutated)) == nil {
+					t.Fatalf("coverage artifact mutation was not rejected: %s", tc.to)
+				}
+			}
+		})
+	}
 }
 
 func TestReleaseWorkflowGates(t *testing.T) {
@@ -167,7 +337,7 @@ func testNativeShardRuntimeGate(t *testing.T, script string) {
 	writeReleaseFile(t, filepath.Join(dir, "go"), []byte(`#!/usr/bin/env bash
 set -euo pipefail
 if [[ " $* " == *" -list "* ]]; then
-  printf '%s\n' TestOne TestTwo TestThree TestFour
+  printf '%s\n' TestNativeReaderFrozen15cDecisionParity TestNativeCollectionObservedFailures TestNativeLateFailurePreservesEveryStartedAttempt TestOne TestTwo TestThree TestFour
 else
   printf 'executed\n' > "$TEST_EXECUTED"
   if [ "$TRY_RUNTIME" = true ]; then "$COPILOT_CLI_PATH" --version || true; fi

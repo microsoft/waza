@@ -326,24 +326,36 @@ names are the required status contexts. Go validation is defined in
 `.github/workflows/go-ci.yml` and `.github/workflows/squad-ci.yml`; preserve
 required native-platform tests and lint.
 
-Linux executes `internal/controlledcomparison` in four deterministic shards
+Linux executes `internal/controlledcomparison` in five deterministic shards
 through `.github/workflows/go-native-shards.yml`; all remaining packages run in
 the main Linux build job. Discovery uses the same race/atomic build and includes
 tests, examples, and fuzz seed targets without changing their fixtures or
-internal skip behavior. Each shard retains the 30-minute Go test deadline.
+internal skip behavior. Each shard retains the 30-minute Go test deadline and
+40-minute job deadline. Shard 0 runs only
+`TestNativeReaderFrozen15cDecisionParity`; shard 1 runs only
+`TestNativeCollectionObservedFailures`. Shard 2 also owns
+`TestNativeLateFailurePreservesEveryStartedAttempt`; all other discovered targets
+are sorted and distributed round-robin across shards 2–4.
+The frozen-reader parity test repeatedly reads a large production capture and
+has exceeded a shard deadline when combined with other work; this placement
+isolates long tests without weakening fixtures, assertions, flags or deadlines.
+Timings vary across hosts and are not a guarantee of success. Missing reserved
+names fail discovery: when renaming or removing these tests, update the runner,
+verifier and regression inventories together. New targets join discovery
+automatically, so review shard durations as the inventory grows.
 Windows continues to execute the complete suite in one job.
 
 The required `ubuntu-latest` gate explicitly fails if any build or native shard
-fails, is cancelled, or is skipped. It also requires all five atomic coverage
+fails, is cancelled, or is skipped. It also requires all six atomic coverage
 profiles, identical native test inventories, and exactly-once selection across
-the four shards before uploading coverage. Do not replace it with a skipped
+the five shards before uploading coverage. Do not replace it with a skipped
 dependent job or remove a package without providing exhaustive required shards.
 Exercise discovery and all failure branches with
 `bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
 
-Squad Release and Squad Insider Release reuse the same four native shards and
+Squad Release and Squad Insider Release reuse the same five native shards and
 30-minute race/atomic package deadline. Their release job explicitly rejects
-failed, cancelled, or skipped shards and verifies all five coverage profiles and
+failed, cancelled, or skipped shards and verifies all six coverage profiles and
 exactly-once native selection before publication. Test the release wiring with
 `go test -count=1 ./.github/scripts` and the offline runtime/integration controls
 with `bash .github/scripts/release_gate_test.sh`. Release tests and native shards

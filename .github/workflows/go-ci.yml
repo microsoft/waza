@@ -169,7 +169,7 @@ jobs:
       - name: Upload combined coverage reports
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          files: coverage-reports/coverage.txt,coverage-reports/coverage-native-0.txt,coverage-reports/coverage-native-1.txt,coverage-reports/coverage-native-2.txt,coverage-reports/coverage-native-3.txt
+          files: coverage-reports/coverage.txt,coverage-reports/coverage-native-0.txt,coverage-reports/coverage-native-1.txt,coverage-reports/coverage-native-2.txt,coverage-reports/coverage-native-3.txt,coverage-reports/coverage-native-4.txt
           disable_search: true
           flags: go-implementation
           name: waza
