@@ -10,7 +10,9 @@ is the canonical user invocation, API, compatibility and migration reference.
 
 Exact-unit execution/shutdown deadlines and cancellation do not fix the broader
 legacy multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865),
-which remains open/backlogged.
+addressed separately by the later timeout/persistence fix
+[#870](https://github.com/microsoft/waza/pull/870). That fix is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
 
 ## Developer boundary
 

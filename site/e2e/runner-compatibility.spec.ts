@@ -24,7 +24,8 @@ test('release links open the bounded runner guides under /waza', async ({ page }
   await page.goto('/waza/');
   await expect(page.locator('main')).toContainText('Runner execution supports mock/text and explicitly opted-in Copilot/text with tools and skills disabled.');
   await expect(page.locator('main')).toContainText('General native file/tool/skill workflows and full external task/suite interoperability remain incomplete.');
-  await expect(page.locator('main')).toContainText('legacy multi-trial timeout issue #865, which remains open/backlogged');
+  await expect(page.locator('main')).toContainText('legacy multi-trial timeout issue #865');
+  await expect(page.locator('main')).toContainText('post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts');
   for (const [name, url] of [
     ['runner contract and exact work-unit guide', /\/waza\/guides\/runner-contract\/$/],
     ['logical identities', /\/waza\/guides\/runner-identities\/$/],
@@ -49,7 +50,8 @@ test('release separates standalone assets, extension sync and image acceptance',
   const main = page.locator('main');
   await expect(main).toContainText('Current published standalone release: v0.40.0');
   await expect(main).toContainText('azd extension artifact and registry sync are independent gates');
-  await expect(main).toContainText('legacy multi-trial timeout issue #865, which remains open/backlogged');
+  await expect(main).toContainText('legacy multi-trial timeout issue #865');
+  await expect(main).toContainText('post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts');
   await expect(main).toContainText('v0.40.0 result writers emit 1.8; v0.39.1 writes 1.7.');
   await expect(main).toContainText('schemas remain independently versioned 1.0');
   const downloads = main.locator('a[href*="/releases/download/v0.40.0/waza-"]');

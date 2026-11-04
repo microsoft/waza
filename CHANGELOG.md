@@ -7,14 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Trial timeout recovery and result persistence** - Preserve completed results
+  and partial recovery snapshots after trial timeout, with bounded cancellation
+  and cleanup, shared-client replacement, observed-usage handling and owned-handle
+  output permissions ([#870](https://github.com/microsoft/waza/pull/870)).
+  This is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
+  The documented process-lifetime and trusted-output-directory limitations remain.
+
 ## [0.40.0] - 2026-11-04
 
 The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.0)
 is published. Extension artifacts and registry synchronization are independent;
 see [release availability](site/src/content/docs/reference/releases.mdx).
 The exact-unit runner controls do not fix the broader legacy multi-trial timeout
-issue [#865](https://github.com/microsoft/waza/issues/865), which remains
-open/backlogged.
+issue [#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
+fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
 
 ### Added
 

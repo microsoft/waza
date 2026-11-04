@@ -568,8 +568,16 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
     const text = read(path).replace(/\s+/g, ' ');
     assert.match(text, /(?:do not fix|do not resolve) the (?:broader |separate )?legacy multi-trial timeout issue/, path);
     assert.match(text, /\[#865\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/865\)/, path);
-    assert.match(text, /remains open\/backlogged/, path);
+    assert.match(text, /\[#870\]\(https:\/\/github\.com\/microsoft\/waza\/pull\/870\)/, path);
+    assert.match(text, /post-v0\.40\.0 source behavior, not included in the published v0\.40\.0 artifacts/, path);
+    assert.doesNotMatch(text, /remains open\/backlogged/, path);
   }
+  const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.40.0]')[0];
+  assert.match(unreleased ?? '', /Trial timeout recovery and result persistence/);
+  assert.match(unreleased ?? '', /pull\/870/);
+  const published = read('CHANGELOG.md').split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
+  assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
+  assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following three paragraphs describe/);
 });
 
 test('released runner guides no longer require an unpublished source preview', () => {

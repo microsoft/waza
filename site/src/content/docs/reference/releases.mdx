@@ -54,8 +54,9 @@ values or threshold decisions. Paid native HTTP execution is local-only; see
 the [peer, Host and origin policy](../../guides/runner-contract/#http-api).
 General native file/tool/skill workflows and full external task/suite interoperability remain incomplete.
 Exact-unit deadlines and cancellation do not fix the separate legacy multi-trial
-timeout issue [#865](https://github.com/microsoft/waza/issues/865), which remains
-open/backlogged. The container
+timeout issue [#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
+fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts. The container
 guide distinguishes the default mock-only scratch target from the native-capable
 exact-unit Debian/glibc target, which is tested with the actual bundled CLI and a
 local synthetic provider without external runtime networking. Local image IDs

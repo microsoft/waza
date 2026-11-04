@@ -474,7 +474,9 @@ The browser opens automatically to `http://localhost:3000`. You'll see:
 These commands are in the
 [standalone release](../site/src/content/docs/reference/releases.mdx#v0400-highlights-and-boundaries).
 The exact-unit deadlines do not fix the legacy multi-trial timeout
-issue [#865](https://github.com/microsoft/waza/issues/865), which remains open/backlogged.
+issue [#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
+fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
 
 `waza runner capabilities` advertises implemented versions and capabilities.
 `waza runner negotiate < examples/runner/negotiation.json` checks requirements

@@ -33,7 +33,9 @@ azd extension/registry and native runner image have independent publication and
 acceptance gates; see the
 [release scope and acceptance boundaries](site/src/content/docs/reference/releases.mdx#v0400-highlights-and-boundaries).
 The exact-unit runner deadlines do not fix the legacy multi-trial timeout issue
-[#865](https://github.com/microsoft/waza/issues/865), which remains open/backlogged.
+[#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
+fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
 
 ## Installation
 
@@ -1819,6 +1821,11 @@ The CLI discovers `trigger_tests.yaml` after `before_run` and before engine star
 Canceling during Copilot SDK startup stops waiting and cleans up partial startup; canceling the original caller after successful startup does not terminate the healthy shared client. Reinitializing a healthy client remains idempotent even with a canceled caller context. A canceled shared startup can be replaced on the next client lookup once its cleanup has succeeded, but global shared-client shutdown still rejects new clients. Custom client factories must unblock `Start` on its lifetime-context cancellation or `ForceStop`; each partial-startup cleanup wait reports an error after its two-second deadline. This bounds caller waiting, not goroutine termination for a noncooperating custom client; pending or failed cleanup remains tracked rather than being treated as completed.
 
 Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
+
+**Post-v0.40.0 source behavior:** The following three paragraphs describe
+[#870](https://github.com/microsoft/waza/pull/870), merged after the immutable
+v0.40.0 tag at `93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`. They do not describe
+the published v0.40.0 binaries or extension.
 
 Waiting for a retired client's replacement honors each request's cancellation; retiring an old generation does not wait for replacement startup. Parent cancellation remains a failure even after a skill invocation ends the turn early, or when session/global cleanup finishes without an SDK error. This bounds caller waiting, not child-process lifetime: retired shared clients remain tracked until command-level shutdown so active sibling sessions are not force-stopped. Repeated unresponsive trials can therefore retain multiple client processes until finalization; there is no per-run process-count bound.
 

@@ -65,7 +65,9 @@ It adds no Lab status surface. General native file/tool/skill workflows and full
 external task/suite interoperability remain outstanding under #754.
 Exact-unit execution/shutdown deadlines and cancellation do not resolve the
 broader legacy multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865),
-which remains open/backlogged. Standalone publication, extension/registry
+addressed separately by the later timeout/persistence fix
+[#870](https://github.com/microsoft/waza/pull/870). That fix is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts. Standalone publication, extension/registry
 availability and acceptance of a public image digest are separate gates.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
