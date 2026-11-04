@@ -124,8 +124,10 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 			for _, h := range handlers {
 				h(copilot.SessionEvent{Data: &copilot.SkillInvokedData{Name: "s", Path: "p"}})
 			}
-			if err := ctx.Err(); err != nil {
-				return nil, err
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(50 * time.Millisecond):
 			}
 			return &copilot.SessionEvent{}, nil
 		},
