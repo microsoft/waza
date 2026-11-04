@@ -1822,10 +1822,17 @@ Canceling during Copilot SDK startup stops waiting and cleans up partial startup
 
 Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
 
-**Post-v0.40.0 source behavior:** The following three paragraphs describe
-[#870](https://github.com/microsoft/waza/pull/870), merged after the immutable
+**Post-v0.40.0 source behavior:** The following cleanup notes describe
+[#870](https://github.com/microsoft/waza/pull/870) and its cancellation-join follow-up,
+integrated after the immutable
 v0.40.0 tag at `93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`. They do not describe
 the published v0.40.0 binaries or extension.
+
+For canceled sends and disconnects that finish during forced cleanup, joining the
+force-stop callback uses only the remaining post-force grace. A callback that
+finishes in that budget does not retire the client merely because the session
+returned first. A blocked callback still retires the client at the same deadline;
+a completed session is not marked abandoned.
 
 Waiting for a retired client's replacement honors each request's cancellation; retiring an old generation does not wait for replacement startup. Parent cancellation remains a failure even after a skill invocation ends the turn early, or when session/global cleanup finishes without an SDK error. This bounds caller waiting, not child-process lifetime: retired shared clients remain tracked until command-level shutdown so active sibling sessions are not force-stopped. Repeated unresponsive trials can therefore retain multiple client processes until finalization; there is no per-run process-count bound.
 

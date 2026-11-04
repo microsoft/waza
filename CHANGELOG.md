@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Cancellation force-stop join** - When a canceled send or disconnect finishes
+  during forced cleanup, join the force-stop callback within the remaining
+  post-force grace instead of prematurely retiring its client. A callback that
+  remains blocked still retires the client at the existing deadline, without
+  labeling a completed session abandoned. This is post-v0.40.0 source behavior,
+  not included in the published v0.40.0 artifacts.
+
 - **JavaScript `code` grader input** - The JavaScript wrapper for `code` graders now reads its grading context directly from standard input (file descriptor 0) instead of through `process.stdin`, which made the pipe non-blocking. Large contexts, such as long transcripts, no longer fail intermittently with `EAGAIN` and an `exit status 1` grader error on Linux and macOS when the pipe is momentarily empty. Assertions, results and the Python wrapper are unchanged. This fix ([#882](https://github.com/microsoft/waza/pull/882)) is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
 
 - **Trial timeout recovery and result persistence** - Preserve completed results

@@ -581,7 +581,9 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
   const published = read('CHANGELOG.md').split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
   assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);
-  assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following three paragraphs describe/);
+  assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following cleanup notes describe/);
+  assert.match(unreleased ?? '', /\*\*Cancellation force-stop join\*\*/);
+  assert.doesNotMatch(published ?? '', /\*\*Cancellation force-stop join\*\*/);
 });
 
 test('released runner guides no longer require an unpublished source preview', () => {
