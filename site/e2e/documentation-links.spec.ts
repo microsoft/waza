@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+const screenshotDir = fileURLToPath(new URL('../../docs/images/', import.meta.url));
 function htmlFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
@@ -75,7 +76,7 @@ test('beginner learning order and published release availability are visible', a
 });
 
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
-  test(`compact homepage links to the release story at ${viewport.width}px`, async ({ page }, testInfo) => {
+  test(`compact homepage links to the release story at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto('/waza/');
     const main = page.locator('main');
@@ -89,7 +90,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(main).toContainText('A mock pass proves harness wiring, not agent quality');
     await expect(main).toContainText('authentication, permissions and possible-cost prerequisites');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath(`homepage-${viewport.width}.png`), fullPage: true });
+    await page.screenshot({ path: join(screenshotDir, `site-v040-home-${viewport.width}.png`), fullPage: true });
 
     await announcement.click();
     await expect(page).toHaveURL(/\/waza\/releases\/v0-40-0\/$/);
@@ -119,7 +120,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       await expect(outcomeRows.nth(index).locator('td').nth(1)).toHaveText(String(index));
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath(`release-article-${viewport.width}.png`), fullPage: true });
+    await page.screenshot({ path: join(screenshotDir, `site-v040-article-${viewport.width}.png`), fullPage: true });
     await page.locator('main').getByRole('link', { name: 'runner contract', exact: true }).click();
     await expect(page).toHaveURL(/\/waza\/guides\/runner-contract\/$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Runner contract and capability negotiation');
