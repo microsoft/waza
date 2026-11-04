@@ -1820,6 +1820,12 @@ Canceling during Copilot SDK startup stops waiting and cleans up partial startup
 
 Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
 
+Waiting for a retired client's replacement honors each request's cancellation; retiring an old generation does not wait for replacement startup. Parent cancellation remains a failure even after a skill invocation ends the turn early, or when session/global cleanup finishes without an SDK error. This bounds caller waiting, not child-process lifetime: retired shared clients remain tracked until command-level shutdown so active sibling sessions are not force-stopped. Repeated unresponsive trials can therefore retain multiple client processes until finalization; there is no per-run process-count bound.
+
+Shutdown-usage fallback is excluded for session IDs with an in-progress disconnect. If a disconnect exceeds the cancellation grace and is abandoned, that engine retains the exclusion for its lifetime, even if the background disconnect later completes. This avoids fallback resuming or shutting down a session whose disconnect has not been joined. Already recorded RPC metrics and observed event usage remain available, but missing final usage is not invented. Skipped fallback emits a warning, or a `shutdown_usage/usage_missing_or_partial` diagnostic when lifecycle diagnostics are enabled. Fallback after joined disconnects and usage captured before ephemeral-session teardown keep their existing behavior.
+
+Outcome publication applies permissions through the owned temporary-file handle, so replacement of its pathname cannot redirect that permission change to another file. Existing regular-file permissions and the creation umask remain respected. Use output directories and ancestors that untrusted users cannot modify: publication and temporary-path cleanup still use pathnames and do not provide an attacker-writable-namespace confinement guarantee.
+
 Completed startup keeps its lifetime context alive through graceful SDK cleanup. Authentication failure immediately cleans up an owned client and retains any cleanup error; later engine shutdown still performs final SDK cleanup. Shared clients remain the top-level owner's responsibility. Partial-startup cleanup remains once-only.
 
 ```yaml
