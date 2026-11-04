@@ -211,7 +211,7 @@ config.executor: mock checks only the harness, not agent quality.`,
 	return cmd
 }
 
-func runCommandE(cmd *cobra.Command, args []string) error {
+func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
 		return err
 	} else if enabled {
@@ -248,6 +248,7 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	defer func() {
 		if err := shutdownSharedClientAfterRun(cmd.Context()); err != nil {
 			slog.Warn("shared copilot client shutdown failed", "error", err)
+			retErr = errors.Join(retErr, err)
 		}
 	}()
 
