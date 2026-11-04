@@ -455,8 +455,8 @@ func TestLocalStore_DuplicateRunIDsFailExplicitly(t *testing.T) {
 	_, err := store.List(t.Context(), ListOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `duplicate eval_id "run-duplicate"`)
-	require.Contains(t, err.Error(), firstPath)
-	require.Contains(t, err.Error(), secondPath)
+	require.Contains(t, err.Error(), fmt.Sprintf("%q", firstPath))
+	require.Contains(t, err.Error(), fmt.Sprintf("%q", secondPath))
 }
 
 func TestLocalStoreSkipsPartialRecoveryArtifacts(t *testing.T) {
