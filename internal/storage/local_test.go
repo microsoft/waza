@@ -435,6 +435,30 @@ func TestLocalStore_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestLocalStore_DuplicateRunIDsFailExplicitly(t *testing.T) {
+	dir := t.TempDir()
+	firstPath := filepath.Join(dir, "model-a.json")
+	secondPath := filepath.Join(dir, "model-b.json")
+
+	first := makeOutcome("run-duplicate", "skill-x", "model-a", 1, 1)
+	second := makeOutcome("run-duplicate", "skill-x", "model-b", 1, 1)
+	for path, outcome := range map[string]*models.EvaluationOutcome{
+		firstPath:  first,
+		secondPath: second,
+	} {
+		data, err := json.Marshal(outcome)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+	}
+
+	store := NewLocalStore(dir)
+	_, err := store.List(t.Context(), ListOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `duplicate eval_id "run-duplicate"`)
+	require.Contains(t, err.Error(), firstPath)
+	require.Contains(t, err.Error(), secondPath)
+}
+
 func TestLocalStoreSkipsPartialRecoveryArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	partialDir := filepath.Join(dir, ".partial")

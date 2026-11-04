@@ -382,7 +382,7 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	// Compute the run ID once so the same value flows into both the
 	// telemetry root span and per-run snapshots (via r.evalRunID), and so
 	// runNormalBenchmark reuses it when building the EvaluationOutcome.
-	runID := fmt.Sprintf("run-%d", time.Now().Unix())
+	runID := newRunID(time.Now())
 	r.evalRunID = runID
 
 	// Open the root telemetry span for the whole eval. The span is a no-op
@@ -511,7 +511,7 @@ func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 	// from test code or alternative code paths that bypass RunBenchmark).
 	outcomeRunID := r.evalRunID
 	if outcomeRunID == "" {
-		outcomeRunID = fmt.Sprintf("run-%d", time.Now().Unix())
+		outcomeRunID = newRunID(time.Now())
 	}
 	outcome := &models.EvaluationOutcome{
 		SchemaVersion: models.CurrentResultSchemaVersion,

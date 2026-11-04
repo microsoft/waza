@@ -9,6 +9,8 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +28,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/statistics"
+	"github.com/microsoft/waza/internal/webapi"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2190,6 +2193,45 @@ func TestRunCommand_OutputDirSingleSkill(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "expected at least one .json result in run subdirectory")
+}
+
+func TestRunCommand_MultiModelOutputHasDistinctDashboardRuns(t *testing.T) {
+	resetRunGlobals()
+	defer resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+	outDir := filepath.Join(t.TempDir(), "results")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{
+		specPath,
+		"--model", "model-a",
+		"--model", "model-b",
+		"--output-dir", outDir,
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	require.NoError(t, cmd.Execute())
+
+	store := webapi.NewFileStore(outDir)
+	handler := webapi.NewHandlers(store)
+	request := httptest.NewRequest(http.MethodGet, "/api/runs", nil)
+	response := httptest.NewRecorder()
+	handler.HandleRuns(response, request)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+
+	var runs []webapi.RunSummary
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&runs))
+	require.Len(t, runs, 2)
+
+	runIDs := map[string]struct{}{}
+	models := map[string]struct{}{}
+	for _, run := range runs {
+		runIDs[run.ID] = struct{}{}
+		models[run.Model] = struct{}{}
+	}
+	require.Len(t, runIDs, 2, "each model result must retain a distinct dashboard identity")
+	require.Equal(t, map[string]struct{}{"model-a": {}, "model-b": {}}, models)
 }
 
 func TestWriteOutputDir_SingleSkill(t *testing.T) {
