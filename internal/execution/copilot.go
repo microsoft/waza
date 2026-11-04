@@ -76,7 +76,7 @@ func sendAndWaitBounded(
 		select {
 		case <-forceDone:
 			return result.event, false, false, errors.Join(ctx.Err(), result.err)
-		default:
+		case <-timer.C:
 			return result.event, false, true, errors.Join(ctx.Err(), result.err)
 		}
 	case <-timer.C:
@@ -115,7 +115,7 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 		select {
 		case <-forceDone:
 			return false, false, errors.Join(ctx.Err(), err)
-		default:
+		case <-timer.C:
 			return false, true, errors.Join(ctx.Err(), err)
 		}
 	case <-timer.C:

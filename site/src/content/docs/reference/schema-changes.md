@@ -16,7 +16,7 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 ## Versioned artifacts
 
-This table describes the current source-build preview. Published standalone
+This table describes standalone v0.40.0. Published standalone
 `v0.39.1` writes results `1.7`; see [release availability](/waza/reference/releases/).
 
 | Artifact | Field | Current version |
