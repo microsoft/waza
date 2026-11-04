@@ -73,6 +73,8 @@ func resetRunGlobals() {
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return orchestration.NewEvalRunner(cfg, engine, opts...)
 	}
+	shutdownSharedClientForRun = execution.ShutdownSharedClient
+	runSharedClientShutdownTimeout = 30 * time.Second
 }
 
 // helper creates a valid minimal eval spec YAML in a temp dir,

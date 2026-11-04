@@ -262,7 +262,7 @@ func (e *CopilotEngine) executeDiagnostic(ctx context.Context, req *ExecutionReq
 	}
 	defer done()
 	ctx = context.WithValue(ctx, diagnosticOperationKey{}, op)
-	resp, err = e.execute(ctx, req)
+	resp, err = e.execute(ctx, req, e.currentClient())
 	if err != nil && op.err() == nil {
 		op.report(StageExecute, CodeExecute, id)
 	}

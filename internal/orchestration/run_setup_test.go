@@ -44,6 +44,13 @@ func TestRunHookHelperProcess(t *testing.T) {
 		data, err := os.ReadFile(source)
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(args[3], data, 0o600))
+	case "fail-first":
+		f, err := os.OpenFile(args[1], os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			require.NoError(t, f.Close())
+			t.Fatal("intentional first hook failure")
+		}
+		require.ErrorIs(t, err, os.ErrExist)
 	default:
 		t.Fatalf("unknown hook helper action %q", args[0])
 	}
