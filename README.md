@@ -2075,9 +2075,12 @@ hooks:
 **Template Variables in Hooks and Commands:**
 
 Hook commands support `{{.Vars.key}}` for user-defined values from the eval's
-top-level `inputs` section. Waza renders the command before starting the hook;
-an invalid template or missing key fails that hook instead of passing the
-placeholder literally.
+top-level `inputs` section. Waza splits the configured command into process
+arguments, then renders each argument before starting the hook. A standalone
+placeholder remains one argument when its value contains whitespace or is
+empty. An invalid template or missing key fails that hook instead of passing
+the placeholder literally. Waza does not invoke a shell implicitly; use an
+explicit shell command when shell syntax is required.
 
 Custom variables can be defined in the `inputs` section and referenced in hooks:
 

@@ -29,6 +29,12 @@ func TestRunHookHelperProcess(t *testing.T) {
 		_, err = f.WriteString(args[2] + "\n")
 		require.NoError(t, err)
 		require.NoError(t, f.Close())
+	case "append-marker":
+		f, err := os.OpenFile(args[1], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		require.NoError(t, err)
+		_, err = f.WriteString(args[2] + ":" + args[3] + "\n")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
 	case "copy":
 		data, err := os.ReadFile(args[1])
 		require.NoError(t, err)
@@ -119,22 +125,32 @@ func requireHookLog(t *testing.T, log string) {
 }
 
 func TestRunBenchmark_RendersEvalInputsInLifecycleHooks(t *testing.T) {
-	for _, tt := range []struct {
+	contracts := []struct {
 		name          string
 		schemaVersion string
 		identity      string
 	}{
 		{name: "scenario", schemaVersion: models.ScenarioSchemaVersion, identity: "scenario: synthetic-reply"},
 		{name: "legacy", schemaVersion: "1.4", identity: "skill: echo-dogfood"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			output := filepath.Join(dir, "marker.txt")
-			eval := fmt.Sprintf(`schemaVersion: %q
+	}
+	markers := []struct {
+		name  string
+		value string
+	}{
+		{name: "plain", value: "DOGFOOD_VARIABLE"},
+		{name: "whitespace", value: "DOGFOOD VARIABLE"},
+		{name: "empty", value: ""},
+	}
+	for _, contract := range contracts {
+		for _, marker := range markers {
+			t.Run(contract.name+"/"+marker.name, func(t *testing.T) {
+				dir := t.TempDir()
+				output := filepath.Join(dir, "marker.txt")
+				eval := fmt.Sprintf(`schemaVersion: %q
 name: hook-variable-repro
 %s
 inputs:
-  marker: DOGFOOD_VARIABLE
+  marker: %q
 config:
   executor: mock
   model: offline
@@ -155,38 +171,39 @@ hooks:
   after_run:
     - command: '%s'
       error_on_fail: true
-`, tt.schemaVersion, tt.identity,
-				hookCommand(t, "append", output, "before_run:{{.Vars.marker}}"),
-				hookCommand(t, "append", output, "before_task:{{.Vars.marker}}"),
-				hookCommand(t, "append", output, "after_task:{{.Vars.marker}}"),
-				hookCommand(t, "append", output, "after_run:{{.Vars.marker}}"))
-			require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte(eval), 0o600))
-			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`id: smoke
+`, contract.schemaVersion, contract.identity, marker.value,
+					hookCommand(t, "append-marker", output, "before_run", "{{.Vars.marker}}"),
+					hookCommand(t, "append-marker", output, "before_task", "{{.Vars.marker}}"),
+					hookCommand(t, "append-marker", output, "after_task", "{{.Vars.marker}}"),
+					hookCommand(t, "append-marker", output, "after_run", "{{.Vars.marker}}"))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte(eval), 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`id: smoke
 name: Smoke
 inputs:
   prompt: Reply with a synthetic marker.
 `), 0o600))
 
-			spec, err := models.LoadEvalSpec(filepath.Join(dir, "eval.yaml"))
-			require.NoError(t, err)
-			runner := NewEvalRunner(
-				config.NewEvalConfig(spec, config.WithSpecDir(dir)),
-				execution.NewMockEngine("offline"),
-				WithSkipGraders(),
-			)
-			outcome, err := runner.RunBenchmark(t.Context())
-			require.NoError(t, err)
-			require.Len(t, outcome.TestOutcomes, 1)
+				spec, err := models.LoadEvalSpec(filepath.Join(dir, "eval.yaml"))
+				require.NoError(t, err)
+				runner := NewEvalRunner(
+					config.NewEvalConfig(spec, config.WithSpecDir(dir)),
+					execution.NewMockEngine("offline"),
+					WithSkipGraders(),
+				)
+				outcome, err := runner.RunBenchmark(t.Context())
+				require.NoError(t, err)
+				require.Len(t, outcome.TestOutcomes, 1)
 
-			got, err := os.ReadFile(output)
-			require.NoError(t, err)
-			require.Equal(t, []byte(
-				"before_run:DOGFOOD_VARIABLE\n"+
-					"before_task:DOGFOOD_VARIABLE\n"+
-					"after_task:DOGFOOD_VARIABLE\n"+
-					"after_run:DOGFOOD_VARIABLE\n",
-			), got)
-		})
+				got, err := os.ReadFile(output)
+				require.NoError(t, err)
+				require.Equal(t, []byte(
+					"before_run:"+marker.value+"\n"+
+						"before_task:"+marker.value+"\n"+
+						"after_task:"+marker.value+"\n"+
+						"after_run:"+marker.value+"\n",
+				), got)
+			})
+		}
 	}
 }
 

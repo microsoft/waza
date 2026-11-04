@@ -58,13 +58,15 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 		return fmt.Errorf("hook %s[%d]: empty command", name, index)
 	}
 
-	command, err := wazatemplate.Render(h.Command, &wazatemplate.Context{Vars: r.Vars})
-	if err != nil {
-		return fmt.Errorf("hook %s[%d]: render command: %w", name, index, err)
+	parts := strings.Fields(h.Command)
+	for i, part := range parts {
+		rendered, err := wazatemplate.Render(part, &wazatemplate.Context{Vars: r.Vars})
+		if err != nil {
+			return fmt.Errorf("hook %s[%d]: render command argument %d: %w", name, index, i, err)
+		}
+		parts[i] = rendered
 	}
-
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
+	if strings.TrimSpace(parts[0]) == "" {
 		return fmt.Errorf("hook %s[%d]: rendered command is empty", name, index)
 	}
 	//nolint:gosec // hook commands are user-configured in eval YAML, not untrusted input

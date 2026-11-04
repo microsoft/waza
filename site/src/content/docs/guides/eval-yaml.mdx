@@ -1421,9 +1421,13 @@ hooks:
       error_on_fail: true
 ```
 
-Waza renders the command before starting the hook. An invalid template or a
-missing key fails the hook instead of passing the placeholder literally. CSV
-row columns are not added to lifecycle hook context.
+Waza splits the configured command into process arguments, then renders each
+argument before starting the hook. A standalone placeholder remains one
+argument when its value contains whitespace or is empty. An invalid template
+or a missing key fails the hook instead of passing the placeholder literally.
+Waza does not invoke a shell implicitly; use an explicit shell command when
+shell syntax is required. CSV row columns are not added to lifecycle hook
+context.
 
 Each hook entry:
 
