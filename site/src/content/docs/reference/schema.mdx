@@ -578,7 +578,9 @@ config:
 **Type:** string  
 **Default:** (none)
 
-Group results by a field in the output (e.g., `tags`, `task_id`). Useful for organizing results when running many tasks.
+Group results by `model` or by each task's complete ordered `tags` set. Tasks
+without tags are omitted from tag groups. Useful for organizing results when
+running many tasks.
 
 ```yaml
 config:

@@ -1138,7 +1138,7 @@ func (r *EvalRunner) buildTestOutcome(tc *models.TestCase, runs []models.RunResu
 	return models.TestOutcome{
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
-		Group:       r.resolveGroup(),
+		Group:       r.resolveGroup(tc),
 		Golden:      tc.Golden,
 		Status:      overallStatus(runs),
 		Runs:        runs,
@@ -2521,12 +2521,13 @@ func (r *EvalRunner) buildTranscript(resp *execution.ExecutionResponse) []models
 }
 
 // resolveGroup returns the group value for the current benchmark configuration.
-// Currently only "model" is supported; CSV column grouping will be added with #187.
-func (r *EvalRunner) resolveGroup() string {
+func (r *EvalRunner) resolveGroup(tc *models.TestCase) string {
 	spec := r.cfg.Spec()
 	switch spec.Config.GroupBy {
 	case "model":
 		return spec.Config.ModelID
+	case "tags":
+		return strings.Join(tc.Tags, ", ")
 	case "":
 		return ""
 	default:
