@@ -175,8 +175,11 @@ type ExecutionResponse struct {
 	ToolCalls        []models.ToolCall
 	ErrorMsg         string
 	Success          bool
-	WorkspaceDir     string            // Path to workspace directory (for file grading)
-	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
+	// ExecutionSucceeded records agent execution success independently of
+	// workspace capture. It is runtime-only, not part of saved response bytes.
+	ExecutionSucceeded bool              `json:"-"`
+	WorkspaceDir       string            // Path to workspace directory (for file grading)
+	WorkspaceFiles     map[string][]byte // Post-execution workspace file contents captured before session disconnect
 	// WorkspaceCaptureError is set when bounded post-execution capture could
 	// not produce a complete snapshot. Runners must not grade this response.
 	WorkspaceCaptureError string

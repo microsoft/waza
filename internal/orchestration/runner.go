@@ -1948,9 +1948,8 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 			return info
 
 		case responder.DecisionReply:
-			replyOK := r.sendResponderReply(ctx, tc, initial, resp, decision.Answer, info.FollowupsSent+1)
-			// Capture can fail after the reply's agent turn has completed.
-			if replyOK || resp.WorkspaceCaptureError != "" {
+			replyOK, completed := r.sendResponderReply(ctx, tc, initial, resp, decision.Answer, info.FollowupsSent+1)
+			if completed {
 				info.FollowupsSent++
 			}
 			if !replyOK {
@@ -1983,12 +1982,13 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 
 // sendResponderReply sends one responder answer to the agent session, reusing
 // the session and workspace, and merges the agent's response into resp. It
-// returns false (and sets resp.ErrorMsg) on failure.
-func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, answer string, turn int) bool {
+// returns whether the reply succeeded overall and whether its execution
+// succeeded independently of workspace capture.
+func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, answer string, turn int) (ok, completed bool) {
 	followReq, err := r.buildTurnExecutionRequest(tc, initial)
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d setup failed: %v", turn, err)
-		return false
+		return false, false
 	}
 	followReq.Message = answer
 	followReq.SessionID = resp.SessionID
@@ -2005,7 +2005,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	timeout, err := r.executionTimeout(tc)
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d setup failed: %v", turn, err)
-		return false
+		return false, false
 	}
 	// Wrap the responder reply in its own turn span so its tool_call
 	// and model_call children nest correctly. The initial Execute was
@@ -2024,7 +2024,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	cancelFollow()
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d failed: %v", turn, err)
-		return false
+		return false, false
 	}
 	resp.CommandInvocations = followResp.CommandInvocations
 	markToolPolicyViolation(followResp)
@@ -2039,9 +2039,9 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	}
 	if message != "" {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, message)
-		return false
+		return false, followResp.WorkspaceCaptureError != "" && followResp.ExecutionSucceeded
 	}
-	return true
+	return true, true
 }
 
 func mergeCompletedTurnResponse(resp, turn *execution.ExecutionResponse) {

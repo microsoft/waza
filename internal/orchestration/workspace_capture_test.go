@@ -107,6 +107,7 @@ func TestSkipGradersOmitsOnlyGraderWorkspaceCapturePaths(t *testing.T) {
 						require.Equal(t, paths, req.WorkspaceCapturePaths)
 					}
 					resp := engine.responses[i]
+					require.True(t, resp.ExecutionSucceeded)
 					if captureFailure {
 						require.NotEmpty(t, resp.WorkspaceCaptureError)
 						require.Nil(t, resp.WorkspaceFiles)
@@ -180,7 +181,8 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 				}
 				last := &execution.ExecutionResponse{
 					Success: false, SessionID: "session", WorkspaceDir: workspace,
-					ErrorMsg: captureErr, WorkspaceCaptureError: captureErr,
+					ExecutionSucceeded: true,
+					ErrorMsg:           captureErr, WorkspaceCaptureError: captureErr,
 					FinalOutput: "completed second output", DurationMs: 200, Usage: lastUsage, UsageIsCumulative: cumulative,
 					Events: copilotevents.FromSDK([]copilot.SessionEvent{
 						{Data: &copilot.ToolExecutionStartData{ToolCallID: "last", ToolName: "edit", Arguments: map[string]any{"path": "output.txt"}}},
@@ -384,6 +386,7 @@ func TestResponderCaptureFailurePreservesCompletedResults(t *testing.T) {
 			},
 			{
 				Success:               false,
+				ExecutionSucceeded:    true,
 				ErrorMsg:              captureErr,
 				WorkspaceCaptureError: captureErr,
 				WorkspaceDir:          workspace,

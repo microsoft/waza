@@ -146,15 +146,16 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		workspaceFiles, workspaceCaptureErr = captureWorkspaceFiles(m.workspace, req.WorkspaceCapturePaths)
 	}
 	resp := &ExecutionResponse{
-		FinalOutput:    output,
-		Events:         []agentevent.Event{},
-		ModelID:        m.modelID,
-		DurationMs:     time.Since(start).Milliseconds(),
-		ToolCalls:      []models.ToolCall{},
-		Success:        workspaceCaptureErr == nil,
-		SessionID:      sessionID,
-		WorkspaceDir:   m.workspace,
-		WorkspaceFiles: workspaceFiles,
+		FinalOutput:        output,
+		Events:             []agentevent.Event{},
+		ModelID:            m.modelID,
+		DurationMs:         time.Since(start).Milliseconds(),
+		ToolCalls:          []models.ToolCall{},
+		Success:            workspaceCaptureErr == nil,
+		ExecutionSucceeded: true,
+		SessionID:          sessionID,
+		WorkspaceDir:       m.workspace,
+		WorkspaceFiles:     workspaceFiles,
 	}
 	if workspaceCaptureErr != nil {
 		resp.ErrorMsg = workspaceCaptureErr.Error()

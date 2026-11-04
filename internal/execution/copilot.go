@@ -852,6 +852,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		ToolCalls:             toolCalls,
 		ErrorMsg:              errMsg,
 		Success:               err == nil && workspaceCaptureErr == nil,
+		ExecutionSucceeded:    err == nil,
 		WorkspaceDir:          workspaceDir,
 		WorkspaceFiles:        workspaceFiles,
 		WorkspaceCaptureError: workspaceCaptureError,
@@ -867,6 +868,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		resp.ToolPolicyMode = string(req.ToolPolicy.Mode)
 	}
 	if denials := policyRecorder.snapshot(); len(denials) > 0 {
+		resp.ExecutionSucceeded = false
 		resp.ToolPolicyDenials = denials
 		for _, d := range denials {
 			if e.diagnostics != nil {
