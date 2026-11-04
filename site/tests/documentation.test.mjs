@@ -575,8 +575,12 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
   const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.40.0]')[0];
   assert.match(unreleased ?? '', /Trial timeout recovery and result persistence/);
   assert.match(unreleased ?? '', /pull\/870/);
+  assert.match(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(unreleased ?? '', /pull\/882/);
+  assert.match(read('CHANGELOG.md'), /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.40\.0\.\.\.HEAD$/m);
   const published = read('CHANGELOG.md').split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
   assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
+  assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following three paragraphs describe/);
 });
 

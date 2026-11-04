@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **JavaScript `code` grader input** - The JavaScript wrapper for `code` graders now reads its grading context directly from standard input (file descriptor 0) instead of through `process.stdin`, which made the pipe non-blocking. Large contexts, such as long transcripts, no longer fail intermittently with `EAGAIN` and an `exit status 1` grader error on Linux and macOS when the pipe is momentarily empty. Assertions, results and the Python wrapper are unchanged. This fix ([#882](https://github.com/microsoft/waza/pull/882)) is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
+
 - **Trial timeout recovery and result persistence** - Preserve completed results
   and partial recovery snapshots after trial timeout, with bounded cancellation
   and cleanup, shared-client replacement, observed-usage handling and owned-handle
@@ -53,7 +55,6 @@ not included in the published v0.40.0 artifacts.
 
 ### Fixed
 
-- **JavaScript `code` grader input** - The JavaScript wrapper for `code` graders now reads its grading context directly from standard input (file descriptor 0) instead of through `process.stdin`, which made the pipe non-blocking. Large contexts, such as long transcripts, no longer fail intermittently with `EAGAIN` and an `exit status 1` grader error on Linux and macOS when the pipe is momentarily empty. Assertions, results and the Python wrapper are unchanged.
 - **MCP mock sequences across turns** - Finite MCP mock sequences now continue across initial, scripted follow-up, and responder-driven turns in one task attempt, even when the native runtime restarts the mock server. Each task, trial, and retry still starts fresh, and existing first-match and exhaustion behavior is unchanged. Existing eval YAML needs no new field or flag. Cleanup refuses detected replacements and fails the run if attempt-owned state cannot be removed.
 - **MCP mock cache invalidation** - MCP-backed task cache keys now include the resolved mock configuration, so changed inline or fixture responses run again. Tasks without MCP mocks keep their existing cache keys. A cached outcome that records a mocked MCP server the task no longer mocks is re-run instead of reused.
 - **Lab conversations** - Conversation views omit messages without non-whitespace text while retaining the original events in Trajectory (#801).
@@ -717,7 +718,7 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.6...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.40.0...HEAD
 [0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
 [0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5
 [0.38.4]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.3...azd-ext-microsoft-azd-waza_0.38.4
