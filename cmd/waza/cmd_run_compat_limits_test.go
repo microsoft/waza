@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
@@ -124,9 +126,25 @@ func TestRunnerCompatExecutionTimeoutDoesNotLimitTextGrading(t *testing.T) {
 	eval = bytes.Replace(eval, []byte("Mock response for: hello"), []byte("Mock response for:"), 1)
 	require.Contains(t, string(task), "prompt: hello")
 	task = bytes.Replace(task, []byte("prompt: hello"), []byte("prompt: "+strings.Repeat("a", 64<<10)+"hello"), 1)
-	// Each full-output regex scan is a real builtin text check, not a sleep in
-	// execution. Assert the measured grading duration actually crosses the limit.
-	patterns := strings.Repeat(`"(?s)^.*$",`, 16384)
+	// Calibrate real builtin work instead of imposing the slowest runner's
+	// workload everywhere. The CLI assertions below still prove the boundary.
+	patternCount := 32
+	for {
+		grader, err := graders.NewTextGrader("calibration", models.TextGraderParameters{
+			RegexMatch: slices.Repeat([]string{"(?s)^.*$"}, patternCount),
+		})
+		require.NoError(t, err)
+		result, err := grader.Grade(t.Context(), &graders.Context{Output: strings.Repeat("a", 64<<10) + "hello"})
+		require.NoError(t, err)
+		require.True(t, result.Passed)
+		if result.DurationMs >= 3000 {
+			t.Logf("calibrated %d text checks in %dms for a one-second execution budget", patternCount, result.DurationMs)
+			break
+		}
+		require.Less(t, patternCount, 16384, "fixture could not establish sufficient real text-grading work")
+		patternCount *= 2
+	}
+	patterns := strings.Repeat(`"(?s)^.*$",`, patternCount)
 	// Replace the existing task grader rather than introducing a duplicate key.
 	prefix, _, ok := strings.Cut(string(task), "graders:\n")
 	require.True(t, ok)

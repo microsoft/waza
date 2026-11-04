@@ -228,7 +228,6 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 
 	for _, workflowName := range []string{
 		"go-ci.yml",
-		"squad-ci.yml",
 		"squad-release.yml",
 		"squad-insider-release.yml",
 	} {

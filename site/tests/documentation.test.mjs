@@ -195,7 +195,7 @@ function assertSiteDiscovery(workflow, inputs) {
   assert.ok(!paths(site).some((pattern) => matches(pattern, 'internal/cache/cache.go')), 'unrelated Go code must not select the PR site build');
   const build = workflow.match(/^      - name: Build site\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   assert.ok(build, 'site build step must exist');
-  assert.match(build, /if: steps\.filter\.outputs\.site == 'true' \|\| github\.event_name == 'push'/);
+  assert.match(build, /if: needs\.changes\.outputs\.site == 'true' \|\| github\.event_name == 'push'/);
   assert.match(build, /run: cd site && npm run build/);
   const scripts = JSON.parse(read('site/package.json')).scripts;
   assert.equal(scripts.prebuild, 'npm run test:docs');
@@ -229,8 +229,52 @@ function assertInteropExampleDiscovery(workflow) {
     assert.ok(patterns.includes('examples/interop/**'), `${name} must select script-only interop changes`);
   }
   assert.match(workflow, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
-  assert.match(workflow, /if: needs\.build\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/);
+  assert.match(workflow, /if: needs\.changes\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/);
 }
+
+function assertSiteParallelChecks(workflow) {
+  const jobs = Object.fromEntries([...workflow.matchAll(/^  (changes|build|examples):\n([\s\S]*?)(?=^  [a-z][a-z-]*:\n|$(?![\s\S]))/gm)]
+    .map((match) => [match[1], match[2]]));
+  assert.ok(jobs.changes, 'short change detection prerequisite must exist');
+  assert.match(jobs.changes, /timeout-minutes: 5/);
+  assert.doesNotMatch(jobs.changes, /^\s+needs:/m, 'change detection must run independently');
+  assert.match(jobs.changes, /site: \$\{\{ steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
+  assert.match(jobs.changes, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(jobs.changes, /uses: dorny\/paths-filter@/);
+  assert.doesNotMatch(jobs.changes, /npm|playwright/, 'change detection must not wait for browser or example work');
+  for (const [id, name] of [['build', 'Build site'], ['examples', 'Offline documentation examples']]) {
+    assert.ok(jobs[id], `${id} job must exist`);
+    assert.match(jobs[id], /^\s+needs: \[changes\]$/m, `${id} must depend only on successful change detection`);
+    assert.match(jobs[id], new RegExp(`^    name: ${name}$`, 'm'), 'required check names must stay stable');
+    assert.doesNotMatch(jobs[id], /^    if:.*always\(\)/m, 'workflow cancellation must not enable validation');
+  }
+  assert.match(jobs.build, /^    if: \$\{\{ !cancelled\(\) \}\}$/m, 'required Build site check must run after failed detection');
+  assert.match(jobs.build, /CHANGES_RESULT: \$\{\{ needs\.changes\.result \}\}/);
+  assert.match(jobs.build, /run: test "\$CHANGES_RESULT" = success/, 'required site check must reject failed or skipped change detection');
+  assert.match(jobs.build, /if: needs\.changes\.outputs\.site == 'true' \|\| github\.event_name == 'push'/);
+  assert.match(jobs.examples, /if: needs\.changes\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/,
+    'examples condition must consume short prerequisite output');
+}
+
+test('site browser checks and offline examples wait only for short change detection', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertSiteParallelChecks(workflow);
+  for (const [old, replacement, diagnostic] of [
+    ['    needs: [changes]\n    if: needs.changes.outputs.examples',
+      '    needs: [build]\n    if: needs.changes.outputs.examples', /examples must depend only/],
+    ['    needs: [changes]\n    if: ${{ !cancelled() }}',
+      '    needs: [changes, examples]\n    if: ${{ !cancelled() }}', /build must depend only/],
+    ['    timeout-minutes: 5', '    timeout-minutes: 15', /timeout-minutes: 5/],
+    ['site: ${{ steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
+    ["if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'",
+      "if: needs.build.outputs.examples == 'true' || github.event_name == 'push'", /examples condition must consume/],
+    ['run: test "$CHANGES_RESULT" = success', 'run: echo ignored', /required site check must reject/],
+  ]) {
+    const mutated = workflow.replace(old, replacement);
+    assert.notEqual(mutated, workflow, 'mutation must change actual workflow scheduling or output');
+    assert.throws(() => assertSiteParallelChecks(mutated), diagnostic);
+  }
+});
 
 test('interop script-only changes select executable controls and selector removal fails closed', () => {
   const workflow = read('.github/workflows/site-ci.yml');
