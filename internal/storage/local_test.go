@@ -13,6 +13,7 @@ import (
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/projectconfig"
+	"github.com/stretchr/testify/require"
 )
 
 func makeOutcome(runID, skill, model string, passed, total int) *models.EvaluationOutcome {
@@ -432,6 +433,30 @@ func TestLocalStore_InvalidJSON(t *testing.T) {
 	if len(results) > 0 && results[0].RunID != "valid-run" {
 		t.Errorf("RunID = %q, want valid-run", results[0].RunID)
 	}
+}
+
+func TestLocalStore_DuplicateRunIDsFailExplicitly(t *testing.T) {
+	dir := t.TempDir()
+	firstPath := filepath.Join(dir, "model-a.json")
+	secondPath := filepath.Join(dir, "model-b.json")
+
+	first := makeOutcome("run-duplicate", "skill-x", "model-a", 1, 1)
+	second := makeOutcome("run-duplicate", "skill-x", "model-b", 1, 1)
+	for path, outcome := range map[string]*models.EvaluationOutcome{
+		firstPath:  first,
+		secondPath: second,
+	} {
+		data, err := json.Marshal(outcome)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+	}
+
+	store := NewLocalStore(dir)
+	_, err := store.List(t.Context(), ListOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `duplicate eval_id "run-duplicate"`)
+	require.Contains(t, err.Error(), fmt.Sprintf("%q", firstPath))
+	require.Contains(t, err.Error(), fmt.Sprintf("%q", secondPath))
 }
 
 func TestLocalStore_NonResultJSON(t *testing.T) {

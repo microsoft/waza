@@ -165,6 +165,7 @@ func ReadLocalResults(dir string, previousFiles map[string]struct{}) (map[string
 
 func readLocalResults(dir string, previousFiles map[string]struct{}, walk func(string, fs.WalkDirFunc) error) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
 	results := make(map[string]*models.EvaluationOutcome)
+	resultPaths := make(map[string]string)
 	files := make(map[string]struct{})
 	if dir == "" {
 		return results, files, nil
@@ -222,7 +223,12 @@ func readLocalResults(dir string, previousFiles map[string]struct{}, walk func(s
 			outcome.RunID = strings.TrimSuffix(filepath.ToSlash(relPath), ".json")
 		}
 
+		if existingPath, ok := resultPaths[outcome.RunID]; ok {
+			return fmt.Errorf("duplicate eval_id %q in result artifacts %q and %q",
+				outcome.RunID, existingPath, path)
+		}
 		results[outcome.RunID] = outcome
+		resultPaths[outcome.RunID] = path
 		files[path] = struct{}{}
 		return nil
 	})
