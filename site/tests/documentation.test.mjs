@@ -431,13 +431,21 @@ test('extension installation guidance identifies the current registry version', 
   assert.match(section, /azd waza <command> --help/);
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
   assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.40\.0/);
-  assert.match(section, /registry\/version synchronization is not yet merged to main/);
-  assert.match(section, /publishing the archives\s+does not establish that it installs v0\.40\.0/);
+  assert.match(section, /registry and version metadata are synchronized\s+to `0\.40\.0`/);
+  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.40\.0/);
   const release = read('site/src/content/docs/reference/releases.mdx');
   assert.match(release, /commit `058de4571b234d1133aa814613c7250cdee25b4d`/);
   assert.match(release, /exactly six platform URLs, entrypoints and SHA-256 values matching the\s+published archives/);
   assert.match(release, /actual macOS ARM64\s+archive was separately downloaded, checksum-verified and extracted/);
-  assert.match(release, /does not establish execution on the other five platforms\s+or availability from the main registry/);
+  assert.match(release, /does not establish execution on the other five platforms\s+or prove that an existing installation has updated to v0\.40\.0/);
+  assert.match(release, /repository registry lists through `0\.40\.0`/);
+  assert.doesNotMatch(section + release, /not yet merged to main|merge to main\s+remains pending|registry still lists through `0\.39\.1`/);
+  for (const text of [read('README.md'), section, release]) {
+    assert.match(text, /source (?:URL above|below) follows `main`, not this branch/);
+    assert.match(text, /release-sync PR #883/);
+    assert.match(text, /still serves `0\.39\.1`; after the merge it includes `0\.40\.0`/);
+    assert.match(text, /installation before the merge cannot select `0\.40\.0` from that source/);
+  }
 });
 
 test('release entry points agree on published versions and the current runner result writer', () => {

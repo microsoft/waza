@@ -106,7 +106,7 @@ Their opt-in, platform, and evidence boundaries still apply.
 | `assure` authored-case profiles | v0.39.0, explicitly selected | Bounded native file/output and offline cases; strict preserved-file publication has platform limits; private preserved-native APIs are not default reader authority |
 | `assure calibrate` | v0.39.0, separate opt-in | Reviewed inputs and explicit paid-call acknowledgment required; no default paid calibration |
 | Controlled strict collection/release policy | v0.39.0, explicit policy | Offline mock by default; explicit fixed-model, single-turn Copilot SDK native-text profile may incur provider usage; no skills, deny-all client tools (not server isolation), no assurance/runtime-version/currency claim; native durable creation Linux/macOS only |
-| azd extension commands | Main registry through v0.39.1; v0.40.0 artifact published separately | v0.40.0 registry/version sync is not yet merged to main |
+| azd extension commands | Registry through v0.40.0; v0.40.0 artifact published separately | Registry/version metadata synchronized; check the installed extension version |
 
 Build the tagged release source with **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+**:
 
@@ -265,18 +265,23 @@ Install waza as an [Azure Developer CLI](https://learn.microsoft.com/azure/devel
 
 The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
 is `0.40.0`, published November 4, 2026 with six platform archives, separate from
-the standalone release. The main registry still lists through `0.39.1`.
+the standalone release. The repository registry lists through `0.40.0`.
 The successful [release workflow](https://github.com/microsoft/waza/actions/runs/41825744913)
-generated registry/version updates on `release/v0.40.0`, but their merge to main
-remains pending. Registry availability follows that version-sync merge;
-publishing artifacts alone does not update the registry on main.
+generated registry/version updates on `release/v0.40.0`, incorporated in this
+repository alongside these release docs. Artifact publication and registry
+synchronization remain separate gates; publishing archives alone does not
+update the registry.
+The installation source below follows `main`, not this branch. Before the
+[release-sync PR #883](https://github.com/microsoft/waza/pull/883) merges, that URL
+still serves `0.39.1`; after the merge it includes `0.40.0`. Updating an
+installation before the merge cannot select `0.40.0` from that source.
 The generated entry at commit `058de4571b234d1133aa814613c7250cdee25b4d`
 has exactly six platform URLs, entrypoints and SHA-256 values matching the
 published archives, with prior registry data unchanged. The actual macOS ARM64
 archive was separately downloaded, checksum-verified and extracted: its
 manifest identifies `0.40.0` and its executable reports `waza version 0.40.0`.
 That smoke check does not establish execution on the other five platforms
-or availability from the main registry.
+or prove that an existing installation has updated to v0.40.0.
 Check the installed version after adding the source:
 
 ```bash
