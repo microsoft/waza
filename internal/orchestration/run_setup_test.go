@@ -10,6 +10,7 @@ import (
 
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -32,6 +33,8 @@ func TestRunHookHelperProcess(t *testing.T) {
 		data, err := os.ReadFile(args[1])
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(args[2], data, 0o600))
+	case "write-arg":
+		require.NoError(t, os.WriteFile(args[1], []byte(args[2]), 0o600))
 	case "copy-pass":
 		log, err := os.ReadFile(args[4])
 		if !os.IsNotExist(err) {
@@ -113,6 +116,42 @@ func requireHookLog(t *testing.T, log string) {
 	data, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, "before_run\nafter_run\n", strings.ReplaceAll(string(data), "\r\n", "\n"), "setup and teardown each run exactly once")
+}
+
+func TestStartRunSetup_RendersEvalInputsInHookCommand(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		schemaVersion string
+		scenario      string
+		skill         string
+	}{
+		{name: "scenario", schemaVersion: models.ScenarioSchemaVersion, scenario: "synthetic-reply"},
+		{name: "legacy", schemaVersion: "1.4", skill: "echo-dogfood"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			output := filepath.Join(t.TempDir(), "marker.txt")
+			spec := &models.EvalSpec{
+				SchemaVersion: tt.schemaVersion,
+				Scenario:      tt.scenario,
+				SkillName:     tt.skill,
+				Inputs:        map[string]string{"marker": "DOGFOOD_VARIABLE"},
+				Hooks: hooks.HooksConfig{
+					BeforeRun: []hooks.HookConfig{{
+						Command:     hookCommand(t, "write-arg", output, "{{.Vars.marker}}"),
+						ErrorOnFail: true,
+					}},
+				},
+			}
+
+			setup, err := StartRunSetup(t.Context(), config.NewEvalConfig(spec), false)
+			require.NoError(t, err)
+			t.Cleanup(func() { setup.Teardown(t.Context()) })
+
+			got, err := os.ReadFile(output)
+			require.NoError(t, err)
+			require.Equal(t, []byte("DOGFOOD_VARIABLE"), got)
+		})
+	}
 }
 
 const hookHostMock = `mcp_mocks:

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	wazatemplate "github.com/microsoft/waza/internal/template"
 )
 
 // hookWaitDelay bounds how long a hook may keep its output pipes open after it
@@ -33,6 +35,7 @@ type HooksConfig struct {
 // Runner executes hook commands at lifecycle points.
 type Runner struct {
 	Verbose bool
+	Vars    map[string]string
 }
 
 // Execute runs all hooks for a given lifecycle point.
@@ -55,7 +58,12 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 		return fmt.Errorf("hook %s[%d]: empty command", name, index)
 	}
 
-	parts := strings.Fields(h.Command)
+	command, err := wazatemplate.Render(h.Command, &wazatemplate.Context{Vars: r.Vars})
+	if err != nil {
+		return fmt.Errorf("hook %s[%d]: render command: %w", name, index, err)
+	}
+
+	parts := strings.Fields(command)
 	//nolint:gosec // hook commands are user-configured in eval YAML, not untrusted input
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 
