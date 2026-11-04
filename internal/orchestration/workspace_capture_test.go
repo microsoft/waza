@@ -226,6 +226,11 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 				require.Contains(t, saved.ErrorMsg, captureErr)
 				require.Equal(t, "completed second output", saved.FinalOutput)
 				require.EqualValues(t, 300, saved.DurationMs)
+				if mode.responder {
+					require.NotNil(t, saved.Responder)
+					require.Equal(t, 1, saved.Responder.FollowupsSent)
+					require.Equal(t, models.ResponderOutcomeError, saved.Responder.Outcome)
+				}
 				require.Equal(t, &models.UsageStats{Turns: 2, InputTokens: 30, OutputTokens: 5}, saved.SessionDigest.Usage)
 				require.Equal(t, []models.ToolCall{
 					{ID: "first", Name: "view", Success: true}, {ID: "last", Name: "edit", Success: true},

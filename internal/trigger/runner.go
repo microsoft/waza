@@ -183,7 +183,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 	defer cancel()
 	skillPaths := utils.ResolvePaths(spec.Config.FilteredSkillPaths(), r.cfg.SpecDir())
 	effectiveSkillDirs := append([]string{r.cfg.SpecDir()}, skillPaths...)
-	return execution.ExecuteRecorded(execCtx, r.engine, &execution.ExecutionRequest{
+	resp, err := execution.ExecuteRecorded(execCtx, r.engine, &execution.ExecutionRequest{
 		Message:           prompt,
 		SkillName:         r.spec.Skill,
 		SkillPaths:        skillPaths,
@@ -197,6 +197,10 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		MCPServers:              r.mcpConfig,
 		CancelOnSkillInvocation: true,
 	})
+	if err == nil && resp != nil && resp.WorkspaceCaptureError != "" {
+		err = fmt.Errorf("trigger workspace capture failed: %s", resp.WorkspaceCaptureError)
+	}
+	return resp, err
 }
 
 // loadFixtureDir recursively walks a fixture directory and returns all files

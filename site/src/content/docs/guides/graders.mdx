@@ -449,6 +449,9 @@ Each `expected_files` entry supports:
   files, 20,000 traversal entries, 16 MiB per file, and 64 MiB total; exceeding
   a limit reports a run error and skips workspace grading instead of grading a
   partial snapshot.
+  Trigger tests also record capture failures as execution errors. Completed
+  responder replies remain counted in `responder.followups_sent` even if their
+  capture fails; replies that fail setup or execution are not counted.
 </Aside>
 
 <Tabs>

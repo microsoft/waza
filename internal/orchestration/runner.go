@@ -1948,12 +1948,16 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 			return info
 
 		case responder.DecisionReply:
-			if !r.sendResponderReply(ctx, tc, initial, resp, decision.Answer, info.FollowupsSent+1) {
+			replyOK := r.sendResponderReply(ctx, tc, initial, resp, decision.Answer, info.FollowupsSent+1)
+			// Capture can fail after the reply's agent turn has completed.
+			if replyOK || resp.WorkspaceCaptureError != "" {
+				info.FollowupsSent++
+			}
+			if !replyOK {
 				info.Outcome = models.ResponderOutcomeError
 				info.Reason = resp.ErrorMsg
 				return info
 			}
-			info.FollowupsSent++
 			left--
 
 			// Run any checkpoint scheduled after this turn. The reply we
