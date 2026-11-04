@@ -156,6 +156,9 @@ type CopilotEngine struct {
 	sessions       map[string]CopilotSession
 	sessionClients map[string]CopilotClient
 	sessionsMu     sync.Mutex
+	// Active disconnects exclude shutdown-usage fallback. Abandoned ones retain
+	// their count because this engine no longer joins their completion.
+	unfinishedDisconnects map[string]int
 
 	// collectors tracks usage collectors by session ID so we can read
 	// shutdown-event usage after client.Stop() fires session.shutdown events.
@@ -836,9 +839,23 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		if canceledForSkill.Load() {
 			cleanupParent = cleanupBaseCtx
 		}
+		e.sessionsMu.Lock()
+		if e.unfinishedDisconnects == nil {
+			e.unfinishedDisconnects = make(map[string]int)
+		}
+		e.unfinishedDisconnects[sessionID]++
+		e.sessionsMu.Unlock()
 		abandoned, retireClient, err := disconnectBounded(cleanupParent, session, func() {
 			e.forceStopClient(client)
 		})
+		if !abandoned {
+			e.sessionsMu.Lock()
+			e.unfinishedDisconnects[sessionID]--
+			if e.unfinishedDisconnects[sessionID] == 0 {
+				delete(e.unfinishedDisconnects, sessionID)
+			}
+			e.sessionsMu.Unlock()
+		}
 		if retireClient {
 			e.retireClient(client)
 		}
@@ -1340,6 +1357,17 @@ func cleanupContext(parent context.Context, timeout time.Duration) (context.Cont
 }
 
 func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {
+	e.sessionsMu.Lock()
+	unfinished := e.unfinishedDisconnects[sessionID] > 0
+	e.sessionsMu.Unlock()
+	if unfinished {
+		if op := operationFrom(ctx); op != nil {
+			op.report(StageShutdownUsage, CodeUsageMissingOrPartial, sessionID)
+		} else {
+			slog.Warn("shutdown usage unavailable: disconnect not joined", "sessionID", sessionID)
+		}
+		return
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var shutdown *copilot.SessionShutdownData
