@@ -58,6 +58,15 @@ scope/readiness check and revalidate or recapture affected assets.
 
 ## Prepare the media
 
+For the established caption-led landscape highlight reel, use the repository's
+[`release-reel` skill](../.github/skills/release-reel/SKILL.md). It bundles the
+dark navy/teal 1080p format, seven-beat storyboard, caption/poster generation and
+original upbeat electronic soundtrack used for the v0.40.0 reel. Replace its
+example content with verified evidence for each release. This is an additional
+60-second format, not a replacement for requested vertical shorts or an
+automatic publication step. Its draft/export commands do not install tools,
+run paid evaluations, or publish anything.
+
 1. List the release features, user value, and supported claims. Tie each
    screenshot or video beat to an in-scope feature and observed product behavior.
 2. Plan a concise hook, feature action, value, and call to action for each
@@ -141,3 +150,8 @@ drafts for release stakeholders; they do not authorize upload, social posting,
 or publication. Obtain explicit approval through the existing release process
 before any public use. Virgil retains release verification and publication
 boundaries.
+
+An explicit user request may authorize committing a selected final MP4 to a
+session branch solely to provide a verified download when artifact delivery is
+unavailable. This is an exception, not the default artifact-storage policy;
+it does not authorize a PR, merge, release modification, or social posting.

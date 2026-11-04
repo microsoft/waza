@@ -1,0 +1,104 @@
+{
+  "version": "0.40.0",
+  "date": "NOVEMBER 2026",
+  "source_sha": "",
+  "release_url": "https://github.com/microsoft/waza/releases/tag/v0.40.0",
+  "post_url": "https://microsoft.github.io/waza/releases/v0-40-0/",
+  "repo_url": "https://github.com/microsoft/waza",
+  "scenes": [
+    {
+      "kind": "hero",
+      "label": "RELEASE HIGHLIGHTS",
+      "duration": 5,
+      "headline": "Less guessing.\nBetter evaluations.",
+      "body": "Run the work you declared.\nUnderstand what happened.",
+      "steps": ["DECLARE", "EXECUTE", "INSPECT"],
+      "caption": "waza 0.40.0. Less guessing. Better evaluations.",
+      "provenance": "Authored introduction; verify against this release."
+    },
+    {
+      "kind": "terminal",
+      "label": "EXACT-UNIT TEXT RUNNER",
+      "duration": 13,
+      "headline": "One attempt.\nNo surprise work.",
+      "body": "Select a shard, task,\ntrial and attempt.",
+      "badge": "ACTUAL RELEASE OUTPUT",
+      "note": "Mock/text demo\nNo paid execution",
+      "command": "$ waza runner run < unit.json",
+      "json_file": "terminal.json",
+      "fields": ["outcome", "exit_code", "engine_calls", "selection"],
+      "footer": "Selected fields from captured JSON",
+      "caption": "Execute one declared text attempt. Actual mock/text output; no paid execution.",
+      "provenance": "Replace with binary checksum, tagged example path and exact capture command."
+    },
+    {
+      "kind": "code",
+      "label": "TASK-LEVEL MCP MOCKS",
+      "duration": 10,
+      "headline": "Different cases. Different responses.",
+      "body": "Override a same-named eval mock for one task, not the whole suite.",
+      "panels": [
+        {
+          "title": "tasks/approve.yaml",
+          "lines": ["mcp_mocks:", "  - name: host", "    tools:", "      ask_user:", "        responses:", "          - match_schema: {}", "            return: { answer: \"Publish this version\" }"]
+        },
+        {
+          "title": "tasks/decline.yaml",
+          "lines": ["mcp_mocks:", "  - name: host", "    tools:", "      ask_user:", "        responses:", "          - match_schema: {}", "            return: { answer: \"Not now\" }"]
+        }
+      ],
+      "footer": "Illustrative YAML / Copilot SDK executor / not executed in this reel",
+      "caption": "Task-level MCP mocks tailor responses to individual scenarios. Illustrative configuration, not executed here.",
+      "provenance": "Authored excerpts; validate against the target release's loader and documentation."
+    },
+    {
+      "kind": "image",
+      "label": "LAB CONVERSATION",
+      "duration": 12,
+      "headline": "Read the\nconversation.",
+      "body": "Saved messages.\nIn order.\nWithout tool-event noise.",
+      "badge": "RELEASED DASHBOARD",
+      "note": "Synthetic saved-session fixture\nNot a live agent run",
+      "image_file": "conversation.png",
+      "crop": [760, 260, 1440, 970],
+      "caption": "Read saved messages in Lab's Conversation tab. Released dashboard with a synthetic saved-session fixture.",
+      "provenance": "Replace with source SHA, fixture path, capture command and browser version."
+    },
+    {
+      "kind": "cards",
+      "label": "RICHER GRADING EVIDENCE",
+      "duration": 8,
+      "headline": "Give graders\nmore context.",
+      "body": "Inspect recorded observations.\nKeep unknowns unknown.",
+      "cards": [
+        {"title": "WAZA_GRADING_CONTEXT", "body": "Private JSON context for program graders"},
+        {"title": "Model-turn observations", "body": "Structured host lifecycle evidence"},
+        {"title": "Shell lifecycle evidence", "body": "An absent exit code is unknown, not zero"}
+      ],
+      "caption": "Give program graders recorded context. Inspect model-turn and shell lifecycle evidence.",
+      "provenance": "Authored feature summary; verify against tagged release documentation."
+    },
+    {
+      "kind": "credits",
+      "label": "COMMUNITY",
+      "duration": 5,
+      "headline": "Good releases take people.",
+      "body": "Thank you to our first-time contributors.",
+      "people": [
+        {"name": "Ivan", "handle": "@ivdijan", "detail": "Responder reliability + Lab improvements"},
+        {"name": "Erik Galler", "handle": "@erikgal", "detail": "MCP mocks + richer grading evidence"}
+      ],
+      "caption": "Thanks to first-time contributors Ivan and Erik Galler.",
+      "provenance": "v0.40.0 release and public GitHub profiles; re-query for each release."
+    },
+    {
+      "kind": "cta",
+      "label": "TRY THE RELEASE",
+      "duration": 7,
+      "headline": "Try waza 0.40.0.",
+      "body": "And yes, we'd love a star.",
+      "caption": "Try waza 0.40.0. github.com/microsoft/waza. Read the release story.",
+      "provenance": "Authored CTA; links must match the published release."
+    }
+  ]
+}
