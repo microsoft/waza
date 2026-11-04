@@ -1989,7 +1989,7 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 		return err
 	}
 
-	file, publishMode, err := createOutcomeTempFile(path)
+	file, publishMode, err := createOutcomeTempFileForSave(path)
 	if err != nil {
 		return err
 	}
@@ -2003,16 +2003,19 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 		_ = file.Close()
 		return err
 	}
-	if err := file.Close(); err != nil {
-		return err
+	if err := file.Chmod(publishMode); err != nil {
+		return errors.Join(err, file.Close())
 	}
-	if err := os.Chmod(tempPath, publishMode); err != nil {
+	if err := file.Close(); err != nil {
 		return err
 	}
 	return replaceOutcomeFileForSave(tempPath, path)
 }
 
-var replaceOutcomeFileForSave = replaceOutcomeFile
+var (
+	createOutcomeTempFileForSave = createOutcomeTempFile
+	replaceOutcomeFileForSave    = replaceOutcomeFile
+)
 
 func createOutcomeTempFile(path string) (*os.File, os.FileMode, error) {
 	dir := filepath.Dir(path)
