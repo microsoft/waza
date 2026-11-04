@@ -109,18 +109,27 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 	sessionMock.EXPECT().Disconnect().AnyTimes()
 
 	var handlers []func(copilot.SessionEvent)
+	var requestCtx context.Context
 	sessionMock.EXPECT().On(gomock.Any()).AnyTimes().DoAndReturn(func(h func(copilot.SessionEvent)) func() {
 		handlers = append(handlers, h)
 		return func() {}
 	})
 
 	// Emit a first event right away (disarms the watchdog), then complete
-	// successfully — NOT with a context error.
+	// successfully. A real SDK send observes its context after dispatching
+	// events, so return any cancellation to catch a disarm that cancels the
+	// active request.
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+		func(ctx context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			requestCtx = ctx
 			require.NotEmpty(t, handlers)
 			for _, h := range handlers {
 				h(copilot.SessionEvent{Data: &copilot.SkillInvokedData{Name: "s", Path: "p"}})
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(50 * time.Millisecond):
 			}
 			return &copilot.SessionEvent{}, nil
 		},
@@ -143,6 +152,8 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, resp.Success)
+	require.ErrorIs(t, requestCtx.Err(), context.Canceled,
+		"the completed send context must be released after execution returns")
 	require.False(t, strings.Contains(resp.ErrorMsg, "session start timeout"),
 		"a run that produced a first event must not be reported as a session-start hang")
 }
