@@ -1131,6 +1131,9 @@ func TestResolveGroup_Tags(t *testing.T) {
 		{Group: multipleTags},
 		{Group: singleCommaTag},
 	}), 2)
+	emptyTag := runner.resolveGroup(&models.TestCase{Tags: []string{""}})
+	assert.Equal(t, `\0`, emptyTag)
+	assert.Len(t, computeGroupStats([]models.TestOutcome{{Group: emptyTag}}), 1)
 	assert.Equal(t, "", runner.resolveGroup(&models.TestCase{}))
 }
 

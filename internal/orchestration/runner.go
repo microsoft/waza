@@ -2531,6 +2531,10 @@ func (r *EvalRunner) resolveGroup(tc *models.TestCase) string {
 	case "tags":
 		encoded := make([]string, len(tc.Tags))
 		for i, tag := range tc.Tags {
+			if tag == "" {
+				encoded[i] = `\0`
+				continue
+			}
 			encoded[i] = strings.NewReplacer(`\`, `\\`, ",", `\,`).Replace(tag)
 		}
 		return strings.Join(encoded, ", ")

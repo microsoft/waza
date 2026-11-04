@@ -404,7 +404,7 @@ config:
 | `judge_reasoning_effort` | string | judge default | Copilot SDK default effort for `prompt` graders, including `continue_session` graders; the grader can override it |
 | `executor`          | string    | `copilot-sdk`     | Executor: `mock` (local, echoes task metadata and file content) or `copilot-sdk` (real API)  |
 | `max_attempts`      | int       | 0                 | Maximum retry attempts per task on failure (0 = no retries) |
-| `group_by`          | string    | —                 | Group results by `model` or each task's complete ordered `tags` set; commas and backslashes in tag labels are escaped |
+| `group_by`          | string    | —                 | Group results by `model` or each task's complete ordered `tags` set; commas/backslashes are escaped and an empty tag is shown as `\0` |
 | `fail_fast`         | bool      | false             | Stop the entire run on first task failure                   |
 | `skill_directories` | list[str] | `[]`              | Additional directories to search for skills                 |
 | `instruction_files` | list[str] | `[]`              | Instruction files to apply to every task                    |
