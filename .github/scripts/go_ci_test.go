@@ -136,9 +136,9 @@ func checkCanonicalGoWorkflow(source []byte) error {
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
-	if workflow.Concurrency.Group != "${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}" ||
+	if workflow.Concurrency.Group != "${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}" ||
 		workflow.Concurrency.Cancel != "${{ github.event_name == 'pull_request' }}" {
-		return fmt.Errorf("cancel only superseded PR runs, scoped to workflow/event/ref")
+		return fmt.Errorf("cancel only superseded PR runs, scoped to workflow/event/ref; non-PR runs require independent groups")
 	}
 	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) {
 		return fmt.Errorf("validation must remain read-only")
@@ -178,7 +178,10 @@ func TestCanonicalGoWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, mutation := range [][2]string{
-		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}", "${{ github.ref }}"},
+		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
+		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
+		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.run_id }}"},
+		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.event_name == 'pull_request' && github.ref || github.sha }}"},
 		{"cancel-in-progress: ${{ github.event_name == 'pull_request' }}", "cancel-in-progress: true"},
 		{"cancel-in-progress: ${{ github.event_name == 'pull_request' }}", "cancel-in-progress: false"},
 		{"name: Lint", "name: Lint renamed"},

@@ -19,8 +19,9 @@ branch, including feature branches used by stacked PRs. It retains the
 `opened`, `synchronize`, and `reopened` default activity types without PR branch
 or path filters. Push triggers cover `main`, `develop`, `dev`, and `insider`.
 The former `squad-ci.yml` duplicated the same validation and has been removed.
-Superseded PR runs are cancelled within the same workflow/event/ref; push
-validation and release publication are not cancelled by that PR policy.
+Superseded PR runs are cancelled within the same workflow/event/ref. Push
+validations use independent run-ID groups, so they neither serialize nor replace
+pending push runs. Release publication is not cancelled by that PR policy.
 
 This is an ordinary `pull_request` workflow with `contents: read`, not
 `pull_request_target` or release/dispatch workflows. The existing `Lint`,
