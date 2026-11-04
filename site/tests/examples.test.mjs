@@ -22,6 +22,61 @@ function cliRunner(env) {
   };
 }
 
+test('v0.40.0 article runs its captured mock unit through the production CLI', () => {
+  const fixture = allocateExampleFixture(root);
+  try {
+    const article = read('site/src/content/docs/releases/v0-40-0.mdx');
+    const commands = [...article.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1]);
+    assert.equal(commands.length, 1, 'the article has one credential-free runnable example');
+    mkdirSync(join(fixture.directory, 'examples/runner'), { recursive: true });
+    const source = read('examples/runner/unit.json');
+    writeFileSync(join(fixture.directory, 'examples/runner/unit.json'), source);
+    const result = spawnSync('bash', ['-euc', `waza() { "$WAZA_BIN" "$@"; }\n${commands[0]}`], {
+      cwd: fixture.directory,
+      env: { ...fixture.env, WAZA_BIN: binary },
+      encoding: 'utf8',
+      timeout: 90_000,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(lines.length, 3);
+    const [capabilities, validation, terminal] = lines;
+    assert.ok(capabilities.capabilities.includes('inline.mock-text'));
+    assert.equal(validation.status, 'ready');
+    assert.equal(validation.engine_calls, 0);
+    assert.equal(terminal.kind, 'waza.runner-terminal');
+    assert.equal(terminal.outcome, 'success');
+    assert.equal(terminal.exit_code, 0);
+    assert.equal(terminal.engine_calls, 1);
+    assert.deepEqual(terminal.selection, JSON.parse(source).selection);
+    assert.deepEqual(terminal.identity, validation.identity);
+    assert.equal(terminal.observation.execution_mode, 'mock');
+    assert.equal(terminal.observation.run_number, 2);
+    assert.equal(terminal.observation.attempts, 2);
+    assert.ok(Array.isArray(terminal.observation.validations) && terminal.observation.validations.length > 0);
+    for (const verdict of terminal.observation.validations) assert.equal(verdict.passed, true);
+
+    for (const [prompt, expectedExit] of [['no matching marker', 1], ['hello alternative', 0]]) {
+      const request = JSON.parse(source);
+      request.input.task = replaceExactlyOnce(request.input.task, 'prompt: hello', `prompt: ${prompt}`);
+      const control = spawnSync(binary, ['runner', 'run'], {
+        cwd: fixture.directory, env: fixture.env, input: JSON.stringify(request),
+        encoding: 'utf8', timeout: 90_000,
+      });
+      assert.equal(control.error, undefined);
+      assert.equal(control.status, expectedExit, control.stderr);
+      const observed = JSON.parse(control.stdout);
+      assert.equal(observed.outcome, expectedExit ? 'evaluation_failure' : 'success');
+      assert.equal(observed.engine_calls, 1);
+      assert.deepEqual(observed.selection, terminal.selection);
+      assert.notEqual(observed.identity.canonical_digest, terminal.identity.canonical_digest);
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test('every interop command example creates the grader consumed by export', () => {
   for (const path of [
     'README.md',

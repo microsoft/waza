@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -94,26 +95,106 @@ func terminalContendedMock(t *testing.T) (*execution.MockEngine, func()) {
 	}
 }
 
-func terminalAwaitProductionExecute(t *testing.T) time.Time {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+func terminalProductionExecuteStack(dump, goroutine string) string {
+	for _, stack := range strings.Split(dump, "\n\n") {
+		if strings.HasPrefix(stack, goroutine) &&
+			strings.Contains(stack, "\ngithub.com/microsoft/waza/internal/execution.(*MockEngine).Execute(") &&
+			strings.Contains(stack, "\ngithub.com/microsoft/waza/internal/runnerunit.(*onceEngine).Execute(") &&
+			strings.Contains(stack, "\ngithub.com/microsoft/waza/internal/webapi.runTerminal(") &&
+			strings.Contains(stack, "\nsync.(*Mutex).") {
+			return stack
+		}
+	}
+	return ""
+}
+
+func terminalAwaitProductionExecute(ctx context.Context, constructed <-chan string, completed <-chan struct{}) (time.Time, string, error) {
+	var goroutine string
+	select {
+	case goroutine = <-constructed:
+	case <-completed:
+		return time.Time{}, "", errors.New("request completed before the production engine factory")
+	case <-ctx.Done():
+		return time.Time{}, "", fmt.Errorf("waiting for production engine factory: %w", ctx.Err())
+	}
+	// All-goroutine snapshots stop the world. Sample only after admission reaches
+	// the factory, yielding between snapshots so HTTP/2 and workspace setup run.
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
 	buffer := make([]byte, 1<<20)
-	for time.Now().Before(deadline) {
+	last := ""
+	for {
 		n := runtime.Stack(buffer, true)
-		require.Less(t, n, len(buffer), "phase evidence must not use a truncated goroutine dump")
+		if n == len(buffer) {
+			return time.Time{}, last, errors.New("phase evidence contains a truncated goroutine dump")
+		}
+		if stack := terminalProductionExecuteStack(string(buffer[:n]), goroutine); stack != "" {
+			return time.Now(), stack, nil
+		}
 		for _, stack := range strings.Split(string(buffer[:n]), "\n\n") {
-			if strings.Contains(stack, "execution.(*MockEngine).Execute(") &&
-				strings.Contains(stack, "runnerunit.(*onceEngine).Execute(") &&
-				strings.Contains(stack, "webapi.runTerminal(") &&
-				strings.Contains(stack, "sync.(*Mutex).") {
-				t.Logf("production handler is inside concrete mock Execute under synthetic contention:\n%s", stack)
-				return time.Now()
+			if strings.HasPrefix(stack, goroutine) {
+				last = stack
 			}
 		}
-		runtime.Gosched()
+		select {
+		case <-completed:
+			return time.Time{}, last, errors.New("request completed before concrete mock Execute contention was observed")
+		case <-ctx.Done():
+			return time.Time{}, last, fmt.Errorf("waiting for concrete mock Execute contention: %w", ctx.Err())
+		case <-ticker.C:
+		}
 	}
-	t.Fatal("registered production handler did not enter concrete mock Execute")
-	return time.Time{}
+}
+
+func TestTerminalProductionExecuteStackRejectsUnrelatedContention(t *testing.T) {
+	const header = "goroutine 42 "
+	const stack = "goroutine 42 [sync.Mutex.Lock]:\nsync.(*Mutex).Lock(0x1)\n" +
+		"github.com/microsoft/waza/internal/execution.(*MockEngine).Execute(0x1)\n" +
+		"github.com/microsoft/waza/internal/runnerunit.(*onceEngine).Execute(0x1)\n" +
+		"github.com/microsoft/waza/internal/webapi.runTerminal(0x1)\n"
+	require.Equal(t, stack, terminalProductionExecuteStack(stack, header))
+	for _, control := range []struct{ from, to string }{
+		{"goroutine 42 ", "goroutine 420 "},
+		{"sync.(*Mutex).Lock", "sync.(*WaitGroup).Wait"},
+		{"execution.(*MockEngine).Execute(", "execution.(*MockEngine).Shutdown("},
+		{"runnerunit.(*onceEngine).Execute(", "unrelated.(*onceEngine).Execute("},
+		{"webapi.runTerminal(", "webapi.validateUnit("},
+	} {
+		wrong := strings.Replace(stack, control.from, control.to, 1)
+		require.NotEqual(t, stack, wrong)
+		require.Empty(t, terminalProductionExecuteStack(wrong, header), control.from)
+		unrelated := strings.Replace(stack, header, "goroutine 43 ", 1)
+		require.Empty(t, terminalProductionExecuteStack(wrong+"\n"+unrelated, header), control.from)
+	}
+}
+
+func TestTerminalAwaitProductionExecuteRejectsIncompletePhases(t *testing.T) {
+	for _, constructed := range []bool{false, true} {
+		for _, canceled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("factory=%t/canceled=%t", constructed, canceled), func(t *testing.T) {
+				factory := make(chan string, 1)
+				if constructed {
+					factory <- "goroutine 0 "
+				}
+				completed := make(chan struct{})
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				if canceled {
+					cancel()
+				} else {
+					close(completed)
+				}
+				at, _, err := terminalAwaitProductionExecute(ctx, factory, completed)
+				require.Error(t, err)
+				require.True(t, at.IsZero(), "factory construction or request completion is not Execute evidence")
+				if canceled {
+					require.ErrorIs(t, err, context.Canceled)
+				} else {
+					require.Contains(t, err.Error(), "request completed")
+				}
+			})
+		}
+	}
 }
 
 func TestRunnerTerminalExecutionDeadlinePhases(t *testing.T) {
@@ -131,12 +212,14 @@ func TestRunnerTerminalExecutionDeadlinePhases(t *testing.T) {
 				cancel    bool
 				outcome   runnerterminal.Outcome
 				exit      int
+				admission time.Duration
 			}{
-				{"long-evaluation", 5200 * time.Millisecond, 20000, "timeout_seconds: 10\n", false, runnerterminal.Success, 0},
-				{"short-evaluation", 0, 20000, "", false, runnerterminal.Success, 0},
-				{"request-timeout", 1100 * time.Millisecond, 1000, "", false, runnerterminal.Timeout, 4},
-				{"task-timeout", 1100 * time.Millisecond, 20000, "timeout_seconds: 1\n", false, runnerterminal.Timeout, 4},
-				{"server-cancellation", 0, 20000, "", true, runnerterminal.Canceled, 3},
+				{"long-evaluation", 5200 * time.Millisecond, 20000, "timeout_seconds: 10\n", false, runnerterminal.Success, 0, 0},
+				{"short-evaluation", 0, 20000, "", false, runnerterminal.Success, 0, 0},
+				{"request-timeout", 1100 * time.Millisecond, 1000, "", false, runnerterminal.Timeout, 4, 0},
+				{"task-timeout", 1100 * time.Millisecond, 20000, "timeout_seconds: 1\n", false, runnerterminal.Timeout, 4, 0},
+				{"server-cancellation", 0, 20000, "", true, runnerterminal.Canceled, 3, 0},
+				{"delayed-admission", 0, 20000, "", false, runnerterminal.Success, 0, 2100 * time.Millisecond},
 			} {
 				t.Run(control.name, func(t *testing.T) {
 					source, err := os.ReadFile("../../examples/runner/unit.json")
@@ -158,24 +241,39 @@ func TestRunnerTerminalExecutionDeadlinePhases(t *testing.T) {
 						GraderIDs: []string{"_output_contains"}}
 					engine, release := terminalContendedMock(t)
 					var factories atomic.Int32
+					constructed := make(chan string, 1)
 					mux := http.NewServeMux()
 					RegisterRunnerRoutesWithService(mux, runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
 						factories.Add(1)
 						if cfg.ModelID != "mock-model" {
 							return nil, errors.New("unexpected admitted model")
 						}
+						stack := make([]byte, 128)
+						n := runtime.Stack(stack, false)
+						fields := strings.Fields(string(stack[:n]))
+						constructed <- strings.Join(fields[:2], " ") + " "
 						return engine, nil
 					}))
 					type invocation struct {
 						protocol int
 						cancel   context.CancelFunc
+						at       time.Time
 					}
 					started := make(chan invocation, 1)
 					finished := make(chan []time.Time, 1)
 					server := terminalProtocolServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						ctx, cancel := context.WithCancel(r.Context())
 						defer cancel()
-						started <- invocation{r.ProtoMajor, cancel}
+						started <- invocation{r.ProtoMajor, cancel, time.Now()}
+						if control.admission > 0 {
+							timer := time.NewTimer(control.admission)
+							defer timer.Stop()
+							select {
+							case <-timer.C:
+							case <-r.Context().Done():
+								return
+							}
+						}
 						trace := &terminalDeadlineTrace{ResponseWriter: w}
 						mux.ServeHTTP(trace, r.WithContext(ctx))
 						finished <- trace.writes
@@ -186,13 +284,25 @@ func TestRunnerTerminalExecutionDeadlinePhases(t *testing.T) {
 						err      error
 					}
 					replies := make(chan reply, 1)
+					completed := make(chan struct{})
+					requestCtx, stopRequest := context.WithTimeout(t.Context(), server.Client().Timeout)
+					defer stopRequest()
+					httpRequest, err := http.NewRequestWithContext(requestCtx, http.MethodPost, server.URL+"/api/v1/runner/run", bytes.NewReader(data))
+					require.NoError(t, err)
+					httpRequest.Header.Set("Content-Type", "application/json")
 					go func() {
-						response, err := server.Client().Post(server.URL+"/api/v1/runner/run", "application/json", bytes.NewReader(data))
+						defer close(completed)
+						response, err := server.Client().Do(httpRequest)
 						replies <- reply{response, err}
 					}()
 					active := <-started
 					require.Equal(t, protocol, active.protocol, "verify actual negotiated handler protocol before testing its deadline")
-					insideExecute := terminalAwaitProductionExecute(t)
+					insideExecute, stack, err := terminalAwaitProductionExecute(requestCtx, constructed, completed)
+					require.NoError(t, err, "factories=%d request_ctx_err=%v last production stack:\n%s", factories.Load(), requestCtx.Err(), stack)
+					t.Logf("production handler is inside concrete mock Execute under synthetic contention:\n%s", stack)
+					if control.admission > 0 {
+						require.Greater(t, insideExecute.Sub(active.at), 2*time.Second, "delayed admission must exceed the old pre-admission sampler deadline")
+					}
 					if control.cancel {
 						active.cancel()
 					}

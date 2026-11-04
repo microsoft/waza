@@ -411,14 +411,13 @@ test('concepts distinguish repeated trials from discarded retry outputs', () => 
   assert.match(concepts, /An individual snapshot is not a complete retry history/);
 });
 
-test('release articles are linked from Releases and use published screenshot assets', () => {
-  for (const slug of ['v0-39-0', 'dashboard-lab']) {
+test('release articles are linked from Releases and retain their existing screenshot assets', () => {
+  for (const slug of ['v0-40-0', 'v0-39-0', 'dashboard-lab']) {
     const article = read(`site/src/content/docs/releases/${slug}.mdx`);
     assert.ok(read('site/astro.config.mjs').includes(`slug: 'releases/${slug}'`));
     assert.ok(read('site/src/content/docs/reference/releases.mdx').includes(`](../../releases/${slug}/)`));
-    assert.match(article, /import ZoomImage from '\.\.\/\.\.\/\.\.\/components\/ZoomImage\.astro'/);
     const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
-    assert.equal(screenshots.length, 3, slug);
+    assert.equal(screenshots.length, slug === 'v0-40-0' ? 0 : 3, slug);
     for (const [, source] of screenshots) {
       assert.match(source, /^\/images\/.+\.png$/);
       assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);
@@ -429,6 +428,39 @@ test('release articles are linked from Releases and use published screenshot ass
   assert.match(article, /^title: "Waza v0\.39\.0:/m);
   assert.match(article, /Synthetic demo screenshot, not production telemetry/);
   assert.match(article, /Fixture-backed native-profile view/);
+});
+
+test('v0.40.0 article owns release detail while the homepage leads with the product', () => {
+  const homepage = read('site/src/content/docs/index.mdx');
+  const intro = homepage.split('## What can waza do?')[0];
+  assert.doesNotMatch(intro, /<Aside\b/);
+  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-40-0\/\)/g) ?? []).length, 1);
+  assert.match(intro, /\*\*New in v0\.40\.0:\*\*/);
+  assert.match(homepage, /A mock pass proves harness wiring, not agent quality/);
+  assert.match(homepage, /authentication, permissions and possible-cost prerequisites/);
+  assert.match(read('README.md'), /https:\/\/microsoft\.github\.io\/waza\/releases\/v0-40-0\//);
+
+  const article = read('site/src/content/docs/releases/v0-40-0.mdx');
+  assert.match(article, /^title: "Waza v0\.40\.0: run exactly the work you declared"$/m);
+  assert.match(article, /\*\*Released November 4, 2026\*\*/);
+  for (const heading of [
+    'Execute one attempt, not an implicit suite',
+    'Know which input a result belongs to',
+    'Handle failed checks differently from failed infrastructure',
+    'Use the same boundary locally or in a container',
+    'Design more focused tests and inspect better evidence',
+    "Upgrade with the published release's limits in view",
+  ]) assert.ok(article.includes(`## ${heading}`), heading);
+  assert.match(article, /sha256-waza-c14n-v1/);
+  assert.match(article, /input-derived identities, not execution attestations/);
+  assert.match(article, /one explicitly selected, pinned AgentV\s+case-sensitive `contains` assertion/);
+  assert.match(article, /whole-task\/suite interoperability and full evidence\/provenance round trips\s+remain unsupported/);
+  assert.match(article, /#761\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/761\)/);
+  assert.match(article, /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)/);
+  assert.match(article, /#882\]\(https:\/\/github\.com\/microsoft\/waza\/pull\/882\) is \*\*main-only and unreleased\*\*/);
+  assert.match(article, /cancellation-cleanup follow-up/);
+  assert.match(article, /Those main changes have not been republished as v0\.40\.0/);
+  assert.match(article, /make build VERSION=0\.40\.0/);
 });
 
 test('Dashboard Lab article distinguishes saved results, synthetic examples, and release decisions', () => {
@@ -557,13 +589,14 @@ test('release entry points agree on published versions and the current runner re
 });
 
 test('released feature guides retain scope and separate publication gates', () => {
-  const homepage = read('site/src/content/docs/index.mdx')
-    .split('<Aside type="note" title="Bounded v0.40.0 runner and interoperability">')[1]?.split('</Aside>')[0];
-  assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
-  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows and full external task\/suite interoperability\s+remain incomplete/);
-  assert.match(homepage ?? '', /\[source-built container guide\]\(\/waza\/guides\/runner-container\/\)/);
-  assert.match(homepage ?? '', /default mock-only scratch image from the native-capable exact-unit reference/);
-  assert.match(homepage ?? '', /\[selected AgentV assertion adapter\]\(\/waza\/guides\/external-interoperability\/\)/);
+  const article = read('site/src/content/docs/releases/v0-40-0.mdx');
+  assert.match(article, /\*\*mock\/text\*\* and explicitly opted-in \*\*Copilot\/text\*\*/);
+  assert.match(article, /tools and skills\s+disabled/);
+  assert.match(article, /General native file\/tool\/skill workflows remain unsupported/);
+  assert.match(article, /default\s+scratch target is mock-only/);
+  assert.match(article, /Linux AMD64/);
+  assert.match(article, /not live-provider reliability/);
+  assert.match(article, /published-image record\]\(\.\.\/\.\.\/guides\/runner-container\/#published-image-and-acceptance-evidence\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
     .split('## v0.40.0 highlights and boundaries')[1]?.split('<span id=')[0];
@@ -606,7 +639,7 @@ test('released feature guides retain scope and separate publication gates', () =
 test('release scope does not claim the legacy multi-trial timeout is fixed', () => {
   for (const path of [
     'README.md', 'CHANGELOG.md', 'docs/GUIDE.md', 'docs/PRD.md', 'docs/RUNNER_CONTRACT.md',
-    'site/src/content/docs/index.mdx', 'site/src/content/docs/reference/releases.mdx',
+    'site/src/content/docs/releases/v0-40-0.mdx', 'site/src/content/docs/reference/releases.mdx',
     'site/src/content/docs/guides/runner-contract.mdx',
   ]) {
     const text = read(path).replace(/\s+/g, ' ');
@@ -701,7 +734,7 @@ test('published workflow guides do not require unreleased main for v0.39.0 featu
   const paths = [
     'README.md', 'docs/GETTING-STARTED.md', 'docs/GUIDE.md',
     'docs/TUTORIAL.md', 'docs/CONTROLLED-COMPARISONS.md',
-    'site/src/content/docs/index.mdx',
+    'site/src/content/docs/releases/v0-40-0.mdx',
     'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/quick-start.mdx',
     'site/src/content/docs/concepts.mdx', 'site/src/content/docs/about.mdx',
     'site/src/content/docs/reference/cli.mdx',
