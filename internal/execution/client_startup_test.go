@@ -555,3 +555,33 @@ func TestCopilotEngineStartupSharedCanceledOwnerCanBeReplaced(t *testing.T) {
 		})
 	}
 }
+
+func TestRetireSharedClientReplacesItAndPreservesShutdownOwnership(t *testing.T) {
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+	previousConstruct, previousPath := sharedConstruct, embeddedCLIPath
+	t.Cleanup(func() { sharedConstruct, embeddedCLIPath = previousConstruct, previousPath })
+
+	first := &startupBarrierClient{}
+	second := &startupBarrierClient{}
+	constructions := 0
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient {
+		constructions++
+		if constructions == 1 {
+			return first
+		}
+		return second
+	}
+	embeddedCLIPath = func() (string, error) { return "unused-embedded-cli", nil }
+
+	old := SharedClient(SharedClientOptions{})
+	retireSharedClient(old)
+	fresh := SharedClient(SharedClientOptions{})
+
+	require.NotSame(t, old, fresh)
+	require.Equal(t, 2, constructions)
+	require.NoError(t, ShutdownSharedClient(context.Background()))
+	require.EqualValues(t, 1, first.stops.Load())
+	require.EqualValues(t, 1, second.stops.Load())
+}

@@ -19,13 +19,20 @@ checkout for reproducible input selection. The root `.dockerignore` is the build
 allowlist; inspect it when adding new required embedded resources. This reference
 does not modify the root Dockerfile or its cache optimization.
 
-Both build bases are pinned by multi-platform registry index digest; Go is fixed
-at 1.26.4 and `GOTOOLCHAIN=local` prevents toolchain auto-download. `npm ci` uses
-the lockfile and Go checks module checksums. The runtime starts from `scratch`,
-with the statically linked production binary, real embedded web assets and a
-non-root numeric user. No CA bundle, shell or runtime package manager is supplied.
-This is sufficient for the tested offline mock/text profile, not a promise of
-native/provider support.
+The Node and Go build bases are pinned by multi-platform registry index digest;
+Go is fixed at 1.26.4 and `GOTOOLCHAIN=local` prevents toolchain auto-download.
+`npm ci` uses the lockfile and Go checks module checksums. The default
+`reference` target starts from `scratch`, with the statically linked production
+binary, real embedded web assets and a non-root numeric user. It remains
+mock/text-only. The explicit `native-reference` target uses a pinned Debian
+Bookworm/glibc base with Bash, CA certificates and Git for the bundled Copilot
+runtime. It runs as UID/GID `65532:65532`; its default `HOME`,
+`COPILOT_HOME` and `TMPDIR` are `/home/waza`, `/home/waza/.copilot` and `/tmp`.
+Runtime cache and temporary storage must be writable and executable, including
+when the root filesystem is read-only. One GiB was exercised for the current
+bundle; it is not a measured minimum. The test target and installed Debian
+package versions can change independently of the pinned base digest, so this is
+not a bit-for-bit reproducible or hermetic build.
 
 These are repeatable build instructions with pinned bases, **not a demonstrated
 bit-for-bit reproducible or hermetic build**: dependency registries are needed,
@@ -36,11 +43,77 @@ depending on Docker's image store, it may identify an OCI index rather than the
 image configuration. It is not evidence of publication. Do not advertise a local tag or ID as a registry
 pin, and do not infer publication from historical issue comments.
 
-## Update and eventual publication policy
+<span id="update-and-eventual-publication-policy"></span>
 
-No automatic publication or update job is added. Do not publish an image or a
-Waza release as part of this foundation. #762 stays open; its published pinned
-image and native-layer acceptance are not satisfied.
+## Update and publication acceptance policy
+
+A manual-only GHCR publisher is provided in
+`.github/workflows/publish-runner-reference.yml`.
+There is no push, pull-request, or scheduled publication trigger. Do not publish
+an image or Waza release without separate authorization. Publication and
+public-image acceptance are separate gates. The
+[published image record](../../../site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence)
+contains the immutable digest, source, declared platform and publisher/verifier
+links. Publisher attempt 1 succeeded and GHCR reports the package public;
+anonymous-pull/provenance/production-caller acceptance passed on Linux AMD64
+in verifier run `41826111839` (1/1 test, 0 skipped). Independent infrastructure-owner
+review was waived for this one publication, not performed. This record is not
+live-provider, billing or inference-quality evidence.
+
+The workflow accepts a full candidate SHA and fails unless the dispatch is from
+`microsoft/waza` on protected `main`, the input matches the workflow event and
+checked-out commit, and the commit is still the exact current `main` tip. It
+requires a clean checkout, rechecks `main` immediately before pushing and again
+after push/attestation, and
+uses `packages: write` only in the publishing job. The protected-main ruleset is
+the gate for required reviews and status checks; operators must additionally
+confirm the native Linux AMD64 container check and the independent infrastructure
+review are complete before dispatching, or record an explicitly authorized
+one-publication review waiver without presenting it as completed review.
+The workflow builds only `linux/amd64`
+from the clean, LFS-hydrated checkout at the validated candidate SHA, sets source
+and revision labels, and attaches BuildKit provenance and an SBOM. A signed
+GitHub provenance attestation binds the published image digest to the workflow
+source revision; the candidate guard requires that revision to equal the
+requested SHA and current `main`. Its per-run tag is only a convenience;
+consumers must pin the immutable `@sha256:` digest instead.
+
+The `GITHUB_TOKEN` package-write and attestation permissions are declarations,
+not proof that repository, organization or package policy allows publication.
+Record the actual publisher outcome rather than inferring success from a
+workflow dispatch. A first GHCR publication may be private.
+A successful push/attestation is not public-image acceptance; a failed
+attestation or final-main check can leave a pushed candidate behind. The
+publisher summary marks such a digest unaccepted, makes no rollback claim, and
+must not be treated as permission to use it.
+
+After an authorized push, an operator with package-admin authority must verify
+the package's actual visibility and make it public if required. Then run the
+manual-only `.github/workflows/verify-runner-reference.yml` workflow with the
+source revision and immutable digest from the publisher summary. Its verifier
+has an isolated provenance job with `contents: read`, `attestations: read` and
+`actions: read`;
+the production container-test job has only `contents: read`. Neither has
+package permission. The test job creates an empty Docker configuration, strips
+auth environment variables and pulls
+`ghcr.io/microsoft/waza-runner-reference@sha256:...` anonymously. It
+requires dispatch from the current `main` tip and the image source revision to
+be reachable from current `main`, checks the
+pulled image's source/revision labels and `linux/amd64` platform, and verifies
+the signed provenance for the exact digest and publisher workflow. The signed
+invocation identifies the exact publisher run and attempt: the verifier requires
+that attempt and its publication/finalization steps to have succeeded. A valid
+attestation left by a failed, cancelled or incomplete publisher is not accepted,
+even if a later attempt or a different run succeeds for the same source.
+
+The verifier then runs the mock exact-unit caller and all six bundled-native
+synthetic-provider controls against that same digest on a native Linux AMD64
+runner. It mounts only read-only probe binaries and the fixture from the
+validated source checkout, plus the test's evidence directory; it never
+replaces the digest's `/waza`. Only a successful verifier run demonstrates
+anonymous visibility and production-caller behavior for that immutable digest.
+Record its exact source, digest, platform, attestation and test results. A local
+image ID, tag, or authenticated push is not proof of public availability.
 
 For any proposed update, review base-image release/security changes and resolve
 new index digests explicitly, update the Dockerfile and applicable lockfiles,
@@ -53,10 +126,10 @@ Both push and pull-request filters explicitly retain the existing
 `examples/runner/unit.json` input and all nested `examples/runner/container/**`
 inputs, guarded by the script and documentation regression tests.
 The native control additionally selects `examples/runner/copilot-unit.json` and
-`.github/scripts/testdata/runner-runtime/**` on push and pull request.
-Docker push and pull-request checks select `main`. The temporary stacked-parent
-selector was removed after the native runner merged; final-head native Linux
-AMD64 evidence must be refreshed after reconciliation.
+`.github/scripts/testdata/runner-runtime/**` and
+`.github/scripts/testdata/native-bundle-probe/**` on push and pull request.
+Docker push and pull-request checks select only `main`, where native Linux AMD64
+controls run against the integrated source.
 Run
 `node --test examples/runner/container/native-test.mjs` as well as the unchanged
 mock harness. The Dockerfile's default final target remains the scratch reference;
@@ -65,6 +138,21 @@ native deployment images. The former adds only the deterministic protocol peer;
 the latter uses pinned Alpine and the existing `internal/embedded` no-Send smoke.
 The build context admits only the peer's `main.go`/`main_test.go` and the specific embedded
 smoke test in addition to the existing production allowlist.
+
+Also run `node --test examples/runner/container/native-bundle-test.mjs`. It
+builds both `native-reference` and the separate `native-bundle-test` target,
+checks the mock profile in the former, and exercises the actual bundled native
+CLI in the latter against an in-container synthetic HTTP provider while Docker
+networking is disabled. A direct SDK positive control must discover synthetic
+home/ancestor instructions and run both hook sentinels; the production runner
+must suppress those same canaries. The suite also verifies exact selection,
+one request per invocation, success/timeout/SIGTERM outcomes, forced cleanup of
+a stopped native child, and cross-UID readability of the two evidence files.
+The test rejects a daemon/image architecture mismatch. Docker CI uses
+`ubuntu-24.04` and explicitly requires native Linux AMD64; local ARM64 and
+emulated runs do not satisfy that platform gate. No synthetic test makes a
+claim about live provider behavior, paid execution, billing or model quality.
+The CI-generated image ID is local to that run, not a published registry pin.
 
 All runtime controls disable networking and mount no credentials or source.
 Synthetic controls mount only a new empty RPC-log output directory; native
@@ -116,8 +204,8 @@ anonymously by digest, and rerun clean-input acceptance using
 `registry/repository@sha256:<manifest-digest>`. Record that literal published
 reference, supported platforms, source commit, envelope and output evidence in
 the walkthrough and release notes. Do not substitute `latest` or a local image
-ID for that manifest digest. None of those publication checks has been performed
-by this local foundation.
+ID for that manifest digest. Local foundation checks do not establish any of
+those publication results.
 
 ## Output and security boundary
 

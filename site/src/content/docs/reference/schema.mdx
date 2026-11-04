@@ -39,7 +39,7 @@ Current native grader bindings do not certify historical grader correspondence.
 
 ## Portable evidence
 
-Tasks retain their legacy format; current source writes results `1.9`, while
+Tasks retain their legacy format; current source writes results `1.9` (v0.40.0 writes `1.8`), while
 published `v0.39.1` writes `1.7`. Historical results retain their declared
 `1.x` versions or the missing-version `1.4` reader default.
 Snapshot schema `1.1` adds optional `evidence`
@@ -263,7 +263,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** legacy eval schema version (`1.4`); current source result writers independently emit `1.9` (published `v0.39.1` writes `1.7`)
+**Default:** legacy eval schema version (`1.4`); current source result writers independently emit `1.9` (v0.40.0 writes `1.8`; published `v0.39.1` writes `1.7`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
@@ -347,7 +347,7 @@ mcp_mocks:
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture. Finite `sequence` responses are available only in scenario evals using exact `schemaVersion: "2.0"`; each matching call consumes one step, sequences contain 1–100 steps, and optional step delays are bounded at 300,000 ms.
 
-In the **source-build preview**, a task can replace an eval-level mock by name with its own [`mcp_mocks`](#mcp_mocks-optional) entry. Published `v0.39.1` does not apply task-level mocks. Other eval-level mocks remain available to that task.
+In **v0.40.0**, a task can replace an eval-level mock by name with its own [`mcp_mocks`](#mcp_mocks-optional) entry. Published `v0.39.1` does not apply task-level mocks. Other eval-level mocks remain available to that task.
 
 Unmatched-call diagnostics omit argument values, including nested payloads. A
 canceled or expired context at the in-process handler's tool-call admission
@@ -899,7 +899,7 @@ command_mocks: []
 
 ### mcp_mocks (optional)
 
-**Source-build preview:** Published `v0.39.1` does not apply task-level
+**Added in v0.40.0:** Published `v0.39.1` does not apply task-level
 `mcp_mocks`.
 
 Replace or add MCP mocks for this task. Each entry replaces the eval-level [`mcp_mocks`](#mcp_mocks) entry with the same name for this task only, and a new name adds a mock; other eval-level mocks still apply. Entries use the eval-level fields. The enclosing eval must use `schemaVersion: "1.1"` or newer and `executor: copilot-sdk`, and finite response sequences require scenario eval schema `2.0`. Relative `fixtures` paths resolve from the eval directory. The list must not be empty; omit it to use the eval-level mocks.

@@ -131,6 +131,13 @@ func (s *diagnosticRPCServer) common(req diagnosticRPCRequest) {
 		result = map[string]any{"isAuthenticated": true}
 	case "session.create", "session.resume":
 		result = map[string]any{"sessionId": req.Params.SessionID}
+	case "session.sendAndWait":
+		s.write(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"error":   map[string]any{"code": -32601, "message": "offline fixture uses callback completion"},
+		})
+		return
 	case "session.usage.getMetrics":
 		result = completeDiagnosticMetrics()
 	case "session.detach", "session.delete":
@@ -180,6 +187,10 @@ func TestDiagnosticNativeTransportPostCallbackErrorAndOwnedCleanup(t *testing.T)
 		switch req.Method {
 		case "session.send":
 			s.respond(req, map[string]any{"messageId": "judge-message"}, false)
+			messageID := "judge-message"
+			s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.UserMessageData{
+				Content: req.Params.Prompt, MessageID: &messageID,
+			}})
 			s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.AssistantUsageData{Model: "event-conflict-model"}})
 			s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.ExternalToolRequestedData{
 				RequestID: "judge-request", SessionID: req.Params.SessionID, ToolCallID: "judge-call",
@@ -276,6 +287,10 @@ func TestDiagnosticNativeTransportConcurrentLifetimeDrain(t *testing.T) {
 				idMu.Unlock()
 			}
 			s.respond(req, map[string]any{"messageId": req.Params.Prompt}, false)
+			messageID := req.Params.Prompt
+			s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.UserMessageData{
+				Content: req.Params.Prompt, MessageID: &messageID,
+			}})
 			sent <- req
 		case "session.detach":
 			idMu.Lock()

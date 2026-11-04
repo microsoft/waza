@@ -1,12 +1,18 @@
 # Runner contract: negotiation and exact captured work 1.0
 
-This source preview of [v0.40.0](https://github.com/microsoft/waza/issues/754)
+The [v0.40.0 release](https://github.com/microsoft/waza/releases/tag/v0.40.0)
 implements negotiation [#757](https://github.com/microsoft/waza/issues/757)
 and bounded exact inline text execution [#758](https://github.com/microsoft/waza/issues/758),
 with input-derived [logical identities](RUNNER_IDENTITIES.md) (#759). It is available
-when built from this source, not retroactively in a published older binary.
+in standalone v0.40.0, not retroactively in an older binary.
 The [documentation-site guide](../site/src/content/docs/guides/runner-contract.mdx)
 is the canonical user invocation, API, compatibility and migration reference.
+
+Exact-unit execution/shutdown deadlines and cancellation do not fix the broader
+legacy multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865),
+addressed separately by the later timeout/persistence fix
+[#870](https://github.com/microsoft/waza/pull/870). That fix is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
 
 ## Developer boundary
 
@@ -196,13 +202,13 @@ The guard validates metadata shape, not independent hash reconstruction.
 
 ## Layer allocation
 
-| Issue | Interface to extend later |
+| Issue | Implemented boundary and remaining scope |
 |---|---|
 | #758 | Captured inline mock/text and explicitly opted-in Copilot/text exact execution, CLI/API and Lab selection validation. Files, tools, skills and general native eval workflows remain unsupported. |
 | #759 | Implemented original-source identity derivation, versioned metadata in CLI/API receipts and Lab lineage/validation JSON export. Negotiation alone derives no identity. |
 | #760 | Implemented independent terminal schema, seven execution exit categories, shared CLI/HTTP terminal projection, cancellation and Lab/export. No archive or durable publication. |
-| #761 | Add explicit local compatibility adapters and historical regression evidence; this layer does not reroute `waza run` or artifact readers. |
-| #762 | Local mock/text container build/test foundation only. Native integration and pinned published-image acceptance remain outstanding; the issue stays open. |
+| #761 | Explicit `runner adapt` and opt-in `run --runner-compat` preserve the bounded mock/text profile and historical result/exit contracts. Ordinary `waza run` and artifact readers retain their defaults. |
+| #762 | Mock-only local scratch reference plus a published Linux AMD64 native reference, accepted by anonymous digest-pinned mock and bundled-native synthetic-provider production controls. See the [exact source, digest and verifier evidence](../site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence); this is not live-provider reliability or general native workflow support. |
 
 The [local container quickstart](../site/src/content/docs/guides/runner-container.mdx)
 and [maintainer procedure](../examples/runner/container/MAINTAINERS.md) use the

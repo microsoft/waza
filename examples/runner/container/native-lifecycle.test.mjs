@@ -3,7 +3,23 @@ import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { runNamedContainer } from './native-lifecycle.mjs';
+import { bindMountArgs, runNamedContainer } from './native-lifecycle.mjs';
+
+test('native probe mounts keep inputs read-only and evidence writable', () => {
+  const mounts = [
+    ['/native-bundle-probe', '/tmp/probe', false],
+    ['/sdk-positive', '/tmp/positive', false],
+    ['/input/copilot-unit.json', '/tmp/unit.json', false],
+    ['/evidence', '/tmp/evidence', true],
+  ];
+  assert.deepEqual(bindMountArgs(mounts), [
+    '--mount', 'type=bind,source=/tmp/probe,target=/native-bundle-probe,readonly',
+    '--mount', 'type=bind,source=/tmp/positive,target=/sdk-positive,readonly',
+    '--mount', 'type=bind,source=/tmp/unit.json,target=/input/copilot-unit.json,readonly',
+    '--mount', 'type=bind,source=/tmp/evidence,target=/evidence',
+  ]);
+  assert.deepEqual(bindMountArgs([]), []);
+});
 
 const name = 'waza-native-test';
 const id = 'a'.repeat(64);

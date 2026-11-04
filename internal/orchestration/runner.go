@@ -115,6 +115,16 @@ type EvalRunner struct {
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
 	evalRunID string
+
+	partialMu       sync.Mutex
+	partialWriteMu  sync.Mutex
+	partialWriter   func(*models.EvaluationOutcome) error
+	partialOutcomes []models.TestOutcome
+	partialStart    time.Time
+	partialUsage    *execution.UsageScope
+	partialErr      error
+	partialCancel   context.CancelCauseFunc
+	partialPrimary  *models.EvaluationOutcome
 }
 
 // ProgressListener receives progress updates
@@ -254,6 +264,13 @@ func WithWazaVersion(v string) RunnerOption {
 	}
 }
 
+// WithPartialOutcomeWriter persists a current incomplete outcome after each trial.
+func WithPartialOutcomeWriter(write func(*models.EvaluationOutcome) error) RunnerOption {
+	return func(r *EvalRunner) {
+		r.partialWriter = write
+	}
+}
+
 // NewEvalRunner creates a new test runner. The caller owns the engine and is responsible for initializing and shutting it down as needed.
 func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...RunnerOption) *EvalRunner {
 	r := &EvalRunner{
@@ -383,6 +400,9 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 		return r.runBaselineComparison(evalCtx)
 	}
 
+	r.partialMu.Lock()
+	r.partialPrimary = nil
+	r.partialMu.Unlock()
 	return r.runNormalBenchmark(evalCtx)
 }
 
@@ -390,6 +410,8 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
 	ctx, usageScope := execution.NewUsageScope(ctx)
 	startTime := time.Now()
+	ctx, cancelPartial := context.WithCancelCause(ctx)
+	defer cancelPartial(nil)
 
 	// Set up hooks runner
 	spec := r.cfg.Spec()
@@ -437,6 +459,13 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	if len(testCases) == 0 {
 		return nil, fmt.Errorf("no test cases found")
 	}
+	r.partialMu.Lock()
+	r.partialOutcomes = make([]models.TestOutcome, len(testCases))
+	r.partialStart = startTime
+	r.partialUsage = usageScope
+	r.partialErr = nil
+	r.partialCancel = cancelPartial
+	r.partialMu.Unlock()
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkStart,
 		TotalTests: len(testCases),
@@ -455,6 +484,15 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 
 	outcome := r.buildOutcome(testOutcomes, startTime, usageScope.Snapshot())
 	execution.UpdateOutcomeUsage(outcome, r.engine)
+	r.partialMu.Lock()
+	partialErr := r.partialErr
+	r.partialMu.Unlock()
+	if partialErr != nil {
+		return outcome, partialErr
+	}
+	if err := context.Cause(ctx); err != nil {
+		return outcome, err
+	}
 
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkComplete,
@@ -517,6 +555,14 @@ func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 	if err != nil {
 		return nil, fmt.Errorf("skills-enabled run failed: %w", err)
 	}
+	r.partialMu.Lock()
+	r.partialPrimary = outcomesWithSkills
+	r.partialMu.Unlock()
+	defer func() {
+		r.partialMu.Lock()
+		r.partialPrimary = nil
+		r.partialMu.Unlock()
+	}()
 
 	// PASS 2: Skills Disabled (baseline)
 	savedSkillPaths := spec.Config.SkillPaths
@@ -865,13 +911,15 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 		if r.hookRunner != nil && len(spec.Hooks.BeforeTask) > 0 {
 			if err := r.hookRunner.Execute(ctx, "before_task", spec.Hooks.BeforeTask); err != nil {
 				// before_task failure with error_on_fail: mark task as failed and skip
-				outcomes = append(outcomes, models.TestOutcome{
+				outcome := models.TestOutcome{
 					TestID:      tc.TestID,
 					DisplayName: tc.DisplayName,
 					Golden:      tc.Golden,
 					Status:      models.StatusFailed,
 					Runs:        []models.RunResult{},
-				})
+				}
+				outcomes = append(outcomes, outcome)
+				r.publishPartialTestOutcome(i+1, outcome)
 				r.notifyProgress(ProgressEvent{
 					EventType:  EventTestComplete,
 					TestName:   tc.DisplayName,
@@ -895,6 +943,9 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 		outcome, wasCached := r.runTest(ctx, tc, i+1, len(testCases))
 		r.writeTaskTranscript(tc, outcome, taskStart)
 		outcomes = append(outcomes, outcome)
+		if ctx.Err() != nil {
+			return outcomes
+		}
 
 		// Run after_task hooks
 		if r.hookRunner != nil && len(spec.Hooks.AfterTask) > 0 {
@@ -953,13 +1004,15 @@ func (r *EvalRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 			// Run before_task hooks
 			if r.hookRunner != nil && len(spec.Hooks.BeforeTask) > 0 {
 				if err := r.hookRunner.Execute(ctx, "before_task", spec.Hooks.BeforeTask); err != nil {
-					resultChan <- result{index: idx, outcome: models.TestOutcome{
+					outcome := models.TestOutcome{
 						TestID:      test.TestID,
 						DisplayName: test.DisplayName,
 						Golden:      test.Golden,
 						Status:      models.StatusFailed,
 						Runs:        []models.RunResult{},
-					}}
+					}
+					resultChan <- result{index: idx, outcome: outcome}
+					r.publishPartialTestOutcome(idx+1, outcome)
 					r.notifyProgress(ProgressEvent{
 						EventType:  EventTestComplete,
 						TestName:   test.DisplayName,
@@ -1045,17 +1098,25 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		cacheKey, err := cache.CacheKeyWithSpecDir(spec, tc, r.cfg.FixtureDir(), r.cfg.SpecDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found && cache.RecordedMCPMocksMatch(cachedOutcome, models.EffectiveMCPMocks(spec, tc)) {
-				// Return cached outcome with cached flag. Stats derive from the
-				// cached runs, so recompute them in case an older waza wrote them.
-				cachedOutcome.Cached = true
-				cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
-				return *cachedOutcome, true
+				if len(cachedOutcome.Runs) != spec.Config.TrialsPerTask {
+					fmt.Fprintf(os.Stderr, "[WARN] Ignoring incomplete cache entry for test %q: got %d/%d trials\n",
+						tc.DisplayName, len(cachedOutcome.Runs), spec.Config.TrialsPerTask)
+				} else {
+					// Return cached outcome with cached flag. Stats derive from the
+					// cached runs, so recompute them in case an older waza wrote them.
+					cachedOutcome.Cached = true
+					cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
+					r.publishPartialTestOutcome(testNum, *cachedOutcome)
+					return *cachedOutcome, true
+				}
 			}
 			// Run the test and cache the result
 			outcome := r.runTestUncached(taskCtx, tc, testNum, totalTests)
 			// Store in cache and log any failures
-			if err := r.cache.Put(cacheKey, &outcome); err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] Failed to write cache for test %q: %v\n", tc.DisplayName, err)
+			if len(outcome.Runs) == spec.Config.TrialsPerTask && taskCtx.Err() == nil {
+				if err := r.cache.Put(cacheKey, &outcome); err != nil {
+					fmt.Fprintf(os.Stderr, "[WARN] Failed to write cache for test %q: %v\n", tc.DisplayName, err)
+				}
 			}
 			return outcome, false
 		}
@@ -1120,6 +1181,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 		}
 
 		runs = append(runs, run)
+		r.publishPartialOutcome(testNum, tc, runs)
 
 		r.notifyProgress(ProgressEvent{
 			EventType:  EventRunComplete,
@@ -1132,6 +1194,9 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 			DurationMs: run.DurationMs,
 			Details:    map[string]any{"workspace_dir": run.WorkspaceDir, "session_digest": run.SessionDigest},
 		})
+		if ctx.Err() != nil {
+			break
+		}
 	}
 
 	return r.buildTestOutcome(tc, runs)
@@ -1574,6 +1639,80 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		CommandInvocations: commandInvocations,
 	}
 	return returnWithArtifacts(run, err)
+}
+
+func (r *EvalRunner) publishPartialOutcome(testNum int, tc *models.TestCase, runs []models.RunResult) {
+	if r.partialWriter == nil {
+		return
+	}
+	r.publishPartialTestOutcome(testNum, r.buildTestOutcome(tc, cloneRunResultsForPartial(runs)))
+}
+
+func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.TestOutcome) {
+	if r.partialWriter == nil {
+		return
+	}
+	r.partialWriteMu.Lock()
+	defer r.partialWriteMu.Unlock()
+
+	r.partialMu.Lock()
+	if r.partialErr != nil {
+		r.partialMu.Unlock()
+		return
+	}
+
+	r.partialOutcomes[testNum-1] = cloneTestOutcomeForPartial(testOutcome)
+	testOutcomes := make([]models.TestOutcome, 0, len(r.partialOutcomes))
+	for _, outcome := range r.partialOutcomes {
+		if outcome.TestID != "" || outcome.DisplayName != "" {
+			testOutcomes = append(testOutcomes, cloneTestOutcomeForPartial(outcome))
+		}
+	}
+	start := r.partialStart
+	usage := r.partialUsage
+	writer := r.partialWriter
+	cancel := r.partialCancel
+	var primary *models.EvaluationOutcome
+	if r.partialPrimary != nil {
+		copy := *r.partialPrimary
+		copy.Metadata = maps.Clone(r.partialPrimary.Metadata)
+		primary = &copy
+	}
+	r.partialMu.Unlock()
+
+	outcome := r.buildOutcome(testOutcomes, start, usage.Snapshot())
+	execution.UpdateOutcomeUsage(outcome, r.engine)
+	if primary != nil {
+		primary.IsBaseline = true
+		primary.BaselineOutcome = outcome
+		outcome = primary
+	}
+	if outcome.Metadata == nil {
+		outcome.Metadata = make(map[string]any)
+	}
+	outcome.Metadata["incomplete"] = true
+	if err := writer(outcome); err != nil {
+		partialErr := fmt.Errorf("write partial results: %w", err)
+		r.partialMu.Lock()
+		if r.partialErr == nil {
+			r.partialErr = partialErr
+		}
+		r.partialMu.Unlock()
+		cancel(partialErr)
+	}
+}
+
+func cloneTestOutcomeForPartial(outcome models.TestOutcome) models.TestOutcome {
+	outcome.Runs = cloneRunResultsForPartial(outcome.Runs)
+	return outcome
+}
+
+func cloneRunResultsForPartial(runs []models.RunResult) []models.RunResult {
+	cloned := append([]models.RunResult(nil), runs...)
+	for i := range cloned {
+		cloned[i].GraderSessions = append([]models.SessionDigest(nil), runs[i].GraderSessions...)
+	}
+	return cloned
 }
 
 // captureSnapshot writes recorded snapshot observations for the given run

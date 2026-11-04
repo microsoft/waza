@@ -13,6 +13,7 @@ import (
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/projectconfig"
+	"github.com/stretchr/testify/require"
 )
 
 func makeOutcome(runID, skill, model string, passed, total int) *models.EvaluationOutcome {
@@ -432,6 +433,29 @@ func TestLocalStore_InvalidJSON(t *testing.T) {
 	if len(results) > 0 && results[0].RunID != "valid-run" {
 		t.Errorf("RunID = %q, want valid-run", results[0].RunID)
 	}
+}
+
+func TestLocalStoreSkipsPartialRecoveryArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	partialDir := filepath.Join(dir, ".partial")
+	require.NoError(t, os.MkdirAll(partialDir, 0o755))
+
+	partial := makeOutcome("partial-run", "skill-x", "model-y", 1, 1)
+	partial.Metadata = map[string]any{"incomplete": true}
+	partialData, err := json.Marshal(partial)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(partialDir, "recovery.json"), partialData, 0o600))
+
+	complete := makeOutcome("complete-run", "skill-x", "model-y", 1, 1)
+	completeData, err := json.Marshal(complete)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "complete.json"), completeData, 0o600))
+
+	store := NewLocalStore(dir)
+	results, err := store.List(t.Context(), ListOptions{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "complete-run", results[0].RunID)
 }
 
 func TestLocalStore_NonResultJSON(t *testing.T) {

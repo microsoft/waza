@@ -3,7 +3,7 @@ title: Local runner compatibility
 description: Preserve compatible local artifacts through the runner service, or capture explicit sources as a runner request.
 ---
 
-**Source-build v0.40.0 preview.** Ordinary local commands remain available.
+**Available in standalone v0.40.0.** Ordinary local commands remain available.
 Nothing is deprecated. The explicit `run --runner-compat` mode routes a bounded
 local suite through the service's unchanged mock-only profile as `runner run`,
 without replacing historical result JSON with a terminal envelope.
@@ -159,4 +159,5 @@ adds no new runtime status, result data or execution evidence. Compatibility is
 observable through diagnostics, native result artifacts and regression fixtures,
 not a new Lab claim. Release-note status: preserved commands/schemas as above;
 no deprecated surfaces; intentional incompatibilities are limited to the explicit
-adapter profile. This is not a release announcement.
+adapter profile. See [release availability](../../reference/releases/) for
+standalone artifacts and separately versioned extension/image boundaries.

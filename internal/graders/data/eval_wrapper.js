@@ -5,7 +5,7 @@ const process = require("node:process");
 // NOTE: if you're editing this file do NOT print to stdout - we parse that in the caller to determine
 // what's failed.
 
-const inputData = fs.readFileSync(process.stdin.fd, "utf-8");
+const inputData = fs.readFileSync(0, "utf-8");
 const data = (JSON.parse(inputData));
 
 // stderr isn't captured by the caller, so you can use this to do some print debugging.
