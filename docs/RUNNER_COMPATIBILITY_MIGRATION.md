@@ -1,6 +1,6 @@
 # Local workflow migration to the bounded runner
 
-The source-build v0.40.0 preview provides `runner adapt` and the explicit
+The v0.40.0 release provides `runner adapt` and the explicit
 `run --runner-compat` mode, based on runner request version 1.0.
 Both preserve original source bytes through `runnercompat.AdaptLocal`.
 Local compatible execution and `runner run` use the same `runnerunit.Service`
@@ -144,7 +144,7 @@ is a deliberate product choice, not an automatic migration.
 
 ## Release-note compatibility matrix
 
-| Category | Source-build preview behavior |
+| Category | v0.40.0 behavior |
 |---|---|
 | Preserved | Ordinary local commands/defaults and historical readers remain available; the adapted mock/text mode writes result 1.8 and retains local 0/1/2 exits, checked through the public command against an independent frozen observation. |
 | Additive | Offline byte-preserving `runner adapt` and opt-in `run --runner-compat`, routed through the shared runner service. |

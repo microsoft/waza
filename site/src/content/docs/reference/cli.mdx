@@ -5,8 +5,10 @@ description: Complete reference for all waza commands and flags.
 
 Complete reference for all `waza` CLI commands and their options.
 
-**Version boundary (October 26, 2026):** published standalone `v0.39.1`
-fixes `waza dev SKILL.md` file targets and retains the v0.39.0 scenario flags, preflight,
+**Version boundary (November 4, 2026):** published standalone `v0.40.0`
+adds the bounded runner/text and selected AgentV assertion adapter, task-level
+MCP mocks, program-grader context, host lifecycle evidence and Lab conversations.
+It retains the `waza dev SKILL.md` file-target fix and v0.39.0 scenario flags, preflight,
 selected-file evidence/regrade, assurance profiles, controlled policy commands
 and `serve --lab`. Install the release or run `waza update`; a source build is
 optional. Explicit opt-in and platform restrictions remain; see the
@@ -103,7 +105,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 |------|-------|------|---------|-------------|
 | `--context-dir` | `-c` | string | `./fixtures` | Fixtures directory path |
 | `--output` | `-o` | string | | Save results JSON to file |
-| `--runner-compat` | | bool | false | Source-build preview: route one compatible inline mock/text suite through runner 1.0, retaining local results and exits; unsupported mappings/flags fail. |
+| `--runner-compat` | | bool | false | Added in v0.40.0: route one compatible inline mock/text suite through runner 1.0, retaining local results and exits; unsupported mappings/flags fail. |
 | `--output-dir` | `-d` | string | | Directory for structured output; each run creates a UTC-timestamped subdirectory of the specified directory. Mutually exclusive with `--output`. |
 | `--verbose` | `-v` | bool | false | Detailed progress output |
 | `--parallel` | | bool | false | Run tasks concurrently |
@@ -922,7 +924,9 @@ waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml \
   --format github-actions
 ```
 
-## waza interop (source-build preview)
+<span id="waza-interop-source-build-preview"></span>
+
+## waza interop (v0.40.0)
 
 Offline stdin/stdout conversion of **one selected AgentV `contains` assertion**,
 not an upstream task or suite:
@@ -965,7 +969,7 @@ the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
 their artifact shape, including custom `.json` filenames.
 
 This legacy input/reader policy is separate from new result emission: evaluations
-and regrades from current source write results `1.8`; published `v0.39.1` writes
+and regrades in v0.40.0 write results `1.8`; published `v0.39.1` writes
 `1.7`. Historical result versions and missing reliability metadata are preserved
 when reading/re-saving; migration does not upgrade them.
 Compatibility reports select the executing binary's current version by artifact
@@ -1611,7 +1615,7 @@ To preserve local result JSON instead, use `run <file> --runner-compat --output
 <file>`. See [local compatibility and migration](../../guides/runner-compatibility/)
 for the exact supported profile, rejected flags and before/after examples.
 
-**Source-build preview:** inspect supported runner versions/capabilities and
+**Available in v0.40.0:** inspect supported runner versions/capabilities and
 check compatibility without starting an eval or model:
 
 ```bash
@@ -1648,7 +1652,7 @@ See [Runner contract, schemas, API and migration](../../guides/runner-contract/)
 
 ## waza serve
 
-The source-build preview also exposes negotiation and exact-unit validation/run through HTTP.
+Standalone v0.40.0 also exposes negotiation and exact-unit validation/run through HTTP.
 See [Runner contract and API](../../guides/runner-contract/) for routes and schemas.
 
 Start the interactive dashboard.
@@ -1704,7 +1708,7 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 | `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
-The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Main currently uses `github.com/github/copilot-sdk/go` v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
+The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Standalone v0.40.0 uses `github.com/github/copilot-sdk/go` v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
 ## Graders
 

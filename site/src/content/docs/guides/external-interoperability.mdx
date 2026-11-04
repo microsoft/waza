@@ -3,17 +3,18 @@ title: External Assertion Interoperability
 description: Project a pinned AgentV contains assertion offline without claiming whole-suite compatibility.
 ---
 
-This **source-build preview**, targeted for v0.40.0, converts **one explicitly
+Standalone **v0.40.0** converts **one explicitly
 selected AgentV case-sensitive `contains` assertion** to a native text grader.
 It does not import AgentEvals, AgentV, Harbor or ASSERT tasks or whole suites.
 Issue #789 remains open.
 
 ## Import a selected assertion
 
-From the repository root, with a binary built from this source:
+From a v0.40.0 source checkout, with standalone v0.40.0 or a binary
+[built from that tag](../../reference/releases/):
 
 ```bash
-# From the repository root, using a binary built from this source.
+# From the v0.40.0 repository root, using the matching binary.
 adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
 waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
   < internal/interop/testdata/agentv/suite.yaml > one-native-grader.yaml

@@ -5,7 +5,7 @@ description: Check the versioned runner CLI and HTTP API before execution, with 
 
 import ZoomImage from '../../../components/ZoomImage.astro';
 
-**Source-build preview for v0.40.0.** The implemented capabilities are
+**Available in standalone v0.40.0.** The implemented capabilities are
 `negotiation`, `exact-unit`, `inline.mock-text`, `terminal-result` and
 `inline.copilot-text`. These bounded profiles execute one captured text attempt.
 The factory result must match the selected profile: a non-nil concrete mock
@@ -16,14 +16,20 @@ observation and no claimed execution mode. Admitted receipts carry
 explicit paid consent and disables all tools and skills. General native
 file/tool/skill workflows and archives remain unavailable.
 A [local container reference](../runner-container/) exercises the mock/text
-profile; no release or container publication is announced here.
+profile; [published-image acceptance](../runner-container/#published-candidate-and-acceptance-evidence)
+is a separate, digest-bound result.
 The [local compatibility adapter](../runner-compatibility/) captures a narrower
 one-task mock/text suite offline; explicit `run --runner-compat` uses the same
 execution service while retaining historical artifacts and local exits.
 
+Exact-unit execution/shutdown deadlines and cancellation do not fix the broader
+legacy multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865),
+which remains open/backlogged.
+
 ## CLI: JSON stdin and stdout
 
-Build this source with `make build`, then inspect its capabilities:
+Install standalone v0.40.0 or [build its tagged source](../../reference/releases/)
+with `make build VERSION=0.40.0`, then inspect its capabilities:
 
 ```bash
 waza runner capabilities
@@ -416,12 +422,15 @@ On an older server or static host, the check reports an error, not success.
 The separate **Run selected unit** action actually executes the captured request,
 then shows the [terminal outcome, exit, diagnostics and JSON export](../runner-terminal/).
 
-## Initial contract notes (unreleased)
+<span id="initial-contract-notes-unreleased"></span>
+
+## Initial contract and release boundaries
 
 This adds negotiation and exact inline text execution without changing local result
 or eval versions. No older binary gains these commands automatically. There is
 no automatic paid-provider call, container digest, durable publication
 or strong-isolation guarantee in this layer. Existing mock requests need no
 migration; opt-in Copilot requests must require the new capability and consent.
-An older server rejects that capability before execution. The v0.40.0 release article
-is deferred until the release's required items are merged.
+An older server rejects that capability before execution.
+See [release scope and availability](../../reference/releases/) for standalone,
+extension and digest-bound container status.

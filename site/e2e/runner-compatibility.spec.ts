@@ -20,10 +20,11 @@ test('local compatibility navigation, profiles and executable examples retain /w
   await expect(page).toHaveURL(/\/waza\/guides\/runner-compatibility\/$/);
 });
 
-test('release preview links open the source-build runner guides under /waza', async ({ page }) => {
+test('release links open the bounded runner guides under /waza', async ({ page }) => {
   await page.goto('/waza/');
   await expect(page.locator('main')).toContainText('Runner execution supports mock/text and explicitly opted-in Copilot/text with tools and skills disabled.');
-  await expect(page.locator('main')).toContainText('General native file/tool/skill workflows, pinned published-image acceptance and the full external task/suite interoperability remain incomplete.');
+  await expect(page.locator('main')).toContainText('General native file/tool/skill workflows and full external task/suite interoperability remain incomplete.');
+  await expect(page.locator('main')).toContainText('legacy multi-trial timeout issue #865, which remains open/backlogged');
   for (const [name, url] of [
     ['runner contract and exact work-unit guide', /\/waza\/guides\/runner-contract\/$/],
     ['logical identities', /\/waza\/guides\/runner-identities\/$/],
@@ -35,10 +36,34 @@ test('release preview links open the source-build runner guides under /waza', as
     ['Lab conversations', /\/waza\/guides\/dashboard-lab\/#read-a-multi-turn-conversation$/],
   ]) {
     await page.goto('/waza/reference/releases/');
-    await expect(page.getByRole('heading', { name: 'Source-build v0.40.0 preview' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'v0.40.0 highlights and boundaries' })).toBeVisible();
     await page.getByRole('link', { name, exact: true }).click();
     await expect(page).toHaveURL(url);
     const fragment = new URL(page.url()).hash.slice(1);
     if (fragment) await expect(page.locator(`[id="${fragment}"]`)).toBeAttached();
   }
+});
+
+test('release separates standalone assets, extension sync and image acceptance', async ({ page }) => {
+  await page.goto('/waza/reference/releases/');
+  const main = page.locator('main');
+  await expect(main).toContainText('Current published standalone release: v0.40.0');
+  await expect(main).toContainText('azd extension artifact and registry sync are independent gates');
+  await expect(main).toContainText('legacy multi-trial timeout issue #865, which remains open/backlogged');
+  await expect(main).toContainText('v0.40.0 result writers emit 1.8; v0.39.1 writes 1.7.');
+  await expect(main).toContainText('schemas remain independently versioned 1.0');
+  const downloads = main.locator('a[href*="/releases/download/v0.40.0/waza-"]');
+  await expect(downloads).toHaveCount(6);
+  for (const download of await downloads.all()) {
+    await expect(download).toHaveAttribute('href', /\/releases\/download\/v0\.40\.0\/waza-/);
+  }
+  await expect(main.getByRole('link', { name: 'checksums.txt', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/download/v0.40.0/checksums.txt');
+  await expect(main).toContainText('Infrastructure-owner review was waived', { ignoreCase: true });
+  await expect(main.getByRole('link', { name: '#865', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/issues/865');
+  await expect(main.getByRole('link', { name: 'published extension release', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0');
+  await expect(main).toContainText('The main registry still lists through 0.39.1.');
+  await expect(main).toContainText('their merge to main remains pending');
 });

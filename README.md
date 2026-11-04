@@ -17,13 +17,23 @@ Function key in the browser. See [scope, privacy, and integration handoff](site/
 → [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
 Mock success checks the harness, not agent quality or live service safety.
 
-**Version boundary (October 26, 2026):** the published standalone CLI is
-`v0.39.1`. Scenario authoring, preflight, selected-file evidence,
+**Version boundary (November 4, 2026):** the published standalone CLI is
+`v0.40.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.40.0)). Scenario authoring, preflight, selected-file evidence,
 assurance profiles, controlled release policies, recorded reliability, and the
-opt-in dashboard Lab were introduced in `v0.39.0` and remain in that release.
+opt-in dashboard Lab were introduced in `v0.39.0` and remain included.
 Install the published binary or run `waza update`; a source build is optional.
 Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
 [feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
+
+**v0.40.0 adds** bounded
+runner/text execution, selected AgentV assertion conversion, task-level MCP
+mocks, program-grader context, host lifecycle evidence, and Lab conversations.
+These additions are not in an installed v0.39.1 binary. The separately versioned
+azd extension/registry and native runner image have independent publication and
+acceptance gates; see the
+[release scope and acceptance boundaries](site/src/content/docs/reference/releases.mdx#v0400-highlights-and-boundaries).
+The exact-unit runner deadlines do not fix the legacy multi-trial timeout issue
+[#865](https://github.com/microsoft/waza/issues/865), which remains open/backlogged.
 
 ## Installation
 
@@ -54,16 +64,25 @@ Requires Go 1.26+, Git LFS, Make, Node.js 22.23.4+ on the 22.x line or Node.js 2
 Note: due to the use of LFS artifacts you cannot install waza using `go install`. To install waza outside of a normal release, clone the repository:
 
 ```bash
-git clone https://github.com/microsoft/waza.git
+git clone --branch v0.40.0 https://github.com/microsoft/waza.git
 cd waza
 
 # ensure git LFS-based artifacts are available (for embedded copilot binaries)
 git lfs install
 git lfs pull
 
-make build
+make build VERSION=0.40.0
 ./waza <waza command line>
 ```
+
+The verified `v0.40.0` tag resolves to
+`93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`. The immutable tag's
+`version.txt` and `extension.yaml` remain `0.39.1`. The release workflow updates
+those files only in a later version-sync branch, not in the tag.
+`make build` defaults to `VERSION=0.1.0`, so pass `VERSION=0.40.0` explicitly
+when building this tag. Official release builds inject the version from the
+tag with linker flags. A locally stamped binary is not a verified release asset,
+and does not prove extension registry synchronization.
 
 Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it and its runtime assets to a versioned directory in the local user cache on first use (or under `COPILOT_HOME/cache` when set). Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary. Installation failures are reported without falling back to a CLI on `PATH`; set `COPILOT_CLI_INSTALL_VERBOSE=1` for installation diagnostics.
 
@@ -86,7 +105,11 @@ The extension has its own version and artifact history; a command prefix does
 not establish parity with standalone main. Check `azd waza --version` and
 `azd waza --help` before following examples. The registry currently lists
 through `0.39.1`, matching the separately published `0.39.1` extension artifact.
-Source-build previews below are not included in those published artifacts.
+The [separate v0.40.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
+is published with six platform archives, but its registry/version synchronization
+is not yet merged to main. The standalone v0.40.0 additions below are not included
+in a v0.39.1 extension installation. Artifact publication does not update the
+main registry by itself; check the registry and installed version.
 For supported commands, for example:
 
 ```bash
@@ -249,7 +272,9 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ## Commands
 
-### `waza interop` (source-build preview)
+<span id="waza-interop-source-build-preview"></span>
+
+### `waza interop` (v0.40.0)
 
 Project one explicitly selected, pinned AgentV case-sensitive `contains`
 assertion to a native grader, or export the same single-check native subset:
@@ -269,7 +294,9 @@ Only one case-sensitive substring check is supported; AgentEvals-spec, Harbor
 and ASSERT formats are not supported. See the [pinned compatibility matrix,
 runnable example and remaining #789 gaps](docs/INTEROPERABILITY.md).
 
-### `waza runner` (source-build preview)
+<span id="waza-runner-source-build-preview"></span>
+
+### `waza runner` (v0.40.0)
 
 Negotiate, validate offline, then explicitly execute one captured inline text unit:
 
@@ -280,7 +307,7 @@ waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
 ```
 
-The source preview implements `negotiation`, `exact-unit`, `inline.mock-text`,
+The v0.40.0 release implements `negotiation`, `exact-unit`, `inline.mock-text`,
 `terminal-result` and opt-in `inline.copilot-text`.
 Only `runner run` starts an engine; each dispatch runs its selected task/trial/
 attempt once, without discovery, cache or retries. Admitted receipts include
@@ -291,7 +318,9 @@ success 0, failed checks 1, infrastructure failure 2, cancellation 3, timeout 4,
 unsupported capability/version 5, invalid input 6. Validation remains an offline
 receipt, not execution evidence. An eval/task execution deadline still yields
 timeout 4 when the outer request budget remains active; task timeouts override
-the eval budget. Copilot/text execution requires the new profile, an explicit
+the eval budget. These exact-unit controls do not fix the separate legacy
+multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865).
+Copilot/text execution requires the new profile, an explicit
 model and `allow_paid_execution: true`; all tools and skills are disabled.
 The eval executor is `copilot-sdk`, while the terminal execution mode is `copilot`.
 Paid native HTTP execution additionally requires a loopback peer,
@@ -328,15 +357,18 @@ keeps the default scratch image mock-only and provides an explicit
 `native-reference` target for the exact-unit native Copilot text profile. The
 native target includes the glibc runtime dependencies and is exercised against
 an isolated synthetic provider with no external network or paid requests; this
-is execution evidence, not provider/model-quality evidence. Both targets are
-local builds, not a published v0.40.0 image. Native Linux AMD64 acceptance and
-the pinned public-image gate remain tracked under #762. A manual-only GHCR
-publisher is defined in source, but has not been dispatched; its signed image
-provenance and package-creation permission have not been verified, and public
-visibility remains unverified. A separate manual verifier is prepared to
-anonymously pull the exact published digest, check its source/platform and signed
-provenance, and run mock plus bundled-native production-caller controls against
-that digest; neither workflow has been dispatched.
+is execution evidence, not provider/model-quality evidence. Local image IDs
+are not registry pins. Native Linux AMD64 acceptance and the pinned public-image
+gate have separate recorded evidence under #762. Publication and public-image acceptance are
+separate gates: a publisher run alone does not establish anonymous availability,
+signed provenance or caller acceptance. The
+[published image record](site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence)
+identifies the immutable digest, source and declared Linux AMD64 platform;
+publisher attempt 1 and the anonymous-digest verifier succeeded. Acceptance is
+limited to that Linux AMD64 image's mock and bundled-native synthetic-provider
+production controls, not live-provider reliability. Independent infrastructure-owner
+review was waived for this one publication, not performed. See the
+[container guide's acceptance procedure](site/src/content/docs/guides/runner-container.mdx#verify-an-authorized-public-digest).
 
 ### `waza preflight <eval.yaml>`
 
@@ -1262,7 +1294,7 @@ waza serve --lab --results-dir ./results
 ```
 The lab uses saved Waza results for linked charts, searchable history, stable-task
 comparisons, recorded evidence, and JSON/CSV/print reports.
-**Source-build preview:** The inspector's **Conversation** tab, not available in
+**Added in v0.40.0:** The inspector's **Conversation** tab, not available in
 published `v0.39.1`, shows full recorded user/agent messages
 without tool-event noise or per-message expansion. It uses the first repetition;
 missing messages are not reconstructed, and responder metadata does not establish
@@ -1652,6 +1684,9 @@ With explicit effort, choose a concrete model from `waza models`. Waza checks th
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. Evaluations and regrades from current source emit results `1.8`, separately from their input version; published v0.39.1 writes `1.7`. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
+Standalone v0.40.0 writes results `1.8`; this does not change legacy eval/result
+reader defaults, task YAML, or the independent runner request/terminal version `1.0`.
+
 Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
 `scenario: <workflow-name>`. Only this exact scenario version is supported;
 older executables reject it before running. Results and tasks remain `1.x`,
@@ -1769,9 +1804,9 @@ Fixture entries must be regular JSON files; symlinks to regular files remain sup
 
 Unmatched MCP diagnostics omit argument values to avoid exposing credentials or private payloads. In scenario evals (`scenario` plus exact `schemaVersion: "2.0"`), a response may use a finite `sequence` of at most 100 `return` or `error` steps, optionally delayed up to 300,000 ms. Each matching call consumes one step; exhaustion returns an MCP error and never falls through to a live server. This can simulate an upstream timeout error, but not transport cancellation. Mock responses verify controlled interactions, not the external server implementation.
 
-**Source-build preview:** A task can declare its own `mcp_mocks` when one case needs a different answer. Published `v0.39.1` does not apply task-level MCP mocks. Each task entry replaces the eval mock with the same name for that task only, a new name adds a mock, and the other eval mocks still apply. This keeps a case-specific response, such as approving one question, out of every other task. Task mocks follow the enclosing eval's `schemaVersion` and require `executor: copilot-sdk`; relative `fixtures` paths resolve from the eval directory. An empty task list is rejected; omit the field to use the eval mocks.
+**Added in v0.40.0:** A task can declare its own `mcp_mocks` when one case needs a different answer. Published `v0.39.1` does not apply task-level MCP mocks. Each task entry replaces the eval mock with the same name for that task only, a new name adds a mock, and the other eval mocks still apply. This keeps a case-specific response, such as approving one question, out of every other task. Task mocks follow the enclosing eval's `schemaVersion` and require `executor: copilot-sdk`; relative `fixtures` paths resolve from the eval directory. An empty task list is rejected; omit the field to use the eval mocks.
 
-In the source-build preview, task loading and filter errors are reported before engine startup. The runner repeats admission after engine initialization and after each new pass's `before_run` setup (including the second baseline pass), retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. Inline mock `input_schema` declarations are validated offline during admission, including declarations on replaced eval mocks; use self-contained schemas (internal `$ref` values are supported), or omit the schema for the default.
+In v0.40.0, task loading and filter errors are reported before engine startup. The runner repeats admission after engine initialization and after each new pass's `before_run` setup (including the second baseline pass), retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. Inline mock `input_schema` declarations are validated offline during admission, including declarations on replaced eval mocks; use self-contained schemas (internal `$ref` values are supported), or omit the schema for the default.
 
 Admission also validates selected fixture-backed tool `input_schema` declarations, including eval fixtures needed only by trigger tests. Omitted/null schemas retain the default; whole-tool overrides and genuinely unused fixture metadata remain excluded.
 
@@ -2312,7 +2347,7 @@ not a grader kind; regex/keyword checks belong to `text`.
 | `tool_constraint` | Required/forbidden tool policies | [Tool Constraint](docs/graders/tool_constraint.md) |
 | `tool_calls` | Tool event and argument checks | [Tool Calls](docs/graders/tool_calls.md) |
 
-**Source-build preview:** Program graders receive `WAZA_GRADING_CONTEXT`, the
+**Added in v0.40.0:** Program graders receive `WAZA_GRADING_CONTEXT`, the
 path to a private JSON file with recorded run evidence. Output on stdin and
 `WAZA_WORKSPACE_DIR` are unchanged; unavailable evidence remains null and
 cleanup failures are reported. Published `v0.39.1` does not provide this file.

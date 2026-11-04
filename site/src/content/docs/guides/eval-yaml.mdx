@@ -522,7 +522,7 @@ Each `.json` fixture can either contain a single tool definition (tool name from
 
 ### Task-level MCP mocks
 
-**Source-build preview:** Published `v0.39.1` does not apply task-level
+**Added in v0.40.0:** Published `v0.39.1` does not apply task-level
 `mcp_mocks`.
 
 A task can declare `mcp_mocks` when one case needs a different response, for example approving a question that other tasks must decline. Each task entry replaces the eval mock with the same name for that task only, and a new name adds a mock. Other eval mocks still apply, so a task restates only the servers it changes.
