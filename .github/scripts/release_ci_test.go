@@ -13,189 +13,26 @@ import (
 )
 
 type releaseStep struct {
-	Name string
-	If   string
-	Run  string
-	Uses string
-	Env  map[string]string
-	With map[string]string
+	ID              string `yaml:"id"`
+	Name            string
+	Run             string
+	Uses            string
+	If              string
+	ContinueOnError bool `yaml:"continue-on-error"`
+	Env             map[string]string
+	With            map[string]string
 }
 
 type releaseJob struct {
+	Name           string
+	Outputs        map[string]string
+	Env            map[string]string
 	Uses           string
 	Needs          []string
 	If             string
+	Permissions    map[string]string
 	TimeoutMinutes int `yaml:"timeout-minutes"`
 	Steps          []releaseStep
-	Strategy       struct {
-		FailFast *bool `yaml:"fail-fast"`
-		Matrix   struct {
-			Shard []int
-		}
-	}
-}
-
-func checkNativeShardWorkflow(source []byte) error {
-	var workflow struct {
-		Permissions map[string]string
-		Jobs        map[string]releaseJob
-	}
-	if err := yaml.Unmarshal(source, &workflow); err != nil {
-		return err
-	}
-	job := workflow.Jobs["native"]
-	if workflow.Permissions["contents"] != "read" || job.TimeoutMinutes != 40 ||
-		job.Strategy.FailFast == nil || *job.Strategy.FailFast ||
-		!reflect.DeepEqual(job.Strategy.Matrix.Shard, []int{0, 1, 2, 3, 4}) {
-		return fmt.Errorf("native workflow must retain five exhaustive shards, permissions and 40-minute independent jobs")
-	}
-	foundExecution, foundUpload := false, false
-	for _, step := range job.Steps {
-		if step.Name == "Execute exhaustive native test shard" {
-			foundExecution = step.Env["SHARD"] == "${{ matrix.shard }}" &&
-				strings.Contains(step.Run, `bash .github/scripts/go_test_shard.sh "$SHARD" "coverage-native-$SHARD.txt"`)
-		}
-		if step.Name == "Retain coverage and test-selection evidence" {
-			foundUpload = strings.HasPrefix(step.Uses, "actions/upload-artifact@") &&
-				step.With["name"] == "go-coverage-native-${{ matrix.shard }}" &&
-				step.With["path"] == "coverage-native-${{ matrix.shard }}.txt*" &&
-				step.With["if-no-files-found"] == "error"
-		}
-	}
-	if !foundExecution || !foundUpload {
-		return fmt.Errorf("every matrix shard must execute and upload its atomic profile and selection inventories")
-	}
-	return nil
-}
-
-func TestNativeShardMatrixAndUploadedProfiles(t *testing.T) {
-	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-native-shards.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := checkNativeShardWorkflow(source); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct{ from, to string }{
-		{"shard: [0, 1, 2, 3, 4]", "shard: [0, 1, 2, 3]"},
-		{"shard: [0, 1, 2, 3, 4]", "shard: [0, 1, 2, 3, 3]"},
-		{"timeout-minutes: 40", "timeout-minutes: 41"},
-		{"fail-fast: false", "fail-fast: true"},
-		{"fail-fast: false", "# fail-fast omitted"},
-		{`SHARD: ${{ matrix.shard }}`, "SHARD: 0"},
-		{"name: go-coverage-native-${{ matrix.shard }}", "name: go-coverage-native-0"},
-		{"path: coverage-native-${{ matrix.shard }}.txt*", "path: coverage-native-${{ matrix.shard }}.txt"},
-		{"if-no-files-found: error", "if-no-files-found: ignore"},
-	} {
-		mutated := strings.Replace(string(source), tc.from, tc.to, 1)
-		if mutated == string(source) || checkNativeShardWorkflow([]byte(mutated)) == nil {
-			t.Fatalf("native workflow mutation was not rejected: %s", tc.to)
-		}
-	}
-}
-
-func checkGoCoverageWorkflow(source []byte) error {
-	var workflow struct {
-		Jobs map[string]releaseJob
-	}
-	if err := yaml.Unmarshal(source, &workflow); err != nil {
-		return err
-	}
-	gate := workflow.Jobs["linux-gate"]
-	if workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" ||
-		!reflect.DeepEqual(gate.Needs, []string{"build-and-test", "native-test-shards"}) ||
-		gate.If != "${{ always() }}" || gate.TimeoutMinutes != 10 {
-		return fmt.Errorf("Linux coverage gate must require build and reusable native shards even after failure or skip")
-	}
-	want := []string{"coverage-reports/coverage.txt"}
-	for shard := range 5 {
-		want = append(want, fmt.Sprintf("coverage-reports/coverage-native-%d.txt", shard))
-	}
-	foundMain, foundDownload, foundVerify, foundUpload := false, false, false, false
-	for _, step := range workflow.Jobs["build-and-test"].Steps {
-		if step.Name == "Retain remaining-package coverage" {
-			foundMain = strings.HasPrefix(step.Uses, "actions/upload-artifact@") &&
-				step.If == "matrix.os == 'ubuntu-latest'" &&
-				step.With["name"] == "go-coverage-main" && step.With["path"] == "coverage.txt" &&
-				step.With["if-no-files-found"] == "error"
-		}
-	}
-	for _, step := range gate.Steps {
-		if step.Name == "Download all required coverage and discovery evidence" {
-			foundDownload = strings.HasPrefix(step.Uses, "actions/download-artifact@") &&
-				step.With["pattern"] == "go-coverage-*" && step.With["merge-multiple"] == "true" &&
-				step.With["path"] == "coverage-reports"
-		}
-		if step.Name == "Verify exhaustive native test selection and coverage" {
-			foundVerify = foundDownload && step.Run == "bash .github/scripts/go_test_shard_verify.sh coverage-reports"
-		}
-		if strings.HasPrefix(step.Uses, "codecov/codecov-action@") {
-			foundUpload = foundVerify && step.With["files"] == strings.Join(want, ",") &&
-				step.With["disable_search"] == "true"
-		}
-	}
-	if !foundMain || !foundDownload || !foundVerify || !foundUpload {
-		return fmt.Errorf("coverage upload must follow verification and explicitly include all six atomic profiles")
-	}
-	return nil
-}
-
-func TestGoWorkflowCoverageProfilesAndRequiredGate(t *testing.T) {
-	for _, name := range []string{"go-ci.yml", "squad-ci.yml"} {
-		t.Run(name, func(t *testing.T) {
-			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := checkGoCoverageWorkflow(source); err != nil {
-				t.Fatal(err)
-			}
-			var workflow struct{ Jobs map[string]releaseJob }
-			if err := yaml.Unmarshal(source, &workflow); err != nil {
-				t.Fatal(err)
-			}
-			var gate releaseStep
-			for _, step := range workflow.Jobs["linux-gate"].Steps {
-				if step.Name == "Require every build and native test shard" {
-					gate = step
-				}
-			}
-			if gate.Env["BUILD_RESULT"] != "${{ needs.build-and-test.result }}" ||
-				gate.Env["NATIVE_RESULT"] != "${{ needs.native-test-shards.result }}" {
-				t.Fatal("gate must consume actual build and native results")
-			}
-			for _, build := range []string{"success", "failure", "cancelled", "skipped", ""} { //nolint:misspell // GitHub conclusion.
-				for _, native := range []string{"success", "failure", "cancelled", "skipped", ""} { //nolint:misspell // GitHub conclusion.
-					cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", gate.Run)
-					cmd.Env = append(os.Environ(), "BUILD_RESULT="+build, "NATIVE_RESULT="+native)
-					if err := cmd.Run(); (err == nil) != (build == "success" && native == "success") {
-						t.Fatalf("build=%q native=%q: gate error %v", build, native, err)
-					}
-				}
-			}
-			profiles := []string{"coverage-reports/coverage.txt"}
-			for shard := range 5 {
-				profiles = append(profiles, fmt.Sprintf("coverage-reports/coverage-native-%d.txt", shard))
-			}
-			for _, profile := range profiles {
-				mutated := strings.Replace(string(source), profile, profile+".missing", 1)
-				if mutated == string(source) || checkGoCoverageWorkflow([]byte(mutated)) == nil {
-					t.Fatalf("missing required coverage input was accepted: %s", profile)
-				}
-			}
-			for _, tc := range []struct{ from, to string }{
-				{"name: go-coverage-main", "name: go-coverage-main-missing"},
-				{"path: coverage.txt", "path: wrong-coverage.txt"},
-				{"pattern: go-coverage-*", "pattern: go-coverage-native-*"},
-				{"merge-multiple: true", "merge-multiple: false"},
-			} {
-				mutated := strings.Replace(string(source), tc.from, tc.to, 1)
-				if mutated == string(source) || checkGoCoverageWorkflow([]byte(mutated)) == nil {
-					t.Fatalf("coverage artifact mutation was not rejected: %s", tc.to)
-				}
-			}
-		})
-	}
 }
 
 func TestReleaseWorkflowGates(t *testing.T) {
@@ -205,84 +42,277 @@ func TestReleaseWorkflowGates(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var workflow struct {
-				Permissions map[string]string
-				Jobs        map[string]releaseJob
+			if err := validateReleaseWorkflow(source, file); err != nil {
+				t.Fatal(err)
 			}
+			var workflow releaseWorkflow
 			if err := yaml.Unmarshal(source, &workflow); err != nil {
 				t.Fatal(err)
 			}
-			job := workflow.Jobs["release"]
-			if workflow.Permissions["contents"] != "write" || job.TimeoutMinutes != 60 {
-				t.Fatal("release permissions and bounded job timeout must be preserved")
-			}
-			if workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" ||
-				!reflect.DeepEqual(job.Needs, []string{"native-test-shards"}) {
-				t.Fatal("release must explicitly gate on every reusable native shard, including skipped/canceled jobs")
-			}
-			t.Run("workflow-cancellation-blocks-publication", func(t *testing.T) {
-				// Pin the actual GitHub status function, not a shell simulation:
-				// Unlike always(), this predicate is false after cancellation.
-				if job.If != "${{ !cancelled() }}" { //nolint:misspell // GitHub's exact status function.
-					t.Fatal("publication must be ineligible after workflow cancellation")
-				}
-			})
-			indexes := map[string]int{}
-			steps := map[string]releaseStep{}
-			for i, step := range job.Steps {
-				indexes[step.Name] = i
-				steps[step.Name] = step
-			}
-			ordered := []string{
-				"Require every native test shard",
-				"Checkout Repository",
-				"Install and prove rejecting runtime guard",
-				"Test release gate failure handling",
-				"Run Go Vet",
-				"Execute Tests",
-				"Download native coverage and discovery evidence",
-				"Verify exhaustive native test selection and coverage",
-			}
-			if file == "squad-release.yml" {
-				ordered = append(ordered, "Build Release Binary", "Integration Test", "Create Release")
-			} else {
-				ordered = append(ordered, "Build Insider Release Binary", "Integration Test", "Create Insider Pre-Release")
-			}
-			previous := -1
-			for _, name := range ordered {
-				index, ok := indexes[name]
-				if !ok || index <= previous {
-					t.Fatalf("missing or out-of-order release gate %q", name)
-				}
-				previous = index
-			}
-			gate := steps["Require every native test shard"]
-			if gate.Env["NATIVE_RESULT"] != "${{ needs.native-test-shards.result }}" {
-				t.Fatal("gate must consume the actual native shard job result")
-			}
-			for _, result := range []string{"success", "failure", "cancelled", "skipped", ""} { //nolint:misspell // GitHub's exact job conclusion.
-				cmd := exec.Command("bash", "-euo", "pipefail", "-c", gate.Run)
-				cmd.Env = append(os.Environ(), "NATIVE_RESULT="+result)
-				if err := cmd.Run(); (err == nil) != (result == "success") {
-					t.Fatalf("native result %q: gate error = %v", result, err)
+			steps := releaseSteps(workflow.Jobs["release"])
+			gate := steps["Require every validation branch"]
+			results := []string{"success", "failure", "cancelled", "skipped", ""} //nolint:misspell // GitHub's exact job conclusion.
+			for _, native := range results {
+				for _, build := range results {
+					cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", gate.Run)
+					cmd.Env = append(os.Environ(), "NATIVE_RESULT="+native, "BUILD_RESULT="+build)
+					if err := cmd.Run(); (err == nil) != (native == "success" && build == "success") {
+						t.Fatalf("native=%q build=%q: gate error = %v", native, build, err)
+					}
 				}
 			}
-			if steps["Install and prove rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
-				steps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
-				steps["Integration Test"].Run != "bash .github/scripts/release_integration_test.sh ./waza" {
-				t.Fatal("release must exercise the proven offline runtime and integration failure controls")
+			buildSteps := releaseSteps(workflow.Jobs["build-test"])
+			testReleasePackageSelection(t, buildSteps["Execute Tests"].Run)
+			testReleaseBinaryHandoff(t, buildSteps["Record tested binary digest"].Run, steps["Verify and restore tested binary"].Run)
+			testReleaseCoverageEvidence(t, steps["Verify exhaustive native test selection and coverage"].Run)
+			for _, mutation := range []struct{ name, old, new string }{
+				{"serialized-build", "  build-test:\n", "  build-test:\n    needs: [native-test-shards]\n"},
+				{"missing-build-dependency", "needs: [native-test-shards, build-test]", "needs: [native-test-shards]"},
+				{"missing-native-dependency", "needs: [native-test-shards, build-test]", "needs: [build-test]"},
+				{"cancellation-bypass", "${{ !cancelled() }}", "${{ always() }}"}, //nolint:misspell // GitHub expression.
+				{"unbound-build-result", "${{ needs.build-test.result }}", "success"},
+				{"ignored-build-result", `test "$BUILD_RESULT" = success`, ":"},
+				{"ignored-native-result", `test "$NATIVE_RESULT" = success`, ":"},
+				{"missing-coverage-verification", "bash .github/scripts/go_test_shard_verify.sh coverage-reports", ":"},
+				{"missing-integration", "bash .github/scripts/release_integration_test.sh ./waza", ":"},
+				{"skipped-integration", "      - name: Integration Test\n", "      - name: Integration Test\n        if: 'false'\n"},
+				{"ignored-integration-failure", "      - name: Integration Test\n", "      - name: Integration Test\n        continue-on-error: true\n"},
+				{"missing-guard", `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
+				{"different-download", "          name: release-tested-${{ github.sha }}\n          path: .", "          name: other-binary\n          path: ."},
+				{"missing-binary-digest", "sha256sum --check waza.sha256", ":"},
+				{"missing-executable-mode", "chmod +x waza", ":"},
+				{"missing-coverage-artifact", "            coverage.txt\n", ""},
+				{"rebuild-before-publication", "          chmod +x waza", "          go build -o waza ./cmd/waza\n          chmod +x waza"},
+				{"missing-release-tags", "          fetch-depth: 0", "          fetch-depth: 1"},
+			} {
+				t.Run(mutation.name, func(t *testing.T) {
+					changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
+					if changed == string(source) {
+						t.Fatal("mutation did not change production workflow")
+					}
+					if err := validateReleaseWorkflow([]byte(changed), file); err == nil {
+						t.Fatal("unsafe production workflow mutation was admitted")
+					}
+				})
 			}
-			download := steps["Download native coverage and discovery evidence"]
-			if !strings.HasPrefix(download.Uses, "actions/download-artifact@") ||
-				download.With["pattern"] != "go-coverage-native-*" ||
-				download.With["merge-multiple"] != "true" || download.With["path"] != "coverage-reports" {
-				t.Fatal("release must retrieve every native coverage profile and selection inventory")
+		})
+	}
+}
+
+type releaseWorkflow struct {
+	Permissions map[string]string
+	Jobs        map[string]releaseJob
+}
+
+func releaseSteps(job releaseJob) map[string]releaseStep {
+	steps := make(map[string]releaseStep)
+	for _, step := range job.Steps {
+		steps[step.Name] = step
+	}
+	return steps
+}
+
+func orderedReleaseSteps(job releaseJob, names []string) error {
+	previous := -1
+	for _, name := range names {
+		found := false
+		for i, step := range job.Steps {
+			if step.Name != name {
+				continue
 			}
-			wantVerify := "cp coverage.txt coverage-reports/coverage.txt\nbash .github/scripts/go_test_shard_verify.sh coverage-reports\n"
-			if steps["Verify exhaustive native test selection and coverage"].Run != wantVerify {
-				t.Fatal("release must verify remaining-package coverage and exactly-once native selection before publication")
+			if found || i <= previous || step.If != "" || step.ContinueOnError {
+				return fmt.Errorf("missing, skipped, tolerated, duplicated or out-of-order gate %q", name)
 			}
-			testReleasePackageSelection(t, steps["Execute Tests"].Run)
+			previous, found = i, true
+		}
+		if !found {
+			return fmt.Errorf("missing gate %q", name)
+		}
+	}
+	return nil
+}
+
+func validateReleaseWorkflow(source []byte, file string) error {
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	native, build, publish := workflow.Jobs["native-test-shards"], workflow.Jobs["build-test"], workflow.Jobs["release"]
+	if workflow.Permissions["contents"] != "write" || publish.TimeoutMinutes != 60 ||
+		build.TimeoutMinutes != 60 || build.Permissions["contents"] != "read" {
+		return fmt.Errorf("release permissions and bounded deadlines must be preserved")
+	}
+	if native.Uses != "./.github/workflows/go-native-shards.yml" || len(native.Needs) != 0 ||
+		len(build.Needs) != 0 || build.If != "" || native.If != "" ||
+		!reflect.DeepEqual(publish.Needs, []string{"native-test-shards", "build-test"}) {
+		return fmt.Errorf("test branches must run independently and publication must depend on both")
+	}
+	if publish.If != "${{ !cancelled() }}" { //nolint:misspell // GitHub's exact status function.
+		return fmt.Errorf("publication must be ineligible after workflow cancellation")
+	}
+	binary, create := "Build Release Binary", "Create Release"
+	if file == "squad-insider-release.yml" {
+		binary, create = "Build Insider Release Binary", "Create Insider Pre-Release"
+	}
+	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Install and prove rejecting runtime guard",
+		"Test release gate failure handling", "Run Go Vet", "Execute Tests", binary, "Integration Test",
+		"Record tested binary digest", "Upload tested release binary and remaining coverage"}); err != nil {
+		return err
+	}
+	if err := orderedReleaseSteps(publish, []string{"Require every validation branch", "Checkout Repository",
+		"Download tested release binary and remaining coverage", "Download native coverage and discovery evidence",
+		"Verify exhaustive native test selection and coverage", "Verify and restore tested binary", create}); err != nil {
+		return err
+	}
+	steps, buildSteps := releaseSteps(publish), releaseSteps(build)
+	if buildSteps["Checkout Repository"].With["lfs"] != "true" || buildSteps["Checkout Repository"].With["fetch-depth"] != "0" ||
+		steps["Checkout Repository"].With["fetch-depth"] != "0" {
+		return fmt.Errorf("tested build requires real runtime assets and release creation requires full tag history")
+	}
+	gate := steps["Require every validation branch"]
+	if gate.Env["NATIVE_RESULT"] != "${{ needs.native-test-shards.result }}" ||
+		gate.Env["BUILD_RESULT"] != "${{ needs.build-test.result }}" ||
+		gate.Run != "test \"$NATIVE_RESULT\" = success\ntest \"$BUILD_RESULT\" = success\n" {
+		return fmt.Errorf("gate must reject every non-success result from both validation branches")
+	}
+	if buildSteps["Install and prove rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
+		buildSteps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
+		buildSteps["Run Go Vet"].Run != "go vet ./..." ||
+		buildSteps[binary].Run != "go build -v -o waza ./cmd/waza\n./waza --version\n" ||
+		buildSteps["Integration Test"].Run != "bash .github/scripts/release_integration_test.sh ./waza" {
+		return fmt.Errorf("build branch must retain vet, runtime guard, failure controls and tested binary integration")
+	}
+	upload, download := buildSteps["Upload tested release binary and remaining coverage"], steps["Download tested release binary and remaining coverage"]
+	if !strings.HasPrefix(upload.Uses, "actions/upload-artifact@") || upload.With["name"] != "release-tested-${{ github.sha }}" ||
+		upload.With["path"] != "waza\nwaza.sha256\ncoverage.txt\n" || upload.With["if-no-files-found"] != "error" ||
+		!strings.HasPrefix(download.Uses, "actions/download-artifact@") || download.With["name"] != upload.With["name"] || download.With["path"] != "." ||
+		buildSteps["Record tested binary digest"].Run != "sha256sum waza > waza.sha256" ||
+		steps["Verify and restore tested binary"].Run != "sha256sum --check waza.sha256\nchmod +x waza\n./waza --version\n" {
+		return fmt.Errorf("publication must retrieve the exact integration-tested binary, digest and remaining coverage")
+	}
+	nativeDownload := steps["Download native coverage and discovery evidence"]
+	if !strings.HasPrefix(nativeDownload.Uses, "actions/download-artifact@") ||
+		nativeDownload.With["pattern"] != "go-coverage-native-*" || nativeDownload.With["merge-multiple"] != "true" ||
+		nativeDownload.With["path"] != "coverage-reports" ||
+		steps["Verify exhaustive native test selection and coverage"].Run != "cp coverage.txt coverage-reports/coverage.txt\nbash .github/scripts/go_test_shard_verify.sh coverage-reports\n" {
+		return fmt.Errorf("publication must verify all five atomic profiles and exhaustive native inventories")
+	}
+	for _, step := range publish.Steps {
+		if strings.Contains(step.Run, "go build") {
+			return fmt.Errorf("publication must not rebuild its tested binary")
+		}
+	}
+	return nil
+}
+
+func testReleaseBinaryHandoff(t *testing.T, record, restore string) {
+	t.Helper()
+	for _, mutation := range []string{"none", "binary", "digest", "missing-binary", "missing-digest"} {
+		t.Run("binary-handoff-"+mutation, func(t *testing.T) {
+			dir := t.TempDir()
+			binary := filepath.Join(dir, "waza")
+			content := []byte("#!/bin/sh\nprintf '%s\\n' tested-release-binary > version-observed\n")
+			writeReleaseFile(t, binary, content)
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", record)
+			cmd.Dir = dir
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("record tested digest: %v\n%s", err, output)
+			}
+			// Artifact download strips the executable bit.
+			if err := os.Chmod(binary, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			switch mutation {
+			case "binary":
+				writeReleaseFile(t, binary, append(content, []byte("# altered binary\n")...))
+			case "digest":
+				writeReleaseFile(t, filepath.Join(dir, "waza.sha256"), []byte(strings.Repeat("0", 64)+"  waza\n"))
+			case "missing-binary":
+				if err := os.Remove(binary); err != nil {
+					t.Fatal(err)
+				}
+			case "missing-digest":
+				if err := os.Remove(filepath.Join(dir, "waza.sha256")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", restore)
+			cmd.Dir = dir
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != (mutation == "none") {
+				t.Fatalf("restore mutation %s: %v\n%s", mutation, err, output)
+			}
+			observed, readErr := os.ReadFile(filepath.Join(dir, "version-observed"))
+			if mutation == "none" {
+				if readErr != nil || string(observed) != "tested-release-binary\n" {
+					t.Fatalf("downloaded binary did not execute: %q, %v", observed, readErr)
+				}
+			} else if !os.IsNotExist(readErr) {
+				t.Fatalf("unverified binary executed: %q, %v", observed, readErr)
+			}
+		})
+	}
+}
+
+func testReleaseCoverageEvidence(t *testing.T, script string) {
+	t.Helper()
+	verify, err := os.ReadFile("go_test_shard_verify.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []string{
+		"none", "missing-main-profile", "missing-native-profile", "non-atomic-profile",
+		"missing-discovery", "different-discovery", "missing-selection", "duplicate-selection", "incomplete-selection",
+	} {
+		t.Run("coverage-"+mutation, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, name := range []string{".github/scripts", "coverage-reports", "scratch"} {
+				if err := os.MkdirAll(filepath.Join(dir, name), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writeReleaseFile(t, filepath.Join(dir, ".github/scripts/go_test_shard_verify.sh"), verify)
+			coverage := []byte("mode: atomic\nexample.go:1.1,2.1 1 1\n")
+			writeReleaseFile(t, filepath.Join(dir, "coverage.txt"), coverage)
+			inventory := []byte("TestFour\nTestOne\nTestThree\nTestTwo\n")
+			selected := []string{"TestFour\n", "TestOne\n", "TestThree\n", "TestTwo\n"}
+			for shard := range 4 {
+				profile := filepath.Join(dir, "coverage-reports", fmt.Sprintf("coverage-native-%d.txt", shard))
+				writeReleaseFile(t, profile, coverage)
+				writeReleaseFile(t, profile+".all", inventory)
+				writeReleaseFile(t, profile+".selected", []byte(selected[shard]))
+			}
+			profile := filepath.Join(dir, "coverage-reports", "coverage-native-3.txt")
+			switch mutation {
+			case "missing-main-profile", "missing-native-profile", "missing-discovery", "missing-selection":
+				path := map[string]string{
+					"missing-main-profile":   filepath.Join(dir, "coverage.txt"),
+					"missing-native-profile": profile,
+					"missing-discovery":      profile + ".all",
+					"missing-selection":      profile + ".selected",
+				}[mutation]
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+			case "non-atomic-profile":
+				writeReleaseFile(t, profile, []byte("mode: set\n"))
+			case "different-discovery":
+				writeReleaseFile(t, profile+".all", []byte("TestOther\n"))
+			case "duplicate-selection":
+				writeReleaseFile(t, profile+".selected", []byte("TestOne\nTestTwo\n"))
+			case "incomplete-selection":
+				writeReleaseFile(t, profile+".selected", []byte("TestOne\n"))
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "TMPDIR="+filepath.Join(dir, "scratch"))
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != (mutation == "none") {
+				t.Fatalf("release coverage %s: %v\n%s", mutation, err, output)
+			}
+			if mutation == "none" && !strings.Contains(string(output), "exhaustive, nonoverlapping selection") {
+				t.Fatalf("production inventory validator was not exercised: %s", output)
+			}
 		})
 	}
 }
@@ -324,11 +354,13 @@ func testNativeShardRuntimeGate(t *testing.T, script string) {
 	if err := os.MkdirAll(scripts, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	source, err := os.ReadFile("go_test_shard.sh")
-	if err != nil {
-		t.Fatal(err)
+	for _, file := range []string{"go_test_shard.sh", "go_test_shard_plan.py", "go_test_shard_durations.tsv"} {
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeReleaseFile(t, filepath.Join(scripts, file), source)
 	}
-	writeReleaseFile(t, filepath.Join(scripts, "go_test_shard.sh"), source)
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -337,7 +369,7 @@ func testNativeShardRuntimeGate(t *testing.T, script string) {
 	writeReleaseFile(t, filepath.Join(dir, "go"), []byte(`#!/usr/bin/env bash
 set -euo pipefail
 if [[ " $* " == *" -list "* ]]; then
-  printf '%s\n' TestNativeReaderFrozen15cDecisionParity TestNativeCollectionObservedFailures TestNativeLateFailurePreservesEveryStartedAttempt TestOne TestTwo TestThree TestFour
+  printf '%s\n' TestOne TestTwo TestThree TestFour
 else
   printf 'executed\n' > "$TEST_EXECUTED"
   if [ "$TRY_RUNTIME" = true ]; then "$COPILOT_CLI_PATH" --version || true; fi

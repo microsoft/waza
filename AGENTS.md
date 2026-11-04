@@ -323,40 +323,34 @@ Repository protection/rulesets are authoritative for required checks and
 approvals. Read the active rules with
 `gh api repos/microsoft/waza/rules/branches/main`; do not assume workflow display
 names are the required status contexts. Go validation is defined in
-`.github/workflows/go-ci.yml` and `.github/workflows/squad-ci.yml`; preserve
-required native-platform tests and lint.
+the single `.github/workflows/go-ci.yml`; preserve required native-platform tests
+and lint. It covers PRs to every base and pushes to `main`, `develop`, `dev`, and
+`insider`; do not reintroduce a duplicate Squad PR validation workflow.
+Superseded PR runs are cancelled per workflow/event/ref, not release publication.
 
-Linux executes `internal/controlledcomparison` in five deterministic shards
-through `.github/workflows/go-native-shards.yml`; all remaining packages run in
+Linux executes `internal/controlledcomparison` in four deterministic shards
+through `.github/workflows/go-native-shards.yml`, balanced longest-first using
+observed top-level durations in `.github/scripts/go_test_shard_durations.tsv`.
+Python 3 computes placement only; discovery remains authoritative and new tests
+use the median historical duration. All remaining packages run in
 the main Linux build job. Discovery uses the same race/atomic build and includes
 tests, examples, and fuzz seed targets without changing their fixtures or
-internal skip behavior. Each shard retains the 30-minute Go test deadline and
-40-minute job deadline. Shard 0 runs only
-`TestNativeReaderFrozen15cDecisionParity`; shard 1 runs only
-`TestNativeCollectionObservedFailures`. Shard 2 also owns
-`TestNativeLateFailurePreservesEveryStartedAttempt`; all other discovered targets
-are sorted and distributed round-robin across shards 2–4.
-The frozen-reader parity test repeatedly reads a large production capture and
-has exceeded a shard deadline when combined with other work; this placement
-isolates long tests without weakening fixtures, assertions, flags or deadlines.
-Timings vary across hosts and are not a guarantee of success. Missing reserved
-names fail discovery: when renaming or removing these tests, update the runner,
-verifier and regression inventories together. New targets join discovery
-automatically, so review shard durations as the inventory grows.
+internal skip behavior. Each shard retains the 30-minute Go test deadline.
 Windows continues to execute the complete suite in one job.
 
 The required `ubuntu-latest` gate explicitly fails if any build or native shard
-fails, is cancelled, or is skipped. It also requires all six atomic coverage
+fails, is cancelled, or is skipped. It also requires all five atomic coverage
 profiles, identical native test inventories, and exactly-once selection across
-the five shards before uploading coverage. Do not replace it with a skipped
+the four shards before uploading coverage. Do not replace it with a skipped
 dependent job or remove a package without providing exhaustive required shards.
 Exercise discovery and all failure branches with
 `bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
 
-Squad Release and Squad Insider Release reuse the same five native shards and
-30-minute race/atomic package deadline. Their release job explicitly rejects
-failed, cancelled, or skipped shards and verifies all six coverage profiles and
-exactly-once native selection before publication. Test the release wiring with
+Squad Release and Squad Insider Release reuse the same four native shards and
+30-minute race/atomic package deadline, running remaining validation in parallel.
+Their publication job explicitly rejects failed, cancelled, or skipped validation
+branches and verifies all five coverage profiles and exactly-once native selection
+before publishing the tested binary artifact. Test the release wiring with
 `go test -count=1 ./.github/scripts` and the offline runtime/integration controls
 with `bash .github/scripts/release_gate_test.sh`. Release tests and native shards
 install a verified rejecting Copilot runtime. The mock integration requires a
@@ -389,9 +383,9 @@ run to prove. This release-only admission does not change legacy runtime overwri
 behavior or preflight's default non-strict exit policy.
 This is offline harness evidence, not live agent-quality evidence.
 
-Both Go lint workflows use `.github/scripts/lint.sh` to require configuration
+The Go lint job uses `.github/scripts/lint.sh` to require configuration
 validation against a checksum-pinned upstream release schema before running lint.
-When upgrading golangci-lint, update both workflow versions and the script's
+When upgrading golangci-lint, update the workflow version and the script's
 version check, upstream release commit, and schema checksum together.
 
 ## Fixture Isolation
