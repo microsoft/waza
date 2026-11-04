@@ -24,14 +24,26 @@ type Context struct {
 // Uses Go's text/template syntax: {{.TaskName}}, {{.Vars.myvar}}.
 // Returns the input unchanged if it contains no template delimiters.
 func Render(tmpl string, ctx *Context) (string, error) {
+	return render(tmpl, ctx, nil)
+}
+
+// RenderHook resolves a hook argument and rejects indexed lookups of missing
+// user variables while preserving explicitly empty values.
+func RenderHook(tmpl string, ctx *Context) (string, error) {
+	return render(tmpl, ctx, template.FuncMap{"index": strictStringMapIndex})
+}
+
+func render(tmpl string, ctx *Context, funcs template.FuncMap) (string, error) {
 	// Fast path: no template delimiters means no work to do.
 	if !strings.Contains(tmpl, "{{") {
 		return tmpl, nil
 	}
 
-	t, err := template.New("").Funcs(template.FuncMap{
-		"index": strictStringMapIndex,
-	}).Option("missingkey=error").Parse(tmpl)
+	t := template.New("").Option("missingkey=error")
+	if funcs != nil {
+		t = t.Funcs(funcs)
+	}
+	t, err := t.Parse(tmpl)
 	if err != nil {
 		return "", fmt.Errorf("template: parse: %w", err)
 	}

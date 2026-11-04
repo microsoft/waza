@@ -75,18 +75,6 @@ func TestRender(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "missing indexed Vars key",
-			tmpl:    `{{index .Vars "deployment-env"}}`,
-			ctx:     &Context{Vars: map[string]string{}},
-			wantErr: true,
-		},
-		{
-			name: "empty indexed Vars value",
-			tmpl: `{{index .Vars "deployment-env"}}`,
-			ctx:  &Context{Vars: map[string]string{"deployment-env": ""}},
-			want: "",
-		},
-		{
 			name:    "nil Vars map with Vars access",
 			tmpl:    "{{.Vars.key}}",
 			ctx:     &Context{},
@@ -128,4 +116,16 @@ func TestRender(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestRenderHookStrictIndexedVars(t *testing.T) {
+	_, err := RenderHook(`{{index .Vars "deployment-env"}}`, &Context{Vars: map[string]string{}})
+	require.ErrorContains(t, err, `map has no entry for key "deployment-env"`)
+
+	got, err := RenderHook(
+		`{{index .Vars "deployment-env"}}`,
+		&Context{Vars: map[string]string{"deployment-env": ""}},
+	)
+	require.NoError(t, err)
+	require.Empty(t, got)
 }

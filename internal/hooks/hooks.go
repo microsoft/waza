@@ -61,7 +61,7 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 
 	parts := splitTemplateCommand(h.Command)
 	for i, part := range parts {
-		rendered, err := wazatemplate.Render(part, &wazatemplate.Context{Vars: r.Vars})
+		rendered, err := wazatemplate.RenderHook(part, &wazatemplate.Context{Vars: r.Vars})
 		if err != nil {
 			return fmt.Errorf("hook %s[%d]: render command argument %d: %w", name, index, i, err)
 		}
