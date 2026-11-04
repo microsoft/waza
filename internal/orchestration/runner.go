@@ -111,6 +111,7 @@ type EvalRunner struct {
 	snapshotEvaluatorOnly   []string
 	snapshotWorkspaceLimits snapshot.WorkspaceLimits
 	wazaVersion             string
+	now                     func() time.Time
 	// evalRunID echoes EvaluationOutcome.RunID so per-run snapshots can be
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
@@ -172,6 +173,13 @@ func WithTaskFilters(patterns ...string) RunnerOption {
 func WithTagFilters(patterns ...string) RunnerOption {
 	return func(r *EvalRunner) {
 		r.tagFilters = patterns
+	}
+}
+
+// WithClock sets the clock used for run identity allocation.
+func WithClock(now func() time.Time) RunnerOption {
+	return func(r *EvalRunner) {
+		r.now = now
 	}
 }
 
@@ -262,6 +270,7 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		verbose:        cfg.Verbose(),
 		listeners:      []ProgressListener{},
 		failureHandler: failures.NewHandler(),
+		now:            time.Now,
 	}
 	r.newClassifier = func(cfg models.ResponderConfig, defaultModel string) responderClassifier {
 		return responder.NewWithReasoningEffort(r.engine, cfg, defaultModel, r.cfg.Spec().Config.ReasoningEffort)
@@ -270,6 +279,13 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		o(r)
 	}
 	return r
+}
+
+func (r *EvalRunner) currentTime() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
 }
 
 // OnProgress registers a progress listener
@@ -365,7 +381,7 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	// Compute the run ID once so the same value flows into both the
 	// telemetry root span and per-run snapshots (via r.evalRunID), and so
 	// runNormalBenchmark reuses it when building the EvaluationOutcome.
-	runID := newRunID(time.Now())
+	runID := newRunID(r.currentTime())
 	r.evalRunID = runID
 
 	// Open the root telemetry span for the whole eval. The span is a no-op
@@ -473,7 +489,7 @@ func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 	// from test code or alternative code paths that bypass RunBenchmark).
 	outcomeRunID := r.evalRunID
 	if outcomeRunID == "" {
-		outcomeRunID = newRunID(time.Now())
+		outcomeRunID = newRunID(r.currentTime())
 	}
 	outcome := &models.EvaluationOutcome{
 		SchemaVersion: models.CurrentResultSchemaVersion,

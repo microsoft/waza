@@ -2259,6 +2259,14 @@ func TestRunCommand_MultiModelOutputHasDistinctDashboardRuns(t *testing.T) {
 	resetRunGlobals()
 	defer resetRunGlobals()
 
+	fixedTime := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
+		opts = append(opts, orchestration.WithClock(func() time.Time {
+			return fixedTime
+		}))
+		return orchestration.NewEvalRunner(cfg, engine, opts...)
+	}
+
 	specPath := createTestSpec(t, "mock")
 	outDir := filepath.Join(t.TempDir(), "results")
 
