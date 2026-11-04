@@ -115,12 +115,17 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 	})
 
 	// Emit a first event right away (disarms the watchdog), then complete
-	// successfully — NOT with a context error.
+	// successfully. A real SDK send observes its context after dispatching
+	// events, so return any cancellation to catch a disarm that cancels the
+	// active request.
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+		func(ctx context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
 			require.NotEmpty(t, handlers)
 			for _, h := range handlers {
 				h(copilot.SessionEvent{Data: &copilot.SkillInvokedData{Name: "s", Path: "p"}})
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
 			}
 			return &copilot.SessionEvent{}, nil
 		},

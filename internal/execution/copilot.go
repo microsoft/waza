@@ -782,7 +782,6 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		stopFirstEventWatchdog = func() {
 			stopWatchdog.Do(func() {
 				timer.Stop()
-				cancelFirst(nil)
 				close(watchdogDone)
 			})
 		}
