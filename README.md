@@ -1861,7 +1861,9 @@ adversarial:
 
 ### Custom Input Variables
 
-Use the `inputs` section to define key-value variables available throughout your evaluation as `{{.Vars.key}}`:
+Use the top-level `inputs` section to define string variables available to
+lifecycle hook commands as `{{.Vars.key}}`. This contract applies to both
+legacy skill evals and scenario evals:
 
 ```yaml
 inputs:
@@ -2072,13 +2074,13 @@ hooks:
 
 **Template Variables in Hooks and Commands:**
 
-Available variables in hook commands and task execution contexts:
-- `{{.JobID}}` — Unique evaluation run identifier
-- `{{.TaskName}}` — Name/ID of the current task (available in `before_task`/`after_task` only)
-- `{{.Iteration}}` — Current trial number (1-indexed)
-- `{{.Attempt}}` — Current attempt number (1-indexed, used for retries)
-- `{{.Timestamp}}` — ISO 8601 timestamp of execution
-- `{{.Vars.key}}` — User-defined variables from the `inputs` section or CSV columns
+Hook commands support `{{.Vars.key}}` for user-defined values from the eval's
+top-level `inputs` section. Waza splits the configured command into process
+arguments, then renders each argument before starting the hook. A standalone
+placeholder remains one argument when its value contains whitespace or is
+empty. An invalid template or missing key fails that hook instead of passing
+the placeholder literally. Waza does not invoke a shell implicitly; use an
+explicit shell command when shell syntax is required.
 
 Custom variables can be defined in the `inputs` section and referenced in hooks:
 
@@ -2096,7 +2098,10 @@ hooks:
       error_on_fail: false
 ```
 
-When using CSV-generated tasks, each row's column values are also available as `{{.Vars.column_name}}`.
+For `tasks_from` CSV datasets, eval-level inputs and the current row's columns
+are available while rendering that row's task prompt. CSV columns are not added
+to lifecycle hook context. CSV prompt rendering also supports `{{.JobID}}`,
+`{{.TaskName}}`, and `{{.Timestamp}}`.
 
 ## Git Repository Resources
 

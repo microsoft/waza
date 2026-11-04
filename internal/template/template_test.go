@@ -117,3 +117,15 @@ func TestRender(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderHookStrictIndexedVars(t *testing.T) {
+	_, err := RenderHook(`{{index .Vars "deployment-env"}}`, &Context{Vars: map[string]string{}})
+	require.ErrorContains(t, err, `map has no entry for key "deployment-env"`)
+
+	got, err := RenderHook(
+		`{{index .Vars "deployment-env"}}`,
+		&Context{Vars: map[string]string{"deployment-env": ""}},
+	)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}

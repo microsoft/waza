@@ -409,7 +409,7 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 
 	// Set up hooks runner
 	spec := r.cfg.Spec()
-	r.hookRunner = &hooks.Runner{Verbose: r.verbose}
+	r.hookRunner = &hooks.Runner{Verbose: r.verbose, Vars: spec.Inputs}
 
 	// The first pass uses the setup that ran before admission; a later pass
 	// (the second baseline pass) runs before_run again. after_run runs on exit,
