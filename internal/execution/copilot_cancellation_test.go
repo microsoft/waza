@@ -2,8 +2,10 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -19,6 +21,98 @@ type forceStopTestClient struct {
 
 func (c *forceStopTestClient) ForceStop() {
 	c.forceStop()
+}
+
+func TestBoundedCancellationJoinsForceStopAfterSessionResult(t *testing.T) {
+	for _, operation := range []string{"send", "disconnect"} {
+		for _, joinForce := range []bool{true, false} {
+			name := "blocked"
+			if joinForce {
+				name = "joined"
+			}
+			t.Run(operation+"/"+name, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					session := NewMockCopilotSession(gomock.NewController(t))
+					releaseSession := make(chan struct{})
+					forceStarted := make(chan struct{})
+					releaseForce := make(chan struct{})
+					var releaseOnce sync.Once
+					release := func() { releaseOnce.Do(func() { close(releaseForce) }) }
+					defer release()
+					sessionErr := errors.New("session finished after force stop")
+					event := &copilot.SessionEvent{}
+					if operation == "send" {
+						session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+							func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+								<-releaseSession
+								return event, sessionErr
+							})
+					} else {
+						session.EXPECT().Disconnect().DoAndReturn(func() error {
+							<-releaseSession
+							return sessionErr
+						})
+					}
+					ctx, cancel := context.WithCancel(t.Context())
+					cancel()
+					type result struct {
+						event     *copilot.SessionEvent
+						abandoned bool
+						retire    bool
+						err       error
+					}
+					done := make(chan result, 1)
+					start := time.Now()
+					go func() {
+						forceStop := func() {
+							close(forceStarted)
+							<-releaseForce
+						}
+						var r result
+						if operation == "send" {
+							r.event, r.abandoned, r.retire, r.err = sendAndWaitBounded(ctx, session, copilot.MessageOptions{}, forceStop)
+						} else {
+							r.abandoned, r.retire, r.err = disconnectBounded(ctx, session, forceStop)
+						}
+						done <- r
+					}()
+					<-forceStarted
+					require.Equal(t, sendCancellationGrace, time.Since(start))
+					time.Sleep(sendCancellationGrace / 2)
+					close(releaseSession)
+					synctest.Wait()
+					select {
+					case <-done:
+						t.Fatal("returned before joining force stop or exhausting the remaining grace")
+					default:
+					}
+					if joinForce {
+						release()
+					} else {
+						time.Sleep(sendCancellationGrace / 2)
+					}
+					synctest.Wait()
+					select {
+					case r := <-done:
+						require.ErrorIs(t, r.err, context.Canceled)
+						require.ErrorIs(t, r.err, sessionErr)
+						require.False(t, r.abandoned)
+						require.Equal(t, !joinForce, r.retire)
+						if operation == "send" {
+							require.Same(t, event, r.event)
+						}
+						if joinForce {
+							require.Equal(t, sendCancellationGrace+sendCancellationGrace/2, time.Since(start))
+						} else {
+							require.Equal(t, 2*sendCancellationGrace, time.Since(start))
+						}
+					default:
+						t.Fatal("did not return after force stop joined or the original grace expired")
+					}
+				})
+			})
+		}
+	}
 }
 
 func TestSendAndWaitBoundedForceStopsContextIgnoringSession(t *testing.T) {
@@ -45,6 +139,114 @@ func TestSendAndWaitBoundedForceStopsContextIgnoringSession(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.False(t, abandoned)
 	require.False(t, retire)
+}
+
+func TestExecuteJoinsForceStopAfterSessionCompletion(t *testing.T) {
+	for _, operation := range []string{"send", "disconnect"} {
+		for _, joinForce := range []bool{true, false} {
+			name := "blocked"
+			if joinForce {
+				name = "joined"
+			}
+			t.Run(operation+"/"+name, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					ctrl := gomock.NewController(t)
+					clientMock := newClientMock(ctrl)
+					session := newSessionMock(ctrl)
+					clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+					clientMock.EXPECT().DeleteSession(gomock.Any(), "joined-session").Return(nil)
+					session.EXPECT().SessionID().Return("joined-session")
+					session.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+					sendStarted := make(chan struct{})
+					releaseSession := make(chan struct{})
+					forceStarted := make(chan struct{})
+					releaseForce := make(chan struct{})
+					var releaseOnce sync.Once
+					release := func() { releaseOnce.Do(func() { close(releaseForce) }) }
+					defer release()
+					session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+						func(ctx context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+							close(sendStarted)
+							if operation == "send" {
+								<-releaseSession
+							} else {
+								<-ctx.Done()
+							}
+							return nil, ctx.Err()
+						})
+					session.EXPECT().Disconnect().DoAndReturn(func() error {
+						if operation == "disconnect" {
+							<-releaseSession
+						}
+						return nil
+					})
+					client := &forceStopTestClient{
+						MockCopilotClient: clientMock,
+						forceStop: func() {
+							close(forceStarted)
+							<-releaseForce
+						},
+					}
+					engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+						NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+					}).Build()
+					require.NoError(t, engine.Initialize(t.Context()))
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					type result struct {
+						response *ExecutionResponse
+						err      error
+					}
+					done := make(chan result, 1)
+					go func() {
+						response, err := engine.Execute(ctx, &ExecutionRequest{
+							Message:          "join force stop after session completion",
+							ModelID:          "test-model",
+							EphemeralSession: true,
+						})
+						done <- result{response, err}
+					}()
+					<-sendStarted
+					start := time.Now()
+					cancel()
+					<-forceStarted
+					time.Sleep(sendCancellationGrace / 2)
+					close(releaseSession)
+					synctest.Wait()
+					select {
+					case <-done:
+						t.Fatal("Execute returned before force stop joined or remaining grace expired")
+					default:
+					}
+					if joinForce {
+						release()
+					} else {
+						time.Sleep(sendCancellationGrace / 2)
+					}
+					synctest.Wait()
+					select {
+					case r := <-done:
+						require.NoError(t, r.err)
+						require.NotNil(t, r.response)
+						require.False(t, r.response.Success)
+						require.Contains(t, r.response.ErrorMsg, "context canceled")
+						require.Equal(t, !joinForce, engine.retired.Load())
+						require.Empty(t, engine.unfinishedDisconnects)
+						if joinForce {
+							require.Equal(t, sendCancellationGrace+sendCancellationGrace/2, time.Since(start))
+						} else {
+							require.Equal(t, 2*sendCancellationGrace, time.Since(start))
+						}
+					default:
+						t.Fatal("Execute did not finish within the original force-stop grace")
+					}
+					release()
+					synctest.Wait()
+					require.NoError(t, engine.Shutdown(context.Background()))
+				})
+			})
+		}
+	}
 }
 
 func TestSendAndWaitBoundedAbandonsSessionAfterForceStopGrace(t *testing.T) {

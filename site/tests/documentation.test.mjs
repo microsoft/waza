@@ -49,7 +49,7 @@ test('local container conformance is selected by its production build inputs', (
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
 });
 
-test('manual runner publisher remains fail-closed and unpublished', () => {
+test('manual runner publication and public acceptance remain independent fail-closed gates', () => {
   const workflow = read('.github/workflows/publish-runner-reference.yml');
   assert.match(workflow, /^on:\n  workflow_dispatch:/m);
   assert.doesNotMatch(workflow, /^  (push|pull_request|pull_request_target):/m);
@@ -58,8 +58,12 @@ test('manual runner publisher remains fail-closed and unpublished', () => {
   assert.match(workflow, /org\.opencontainers\.image\.revision/);
   const maintainers = read('examples/runner/container/MAINTAINERS.md');
   assert.match(maintainers, /manual-only GHCR publisher/);
-  assert.match(maintainers, /has not been dispatched/);
-  assert.match(maintainers, /permissions are\s+declared but have not been verified/);
+  assert.match(maintainers, /Publication and\s+public-image acceptance are separate gates/);
+  assert.match(maintainers, /anonymous-pull\/provenance\/production-caller acceptance passed on Linux AMD64/);
+  assert.match(maintainers, /review was waived for this one publication, not performed/);
+  assert.match(maintainers, /permissions are declarations,\s+not proof/);
+  assert.match(maintainers, /A successful push\/attestation is not public-image acceptance/);
+  assert.match(maintainers, /failed, cancelled or incomplete publisher is not accepted/);
   assert.match(maintainers, /signed\s+GitHub provenance\s+attestation binds the published image digest/);
   assert.doesNotMatch(maintainers, /spboyer-native-container-integration/);
   assert.match(maintainers, /empty Docker configuration/);
@@ -398,9 +402,15 @@ test('Dashboard Lab article distinguishes saved results, synthetic examples, and
 
 test('release overview identifies the published version and retains the former availability anchor', () => {
   const overview = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(overview, /## Current published standalone release: v0\.39\.1/);
+  assert.match(overview, /## Current published standalone release: v0\.40\.0/);
   assert.match(overview, /id="upcoming-main-only-capabilities"/);
-  assert.equal([...overview.matchAll(/releases\/download\/v0\.39\.1\/waza-/g)].length, 6);
+  const downloads = [...overview.matchAll(/releases\/download\/v0\.40\.0\/(waza-[^)\s]+)/g)].map((match) => match[1]);
+  assert.deepEqual(downloads.toSorted(), [
+    'waza-darwin-amd64', 'waza-darwin-arm64', 'waza-linux-amd64',
+    'waza-linux-arm64', 'waza-windows-amd64.exe', 'waza-windows-arm64.exe',
+  ]);
+  assert.match(overview, /releases\/download\/v0\.40\.0\/checksums\.txt/);
+  assert.match(overview, /Other platforms were built by the release matrix, but their bytes\s+were not locally downloaded or executed/);
   assert.doesNotMatch(overview, /releases\/(?:download|tag)\/v0\.38\.10/);
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
 });
@@ -420,11 +430,29 @@ test('extension installation guidance identifies the current registry version', 
   assert.match(section, /azd waza --version/);
   assert.match(section, /azd waza <command> --help/);
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
+  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.40\.0/);
+  assert.match(section, /registry and version metadata are synchronized\s+to `0\.40\.0`/);
+  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.40\.0/);
+  const release = read('site/src/content/docs/reference/releases.mdx');
+  assert.match(release, /commit `058de4571b234d1133aa814613c7250cdee25b4d`/);
+  assert.match(release, /exactly six platform URLs, entrypoints and SHA-256 values matching the\s+published archives/);
+  assert.match(release, /actual macOS ARM64\s+archive was separately downloaded, checksum-verified and extracted/);
+  assert.match(release, /does not establish execution on the other five platforms\s+or prove that an existing installation has updated to v0\.40\.0/);
+  assert.match(release, /repository registry lists through `0\.40\.0`/);
+  assert.doesNotMatch(section + release, /not yet merged to main|merge to main\s+remains pending|registry still lists through `0\.39\.1`/);
+  for (const text of [read('README.md'), section, release]) {
+    assert.match(text, /source (?:URL above|below) follows `main`, not this branch/);
+    assert.match(text, /release-sync PR #883/);
+    assert.match(text, /still serves `0\.39\.1`; after the merge it includes `0\.40\.0`/);
+    assert.match(text, /installation before the merge cannot select `0\.40\.0` from that source/);
+  }
 });
 
 test('release entry points agree on published versions and the current runner result writer', () => {
-  const published = read('version.txt').trim();
-  assert.match(published, /^\d+\.\d+\.\d+$/);
+  const release = read('CHANGELOG.md').match(/^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/m);
+  assert.ok(release, 'a dated release entry, not post-tag synchronization metadata, identifies the published version');
+  const published = release[1];
+  assert.match(read('version.txt').trim(), /^\d+\.\d+\.\d+$/);
   const readme = read('README.md').replace(/\s+/g, ' ');
   assert.equal(readme.match(/published standalone CLI is `v([^`]+)`/)?.[1], published);
   assert.equal(
@@ -447,7 +475,7 @@ test('release entry points agree on published versions and the current runner re
   const compatibilityRow = read('site/src/content/docs/guides/runner-compatibility.mdx')
     .match(/^\| Local results \| ([^|]+)\|/m)?.[1];
   assert.match(compatibilityRow ?? '', new RegExp(`\\bschema ${escapedWriter}\\b`));
-  const preview = read('docs/PRD.md').split('The v0.40.0 runner preview')[1]?.split('### The Problem')[0];
+  const preview = read('docs/PRD.md').split('The v0.40.0 runner')[1]?.split('### The Problem')[0];
   assert.match(preview ?? '', new RegExp(`result schema ${escapedWriter}\\b`));
   const changelogEntry = read('CHANGELOG.md').split('\n')
     .find((line) => line.startsWith('- **Bounded local compatibility'));
@@ -484,33 +512,39 @@ test('release entry points agree on published versions and the current runner re
   ));
 });
 
-test('new feature guides identify the unpublished source-build boundary', () => {
+test('released feature guides retain scope and separate publication gates', () => {
   const homepage = read('site/src/content/docs/index.mdx')
-    .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
+    .split('<Aside type="note" title="Bounded v0.40.0 runner and interoperability">')[1]?.split('</Aside>')[0];
   assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
-  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+full external task\/suite interoperability remain incomplete/);
+  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows and full external task\/suite interoperability\s+remain incomplete/);
   assert.match(homepage ?? '', /\[source-built container guide\]\(\/waza\/guides\/runner-container\/\)/);
   assert.match(homepage ?? '', /default mock-only scratch image from the native-capable exact-unit reference/);
-  assert.match(homepage ?? '', /\[selected AgentV assertion preview\]\(\/waza\/guides\/external-interoperability\/\)/);
+  assert.match(homepage ?? '', /\[selected AgentV assertion adapter\]\(\/waza\/guides\/external-interoperability\/\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
-    .split('## Source-build v0.40.0 preview')[1]?.split('<span id=')[0];
-  assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
+    .split('## v0.40.0 highlights and boundaries')[1]?.split('<span id=')[0];
+  assert.match(overview ?? '', /guides describe standalone v0\.40\.0/);
   assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
   assert.match(overview ?? '', /General native file\/tool\/skill workflows and full external task\/suite interoperability remain incomplete/);
-  assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
-  assert.match(overview ?? '', /\[selected AgentV assertion preview\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
+  assert.match(overview ?? '', /manual-only GHCR publisher and separate verifier have independent gates/);
+  assert.match(overview ?? '', /\[selected AgentV assertion adapter\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
   assert.match(overview ?? '', /`waza interop import\/export`/);
   assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);
-  const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.39.1]')[0];
-  assert.match(unreleased ?? '', /Selected AgentV assertion interoperability \(v0\.40\.0 preview\)/);
-  assert.match(unreleased ?? '', /`waza interop import\/export`/);
-  assert.match(unreleased ?? '', /not whole-task\/suite support/);
-  assert.match(unreleased ?? '', /#789 remains open/);
+  const released = read('CHANGELOG.md').split('## [0.40.0] - 2026-11-04')[1]?.split('## [0.39.1]')[0];
+  assert.match(released ?? '', /Selected AgentV assertion interoperability/);
+  assert.match(released ?? '', /`waza interop import\/export`/);
+  assert.match(released ?? '', /not whole-task\/suite support/);
+  assert.match(released ?? '', /#789 remains open/);
   assert.match(overview ?? '', /\[local container foundation\]\(\.\.\/\.\.\/guides\/runner-container\/\)/);
-  assert.match(overview ?? '', /pinned published-image acceptance remains outstanding/);
-  assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
-  assert.match(overview ?? '', /separate manual verifier\s+is prepared to anonymously pull the exact digest/);
+  assert.match(overview ?? '', /published native reference passed digest-pinned\s+acceptance on Linux AMD64/);
+  assert.match(overview ?? '', /Publisher attempt 1 and the verifier succeeded: anonymous pull, source\/platform,/);
+  assert.match(overview ?? '', /signed provenance\/finalization and mock\/native synthetic-provider production\s+controls passed/);
+  assert.match(overview ?? '', /publisher run alone\s+does not establish public-image acceptance/);
+  assert.match(overview ?? '', /azd extension artifact and registry sync are\s+independent gates/);
+  assert.match(overview ?? '', /v0\.40\.0 result writers emit \*\*1\.8\*\*; v0\.39\.1 writes \*\*1\.7\*\*/);
+  assert.match(overview ?? '', /legacy eval\/result inputs still default to \*\*1\.4\*\*/);
+  assert.match(overview ?? '', /Runner request and terminal\s+schemas remain independently versioned \*\*1\.0\*\*/);
+  assert.match(overview ?? '', /task YAML has no independent\s+version field/);
 
   for (const [path, heading] of [
     ['site/src/content/docs/guides/eval-yaml.mdx', '### Task-level MCP mocks'],
@@ -520,8 +554,102 @@ test('new feature guides identify the unpublished source-build boundary', () => 
     ['site/src/content/docs/guides/dashboard-lab.mdx', '### Read a multi-turn conversation'],
   ]) {
     const section = read(path).split(heading)[1]?.split(/\n#{2,4} /)[0];
-    assert.match(section ?? '', /\*\*Source-build preview:\*\*/, `${path}: ${heading}`);
+    assert.match(section ?? '', /\*\*Added in v0\.40\.0:\*\*/, `${path}: ${heading}`);
     assert.match(section ?? '', /v0\.39\.1/, `${path}: ${heading}`);
+  }
+});
+
+test('release scope does not claim the legacy multi-trial timeout is fixed', () => {
+  for (const path of [
+    'README.md', 'CHANGELOG.md', 'docs/GUIDE.md', 'docs/PRD.md', 'docs/RUNNER_CONTRACT.md',
+    'site/src/content/docs/index.mdx', 'site/src/content/docs/reference/releases.mdx',
+    'site/src/content/docs/guides/runner-contract.mdx',
+  ]) {
+    const text = read(path).replace(/\s+/g, ' ');
+    assert.match(text, /(?:do not fix|do not resolve) the (?:broader |separate )?legacy multi-trial timeout issue/, path);
+    assert.match(text, /\[#865\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/865\)/, path);
+    assert.match(text, /\[#870\]\(https:\/\/github\.com\/microsoft\/waza\/pull\/870\)/, path);
+    assert.match(text, /post-v0\.40\.0 source behavior, not included in the published v0\.40\.0 artifacts/, path);
+    assert.doesNotMatch(text, /remains open\/backlogged/, path);
+  }
+  const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.40.0]')[0];
+  assert.match(unreleased ?? '', /Trial timeout recovery and result persistence/);
+  assert.match(unreleased ?? '', /pull\/870/);
+  assert.match(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(unreleased ?? '', /pull\/882/);
+  assert.match(read('CHANGELOG.md'), /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.40\.0\.\.\.HEAD$/m);
+  const published = read('CHANGELOG.md').split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
+  assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
+  assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following cleanup notes describe/);
+  assert.match(unreleased ?? '', /\*\*Cancellation force-stop join\*\*/);
+  assert.doesNotMatch(published ?? '', /\*\*Cancellation force-stop join\*\*/);
+});
+
+test('released runner guides no longer require an unpublished source preview', () => {
+  for (const name of ['runner-contract', 'runner-identities', 'runner-terminal', 'runner-compatibility']) {
+    const path = `site/src/content/docs/guides/${name}.mdx`;
+    assert.match(read(path), /Available in standalone v0\.40\.0/, path);
+    assert.doesNotMatch(read(path), /Source-build preview|publication pending|This unreleased layer|belong to the next release layer|^## Initial contract notes \(unreleased\)/m, path);
+  }
+  assert.doesNotMatch(read('docs/RUNNER_CONTRACT.md'),
+    /Native integration and pinned published-image acceptance remain outstanding/);
+  assert.doesNotMatch(read('docs/RUNNER_IDENTITIES.md'), /The next #760 layer/);
+  assert.match(read('docs/RUNNER_COMPATIBILITY_MIGRATION.md'), /^\| Category \| v0\.40\.0 behavior \|$/m);
+  assert.match(read('site/src/content/docs/guides/external-interoperability.mdx'), /Standalone \*\*v0\.40\.0\*\* converts/);
+  assert.match(read('site/src/content/docs/guides/runner-container.mdx'),
+    /Published native reference from v0\.40\.0 source; accepted on Linux AMD64/);
+  assert.match(read('CHANGELOG.md'), /^## \[0\.40\.0\] - 2026-11-04$/m);
+  assert.doesNotMatch(read('CHANGELOG.md').split('## [0.40.0]')[1]?.split('## [0.39.1]')[0] ?? '',
+    /v0\.40\.0 preview|publication pending|This is not a release announcement|No release blog or publication is implied/);
+});
+
+test('release preparation preserves incoming preview anchors', () => {
+  for (const [path, ids] of [
+    ['README.md', ['waza-interop-source-build-preview', 'waza-runner-source-build-preview']],
+    ['docs/GUIDE.md', ['waza-runner-source-build-preview']],
+    ['site/src/content/docs/reference/releases.mdx', ['source-build-v0400-preview', 'v0400-release-candidate-publication-pending', 'upcoming-main-only-capabilities']],
+    ['site/src/content/docs/guides/runner-contract.mdx', ['initial-contract-notes-unreleased']],
+    ['site/src/content/docs/guides/runner-container.mdx', ['published-candidate-and-acceptance-evidence']],
+    ['examples/runner/container/MAINTAINERS.md', ['update-and-eventual-publication-policy']],
+  ]) {
+    for (const id of ids) assert.ok(anchors(read(path)).has(id), `${path}: preserve #${id}`);
+  }
+});
+
+test('public image acceptance binds the literal digest to source, platform and verifier evidence', () => {
+  const guide = read('site/src/content/docs/guides/runner-container.mdx');
+  const record = guide.split('## Published image and acceptance evidence')[1]?.split('## Host and build requirements')[0];
+  assert.ok(record, 'published image record must exist');
+  assert.equal(record.match(/ghcr\.io\/microsoft\/waza-runner-reference@sha256:[a-f0-9]{64}/g)?.length, 1);
+  assert.match(record, /ghcr\.io\/microsoft\/waza-runner-reference@sha256:ded068a636dc721b8e38dc2a68bcbcbdb0d4b33ce5da8d182d562d189a712a39/);
+  assert.match(record, /`93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`/);
+  assert.match(record, /Declared runtime platform \| `linux\/amd64`/);
+  assert.match(record, /actions\/runs\/41825487985/);
+  assert.match(record, /Passed \[verifier result\]\(https:\/\/github\.com\/microsoft\/waza\/actions\/runs\/41826111839\): 1\/1 test, 0 skipped/);
+  assert.match(record, /verifier anonymously pulled this exact digest on Linux AMD64/);
+  assert.match(record, /provenance against successful publisher attempt 1 and its finalization/);
+  assert.match(record, /review was \*\*waived for\s+this one publication, not performed\*\*/);
+  assert.match(record, /not an ARM64 or Windows claim/);
+  assert.match(record, /not.*live-provider, billing or inference-quality evidence/);
+  assert.match(record, /Dockerfile does not inject `main\.version`; the source default is\s+`dev`/);
+});
+
+test('tagged source builds explicitly stamp the release rather than trusting stale metadata', () => {
+  const makefile = read('Makefile');
+  assert.match(makefile, /^VERSION\?=0\.1\.0$/m);
+  assert.match(makefile, /^LDFLAGS=-ldflags "-X main\.version=\$\(VERSION\)"$/m);
+  assert.match(makefile, /go build \$\(LDFLAGS\) -o \$\(BUILD_DIR\)\/\$\(BINARY_NAME\) \.\/cmd\/waza/);
+  const release = read('.github/workflows/release.yml');
+  assert.match(release, /VERSION="\$\{GITHUB_REF_NAME#v\}"/);
+  assert.match(release, /-ldflags "-X main\.version=\$\{VERSION\}"/);
+  for (const path of ['README.md', 'site/src/content/docs/reference/releases.mdx']) {
+    const text = read(path);
+    assert.match(text, /git clone --branch v0\.40\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
+    assert.match(text, /make build VERSION=0\.40\.0/, path);
+    assert.match(text, /`version\.txt` and `extension\.yaml`/, path);
+    assert.match(text, /defaults to `VERSION=0\.1\.0`/, path);
+    assert.match(text, /`93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`/, path);
   }
 });
 

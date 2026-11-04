@@ -1,11 +1,11 @@
-# External evaluation interoperability (source-build preview)
+# External evaluation interoperability (v0.40.0)
 
 Waza does **not** import whole AgentEvals, AgentV, Harbor or ASSERT suites.
 The first bounded adapter projects one explicitly selected AgentV
 case-sensitive `contains` assertion into one native text grader and exports the
 same native subset back into an AgentV assertion. This is partial work toward
 [#789](https://github.com/microsoft/waza/issues/789), not completion of that issue.
-It is targeted for v0.40.0, not a claim about a published release.
+The bounded assertion adapter is included in standalone v0.40.0.
 
 ## Verified sources and distinct roles
 
@@ -136,10 +136,10 @@ The checkout regression covers checksum preservation with both Git CRLF modes.
 - Full definition/provenance/evidence round trips. The shipped round trip
   covers only the supported individual grader mapping.
 
-Keep #789 open. This preview must not be described as three-format support or
+Keep #789 open. This adapter must not be described as three-format support or
 completion of external evaluation interoperability.
 
-## v0.40.0 release-note contribution (unreleased)
+## v0.40.0 release-note contribution
 
 Added opt-in, version-pinned `waza interop import/export` for a **single selected
 AgentV case-sensitive contains assertion**. Conversion is offline, has explicit
