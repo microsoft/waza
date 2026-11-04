@@ -64,6 +64,9 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 	}
 
 	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return fmt.Errorf("hook %s[%d]: rendered command is empty", name, index)
+	}
 	//nolint:gosec // hook commands are user-configured in eval YAML, not untrusted input
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 

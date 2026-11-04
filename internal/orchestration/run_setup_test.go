@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
-	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -118,38 +118,74 @@ func requireHookLog(t *testing.T, log string) {
 	require.Equal(t, "before_run\nafter_run\n", strings.ReplaceAll(string(data), "\r\n", "\n"), "setup and teardown each run exactly once")
 }
 
-func TestStartRunSetup_RendersEvalInputsInHookCommand(t *testing.T) {
+func TestRunBenchmark_RendersEvalInputsInLifecycleHooks(t *testing.T) {
 	for _, tt := range []struct {
 		name          string
 		schemaVersion string
-		scenario      string
-		skill         string
+		identity      string
 	}{
-		{name: "scenario", schemaVersion: models.ScenarioSchemaVersion, scenario: "synthetic-reply"},
-		{name: "legacy", schemaVersion: "1.4", skill: "echo-dogfood"},
+		{name: "scenario", schemaVersion: models.ScenarioSchemaVersion, identity: "scenario: synthetic-reply"},
+		{name: "legacy", schemaVersion: "1.4", identity: "skill: echo-dogfood"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			output := filepath.Join(t.TempDir(), "marker.txt")
-			spec := &models.EvalSpec{
-				SchemaVersion: tt.schemaVersion,
-				Scenario:      tt.scenario,
-				SkillName:     tt.skill,
-				Inputs:        map[string]string{"marker": "DOGFOOD_VARIABLE"},
-				Hooks: hooks.HooksConfig{
-					BeforeRun: []hooks.HookConfig{{
-						Command:     hookCommand(t, "write-arg", output, "{{.Vars.marker}}"),
-						ErrorOnFail: true,
-					}},
-				},
-			}
+			dir := t.TempDir()
+			output := filepath.Join(dir, "marker.txt")
+			eval := fmt.Sprintf(`schemaVersion: %q
+name: hook-variable-repro
+%s
+inputs:
+  marker: DOGFOOD_VARIABLE
+config:
+  executor: mock
+  model: offline
+  trials_per_task: 1
+  timeout_seconds: 5
+tasks: [task.yaml]
+graders: []
+hooks:
+  before_run:
+    - command: '%s'
+      error_on_fail: true
+  before_task:
+    - command: '%s'
+      error_on_fail: true
+  after_task:
+    - command: '%s'
+      error_on_fail: true
+  after_run:
+    - command: '%s'
+      error_on_fail: true
+`, tt.schemaVersion, tt.identity,
+				hookCommand(t, "append", output, "before_run:{{.Vars.marker}}"),
+				hookCommand(t, "append", output, "before_task:{{.Vars.marker}}"),
+				hookCommand(t, "append", output, "after_task:{{.Vars.marker}}"),
+				hookCommand(t, "append", output, "after_run:{{.Vars.marker}}"))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte(eval), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`id: smoke
+name: Smoke
+inputs:
+  prompt: Reply with a synthetic marker.
+`), 0o600))
 
-			setup, err := StartRunSetup(t.Context(), config.NewEvalConfig(spec), false)
+			spec, err := models.LoadEvalSpec(filepath.Join(dir, "eval.yaml"))
 			require.NoError(t, err)
-			t.Cleanup(func() { setup.Teardown(t.Context()) })
+			runner := NewEvalRunner(
+				config.NewEvalConfig(spec, config.WithSpecDir(dir)),
+				execution.NewMockEngine("offline"),
+				WithSkipGraders(),
+			)
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.NoError(t, err)
+			require.Len(t, outcome.TestOutcomes, 1)
 
 			got, err := os.ReadFile(output)
 			require.NoError(t, err)
-			require.Equal(t, []byte("DOGFOOD_VARIABLE"), got)
+			require.Equal(t, []byte(
+				"before_run:DOGFOOD_VARIABLE\n"+
+					"before_task:DOGFOOD_VARIABLE\n"+
+					"after_task:DOGFOOD_VARIABLE\n"+
+					"after_run:DOGFOOD_VARIABLE\n",
+			), got)
 		})
 	}
 }
