@@ -24,6 +24,7 @@ import (
 
 const runSignalHelperEnv = "WAZA_RUN_SIGNAL_HELPER"
 const runSignalSpecEnv = "WAZA_RUN_SIGNAL_SPEC"
+const runSignalBlockSharedCleanupEnv = "WAZA_RUN_SIGNAL_BLOCK_SHARED_CLEANUP"
 
 type blockingBenchmarkRunner struct {
 	started chan struct{}
@@ -80,9 +81,16 @@ func TestRunCommand_CancelsOnSIGTERM(t *testing.T) {
 		{"scenario", "scenario: inventory\nschemaVersion: \"2.0\"\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			runCommandCancelsOnSIGTERM(t, tt.identity)
+			runCommandCancelsOnSIGTERM(t, tt.identity, false)
 		})
 	}
+}
+
+func TestRunCommandSIGTERMBoundsBlockedSharedClientCleanup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SIGTERM is not supported on Windows")
+	}
+	runCommandCancelsOnSIGTERM(t, "skill: test-skill\n", true)
 }
 
 func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
@@ -302,7 +310,7 @@ func TestRunCommandPropagatesCancellationDuringShutdown(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
-func runCommandCancelsOnSIGTERM(t *testing.T, identity string) {
+func runCommandCancelsOnSIGTERM(t *testing.T, identity string, blockSharedCleanup bool) {
 	t.Helper()
 	resetRunGlobals()
 
@@ -338,6 +346,9 @@ tasks:
 		runSignalHelperEnv+"=1",
 		runSignalSpecEnv+"="+specPath,
 	)
+	if blockSharedCleanup {
+		cmd.Env = append(cmd.Env, runSignalBlockSharedCleanupEnv+"=1")
+	}
 	var stdout, stderr bytes.Buffer
 	stdoutPipe, err := cmd.StdoutPipe()
 	require.NoError(t, err)
@@ -394,6 +405,12 @@ func TestRunCommand_SignalCancelsBenchmarkHelperProcess(t *testing.T) {
 	resetRunGlobals()
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return &blockingBenchmarkRunner{}
+	}
+	if os.Getenv(runSignalBlockSharedCleanupEnv) == "1" {
+		shutdownSharedClientForRun = func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}
 	}
 
 	specPath := os.Getenv(runSignalSpecEnv)

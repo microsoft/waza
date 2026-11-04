@@ -229,6 +229,17 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	if len(snapshotFiles) > 0 && (snapshotMaxFileBytes <= 0 || snapshotMaxTotalBytes <= 0) {
 		return fmt.Errorf("workspace snapshot byte limits must be positive")
 	}
+	parentCtx := cmd.Context()
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	runCtx, stopRunSignals := signal.NotifyContext(parentCtx, os.Interrupt, syscall.SIGTERM)
+	cmd.SetContext(runCtx)
+	defer func() {
+		cmd.SetContext(parentCtx)
+		stopRunSignals()
+	}()
+
 	// Stop the process-wide Copilot SDK client at the end of the run, after
 	// every per-model engine has been Shutdown. Engines built on the shared
 	// client (production path) leave it running so subsequent models and

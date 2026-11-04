@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +35,10 @@ func (e *timeoutThenContinueEngine) Execute(ctx context.Context, _ *execution.Ex
 
 type cancelDuringSecondEngine struct {
 	calls  int
+	cancel context.CancelFunc
+}
+
+type cancelImmediatelyEngine struct {
 	cancel context.CancelFunc
 }
 
@@ -62,6 +68,16 @@ func (e *cancelDuringSecondEngine) Execute(context.Context, *execution.Execution
 		return &execution.ExecutionResponse{FinalOutput: "partial output"}, context.Canceled
 	}
 	return &execution.ExecutionResponse{Success: true, FinalOutput: "completed"}, nil
+}
+
+func (*cancelImmediatelyEngine) Initialize(context.Context) error { return nil }
+func (*cancelImmediatelyEngine) Shutdown(context.Context) error   { return nil }
+func (*cancelImmediatelyEngine) SessionUsage(string) *models.UsageStats {
+	return nil
+}
+func (e *cancelImmediatelyEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.cancel()
+	return &execution.ExecutionResponse{FinalOutput: "partial output"}, context.Canceled
 }
 
 func TestRunBenchmarkPublishesPartialOutcomeAfterEachTrial(t *testing.T) {
@@ -225,6 +241,68 @@ inputs:
 	require.Equal(t, "partial output", outcome.TestOutcomes[0].Runs[1].FinalOutput)
 	require.Len(t, partials, 2)
 	require.Len(t, partials[1].TestOutcomes[0].Runs, 2)
+}
+
+func TestRunBenchmarkCancellationPublishesBeforeTaskHookFailure(t *testing.T) {
+	for _, concurrent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("concurrent=%t", concurrent), func(t *testing.T) {
+			dir := t.TempDir()
+			for _, name := range []string{"first", "second"} {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(fmt.Sprintf(`
+id: %s
+name: %s
+inputs:
+  prompt: preserve hook failure
+`, name, name)), 0o600))
+			}
+
+			spec := &models.EvalSpec{
+				SpecIdentity: models.SpecIdentity{Name: "hook-failure-recovery"},
+				SkillName:    "hook-failure-skill",
+				Tasks:        []string{"first.yaml", "second.yaml"},
+				Hooks: hooks.HooksConfig{
+					BeforeTask: []hooks.HookConfig{{
+						Command:     hookCommand(t, "fail-first", filepath.Join(dir, "hook-marker")),
+						ErrorOnFail: true,
+					}},
+				},
+				Config: models.Config{
+					EngineType:    "copilot-sdk",
+					ModelID:       "test-model",
+					TrialsPerTask: 1,
+					TimeoutSec:    30,
+					Concurrent:    concurrent,
+					Workers:       2,
+				},
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			engine := &cancelImmediatelyEngine{cancel: cancel}
+			var partials []*models.EvaluationOutcome
+			runner := NewEvalRunner(
+				config.NewEvalConfig(spec, config.WithSpecDir(dir)),
+				engine,
+				WithPartialOutcomeWriter(func(outcome *models.EvaluationOutcome) error {
+					partials = append(partials, outcome)
+					return nil
+				}),
+			)
+
+			outcome, err := runner.RunBenchmark(ctx)
+			require.ErrorIs(t, err, context.Canceled)
+			require.Len(t, outcome.TestOutcomes, 2)
+			require.NotEmpty(t, partials)
+			finalPartial := partials[len(partials)-1]
+			require.Len(t, finalPartial.TestOutcomes, 2)
+			require.Condition(t, func() bool {
+				for _, testOutcome := range finalPartial.TestOutcomes {
+					if testOutcome.Status == models.StatusFailed && len(testOutcome.Runs) == 0 {
+						return true
+					}
+				}
+				return false
+			}, "partial recovery output must retain the completed before_task hook failure")
+		})
+	}
 }
 
 func TestRunBenchmarkDoesNotCacheIncompleteTask(t *testing.T) {

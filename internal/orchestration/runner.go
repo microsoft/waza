@@ -908,13 +908,15 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 		if r.hookRunner != nil && len(spec.Hooks.BeforeTask) > 0 {
 			if err := r.hookRunner.Execute(ctx, "before_task", spec.Hooks.BeforeTask); err != nil {
 				// before_task failure with error_on_fail: mark task as failed and skip
-				outcomes = append(outcomes, models.TestOutcome{
+				outcome := models.TestOutcome{
 					TestID:      tc.TestID,
 					DisplayName: tc.DisplayName,
 					Golden:      tc.Golden,
 					Status:      models.StatusFailed,
 					Runs:        []models.RunResult{},
-				})
+				}
+				outcomes = append(outcomes, outcome)
+				r.publishPartialTestOutcome(i+1, outcome)
 				r.notifyProgress(ProgressEvent{
 					EventType:  EventTestComplete,
 					TestName:   tc.DisplayName,
@@ -999,13 +1001,15 @@ func (r *EvalRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 			// Run before_task hooks
 			if r.hookRunner != nil && len(spec.Hooks.BeforeTask) > 0 {
 				if err := r.hookRunner.Execute(ctx, "before_task", spec.Hooks.BeforeTask); err != nil {
-					resultChan <- result{index: idx, outcome: models.TestOutcome{
+					outcome := models.TestOutcome{
 						TestID:      test.TestID,
 						DisplayName: test.DisplayName,
 						Golden:      test.Golden,
 						Status:      models.StatusFailed,
 						Runs:        []models.RunResult{},
-					}}
+					}
+					resultChan <- result{index: idx, outcome: outcome}
+					r.publishPartialTestOutcome(idx+1, outcome)
 					r.notifyProgress(ProgressEvent{
 						EventType:  EventTestComplete,
 						TestName:   test.DisplayName,
