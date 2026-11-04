@@ -80,6 +80,13 @@ func hookCommand(t *testing.T, action string, args ...string) string {
 	return strings.Join(parts, " ")
 }
 
+func hookMarkerCommand(t *testing.T, output, phase, expression string) string {
+	t.Helper()
+	const placeholder = "HOOK_TEMPLATE_EXPRESSION"
+	command := hookCommand(t, "append-marker", output, phase, placeholder)
+	return strings.Replace(command, placeholder, expression, 1)
+}
+
 // writeHookSuite writes an eval whose before_run hook generates the only task
 // file from a staged copy outside the task glob. The hooks log to log.txt.
 func writeHookSuite(t *testing.T, mcpMocks, task string) (*EvalRunner, *admissionEngine, string) {
@@ -134,12 +141,16 @@ func TestRunBenchmark_RendersEvalInputsInLifecycleHooks(t *testing.T) {
 		{name: "legacy", schemaVersion: "1.4", identity: "skill: echo-dogfood"},
 	}
 	markers := []struct {
-		name  string
-		value string
+		name       string
+		key        string
+		value      string
+		expression string
 	}{
-		{name: "plain", value: "DOGFOOD_VARIABLE"},
-		{name: "whitespace", value: "DOGFOOD VARIABLE"},
-		{name: "empty", value: ""},
+		{name: "plain", key: "marker", value: "DOGFOOD_VARIABLE", expression: "{{.Vars.marker}}"},
+		{name: "whitespace", key: "marker", value: "DOGFOOD VARIABLE", expression: "{{.Vars.marker}}"},
+		{name: "empty", key: "marker", value: "", expression: "{{.Vars.marker}}"},
+		{name: "spaced-action", key: "marker", value: "DOGFOOD_VARIABLE", expression: "{{ .Vars.marker }}"},
+		{name: "indexed-hyphen", key: "deployment-env", value: "DOGFOOD_VARIABLE", expression: `{{index .Vars "deployment-env"}}`},
 	}
 	for _, contract := range contracts {
 		for _, marker := range markers {
@@ -150,7 +161,7 @@ func TestRunBenchmark_RendersEvalInputsInLifecycleHooks(t *testing.T) {
 name: hook-variable-repro
 %s
 inputs:
-  marker: %q
+  %q: %q
 config:
   executor: mock
   model: offline
@@ -171,11 +182,11 @@ hooks:
   after_run:
     - command: '%s'
       error_on_fail: true
-`, contract.schemaVersion, contract.identity, marker.value,
-					hookCommand(t, "append-marker", output, "before_run", "{{.Vars.marker}}"),
-					hookCommand(t, "append-marker", output, "before_task", "{{.Vars.marker}}"),
-					hookCommand(t, "append-marker", output, "after_task", "{{.Vars.marker}}"),
-					hookCommand(t, "append-marker", output, "after_run", "{{.Vars.marker}}"))
+`, contract.schemaVersion, contract.identity, marker.key, marker.value,
+					hookMarkerCommand(t, output, "before_run", marker.expression),
+					hookMarkerCommand(t, output, "before_task", marker.expression),
+					hookMarkerCommand(t, output, "after_task", marker.expression),
+					hookMarkerCommand(t, output, "after_run", marker.expression))
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte(eval), 0o600))
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`id: smoke
 name: Smoke

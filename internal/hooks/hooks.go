@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 
 	wazatemplate "github.com/microsoft/waza/internal/template"
 )
@@ -58,7 +59,7 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 		return fmt.Errorf("hook %s[%d]: empty command", name, index)
 	}
 
-	parts := strings.Fields(h.Command)
+	parts := splitTemplateCommand(h.Command)
 	for i, part := range parts {
 		rendered, err := wazatemplate.Render(part, &wazatemplate.Context{Vars: r.Vars})
 		if err != nil {
@@ -119,6 +120,36 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 	}
 
 	return nil
+}
+
+func splitTemplateCommand(command string) []string {
+	runes := []rune(command)
+	parts := make([]string, 0, len(strings.Fields(command)))
+	var part strings.Builder
+	inTemplate := false
+	for i := 0; i < len(runes); i++ {
+		switch {
+		case !inTemplate && runes[i] == '{' && i+1 < len(runes) && runes[i+1] == '{':
+			inTemplate = true
+			part.WriteString("{{")
+			i++
+		case inTemplate && runes[i] == '}' && i+1 < len(runes) && runes[i+1] == '}':
+			inTemplate = false
+			part.WriteString("}}")
+			i++
+		case !inTemplate && unicode.IsSpace(runes[i]):
+			if part.Len() > 0 {
+				parts = append(parts, part.String())
+				part.Reset()
+			}
+		default:
+			part.WriteRune(runes[i])
+		}
+	}
+	if part.Len() > 0 {
+		parts = append(parts, part.String())
+	}
+	return parts
 }
 
 // isAcceptableExit checks whether exitCode is in the allowed list.
