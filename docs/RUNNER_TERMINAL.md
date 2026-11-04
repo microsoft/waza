@@ -1,6 +1,6 @@
 # Runner terminal envelope 1.0
 
-The v0.40.0 release implements #760 over the exact inline text runner.
+This source-build preview implements #760 over the exact inline text runner.
 `waza runner run` and `POST /api/v1/runner/run` share
 `runnerunit.Service.RunTerminal`: one admission, one execution and synchronous
 cleanup, then one schema-validated output attempt. Negotiation and offline

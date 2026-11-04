@@ -7,7 +7,7 @@ need repository, CLI or MCP evaluation without a `SKILL.md`.
 
 This tutorial starts with **mock harness checks**, not agent-quality claims.
 Preflight and the evidence features described here were introduced in
-`v0.39.0` and remain available in published standalone `v0.40.0`.
+`v0.39.0` and remain available in published standalone `v0.39.1`.
 See [release availability](../site/src/content/docs/reference/releases.mdx)
 or the [complete source-build procedure](../README.md#install-from-source).
 

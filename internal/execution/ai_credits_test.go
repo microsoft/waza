@@ -85,13 +85,7 @@ func TestTimedOutMetricsGetsFreshFallbackBeforeEphemeralCleanup(t *testing.T) {
 				require.Equal(t, "evaluation", ctx.Value(contextKey{}))
 				deadline, bounded := ctx.Deadline()
 				require.True(t, bounded)
-				remaining := time.Until(deadline)
-				if canceled {
-					require.Positive(t, remaining)
-					require.LessOrEqual(t, remaining, 2*sendCancellationGrace)
-				} else {
-					require.Greater(t, remaining, 20*time.Second)
-				}
+				require.Greater(t, time.Until(deadline), 20*time.Second)
 				return &copilot.SessionShutdownData{TotalNanoAiu: utils.Ptr(2e9)}, nil
 			})
 			disconnect := session.EXPECT().Disconnect().After(fallback).Return(nil)

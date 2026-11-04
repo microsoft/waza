@@ -2,7 +2,7 @@
 
 Runs an external program or script to grade agent output. The agent output is passed via stdin, and the workspace directory is available as `WAZA_WORKSPACE_DIR`.
 
-**Added in v0.40.0:** `WAZA_GRADING_CONTEXT` names a JSON file with the
+**Source-build preview:** `WAZA_GRADING_CONTEXT` names a JSON file with the
 run's grading context. Published `v0.39.1` does not provide this variable.
 
 ```yaml

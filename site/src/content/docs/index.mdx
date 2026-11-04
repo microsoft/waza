@@ -12,38 +12,26 @@ import { Card, CardGrid, LinkCard, Aside } from '@astrojs/starlight/components';
 Define repository, CLI or MCP scenarios in YAML, run graded trials and inspect
 the recorded evidence. Existing skill suites remain supported.
 
-<Aside type="note" title="Available in v0.40.0">
-Published standalone **v0.40.0 (November 4, 2026)** adds bounded runner/text
-execution, task-level MCP mocks, program-grader context, host lifecycle evidence
-and Lab conversations. It retains the scenario, preflight, evidence and assurance
-features introduced in v0.39.0 and the `waza dev SKILL.md` file-target fix.
-Install the published
+<Aside type="note" title="Available in v0.39.1">
+Published standalone **v0.39.1 (October 26, 2026)** includes the scenario,
+preflight, evidence and assurance features introduced in v0.39.0, plus the
+`waza dev SKILL.md` file-target fix. Install the published
 binary or run `waza update`; a source build is optional. Explicit opt-in,
 platform and paid-call restrictions still apply. See
 [release availability](/waza/reference/releases/#upcoming-main-only-capabilities).
 </Aside>
 
-<Aside type="note" title="Bounded v0.40.0 runner and interoperability">
+<Aside type="note" title="Source-build v0.40.0 preview">
 The [runner contract](/waza/guides/runner-contract/) and
 [local compatibility adapter](/waza/guides/runner-compatibility/) are available
-in standalone v0.40.0, not v0.39.1. Runner execution supports mock/text
+from current source, not published v0.39.1. Runner execution supports mock/text
 and explicitly opted-in Copilot/text with tools and skills disabled. General
-native file/tool/skill workflows and full external task/suite interoperability
-remain incomplete. The
+native file/tool/skill workflows, pinned published-image acceptance and the
+full external task/suite interoperability remain incomplete. The
 [source-built container guide](/waza/guides/runner-container/) distinguishes the
 default mock-only scratch image from the native-capable exact-unit reference;
-local image IDs do not establish publication. The [selected AgentV assertion adapter](/waza/guides/external-interoperability/)
+neither is a published image. The [selected AgentV assertion preview](/waza/guides/external-interoperability/)
 supports only one pinned assertion, not a task or suite.
-The native reference image passed anonymous digest-pinned acceptance on Linux
-AMD64 using mock and bundled-native synthetic-provider controls, not live-provider
-reliability. Its [acceptance record](/waza/guides/runner-container/#published-image-and-acceptance-evidence)
-records the one-publication infrastructure-review waiver, not completed review.
-Extension/registry availability and native-image acceptance have separate
-verification gates. Exact-unit runner controls do not fix the
-legacy multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865),
-addressed separately by the later timeout/persistence fix
-[#870](https://github.com/microsoft/waza/pull/870). That fix is post-v0.40.0 source behavior,
-not included in the published v0.40.0 artifacts.
 </Aside>
 
 Perfect for skill authors, platform teams, and developers building AI-powered applications.
@@ -74,7 +62,7 @@ Perfect for skill authors, platform teams, and developers building AI-powered ap
 ## Quick Start
 
 Start credential-free with the [offline Quick Start](/waza/quick-start/).
-After installing v0.40.0 or building from source as described there:
+After installing v0.39.1 or building from source as described there:
 
 ```bash
 waza init my-eval-suite --no-skill

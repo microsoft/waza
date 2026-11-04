@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/commandmock"
@@ -32,15 +31,12 @@ type SharedClientOptions struct {
 var (
 	sharedMu        sync.Mutex
 	sharedClients   map[string]CopilotClient
-	sharedRetired   []CopilotClient
 	sharedClosed    bool
 	sharedShutdown  sync.Once
 	sharedErr       error
 	sharedConstruct = newCopilotClient // overridable for tests
 	embeddedCLIPath = embedded.Path    // overridable for tests
 )
-
-var sharedClientShutdownTimeout = 30 * time.Second
 
 var errSharedClientClosed = errors.New("shared Copilot client has been shut down")
 
@@ -92,22 +88,6 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 	}
 	sharedClients[key] = manageStartup(sharedConstruct(clientOptions))
 	return sharedClients[key]
-}
-
-func retireSharedClient(client CopilotClient) {
-	managed, ok := client.(*startupClient)
-	if !ok {
-		return
-	}
-	sharedMu.Lock()
-	defer sharedMu.Unlock()
-	for key, current := range sharedClients {
-		if current == managed {
-			delete(sharedClients, key)
-			sharedRetired = append(sharedRetired, managed)
-			return
-		}
-	}
 }
 
 func sharedClientKey(cliArgs []string) string {
@@ -205,19 +185,12 @@ func (c *startupErrorClient) ListModels(context.Context) ([]copilot.ModelInfo, e
 // client was ever constructed. Safe to call multiple times. Should be invoked
 // once from the top-level command after all engines have been Shutdown and
 // all graders have completed.
-func ShutdownSharedClient(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	shutdownCtx, cancel := context.WithTimeout(ctx, sharedClientShutdownTimeout)
-	defer cancel()
-
+func ShutdownSharedClient(_ context.Context) error {
 	sharedMu.Lock()
-	clients := make([]CopilotClient, 0, len(sharedClients)+len(sharedRetired))
+	clients := make([]CopilotClient, 0, len(sharedClients))
 	for _, client := range sharedClients {
 		clients = append(clients, client)
 	}
-	clients = append(clients, sharedRetired...)
 	if len(clients) > 0 {
 		sharedClosed = true
 	}
@@ -228,14 +201,8 @@ func ShutdownSharedClient(ctx context.Context) error {
 	}
 	sharedShutdown.Do(func() {
 		var errs []error
-		stopErrs := make(chan error, len(clients))
 		for _, client := range clients {
-			go func(client CopilotClient) {
-				stopErrs <- stopSharedClient(shutdownCtx, client)
-			}(client)
-		}
-		for range clients {
-			if err := <-stopErrs; err != nil {
+			if err := client.Stop(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -247,31 +214,6 @@ func ShutdownSharedClient(ctx context.Context) error {
 	return sharedErr
 }
 
-func stopSharedClient(ctx context.Context, client CopilotClient) error {
-	done := make(chan error, 1)
-	go func() {
-		done <- client.Stop()
-	}()
-
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-	}
-
-	if force, ok := client.(interface{ ForceStop() }); ok {
-		go force.ForceStop()
-	}
-	timer := time.NewTimer(startupCleanupTimeout)
-	defer timer.Stop()
-	select {
-	case err := <-done:
-		return errors.Join(ctx.Err(), err)
-	case <-timer.C:
-		return errors.Join(ctx.Err(), errors.New("shared Copilot client cleanup exceeded force-stop grace"))
-	}
-}
-
 // resetSharedClientForTest restores SharedClient to a pristine state. For
 // tests only.
 func resetSharedClientForTest() {
@@ -279,7 +221,6 @@ func resetSharedClientForTest() {
 	defer sharedMu.Unlock()
 	sharedShutdown = sync.Once{}
 	sharedClients = nil
-	sharedRetired = nil
 	sharedClosed = false
 	sharedErr = nil
 }

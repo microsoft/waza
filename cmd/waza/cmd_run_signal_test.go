@@ -24,50 +24,14 @@ import (
 
 const runSignalHelperEnv = "WAZA_RUN_SIGNAL_HELPER"
 const runSignalSpecEnv = "WAZA_RUN_SIGNAL_SPEC"
-const runSignalBlockSharedCleanupEnv = "WAZA_RUN_SIGNAL_BLOCK_SHARED_CLEANUP"
 
-type blockingBenchmarkRunner struct {
-	started chan struct{}
-}
+type blockingBenchmarkRunner struct{}
 
 func (r *blockingBenchmarkRunner) OnProgress(orchestration.ProgressListener) {}
 
 func (r *blockingBenchmarkRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
-	if r.started != nil {
-		close(r.started)
-	}
 	<-ctx.Done()
 	return nil, ctx.Err()
-}
-
-type successfulBenchmarkRunner struct{}
-
-func (*successfulBenchmarkRunner) OnProgress(orchestration.ProgressListener) {}
-
-func (*successfulBenchmarkRunner) RunBenchmark(context.Context) (*models.EvaluationOutcome, error) {
-	return &models.EvaluationOutcome{}, nil
-}
-
-type persistentCancellationEngine struct {
-	execution.AgentEngine
-	started chan struct{}
-	forced  chan struct{}
-}
-
-func (e *persistentCancellationEngine) Shutdown(ctx context.Context) error {
-	if e.started != nil {
-		close(e.started)
-	}
-	<-e.forced
-	return ctx.Err()
-}
-
-func (e *persistentCancellationEngine) ForceStop() {
-	select {
-	case <-e.forced:
-	default:
-		close(e.forced)
-	}
 }
 
 func TestRunCommand_CancelsOnSIGTERM(t *testing.T) {
@@ -81,320 +45,12 @@ func TestRunCommand_CancelsOnSIGTERM(t *testing.T) {
 		{"scenario", "scenario: inventory\nschemaVersion: \"2.0\"\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			runCommandCancelsOnSIGTERM(t, tt.identity, false)
+			runCommandCancelsOnSIGTERM(t, tt.identity)
 		})
 	}
 }
 
-func TestRunCommandSIGTERMBoundsBlockedSharedClientCleanup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("SIGTERM is not supported on Windows")
-	}
-	runCommandCancelsOnSIGTERM(t, "skill: test-skill\n", true)
-}
-
-func TestRunCommandCancellationBoundsPersistentEngineShutdown(t *testing.T) {
-	resetRunGlobals()
-	oldEngineFactory := newRunEngine
-	oldRunnerFactory := newBenchmarkRunner
-	oldGrace := runEngineShutdownGrace
-	oldTimeout := runEngineShutdownTimeout
-	t.Cleanup(func() {
-		newRunEngine = oldEngineFactory
-		newBenchmarkRunner = oldRunnerFactory
-		runEngineShutdownGrace = oldGrace
-		runEngineShutdownTimeout = oldTimeout
-		resetRunGlobals()
-	})
-	runEngineShutdownGrace = 5 * time.Millisecond
-	runEngineShutdownTimeout = time.Second
-
-	engine := &persistentCancellationEngine{
-		AgentEngine: execution.NewMockEngine("test-model"),
-		forced:      make(chan struct{}),
-	}
-	started := make(chan struct{})
-	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
-		return engine, nil
-	}
-	newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
-		return &blockingBenchmarkRunner{started: started}
-	}
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cmd := newRunCommand()
-	cmd.SetContext(ctx)
-	cmd.SetArgs([]string{createTestSpec(t, "mock")})
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Execute() }()
-	<-started
-	start := time.Now()
-	cancel()
-
-	err := <-done
-	require.ErrorIs(t, err, context.Canceled)
-	require.Less(t, time.Since(start), 250*time.Millisecond)
-	select {
-	case <-engine.forced:
-	default:
-		t.Fatal("cancellation-time shutdown did not force-stop the persistent engine")
-	}
-}
-
-func TestRunCommandCancellationBoundsSharedClientShutdown(t *testing.T) {
-	resetRunGlobals()
-	oldRunnerFactory := newBenchmarkRunner
-	t.Cleanup(func() {
-		newBenchmarkRunner = oldRunnerFactory
-		resetRunGlobals()
-	})
-	started := make(chan struct{})
-	newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
-		return &blockingBenchmarkRunner{started: started}
-	}
-	shutdownStarted := make(chan struct{})
-	shutdownSharedClientForRun = func(ctx context.Context) error {
-		close(shutdownStarted)
-		<-ctx.Done()
-		return ctx.Err()
-	}
-	runSharedClientShutdownTimeout = 5 * time.Millisecond
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cmd := newRunCommand()
-	cmd.SetContext(ctx)
-	cmd.SetArgs([]string{createTestSpec(t, "mock")})
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Execute() }()
-	<-started
-	start := time.Now()
-	cancel()
-
-	require.ErrorIs(t, <-done, context.Canceled)
-	require.Less(t, time.Since(start), 250*time.Millisecond)
-	select {
-	case <-shutdownStarted:
-	default:
-		t.Fatal("run did not attempt bounded shared-client cleanup")
-	}
-}
-
-func TestRunCommandPropagatesCancellationDuringSharedClientShutdown(t *testing.T) {
-	resetRunGlobals()
-	oldRunnerFactory := newBenchmarkRunner
-	t.Cleanup(func() {
-		newBenchmarkRunner = oldRunnerFactory
-		resetRunGlobals()
-	})
-	newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
-		return &successfulBenchmarkRunner{}
-	}
-	shutdownStarted := make(chan struct{})
-	shutdownSharedClientForRun = func(ctx context.Context) error {
-		close(shutdownStarted)
-		<-ctx.Done()
-		return ctx.Err()
-	}
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cmd := newRunCommand()
-	cmd.SetContext(ctx)
-	cmd.SetArgs([]string{createTestSpec(t, "mock")})
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Execute() }()
-	<-shutdownStarted
-	start := time.Now()
-	cancel()
-
-	require.ErrorIs(t, <-done, context.Canceled)
-	require.Less(t, time.Since(start), 250*time.Millisecond)
-}
-
-func TestRunCommandPreservesCancellationWhenSharedClientStopSucceeds(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		err  error
-	}{
-		{name: "healthy"},
-		{name: "parent cancellation", err: context.Canceled},
-		{name: "cleanup deadline", err: context.DeadlineExceeded},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			resetRunGlobals()
-			oldRunnerFactory := newBenchmarkRunner
-			t.Cleanup(func() {
-				newBenchmarkRunner = oldRunnerFactory
-				resetRunGlobals()
-			})
-			newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
-				return &successfulBenchmarkRunner{}
-			}
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			stopped := false
-			runSharedClientShutdownTimeout = 5 * time.Millisecond
-			shutdownSharedClientForRun = func(cleanupCtx context.Context) error {
-				switch tt.err {
-				case context.Canceled:
-					cancel()
-				case context.DeadlineExceeded:
-					<-cleanupCtx.Done()
-				}
-				stopped = true
-				return nil
-			}
-			cmd := newRunCommand()
-			cmd.SetContext(ctx)
-			cmd.SetArgs([]string{createTestSpec(t, "mock")})
-			cmd.SetOut(io.Discard)
-			cmd.SetErr(io.Discard)
-
-			err := cmd.Execute()
-			require.True(t, stopped)
-			if tt.err == nil {
-				require.NoError(t, err)
-			} else {
-				require.ErrorIs(t, err, tt.err)
-			}
-		})
-	}
-}
-
-func TestSharedClientShutdownObservesCancellationDuringCleanup(t *testing.T) {
-	resetRunGlobals()
-	t.Cleanup(resetRunGlobals)
-	shutdownStarted := make(chan struct{})
-	shutdownSharedClientForRun = func(ctx context.Context) error {
-		close(shutdownStarted)
-		<-ctx.Done()
-		return ctx.Err()
-	}
-
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- shutdownSharedClientAfterRun(ctx) }()
-	<-shutdownStarted
-	start := time.Now()
-	cancel()
-
-	require.ErrorIs(t, <-done, context.Canceled)
-	require.Less(t, time.Since(start), 250*time.Millisecond)
-}
-
-func TestShutdownRunEngineBoundsCancellationAfterShutdownStarts(t *testing.T) {
-	oldGrace := runEngineShutdownGrace
-	oldTimeout := runEngineShutdownTimeout
-	t.Cleanup(func() {
-		runEngineShutdownGrace = oldGrace
-		runEngineShutdownTimeout = oldTimeout
-	})
-	runEngineShutdownGrace = 5 * time.Millisecond
-	runEngineShutdownTimeout = time.Second
-
-	engine := &persistentCancellationEngine{
-		AgentEngine: execution.NewMockEngine("test-model"),
-		started:     make(chan struct{}),
-		forced:      make(chan struct{}),
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- shutdownRunEngine(ctx, engine) }()
-
-	<-engine.started
-	start := time.Now()
-	cancel()
-
-	require.ErrorIs(t, <-done, context.Canceled)
-	require.Less(t, time.Since(start), 250*time.Millisecond)
-	select {
-	case <-engine.forced:
-	default:
-		t.Fatal("cancellation during shutdown did not force-stop the persistent engine")
-	}
-}
-
-func TestShutdownRunEngineBoundsUncanceledShutdown(t *testing.T) {
-	oldGrace := runEngineShutdownGrace
-	oldTimeout := runEngineShutdownTimeout
-	t.Cleanup(func() {
-		runEngineShutdownGrace = oldGrace
-		runEngineShutdownTimeout = oldTimeout
-	})
-	runEngineShutdownGrace = 5 * time.Millisecond
-	runEngineShutdownTimeout = 5 * time.Millisecond
-
-	engine := &persistentCancellationEngine{
-		AgentEngine: execution.NewMockEngine("test-model"),
-		forced:      make(chan struct{}),
-	}
-	start := time.Now()
-	err := shutdownRunEngine(t.Context(), engine)
-
-	require.ErrorContains(t, err, "engine shutdown exceeded maximum duration")
-	require.Less(t, time.Since(start), 250*time.Millisecond)
-	select {
-	case <-engine.forced:
-	default:
-		t.Fatal("timed-out shutdown did not force-stop the persistent engine")
-	}
-}
-
-func TestRunCommandPropagatesCancellationDuringShutdown(t *testing.T) {
-	resetRunGlobals()
-	oldEngineFactory := newRunEngine
-	oldRunnerFactory := newBenchmarkRunner
-	oldGrace := runEngineShutdownGrace
-	oldTimeout := runEngineShutdownTimeout
-	t.Cleanup(func() {
-		newRunEngine = oldEngineFactory
-		newBenchmarkRunner = oldRunnerFactory
-		runEngineShutdownGrace = oldGrace
-		runEngineShutdownTimeout = oldTimeout
-		resetRunGlobals()
-	})
-	runEngineShutdownGrace = 5 * time.Millisecond
-	runEngineShutdownTimeout = time.Second
-
-	engine := &persistentCancellationEngine{
-		AgentEngine: execution.NewMockEngine("test-model"),
-		started:     make(chan struct{}),
-		forced:      make(chan struct{}),
-	}
-	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
-		return engine, nil
-	}
-	newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
-		return &successfulBenchmarkRunner{}
-	}
-
-	ctx, cancel := context.WithCancel(t.Context())
-	resultPath := filepath.Join(t.TempDir(), "result.json")
-	cmd := newRunCommand()
-	cmd.SetContext(ctx)
-	cmd.SetArgs([]string{createTestSpec(t, "mock"), "--output", resultPath})
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Execute() }()
-	<-engine.started
-	cancel()
-
-	require.ErrorIs(t, <-done, context.Canceled)
-	_, err := os.Stat(resultPath)
-	require.ErrorIs(t, err, os.ErrNotExist)
-}
-
-func runCommandCancelsOnSIGTERM(t *testing.T, identity string, blockSharedCleanup bool) {
+func runCommandCancelsOnSIGTERM(t *testing.T, identity string) {
 	t.Helper()
 	resetRunGlobals()
 
@@ -430,9 +86,6 @@ tasks:
 		runSignalHelperEnv+"=1",
 		runSignalSpecEnv+"="+specPath,
 	)
-	if blockSharedCleanup {
-		cmd.Env = append(cmd.Env, runSignalBlockSharedCleanupEnv+"=1")
-	}
 	var stdout, stderr bytes.Buffer
 	stdoutPipe, err := cmd.StdoutPipe()
 	require.NoError(t, err)
@@ -489,12 +142,6 @@ func TestRunCommand_SignalCancelsBenchmarkHelperProcess(t *testing.T) {
 	resetRunGlobals()
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return &blockingBenchmarkRunner{}
-	}
-	if os.Getenv(runSignalBlockSharedCleanupEnv) == "1" {
-		shutdownSharedClientForRun = func(ctx context.Context) error {
-			<-ctx.Done()
-			return ctx.Err()
-		}
 	}
 
 	specPath := os.Getenv(runSignalSpecEnv)

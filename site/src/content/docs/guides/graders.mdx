@@ -279,7 +279,7 @@ exit zero distinctly from an interrupted attempt with no `exit_code`.
 
 #### Background shell lifecycle
 
-**Added in v0.40.0:** `host_lifecycle` and result schema 1.8 are not in
+**Source-build preview:** `host_lifecycle` and result schema 1.8 are not in
 published standalone `v0.39.1`.
 
 `host_lifecycle` is `None`/`null` when no native session events were recorded
@@ -1128,7 +1128,7 @@ Argument matchers apply on top of the existing required/forbidden checks — a t
 
 Runs any external command to grade the agent output. The agent output is passed via **stdin**, and the workspace directory is available as `WAZA_WORKSPACE_DIR`. Exit code 0 means pass (score `1.0`); non-zero means fail (score `0.0`).
 
-**Added in v0.40.0:** `WAZA_GRADING_CONTEXT` holds the path of a JSON file
+**Source-build preview:** `WAZA_GRADING_CONTEXT` holds the path of a JSON file
 with the run's grading context. Published `v0.39.1` does not provide it.
 
 ```yaml

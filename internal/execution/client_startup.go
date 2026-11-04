@@ -198,12 +198,6 @@ func (c *startupClient) Stop() error {
 	return c.waitStop(bounded)
 }
 
-func (c *startupClient) ForceStop() {
-	if force, ok := c.CopilotClient.(interface{ ForceStop() }); ok {
-		force.ForceStop()
-	}
-}
-
 func (c *startupClient) cancelPending() {
 	c.mu.Lock()
 	pending := c.done != nil && !c.finished

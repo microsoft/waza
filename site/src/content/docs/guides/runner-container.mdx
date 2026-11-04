@@ -3,7 +3,7 @@ title: Local runner container reference
 description: Build mock-only and native-capable runner images and verify the exact native unit with a local synthetic provider.
 ---
 
-**Published native reference from v0.40.0 source; accepted on Linux AMD64.**
+**Source-build foundation for v0.40.0, not a published image.**
 This reference uses the existing [public runner contract](../runner-contract/)
 and [terminal envelope](../runner-terminal/). The default `reference` target
 remains a scratch image for `inline.mock-text` only. The explicit
@@ -12,49 +12,15 @@ the exact-unit native Copilot text profile. It is tested with the actual bundled
 CLI and an isolated synthetic provider; no live provider, paid request or
 external network is used by that test. This is native execution evidence, not
 inference-quality or provider assurance.
-The [#762 publication and acceptance evidence](#published-image-and-acceptance-evidence)
-is recorded below. Publication and public-image acceptance are separate gates.
-The manual-only GHCR publisher
-may leave a pushed candidate even if finalization fails; a tag or publisher run
-alone does not establish public visibility or caller acceptance. The separate
-manual verifier must anonymously pull the exact digest, verify its source,
-platform and signed provenance, and pass mock and bundled-native
-production-caller controls before each image is accepted. Local image IDs and
-mutable tags are not substitutes for the accepted registry digest.
+Issue [#762](https://github.com/microsoft/waza/issues/762) remains open until the
+public image and pinned published-image acceptance run are verified.
+There is **no published v0.40.0 runner image or registry digest** to copy today.
+A manual-only GHCR publisher is defined in source, but has not been dispatched;
+package creation permission and public visibility remain unverified. A separate
+manual verifier is also prepared; it must anonymously pull the exact digest and
+pass mock and bundled-native production-caller controls before that image is
+accepted. Neither workflow has been dispatched.
 No Lab dashboard change is required: this adds no new evidence or status surface.
-
-<span id="published-candidate-and-acceptance-evidence"></span>
-
-## Published image and acceptance evidence
-
-The [publisher run, attempt 1](https://github.com/microsoft/waza/actions/runs/41825487985)
-succeeded, including signed attestation and the post-push main guard. GHCR
-reports the package public. On a native Linux AMD64 Docker host, pull the
-accepted immutable reference:
-
-```bash
-native_image='ghcr.io/microsoft/waza-runner-reference@sha256:ded068a636dc721b8e38dc2a68bcbcbdb0d4b33ce5da8d182d562d189a712a39'
-docker pull --platform linux/amd64 "$native_image"
-```
-
-| Evidence | Recorded value |
-| --- | --- |
-| Source revision | `93e80d7fdcbf9206215366d6ecca7ed08d26b2b3` |
-| Declared runtime platform | `linux/amd64` |
-| Publication | Publisher attempt 1 succeeded; package reports public |
-| Anonymous pull, provenance-finalization and production-caller acceptance | Passed [verifier result](https://github.com/microsoft/waza/actions/runs/41826111839): 1/1 test, 0 skipped |
-
-The verifier anonymously pulled this exact digest on Linux AMD64, verified signed
-provenance against successful publisher attempt 1 and its finalization, and
-passed the immutable image's mock and bundled-native synthetic-provider
-production controls. Independent infrastructure-owner review was **waived for
-this one publication, not performed**; automated acceptance is not independent
-review. The supported platform is not an ARM64 or Windows claim.
-Do not treat this record as live-provider, billing or inference-quality evidence.
-The image Dockerfile does not inject `main.version`; the source default is
-`dev`, unlike the standalone release build's explicit `0.40.0` linker stamp.
-Identify this image by its immutable digest, source labels and verified
-provenance, not by assuming its `--version` output is `0.40.0`.
 
 ## Host and build requirements
 
@@ -249,9 +215,8 @@ CI additionally requires Linux AMD64 and rejects cross-architecture execution;
 the architecture printed by a local run describes only that local run. These
 controls demonstrate current-bundle startup and a synthetic native text turn,
 not paid inference, real-provider behavior, billing assurance or model quality.
-The locally built native targets and image IDs do not establish immutable
-public-manifest acceptance. The separate result above applies only to its
-recorded digest, source, platform and verifier run.
+The native targets and their local image IDs are not published; they do not
+complete #762's immutable public-manifest acceptance gate.
 
 ## Verify an authorized public digest
 

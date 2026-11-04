@@ -380,10 +380,7 @@ func TestEvidenceRunnerCacheBypassCoversTaskAndEvalGraders(t *testing.T) {
 			require.Equal(t, models.StatusPassed, first.Status)
 			_, exists := runner.cache.Get(key)
 			require.Equal(t, scope == "omitted", exists, "evidence runs must not be written")
-			require.NoError(t, runner.cache.Put(key, &models.TestOutcome{
-				TestID: "CACHED_SENTINEL",
-				Runs:   []models.RunResult{{Status: models.StatusPassed}},
-			}))
+			require.NoError(t, runner.cache.Put(key, &models.TestOutcome{TestID: "CACHED_SENTINEL"}))
 			second, cached := runner.runTest(t.Context(), task, 1, 1)
 			require.Equal(t, scope == "omitted", cached, "evidence runs must not be read")
 			require.Equal(t, scope == "omitted", second.TestID == "CACHED_SENTINEL")

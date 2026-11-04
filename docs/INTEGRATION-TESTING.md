@@ -94,7 +94,7 @@ tasks:
 
 Responses are matched in order. Use `match` for exact full-argument fixtures, `match_schema` for JSON Schema matching, and `match_regex` for per-field regular expressions. Unknown tools or unmatched calls fail with a clear MCP tool error so missing fixtures do not pass silently.
 
-**Added in v0.40.0:** A task YAML can also declare `mcp_mocks`; published
+**Source-build preview:** A task YAML can also declare `mcp_mocks`; published
 `v0.39.1` does not apply task-level mocks. A task entry replaces the eval mock
 with the same name for that task only and a new name adds a mock; other eval
 mocks still apply. Put a case-specific response in the task that needs it rather

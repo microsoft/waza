@@ -7,7 +7,6 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -146,59 +145,4 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 	require.True(t, resp.Success)
 	require.False(t, strings.Contains(resp.ErrorMsg, "session start timeout"),
 		"a run that produced a first event must not be reported as a session-start hang")
-}
-
-func TestCopilotExecute_FirstEventTimeoutBoundsBlockedCleanup(t *testing.T) {
-	oldGrace := sendCancellationGrace
-	sendCancellationGrace = 5 * time.Millisecond
-	t.Cleanup(func() { sendCancellationGrace = oldGrace })
-
-	ctrl := gomock.NewController(t)
-	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
-	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
-	sessionMock.EXPECT().SessionID().Return("session-watchdog-cleanup")
-	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
-	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
-			<-ctx.Done()
-			return nil, ctx.Err()
-		},
-	)
-	sessionMock.EXPECT().UsageMetrics(gomock.Any()).DoAndReturn(
-		func(ctx context.Context) (*rpc.UsageGetMetricsResult, error) {
-			<-ctx.Done()
-			return nil, ctx.Err()
-		},
-	)
-	sessionMock.EXPECT().ShutdownUsage(gomock.Any()).Return(nil, nil)
-	releaseDisconnect := make(chan struct{})
-	sessionMock.EXPECT().Disconnect().DoAndReturn(func() error {
-		<-releaseDisconnect
-		return nil
-	})
-	client := &forceStopTestClient{
-		MockCopilotClient: clientMock,
-		forceStop:         func() { close(releaseDisconnect) },
-	}
-	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-watchdog-cleanup").Return(nil)
-
-	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(_ *copilot.ClientOptions) CopilotClient { return client },
-	}).Build()
-	require.NoError(t, engine.Initialize(t.Context()))
-	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
-
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	start := time.Now()
-	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		Message:           "hello?",
-		FirstEventTimeout: 10 * time.Millisecond,
-	})
-
-	require.NoError(t, err)
-	require.False(t, resp.Success)
-	require.Contains(t, resp.ErrorMsg, "session start timeout")
-	require.Less(t, time.Since(start), 250*time.Millisecond)
 }

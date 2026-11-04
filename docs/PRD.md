@@ -2,7 +2,7 @@
 
 **Status:** Active requirements; original skill-platform plan retained below, not a shipping checklist
 **Version:** 1.0  
-**Last Updated:** 2026-11-04
+**Last Updated:** 2026-11-03
 **Owner:** @spboyer  
 **Source:** [Squad Proposal](https://github.com/spboyer/azure-mcp-v-skills/blob/main/squad-proposal.md)
 
@@ -16,7 +16,7 @@ custom agents. Repository, CLI and MCP scenarios provide a workflow-first path;
 [Concepts](../site/src/content/docs/concepts.mdx) for the learning order.
 
 Features introduced in `v0.39.0` and retained in published standalone
-`v0.40.0` include recorded reliability, opt-in dashboard Lab,
+`v0.39.1` include recorded reliability, opt-in dashboard Lab,
 selected evidence/regrade, conservative release policies with an offline mock
 default and a separately selected bounded Copilot SDK collector, and bounded
 authored-case assurance with explicitly selected calibration. See the
@@ -32,7 +32,7 @@ human-labelled corpus, sandbox enforcement and default paid calibration are
 The historical skill-specific requirements below remain product context, not
 authority to infer current native grader keys or completed feature scope.
 
-The v0.40.0 runner adds offline version/capability negotiation (#757)
+The v0.40.0 runner preview adds offline version/capability negotiation (#757)
 and one exact captured inline text task/trial/attempt through CLI and HTTP (#758).
 The additive `inline.copilot-text` profile uses a private production SDK runtime,
 explicit model and paid opt-in, disabled skills and deny-all tools. Both exact
@@ -58,22 +58,14 @@ local defaults and historical artifact readers remain available. No Lab change
 is required: adaptation introduces no new runtime status or evidence.
 The [local container foundation](../site/src/content/docs/guides/runner-container.mdx)
 builds and tests the existing mock/text profile with local input/output (#762);
-the separately published Linux AMD64 native reference has passed anonymous
-digest-pinned mock and bundled-native synthetic-provider controls. See its
-[source, digest and acceptance evidence](../site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence).
-It adds no Lab status surface. General native file/tool/skill workflows and full
-external task/suite interoperability remain outstanding under #754.
-Exact-unit execution/shutdown deadlines and cancellation do not resolve the
-broader legacy multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865),
-addressed separately by the later timeout/persistence fix
-[#870](https://github.com/microsoft/waza/pull/870). That fix is post-v0.40.0 source behavior,
-not included in the published v0.40.0 artifacts. Standalone publication, extension/registry
-availability and acceptance of a public image digest are separate gates.
+it adds no Lab status surface. General native file/tool/skill workflows, pinned
+published-image acceptance and full external task/suite interoperability remain outstanding under #754;
+this foundation does not complete #762.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
-External-schema interoperability (#789) remains partial. The v0.40.0
-adapter projects one explicitly selected, commit-pinned AgentV case-sensitive
+External-schema interoperability (#789) remains partial. The source-build
+preview projects one explicitly selected, commit-pinned AgentV case-sensitive
 `contains` assertion to a single native text grader and exports the same
 single-check subset. Conversion is offline and reports excluded task, provider,
 fixture and sibling-assertion semantics. A retained upstream fixture and runnable

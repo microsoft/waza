@@ -9,7 +9,7 @@ then the [offline Quick Start](../site/src/content/docs/quick-start.mdx).
 Mock trials prove harness wiring, not agent quality. Read the
 [authentication and usage prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution)
 before model-backed runs. Scenario/preflight/evidence features were introduced in
-`v0.39.0` and remain in published `v0.40.0` (November 4, 2026); install the
+`v0.39.0` and remain in published `v0.39.1` (October 26, 2026); install the
 current release or run `waza update`.
 Explicit opt-in and platform limits still apply; see
 [availability](../site/src/content/docs/reference/releases.mdx).
@@ -118,11 +118,11 @@ Requires **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended)
 locked dashboard dependencies and generates embedded assets before Go compilation:
 
 ```bash
-git clone --branch v0.40.0 https://github.com/microsoft/waza.git
+git clone https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-make build VERSION=0.40.0
+make build
 ```
 
 Verify installation:
@@ -467,16 +467,7 @@ The browser opens automatically to `http://localhost:3000`. You'll see:
 
 ## Command Reference
 
-<span id="waza-runner-source-build-preview"></span>
-
-### `waza runner` (v0.40.0)
-
-These commands are in the
-[standalone release](../site/src/content/docs/reference/releases.mdx#v0400-highlights-and-boundaries).
-The exact-unit deadlines do not fix the legacy multi-trial timeout
-issue [#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
-fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
-not included in the published v0.40.0 artifacts.
+### `waza runner` (source-build preview)
 
 `waza runner capabilities` advertises implemented versions and capabilities.
 `waza runner negotiate < examples/runner/negotiation.json` checks requirements
@@ -610,7 +601,7 @@ results.
 
 Run an evaluation benchmark.
 
-The v0.40.0 `--runner-compat` mode routes one explicit compatible mock/text
+The source-build `--runner-compat` mode routes one explicit compatible mock/text
 suite through runner 1.0 without changing local result JSON or 0/1/2 exits.
 Unsupported mappings fail rather than falling back; omit the flag for ordinary
 local semantics. `runner adapt` captures compatible sources offline, requiring

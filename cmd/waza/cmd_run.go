@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -107,8 +106,6 @@ var (
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return orchestration.NewEvalRunner(cfg, engine, opts...)
 	}
-	shutdownSharedClientForRun     = execution.ShutdownSharedClient
-	runSharedClientShutdownTimeout = 30 * time.Second
 
 	autoIssueLookPathFn   = exec.LookPath
 	autoIssueRunCommandFn = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
@@ -128,9 +125,8 @@ type benchmarkRunner interface {
 
 // modelResult pairs a model identifier with its evaluation outcome.
 type modelResult struct {
-	modelID     string
-	outcome     *models.EvaluationOutcome
-	partialPath string
+	modelID string
+	outcome *models.EvaluationOutcome
 }
 
 func newRunCommand() *cobra.Command {
@@ -211,7 +207,7 @@ config.executor: mock checks only the harness, not agent quality.`,
 	return cmd
 }
 
-func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
+func runCommandE(cmd *cobra.Command, args []string) error {
 	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
 		return err
 	} else if enabled {
@@ -229,26 +225,14 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	if len(snapshotFiles) > 0 && (snapshotMaxFileBytes <= 0 || snapshotMaxTotalBytes <= 0) {
 		return fmt.Errorf("workspace snapshot byte limits must be positive")
 	}
-	parentCtx := cmd.Context()
-	if parentCtx == nil {
-		parentCtx = context.Background()
-	}
-	runCtx, stopRunSignals := signal.NotifyContext(parentCtx, os.Interrupt, syscall.SIGTERM)
-	cmd.SetContext(runCtx)
-	defer func() {
-		cmd.SetContext(parentCtx)
-		stopRunSignals()
-	}()
-
 	// Stop the process-wide Copilot SDK client at the end of the run, after
 	// every per-model engine has been Shutdown. Engines built on the shared
 	// client (production path) leave it running so subsequent models and
 	// graders can reuse one SDK process. See
 	// docs/design/135-improve-concurrency.md (R2).
 	defer func() {
-		if err := shutdownSharedClientAfterRun(cmd.Context()); err != nil {
+		if err := execution.ShutdownSharedClient(context.Background()); err != nil {
 			slog.Warn("shared copilot client shutdown failed", "error", err)
-			retErr = errors.Join(retErr, err)
 		}
 	}()
 
@@ -397,9 +381,6 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 			}); wErr != nil {
 				return fmt.Errorf("failed to write output directory: %w", wErr)
 			}
-			if err := removePartialOutcomes(results); err != nil {
-				return err
-			}
 		}
 
 		// Auto-upload after all local writes succeed
@@ -480,11 +461,6 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	if outputDir != "" {
 		if err := writeOutputDir(outputDir, allSkillResults); err != nil {
 			return fmt.Errorf("failed to write output directory: %w", err)
-		}
-		for _, result := range allSkillResults {
-			if err := removePartialOutcomes(result.outcomes); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -685,23 +661,19 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	for _, modelID := range modelsToRun {
 		// Override spec model for this iteration
 		spec.Config.ModelID = modelID
-		partialPath, err := allocatePartialOutcomePath(spec)
-		if err != nil {
-			return nil, err
-		}
 
-		outcome, err := runSingleModelWithPartialPath(cmd, spec, specPath, defaultSkills, partialPath)
+		outcome, err := runSingleModel(cmd, spec, specPath, defaultSkills)
 		if err != nil {
 			var testErr *TestFailureError
 			if errors.As(err, &testErr) {
 				// Test failures are recorded but don't stop a multi-model run
-				allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome, partialPath: partialPath})
+				allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome})
 				lastErr = err
 				continue
 			}
 			return nil, err
 		}
-		allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome, partialPath: partialPath})
+		allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome})
 	}
 
 	// Print comparison table when multiple models were evaluated
@@ -757,37 +729,9 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	return allResults, nil
 }
 
-func shutdownSharedClientAfterRun(parent context.Context) error {
-	if parent == nil {
-		parent = context.Background()
-	}
-	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), runSharedClientShutdownTimeout)
-	stopCancellation := context.AfterFunc(parent, cancel)
-	defer func() {
-		stopCancellation()
-		cancel()
-	}()
-	if parent.Err() != nil {
-		cancel()
-	}
-	err := shutdownSharedClientForRun(shutdownCtx)
-	if err == nil {
-		err = shutdownCtx.Err()
-	}
-	return errors.Join(parent.Err(), err)
-}
-
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
 func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
-	partialPath, err := allocatePartialOutcomePath(spec)
-	if err != nil {
-		return nil, err
-	}
-	return runSingleModelWithPartialPath(cmd, spec, specPath, defaultSkills, partialPath)
-}
-
-func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string, partialPath string) (*models.EvaluationOutcome, error) {
 	// Get spec directory for resolving relative paths
 	specDir := filepath.Dir(specPath)
 	if !filepath.IsAbs(specDir) {
@@ -897,21 +841,10 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	if err := engine.Initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
-	engineShutdown := false
-	var engineShutdownErr error
-	shutdownEngine := func() error {
-		if engineShutdown {
-			return engineShutdownErr
-		}
-		engineShutdown = true
-		engineShutdownErr = shutdownRunEngine(ctx, engine)
-		if engineShutdownErr != nil {
-			slog.Warn("engine shutdown failed", "error", engineShutdownErr)
-		}
-		return engineShutdownErr
-	}
 	defer func() {
-		_ = shutdownEngine()
+		if err := engine.Shutdown(context.Background()); err != nil {
+			slog.Warn("engine shutdown failed", "error", err)
+		}
 	}()
 
 	// Create runner with optional task filters and cache
@@ -919,11 +852,6 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		orchestration.WithTaskFilters(taskFilters...),
 		orchestration.WithTagFilters(tagFilters...),
 		orchestration.WithSupplementalEvalMCP(usesEvalMCP),
-	}
-	if partialPath != "" {
-		runnerOpts = append(runnerOpts, orchestration.WithPartialOutcomeWriter(func(outcome *models.EvaluationOutcome) error {
-			return savePartialOutcome(outcome, partialPath)
-		}))
 	}
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
@@ -1055,7 +983,7 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 
 	outcome, err := runner.RunBenchmark(ctx)
 	if err != nil {
-		return outcome, fmt.Errorf("benchmark failed: %w", err)
+		return nil, fmt.Errorf("benchmark failed: %w", err)
 	}
 
 	// Log task completion and session summary from outcome data
@@ -1133,11 +1061,8 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	}
 
 	// shut down the engine and update outcome with final usage data
-	if err := shutdownEngine(); err != nil {
-		return nil, fmt.Errorf("shutting down engine: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if err := engine.Shutdown(context.Background()); err != nil {
+		slog.Warn("engine shutdown failed", "error", err)
 	}
 	if outcome.EvaluationUsage != nil {
 		outcome.EvaluationUsage.Sessions = append(outcome.EvaluationUsage.Sessions, supplementalUsage.Snapshot().Sessions...)
@@ -1989,126 +1914,7 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 		return err
 	}
 
-	file, publishMode, err := createOutcomeTempFileForSave(path)
-	if err != nil {
-		return err
-	}
-	tempPath := file.Name()
-	defer func() { _ = os.Remove(tempPath) }()
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Chmod(publishMode); err != nil {
-		return errors.Join(err, file.Close())
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return replaceOutcomeFileForSave(tempPath, path)
-}
-
-var (
-	createOutcomeTempFileForSave = createOutcomeTempFile
-	replaceOutcomeFileForSave    = replaceOutcomeFile
-)
-
-func createOutcomeTempFile(path string) (*os.File, os.FileMode, error) {
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	publishMode := os.FileMode(0)
-	hasPublishMode := false
-	if info, err := os.Lstat(path); err == nil {
-		if !info.Mode().IsRegular() {
-			return nil, 0, fmt.Errorf("output destination %s is not a regular file", path)
-		}
-		publishMode = info.Mode().Perm()
-		hasPublishMode = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, 0, err
-	}
-
-	if !hasPublishMode {
-		probe, err := createExclusiveOutcomeFile(dir, base+".mode", 0o644)
-		if err != nil {
-			return nil, 0, err
-		}
-		probePath := probe.Name()
-		info, statErr := probe.Stat()
-		closeErr := probe.Close()
-		removeErr := os.Remove(probePath)
-		if statErr != nil {
-			return nil, 0, statErr
-		}
-		if closeErr != nil {
-			return nil, 0, closeErr
-		}
-		if removeErr != nil {
-			return nil, 0, removeErr
-		}
-		publishMode = info.Mode().Perm()
-	}
-
-	file, err := createExclusiveOutcomeFile(dir, base, 0o600)
-	return file, publishMode, err
-}
-
-func createExclusiveOutcomeFile(dir, base string, mode os.FileMode) (*os.File, error) {
-	for range 100 {
-		var suffix [8]byte
-		if _, err := rand.Read(suffix[:]); err != nil {
-			return nil, err
-		}
-		tempPath := filepath.Join(dir, fmt.Sprintf(".%s.tmp-%x", base, suffix))
-		file, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-		if errors.Is(err, os.ErrExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		return file, nil
-	}
-	return nil, fmt.Errorf("allocate temporary outcome file for %s", filepath.Join(dir, base))
-}
-
-func savePartialOutcome(outcome *models.EvaluationOutcome, path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	return saveOutcome(outcome, path)
-}
-
-func allocatePartialOutcomePath(spec *models.EvalSpec) (string, error) {
-	if outputDir == "" {
-		return "", nil
-	}
-	name := spec.SkillName
-	if strings.TrimSpace(name) == "" {
-		name = spec.Name
-	}
-	var suffix [8]byte
-	if _, err := rand.Read(suffix[:]); err != nil {
-		return "", fmt.Errorf("allocate partial results path: %w", err)
-	}
-	return filepath.Join(outputDir, ".partial",
-		fmt.Sprintf("%s_%s_%x.json", sanitizePathSegment(name), sanitizePathSegment(spec.Config.ModelID), suffix)), nil
-}
-
-func removePartialOutcomes(results []modelResult) error {
-	for _, result := range results {
-		if result.partialPath == "" {
-			continue
-		}
-		if err := os.Remove(result.partialPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove partial results %s: %w", result.partialPath, err)
-		}
-	}
-	return nil
+	return os.WriteFile(path, data, 0644)
 }
 
 // autoUploadOutcomes uploads outcomes to configured remote storage.
@@ -2453,17 +2259,6 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 		printSkillRunSummary(allSkillResults)
 	}
 	fmt.Printf("Results: %d skills evaluated, %d passed, %d failed\n", len(allSkillResults), passed, failed)
-
-	if outputDir != "" {
-		if err := writeOutputDir(outputDir, allSkillResults); err != nil {
-			return fmt.Errorf("failed to write output directory: %w", err)
-		}
-		for _, result := range allSkillResults {
-			if err := removePartialOutcomes(result.outcomes); err != nil {
-				return err
-			}
-		}
-	}
 
 	return lastErr
 }

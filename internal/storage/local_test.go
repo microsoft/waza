@@ -459,29 +459,6 @@ func TestLocalStore_DuplicateRunIDsFailExplicitly(t *testing.T) {
 	require.Contains(t, err.Error(), fmt.Sprintf("%q", secondPath))
 }
 
-func TestLocalStoreSkipsPartialRecoveryArtifacts(t *testing.T) {
-	dir := t.TempDir()
-	partialDir := filepath.Join(dir, ".partial")
-	require.NoError(t, os.MkdirAll(partialDir, 0o755))
-
-	partial := makeOutcome("partial-run", "skill-x", "model-y", 1, 1)
-	partial.Metadata = map[string]any{"incomplete": true}
-	partialData, err := json.Marshal(partial)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(partialDir, "recovery.json"), partialData, 0o600))
-
-	complete := makeOutcome("complete-run", "skill-x", "model-y", 1, 1)
-	completeData, err := json.Marshal(complete)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "complete.json"), completeData, 0o600))
-
-	store := NewLocalStore(dir)
-	results, err := store.List(t.Context(), ListOptions{})
-	require.NoError(t, err)
-	require.Len(t, results, 1)
-	require.Equal(t, "complete-run", results[0].RunID)
-}
-
 func TestLocalStore_NonResultJSON(t *testing.T) {
 	dir := t.TempDir()
 

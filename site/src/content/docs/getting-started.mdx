@@ -7,9 +7,9 @@ A workflow-first path from offline harness validation to real agent evaluation.
 Read [Concepts](../concepts/) and complete the credential-free
 [Quick Start](../quick-start/) first.
 
-**Availability:** standalone stable is `v0.40.0` (November 4, 2026).
+**Availability:** standalone stable is `v0.39.1` (October 26, 2026).
 Scenario authoring, preflight and selected evidence introduced in v0.39.0 remain
-included, along with the earlier `waza dev SKILL.md` file-target fix.
+included; this patch also fixes `waza dev SKILL.md` file targets.
 Install the published binary or run `waza update`; source builds are optional.
 Explicit opt-in and platform limits still apply.
 See the [version/platform matrix](../reference/releases/#upcoming-main-only-capabilities).
@@ -48,11 +48,11 @@ waza --version
 Requires **Go 1.26 or later**, **Git LFS**, **Make**, **Node.js 22.23.4+ (22.x) or 24+ (recommended)**, and **npm 9.6.5+**. This shared development baseline also supports the docs site; engine compatibility alone does not establish tested execution. The source build generates the dashboard assets before embedding them in the binary:
 
 ```bash
-git clone --branch v0.40.0 https://github.com/microsoft/waza.git
+git clone https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-make build VERSION=0.40.0
+make build
 ./waza --version
 ```
 
@@ -72,16 +72,8 @@ azd waza --help
 ```
 
 Extension artifacts are versioned separately from standalone releases. The registry
-lists through `0.40.0`, matching the
-[published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0).
-The [separate v0.40.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
-is published, and this repository's registry and version metadata are synchronized
-to `0.40.0`. The source above installs from the main registry; an existing source
-or installation may need updating before it selects v0.40.0.
-The source URL above follows `main`, not this branch. Before the
-[release-sync PR #883](https://github.com/microsoft/waza/pull/883) merges, that URL
-still serves `0.39.1`; after the merge it includes `0.40.0`. Updating an
-installation before the merge cannot select `0.40.0` from that source.
+lists through `0.39.1`, matching the
+[published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.39.1).
 Check `azd waza --version` and
 `azd waza <command> --help` before using:
 

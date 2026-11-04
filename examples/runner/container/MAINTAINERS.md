@@ -43,22 +43,13 @@ depending on Docker's image store, it may identify an OCI index rather than the
 image configuration. It is not evidence of publication. Do not advertise a local tag or ID as a registry
 pin, and do not infer publication from historical issue comments.
 
-<span id="update-and-eventual-publication-policy"></span>
-
-## Update and publication acceptance policy
+## Update and eventual publication policy
 
 A manual-only GHCR publisher is provided in
-`.github/workflows/publish-runner-reference.yml`.
+`.github/workflows/publish-runner-reference.yml`; it has not been dispatched.
 There is no push, pull-request, or scheduled publication trigger. Do not publish
-an image or Waza release without separate authorization. Publication and
-public-image acceptance are separate gates. The
-[published image record](../../../site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence)
-contains the immutable digest, source, declared platform and publisher/verifier
-links. Publisher attempt 1 succeeded and GHCR reports the package public;
-anonymous-pull/provenance/production-caller acceptance passed on Linux AMD64
-in verifier run `41826111839` (1/1 test, 0 skipped). Independent infrastructure-owner
-review was waived for this one publication, not performed. This record is not
-live-provider, billing or inference-quality evidence.
+an image or Waza release as part of this foundation. #762 stays open; its
+published pinned image and native-layer acceptance are not satisfied.
 
 The workflow accepts a full candidate SHA and fails unless the dispatch is from
 `microsoft/waza` on protected `main`, the input matches the workflow event and
@@ -68,9 +59,7 @@ after push/attestation, and
 uses `packages: write` only in the publishing job. The protected-main ruleset is
 the gate for required reviews and status checks; operators must additionally
 confirm the native Linux AMD64 container check and the independent infrastructure
-review are complete before dispatching, or record an explicitly authorized
-one-publication review waiver without presenting it as completed review.
-The workflow builds only `linux/amd64`
+review are complete before dispatching. The workflow builds only `linux/amd64`
 from the clean, LFS-hydrated checkout at the validated candidate SHA, sets source
 and revision labels, and attaches BuildKit provenance and an SBOM. A signed
 GitHub provenance attestation binds the published image digest to the workflow
@@ -78,11 +67,11 @@ source revision; the candidate guard requires that revision to equal the
 requested SHA and current `main`. Its per-run tag is only a convenience;
 consumers must pin the immutable `@sha256:` digest instead.
 
-The `GITHUB_TOKEN` package-write and attestation permissions are declarations,
-not proof that repository, organization or package policy allows publication.
-Record the actual publisher outcome rather than inferring success from a
-workflow dispatch. A first GHCR publication may be private.
-A successful push/attestation is not public-image acceptance; a failed
+The `GITHUB_TOKEN` package-write permission and attestation permissions are
+declared but have not been verified against repository, organization, or package
+policy. Do not claim the workflow can create or push the package until a
+separately authorized run demonstrates that. A first GHCR publication may be
+private. A successful push/attestation is not public-image acceptance; a failed
 attestation or final-main check can leave a pushed candidate behind. The
 publisher summary marks such a digest unaccepted, makes no rollback claim, and
 must not be treated as permission to use it.
@@ -152,7 +141,7 @@ The test rejects a daemon/image architecture mismatch. Docker CI uses
 `ubuntu-24.04` and explicitly requires native Linux AMD64; local ARM64 and
 emulated runs do not satisfy that platform gate. No synthetic test makes a
 claim about live provider behavior, paid execution, billing or model quality.
-The CI-generated image ID is local to that run, not a published registry pin.
+Neither target is published; the CI-generated image ID is local to that run.
 
 All runtime controls disable networking and mount no credentials or source.
 Synthetic controls mount only a new empty RPC-log output directory; native
@@ -204,8 +193,8 @@ anonymously by digest, and rerun clean-input acceptance using
 `registry/repository@sha256:<manifest-digest>`. Record that literal published
 reference, supported platforms, source commit, envelope and output evidence in
 the walkthrough and release notes. Do not substitute `latest` or a local image
-ID for that manifest digest. Local foundation checks do not establish any of
-those publication results.
+ID for that manifest digest. None of those publication checks has been performed
+by this local foundation.
 
 ## Output and security boundary
 
