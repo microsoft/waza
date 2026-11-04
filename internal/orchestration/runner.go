@@ -1197,43 +1197,6 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 
 	markToolPolicyViolation(resp)
-	workspaceCaptureFailure := func(cps *checkpointRunner, responderInfo *models.ResponderInfo, commandInvocations []models.CommandInvocation) models.RunResult {
-		message := resp.ErrorMsg
-		if message == "" {
-			message = resp.WorkspaceCaptureError
-		}
-		return models.RunResult{
-			RunNumber:          runNum,
-			Prompt:             req.Message,
-			Status:             models.StatusError,
-			DurationMs:         resp.DurationMs,
-			Validations:        make(map[string]models.GraderResults),
-			SessionDigest:      r.buildSessionDigest(resp),
-			GraderSessions:     resp.GraderSessions,
-			SkillInvocations:   buildSkillInvocations(resp.SkillInvocations),
-			ErrorMsg:           message,
-			WorkspaceDir:       resp.WorkspaceDir,
-			Responder:          responderInfo,
-			Checkpoints:        cps.results(),
-			CommandInvocations: commandInvocations,
-		}
-	}
-	finalizeCommandMocks := func() []models.CommandInvocation {
-		commandInvocations := resp.CommandInvocations
-		if finalizer, ok := r.engine.(execution.CommandMockFinalizer); ok {
-			commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
-			if err != nil {
-				resp.Success = false
-				if resp.WorkspaceCaptureError != "" && resp.ErrorMsg != "" {
-					resp.ErrorMsg = fmt.Sprintf("%s; command mock finalization: %v", resp.ErrorMsg, err)
-				} else {
-					resp.ErrorMsg = err.Error()
-				}
-			}
-			resp.CommandInvocations = commandInvocations
-		}
-		return commandInvocations
-	}
 
 	// Emit child tool_call/model_call spans from the engine response. These
 	// are after-the-fact records (waza only learns about them when Execute
@@ -1253,33 +1216,47 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			},
 		})
 	}
-	if resp.WorkspaceCaptureError != "" {
-		diagnosticCategory = "execution"
-		return returnWithArtifacts(workspaceCaptureFailure(nil, nil, finalizeCommandMocks()))
-	}
-
 	// Build the per-turn checkpoint runner. Nil when the task has no
 	// checkpoints; safe to invoke methods on a nil receiver below.
-	cps := newCheckpointRunner(r, tc)
+	var cps *checkpointRunner
 
 	// Run any checkpoint scheduled after turn 1 before the multi-turn loop.
 	// If it requests stop, skip follow-ups/responder entirely.
-	stop := cps.runForTurn(ctx, 1, resp)
+	stop := false
+	if resp.WorkspaceCaptureError == "" {
+		cps = newCheckpointRunner(r, tc)
+		stop = cps.runForTurn(ctx, 1, resp)
+	}
 
 	// Drive multi-turn: responder loop takes precedence; otherwise static
 	// follow-ups. Validation guarantees these are mutually exclusive.
 	var responderInfo *models.ResponderInfo
-	if !stop && resp.ErrorMsg == "" {
+	if !stop && resp.ErrorMsg == "" && resp.WorkspaceCaptureError == "" {
 		if tc.Stimulus.Responder != nil {
 			responderInfo = r.executeResponderLoop(ctx, tc, req, resp, cps)
 		} else if len(tc.Stimulus.FollowUps) > 0 {
 			r.executeFollowUps(ctx, tc, req, resp, cps)
 		}
 	}
-	commandInvocations := finalizeCommandMocks()
+	if resp.WorkspaceCaptureError != "" && resp.ErrorMsg == "" {
+		resp.ErrorMsg = resp.WorkspaceCaptureError
+	}
+	commandInvocations := resp.CommandInvocations
+	if finalizer, ok := r.engine.(execution.CommandMockFinalizer); ok {
+		commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
+		if err != nil {
+			resp.Success = false
+			if resp.WorkspaceCaptureError != "" && resp.ErrorMsg != "" {
+				resp.ErrorMsg = fmt.Sprintf("%s; command mock finalization: %v", resp.ErrorMsg, err)
+			} else {
+				resp.ErrorMsg = err.Error()
+			}
+		}
+		resp.CommandInvocations = commandInvocations
+	}
 	if resp.WorkspaceCaptureError != "" {
-		diagnosticCategory = "execution"
-		return returnWithArtifacts(workspaceCaptureFailure(cps, responderInfo, commandInvocations))
+		resp.Success = false
+		err = errors.Join(err, errors.New(resp.WorkspaceCaptureError))
 	}
 	if r.verbose {
 		for _, invocation := range commandInvocations {
@@ -1302,7 +1279,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 
 	// Build validation context
 	vCtx := r.buildGraderContext(tc, resp, sdkEvents)
-	if !r.skipGraders && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
+	if resp.WorkspaceCaptureError == "" && !r.skipGraders && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
 		selection, selectionErr := judgeevidence.Selection(r.cfg.Spec().Graders, tc)
 		if selectionErr != nil {
 			return returnWithArtifacts(models.RunResult{RunNumber: runNum, Prompt: req.Message,
@@ -1333,7 +1310,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 
 	var gradersResults map[string]models.GraderResults
-	if r.skipGraders {
+	if r.skipGraders || resp.WorkspaceCaptureError != "" {
 		gradersResults = make(map[string]models.GraderResults)
 	} else {
 		var err error
@@ -1378,7 +1355,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	// Determine status
 	diagnosticCategory = "execution"
 	status := models.StatusPassed
-	if resp.ErrorMsg != "" {
+	if err != nil || resp.ErrorMsg != "" {
 		status = models.StatusError
 	} else if r.skipGraders {
 		status = models.StatusSkipped

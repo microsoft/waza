@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -125,7 +126,11 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 }
 
 type workspaceCaptureFailureEngine struct {
-	workspace string
+	workspace      string
+	withoutMessage bool
+	calls          int
+	finalizations  int
+	finalizeErr    error
 }
 
 func (e *workspaceCaptureFailureEngine) Initialize(context.Context) error { return nil }
@@ -134,44 +139,85 @@ func (e *workspaceCaptureFailureEngine) SessionUsage(string) *models.UsageStats 
 	return nil
 }
 func (e *workspaceCaptureFailureEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.calls++
 	message := "workspace capture incomplete: file exceeds per-file limit"
+	errorMsg := message
+	if e.withoutMessage {
+		errorMsg = ""
+	}
 	return &execution.ExecutionResponse{
-		Success: false, ErrorMsg: message, WorkspaceCaptureError: message,
+		Success: false, ErrorMsg: errorMsg, WorkspaceCaptureError: message,
 		WorkspaceDir: e.workspace, FinalOutput: "done",
 	}, nil
 }
 
+func (e *workspaceCaptureFailureEngine) FinalizeCommandMocks(string) ([]models.CommandInvocation, error) {
+	e.finalizations++
+	return nil, e.finalizeErr
+}
+
 func TestWorkspaceCaptureFailureSkipsCheckpointsAndSnapshotUpdates(t *testing.T) {
-	workspace := t.TempDir()
-	contextDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(workspace, "output.txt"), []byte("restored content"), 0o644))
-	snapshotPath := filepath.Join(contextDir, "expected.txt")
-	require.NoError(t, os.WriteFile(snapshotPath, []byte("original snapshot"), 0o644))
+	for _, mode := range []struct {
+		name           string
+		withoutMessage bool
+		skipGraders    bool
+		finalizerError bool
+	}{
+		{name: "with_message"},
+		{name: "without_message", withoutMessage: true},
+		{name: "skip_graders", skipGraders: true},
+		{name: "skip_graders_without_message", skipGraders: true, withoutMessage: true},
+		{name: "finalizer_error", finalizerError: true},
+		{name: "finalizer_error_without_message", finalizerError: true, withoutMessage: true},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			contextDir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(workspace, "output.txt"), []byte("restored content"), 0o644))
+			snapshotPath := filepath.Join(contextDir, "expected.txt")
+			require.NoError(t, os.WriteFile(snapshotPath, []byte("original snapshot"), 0o644))
 
-	diff := models.DiffGraderParameters{
-		ExpectedFiles: []models.DiffExpectedFileParameters{{Path: "output.txt", Snapshot: "expected.txt"}},
-		ContextDir:    contextDir,
-	}
-	spec := &models.EvalSpec{
-		Config:  models.Config{TimeoutSec: 30},
-		Graders: []models.GraderConfig{{Kind: models.GraderKindDiff, Identifier: "final", Parameters: diff}},
-	}
-	runner := NewEvalRunner(config.NewEvalConfig(spec), &workspaceCaptureFailureEngine{workspace: workspace}, WithUpdateSnapshots(true))
-	run := runner.executeRun(t.Context(), &models.TestCase{
-		Stimulus: models.TaskStimulus{Message: "write output"},
-		Checkpoints: []models.Checkpoint{{
-			AfterTurn: 1,
-			Graders:   []models.ValidatorInline{{Kind: models.GraderKindDiff, Identifier: "checkpoint", Parameters: diff}},
-		}},
-	}, 1)
+			diff := models.DiffGraderParameters{
+				ExpectedFiles: []models.DiffExpectedFileParameters{{Path: "output.txt", Snapshot: "expected.txt"}},
+				ContextDir:    contextDir,
+			}
+			spec := &models.EvalSpec{
+				Config:  models.Config{TimeoutSec: 30},
+				Graders: []models.GraderConfig{{Kind: models.GraderKindDiff, Identifier: "final", Parameters: diff}},
+			}
+			engine := &workspaceCaptureFailureEngine{
+				workspace: workspace, withoutMessage: mode.withoutMessage,
+			}
+			if mode.finalizerError {
+				engine.finalizeErr = errors.New("command mock finalizer failed")
+			}
+			runner := NewEvalRunner(config.NewEvalConfig(spec), engine, WithUpdateSnapshots(true))
+			if mode.skipGraders {
+				WithSkipGraders()(runner)
+			}
+			run := runner.executeRun(t.Context(), &models.TestCase{
+				Stimulus: models.TaskStimulus{Message: "write output", FollowUps: []string{"must not run"}},
+				Checkpoints: []models.Checkpoint{{
+					AfterTurn: 1,
+					Graders:   []models.ValidatorInline{{Kind: models.GraderKindDiff, Identifier: "checkpoint", Parameters: diff}},
+				}},
+			}, 1)
 
-	require.Equal(t, models.StatusError, run.Status)
-	require.Contains(t, run.ErrorMsg, "workspace capture incomplete")
-	require.Empty(t, run.Validations)
-	require.Empty(t, run.Checkpoints)
-	content, err := os.ReadFile(snapshotPath)
-	require.NoError(t, err)
-	require.Equal(t, "original snapshot", string(content))
+			require.Equal(t, models.StatusError, run.Status)
+			require.Contains(t, run.ErrorMsg, "workspace capture incomplete")
+			if mode.finalizerError {
+				require.Contains(t, run.ErrorMsg, engine.finalizeErr.Error())
+			}
+			require.Equal(t, "done", run.FinalOutput)
+			require.Equal(t, 1, engine.calls)
+			require.Equal(t, 1, engine.finalizations)
+			require.Empty(t, run.Validations)
+			require.Empty(t, run.Checkpoints)
+			content, err := os.ReadFile(snapshotPath)
+			require.NoError(t, err)
+			require.Equal(t, "original snapshot", string(content))
+		})
+	}
 }
 
 type workspaceCaptureSequenceEngine struct {
