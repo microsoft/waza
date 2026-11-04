@@ -580,7 +580,8 @@ config:
 
 Group results by `model` or by each task's complete ordered `tags` set. Tasks
 without tags are omitted from tag groups. Useful for organizing results when
-running many tasks.
+running many tasks. Commas and backslashes in individual tag labels are escaped
+so different tag sets remain distinct.
 
 ```yaml
 config:

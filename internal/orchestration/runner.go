@@ -1043,9 +1043,11 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found && cache.RecordedMCPMocksMatch(cachedOutcome, models.EffectiveMCPMocks(spec, tc)) {
 				// Return cached outcome with cached flag. Stats derive from the
-				// cached runs, so recompute them in case an older waza wrote them.
+				// cached runs and group from current configuration, so recompute
+				// both in case an older waza wrote them.
 				cachedOutcome.Cached = true
 				cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
+				cachedOutcome.Group = r.resolveGroup(tc)
 				return *cachedOutcome, true
 			}
 			// Run the test and cache the result
@@ -2527,7 +2529,11 @@ func (r *EvalRunner) resolveGroup(tc *models.TestCase) string {
 	case "model":
 		return spec.Config.ModelID
 	case "tags":
-		return strings.Join(tc.Tags, ", ")
+		encoded := make([]string, len(tc.Tags))
+		for i, tag := range tc.Tags {
+			encoded[i] = strings.NewReplacer(`\`, `\\`, ",", `\,`).Replace(tag)
+		}
+		return strings.Join(encoded, ", ")
 	case "":
 		return ""
 	default:

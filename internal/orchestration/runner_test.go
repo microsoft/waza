@@ -1119,9 +1119,18 @@ func TestResolveGroup_Tags(t *testing.T) {
 	cfg := config.NewEvalConfig(spec)
 	runner := NewEvalRunner(cfg, nil)
 
-	assert.Equal(t, "smoke, regression", runner.resolveGroup(&models.TestCase{
+	multipleTags := runner.resolveGroup(&models.TestCase{
 		Tags: []string{"smoke", "regression"},
-	}))
+	})
+	singleCommaTag := runner.resolveGroup(&models.TestCase{
+		Tags: []string{"smoke, regression"},
+	})
+	assert.Equal(t, "smoke, regression", multipleTags)
+	assert.Equal(t, `smoke\, regression`, singleCommaTag)
+	assert.Len(t, computeGroupStats([]models.TestOutcome{
+		{Group: multipleTags},
+		{Group: singleCommaTag},
+	}), 2)
 	assert.Equal(t, "", runner.resolveGroup(&models.TestCase{}))
 }
 
