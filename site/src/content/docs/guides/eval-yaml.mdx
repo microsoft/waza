@@ -1407,6 +1407,24 @@ hooks:
 
 `before_run` runs before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets. The runner repeats admission after engine initialization and after each new pass's setup, retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. In `--baseline` mode each pass runs `before_run`, MCP admission, and `after_run`, including when the second pass generates changed task or fixture files. If the run is interrupted (Ctrl+C), `after_run` still runs once, for at most one minute.
 
+Hook commands can reference string values from the eval's top-level `inputs`
+map with Go template syntax. This works for both legacy skill evals and scenario
+evals:
+
+```yaml
+inputs:
+  marker: DOGFOOD_VARIABLE
+
+hooks:
+  before_run:
+    - command: "bash marker.sh {{.Vars.marker}}"
+      error_on_fail: true
+```
+
+Waza renders the command before starting the hook. An invalid template or a
+missing key fails the hook instead of passing the placeholder literally. CSV
+row columns are not added to lifecycle hook context.
+
 Each hook entry:
 
 | Field               | Type      | Default      | Description                       |
@@ -1420,15 +1438,18 @@ Each hook entry:
 
 ## Template Variables
 
-Use the `inputs` field to define global template variables that are substituted into task prompts:
+For `tasks_from` CSV datasets, use the top-level `inputs` field to define
+fallback template variables for generated task prompts. The current row's
+columns override same-named eval inputs and are also available as
+`{{.Vars.column_name}}`. CSV prompt rendering additionally supports
+`{{.JobID}}`, `{{.TaskName}}`, and `{{.Timestamp}}`.
 
 ```yaml
 inputs:
   language: python
   framework: fastapi
 
-tasks:
-  - "tasks/scaffold/*.yaml"
+tasks_from: tasks.csv
 ```
 
 Fixture files are copied into the task workspace, not inlined in the prompt:
