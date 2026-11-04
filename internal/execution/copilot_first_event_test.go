@@ -109,6 +109,7 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 	sessionMock.EXPECT().Disconnect().AnyTimes()
 
 	var handlers []func(copilot.SessionEvent)
+	var requestCtx context.Context
 	sessionMock.EXPECT().On(gomock.Any()).AnyTimes().DoAndReturn(func(h func(copilot.SessionEvent)) func() {
 		handlers = append(handlers, h)
 		return func() {}
@@ -120,6 +121,7 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 	// active request.
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			requestCtx = ctx
 			require.NotEmpty(t, handlers)
 			for _, h := range handlers {
 				h(copilot.SessionEvent{Data: &copilot.SkillInvokedData{Name: "s", Path: "p"}})
@@ -150,6 +152,8 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, resp.Success)
+	require.ErrorIs(t, requestCtx.Err(), context.Canceled,
+		"the completed send context must be released after execution returns")
 	require.False(t, strings.Contains(resp.ErrorMsg, "session start timeout"),
 		"a run that produced a first event must not be reported as a session-start hang")
 }
