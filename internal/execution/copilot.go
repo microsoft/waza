@@ -53,7 +53,7 @@ func sendAndWaitBounded(
 
 	select {
 	case result := <-done:
-		return result.event, false, false, result.err
+		return result.event, false, false, errors.Join(ctx.Err(), result.err)
 	case <-ctx.Done():
 	}
 
@@ -92,7 +92,7 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 
 	select {
 	case err := <-done:
-		return false, false, err
+		return false, false, errors.Join(ctx.Err(), err)
 	case <-ctx.Done():
 	}
 
@@ -128,9 +128,9 @@ type CopilotEngine struct {
 	defaultModelID string
 
 	clientMu sync.RWMutex
-	// clientRefreshMu orders new-session admission with retirement so a later
-	// trial cannot select a generation after it has been retired.
-	clientRefreshMu  sync.Mutex
+	// Replacement startup is serialized, but waiting requests can cancel.
+	// Retirement uses clientMu only and never waits on replacement I/O.
+	clientRefreshMu  initializationMutex
 	client           CopilotClient
 	sharedClientOpts *SharedClientOptions
 
@@ -493,8 +493,10 @@ func (e *CopilotEngine) clientForRequest(ctx context.Context, sessionID string) 
 		}
 	}
 
-	e.clientRefreshMu.Lock()
-	defer e.clientRefreshMu.Unlock()
+	if err := e.clientRefreshMu.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer e.clientRefreshMu.unlock()
 	if !e.retired.Load() {
 		return e.currentClient(), nil
 	}
@@ -814,6 +816,15 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	defer func() {
 		defer cancelSkillCtx()
 		defer cancelSendCtx(nil)
+		defer func() {
+			if resp != nil && resp.Success && cleanupBaseCtx.Err() != nil {
+				resp.Success = false
+				resp.ErrorMsg = fmt.Sprintf("trial canceled during cleanup: %v", cleanupBaseCtx.Err())
+				if op := operationFrom(cleanupBaseCtx); op != nil {
+					op.report(StageDisconnect, CodeCleanup, sessionID)
+				}
+			}
+		}()
 		if sessionAbandoned {
 			slog.Warn("abandoned unresponsive Copilot session after force stop", "sessionID", sessionID)
 			return
@@ -1038,7 +1049,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		// If the context was canceled because we detected a skill invocation
 		// (CancelOnSkillInvocation), that's not an error — it's expected early
 		// termination. We clear the error so the response reports success.
-		if canceledForSkill.Load() && ctx.Err() == context.Canceled {
+		if canceledForSkill.Load() && ctx.Err() == context.Canceled && cleanupBaseCtx.Err() == nil {
 			if op := operationFrom(ctx); op != nil {
 				op.report(StageExecute, CodeExpectedSkillCancellation, sessionID)
 			}
@@ -1083,7 +1094,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 
 	// Build response
 	e.captureUsage(sendCtx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
-	if err == nil && sendCtx.Err() != nil && !canceledForSkill.Load() {
+	if err == nil && sendCtx.Err() != nil && (!canceledForSkill.Load() || cleanupBaseCtx.Err() != nil) {
 		if errors.Is(sendCtx.Err(), context.DeadlineExceeded) {
 			err = fmt.Errorf("trial timed out during cleanup: %w", context.DeadlineExceeded)
 		} else {
@@ -1181,14 +1192,12 @@ func (e *CopilotEngine) forceStopClient(client CopilotClient) {
 }
 
 func (e *CopilotEngine) retireClient(client CopilotClient) {
-	e.clientRefreshMu.Lock()
-	defer e.clientRefreshMu.Unlock()
 	e.clientMu.Lock()
+	defer e.clientMu.Unlock()
 	current := e.client == client
 	if current {
 		e.retired.Store(true)
 	}
-	e.clientMu.Unlock()
 	if !e.ownsClient {
 		retireSharedClient(client)
 	}

@@ -770,7 +770,11 @@ func shutdownSharedClientAfterRun(parent context.Context) error {
 	if parent.Err() != nil {
 		cancel()
 	}
-	return shutdownSharedClientForRun(shutdownCtx)
+	err := shutdownSharedClientForRun(shutdownCtx)
+	if err == nil {
+		err = shutdownCtx.Err()
+	}
+	return errors.Join(parent.Err(), err)
 }
 
 // runSingleModel executes a benchmark for one model and returns the outcome.

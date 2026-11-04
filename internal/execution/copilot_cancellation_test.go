@@ -645,3 +645,172 @@ func TestExecuteReportsDeadlineExceededByBlockingDisconnect(t *testing.T) {
 	require.Contains(t, response.ErrorMsg, "session teardown failed")
 	require.Contains(t, response.ErrorMsg, "context deadline exceeded")
 }
+
+func TestExecutePreservesParentCancellationThroughSkillAndCleanup(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		skill       bool
+		cancelStage string
+	}{
+		{name: "healthy"},
+		{name: "skill invocation only", skill: true},
+		{name: "skill send", skill: true, cancelStage: "send"},
+		{name: "skill disconnect", skill: true, cancelStage: "disconnect"},
+		{name: "ephemeral deletion", cancelStage: "delete"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			client := newClientMock(ctrl)
+			session := newSessionMock(ctrl)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+			session.EXPECT().SessionID().Return("late-cancellation")
+			var handlers []func(copilot.SessionEvent)
+			session.EXPECT().On(gomock.Any()).Times(3).DoAndReturn(func(handler func(copilot.SessionEvent)) func() {
+				handlers = append(handlers, handler)
+				return func() {}
+			})
+			session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(sendCtx context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+					if tt.skill {
+						for _, handler := range handlers {
+							handler(copilot.SessionEvent{Data: &copilot.SkillInvokedData{Name: "test-skill"}})
+						}
+						require.ErrorIs(t, sendCtx.Err(), context.Canceled)
+					}
+					if tt.cancelStage == "send" {
+						cancel()
+					}
+					return &copilot.SessionEvent{}, sendCtx.Err()
+				},
+			)
+			session.EXPECT().Disconnect().DoAndReturn(func() error {
+				if tt.cancelStage == "disconnect" {
+					cancel()
+				}
+				return nil
+			})
+			client.EXPECT().DeleteSession(gomock.Any(), "late-cancellation").DoAndReturn(
+				func(context.Context, string) error {
+					if tt.cancelStage == "delete" {
+						cancel()
+					}
+					return nil
+				},
+			)
+			engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+				NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+			}).Build()
+			require.NoError(t, engine.Initialize(t.Context()))
+			t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+			response, err := engine.Execute(ctx, &ExecutionRequest{
+				Message:                 "late cancellation",
+				CancelOnSkillInvocation: tt.skill,
+				EphemeralSession:        true,
+			})
+			require.NoError(t, err)
+			if tt.cancelStage == "" {
+				require.NoError(t, ctx.Err())
+				require.True(t, response.Success)
+				require.Empty(t, response.ErrorMsg)
+			} else {
+				require.ErrorIs(t, ctx.Err(), context.Canceled)
+				require.False(t, response.Success)
+				require.Contains(t, response.ErrorMsg, "context canceled")
+			}
+			if tt.skill {
+				require.Len(t, response.SkillInvocations, 1)
+			}
+		})
+	}
+}
+
+func TestExecuteReplacementWaitRespectsRequestCancellation(t *testing.T) {
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+	t.Setenv("COPILOT_BASE_URL", "")
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "")
+	oldConstruct, oldEmbeddedPath := sharedConstruct, embeddedCLIPath
+	t.Cleanup(func() {
+		sharedConstruct = oldConstruct
+		embeddedCLIPath = oldEmbeddedPath
+	})
+	embeddedCLIPath = func() (string, error) { return "/tmp/embedded-copilot", nil }
+	ctrl := gomock.NewController(t)
+	firstClient := newClientMock(ctrl)
+	secondClient := NewMockCopilotClient(ctrl)
+	secondClient.EXPECT().Stop().Return(nil)
+	secondClient.EXPECT().GetAuthStatus(gomock.Any()).Return(&copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil)
+	started, release := make(chan struct{}), make(chan struct{})
+	secondClient.EXPECT().Start(gomock.Any()).DoAndReturn(func(context.Context) error {
+		close(started)
+		<-release
+		return nil
+	})
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient { return firstClient }
+	engine := NewCopilotEngineBuilder("test-model", nil).Build()
+	require.NoError(t, engine.Initialize(t.Context()))
+	oldClient := engine.currentClient()
+	engine.retireClient(oldClient)
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient { return secondClient }
+	session := newSessionMock(ctrl)
+	secondClient.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	session.EXPECT().SessionID().Return("replacement")
+	session.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	session.EXPECT().Disconnect().Return(nil)
+	secondClient.EXPECT().DeleteSession(gomock.Any(), "replacement").Return(nil)
+
+	type result struct {
+		response *ExecutionResponse
+		err      error
+	}
+	firstDone := make(chan result, 1)
+	go func() {
+		response, err := engine.Execute(t.Context(), &ExecutionRequest{Message: "start replacement", EphemeralSession: true})
+		firstDone <- result{response, err}
+	}()
+	<-started
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	waitingDone := make(chan error, 1)
+	go func() {
+		_, err := engine.Execute(ctx, &ExecutionRequest{Message: "deadline while waiting"})
+		waitingDone <- err
+	}()
+	var waitingErr error
+	returnedBeforeRelease := false
+	select {
+	case waitingErr = <-waitingDone:
+		returnedBeforeRelease = true
+	case <-time.After(250 * time.Millisecond):
+	}
+	retired := make(chan struct{})
+	go func() {
+		engine.retireClient(oldClient)
+		close(retired)
+	}()
+	retiredBeforeRelease := false
+	select {
+	case <-retired:
+		retiredBeforeRelease = true
+	case <-time.After(250 * time.Millisecond):
+	}
+	close(release)
+	first := <-firstDone
+	if !returnedBeforeRelease {
+		waitingErr = <-waitingDone
+	}
+	<-retired
+	require.NoError(t, engine.Shutdown(context.Background()))
+	require.NoError(t, ShutdownSharedClient(context.Background()))
+	require.NoError(t, first.err)
+	require.True(t, first.response.Success)
+	require.ErrorIs(t, waitingErr, context.DeadlineExceeded)
+	require.True(t, returnedBeforeRelease, "canceled Execute waited for another request's replacement startup")
+	require.True(t, retiredBeforeRelease, "retirement waited for replacement startup")
+	require.False(t, engine.retired.Load(), "retiring the old generation must not retire its replacement")
+}

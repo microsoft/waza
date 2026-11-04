@@ -219,6 +219,56 @@ func TestRunCommandPropagatesCancellationDuringSharedClientShutdown(t *testing.T
 	require.Less(t, time.Since(start), 250*time.Millisecond)
 }
 
+func TestRunCommandPreservesCancellationWhenSharedClientStopSucceeds(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+	}{
+		{name: "healthy"},
+		{name: "parent cancellation", err: context.Canceled},
+		{name: "cleanup deadline", err: context.DeadlineExceeded},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resetRunGlobals()
+			oldRunnerFactory := newBenchmarkRunner
+			t.Cleanup(func() {
+				newBenchmarkRunner = oldRunnerFactory
+				resetRunGlobals()
+			})
+			newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
+				return &successfulBenchmarkRunner{}
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			stopped := false
+			runSharedClientShutdownTimeout = 5 * time.Millisecond
+			shutdownSharedClientForRun = func(cleanupCtx context.Context) error {
+				switch tt.err {
+				case context.Canceled:
+					cancel()
+				case context.DeadlineExceeded:
+					<-cleanupCtx.Done()
+				}
+				stopped = true
+				return nil
+			}
+			cmd := newRunCommand()
+			cmd.SetContext(ctx)
+			cmd.SetArgs([]string{createTestSpec(t, "mock")})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+
+			err := cmd.Execute()
+			require.True(t, stopped)
+			if tt.err == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.err)
+			}
+		})
+	}
+}
+
 func TestSharedClientShutdownObservesCancellationDuringCleanup(t *testing.T) {
 	resetRunGlobals()
 	t.Cleanup(resetRunGlobals)
