@@ -34,8 +34,9 @@ type TestCase struct {
 	FirstEventTimeoutSec *int                 `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
 	CommandMocks         *[]CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
 	// UserInputResponses scripts answers to native SDK user-input requests.
-	// nil leaves the SDK callback unregistered; an empty list registers it
-	// so that any question fails closed.
+	// The eval's config.native_user_input controls whether the callback is
+	// registered. nil or an empty list means no scripted answers; the task's
+	// adaptive responder, if configured, still answers questions.
 	UserInputResponses *[]UserInputResponseConfig `yaml:"user_input_responses,omitempty" json:"user_input_responses,omitempty"`
 	// MCPMocks replace same-named eval mcp_mocks for this task and add new
 	// names; other eval mocks still apply. See EffectiveMCPMocks.

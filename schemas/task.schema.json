@@ -152,7 +152,7 @@
     },
     "user_input_responses": {
       "type": "array",
-      "description": "Ordered scripted answers to native Copilot SDK user-input (ask_user) requests. Presence registers the SDK callback; an empty list makes any question fail closed. Unexpected or unused entries fail the run. Requires config.native_user_input: true in the eval.",
+      "description": "Ordered scripted answers to native Copilot SDK user-input (ask_user) requests. Requires config.native_user_input: true in the eval, which controls whether the SDK callback is registered. An omitted or empty list provides no scripted answers; a configured adaptive responder still answers questions, and any other question fails the run. Unexpected or unused entries fail the run.",
       "items": {
         "$ref": "#/$defs/userInputResponse"
       }
