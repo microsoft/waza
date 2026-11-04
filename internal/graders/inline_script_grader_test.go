@@ -1,6 +1,7 @@
 package graders
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/execution"
@@ -504,6 +506,72 @@ func TestWithRealContextJavascript(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, allAssertionsPassedMsg, results.Feedback)
 	require.True(t, results.Passed)
+}
+
+// TestInlineScriptJavascriptPausedLargeStdin delivers a context larger than the
+// pipe buffer and pauses before writing its end. On Linux and macOS, reading
+// through process.stdin made the pipe non-blocking, so the wrapper failed with
+// EAGAIN as soon as the pipe was momentarily empty. Windows pipes do not
+// reproduce that failure; there this checks that the paused context is still
+// read completely.
+func TestInlineScriptJavascriptPausedLargeStdin(t *testing.T) {
+	skipIfNoJavascript(t)
+
+	const tailSize = 1024
+	output := strings.Repeat("a", 256<<10)
+	g, err := NewInlineScriptGrader("paused-stdin", models.InlineScriptGraderParameters{
+		Language:   models.LanguageJavascript,
+		Assertions: []string{fmt.Sprintf("output.length === %d", len(output)), "transcript.length === 0"},
+	})
+	require.NoError(t, err)
+	stdinText, err := getStdinTextForScript(&Context{Output: output}, g.assertions)
+	require.NoError(t, err)
+	head, tail := stdinText[:len(stdinText)-tailSize], stdinText[len(stdinText)-tailSize:]
+	require.Greater(t, len(head), 64<<10, "the first write must exceed the pipe buffer")
+
+	script := filepath.Join(t.TempDir(), "eval_wrapper."+g.scriptExt)
+	require.NoError(t, os.WriteFile(script, []byte(g.scriptContents), 0o600))
+	stdinReader, stdinWriter, err := os.Pipe()
+	require.NoError(t, err)
+	defer stdinReader.Close() //nolint:errcheck
+	defer stdinWriter.Close() //nolint:errcheck
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, g.scriptBin, script)
+	cmd.Stdin = stdinReader
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	require.NoError(t, cmd.Start())
+	require.NoError(t, stdinReader.Close())
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	// The write returns only after the wrapper has consumed part of the head,
+	// so the pipe drains while the end of the context is withheld.
+	if _, err := stdinWriter.Write(head); err != nil {
+		waitErr := <-exited
+		t.Fatalf("writing the context head failed (%v); wrapper exit: %v; stderr: %s", err, waitErr, stderr.String())
+	}
+	select {
+	case err := <-exited:
+		t.Fatalf("wrapper exited before the context was complete (%v); stderr: %s", err, stderr.String())
+	case <-time.After(time.Second):
+	}
+	_, err = stdinWriter.Write(tail)
+	require.NoError(t, err)
+	require.NoError(t, stdinWriter.Close())
+	err = <-exited
+	require.NoError(t, err, "stderr: %s", stderr.String())
+
+	var result struct {
+		Results          []string          `json:"results"`
+		EvaluationErrors map[string]string `json:"evaluation_errors"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result), "stdout: %s", stdout.String())
+	require.Equal(t, []string{"", ""}, result.Results)
+	require.Empty(t, result.EvaluationErrors)
 }
 
 func TestWithError(t *testing.T) {
