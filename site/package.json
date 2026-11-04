@@ -18,7 +18,9 @@
     "test:chat-metadata": "node --test tests/chat-knowledge.test.mjs",
     "test:chat-types": "tsc -p tsconfig.chat.json",
     "test:docs": "node --test tests/documentation.test.mjs",
-    "test:examples": "node --test tests/examples.test.mjs"
+    "test:examples": "node --test tests/examples.test.mjs",
+    "prerefresh:docs-media": "npm run build",
+    "refresh:docs-media": "WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.42.7",
