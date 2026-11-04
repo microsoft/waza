@@ -1,5 +1,10 @@
 # Existing-workflow compatibility corpus
 
+External definition conversion is separate from preservation of existing native
+workflows. See [External evaluation interoperability](INTEROPERABILITY.md) for
+the assertion-only AgentV preview, exact version pin, oracle evidence, rejected
+lossy mappings and unsupported whole-suite semantics.
+
 This is the offline preservation gate for #658 and the additive work under
 #657. The contract is intended existing v1 behavior, not a new assurance
 feature. The baseline is commit `04e7b4c6d593555834e71221227326c63274a921`;
@@ -22,6 +27,32 @@ preservation suites, uncached. This intentionally reuses the tests and their
 SDK fakes rather than copying them into a second suite. It includes all CLI
 subpackages, every grader and the ownership areas below. Do not substitute
 only the new `Compatibility` selector for the release gate.
+
+Ordinary and `--runner-compat` benchmark summaries use the command's configured
+output writer and propagate write failures, including short writes, as output
+errors (exit 2), before saving the requested result file. The summary text is
+unchanged. Direct `runSingleModel` callers without a Cobra command retain stdout
+output and the same write-error checks.
+
+The recovery lifecycle regressions include a forced readiness deadline and a
+joined child safety kill; an incomplete invocation keeps its exit code
+unavailable. Session inspection and finalization are serialized, including
+native capture, but callers must stop command processes before finalization.
+The SDK judge wire suite uses ordinary lifecycle budgets for admission and
+arms short cleanup bounds only after the relevant phase is reached. Separate
+delayed Start/Create controls require explicit deadline failure before any
+`session.create` request. Sanitized phase/deadline and RPC-method diagnostics
+are retained before count assertions; passing these controls does not identify
+the cause of an earlier uninstrumented timeout.
+
+The real MCP subprocess lifecycle test gives process creation a separate
+30-second setup guard, then starts the unchanged 10-second MCP exchange/EOF
+budget. Cancellation callbacks are joined when changing phases or cleaning up;
+child `Wait` uses a separate three-second join bound. The setup guard detects
+a late `Start` return but cannot interrupt a blocked OS process-creation syscall.
+Fake-time controls cover delayed startup and both phase deadlines; the actual
+MCP caller also exercises a partial-request deadline with stdin still open.
+These controls do not establish why a particular host's startup was slow.
 
 For quick iteration on the new fixtures:
 
@@ -93,7 +124,7 @@ known-field types/constraints. Do not infer a task major-version policy from
 the eval/result policy. Eval/result versionless inputs default to the current
 v1 reader version (`1.4`); explicit same-major versions load, cross-major versions
 require migration. New evaluations and regrades independently write result
-version `1.7`; reading/re-saving historical inputs keeps their declared version
+version `1.8`; reading/re-saving historical inputs keeps their declared version
 and never invents reliability fields. Snapshot versioning is independent of
 result versioning.
 
@@ -117,11 +148,11 @@ stripped from those assertions.
 The frozen `cmd/waza/testdata/compatibility-run-1.4.json` oracle was verified by executing
 the CLI built from an isolated `git archive` of baseline `04e7b4c6` against
 the fixed eval/task inputs. The current CLI process test compares each full raw
-JSON artifact against `compatibility-run-1.7.json`: a separate expected writer
+JSON artifact against `compatibility-run-1.8.json`: a separate expected writer
 artifact differing only in the explicitly advanced result version. A regression
 asserts that this is the only difference; neither schema versions nor reliability
 fields are added to the normalization allowlist. Historical corpus files and the
-original `1.4` and prior-writer `1.5` oracles are not rewritten. A separate two-run comparison still checks repeatability.
+original `1.4`, prior-writer `1.5`, `1.6` and `1.7` oracles are not rewritten. A separate two-run comparison still checks repeatability.
 Mutation tests prove prompt, checkpoint, configuration, billing, score, output
 and removed-field, null/empty, omitted/zero and cardinality drift cannot be
 normalized away. Its volatile allowlist is `eval_id`, `timestamp`,

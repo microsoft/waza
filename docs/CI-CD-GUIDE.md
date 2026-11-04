@@ -12,6 +12,39 @@ Running waza evaluations in CI/CD allows you to:
 - **Gate releases** on evaluation scores
 - **Automate testing** without manual steps
 
+## Waza repository native checks and stacked PRs
+
+Waza's `go-ci.yml` and `squad-ci.yml` run on pull requests targeting any
+base branch, including feature branches used by stacked PRs. Both retain the
+`opened`, `synchronize`, and `reopened` activity types (the GitHub defaults in
+`go-ci.yml`, explicit in `squad-ci.yml`), without PR branch or path filters.
+Push triggers remain restricted to `main`/`develop` in `go-ci.yml` and
+`dev`/`insider` in `squad-ci.yml`.
+
+These are ordinary `pull_request` workflows with `contents: read`, not
+`pull_request_target` or release/dispatch workflows. The existing `Lint`,
+`ubuntu-latest`, and `windows-latest` jobs, four native Linux shards, exhaustive
+test-selection/coverage verification, and pinned lint-schema checks remain
+required; enabling triggers is not evidence that native tests passed.
+
+After integrating a trigger fix into a stack, inspect actual runs on each final
+PR head following a qualifying PR event. Existing runs are not retroactively
+scheduled. Keep the stack and branch protection intact, and obtain current-head
+native Linux/Windows results and independent approvals before merging.
+
+Both lint jobs run the trigger regression test. Run it locally with
+`go test -count=1 -v ./.github/scripts`; it checks default and feature-base
+selection, excluded activity types, unchanged push filters, and mutations of the
+actual workflow sources. Shard and lint failure-handling checks remain
+`bash .github/scripts/go_test_shard_test.sh` and
+`bash .github/scripts/lint_test.sh`.
+
+The Docker dashboard build also consumes `examples/runner/unit.json`, the
+captured request imported by Lab selection validation. Keep its explicit
+`.dockerignore` admission, web-builder `COPY`, and Docker workflow path trigger
+in sync. `go test -count=1 ./.github/scripts` checks these build inputs; an
+actual Docker build is still required to verify container packaging.
+
 ## Prerequisites
 
 - waza binary in your PATH (install with the script below)

@@ -17,29 +17,36 @@ import (
 //
 // Deprecated alias: BenchmarkSpec is provided for backward compatibility.
 type EvalSpec struct {
-	SchemaVersion  string `yaml:"schemaVersion,omitempty" json:"schemaVersion,omitempty"`
-	SpecIdentity   `yaml:",inline"`
-	Scenario       string              `yaml:"scenario,omitempty" json:"scenario,omitempty"`
-	SkillName      string              `yaml:"skill"`
-	Version        string              `yaml:"version"`
-	Config         Config              `yaml:"config"`
-	Hooks          hooks.HooksConfig   `yaml:"hooks,omitempty"`
-	MCPMocks       []MCPMockConfig     `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
-	CommandMocks   []CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
-	Adversarial    *AdversarialConfig  `yaml:"adversarial,omitempty" json:"adversarial,omitempty"`
-	Inputs         map[string]string   `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	TasksFrom      string              `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
-	Range          [2]int              `yaml:"range,omitempty" json:"range,omitempty"`
-	Graders        []GraderConfig      `yaml:"graders"`
-	Metrics        []MeasurementDef    `yaml:"metrics"`
-	Tasks          []string            `yaml:"tasks"`
-	Baseline       bool                `yaml:"baseline,omitempty" json:"baseline,omitempty"`
-	sourceDocument []byte
+	SchemaVersion               string `yaml:"schemaVersion,omitempty" json:"schemaVersion,omitempty"`
+	SpecIdentity                `yaml:",inline"`
+	Scenario                    string              `yaml:"scenario,omitempty" json:"scenario,omitempty"`
+	SkillName                   string              `yaml:"skill"`
+	Version                     string              `yaml:"version"`
+	Config                      Config              `yaml:"config"`
+	Hooks                       hooks.HooksConfig   `yaml:"hooks,omitempty"`
+	MCPMocks                    []MCPMockConfig     `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
+	CommandMocks                []CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
+	Adversarial                 *AdversarialConfig  `yaml:"adversarial,omitempty" json:"adversarial,omitempty"`
+	Inputs                      map[string]string   `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	TasksFrom                   string              `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
+	Range                       [2]int              `yaml:"range,omitempty" json:"range,omitempty"`
+	Graders                     []GraderConfig      `yaml:"graders"`
+	Metrics                     []MeasurementDef    `yaml:"metrics"`
+	Tasks                       []string            `yaml:"tasks"`
+	Baseline                    bool                `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	sourceDocument              []byte
+	capturedMetricsExplicitNull bool
 }
 
 // SourceBytes returns the immutable input document, not normalized model JSON.
 func (s *EvalSpec) SourceBytes() []byte {
 	return bytes.Clone(s.sourceDocument)
+}
+
+// CapturedMetricsExplicitNull reports whether a captured eval spelled metrics
+// as null. Ordinary eval loading and omitted metrics both report false.
+func (s *EvalSpec) CapturedMetricsExplicitNull() bool {
+	return s.capturedMetricsExplicitNull
 }
 
 type SpecIdentity struct {
@@ -538,10 +545,16 @@ func ParseEvalSpec(data []byte, path string) (*EvalSpec, error) {
 // ParseCapturedEvalSpecOffline decodes captured bytes with the same offline schema
 // guards as LoadEvalSpecOffline, without reopening the source.
 func ParseCapturedEvalSpecOffline(data []byte, path string) (*EvalSpec, error) {
-	if err := validateCapturedModelSource(data, false); err != nil {
+	source, err := validateCapturedModelSource(data, false)
+	if err != nil {
 		return nil, err
 	}
-	return parseEvalSpec(data, path, true, nil)
+	spec, err := parseEvalSpec(data, path, true, nil)
+	if err != nil {
+		return nil, err
+	}
+	spec.capturedMetricsExplicitNull = mappingValue(source, "metrics").Tag == "!!null"
+	return spec, nil
 }
 
 // ParseEvalSpecOffline examines immutable bytes with offline schema loading.
@@ -623,23 +636,11 @@ func (s *EvalSpec) Validate() error {
 		}
 	}
 	if len(s.MCPMocks) > 0 {
-		_, minor, err := parseSchemaVersion(s.SchemaVersion)
-		if err != nil {
+		if err := ValidateMCPMocksSchemaVersion(s); err != nil {
 			return err
 		}
-		if minor < 1 && s.Scenario == "" {
-			return fmt.Errorf("mcp_mocks requires schemaVersion 1.1 or newer")
-		}
-		seen := make(map[string]bool, len(s.MCPMocks))
-		for i, mock := range s.MCPMocks {
-			name := strings.TrimSpace(mock.Name)
-			if name == "" {
-				return fmt.Errorf("mcp_mocks[%d].name is required", i)
-			}
-			if seen[name] {
-				return fmt.Errorf("mcp_mocks[%d].name %q is duplicated", i, name)
-			}
-			seen[name] = true
+		if err := ValidateMCPMockNames(s.MCPMocks); err != nil {
+			return err
 		}
 	}
 	if s.CommandMocks != nil {

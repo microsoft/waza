@@ -22,6 +22,183 @@ function cliRunner(env) {
   };
 }
 
+test('every interop command example creates the grader consumed by export', () => {
+  for (const path of [
+    'README.md',
+    'docs/INTEROPERABILITY.md',
+    'site/src/content/docs/guides/external-interoperability.mdx',
+    'site/src/content/docs/reference/cli.mdx',
+  ]) {
+    const fixture = allocateExampleFixture(root);
+    try {
+      const commands = [...read(path).matchAll(/```bash\n([\s\S]*?)```/g)]
+        .map((match) => match[1]).filter((block) => block.includes('waza interop '));
+      assert.ok(commands.length > 0, `${path}: no interop command blocks inspected`);
+      const script = commands.join('\n');
+      assert.equal((script.match(/waza interop import /g) ?? []).length, 1, path);
+      assert.equal((script.match(/waza interop export /g) ?? []).length, 1, path);
+      const upstream = 'internal/interop/testdata/agentv/suite.yaml';
+      mkdirSync(join(fixture.directory, 'internal/interop/testdata/agentv'), { recursive: true });
+      writeFileSync(join(fixture.directory, upstream), readFileSync(join(root, upstream)));
+      const result = spawnSync('bash', ['-euc', `waza() { "$WAZA_BIN" "$@"; }\n${script}`], {
+        cwd: fixture.directory,
+        env: { ...fixture.env, WAZA_BIN: binary },
+        encoding: 'utf8',
+        timeout: 90_000,
+      });
+      assert.equal(result.error, undefined, `${path}: ${result.error}`);
+      assert.equal(result.status, 0, `${path}\n${result.stdout}\n${result.stderr}`);
+      const grader = readFileSync(join(fixture.directory, 'one-native-grader.yaml'), 'utf8');
+      assert.match(grader, /^type: text$/m, path);
+      assert.match(grader, /^    contains_cs:$/m, path);
+      assert.equal(result.stdout, 'metric: agentv-contains\ntype: contains\nvalue: Hello\n', path);
+      assert.match(result.stderr, /ASSERTION-ONLY PROJECTION/, path);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test('interop runnable example retains artifacts and never deletes a replaced scratch entry', () => {
+  for (const replaceScratch of [true, false]) {
+    const fixture = allocateExampleFixture(root);
+    try {
+      const tmp = join(fixture.directory, 'tmp');
+      mkdirSync(tmp);
+      const replacement = join(fixture.directory, 'replace-scratch.sh');
+      writeFileSync(replacement, `#!/usr/bin/env bash
+set -euo pipefail
+set -- "$TMPDIR"/waza-interop-example.*
+test "$#" -eq 1
+mv "$1" "$1.displaced"
+mkdir "$1"
+printf 'competing contents\\n' > "$1/sentinel"
+exit 19
+`, { mode: 0o700 });
+      const result = spawnSync('bash', [
+        join(root, 'examples/interop/run.sh'), replaceScratch ? replacement : binary,
+      ], {
+        cwd: fixture.directory,
+        env: { ...fixture.env, TMPDIR: tmp },
+        encoding: 'utf8',
+        timeout: 90_000,
+      });
+      assert.equal(result.error, undefined, String(result.error));
+      assert.equal(result.status, replaceScratch ? 19 : 0, `${result.stdout}\n${result.stderr}`);
+      const scratch = result.stderr.match(/^Scratch retained at (.+); automatic cleanup is disabled/m)?.[1];
+      assert.ok(scratch, result.stderr);
+      assert.equal(resolve(scratch, '..'), tmp);
+      if (replaceScratch) {
+        assert.equal(readFileSync(join(scratch, 'sentinel'), 'utf8'), 'competing contents\n');
+        assert.ok(existsSync(join(`${scratch}.displaced`, 'grader.yaml')));
+      } else {
+        assert.match(result.stdout, /positive=1, negative=0/);
+        const outcome = JSON.parse(readFileSync(join(scratch, 'results.json'), 'utf8'));
+        assert.equal(outcome.summary.errors, 0);
+        assert.equal(outcome.summary.total_tests, 2);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test('local runner compatibility examples execute the actual CLI and retain local exit policy', () => {
+  const fixture = allocateExampleFixture(root);
+  const run = cliRunner(fixture.env);
+  try {
+    const guide = read('site/src/content/docs/guides/runner-compatibility.mdx');
+    const examples = new Map([...guide.matchAll(/```yaml title="([^"]+)"\n([\s\S]*?)```/g)]
+      .map((match) => [match[1], match[2]]));
+    assert.equal(examples.size, 2);
+    const suite = examples.get('custom-suite.yaml');
+    const task = examples.get('tasks/selected.case.yaml');
+    assert.ok(suite && task);
+    const documentedWriter = guide
+      .match(/Both use (?:historical|the current local) result schema `?(\d+\.\d+)`?/)?.[1];
+    assert.ok(documentedWriter, 'the compatibility guide must identify the local result writer version');
+    const cwd = fixture.directory;
+    mkdirSync(join(cwd, 'tasks'));
+    writeFileSync(join(cwd, 'custom-suite.yaml'), suite);
+    writeFileSync(join(cwd, 'tasks/selected.case.yaml'), task);
+    assert.match(run(['preflight', 'custom-suite.yaml', '--strict'], cwd, 1), /invalid eval\.schema/);
+    run(['run', 'custom-suite.yaml', '--output', 'before.json', '--no-summary'], cwd);
+    run(['run', 'custom-suite.yaml', '--runner-compat', '--output', 'after.json', '--no-summary'], cwd);
+    for (const path of ['before.json', 'after.json']) {
+      const result = JSON.parse(readFileSync(join(cwd, path), 'utf8'));
+      assert.equal(result.schemaVersion, '1.8');
+      assert.equal(result.schemaVersion, documentedWriter, `${path} must match the documented writer version`);
+      assert.equal(result.eval_name, 'compatible-local');
+      assert.equal(result.tasks.length, 1);
+      assert.equal(result.tasks[0].test_id, 'selected');
+      assert.equal(result.tasks[0].runs.length, 1);
+      assert.equal(result.tasks[0].runs[0].attempts, 1);
+      assert.equal(result.tasks[0].runs[0].validations._output_contains.passed, true);
+      assert.equal(result.summary.usage, undefined);
+      assert.equal(result.evaluation_usage.sessions.length, 1);
+      assert.equal(result.evaluation_usage.sessions[0].usage, undefined);
+    }
+    const capture = () => run(['runner', 'adapt', '--eval', 'custom-suite.yaml',
+      '--task', 'tasks/selected.case.yaml', '--run-key', 'qualification-42',
+      '--shard', 'local', '--task-id', 'selected', '--trial', '1', '--attempt', '1'], cwd);
+    const request = capture();
+    assert.equal(JSON.parse(request).input.eval, suite);
+    assert.equal(JSON.parse(request).input.task, task);
+    const dispatch = (action, input, status, env = fixture.env) => {
+      const result = spawnSync(binary, ['runner', action], {
+        cwd, env, input, encoding: 'utf8', timeout: 90_000,
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, status, result.stderr);
+      return JSON.parse(result.stdout);
+    };
+    assert.equal(dispatch('validate', request, 0).status, 'ready');
+    const terminal = dispatch('run', request, 0);
+    assert.equal(terminal.kind, 'waza.runner-terminal');
+    assert.equal(terminal.engine_calls, 1);
+    assert.equal(terminal.outcome, 'success');
+    const bad = replaceExactlyOnce(task, 'output_contains: [hello]', 'output_contains: [missing-marker]');
+    writeFileSync(join(cwd, 'tasks/selected.case.yaml'), bad);
+    run(['run', 'custom-suite.yaml', '--runner-compat', '--output', 'failed.json'], cwd, 1);
+    const failed = JSON.parse(readFileSync(join(cwd, 'failed.json'), 'utf8'));
+    assert.equal(failed.tasks[0].runs[0].validations._output_contains.passed, false);
+    assert.equal(dispatch('run', capture(), 1).outcome, 'evaluation_failure');
+    const alternative = replaceExactlyOnce(task, 'prompt: hello', 'prompt: hello alternative');
+    writeFileSync(join(cwd, 'tasks/selected.case.yaml'), alternative);
+    run(['run', 'custom-suite.yaml', '--runner-compat'], cwd);
+    run(['run', 'custom-suite.yaml', '--runner-compat', '--parallel=false', '--output', 'forbidden.json'], cwd, 2);
+    assert.equal(existsSync(join(cwd, 'forbidden.json')), false);
+    run(['run', 'custom-suite.yaml', '--runner-compat', '--output', 'tasks'], cwd, 2);
+    writeFileSync(join(cwd, 'tasks/selected.case.yaml'), `${task}enabled: false\n`);
+    run(['run', 'custom-suite.yaml', '--runner-compat'], cwd, 2);
+    writeFileSync(join(cwd, 'tasks/selected.case.yaml'), task);
+    const blockedTemporary = join(cwd, 'not-a-temporary-directory');
+    writeFileSync(blockedTemporary, 'owned failure control');
+    const failingEnv = { ...fixture.env, TMPDIR: blockedTemporary, TMP: blockedTemporary, TEMP: blockedTemporary };
+    const failingRun = cliRunner(failingEnv);
+    for (const [mode, flags] of [['ordinary', []], ['adapted', ['--runner-compat']]]) {
+      failingRun(['run', 'custom-suite.yaml', ...flags, '--output', `${mode}-error.json`], cwd, 1);
+      const observed = JSON.parse(readFileSync(join(cwd, `${mode}-error.json`), 'utf8'));
+      assert.equal(observed.tasks.length, 1);
+      assert.equal(observed.tasks[0].status, 'failed');
+      assert.equal(observed.tasks[0].runs.length, 1);
+      assert.equal(observed.tasks[0].runs[0].status, 'error');
+      assert.match(observed.tasks[0].runs[0].error_msg, /failed to create mock workspace/);
+      assert.equal(observed.tasks[0].stats.error_runs, 1);
+      assert.equal(observed.summary.failed, 1);
+      assert.deepEqual(observed.evaluation_usage.sessions, [{}]);
+    }
+    const infrastructure = dispatch('run', capture(), 2, failingEnv);
+    assert.equal(infrastructure.outcome, 'infrastructure_failure');
+    assert.equal(infrastructure.engine_calls, 1);
+    assert.equal(infrastructure.observation.status, 'error');
+    mkdirSync(join(cwd, 'fixtures'));
+    run(['run', 'custom-suite.yaml', '--runner-compat'], cwd, 2);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test('copy/paste scaffold, preflight, mock capture and predicate controls', () => {
   const fixture = allocateExampleFixture(root);
   const scratch = fixture.directory;

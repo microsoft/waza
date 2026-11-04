@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/microsoft/waza/internal/commandmock"
@@ -25,12 +26,105 @@ import (
 )
 
 func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
+	testRecoveryCommandMockDelayCancellationWithFullStderr(t, unix.Poll)
+}
+
+func TestRecoveryCommandMockDelayCancellationWithFullStderrInterruptedPoll(t *testing.T) {
+	calls := 0
+	successes := 0
+	testRecoveryCommandMockDelayCancellationWithFullStderr(t, func(fds []unix.PollFd, timeout int) (int, error) {
+		calls++
+		if calls%2 == 1 {
+			return -1, unix.EINTR
+		}
+		n, err := unix.Poll(fds, timeout)
+		if err == nil {
+			successes++
+		}
+		return n, err
+	})
+	require.GreaterOrEqual(t, calls, 6)
+	require.Equal(t, 3, successes, "all three actual child scenarios must complete their interrupted setup probe")
+}
+
+func recoveryPollNow(fds []unix.PollFd, poll func([]unix.PollFd, int) (int, error)) (int, error) {
+	for range 32 {
+		n, err := poll(fds, 0)
+		if !errors.Is(err, unix.EINTR) {
+			return n, err
+		}
+	}
+	return 0, fmt.Errorf("poll remained interrupted after 32 attempts: %w", unix.EINTR)
+}
+
+func TestRecoveryPollNow(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		interrupts int
+		result     int
+		err        error
+		wantErr    error
+		wantCalls  int
+	}{
+		{name: "nonwritable", wantCalls: 1},
+		{name: "writable is not hidden", result: 1, wantCalls: 1},
+		{name: "interrupted then nonwritable", interrupts: 1, wantCalls: 2},
+		{name: "last permitted probe succeeds", interrupts: 31, wantCalls: 32},
+		{name: "interrupted then writable", interrupts: 1, result: 1, wantCalls: 2},
+		{name: "unexpected error", err: unix.EBADF, wantErr: unix.EBADF, wantCalls: 1},
+		{name: "unexpected error after interruption", interrupts: 1, err: unix.EBADF, wantErr: unix.EBADF, wantCalls: 2},
+		{name: "interrupt storm is bounded", interrupts: 32, wantErr: unix.EINTR, wantCalls: 32},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader, writer, err := os.Pipe()
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, writer.Close())
+				require.NoError(t, reader.Close())
+			})
+			fds := []unix.PollFd{{Fd: int32(writer.Fd()), Events: unix.POLLOUT}}
+			original := append([]unix.PollFd(nil), fds...)
+			calls := 0
+			n, err := recoveryPollNow(fds, func(actual []unix.PollFd, timeout int) (int, error) {
+				require.Equal(t, original, actual)
+				require.Zero(t, timeout, "every retry must remain a nonblocking readiness probe")
+				calls++
+				if calls <= test.interrupts {
+					return -1, fmt.Errorf("interrupted probe: %w", unix.EINTR)
+				}
+				return test.result, test.err
+			})
+			require.ErrorIs(t, err, test.wantErr)
+			require.Equal(t, test.result, n)
+			require.Equal(t, test.wantCalls, calls)
+			_, err = writer.Write([]byte("retained"))
+			require.NoError(t, err, "retry failure must not close caller-owned descriptors")
+			data := make([]byte, len("retained"))
+			_, err = io.ReadFull(reader, data)
+			require.NoError(t, err)
+			require.Equal(t, "retained", string(data))
+		})
+	}
+}
+
+func testRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T, poll func([]unix.PollFd, int) (int, error)) {
 	binary := buildRecoveryCLI(t)
-	for _, signal := range []os.Signal{syscall.SIGTERM, os.Interrupt} {
-		t.Run(signal.String(), func(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		signal os.Signal
+	}{
+		{"terminated", syscall.SIGTERM},
+		{"interrupt", os.Interrupt},
+		{"readiness timeout cleanup", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			expectedCalls := 2
+			if test.signal == nil {
+				expectedCalls = 1
+			}
 			workspace := t.TempDir()
 			session, err := commandmock.NewSession(workspace, []models.CommandMockConfig{{
-				Name: "az", ExpectCalls: new(2), Responses: []models.CommandMockResponse{
+				Name: "az", ExpectCalls: &expectedCalls, Responses: []models.CommandMockResponse{
 					{Args: []string{"unused"}, Stdout: "not selected"},
 					{Args: []string{"account", "show"}, Sequence: []models.CommandMockStep{
 						{DelayMS: 300000, ExitCode: 7, Stdout: "not delivered", Stderr: "not delivered"},
@@ -80,7 +174,7 @@ func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
 			}
 			require.Positive(t, filled)
 			fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}}
-			n, err := unix.Poll(fds, 0)
+			n, err := recoveryPollNow(fds, poll)
 			require.NoError(t, err)
 			require.Zero(t, n, "inherited stderr must be non-writable before starting the shim")
 			require.NoError(t, unix.SetNonblock(fd, false))
@@ -92,6 +186,7 @@ func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
 				child := exec.CommandContext(ctx, binary, "__command-mock", "--root", root, "--name", "az", "--", "account", "show")
 				child.Dir = workspace
 				child.Env = append(env, commandmock.SessionEnvironmentVariable+"="+session.ID(), "WAZA_NO_UPDATE_CHECK=1")
+				child.WaitDelay = time.Second
 				return child
 			}
 			child := command()
@@ -104,16 +199,76 @@ func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
 			t.Cleanup(func() {
 				if !waited {
 					cancel()
-					<-done
+					select {
+					case <-done:
+					case <-time.After(3 * time.Second):
+						t.Error("child cleanup did not join within its bound")
+					}
 				}
 			})
 			marker := filepath.Join(root, "sessions", session.ID(), "sequences", "mock-0000-response-0001", "step-00000000")
-			require.Eventually(t, func() bool {
-				_, err := os.Stat(marker)
-				records := session.Invocations()
-				return err == nil && len(records) == 1 && records[0].ExitCode == nil
-			}, 5*time.Second, 10*time.Millisecond, "child must reserve the selected delayed step before cancellation")
-			require.NoError(t, child.Process.Signal(signal))
+			readyCtx, stopReady := context.WithTimeout(ctx, 5*time.Second)
+			defer stopReady()
+			var markerErr error
+			var records []models.CommandInvocation
+			readyErr := waitRecoveryCondition(readyCtx, func() bool {
+				_, markerErr = os.Stat(marker)
+				records = session.Invocations()
+				return markerErr == nil && len(records) == 1 && records[0].ExitCode == nil
+			})
+			if readyErr != nil {
+				contextErr := ctx.Err()
+				aliveErr := child.Process.Signal(syscall.Signal(0))
+				cancel()
+				var waitErr error
+				select {
+				case waitErr = <-done:
+				case <-time.After(3 * time.Second):
+					t.Fatal("readiness failure cleanup did not join the child within its bound")
+				}
+				waited = true
+				require.NoError(t, emit.Close())
+				emitClosed = true
+				data, drainErr := io.ReadAll(output)
+				t.Fatalf("child did not reserve the delayed step: wait=%v; marker=%v; records=%+v; context before kill=%v; pid=%d; alive=%v; joined wait=%v; state=%v; stdout=%q; stderr tail=%q; drain=%v",
+					readyErr, markerErr, records, contextErr, child.Process.Pid, aliveErr, waitErr, child.ProcessState, stdout.String(), data[min(filled, len(data)):], drainErr)
+			}
+			if test.signal == nil {
+				// Force a readiness deadline after proving actual admission;
+				// cleanup must join inspection before removing session state.
+				timeoutCtx, stop := context.WithTimeout(ctx, 20*time.Millisecond)
+				defer stop()
+				inspections := 0
+				err := waitRecoveryCondition(timeoutCtx, func() bool {
+					inspections++
+					records = session.Invocations()
+					return false
+				})
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.Positive(t, inspections)
+				require.Len(t, records, 1)
+				cancel()
+				select {
+				case err = <-done:
+					waited = true
+				case <-time.After(3 * time.Second):
+					t.Fatal("readiness timeout cleanup did not join the child within its bound")
+				}
+				require.Error(t, err)
+				var killed *exec.ExitError
+				require.ErrorAs(t, err, &killed)
+				status, ok := killed.Sys().(syscall.WaitStatus)
+				require.True(t, ok)
+				require.True(t, status.Signaled())
+				require.Equal(t, syscall.SIGKILL, status.Signal())
+				records, err = session.Close()
+				closed = true
+				require.NoError(t, err)
+				require.Len(t, records, 1)
+				require.Nil(t, records[0].ExitCode, "a safety kill must not invent completion evidence")
+				return
+			}
+			require.NoError(t, child.Process.Signal(test.signal))
 			select {
 			case err = <-done:
 				waited = true
@@ -134,7 +289,7 @@ func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
 			recovered, err := command().CombinedOutput()
 			require.NoError(t, err, "%s", recovered)
 			require.Equal(t, "recovered", string(recovered), "retry must consume the next step")
-			records, err := session.Close()
+			records, err = session.Close()
 			closed = true
 			require.NoError(t, err)
 			require.Len(t, records, 2)
@@ -147,6 +302,47 @@ func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
 			require.Equal(t, new(0), records[1].ExitCode)
 		})
 	}
+}
+
+func TestRecoveryReadinessDeadlineJoinsInspection(t *testing.T) {
+	synctest.Test(t, testRecoveryReadinessDeadlineJoinsInspection)
+}
+
+func testRecoveryReadinessDeadlineJoinsInspection(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	entered, release, joined := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	go func() {
+		joined <- waitRecoveryCondition(ctx, func() bool {
+			close(entered)
+			<-release
+			return false
+		})
+	}()
+	<-entered
+	<-ctx.Done()
+	synctest.Wait()
+	select {
+	case err := <-joined:
+		t.Fatalf("readiness returned before inspection joined: %v", err)
+	default:
+	}
+	close(release)
+	released = true
+	require.ErrorIs(t, <-joined, context.DeadlineExceeded)
+	require.NoError(t, waitRecoveryCondition(t.Context(), func() bool { return true }))
+	expired, stop := context.WithCancel(t.Context())
+	stop()
+	require.ErrorIs(t, waitRecoveryCondition(expired, func() bool {
+		t.Fatal("expired readiness must not inspect session state")
+		return false
+	}), context.Canceled)
 }
 
 func TestRecoveryCommandMockPassThroughOutput(t *testing.T) {
@@ -261,7 +457,7 @@ func TestRecoveryCommandMockPassThroughOutput(t *testing.T) {
 				if blocked {
 					require.EventuallyWithT(t, func(collect *assert.CollectT) {
 						fds := []unix.PollFd{{Fd: int32(emit.Fd()), Events: unix.POLLOUT}}
-						n, err := unix.Poll(fds, 0)
+						n, err := recoveryPollNow(fds, unix.Poll)
 						assert.NoError(collect, err)
 						assert.Zero(collect, n)
 					}, 5*time.Second, 10*time.Millisecond, "inherited host stderr must be full before signaling")
@@ -449,7 +645,7 @@ func TestRecoveryCommandMockOutput(t *testing.T) {
 					require.Equal(t, payload[:len(prefix)], string(prefix))
 					require.EventuallyWithT(t, func(collect *assert.CollectT) {
 						fds := []unix.PollFd{{Fd: int32(emit.Fd()), Events: unix.POLLOUT}}
-						n, err := unix.Poll(fds, 0)
+						n, err := recoveryPollNow(fds, unix.Poll)
 						assert.NoError(collect, err)
 						assert.Zero(collect, n)
 					}, 5*time.Second, 10*time.Millisecond,

@@ -60,6 +60,9 @@ preserve these fields without adding a `return` to an MCP error-only step.
 
 ### Multi-turn MCP sequences
 
+**Source-build preview:** Shared sequence progress across resumed turns requires
+a source build containing #787; published `v0.39.1` does not include that fix.
+
 Sequence state is scoped to one task attempt. Initial, scripted follow-up, and
 responder-driven turns share progress, even when the runtime restarts the mock
 server after resuming the session. Every task, trial, and retry starts at the

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/microsoft/waza/internal/faultsequence"
@@ -52,7 +53,10 @@ type invocationRecord struct {
 }
 
 // Session owns the temporary configuration and invocation history for a task.
+// Invocations and Close may run concurrently. Stop command processes before
+// Close: this lock protects inspection, not external invocation writers.
 type Session struct {
+	mu        sync.RWMutex
 	id        string
 	dir       string
 	logDir    string
@@ -243,7 +247,12 @@ func responseOutput(response models.CommandMockResponse, baseDir string) ([]byte
 // native capture integrity; this legacy accessor cannot report capture errors
 // but omits corrupt or unmatched native receipts.
 func (s *Session) Invocations() []models.CommandInvocation {
-	if s == nil || s.closed {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
 		return nil
 	}
 	if len(s.native) != 0 {
@@ -321,6 +330,8 @@ func (s *Session) Close() ([]models.CommandInvocation, error) {
 	if s == nil {
 		return nil, nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var invocations []models.CommandInvocation
 	var expectationErr error
 	var attempts map[string]int

@@ -240,6 +240,11 @@ Sources: [major API break](https://github.com/microsoft/waza/pull/684#discussion
 
 > **Requires Go 1.26 or later.** The module targets `go 1.26` (`go.mod`), which means Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
 
+The ordinary `cmd/waza` tests and `go test ./...` also require **Node.js 22.18+
+or 24+** on `PATH`. The interoperability conformance test executes the retained
+upstream TypeScript assertion oracle using Node's type stripping; it needs no
+npm packages or inference. Missing Node is a test failure, not a skipped oracle.
+
 ```bash
 # Build
 make build
@@ -336,6 +341,42 @@ dependent job or remove a package without providing exhaustive required shards.
 Exercise discovery and all failure branches with
 `bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
 
+Squad Release and Squad Insider Release reuse the same four native shards and
+30-minute race/atomic package deadline. Their release job explicitly rejects
+failed, cancelled, or skipped shards and verifies all five coverage profiles and
+exactly-once native selection before publication. Test the release wiring with
+`go test -count=1 ./.github/scripts` and the offline runtime/integration controls
+with `bash .github/scripts/release_gate_test.sh`. Release tests and native shards
+install a verified rejecting Copilot runtime. The mock integration requires a
+fresh saved JSON outcome with the four expected tasks and all three trials,
+consistent summary/task/run/grader statuses, and zero errors, skips, or cached
+tasks. Exit 1 is accepted only for completed grader failures, never task/runtime
+errors, cancellation, or missing/incomplete evidence. Any attempted runtime launch
+also fails the gate.
+Inline grader exceptions and text-grader regex configuration errors carry
+`details.evaluation_errors` separately from false assertions and are rejected by
+the integration gate. Both inline runtimes convert each caught exception to a
+message once and reuse it for ordinary failures and structured error evidence.
+The fixed mock example permits no checkpoint results and
+requires grader scores to agree with verdicts (1 for pass, less than 1 for fail).
+Each native shard checks
+its own rejecting runtime marker after tests, including tolerated launches.
+Publication uses `!cancelled()` as well as explicit shard-result checks.
+The SIGTERM regression holds the production CLI inside a blocking grader
+subprocess until cancellation, rather than synchronizing on console output.
+Both workflows execute the production-CLI regression controls
+in `.github/scripts`, including the otherwise indistinguishable task-error exit 1.
+The integration requires `jq` (available on the Ubuntu release runners).
+The fixed release example is hook-free, requires one recorded attempt per run,
+and pins each named grader result to its expected type; retries must not hide
+discarded evaluation exceptions or substitute executable-launch failures.
+Before execution it requires a complete offline preflight report, rejects invalid
+configuration and colliding final grader names (including synthesized expectation
+names), and leaves interpreter/model availability unresolved for the actual guarded
+run to prove. This release-only admission does not change legacy runtime overwrite
+behavior or preflight's default non-strict exit policy.
+This is offline harness evidence, not live agent-quality evidence.
+
 Both Go lint workflows use `.github/scripts/lint.sh` to require configuration
 validation against a checksum-pinned upstream release schema before running lint.
 When upgrading golangci-lint, update both workflow versions and the script's
@@ -361,6 +402,15 @@ exercise default discovery must also change into their fixture directory.
 `ENABLE_COPILOT_TESTS=false` only disables explicitly gated integration tests;
 it does not disable the production SDK execution path. Deterministic CLI gates
 must also use an absolute, verified `COPILOT_CLI_PATH` that rejects runtime launch.
+
+For MCP process-test failures, distinguish CLI build time, OS process creation,
+and protocol exchange/shutdown time. Record elapsed phases and context state
+before cleanup; label invocation setup as `setup_elapsed` and context observed
+immediately after `Start` returns as `post_start_ctx_err`. Inspect output buffers
+only after `Wait` joins their copy
+goroutines. An empty-stderr exit or a test's total duration does not establish a
+protocol failure. Retain fresh production-CLI execution and existing deadlines
+while diagnosing startup delays; a diagnostic-only pass is not a root-cause fix.
 
 ## Documentation Requirements
 

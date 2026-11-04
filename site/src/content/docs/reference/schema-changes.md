@@ -16,11 +16,14 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 ## Versioned artifacts
 
+This table describes the current source-build preview. Published standalone
+`v0.39.1` writes results `1.7`; see [release availability](/waza/reference/releases/).
+
 | Artifact | Field | Current version |
 |---|---|---|
 | Legacy `eval.yaml` | `schemaVersion` | `1.4` |
 | Scenario `eval.yaml` | `schemaVersion` | Exact `2.0`, explicit opt-in |
-| Newly generated `results.json` | `schemaVersion` | `1.7` |
+| Newly generated `results.json` | `schemaVersion` | `1.8` |
 | Historical `results.json` | `schemaVersion` | Declared `1.x`; missing version defaults to `1.4` |
 | Task YAML | No independent version field | Existing legacy format, unchanged |
 | `snapshot.json` | `schemaVersion` | `1.1` (independent artifact) |
@@ -53,7 +56,7 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.
 - **MAJOR** changes are breaking. Legacy readers refuse artifacts from a different major version and point to `waza migrate <file>`; scenario-aware readers additionally accept explicitly selected scenario eval `2.0`.
 - Missing `schemaVersion` in legacy eval/result inputs continues to default to `1.4`. Declared same-major versions remain accepted and unchanged on read/re-save; unknown fields are warned about. Scenario-bearing evals must explicitly select `2.0` and cannot omit the version. Task YAML has no independent version field.
-- New evaluations and regrades write results `1.7`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
+- Current source evaluations and regrades write results `1.8`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
 
 Legacy results and snapshots without consumed evidence retain ordinary JSON
 decoding for opaque tool arguments, grader details and unknown fields, including
@@ -83,6 +86,46 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
 
+### Task-level MCP mocks (task YAML)
+
+- Added optional `mcp_mocks` to task YAML. Each entry replaces the eval-level
+  mock with the same name for that task and a new name adds a mock; other
+  eval-level mocks still apply. This differs from task `command_mocks`, which
+  replace the whole eval list.
+- Task YAML has no version selector. Task mocks require an enclosing eval
+  `schemaVersion` of `1.1` or newer and `executor: copilot-sdk`, and finite
+  sequences require scenario eval `2.0`. An empty list is rejected.
+- A task file that already contained `mcp_mocks` previously got an
+  unknown-field warning and the key was ignored; it is now applied.
+- Result cache keys include each task's effective MCP mocks with fixture
+  contents. Tasks that use MCP mocks get new keys once; tasks without them
+  keep their previous keys. A cached outcome whose runs record a mocked MCP
+  server that the task no longer mocks is re-run. Outcomes cached before
+  results 1.7 record no dependency modes and cannot be checked; clear the
+  cache after removing MCP mocks from such an eval.
+
+### Host lifecycle evidence in results 1.8
+
+- Added optional `runs[].host_lifecycle`, projected only from structured native
+  session events: `model_turns` (`assistant.turn_start`/`turn_end`) and
+  `shells` (built-in shell tool calls naming a `shellId`, plus host
+  `system.notification` shell completions, `shell_exit` result blocks and
+  shell-driver exit codes). Indexes are positions in the run's recorded event
+  stream, so graders can order host completions against model turns.
+- The field is omitted when no native session events were recorded
+  (unavailable, for example mock engines and historical results). Empty
+  `model_turns`/`shells` lists mean events were recorded but none matched.
+  A missing `exit_code` means the host did not report one; it is never zero.
+- Exit codes, shell IDs and turn IDs are never inferred from tool output text,
+  command lines or telemetry. Events emitted after recording ended, such as a
+  detached shell finishing after the session went idle, are absent.
+- Inline `code` graders and `program` graders (via `WAZA_GRADING_CONTEXT`,
+  still context version `1`) receive `host_lifecycle` (null when unavailable) during
+  execution and regrading. Regrading preserves the recorded value. Snapshots do
+  not capture it, so snapshot replays see it as unavailable.
+- The release artifact schema admits the field on run rows. Native text-primitive
+  records reject it because they cannot certify extra capture evidence.
+
 ### Recovery evidence in results 1.7 (#662)
 
 - Finite MCP/CLI sequences require exact eval `schemaVersion: "2.0"`, including
@@ -102,7 +145,8 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 - Added optional per-run `evidence` and scoped `requirement_explanations` to
   results without changing task semantics or historical result versions.
-  New results use the current `1.7` writer version. The dashboard exposes every trial via
+  This feature originally shipped with writer `1.7`; current source writes
+  results `1.8`. The dashboard exposes every trial via
   `evidenceRuns` when any task run has evidence or requirement explanations.
   When all runs lack both, the API omits that field to preserve the legacy
   response shape; the dashboard fallback reports unassessed.

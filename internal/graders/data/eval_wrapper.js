@@ -5,7 +5,7 @@ const process = require("node:process");
 // NOTE: if you're editing this file do NOT print to stdout - we parse that in the caller to determine
 // what's failed.
 
-const inputData = fs.readFileSync(process.stdin.fd, "utf-8");
+const inputData = fs.readFileSync(0, "utf-8");
 const data = (JSON.parse(inputData));
 
 // stderr isn't captured by the caller, so you can use this to do some print debugging.
@@ -22,6 +22,8 @@ const evalContext = {
   tool_calls: data.tool_calls,
   tool_events: data.tool_events || [],
   command_invocations: data.command_invocations || [],
+  // null means host lifecycle evidence is unavailable, not that nothing ran.
+  host_lifecycle: data.host_lifecycle ?? null,
   errors: data.transcript.filter(
     (t) =>
       (t.type && t.type.includes("error")) ||
@@ -53,14 +55,17 @@ vm.createContext(evalContext);
 
 const assertions = data.assertions || [];
 const results = [];
+const evaluationErrors = {};
 
-for (const assertion of assertions) {
+for (const [index, assertion] of assertions.entries()) {
   try {
     const result = vm.runInContext(assertion, evalContext, { timeout: 5000 });
     results.push(!!result ? "" : "fail");
   } catch (err) {
-    results.push(String(err));
+    const message = String(err);
+    results.push(message);
+    evaluationErrors[index] = message;
   }
 }
 
-process.stdout.write(JSON.stringify({ results }));
+process.stdout.write(JSON.stringify({ results, evaluation_errors: evaluationErrors }));

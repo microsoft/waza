@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/runner-negotiation-response-1.0.schema.json",
+  "title": "Waza runner negotiation response 1.0 (not execution evidence)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "status", "negotiation", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.runner-negotiation"},
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["compatible", "unsupported_version", "unsupported_capability", "invalid_request"]},
+    "negotiation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requested_versions", "required_capabilities", "optional_capabilities", "available_capabilities", "selected_capabilities", "unavailable_optional_capabilities"],
+      "properties": {
+        "version": {"const": "1.0"},
+        "requested_versions": {"type": "array", "items": {"type": "string"}},
+        "required_capabilities": {"$ref": "#/$defs/strings"},
+        "optional_capabilities": {"$ref": "#/$defs/strings"},
+        "available_capabilities": {"$ref": "#/$defs/strings"},
+        "selected_capabilities": {"$ref": "#/$defs/strings"},
+        "unavailable_optional_capabilities": {"$ref": "#/$defs/strings"}
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": {"code": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "compatible"}}},
+      "then": {
+        "properties": {
+          "negotiation": {"required": ["version"]},
+          "diagnostics": {"maxItems": 0}
+        }
+      },
+      "else": {
+        "properties": {
+          "diagnostics": {"minItems": 1},
+          "negotiation": {"properties": {"selected_capabilities": {"maxItems": 0}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["invalid_request", "unsupported_version"]}}},
+      "then": {"properties": {"negotiation": {"not": {"required": ["version"]}}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "unsupported_capability"}}},
+      "then": {"properties": {"negotiation": {"required": ["version"]}}}
+    }
+  ],
+  "$defs": {
+    "strings": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

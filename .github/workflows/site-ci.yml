@@ -15,7 +15,10 @@ on:
     paths:
       - 'site/**'
       - 'docs/**'
+      - 'examples/interop/**'
       - 'README.md'
+      - 'CHANGELOG.md'
+      - 'version.txt'
       - 'registry.json'
       - 'cmd/waza/**'
       - 'internal/**'
@@ -25,6 +28,9 @@ on:
       - 'Makefile'
       - 'web/**'
       - '.github/workflows/site-ci.yml'
+      - '.github/workflows/docker-ci.yml'
+      - '.github/workflows/publish-runner-reference.yml'
+      - '.github/workflows/verify-runner-reference.yml'
       - '.github/workflows/pages.yml'
   pull_request:
     branches: [main]
@@ -57,14 +63,26 @@ jobs:
               - 'site/**'
               - 'docs/**'
               - 'README.md'
+              - 'CHANGELOG.md'
+              - 'version.txt'
               - 'registry.json'
+              - 'go.mod'
+              - 'internal/embedded/**'
               - 'internal/models/outcome.go'
+              - 'internal/models/schema_version.go'
+              - 'internal/runneridentity/testdata/**'
+              - 'internal/runnerunit/testdata/**'
+              - 'internal/runnerterminal/testdata/**'
               - 'schemas/**'
               - '.github/workflows/site-ci.yml'
+              - '.github/workflows/docker-ci.yml'
+              - '.github/workflows/publish-runner-reference.yml'
+              - '.github/workflows/verify-runner-reference.yml'
               - '.github/workflows/pages.yml'
             examples:
               - 'site/**'
               - 'docs/**'
+              - 'examples/interop/**'
               - 'README.md'
               - 'registry.json'
               - 'cmd/waza/**'
@@ -80,7 +98,7 @@ jobs:
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.22.0'
+          node-version: '24'
           cache: npm
           cache-dependency-path: site/package-lock.json
 
@@ -157,7 +175,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.22.0'
+          node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
 

@@ -11,8 +11,107 @@ const catalogInputs = {
   schema: 'schemas/eval.schema.json',
   catalogs: ['README.md', 'site/src/content/docs/guides/graders.mdx'],
 };
+const embeddedTargets = ['darwin_amd64', 'darwin_arm64', 'linux_amd64', 'linux_arm64', 'windows_amd64', 'windows_arm64'];
+const embeddedFiles = embeddedTargets.flatMap((target) => [
+  `internal/embedded/zcopilot_${target}.go`,
+  `internal/embedded/zcopilot_inprocess_${target}.go`,
+]);
+const embeddedAssets = embeddedFiles.flatMap((path) =>
+  [...read(path).matchAll(/^\/\/go:embed (\S+)$/gm)]
+    .map((match) => `internal/embedded/${match[1]}`));
+const releaseInputs = [
+  'version.txt', 'registry.json', 'go.mod', 'CHANGELOG.md',
+  'internal/models/schema_version.go', ...embeddedFiles, ...embeddedAssets,
+];
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
+
+test('local container conformance is selected by its production build inputs', () => {
+  const workflow = read('.github/workflows/docker-ci.yml');
+  for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
+    '.github/scripts/testdata/runner-runtime/**', '.github/scripts/testdata/native-bundle-probe/**',
+    'cmd/**', 'internal/**', 'web/**', 'schemas/**',
+    'go.mod', 'go.sum', 'version.txt', 'docs.go', 'docs/graders/**', '.dockerignore',
+    '.github/workflows/docker-ci.yml']) {
+    assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
+  }
+  assert.match(workflow, /paths: &docker-paths/);
+  assert.match(workflow, /paths: \*docker-paths/);
+  assert.match(workflow, /^permissions:\n  contents: read/m);
+  const job = workflow.split('\n  runner-reference:\n')[1];
+  assert.ok(job, 'real container job exists');
+  assert.match(job, /timeout-minutes: 30/);
+  assert.match(job, /lfs: true/);
+  assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
+  assert.match(job, /run: node --test examples\/runner\/container\/native-test\.mjs/);
+  assert.doesNotMatch(job, /continue-on-error|if:/);
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
+  assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
+
+test('manual runner publisher remains fail-closed and unpublished', () => {
+  const workflow = read('.github/workflows/publish-runner-reference.yml');
+  assert.match(workflow, /^on:\n  workflow_dispatch:/m);
+  assert.doesNotMatch(workflow, /^  (push|pull_request|pull_request_target):/m);
+  assert.match(workflow, /packages: write/);
+  assert.match(workflow, /linux\/amd64/);
+  assert.match(workflow, /org\.opencontainers\.image\.revision/);
+  const maintainers = read('examples/runner/container/MAINTAINERS.md');
+  assert.match(maintainers, /manual-only GHCR publisher/);
+  assert.match(maintainers, /has not been dispatched/);
+  assert.match(maintainers, /permissions are\s+declared but have not been verified/);
+  assert.match(maintainers, /signed\s+GitHub provenance\s+attestation binds the published image digest/);
+  assert.doesNotMatch(maintainers, /spboyer-native-container-integration/);
+  assert.match(maintainers, /empty Docker configuration/);
+  assert.match(maintainers, /manual-only `\.github\/workflows\/verify-runner-reference\.yml` workflow/);
+
+  const verifier = read('.github/workflows/verify-runner-reference.yml');
+  assert.match(verifier, /^on:\n  workflow_dispatch:/m);
+  assert.doesNotMatch(verifier, /^  (push|pull_request|pull_request_target):/m);
+  assert.match(verifier, /attestations: read/);
+  assert.doesNotMatch(verifier, /packages: (read|write)/);
+  assert.match(verifier, /node --test examples\/runner\/container\/published-image-test\.mjs/);
+  assert.match(verifier, /gh attestation verify/);
+  assert.doesNotMatch(verifier, /docker login/);
+  const publishedTest = read('examples/runner/container/published-image-test.mjs');
+  assert.match(publishedTest, /RepoDigests\.includes\(imageReference\)/);
+  assert.match(publishedTest, /org\.opencontainers\.image\.revision/);
+  assert.match(publishedTest, /runNamedContainer\(command, mockName/);
+  assert.match(publishedTest, /runNamedContainer\(command, nativeName/);
+});
+
+test('runner identity fixtures trigger consumer validation and publication without skipping new specs', () => {
+  const web = read('.github/workflows/web-ci.yml');
+  for (const path of ['internal/runnerunit/**', 'internal/runneridentity/**', 'internal/runnerterminal/**', 'examples/runner/**']) {
+    assert.equal(web.split(`'${path}'`).length - 1, 2, `${path} must trigger push and PR filtering`);
+  }
+  const site = read('.github/workflows/site-ci.yml');
+  const deploy = read('.github/workflows/pages.yml');
+  for (const path of [
+    '.github/workflows/publish-runner-reference.yml',
+    '.github/workflows/verify-runner-reference.yml',
+  ]) {
+    assert.equal(site.split(`'${path}'`).length - 1, 2,
+      `${path} must select both push and PR site documentation checks`);
+  }
+  for (const path of ['internal/runnerunit/testdata/**', 'internal/runneridentity/testdata/**', 'internal/runnerterminal/testdata/**']) {
+    assert.ok(site.includes(`'${path}'`), `${path} must select the site build`);
+    assert.ok(deploy.includes(`'${path}'`), `${path} must select publication`);
+  }
+  for (const workflow of [web, site, deploy]) {
+    assert.match(workflow, /^permissions:\n/m);
+    assert.match(workflow, /timeout-minutes:/);
+  }
+  assert.match(web, /playwright test --project=chromium --retries=0/);
+  assert.match(site, /npm run test:e2e -- --project=chromium --retries=0/);
+  assert.match(read('web/playwright.config.ts'), /testDir: "\.\/e2e"/);
+  assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
+  assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-compatibility.spec.ts')));
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-identities.spec.ts')));
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-terminal.spec.ts')));
+  assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
 
 function anchors(text) {
   const ids = new Set();
@@ -74,8 +173,7 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
   }
 });
 
-test('every catalog input enables PR site checks and the main push workflow', () => {
-  const workflow = read('.github/workflows/site-ci.yml');
+function assertSiteDiscovery(workflow, inputs) {
   const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
   const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
   const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
@@ -86,10 +184,11 @@ test('every catalog input enables PR site checks and the main push workflow', ()
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
-  for (const input of Object.values(catalogInputs).flat()) {
-    assert.ok(paths(site).some((pattern) => matches(pattern, input)), `${input}: PR site filter excludes catalog input`);
-    assert.ok(paths(push).some((pattern) => matches(pattern, input)), `${input}: main push gate excludes catalog input`);
+  for (const input of inputs) {
+    assert.ok(paths(site).some((pattern) => matches(pattern, input)), `${input}: PR site filter excludes documentation input`);
+    assert.ok(paths(push).some((pattern) => matches(pattern, input)), `${input}: main push gate excludes documentation input`);
   }
+  assert.ok(!paths(site).some((pattern) => matches(pattern, 'internal/cache/cache.go')), 'unrelated Go code must not select the PR site build');
   const build = workflow.match(/^      - name: Build site\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   assert.ok(build, 'site build step must exist');
   assert.match(build, /if: steps\.filter\.outputs\.site == 'true' \|\| github\.event_name == 'push'/);
@@ -97,19 +196,82 @@ test('every catalog input enables PR site checks and the main push workflow', ()
   const scripts = JSON.parse(read('site/package.json')).scripts;
   assert.equal(scripts.prebuild, 'npm run test:docs');
   assert.equal(scripts['test:docs'], 'node --test tests/documentation.test.mjs');
+}
+
+test('every catalog, release and Docker workflow input enables PR site checks and the main push workflow', () => {
+  assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml']);
+});
+
+test('Docker guard discovery rejects removal from either production site selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const input = '.github/workflows/docker-ci.yml';
+  for (const [selector, line, diagnostic] of [
+    ['push', `      - '${input}'\n`, /main push gate excludes documentation input/],
+    ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
+    assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
+});
+
+function assertInteropExampleDiscovery(workflow) {
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
+  const examples = workflow.match(/^            examples:\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  for (const [name, block] of [['main push gate', push], ['PR examples filter', examples]]) {
+    assert.ok(block, `${name} must exist`);
+    const patterns = [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
+    assert.ok(patterns.includes('examples/interop/**'), `${name} must select script-only interop changes`);
+  }
+  assert.match(workflow, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(workflow, /if: needs\.build\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/);
+}
+
+test('interop script-only changes select executable controls and selector removal fails closed', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertInteropExampleDiscovery(workflow);
+  for (const [line, diagnostic] of [
+    ["      - 'examples/interop/**'\n", /main push gate must select script-only interop changes/],
+    ["              - 'examples/interop/**'\n", /PR examples filter must select script-only interop changes/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, 'mutation must remove the actual selector');
+    assert.throws(() => assertInteropExampleDiscovery(mutated), diagnostic);
+  }
 });
 
 test('site validation and deployment pin a supported Astro Node runtime', () => {
   const lock = JSON.parse(read('site/package-lock.json'));
-  assert.match(lock.packages['node_modules/astro'].engines.node, />=22\.22\.0/);
+  assert.match(lock.packages['node_modules/astro'].engines.node, />=22\.23\.4/);
   for (const path of ['.github/workflows/site-ci.yml', '.github/workflows/pages.yml']) {
     const versions = [...read(path).matchAll(/node-version: '([^']+)'/g)].map((match) => match[1]);
     assert.ok(versions.length > 0, `${path}: expected an explicit Node version`);
     for (const version of versions) {
-      assert.equal(version, '22.22.0', `${path}: keep site CI and deployment on the supported pinned runtime`);
+      assert.equal(version, '24', `${path}: keep site CI and deployment on the supported Node major`);
     }
   }
-  assert.match(read('site/README.md'), /Use Node\.js 22\.22\.0 or later/);
+  assert.match(read('site/README.md'), /Node\.js 22\.23\.4\+ \(22\.x\)/);
+  assert.match(read('site/README.md'), /Pages workflows use Node\.js 24/);
+});
+
+test('source development prerequisites agree with the locked frontend engines', () => {
+  const site = JSON.parse(read('site/package-lock.json')).packages;
+  const web = JSON.parse(read('web/package-lock.json')).packages;
+  assert.equal(site['node_modules/astro'].engines.node, '>=22.23.4');
+  assert.equal(site['node_modules/astro'].engines.npm, '>=9.6.5');
+  assert.equal(web['node_modules/eslint'].engines.node, '^20.19.0 || ^22.13.0 || >=24');
+  assert.equal(web['node_modules/vite'].engines.node, '^20.19.0 || >=22.12.0');
+  for (const path of [
+    'README.md', 'docs/GUIDE.md', 'site/src/content/docs/getting-started.mdx',
+    'site/src/content/docs/quick-start.mdx', 'site/src/content/docs/about.mdx',
+    'site/src/content/docs/reference/releases.mdx', 'site/src/content/docs/guides/ci-cd.mdx',
+    'site/src/content/docs/guides/docs-assistant.mdx',
+  ]) {
+    const text = read(path);
+    assert.match(text, /Node(?:\.js)? 22\.23\.4\+/, `${path}: document the shared Node 22 minimum`);
+    assert.match(text, /npm 9\.6\.5\+/, `${path}: document the site npm minimum`);
+  }
 });
 
 test('onboarding and active grader docs reject obsolete example contracts', () => {
@@ -260,9 +422,113 @@ test('extension installation guidance identifies the current registry version', 
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
 });
 
+test('release entry points agree on published versions and the current runner result writer', () => {
+  const published = read('version.txt').trim();
+  assert.match(published, /^\d+\.\d+\.\d+$/);
+  const readme = read('README.md').replace(/\s+/g, ' ');
+  assert.equal(readme.match(/published standalone CLI is `v([^`]+)`/)?.[1], published);
+  assert.equal(
+    read('site/src/content/docs/reference/releases.mdx')
+      .match(/^## Current published standalone release: v(\S+)$/m)?.[1],
+    published,
+  );
+
+  const registry = JSON.parse(read('registry.json'));
+  const extension = registry.extensions.find(({ id }) => id === 'microsoft.azd.waza');
+  assert.ok(extension);
+  const latest = extension.versions.map(({ version }) => version)
+    .toSorted((a, b) => a.localeCompare(b, 'en', { numeric: true })).at(-1);
+  assert.equal(readme.match(/registry currently lists through `([^`]+)`/)?.[1], latest);
+
+  const writer = read('internal/models/schema_version.go')
+    .match(/CurrentResultSchemaVersion = "([^"]+)"/)?.[1];
+  assert.match(writer ?? '', /^\d+\.\d+$/);
+  const escapedWriter = writer.replace('.', '\\.');
+  const compatibilityRow = read('site/src/content/docs/guides/runner-compatibility.mdx')
+    .match(/^\| Local results \| ([^|]+)\|/m)?.[1];
+  assert.match(compatibilityRow ?? '', new RegExp(`\\bschema ${escapedWriter}\\b`));
+  const preview = read('docs/PRD.md').split('The v0.40.0 runner preview')[1]?.split('### The Problem')[0];
+  assert.match(preview ?? '', new RegExp(`result schema ${escapedWriter}\\b`));
+  const changelogEntry = read('CHANGELOG.md').split('\n')
+    .find((line) => line.startsWith('- **Bounded local compatibility'));
+  assert.match(changelogEntry ?? '', new RegExp(`writer schema ${escapedWriter}\\b`));
+
+  const sdk = read('go.mod').match(/github\.com\/github\/copilot-sdk\/go v(\S+)/)?.[1];
+  const bundledCLI = read('internal/embedded/zcopilot_darwin_arm64.go').match(/Version:\s+"([^"]+)"/)?.[1];
+  assert.ok(sdk && bundledCLI);
+  for (const path of embeddedFiles) {
+    const target = path.match(/(darwin|linux|windows)_(amd64|arm64)\.go$/)?.[0].slice(0, -3);
+    assert.ok(target, `${path}: expected an embedded CLI target`);
+    const bundled = read(path);
+    const executable = `zcopilot_${bundledCLI}_${target}${target.startsWith('windows_') ? '.exe' : ''}`;
+    assert.equal(bundled.match(/Version:\s+"([^"]+)"/)?.[1], bundledCLI, `${path}: embedded CLI version mismatch`);
+    assert.ok(bundled.includes(`//go:embed ${executable}.zst`), `${path}: embedded CLI bundle mismatch`);
+    assert.ok(bundled.includes(`//go:embed ${executable}.license`), `${path}: embedded CLI license mismatch`);
+    const runtimeAssets = [...bundled.matchAll(/^\/\/go:embed (zcopilotruntime(?:wrapper|assets)?_\S+)$/gm)]
+      .map((match) => match[1]);
+    assert.equal(runtimeAssets.length, target.startsWith('linux_') ? 6 : 3, `${path}: missing runtime companions`);
+    for (const asset of [`${executable}.zst`, `${executable}.license`, ...runtimeAssets]) {
+      assert.ok(asset.includes(`_${bundledCLI}_`), `${path}: ${asset} version mismatch`);
+      const location = resolve(root, 'internal/embedded', asset);
+      assert.ok(existsSync(location) && statSync(location).isFile() && statSync(location).size > 0, `${path}: missing ${asset}`);
+    }
+  }
+  assert.ok(read('site/src/content/docs/reference/cli.mdx').includes(
+    `github.com/github/copilot-sdk/go\` v${sdk} with bundled CLI ${bundledCLI}`,
+  ));
+  const runtimeEntry = read('CHANGELOG.md').split('\n')
+    .find((line) => line.startsWith('- **Copilot runtime dependencies**'));
+  assert.ok(runtimeEntry?.includes(`Go SDK to \`${sdk}\` and bundled CLI to \`${bundledCLI}\``));
+  assert.ok(read('site/src/content/docs/guides/custom-agents.mdx').includes(
+    `The bundled Copilot CLI ${bundledCLI} uses the \`workflow\` permission kind.`,
+  ));
+});
+
+test('new feature guides identify the unpublished source-build boundary', () => {
+  const homepage = read('site/src/content/docs/index.mdx')
+    .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
+  assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
+  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+full external task\/suite interoperability remain incomplete/);
+  assert.match(homepage ?? '', /\[source-built container guide\]\(\/waza\/guides\/runner-container\/\)/);
+  assert.match(homepage ?? '', /default mock-only scratch image from the native-capable exact-unit reference/);
+  assert.match(homepage ?? '', /\[selected AgentV assertion preview\]\(\/waza\/guides\/external-interoperability\/\)/);
+
+  const overview = read('site/src/content/docs/reference/releases.mdx')
+    .split('## Source-build v0.40.0 preview')[1]?.split('<span id=')[0];
+  assert.match(overview ?? '', /not a published\s+v0\.40\.0 release/);
+  assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
+  assert.match(overview ?? '', /General native file\/tool\/skill workflows and full external task\/suite interoperability remain incomplete/);
+  assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
+  assert.match(overview ?? '', /\[selected AgentV assertion preview\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
+  assert.match(overview ?? '', /`waza interop import\/export`/);
+  assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);
+  const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.39.1]')[0];
+  assert.match(unreleased ?? '', /Selected AgentV assertion interoperability \(v0\.40\.0 preview\)/);
+  assert.match(unreleased ?? '', /`waza interop import\/export`/);
+  assert.match(unreleased ?? '', /not whole-task\/suite support/);
+  assert.match(unreleased ?? '', /#789 remains open/);
+  assert.match(overview ?? '', /\[local container foundation\]\(\.\.\/\.\.\/guides\/runner-container\/\)/);
+  assert.match(overview ?? '', /pinned published-image acceptance remains outstanding/);
+  assert.match(overview ?? '', /manual-only GHCR publisher is defined in source but has not been dispatched/);
+  assert.match(overview ?? '', /separate manual verifier\s+is prepared to anonymously pull the exact digest/);
+
+  for (const [path, heading] of [
+    ['site/src/content/docs/guides/eval-yaml.mdx', '### Task-level MCP mocks'],
+    ['site/src/content/docs/guides/graders.mdx', '#### Background shell lifecycle'],
+    ['site/src/content/docs/guides/graders.mdx', '## Program'],
+    ['site/src/content/docs/guides/dependency-recovery.mdx', '### Multi-turn MCP sequences'],
+    ['site/src/content/docs/guides/dashboard-lab.mdx', '### Read a multi-turn conversation'],
+  ]) {
+    const section = read(path).split(heading)[1]?.split(/\n#{2,4} /)[0];
+    assert.match(section ?? '', /\*\*Source-build preview:\*\*/, `${path}: ${heading}`);
+    assert.match(section ?? '', /v0\.39\.1/, `${path}: ${heading}`);
+  }
+});
+
 test('published workflow guides do not require unreleased main for v0.39.0 features', () => {
   const paths = [
     'README.md', 'docs/GETTING-STARTED.md', 'docs/GUIDE.md',
+    'docs/TUTORIAL.md', 'docs/CONTROLLED-COMPARISONS.md',
     'site/src/content/docs/index.mdx',
     'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/quick-start.mdx',
     'site/src/content/docs/concepts.mdx', 'site/src/content/docs/about.mdx',

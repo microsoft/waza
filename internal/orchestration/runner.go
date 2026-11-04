@@ -62,6 +62,7 @@ type EvalRunner struct {
 	evidenceExecutor graders.Executor
 	verbose          bool
 	controlledOutput func(string)
+	usesEvalMCP      bool
 
 	// newClassifier builds a responder classifier for a task. Overridable in
 	// tests; defaults to a responder backed by the runner's engine.
@@ -84,6 +85,8 @@ type EvalRunner struct {
 
 	// Lifecycle hooks
 	hookRunner *hooks.Runner
+	// setup is a before_run execution not yet consumed by a benchmark pass.
+	setup *RunSetup
 
 	// Progress tracking
 	progressMu sync.Mutex
@@ -112,6 +115,16 @@ type EvalRunner struct {
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
 	evalRunID string
+
+	partialMu       sync.Mutex
+	partialWriteMu  sync.Mutex
+	partialWriter   func(*models.EvaluationOutcome) error
+	partialOutcomes []models.TestOutcome
+	partialStart    time.Time
+	partialUsage    *execution.UsageScope
+	partialErr      error
+	partialCancel   context.CancelCauseFunc
+	partialPrimary  *models.EvaluationOutcome
 }
 
 // ProgressListener receives progress updates
@@ -150,6 +163,14 @@ type ProgressEvent struct {
 
 // RunnerOption configures a EvalRunner.
 type RunnerOption func(*EvalRunner)
+
+// WithSupplementalEvalMCP admits eval mocks needed by phases outside the benchmark.
+// Standalone runners default to admitting only selected-task dependencies.
+func WithSupplementalEvalMCP(enabled bool) RunnerOption {
+	return func(r *EvalRunner) {
+		r.usesEvalMCP = enabled
+	}
+}
 
 // WithTaskFilters sets glob patterns used to filter test cases by DisplayName or TestID.
 func WithTaskFilters(patterns ...string) RunnerOption {
@@ -243,6 +264,13 @@ func WithWazaVersion(v string) RunnerOption {
 	}
 }
 
+// WithPartialOutcomeWriter persists a current incomplete outcome after each trial.
+func WithPartialOutcomeWriter(write func(*models.EvaluationOutcome) error) RunnerOption {
+	return func(r *EvalRunner) {
+		r.partialWriter = write
+	}
+}
+
 // NewEvalRunner creates a new test runner. The caller owns the engine and is responsible for initializing and shutting it down as needed.
 func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...RunnerOption) *EvalRunner {
 	r := &EvalRunner{
@@ -294,13 +322,58 @@ func (r *EvalRunner) notifyProgress(event ProgressEvent) {
 	}
 }
 
+// WithRunSetup hands a setup that already ran to the runner. Its first
+// benchmark pass uses it instead of running before_run again and owns its
+// teardown; the caller may still call Teardown, which is then a no-op.
+func WithRunSetup(setup *RunSetup) RunnerOption {
+	return func(r *EvalRunner) {
+		r.setup = setup
+	}
+}
+
+// takeSetup returns the pending setup for a benchmark pass, starting a new one
+// when none is pending (for example, the second baseline pass).
+func (r *EvalRunner) takeSetup(ctx context.Context) (*RunSetup, error) {
+	setup := r.setup
+	r.setup = nil
+	if setup != nil {
+		return setup, nil
+	}
+	return StartRunSetup(ctx, r.cfg, r.verbose)
+}
+
 // RunBenchmark executes the entire benchmark
 // If Baseline is enabled, runs twice: skills-enabled and skills-disabled
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
-	if err := mcpmock.ValidateEvalMocks(r.cfg.Spec().MCPMocks, r.cfg.SpecDir(), r.cfg.Spec().SchemaVersion); err != nil {
-		return nil, fmt.Errorf("MCP mock admission: %w", err)
+	// before_run may generate task inputs, so it runs before tasks are loaded
+	// for MCP admission and before the engine starts. The first benchmark pass
+	// consumes this setup; an earlier failure still runs after_run once.
+	if r.setup == nil {
+		setup, err := StartRunSetup(ctx, r.cfg, r.verbose)
+		if err != nil {
+			return nil, err
+		}
+		r.setup = setup
+	}
+	// A pass that never starts (admission or engine failure) must not leave
+	// this setup pending: it is torn down here, and a retry on the same runner
+	// must run before_run again.
+	setup := r.setup
+	defer func() {
+		r.setup = nil
+		setup.Teardown(ctx)
+	}()
+	if err := r.admitEvalMCPMocks(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if err := r.engine.Initialize(ctx); err != nil {
+		return nil, err
+	}
+	// Initialization can change task inputs; re-admit without repeating setup.
+	if err := r.admitEvalMCPMocks(); err != nil {
 		return nil, err
 	}
 
@@ -327,6 +400,9 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 		return r.runBaselineComparison(evalCtx)
 	}
 
+	r.partialMu.Lock()
+	r.partialPrimary = nil
+	r.partialMu.Unlock()
 	return r.runNormalBenchmark(evalCtx)
 }
 
@@ -334,24 +410,25 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
 	ctx, usageScope := execution.NewUsageScope(ctx)
 	startTime := time.Now()
+	ctx, cancelPartial := context.WithCancelCause(ctx)
+	defer cancelPartial(nil)
 
 	// Set up hooks runner
 	spec := r.cfg.Spec()
 	r.hookRunner = &hooks.Runner{Verbose: r.verbose}
 
-	// Run after_run hooks on exit (even on error)
-	defer func() {
-		if len(spec.Hooks.AfterRun) > 0 {
-			if err := r.hookRunner.Execute(ctx, "after_run", spec.Hooks.AfterRun); err != nil {
-				fmt.Printf("[WARN] after_run hook error: %v\n", err)
-			}
-		}
-	}()
-
-	// Run before_run hooks
-	if len(spec.Hooks.BeforeRun) > 0 {
-		if err := r.hookRunner.Execute(ctx, "before_run", spec.Hooks.BeforeRun); err != nil {
-			return nil, fmt.Errorf("before_run hook failed: %w", err)
+	// The first pass uses the setup that ran before admission; a later pass
+	// (the second baseline pass) runs before_run again. after_run runs on exit,
+	// even on error.
+	alreadyAdmitted := r.setup != nil
+	setup, err := r.takeSetup(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer setup.Teardown(ctx)
+	if !alreadyAdmitted {
+		if err := r.admitEvalMCPMocks(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -382,6 +459,13 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	if len(testCases) == 0 {
 		return nil, fmt.Errorf("no test cases found")
 	}
+	r.partialMu.Lock()
+	r.partialOutcomes = make([]models.TestOutcome, len(testCases))
+	r.partialStart = startTime
+	r.partialUsage = usageScope
+	r.partialErr = nil
+	r.partialCancel = cancelPartial
+	r.partialMu.Unlock()
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkStart,
 		TotalTests: len(testCases),
@@ -398,7 +482,28 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		testOutcomes = r.runSequential(ctx, testCases)
 	}
 
-	// Compute statistics
+	outcome := r.buildOutcome(testOutcomes, startTime, usageScope.Snapshot())
+	execution.UpdateOutcomeUsage(outcome, r.engine)
+	r.partialMu.Lock()
+	partialErr := r.partialErr
+	r.partialMu.Unlock()
+	if partialErr != nil {
+		return outcome, partialErr
+	}
+	if err := context.Cause(ctx); err != nil {
+		return outcome, err
+	}
+
+	r.notifyProgress(ProgressEvent{
+		EventType:  EventBenchmarkComplete,
+		DurationMs: time.Since(startTime).Milliseconds(),
+	})
+
+	return outcome, nil
+}
+
+func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime time.Time, usage *models.EvaluationUsage) *models.EvaluationOutcome {
+	spec := r.cfg.Spec()
 	digest := BuildDigest(testOutcomes, time.Since(startTime).Milliseconds(), spec.Config.TrialsPerTask)
 	// Reuse RunBenchmark's evalRunID when set so snapshots written during
 	// per-run execution correlate with this outcome's RunID; fall back to
@@ -427,16 +532,9 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		Measures:        make(map[string]models.MeasureResult),
 		TestOutcomes:    testOutcomes,
 		Metadata:        make(map[string]any),
-		EvaluationUsage: usageScope.Snapshot(),
+		EvaluationUsage: usage,
 	}
-	execution.UpdateOutcomeUsage(outcome, r.engine)
-
-	r.notifyProgress(ProgressEvent{
-		EventType:  EventBenchmarkComplete,
-		DurationMs: time.Since(startTime).Milliseconds(),
-	})
-
-	return outcome, nil
+	return outcome
 }
 
 // runBaselineComparison orchestrates A/B testing: skills-enabled vs skills-disabled
@@ -457,6 +555,14 @@ func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 	if err != nil {
 		return nil, fmt.Errorf("skills-enabled run failed: %w", err)
 	}
+	r.partialMu.Lock()
+	r.partialPrimary = outcomesWithSkills
+	r.partialMu.Unlock()
+	defer func() {
+		r.partialMu.Lock()
+		r.partialPrimary = nil
+		r.partialMu.Unlock()
+	}()
 
 	// PASS 2: Skills Disabled (baseline)
 	savedSkillPaths := spec.Config.SkillPaths
@@ -629,6 +735,51 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	fmt.Println("════════════════════════════════════════════════════════════════")
 }
 
+// AdmitEvalMCPMocks admits the MCP mocks that a run with these filters would
+// start, without starting an engine: each selected active task's own mocks and
+// every eval mock that at least one selected task still uses. An eval mock that
+// every selected task replaces is never started, so only its inline
+// declarations are validated.
+func AdmitEvalMCPMocks(cfg *config.EvalConfig, taskFilters, tagFilters []string) error {
+	return AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, false)
+}
+
+// AdmitEvalMCPMocksForPhases includes eval dependencies consumed by a caller's
+// supplemental phase. Standalone EvalRunner executes only task phases.
+func AdmitEvalMCPMocksForPhases(cfg *config.EvalConfig, taskFilters, tagFilters []string, usesEvalMCP bool) error {
+	r := &EvalRunner{cfg: cfg, taskFilters: taskFilters, tagFilters: tagFilters}
+	return r.admitMCPMocksForPhases(usesEvalMCP)
+}
+
+func (r *EvalRunner) admitEvalMCPMocks() error {
+	return r.admitMCPMocksForPhases(r.usesEvalMCP)
+}
+
+func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
+	testCases, selectionErr := r.admissionTestCases()
+	// Failed selection cannot establish task overrides, but must not hide
+	// independent eval mock errors or allow engine initialization.
+	if err := mcpmock.ValidateMCPMocksForPhases(r.cfg.Spec(), testCases, r.cfg.SpecDir(), usesEvalMCP); err != nil {
+		return errors.Join(selectionErr, fmt.Errorf("MCP mock admission: %w", err))
+	}
+	return selectionErr
+}
+
+// admissionTestCases selects the active tasks a run would execute, after task
+// and tag filters, without starting an engine.
+func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
+	testCases, err := r.loadTestCases()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load test cases: %w", err)
+	}
+	if len(r.taskFilters) > 0 || len(r.tagFilters) > 0 {
+		testCases, err = FilterTestCases(testCases, r.taskFilters, r.tagFilters)
+		if err != nil {
+			return nil, fmt.Errorf("task/tag filter error: %w", err)
+		}
+	}
+	return testCases, nil
+}
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
 	spec := r.cfg.Spec()
 
@@ -686,6 +837,15 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		if tc.CommandMocks != nil {
 			if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+			}
+		}
+		if len(tc.MCPMocks) > 0 {
+			if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
+				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+			}
+			// Fixtures are admitted only for selected active tasks; see admitEvalMCPMocks.
+			if err := mcpmock.ValidateInlineMockDeclarations(tc.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion); err != nil {
+				return nil, fmt.Errorf("invalid test case %s: MCP mock admission: %w", path, err)
 			}
 		}
 		// Only include active test cases
@@ -748,13 +908,15 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 		if r.hookRunner != nil && len(spec.Hooks.BeforeTask) > 0 {
 			if err := r.hookRunner.Execute(ctx, "before_task", spec.Hooks.BeforeTask); err != nil {
 				// before_task failure with error_on_fail: mark task as failed and skip
-				outcomes = append(outcomes, models.TestOutcome{
+				outcome := models.TestOutcome{
 					TestID:      tc.TestID,
 					DisplayName: tc.DisplayName,
 					Golden:      tc.Golden,
 					Status:      models.StatusFailed,
 					Runs:        []models.RunResult{},
-				})
+				}
+				outcomes = append(outcomes, outcome)
+				r.publishPartialTestOutcome(i+1, outcome)
 				r.notifyProgress(ProgressEvent{
 					EventType:  EventTestComplete,
 					TestName:   tc.DisplayName,
@@ -778,6 +940,9 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 		outcome, wasCached := r.runTest(ctx, tc, i+1, len(testCases))
 		r.writeTaskTranscript(tc, outcome, taskStart)
 		outcomes = append(outcomes, outcome)
+		if ctx.Err() != nil {
+			return outcomes
+		}
 
 		// Run after_task hooks
 		if r.hookRunner != nil && len(spec.Hooks.AfterTask) > 0 {
@@ -836,13 +1001,15 @@ func (r *EvalRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 			// Run before_task hooks
 			if r.hookRunner != nil && len(spec.Hooks.BeforeTask) > 0 {
 				if err := r.hookRunner.Execute(ctx, "before_task", spec.Hooks.BeforeTask); err != nil {
-					resultChan <- result{index: idx, outcome: models.TestOutcome{
+					outcome := models.TestOutcome{
 						TestID:      test.TestID,
 						DisplayName: test.DisplayName,
 						Golden:      test.Golden,
 						Status:      models.StatusFailed,
 						Runs:        []models.RunResult{},
-					}}
+					}
+					resultChan <- result{index: idx, outcome: outcome}
+					r.publishPartialTestOutcome(idx+1, outcome)
 					r.notifyProgress(ProgressEvent{
 						EventType:  EventTestComplete,
 						TestName:   test.DisplayName,
@@ -927,18 +1094,26 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 	if r.cache != nil && spec.Scenario == "" && !models.UsesJudgeEvidence(spec.Graders, tc) {
 		cacheKey, err := cache.CacheKeyWithSpecDir(spec, tc, r.cfg.FixtureDir(), r.cfg.SpecDir())
 		if err == nil {
-			if cachedOutcome, found := r.cache.Get(cacheKey); found {
-				// Return cached outcome with cached flag. Stats derive from the
-				// cached runs, so recompute them in case an older waza wrote them.
-				cachedOutcome.Cached = true
-				cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
-				return *cachedOutcome, true
+			if cachedOutcome, found := r.cache.Get(cacheKey); found && cache.RecordedMCPMocksMatch(cachedOutcome, models.EffectiveMCPMocks(spec, tc)) {
+				if len(cachedOutcome.Runs) != spec.Config.TrialsPerTask {
+					fmt.Fprintf(os.Stderr, "[WARN] Ignoring incomplete cache entry for test %q: got %d/%d trials\n",
+						tc.DisplayName, len(cachedOutcome.Runs), spec.Config.TrialsPerTask)
+				} else {
+					// Return cached outcome with cached flag. Stats derive from the
+					// cached runs, so recompute them in case an older waza wrote them.
+					cachedOutcome.Cached = true
+					cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
+					r.publishPartialTestOutcome(testNum, *cachedOutcome)
+					return *cachedOutcome, true
+				}
 			}
 			// Run the test and cache the result
 			outcome := r.runTestUncached(taskCtx, tc, testNum, totalTests)
 			// Store in cache and log any failures
-			if err := r.cache.Put(cacheKey, &outcome); err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] Failed to write cache for test %q: %v\n", tc.DisplayName, err)
+			if len(outcome.Runs) == spec.Config.TrialsPerTask && taskCtx.Err() == nil {
+				if err := r.cache.Put(cacheKey, &outcome); err != nil {
+					fmt.Fprintf(os.Stderr, "[WARN] Failed to write cache for test %q: %v\n", tc.DisplayName, err)
+				}
 			}
 			return outcome, false
 		}
@@ -1003,6 +1178,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 		}
 
 		runs = append(runs, run)
+		r.publishPartialOutcome(testNum, tc, runs)
 
 		r.notifyProgress(ProgressEvent{
 			EventType:  EventRunComplete,
@@ -1015,22 +1191,23 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 			DurationMs: run.DurationMs,
 			Details:    map[string]any{"workspace_dir": run.WorkspaceDir, "session_digest": run.SessionDigest},
 		})
+		if ctx.Err() != nil {
+			break
+		}
 	}
 
-	// Compute test statistics
-	stats := ComputeTestStats(runs)
+	return r.buildTestOutcome(tc, runs)
+}
 
-	// Determine overall status
-	status := overallStatus(runs)
-
+func (r *EvalRunner) buildTestOutcome(tc *models.TestCase, runs []models.RunResult) models.TestOutcome {
 	return models.TestOutcome{
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
 		Group:       r.resolveGroup(),
 		Golden:      tc.Golden,
-		Status:      status,
+		Status:      overallStatus(runs),
 		Runs:        runs,
-		Stats:       stats,
+		Stats:       ComputeTestStats(runs),
 	}
 }
 
@@ -1062,14 +1239,21 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 }
 
 func (r *EvalRunner) executeAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int) models.RunResult {
-	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, nil, false)
+	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, nil, false).run
 }
 
 func (r *EvalRunner) executeRunWithAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest) models.RunResult {
-	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, prepared, attempt > 0)
+	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, prepared, attempt > 0).run
 }
 
-func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) models.RunResult {
+// Keep the in-process cause separate from the historical serialized run result.
+// Legacy callers consume the observation; inline callers also classify the cause.
+type attemptResult struct {
+	run   models.RunResult
+	cause error
+}
+
+func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) attemptResult {
 	startTime := time.Now()
 	var req *execution.ExecutionRequest
 	var resp *execution.ExecutionResponse
@@ -1078,10 +1262,11 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var promptJudging []models.PromptJudgeObservation
 	var mockAttempt *copilotconfig.MCPMockAttempt
 	diagnosticCategory := "setup"
-	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+	returnWithArtifacts := func(run models.RunResult, cause error) attemptResult {
 		if closeErr := mockAttempt.Close(); closeErr != nil {
 			run.Status = models.StatusError
 			cleanupErr := fmt.Errorf("clean up MCP mock attempt state: %w", closeErr)
+			cause = errors.Join(cause, cleanupErr)
 			if run.ErrorMsg != "" {
 				cleanupErr = fmt.Errorf("%s; %w", run.ErrorMsg, cleanupErr)
 			}
@@ -1101,6 +1286,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			if run.ToolEvents == nil {
 				run.ToolEvents = buildToolEvents(copilotevents.ToSDK(resp.Events))
 			}
+			if run.HostLifecycle == nil {
+				run.HostLifecycle = buildHostLifecycle(copilotevents.ToSDK(resp.Events))
+			}
 			if run.CommandInvocations == nil {
 				run.CommandInvocations = resp.CommandInvocations
 			}
@@ -1114,17 +1302,18 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				run.FinalOutput = resp.FinalOutput
 			}
 		}
-		run.DependencyModes = configuredDependencyModes(req, r.cfg.Spec().MCPMocks)
+		run.DependencyModes = configuredDependencyModes(req, models.EffectiveMCPMocks(r.cfg.Spec(), tc))
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
-		return run
+		return attemptResult{run: run, cause: cause}
 	}
 
 	// Prepare execution request
 	if controlled && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
+		err := fmt.Errorf("evidence_context is not supported by controlled execution")
 		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError,
-			ErrorMsg: "evidence_context is not supported by controlled execution"})
+			ErrorMsg: err.Error()}, err)
 	}
 	req = prepared
 	if req == nil {
@@ -1137,7 +1326,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, err)
 	}
 
 	// Open the per-turn span around the initial Execute call. Follow-ups
@@ -1171,13 +1360,14 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, err)
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
 	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
-	if controlled && err == nil && execCtx.Err() != nil {
-		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execCtx.Err())
+	execErr := execCtx.Err()
+	if controlled && err == nil && execErr != nil {
+		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execErr)
 	}
 	if controlled && err == nil && resp == nil {
 		err = fmt.Errorf("controlled execution returned no actual response")
@@ -1187,13 +1377,19 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	cancelExec()
 	if err != nil {
+		cause := err
+		if controlled && execErr != nil && !errors.Is(err, execErr) {
+			// Preserve the observed engine error text and both typed causes;
+			// cancellation above must not manufacture a new execution cause.
+			cause = errors.Join(err, execErr)
+		}
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
 			Prompt:     req.Message,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, cause)
 	}
 
 	markToolPolicyViolation(resp)
@@ -1269,7 +1465,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		selection, selectionErr := judgeevidence.Selection(r.cfg.Spec().Graders, tc)
 		if selectionErr != nil {
 			return returnWithArtifacts(models.RunResult{RunNumber: runNum, Prompt: req.Message,
-				Status: models.StatusError, ErrorMsg: selectionErr.Error()})
+				Status: models.StatusError, ErrorMsg: selectionErr.Error()}, selectionErr)
 		}
 		origin, originErr := snapshot.CaptureOrigin(snapshot.CaptureInput{EvalID: r.evalRunID, Task: tc,
 			Run: &models.RunResult{RunNumber: runNum, Attempts: attempt}})
@@ -1312,7 +1508,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				ErrorMsg:       "running graders: " + err.Error(),
 				SessionDigest:  r.buildSessionDigest(resp),
 				GraderSessions: resp.GraderSessions,
-			})
+			}, fmt.Errorf("running graders: %w", err))
 		}
 	}
 
@@ -1399,9 +1595,84 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		Responder:          responderInfo,
 		Checkpoints:        checkpointOutcomes,
 		ToolEvents:         buildToolEvents(sdkEvents),
+		HostLifecycle:      buildHostLifecycle(sdkEvents),
 		CommandInvocations: commandInvocations,
 	}
-	return returnWithArtifacts(run)
+	return returnWithArtifacts(run, err)
+}
+
+func (r *EvalRunner) publishPartialOutcome(testNum int, tc *models.TestCase, runs []models.RunResult) {
+	if r.partialWriter == nil {
+		return
+	}
+	r.publishPartialTestOutcome(testNum, r.buildTestOutcome(tc, cloneRunResultsForPartial(runs)))
+}
+
+func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.TestOutcome) {
+	if r.partialWriter == nil {
+		return
+	}
+	r.partialWriteMu.Lock()
+	defer r.partialWriteMu.Unlock()
+
+	r.partialMu.Lock()
+	if r.partialErr != nil {
+		r.partialMu.Unlock()
+		return
+	}
+
+	r.partialOutcomes[testNum-1] = cloneTestOutcomeForPartial(testOutcome)
+	testOutcomes := make([]models.TestOutcome, 0, len(r.partialOutcomes))
+	for _, outcome := range r.partialOutcomes {
+		if outcome.TestID != "" || outcome.DisplayName != "" {
+			testOutcomes = append(testOutcomes, cloneTestOutcomeForPartial(outcome))
+		}
+	}
+	start := r.partialStart
+	usage := r.partialUsage
+	writer := r.partialWriter
+	cancel := r.partialCancel
+	var primary *models.EvaluationOutcome
+	if r.partialPrimary != nil {
+		copy := *r.partialPrimary
+		copy.Metadata = maps.Clone(r.partialPrimary.Metadata)
+		primary = &copy
+	}
+	r.partialMu.Unlock()
+
+	outcome := r.buildOutcome(testOutcomes, start, usage.Snapshot())
+	execution.UpdateOutcomeUsage(outcome, r.engine)
+	if primary != nil {
+		primary.IsBaseline = true
+		primary.BaselineOutcome = outcome
+		outcome = primary
+	}
+	if outcome.Metadata == nil {
+		outcome.Metadata = make(map[string]any)
+	}
+	outcome.Metadata["incomplete"] = true
+	if err := writer(outcome); err != nil {
+		partialErr := fmt.Errorf("write partial results: %w", err)
+		r.partialMu.Lock()
+		if r.partialErr == nil {
+			r.partialErr = partialErr
+		}
+		r.partialMu.Unlock()
+		cancel(partialErr)
+	}
+}
+
+func cloneTestOutcomeForPartial(outcome models.TestOutcome) models.TestOutcome {
+	outcome.Runs = cloneRunResultsForPartial(outcome.Runs)
+	return outcome
+}
+
+func cloneRunResultsForPartial(runs []models.RunResult) []models.RunResult {
+	cloned := append([]models.RunResult(nil), runs...)
+	for i := range cloned {
+		cloned[i].GraderSessions = append([]models.SessionDigest(nil), runs[i].GraderSessions...)
+	}
+	return cloned
 }
 
 // captureSnapshot writes recorded snapshot observations for the given run
@@ -1584,7 +1855,7 @@ func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {
 
 func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, error) {
 	return r.buildExecutionRequestWithMCP(tc, func(spec *models.EvalSpec) (map[string]copilot.MCPServerConfig, error) {
-		return copilotconfig.ResolveMCPServersWithVersion(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
+		return copilotconfig.ResolveMCPServersWithVersion(spec.Config.ServerConfigs, models.EffectiveMCPMocks(spec, tc), r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
 	})
 }
 
@@ -1592,7 +1863,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 func (r *EvalRunner) buildAttemptExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, *copilotconfig.MCPMockAttempt, error) {
 	var attempt *copilotconfig.MCPMockAttempt
 	req, err := r.buildExecutionRequestWithMCP(tc, func(spec *models.EvalSpec) (map[string]copilot.MCPServerConfig, error) {
-		servers, owned, err := copilotconfig.ResolveMCPServersForAttempt(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
+		servers, owned, err := copilotconfig.ResolveMCPServersForAttempt(spec.Config.ServerConfigs, models.EffectiveMCPMocks(spec, tc), r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
 		attempt = owned
 		return servers, err
 	})
@@ -2296,6 +2567,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		SessionID:          resp.SessionID,
 		Session:            &sessionDigest,
 		ToolEvents:         buildToolEvents(sdkEvents),
+		HostLifecycle:      buildHostLifecycle(sdkEvents),
 		CommandInvocations: resp.CommandInvocations,
 		Executor:           r.engine,
 		JudgeModelFallback: r.cfg.Spec().Config.ModelID,

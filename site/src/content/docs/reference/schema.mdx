@@ -39,8 +39,9 @@ Current native grader bindings do not certify historical grader correspondence.
 
 ## Portable evidence
 
-Tasks retain their legacy format; new results use `1.7` and historical results
-retain their declared `1.x` versions or the missing-version `1.4` reader default.
+Tasks retain their legacy format; current source writes results `1.8`, while
+published `v0.39.1` writes `1.7`. Historical results retain their declared
+`1.x` versions or the missing-version `1.4` reader default.
 Snapshot schema `1.1` adds optional `evidence`
 and selected `workspaceFiles`; the portable manifest has an independent
 `version: "1.0"`. Legacy artifacts still load without assessed evidence.
@@ -262,7 +263,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.7`
+**Default:** legacy eval schema version (`1.4`); current source result writers independently emit `1.8` (published `v0.39.1` writes `1.7`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
@@ -345,6 +346,8 @@ mcp_mocks:
 | `delay_ms` | integer | Per-step delay from 0 to 300,000 ms; not a host/process timeout guarantee |
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture. Finite `sequence` responses are available only in scenario evals using exact `schemaVersion: "2.0"`; each matching call consumes one step, sequences contain 1–100 steps, and optional step delays are bounded at 300,000 ms.
+
+In the **source-build preview**, a task can replace an eval-level mock by name with its own [`mcp_mocks`](#mcp_mocks-optional) entry. Published `v0.39.1` does not apply task-level mocks. Other eval-level mocks remain available to that task.
 
 Unmatched-call diagnostics omit argument values, including nested payloads. A
 canceled or expired context at the in-process handler's tool-call admission
@@ -779,6 +782,20 @@ expected: # Required: validation rules
     max_tool_calls: 5
 ```
 
+### inputs.environment (unsupported)
+
+This compatibility field is accepted as a string-to-string map, but its values
+are **not applied** during task execution. A non-empty map emits a task-load
+warning and an unsupported `task.environment` preflight diagnostic without
+printing variable names or values. Omitted or empty maps emit neither.
+Existing run exit policies are unchanged; preflight remains warning-only by
+default and retains its existing `--strict` failure policy.
+
+Remove this field and configure required environment variables outside Waza
+before starting the process. The Copilot client process is shared across tasks,
+so this is not per-task environment isolation. Native snapshot execution
+continues to reject non-empty task environment maps.
+
 ### id
 
 **Type:** string  
@@ -859,6 +876,36 @@ Replace the eval-level command mock list for this task. The enclosing eval must 
 
 ```yaml
 command_mocks: []
+```
+
+### mcp_mocks (optional)
+
+**Source-build preview:** Published `v0.39.1` does not apply task-level
+`mcp_mocks`.
+
+Replace or add MCP mocks for this task. Each entry replaces the eval-level [`mcp_mocks`](#mcp_mocks) entry with the same name for this task only, and a new name adds a mock; other eval-level mocks still apply. Entries use the eval-level fields. The enclosing eval must use `schemaVersion: "1.1"` or newer and `executor: copilot-sdk`, and finite response sequences require scenario eval schema `2.0`. Relative `fixtures` paths resolve from the eval directory. The list must not be empty; omit it to use the eval-level mocks.
+
+An eval mock that every selected task replaces is unused by those tasks, but its
+fixtures are skipped only when no trigger phase needs it; its inline tools are
+still validated. Trigger tests use eval-level mocks and live servers, not task
+replacements. An eval-level mock still shadows the same-named live server in that
+phase. Successfully parsed trigger tests with the mock executor are synthesized
+without MCP; unresolved trigger discovery or parsing conservatively retains
+eval-level dependencies during preflight. See the
+[preflight dependency rules](/waza/guides/preflight/).
+
+Task loading and filter errors are reported before engine startup. Admission validates inline mock `input_schema` declarations offline, even on replaced eval mocks. Schemas must be self-contained (internal `$ref` values are supported); omission or `null` retains the default tool schema.
+
+```yaml
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_regex: { question: "(?i)publish" }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
 ```
 
 ## inputs Section
