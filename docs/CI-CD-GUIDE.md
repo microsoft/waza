@@ -14,14 +14,15 @@ Running waza evaluations in CI/CD allows you to:
 
 ## Waza repository native checks and stacked PRs
 
-Waza's `go-ci.yml` and `squad-ci.yml` run on pull requests targeting any
-base branch, including feature branches used by stacked PRs. Both retain the
-`opened`, `synchronize`, and `reopened` activity types (the GitHub defaults in
-`go-ci.yml`, explicit in `squad-ci.yml`), without PR branch or path filters.
-Push triggers remain restricted to `main`/`develop` in `go-ci.yml` and
-`dev`/`insider` in `squad-ci.yml`.
+Waza's single `go-ci.yml` workflow runs on pull requests targeting any base
+branch, including feature branches used by stacked PRs. It retains the
+`opened`, `synchronize`, and `reopened` default activity types without PR branch
+or path filters. Push triggers cover `main`, `develop`, `dev`, and `insider`.
+The former `squad-ci.yml` duplicated the same validation and has been removed.
+Superseded PR runs are cancelled within the same workflow/event/ref; push
+validation and release publication are not cancelled by that PR policy.
 
-These are ordinary `pull_request` workflows with `contents: read`, not
+This is an ordinary `pull_request` workflow with `contents: read`, not
 `pull_request_target` or release/dispatch workflows. The existing `Lint`,
 `ubuntu-latest`, and `windows-latest` jobs, four native Linux shards, exhaustive
 test-selection/coverage verification, and pinned lint-schema checks remain
@@ -32,12 +33,33 @@ PR head following a qualifying PR event. Existing runs are not retroactively
 scheduled. Keep the stack and branch protection intact, and obtain current-head
 native Linux/Windows results and independent approvals before merging.
 
-Both lint jobs run the trigger regression test. Run it locally with
+The lint job runs the trigger regression test. Run it locally with
 `go test -count=1 -v ./.github/scripts`; it checks default and feature-base
-selection, excluded activity types, unchanged push filters, and mutations of the
+selection, excluded activity types, the union of prior push branches, and mutations of the
 actual workflow sources. Shard and lint failure-handling checks remain
 `bash .github/scripts/go_test_shard_test.sh` and
 `bash .github/scripts/lint_test.sh`.
+
+The four native Linux shards use deterministic longest-first duration balancing.
+`.github/scripts/go_test_shard_durations.tsv` records observed top-level
+race/atomic durations and their source run. Update it from top-level test results,
+not overlapping subtest times. Timing history affects placement only: discovery
+still determines the complete inventory, new tests receive the median historical
+duration, and removed tests are never resurrected. Python 3 (provided by the
+Ubuntu runner) computes the plan. Every shard still retains its 30-minute test
+deadline, atomic coverage, full discovery inventory, and selected test names;
+the aggregate gate verifies identical inventories and exactly-once selection.
+
+Squad Release and Squad Insider Release run remaining-package validation in
+parallel with these shards. Publication waits for both branches to succeed,
+verifies all five coverage profiles and native selection, and downloads the
+binary produced by the validated build rather than rebuilding it. Failed,
+cancelled, skipped, or missing evidence must prevent publication.
+
+Site change detection is a short prerequisite job. Site browser validation and
+offline documentation examples then run independently. Dashboard Chromium tests
+use two CI workers at file granularity; serial process-backed suites retain their
+ordering, and all tests still run with zero retries in dashboard CI.
 
 The Docker dashboard build also consumes `examples/runner/unit.json`, the
 captured request imported by Lab selection validation. Keep its explicit
