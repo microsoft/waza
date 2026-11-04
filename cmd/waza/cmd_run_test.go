@@ -350,6 +350,68 @@ func TestRunCommand_OutputJSON(t *testing.T) {
 	assert.Equal(t, "test-skill", result["skill"])
 }
 
+func TestRunCommand_GroupByTags(t *testing.T) {
+	resetRunGlobals()
+
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.yaml")
+	require.NoError(t, os.WriteFile(taskPath, []byte(`id: smoke
+name: Smoke
+tags: [smoke]
+inputs:
+  prompt: "Reply DOGFOOD_OK."
+`), 0o644))
+
+	specPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(`schemaVersion: "2.0"
+name: grouping-repro
+scenario: synthetic-reply
+version: "1.0"
+config:
+  executor: mock
+  model: offline
+  trials_per_task: 1
+  timeout_seconds: 5
+  group_by: tags
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 1
+tasks: ["task.yaml"]
+graders:
+  - type: text
+    name: response
+    config:
+      regex_match: ["(?s).+"]
+`), 0o644))
+
+	outFile := filepath.Join(dir, "result.json")
+	var output bytes.Buffer
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--output", outFile})
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, output.String(), "RESULTS BY GROUP")
+	assert.Contains(t, output.String(), "smoke:")
+	assert.NotContains(t, output.String(), "unknown group_by")
+
+	data, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+	var outcome models.EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &outcome))
+	require.Len(t, outcome.TestOutcomes, 1)
+	assert.Equal(t, "smoke", outcome.TestOutcomes[0].Group)
+	require.Len(t, outcome.Digest.Groups, 1)
+	assert.Equal(t, models.GroupStats{
+		Name:     "smoke",
+		Passed:   1,
+		Total:    1,
+		AvgScore: 1,
+	}, outcome.Digest.Groups[0])
+}
+
 func TestRunCommand_ReporterJUnit(t *testing.T) {
 	resetRunGlobals()
 
