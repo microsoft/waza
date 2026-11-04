@@ -453,6 +453,8 @@ Each `expected_files` entry supports:
   responder replies remain counted in `responder.followups_sent` even if their
   capture fails; replies that fail setup or execution, time out, or are canceled
   are not counted, including when capture also fails.
+  Capture-failed responses returned alongside execution errors also retain their
+  observations and reject workspace evidence from earlier turns.
 </Aside>
 
 <Tabs>

@@ -1870,19 +1870,13 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
 		followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
 		cancelFollow()
+		if mergeLaterTurnResponse(resp, followResp, err) {
+			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+		}
+		turnSpan.End()
 		if err != nil {
-			turnSpan.End()
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d failed: %v", i+1, len(tc.Stimulus.FollowUps), err)
 			break
-		}
-
-		resp.CommandInvocations = followResp.CommandInvocations
-		markToolPolicyViolation(followResp)
-		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-		turnSpan.End()
-		mergeToolPolicyResult(resp, followResp)
-		if followResp.ErrorMsg == "" || followResp.WorkspaceCaptureError != "" {
-			mergeCompletedTurnResponse(resp, followResp)
 		}
 		message := followResp.ErrorMsg
 		if message == "" {
@@ -2022,16 +2016,12 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
 	followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
 	cancelFollow()
+	if mergeLaterTurnResponse(resp, followResp, err) {
+		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+	}
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d failed: %v", turn, err)
 		return false, false
-	}
-	resp.CommandInvocations = followResp.CommandInvocations
-	markToolPolicyViolation(followResp)
-	emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-	mergeToolPolicyResult(resp, followResp)
-	if followResp.ErrorMsg == "" || followResp.WorkspaceCaptureError != "" {
-		mergeCompletedTurnResponse(resp, followResp)
 	}
 	message := followResp.ErrorMsg
 	if message == "" {
@@ -2042,6 +2032,21 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 		return false, followResp.WorkspaceCaptureError != "" && followResp.ExecutionSucceeded
 	}
 	return true, true
+}
+
+// Capture-failed partial responses still carry observations and must invalidate
+// prior workspace evidence even when execution also returned a Go error.
+func mergeLaterTurnResponse(resp, turn *execution.ExecutionResponse, executionErr error) bool {
+	if executionErr != nil && (turn == nil || turn.WorkspaceCaptureError == "") {
+		return false
+	}
+	resp.CommandInvocations = turn.CommandInvocations
+	markToolPolicyViolation(turn)
+	mergeToolPolicyResult(resp, turn)
+	if turn.ErrorMsg == "" || turn.WorkspaceCaptureError != "" {
+		mergeCompletedTurnResponse(resp, turn)
+	}
+	return true
 }
 
 func mergeCompletedTurnResponse(resp, turn *execution.ExecutionResponse) {

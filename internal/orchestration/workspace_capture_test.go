@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -147,14 +148,20 @@ func TestSkipGradersOmitsOnlyGraderWorkspaceCapturePaths(t *testing.T) {
 
 func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 	for _, mode := range []struct {
-		name       string
-		responder  bool
-		hasMessage bool
+		name           string
+		responder      bool
+		hasMessage     bool
+		goError        bool
+		noCaptureError bool
 	}{
 		{name: "follow_up", hasMessage: true},
 		{name: "responder", responder: true, hasMessage: true},
 		{name: "follow_up_without_message"},
 		{name: "responder_without_message", responder: true},
+		{name: "follow_up_go_error", hasMessage: true, goError: true},
+		{name: "responder_go_error", responder: true, hasMessage: true, goError: true},
+		{name: "follow_up_go_error_without_capture", hasMessage: true, goError: true, noCaptureError: true},
+		{name: "responder_go_error_without_capture", responder: true, hasMessage: true, goError: true, noCaptureError: true},
 	} {
 		for _, cumulative := range []bool{false, true} {
 			t.Run(mode.name+map[bool]string{false: "/per_turn", true: "/cumulative"}[cumulative], func(t *testing.T) {
@@ -162,6 +169,8 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 				contextDir := t.TempDir()
 				snapshot := filepath.Join(contextDir, "expected.txt")
 				require.NoError(t, os.WriteFile(snapshot, []byte("first output"), 0o600))
+				finalSnapshot := filepath.Join(contextDir, "final-expected.txt")
+				require.NoError(t, os.WriteFile(finalSnapshot, []byte("untouched final expectation"), 0o600))
 				require.NoError(t, os.WriteFile(filepath.Join(workspace, "output.txt"), []byte("restored output"), 0o600))
 				captureErr := "workspace capture incomplete: file exceeds per-file limit"
 				firstUsage := &models.UsageStats{Turns: 1, InputTokens: 10, OutputTokens: 2}
@@ -172,12 +181,14 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 				first := &execution.ExecutionResponse{
 					Success: true, SessionID: "session", WorkspaceDir: workspace,
 					WorkspaceFiles: map[string][]byte{"output.txt": []byte("first output")},
+					JudgeFiles:     &models.JudgeFileCapture{},
 					FinalOutput:    "first output", DurationMs: 100, Usage: firstUsage, UsageIsCumulative: cumulative,
 					Events: copilotevents.FromSDK([]copilot.SessionEvent{{
 						Data: &copilot.AssistantMessageData{Content: "first output"},
 					}}),
-					ToolCalls:        []models.ToolCall{{ID: "first", Name: "view", Success: true}},
-					SkillInvocations: []execution.SkillInvocation{{Name: "first-skill", Path: "/skills/first"}},
+					ToolCalls:          []models.ToolCall{{ID: "first", Name: "view", Success: true}},
+					SkillInvocations:   []execution.SkillInvocation{{Name: "first-skill", Path: "/skills/first"}},
+					CommandInvocations: []models.CommandInvocation{{Command: "first-command"}},
 				}
 				last := &execution.ExecutionResponse{
 					Success: false, SessionID: "session", WorkspaceDir: workspace,
@@ -189,20 +200,33 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 						{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "last", Success: true}},
 						{Data: &copilot.AssistantMessageData{Content: "completed second output"}},
 					}),
-					ToolCalls:        []models.ToolCall{{ID: "last", Name: "edit", Success: true}},
-					SkillInvocations: []execution.SkillInvocation{{Name: "last-skill", Path: "/skills/last"}},
+					ToolCalls:          []models.ToolCall{{ID: "last", Name: "edit", Success: true}},
+					SkillInvocations:   []execution.SkillInvocation{{Name: "last-skill", Path: "/skills/last"}},
+					CommandInvocations: []models.CommandInvocation{{Command: "last-command"}},
 				}
 				if !mode.hasMessage {
 					last.ErrorMsg = ""
 				}
 				engine := &workspaceCaptureSequenceEngine{responses: []*execution.ExecutionResponse{first, last}}
+				if mode.goError {
+					last.ExecutionSucceeded = false
+					engine.lastErr = &execution.DiagnosticError{Diagnostic: execution.ExecutionDiagnostic{
+						Stage: execution.StageExecute, Code: execution.CodeSend,
+					}}
+				}
+				if mode.noCaptureError {
+					last.WorkspaceCaptureError = ""
+					last.ErrorMsg = engine.lastErr.Error()
+				}
 				diff := models.DiffGraderParameters{
 					ExpectedFiles: []models.DiffExpectedFileParameters{{Path: "output.txt", Snapshot: "expected.txt"}},
 					ContextDir:    contextDir,
 				}
+				finalDiff := diff
+				finalDiff.ExpectedFiles = []models.DiffExpectedFileParameters{{Path: "output.txt", Snapshot: "final-expected.txt"}}
 				spec := &models.EvalSpec{
 					Config:  models.Config{TimeoutSec: 30},
-					Graders: []models.GraderConfig{{Kind: models.GraderKindDiff, Identifier: "final", Parameters: diff}},
+					Graders: []models.GraderConfig{{Kind: models.GraderKindDiff, Identifier: "final", Parameters: finalDiff}},
 				}
 				runner := NewEvalRunner(config.NewEvalConfig(spec), engine, WithUpdateSnapshots(true))
 				stimulus := models.TaskStimulus{Message: "write output", FollowUps: []string{"continue", "must not run"}}
@@ -225,14 +249,51 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 				var saved models.RunResult
 				require.NoError(t, json.Unmarshal(raw, &saved))
 				require.Equal(t, models.StatusError, saved.Status)
-				require.Contains(t, saved.ErrorMsg, captureErr)
-				require.Equal(t, "completed second output", saved.FinalOutput)
-				require.EqualValues(t, 300, saved.DurationMs)
+				if mode.goError {
+					require.Contains(t, saved.ErrorMsg, engine.lastErr.Error())
+					prefix := "follow-up 1/2 failed: "
+					if mode.responder {
+						prefix = "responder reply 1 failed: "
+					}
+					require.Equal(t, prefix+engine.lastErr.Error(), saved.ErrorMsg)
+				} else {
+					require.Contains(t, saved.ErrorMsg, captureErr)
+				}
 				if mode.responder {
 					require.NotNil(t, saved.Responder)
-					require.Equal(t, 1, saved.Responder.FollowupsSent)
+					wantCount := 1
+					if mode.goError {
+						wantCount = 0
+					}
+					require.Equal(t, wantCount, saved.Responder.FollowupsSent)
 					require.Equal(t, models.ResponderOutcomeError, saved.Responder.Outcome)
 				}
+				require.Len(t, saved.Checkpoints, 1)
+				require.Equal(t, models.StatusPassed, saved.Checkpoints[0].Status)
+				require.Empty(t, engine.responses)
+				finalContent, err := os.ReadFile(finalSnapshot)
+				require.NoError(t, err)
+				if mode.noCaptureError {
+					require.Len(t, saved.Validations, 1, "preserve non-capture Go-error grading behavior")
+					require.Equal(t, "first output", string(finalContent))
+					require.Equal(t, "first output", saved.FinalOutput)
+					require.EqualValues(t, 100, saved.DurationMs)
+					require.Equal(t, firstUsage, saved.SessionDigest.Usage)
+					require.Len(t, saved.Transcript, 1)
+					require.Len(t, saved.SessionDigest.ToolCalls, 1)
+					require.Len(t, saved.SkillInvocations, 1)
+					require.Equal(t, first.CommandInvocations, saved.CommandInvocations)
+					require.NotNil(t, first.WorkspaceFiles)
+					require.NotNil(t, first.JudgeFiles)
+					return
+				}
+				assert.Empty(t, saved.Validations)
+				assert.Equal(t, "untouched final expectation", string(finalContent))
+				assert.Nil(t, first.WorkspaceFiles, "the previous turn's snapshot must not survive a failed capture")
+				assert.Nil(t, first.JudgeFiles, "judge evidence must not retain an earlier turn's files")
+				require.Equal(t, last.CommandInvocations, saved.CommandInvocations)
+				require.Equal(t, "completed second output", saved.FinalOutput)
+				require.EqualValues(t, 300, saved.DurationMs)
 				require.Equal(t, &models.UsageStats{Turns: 2, InputTokens: 30, OutputTokens: 5}, saved.SessionDigest.Usage)
 				require.Equal(t, []models.ToolCall{
 					{ID: "first", Name: "view", Success: true}, {ID: "last", Name: "edit", Success: true},
@@ -246,11 +307,6 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 				require.Equal(t, []models.SkillInvocation{
 					{Name: "first-skill", Path: "/skills/first"}, {Name: "last-skill", Path: "/skills/last"},
 				}, saved.SkillInvocations)
-				require.Empty(t, saved.Validations)
-				require.Len(t, saved.Checkpoints, 1)
-				require.Equal(t, models.StatusPassed, saved.Checkpoints[0].Status)
-				require.Empty(t, engine.responses)
-				require.Nil(t, first.WorkspaceFiles, "the previous turn's snapshot must not survive a failed capture")
 				snapshotContent, err := os.ReadFile(snapshot)
 				require.NoError(t, err)
 				require.Equal(t, "first output", string(snapshotContent))
@@ -356,6 +412,7 @@ func TestWorkspaceCaptureFailureSkipsCheckpointsAndSnapshotUpdates(t *testing.T)
 
 type workspaceCaptureSequenceEngine struct {
 	responses []*execution.ExecutionResponse
+	lastErr   error
 }
 
 func (e *workspaceCaptureSequenceEngine) Initialize(context.Context) error { return nil }
@@ -366,6 +423,9 @@ func (e *workspaceCaptureSequenceEngine) SessionUsage(string) *models.UsageStats
 func (e *workspaceCaptureSequenceEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	response := e.responses[0]
 	e.responses = e.responses[1:]
+	if len(e.responses) == 0 {
+		return response, e.lastErr
+	}
 	return response, nil
 }
 
