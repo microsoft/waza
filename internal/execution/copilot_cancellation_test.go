@@ -221,7 +221,9 @@ func TestDefaultSharedEngineRefreshesRetiredClientForLaterTrial(t *testing.T) {
 
 	engine := NewCopilotEngineBuilder("test-model", nil).Build()
 	require.NoError(t, engine.Initialize(t.Context()))
-	require.Same(t, firstClient, engine.CopilotClient().(*startupClient).CopilotClient)
+	currentClient, ok := engine.CopilotClient().(*startupClient)
+	require.True(t, ok)
+	require.Same(t, firstClient, currentClient.CopilotClient)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	firstDone := make(chan *ExecutionResponse, 1)
@@ -265,7 +267,9 @@ func TestDefaultSharedEngineRefreshesRetiredClientForLaterTrial(t *testing.T) {
 	require.True(t, response.Success)
 	require.False(t, engine.retired.Load())
 	require.Equal(t, 2, constructions)
-	require.Same(t, secondClient, engine.CopilotClient().(*startupClient).CopilotClient)
+	currentClient, ok = engine.CopilotClient().(*startupClient)
+	require.True(t, ok)
+	require.Same(t, secondClient, currentClient.CopilotClient)
 
 	close(releaseHealthy)
 	response, err = <-healthyDone, <-healthyErr
