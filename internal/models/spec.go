@@ -196,7 +196,18 @@ func (s *SandboxConfig) UnmarshalYAML(node *yaml.Node) error {
 			if !allowed[field] {
 				return fmt.Errorf("unknown sandbox field %q", field)
 			}
-			enabledPresent = enabledPresent || field == "enabled"
+			if field == "enabled" {
+				// null, empty and quoted values would decode to false and
+				// silently disable the sandbox, so require a real boolean.
+				value := node.Content[i+1]
+				for value.Kind == yaml.AliasNode && value.Alias != nil {
+					value = value.Alias
+				}
+				if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!bool" {
+					return fmt.Errorf("sandbox.enabled must be true or false")
+				}
+				enabledPresent = true
+			}
 		}
 	}
 	if !enabledPresent {

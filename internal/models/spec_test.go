@@ -138,6 +138,46 @@ config:
 	require.ErrorContains(t, err, "sandbox.enabled is required")
 }
 
+func TestLoadEvalSpec_SandboxEnabledMustBeBoolean(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled string
+		want    bool
+		wantErr bool
+	}{
+		{name: "null", enabled: "null", wantErr: true},
+		{name: "empty", enabled: "", wantErr: true},
+		{name: "tilde", enabled: "~", wantErr: true},
+		{name: "quoted true", enabled: `"true"`, wantErr: true},
+		{name: "true", enabled: "true", want: true},
+		{name: "false", enabled: "false", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			specPath := filepath.Join(t.TempDir(), "spec.yaml")
+			require.NoError(t, os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
+name: sandboxed
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: copilot-sdk
+  model: test-model
+  sandbox:
+    enabled: `+tc.enabled+`
+`), 0o644))
+
+			spec, err := LoadEvalSpec(specPath)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "sandbox.enabled must be true or false")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, spec.Config.Sandbox)
+			require.Equal(t, tc.want, spec.Config.Sandbox.Enabled)
+		})
+	}
+}
+
 func TestLoadEvalSpec_AllowsExplicitlyDisabledSandbox(t *testing.T) {
 	specPath := filepath.Join(t.TempDir(), "spec.yaml")
 	err := os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
