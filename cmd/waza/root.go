@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 
@@ -56,10 +57,14 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newGetCommand())
 	cmd.AddCommand(tokens.NewCommand())
 	cmd.AddCommand(newCompareCommand())
+	cmd.AddCommand(newComparePlanCommand())
+	cmd.AddCommand(newCompareAssurancePlanCommand())
+	cmd.AddCommand(newCompareCollectCommand())
 	cmd.AddCommand(newGateCommand())
 	cmd.AddCommand(newCoverageCommand())
 	cmd.AddCommand(dev.NewCommand())
 	cmd.AddCommand(newGradeCommand())
+	cmd.AddCommand(newAssureCommand())
 	cmd.AddCommand(newMetadataCommand(cmd))
 	cmd.AddCommand(newCheckCommand())
 	cmd.AddCommand(newSuggestCommand())
@@ -78,12 +83,15 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newReplayCommand())
 	cmd.AddCommand(newAdversarialCommand())
 	cmd.AddCommand(newRegistryCommand())
+	cmd.AddCommand(newRunnerCommand())
+	cmd.AddCommand(newInteropCommand())
 
 	return cmd
 }
 
-func execute() error {
+func execute(diagnostics io.Writer) error {
 	rootCmd := newRootCommand()
+	rootCmd.SetErr(diagnostics)
 	return rootCmd.Execute()
 }
 
@@ -92,7 +100,16 @@ func shouldRunUpdateCheck(cmd *cobra.Command, noUpdateCheck bool) bool {
 		return false
 	}
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "update" || c.Name() == "preflight" {
+		if c.Name() == "update" || c.Name() == "preflight" || c.Name() == "compare-plan" || c.Name() == "compare-assurance-plan" || c.Name() == "compare-collect" || c.Name() == "assure" || c.Name() == "runner" || c.Name() == "interop" {
+			return false
+		}
+	}
+	for _, name := range []string{"release-policy", "collection-dir", "assurance-contract",
+		"runner-compat",
+		"baseline-eval", "candidate-eval", "baseline-context-dir", "candidate-context-dir",
+		"baseline-references", "candidate-references", "baseline-review", "candidate-review",
+		"baseline-accept-review-source", "candidate-accept-review-source"} {
+		if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
 			return false
 		}
 	}

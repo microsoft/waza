@@ -45,7 +45,9 @@ func (fg *fileGrader) Kind() models.GraderKind { return models.GraderKindFile }
 func (fg *fileGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
 		workspaceDir := gradingContext.WorkspaceDir
-		if workspaceDir == "" && gradingContext.WorkspaceFiles == nil {
+		// Captured files alone are not evidence of the workspace state; they
+		// only supplement a workspace that is still available.
+		if workspaceDir == "" {
 			return &models.GraderResults{
 				Name:     fg.name,
 				Type:     models.GraderKindFile,

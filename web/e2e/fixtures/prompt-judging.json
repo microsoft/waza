@@ -1,0 +1,218 @@
+{
+  "id": "run-001",
+  "spec": "evidence-judge",
+  "model": "actor-model",
+  "judgeModel": "judge-model",
+  "outcome": "failed",
+  "passCount": 0,
+  "taskCount": 1,
+  "tokens": 0,
+  "premiumRequests": 0,
+  "cost": 0,
+  "costSource": "estimate",
+  "duration": 0,
+  "timestamp": "2026-10-16T12:00:00Z",
+  "source": "local",
+  "repetitions": 3,
+  "weightedScore": 0,
+  "skill": "",
+  "tasks": [
+    {
+      "id": "report-task",
+      "name": "Recorded reports",
+      "outcome": "error",
+      "score": 0,
+      "weightedScore": 0,
+      "duration": 0,
+      "graderResults": [],
+      "sessionDigest": {
+        "totalTurns": 0,
+        "toolCallCount": 0,
+        "tokensIn": 0,
+        "tokensOut": 0,
+        "tokensTotal": 0,
+        "toolsUsed": [],
+        "errors": []
+      },
+      "bootstrapCI": {
+        "lower": 0,
+        "upper": 0,
+        "mean": 0,
+        "confidenceLevel": 0.95
+      },
+      "passRateCI": {
+        "lower": 0.061491944720396256,
+        "upper": 0.7923403991979522,
+        "mean": 0.3333333333333333,
+        "confidenceLevel": 0.95
+      },
+      "trials": {
+        "passed": 1,
+        "total": 3
+      },
+      "promptJudgingRuns": [
+        {
+          "runNumber": 1,
+          "attempts": 1,
+          "cached": false,
+          "assessment": "recorded",
+          "executionMode": "live",
+          "bundleSHA256": "ca2dc1f2ee647baaa4e40b4910fb67cb8a1a48a2326a82cde322faffde0c6a69",
+          "coverage": [
+            {
+              "section": "task",
+              "availability": "captured",
+              "completeness": "complete"
+            },
+            {
+              "section": "output",
+              "availability": "captured",
+              "completeness": "complete"
+            },
+            {
+              "section": "messages",
+              "availability": "captured",
+              "completeness": "complete",
+              "count": 2
+            },
+            {
+              "section": "tool_events",
+              "availability": "captured",
+              "completeness": "complete",
+              "count": 0
+            },
+            {
+              "section": "files",
+              "availability": "captured",
+              "completeness": "complete",
+              "count": 2
+            }
+          ],
+          "limits": {
+            "max_files": 64,
+            "max_file_bytes": 65536,
+            "max_bundle_bytes": 262144
+          },
+          "observations": [
+            {
+              "grader": "a-judge",
+              "state": "submitted",
+              "purpose": "run",
+              "submissionObserved": true,
+              "inspection": "not_observable",
+              "deliverySHA256": "4c84dc9e33a0526895b85841565315c9608b8e5a9647e2bf0c654c7272d5bb35",
+              "fileCount": 1,
+              "model": "judge-model",
+              "sessionID": "judge-1",
+              "durationMs": 0,
+              "usage": {
+                "inputTokens": 4,
+                "outputTokens": 1,
+                "aiCredits": 0
+              }
+            },
+            {
+              "grader": "b-judge",
+              "state": "submitted",
+              "purpose": "run",
+              "submissionObserved": true,
+              "inspection": "not_observable",
+              "deliverySHA256": "f4e829ac9dfb167dd82ed4a5d297134e9ded3a521eba1a6592d6451e6e64bc21",
+              "fileCount": 1,
+              "model": "judge-model",
+              "sessionID": "judge-2",
+              "durationMs": 0,
+              "usage": {
+                "inputTokens": 4,
+                "outputTokens": 1
+              }
+            }
+          ],
+          "message": "Integrity-checked producer evidence, not authenticated history or proof of cognitive inspection."
+        },
+        {
+          "runNumber": 2,
+          "attempts": 1,
+          "cached": false,
+          "assessment": "unavailable",
+          "executionMode": "live",
+          "bundleSHA256": "81436d1bd2a825050b93e88ba58d43ff326e786e26e1a871f315ed30f94f0620",
+          "coverage": [
+            {
+              "section": "task",
+              "availability": "captured",
+              "completeness": "complete"
+            },
+            {
+              "section": "output",
+              "availability": "unavailable",
+              "completeness": "unknown"
+            },
+            {
+              "section": "messages",
+              "availability": "unavailable",
+              "completeness": "unknown"
+            },
+            {
+              "section": "tool_events",
+              "availability": "unavailable",
+              "completeness": "unknown"
+            },
+            {
+              "section": "files",
+              "availability": "captured",
+              "completeness": "complete",
+              "count": 0
+            }
+          ],
+          "limits": {
+            "max_files": 64,
+            "max_file_bytes": 65536,
+            "max_bundle_bytes": 262144
+          },
+          "observations": [
+            {
+              "grader": "a-judge",
+              "state": "failed",
+              "purpose": "run",
+              "submissionObserved": false,
+              "inspection": "not_observable",
+              "fileCount": 0,
+              "durationMs": 0,
+              "diagnostics": [
+                "invalid_evidence"
+              ]
+            }
+          ],
+          "message": "Required frozen evidence is unavailable, incomplete, redacted, or unsupported; no usable judging context is claimed."
+        },
+        {
+          "runNumber": 3,
+          "attempts": 1,
+          "cached": false,
+          "assessment": "unassessed",
+          "observations": [],
+          "message": "No frozen judging evidence or judge observations were recorded; historical absence is not success."
+        }
+      ]
+    }
+  ],
+  "statistics": {
+    "successRateCI": {
+      "lower": 0,
+      "upper": 0.7934506856227624,
+      "mean": 0,
+      "confidenceLevel": 0.95
+    },
+    "passHatK": [
+      0.3333333333333333,
+      0,
+      0
+    ]
+  },
+  "regradeUsage": {
+    "inputTokens": 1,
+    "outputTokens": 0,
+    "aiCredits": 0
+  }
+}

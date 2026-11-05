@@ -5,6 +5,18 @@ on:
     branches: [main]
     paths:
       - 'web/**'
+      - 'cmd/waza/**'
+      - 'internal/runnercontract/**'
+      - 'internal/runnerunit/**'
+      - 'internal/runneridentity/**'
+      - 'internal/runnerterminal/**'
+      - 'examples/runner/**'
+      - 'internal/webapi/runner*.go'
+      - 'internal/webserver/**'
+      - 'schemas/runner*.json'
+      - 'schemas/embed.go'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/web-ci.yml'
   pull_request:
     branches: [main]
@@ -39,11 +51,23 @@ jobs:
           filters: |
             web:
               - 'web/**'
+              - 'cmd/waza/**'
+              - 'internal/runnercontract/**'
+              - 'internal/runnerunit/**'
+              - 'internal/runneridentity/**'
+              - 'internal/runnerterminal/**'
+              - 'examples/runner/**'
+              - 'internal/webapi/runner*.go'
+              - 'internal/webserver/**'
+              - 'schemas/runner*.json'
+              - 'schemas/embed.go'
+              - 'go.mod'
+              - 'go.sum'
               - '.github/workflows/web-ci.yml'
 
       - name: Setup Node
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.19.0'
           cache: npm
@@ -53,6 +77,13 @@ jobs:
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         working-directory: web
         run: npm ci
+
+      - name: Setup Go for real runner API browser coverage
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
 
       - name: Lint dashboard
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
@@ -73,11 +104,13 @@ jobs:
         id: tests
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         working-directory: web
-        run: npx --no-install playwright test --project=chromium --retries=0
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json
+        run: npx --no-install playwright test --project=chromium --retries=0 --reporter=github,line,json
 
       - name: Upload dashboard test evidence
         if: always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dashboard-chromium-${{ github.run_id }}
           path: |

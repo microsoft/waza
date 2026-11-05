@@ -14,7 +14,23 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'docs/**'
+      - 'examples/interop/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'version.txt'
+      - 'registry.json'
+      - 'cmd/waza/**'
+      - 'internal/**'
+      - 'schemas/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'web/**'
       - '.github/workflows/site-ci.yml'
+      - '.github/workflows/docker-ci.yml'
+      - '.github/workflows/publish-runner-reference.yml'
+      - '.github/workflows/verify-runner-reference.yml'
       - '.github/workflows/pages.yml'
   pull_request:
     branches: [main]
@@ -28,10 +44,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build site
+  changes:
+    name: Detect site and example changes
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
+    outputs:
+      site: ${{ steps.filter.outputs.site }}
+      examples: ${{ steps.filter.outputs.examples }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,39 +62,94 @@ jobs:
           filters: |
             site:
               - 'site/**'
+              - 'docs/**'
+              - 'README.md'
+              - 'CHANGELOG.md'
+              - 'version.txt'
+              - 'registry.json'
+              - 'go.mod'
+              - 'internal/embedded/**'
+              - 'internal/models/outcome.go'
+              - 'internal/models/schema_version.go'
+              - 'internal/runneridentity/testdata/**'
+              - 'internal/runnerunit/testdata/**'
+              - 'internal/runnerterminal/testdata/**'
+              - 'schemas/**'
               - '.github/workflows/site-ci.yml'
+              - '.github/workflows/docker-ci.yml'
+              - '.github/workflows/publish-runner-reference.yml'
+              - '.github/workflows/verify-runner-reference.yml'
               - '.github/workflows/pages.yml'
+            examples:
+              - 'site/**'
+              - 'docs/**'
+              - 'examples/interop/**'
+              - 'README.md'
+              - 'registry.json'
+              - 'cmd/waza/**'
+              - 'internal/**'
+              - 'schemas/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Makefile'
+              - 'web/**'
+              - '.github/workflows/site-ci.yml'
+
+  build:
+    name: Build site
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require successful change detection
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+        run: test "$CHANGES_RESULT" = success
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.19.0'
+          node-version: '24'
           cache: npm
           cache-dependency-path: site/package-lock.json
 
       - name: Install dependencies
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm ci
 
       - name: Build site
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm run build
 
+      - name: Typecheck chat and test public metadata
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npm run test:chat-types && npm run test:chat-metadata && npm run test:chat-contract
+
       - name: Install Chromium for site regression tests
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npx --no-install playwright install --with-deps chromium
 
       - name: Test site
         id: tests
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm run test:e2e -- --project=chromium --retries=0
+        env:
+          CI: 'true'
+
+      - name: Test optional chat with mocked service and bot protection
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npm run test:private-chat && npm run test:chat -- --project=chromium --retries=0 && npm run test:chat-unavailable -- --project=chromium --retries=0
         env:
           CI: 'true'
 
       - name: Upload site test evidence
         if: always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: site-chromium-${{ github.run_id }}
           path: |
@@ -84,5 +158,45 @@ jobs:
           if-no-files-found: error
 
       - name: Skip (no site changes)
-        if: steps.filter.outputs.site != 'true' && github.event_name == 'pull_request'
+        if: needs.changes.outputs.site != 'true' && github.event_name == 'pull_request'
         run: echo "No site/** changes detected — skipping site build."
+
+  examples:
+    name: Offline documentation examples
+    needs: [changes]
+    if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: '1'
+      NO_COLOR: '1'
+      GOMAXPROCS: '2'
+      WAZA_NO_UPDATE_CHECK: '1'
+      ENABLE_COPILOT_TESTS: 'false'
+      ENABLE_COPILOT_SDK_TESTS: 'false'
+      ENABLE_LIVE_COPILOT_TESTS: 'false'
+      COPILOT_CLI_PATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout source and embedded runtime assets
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build current CLI with genuine dashboard assets
+        run: make build
+
+      - name: Run extracted examples and fail-closed isolation regressions
+        run: WAZA_BIN="$GITHUB_WORKSPACE/waza" npm --prefix site run test:examples

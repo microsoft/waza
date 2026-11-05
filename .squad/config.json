@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "stateBackend": "local",
+  "defaultModel": "gpt-6.1-sol",
+  "agentModelOverrides": {
+    "rusty": "gpt-5.6-terra",
+    "linus": "gpt-6.1-sol",
+    "basher": "gpt-6.1-sol",
+    "livingston": "gpt-6-luna",
+    "saul": "gpt-6-luna",
+    "turk": "gpt-5.6-terra",
+    "yen": "gpt-6.1-sol",
+    "danny": "gpt-6-luna",
+    "tess": "gpt-6.1-sol",
+    "virgil": "gpt-6.1-sol",
+    "scribe": "gpt-6-luna",
+    "ralph": "gpt-6-luna",
+    "rai": "gpt-5.6-terra",
+    "fact-checker": "gpt-5.6-terra"
+  }
+}

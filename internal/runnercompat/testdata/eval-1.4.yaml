@@ -1,0 +1,15 @@
+schemaVersion: "1.4"
+name: adapter-frozen
+config:
+  executor: mock
+  model: mock-model
+  disabled_skills: ["*"]
+  trials_per_task: 1
+  max_attempts: 0
+  timeout_seconds: 30
+graders:
+  - name: precise
+    type: text
+    config:
+      contains_cs: ["Mock response for: hello"]
+tasks: ["tasks/selected.case.yaml"]

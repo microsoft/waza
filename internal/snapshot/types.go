@@ -39,6 +39,10 @@ const Kind = "task-snapshot"
 // 1.0 — initial snapshot format (issue #367).
 const CurrentSchemaVersion = "1.1"
 
+// Evidence-enabled snapshots use an additive writer version without changing
+// historical reader defaults or ordinary snapshot output.
+const JudgeEvidenceSnapshotSchemaVersion = "1.2"
+
 // Snapshot is the on-disk record of a single task run that `waza replay` can
 // inspect for internal consistency or compare against another snapshot.
 //
@@ -103,6 +107,7 @@ type Snapshot struct {
 	CommandInvocations        []models.CommandInvocation `json:"commandInvocations,omitempty"`
 	Checkpoints               []models.CheckpointOutcome `json:"checkpoints,omitempty"`
 	Evidence                  *models.EvidenceManifest   `json:"evidence,omitempty"`
+	JudgeEvidenceSHA256       string                     `json:"judgeEvidenceSHA256,omitempty"`
 	WorkspaceFiles            []WorkspaceFile            `json:"workspaceFiles,omitempty"`
 	rawWorkspaceFiles         []json.RawMessage
 	workspaceCaptureRequested bool
@@ -210,6 +215,26 @@ func (s Snapshot) MarshalJSON() ([]byte, error) {
 		s.Kind = Kind
 	}
 	return json.Marshal(alias(s))
+}
+
+func (s *Snapshot) UnmarshalJSON(data []byte) error {
+	if err := models.ValidateNativeJSONAdmission(data, Snapshot{}); err != nil {
+		return err
+	}
+	type alias Snapshot
+	var decoded alias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if decoded.Evidence != nil {
+		if err := models.ValidateNativeEvidenceProfile(decoded.Evidence); err != nil {
+			return err
+		}
+	}
+	*s = Snapshot(decoded)
+	return nil
 }
 
 // ParseSnapshot decodes a snapshot from bytes and validates its schema

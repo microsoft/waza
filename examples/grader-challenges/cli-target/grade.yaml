@@ -1,0 +1,11 @@
+schemaVersion: "1.4"
+name: Offline CLI target challenge
+skill: synthetic-cli-target
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  executor: mock
+  model: synthetic-no-model
+tasks: [task.yaml]
+metrics: []

@@ -95,6 +95,50 @@ func TestRedactedStateCannotBeMaterializedForExactRegrade(t *testing.T) {
 	require.ErrorContains(t, err, "redaction")
 }
 
+func TestVerifyManyRequiredFilesRevalidatesEveryCall(t *testing.T) {
+	for _, raw := range []bool{false, true} {
+		t.Run(fmt.Sprintf("raw=%t", raw), func(t *testing.T) {
+			snap, err := Capture(CaptureInput{
+				EvalID: "eval", Task: &models.TestCase{TestID: "task"},
+				Run: &models.RunResult{RunNumber: 1, Attempts: 1, Status: models.StatusPassed},
+			})
+			require.NoError(t, err)
+			paths := make([]string, 256)
+			for i := range paths {
+				name := fmt.Sprintf("approved/%03d.txt", i)
+				file := WorkspaceFile{Path: name, Content: "ready", SHA256: shaBytes([]byte("ready"))}
+				snap.WorkspaceFiles = append(snap.WorkspaceFiles, file)
+				digest, err := evidence.JSONDigest(file)
+				require.NoError(t, err)
+				snap.Evidence.Artifacts = append(snap.Evidence.Artifacts, models.EvidenceArtifact{
+					ID: "workspace-file/" + name, Kind: "workspace_file", Document: "snapshot",
+					Pointer: fmt.Sprintf("/workspaceFiles/%d", i), Availability: "captured",
+					Completeness: "complete", ContentDigest: digest,
+				})
+				paths[i] = name
+			}
+			require.NoError(t, evidence.Seal(snap.Evidence))
+			if raw {
+				data, err := json.Marshal(snap)
+				require.NoError(t, err)
+				snap, err = ParseSnapshot(data, "many-file verification regression")
+				require.NoError(t, err)
+			}
+			origin, identity := snap.Evidence.Origin, snap.Evidence.SHA256
+			require.NoError(t, VerifyWorkspace(snap, origin, identity, paths))
+			last := len(snap.WorkspaceFiles) - 1
+			snap.WorkspaceFiles[last].Content = "changed"
+			require.Error(t, VerifyWorkspace(snap, origin, identity, paths), "even the last required file must be checked")
+			snap.WorkspaceFiles[last].Content = "ready"
+			require.NoError(t, VerifyWorkspace(snap, origin, identity, paths))
+			snap.Evidence.Artifacts[len(snap.Evidence.Artifacts)-1].Pointer = "/workspaceFiles/0"
+			require.NoError(t, evidence.Seal(snap.Evidence))
+			require.ErrorContains(t, VerifyWorkspace(snap, origin, snap.Evidence.SHA256, paths), "locator",
+				"validated metadata must not be cached across separate calls")
+		})
+	}
+}
+
 func TestPartialWorkspaceCaptureRemainsExplicit(t *testing.T) {
 	snap := capturedWorkspace(t, "actual output")
 	input := CaptureInput{
@@ -146,6 +190,50 @@ func TestSnapshotPreservesExactJSONNumbers(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, json.Number("9007199254740993"), args["count"])
 	require.NoError(t, evidence.Validate(loaded.Evidence))
+}
+
+func TestSnapshotAdmissionPreservesLegacyPayloadCompatibility(t *testing.T) {
+	snap, err := Capture(CaptureInput{
+		EvalID: "eval", Task: &models.TestCase{TestID: "task"},
+		Run: &models.RunResult{RunNumber: 1, Attempts: 1, Status: models.StatusPassed},
+	})
+	require.NoError(t, err)
+	manifest, err := json.Marshal(snap.Evidence)
+	require.NoError(t, err)
+	legacy := `{"schemaVersion":"1.1","kind":"task-snapshot","prompt":{"message":"inspect","context":{"count":9007199254740993,"repeated":1,"repeated":2}}}`
+	native := strings.TrimSuffix(legacy, "}") + `,"evidence":` + string(manifest) + `}`
+	for _, tc := range []struct {
+		name, data string
+		wantError  bool
+	}{
+		{"legacy opaque duplicate retains compatibility", legacy, false},
+		{"native opaque duplicate rejected", native, true},
+		{"legacy duplicate typed identity rejected", `{"task":{"testId":"first","testId":"last"}}`, true},
+		{"legacy case alias rejected", `{"Task":{"testId":"task"}}`, true},
+		{"native evidence hidden by null rejected", `{"evidence":` + string(manifest) + `,"evidence":null}`, true},
+		{"native escaped duplicate evidence rejected", `{"evidence":` + string(manifest) + `,"\u0065vidence":null}`, true},
+		{"legacy invalid Unicode rejected", `{"future":"\ud800"}`, true},
+		{"legacy invalid UTF-8 rejected", "{\"future\":\"\xff\"}", true},
+		{"native invalid timestamp rejected", `{"createdAt":"2026-10-15T25:00:00Z","evidence":` + string(manifest) + `}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var decoded Snapshot
+			directErr := json.Unmarshal([]byte(tc.data), &decoded)
+			parsed, parseErr := ParseSnapshot([]byte(tc.data), "admission-regression")
+			if tc.wantError {
+				require.Error(t, directErr)
+				require.Equal(t, Snapshot{}, decoded)
+				require.Error(t, parseErr)
+				require.Nil(t, parsed)
+				return
+			}
+			require.NoError(t, directErr)
+			require.NoError(t, parseErr)
+			require.Equal(t, json.Number("9007199254740993"), decoded.Prompt.Context["count"])
+			require.Equal(t, json.Number("2"), decoded.Prompt.Context["repeated"])
+			require.Equal(t, decoded.Prompt, parsed.Prompt)
+		})
+	}
 }
 
 func TestRequiredStateUsesActualRawFileMetadataAndLocator(t *testing.T) {

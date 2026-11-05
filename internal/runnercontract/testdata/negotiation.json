@@ -1,0 +1,9 @@
+[
+  {"name":"supported","versions":["1.0"],"required":["negotiation"],"optional":[],"status":"compatible","version":"1.0","selected":["negotiation"],"unavailable":[],"exit":0},
+  {"name":"downgraded","versions":["2.0","1.0"],"required":[],"optional":["negotiation","exact-unit"],"status":"compatible","version":"1.0","selected":["exact-unit","negotiation"],"unavailable":[],"exit":0},
+  {"name":"unsupported-version","versions":["2.0"],"required":[],"optional":[],"status":"unsupported_version","version":"","selected":[],"unavailable":[],"exit":5},
+  {"name":"future-native","versions":["1.0"],"required":["inline.native-text"],"optional":[],"status":"unsupported_capability","version":"1.0","selected":[],"unavailable":[],"exit":5},
+  {"name":"case-sensitive","versions":["1.0"],"required":["Negotiation"],"optional":[],"status":"unsupported_capability","version":"1.0","selected":[],"unavailable":[],"exit":5},
+  {"name":"no-version-normalization","versions":["01.0"],"required":[],"optional":[],"status":"unsupported_version","version":"","selected":[],"unavailable":[],"exit":5},
+  {"name":"conflict","versions":["1.0"],"required":["negotiation"],"optional":["negotiation"],"status":"invalid_request","version":"","selected":[],"unavailable":[],"exit":6}
+]

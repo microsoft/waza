@@ -1,14 +1,17 @@
 package commandmock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 )
 
 var sensitiveArgPattern = regexp.MustCompile(`(?i)(gh[pousr]_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|bearer\s+[A-Za-z0-9._\-+/=]{16,})`)
@@ -72,36 +75,55 @@ func sanitizeArgs(args []string, env []string) []string {
 }
 
 // RunCommand is the entry point for the private executable shims.
-func RunCommand(root, name string, args []string) int {
+func RunCommand(root, name string, args []string) (int, error) {
+	return RunCommandContext(context.Background(), root, name, args)
+}
+
+// RunCommandContext returns cancellation separately from an ordinary nonzero exit
+// so callers can avoid diagnostic writes after canceling a backpressured host.
+func RunCommandContext(ctx context.Context, root, name string, args []string) (int, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "waza command mock: cannot determine working directory")
-		return 127
+		return 127, err
 	}
-	result, err := Invoke(root, os.Getenv(SessionEnvironmentVariable), name, args, cwd)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	result, err := InvokeContext(ctx, root, os.Getenv(SessionEnvironmentVariable), name, args, cwd)
+	// Only invocation and host execution observe cancellation. Restore process
+	// termination before writing mock output, which can block on inherited pipes.
+	if err != nil || !result.PassThrough {
+		stop()
+	}
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return 124, err
+		}
+		if errors.Is(err, context.Canceled) {
+			return 130, err
+		}
 		fmt.Fprintln(os.Stderr, "waza command mock: failed to load task configuration")
-		return 127
+		return 127, err
 	}
-	return runInvocationResult(root, name, args, result)
+	return runInvocationResult(ctx, root, name, args, result)
 }
 
-func runInvocationResult(root, name string, args []string, result invocationResult) int {
+func runInvocationResult(ctx context.Context, root, name string, args []string, result invocationResult) (int, error) {
 	if result.PassThrough {
-		return runHostCommand(root, name, args)
+		return runHostCommand(ctx, root, name, args)
 	}
 	if len(result.Stdout) > 0 {
 		if _, err := os.Stdout.Write(result.Stdout); err != nil {
-			return 1
+			return 1, err
 		}
 	}
 	if result.Stderr != "" {
 		_, _ = fmt.Fprint(os.Stderr, result.Stderr)
 	}
-	return result.ExitCode
+	return result.ExitCode, nil
 }
 
-func runHostCommand(root, name string, args []string) int {
+func runHostCommand(ctx context.Context, root, name string, args []string) (int, error) {
 	shimDir := filepath.Join(root, "bin")
 	hostDirs := make([]string, 0)
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
@@ -113,22 +135,28 @@ func runHostCommand(root, name string, args []string) int {
 	program := findHostExecutable(name, hostDirs)
 	if program == "" {
 		fmt.Fprintf(os.Stderr, "waza command mock: no fixture for %q and no host executable was found\n", name)
-		return 127
+		return 127, nil
 	}
-	cmd := exec.Command(program, args...)
+	cmd := exec.CommandContext(ctx, program, args...)
 	cmd.Env = hostCommandEnvironment(os.Environ(), path)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return 124, ctx.Err()
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return 130, ctx.Err()
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode()
+			return exitErr.ExitCode(), nil
 		}
 		fmt.Fprintf(os.Stderr, "waza command mock: running host command %q failed\n", name)
-		return 127
+		return 127, err
 	}
-	return 0
+	return 0, nil
 }
 
 func findHostExecutable(name string, dirs []string) string {

@@ -1,0 +1,214 @@
+[
+  {
+    "path": "native",
+    "decision": {
+      "version": "1.0",
+      "accepted": false,
+      "compatibility": {
+        "state": "compatible",
+        "reasons": []
+      },
+      "completeness": {
+        "state": "partial",
+        "reasons": [
+          "baseline/task-0 trial 1 has incomplete/operational/unknown evidence",
+          "candidate/task-0 trial 1 has incomplete/operational/unknown evidence"
+        ]
+      },
+      "assurance": {
+        "state": "not_required",
+        "reasons": []
+      },
+      "golden": {
+        "state": "missing_required_evidence",
+        "reasons": [
+          "baseline/task-0 trial 1 lacks golden first-attempt evidence",
+          "candidate/task-0 trial 1 lacks golden first-attempt evidence"
+        ]
+      },
+      "billing": {
+        "state": "not_required",
+        "reasons": []
+      },
+      "statistics": {
+        "state": "inconclusive",
+        "reasons": [
+          "required complete matched collection evidence is absent"
+        ]
+      },
+      "operations": {
+        "state": "incomplete",
+        "reasons": [
+          "baseline/task-0 trial 1 has incomplete/operational/unknown evidence",
+          "candidate/task-0 trial 1 has incomplete/operational/unknown evidence",
+          "native collection retained operationally incomplete attempts; inspect lifecycle evidence before reassessment"
+        ]
+      },
+      "planned_clusters": 1,
+      "limitations": [
+        "Local hashes establish consistency, not authenticity or independently witnessed precommitment.",
+        "Independent bounded cluster differences are an assumption; retries and tasks do not add independent samples.",
+        "One candidate-minus-baseline endpoint is assessed; family size is an external conservative declaration.",
+        "Fixed allocation only; no adaptive stopping, post-hoc endpoints, selected successes, history adoption or resume.",
+        "Billing is final observed spend, not an atomic limit; asynchronous overshoot can occur."
+      ],
+      "accounting": {
+        "baseline": {
+          "planned_trials": 1,
+          "started_trials": 1,
+          "complete_trials": 0,
+          "attempts": 1,
+          "started_attempts": 1,
+          "complete_attempts": 1,
+          "first_attempt_passes": 0,
+          "retry_policy_passes": 0,
+          "recovered_trials": 0,
+          "first_attempt_rate": null,
+          "retry_policy_rate": null
+        },
+        "candidate": {
+          "planned_trials": 1,
+          "started_trials": 1,
+          "complete_trials": 0,
+          "attempts": 1,
+          "started_attempts": 1,
+          "complete_attempts": 1,
+          "first_attempt_passes": 0,
+          "retry_policy_passes": 0,
+          "recovered_trials": 0,
+          "first_attempt_rate": null,
+          "retry_policy_rate": null
+        }
+      },
+      "native": {
+        "profile": "copilot_sdk_single_turn_text",
+        "version": "1.0",
+        "attempts": [
+          {
+            "key": {
+              "cluster_id": "cluster",
+              "task_id": "task-0",
+              "trial_ordinal": 1,
+              "arm": "baseline",
+              "eval_id": "baseline-eval",
+              "attempt_ordinal": 1
+            },
+            "status": "incomplete",
+            "category": "operational",
+            "error": "copilot diagnostic: initialize/start_failed\nnative lifecycle diagnostics prevent a behavioral observation\nnative execution/output/grading evidence is unavailable",
+            "output_availability": "unavailable",
+            "event_models": [],
+            "accounting_models": [],
+            "usage_complete": false,
+            "lifecycle": {
+              "construction": {
+                "state": "completed"
+              },
+              "execute": {
+                "state": "not_attempted",
+                "reason": "Prior lifecycle prerequisite did not complete."
+              },
+              "grade": {
+                "state": "not_attempted",
+                "reason": "Prior lifecycle prerequisite did not complete."
+              },
+              "initialize": {
+                "state": "failed",
+                "reason": "copilot diagnostic: initialize/start_failed"
+              },
+              "shutdown": {
+                "state": "completed"
+              }
+            }
+          },
+          {
+            "key": {
+              "cluster_id": "cluster",
+              "task_id": "task-0",
+              "trial_ordinal": 1,
+              "arm": "candidate",
+              "eval_id": "candidate-eval",
+              "attempt_ordinal": 1
+            },
+            "status": "incomplete",
+            "category": "operational",
+            "error": "copilot diagnostic: initialize/start_failed\nnative lifecycle diagnostics prevent a behavioral observation\nnative execution/output/grading evidence is unavailable",
+            "output_availability": "unavailable",
+            "event_models": [],
+            "accounting_models": [],
+            "usage_complete": false,
+            "lifecycle": {
+              "construction": {
+                "state": "completed"
+              },
+              "execute": {
+                "state": "not_attempted",
+                "reason": "Prior lifecycle prerequisite did not complete."
+              },
+              "grade": {
+                "state": "not_attempted",
+                "reason": "Prior lifecycle prerequisite did not complete."
+              },
+              "initialize": {
+                "state": "failed",
+                "reason": "copilot diagnostic: initialize/start_failed"
+              },
+              "shutdown": {
+                "state": "completed"
+              }
+            }
+          }
+        ],
+        "runtime_version": "unavailable",
+        "provider_currency": "unavailable",
+        "assurance": "unsupported",
+        "client_tool_policy": "deny_all_client_policy_not_server_isolation",
+        "budget_contract": "per_arm_final_observed_limits_best_effort_global_start_checks_async_overshoot_possible"
+      },
+      "kind": "waza.release-decision-view",
+      "usage": {
+        "baseline": [
+          {
+            "axis": "input_tokens",
+            "availability": "unavailable",
+            "reason": "One or more fresh attempts lack complete final authoritative session usage.",
+            "observation": "unknown"
+          },
+          {
+            "axis": "output_tokens",
+            "availability": "unavailable",
+            "reason": "One or more fresh attempts lack complete final authoritative session usage.",
+            "observation": "unknown"
+          },
+          {
+            "axis": "ai_credits",
+            "availability": "unavailable",
+            "reason": "One or more fresh attempts lack complete final authoritative session usage.",
+            "observation": "unknown"
+          }
+        ],
+        "candidate": [
+          {
+            "axis": "input_tokens",
+            "availability": "unavailable",
+            "reason": "One or more fresh attempts lack complete final authoritative session usage.",
+            "observation": "unknown"
+          },
+          {
+            "axis": "output_tokens",
+            "availability": "unavailable",
+            "reason": "One or more fresh attempts lack complete final authoritative session usage.",
+            "observation": "unknown"
+          },
+          {
+            "axis": "ai_credits",
+            "availability": "unavailable",
+            "reason": "One or more fresh attempts lack complete final authoritative session usage.",
+            "observation": "unknown"
+          }
+        ]
+      }
+    },
+    "error": "native collection has a retained failure"
+  }
+]

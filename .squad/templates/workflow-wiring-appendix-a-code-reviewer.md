@@ -85,8 +85,11 @@ In `routing.md` → `## Rules` section, add a numbered rule:
 ```markdown
 N. **{Name} PR Gate** — every PR created by any agent MUST be reviewed by {Name}
    before merge. The coordinator spawns {Name} (sync) with the PR diff after
-   the author pushes and creates the PR. On REJECT, the original author addresses
-   feedback. On APPROVE, the coordinator merges via `gh pr merge`. No PR merges
+   the author pushes and creates the PR. On REJECT, the coordinator selects a
+   different qualified revision owner, not the locked-out author or rejecting
+   gate. The reviewer supplies concrete counter-evidence and performs focused
+   rereview, not revision pairing or implementation. On APPROVE, the coordinator
+   follows the authorized repository merge policy. No PR merges
    without {Name}'s approval.
 ```
 
@@ -104,7 +107,7 @@ This is the operational detail — the step-by-step instructions the coordinator
 
 ### Step 6: Add to casting registry
 
-Update `.squad/casting/registry.json` with the new entry.
+Commit the new entry and assignment snapshot together using the locked SDK pair writer in `.squad/casting-transactions.md`. Never update registry/history/manifest files independently.
 
 ### Step 7: Verify
 

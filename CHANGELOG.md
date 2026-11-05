@@ -7,13 +7,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cancellation force-stop join** - When a canceled send or disconnect finishes
+  during forced cleanup, join the force-stop callback within the remaining
+  post-force grace instead of prematurely retiring its client. A callback that
+  remains blocked still retires the client at the existing deadline, without
+  labeling a completed session abandoned. This is post-v0.40.0 source behavior,
+  not included in the published v0.40.0 artifacts.
+
+- **JavaScript `code` grader input** - The JavaScript wrapper for `code` graders now reads its grading context directly from standard input (file descriptor 0) instead of through `process.stdin`, which made the pipe non-blocking. Large contexts, such as long transcripts, no longer fail intermittently with `EAGAIN` and an `exit status 1` grader error on Linux and macOS when the pipe is momentarily empty. Assertions, results and the Python wrapper are unchanged. This fix ([#882](https://github.com/microsoft/waza/pull/882)) is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
+
+- **Trial timeout recovery and result persistence** - Preserve completed results
+  and partial recovery snapshots after trial timeout, with bounded cancellation
+  and cleanup, shared-client replacement, observed-usage handling and owned-handle
+  output permissions ([#870](https://github.com/microsoft/waza/pull/870)).
+  This is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
+  The documented process-lifetime and trusted-output-directory limitations remain.
+
+## [0.40.0] - 2026-11-04
+
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.0)
+is published. Extension artifacts and registry synchronization are independent;
+see [release availability](site/src/content/docs/reference/releases.mdx).
+The exact-unit runner controls do not fix the broader legacy multi-trial timeout
+issue [#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
+fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
+
 ### Added
 
-- **Pass-rate confidence intervals and pass^k reliability** — Multi-trial runs now report a Wilson 95% interval on each task's pass rate (`stats.pass_rate_ci`) and on the suite success rate (`summary.statistics.success_rate_ci`), plus the τ-bench pass^k curve (`summary.statistics.pass_hat_k`). `waza run` prints them in its summary.
+- **Opt-in exact Copilot/text runner** - Add negotiated `inline.copilot-text` execution through the owned production SDK engine for one declared shard/task/trial/attempt (#758). Requires explicit model and paid consent; tools and skills are disabled and general native file/tool/skill workflows remain unsupported. Paid HTTP execution additionally requires a loopback peer, localhost/loopback Host and same-origin browser requests; remote mock and offline routes retain their previous behavior. Admitted eval metrics are identity-bound, uncomputed metadata, not aggregate values or threshold decisions. Cancellation and effective execution/shutdown deadlines interrupt the private transport; lifecycle and incomplete-usage diagnostics cannot become success, and isolated sessions never resume with unrestricted defaults solely to retrieve usage. CLI/API, terminal schema and Lab distinguish `copilot` from `mock`. Existing mock requests, identity algorithm, local adapters and result formats are unchanged; older servers reject the new capability before execution. SDK-fake conformance is not live-provider or native-platform evidence. See [invocation and migration](site/src/content/docs/guides/runner-contract.mdx#opt-in-production-copilot-text-execution).
+
+- **Selected AgentV assertion interoperability** - Add offline, version-pinned `waza interop import/export` for one explicitly selected case-sensitive `contains` assertion and its single-check native grader mapping (#789). Retained upstream fixture/oracle controls verify binary decisions and scores; unsupported selected semantics fail explicitly and excluded task/suite semantics are reported. This is not whole-task/suite support: AgentEvals-spec, Harbor, ASSERT and full evidence/provenance round trips remain unsupported, and #789 remains open. See the [assertion guide](site/src/content/docs/guides/external-interoperability.mdx).
+
+- **Runner container references** - Keep the default scratch `reference` target mock/text-only and add an explicit digest-pinned Debian/glibc `native-reference` target for the exact-unit native Copilot text profile (#762). The real bundled CLI is exercised against an in-container synthetic provider with runtime networking disabled, alongside positive discovery/hook controls, restriction checks, exact selection, timeout, cancellation and process cleanup. Docker CI requires native Linux AMD64; local ARM64 or emulated runs are not equivalent. Local image IDs are not registry pins. The [published image record](site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence) identifies the immutable image digest, source, platform and successful publisher/verifier: anonymous pull, signed provenance/finalization and mock plus bundled-native synthetic-provider production controls passed (1/1 test, 0 skipped). Infrastructure-owner review was waived for this one publication, not performed. This is not live-provider reliability or model-quality evidence. No scheduler or Lab change is introduced. See the [quickstart](site/src/content/docs/guides/runner-container.mdx) and [maintainer update policy](examples/runner/container/MAINTAINERS.md).
+
+- **Bounded local compatibility** - Add offline `runner adapt` and opt-in `run --runner-compat` for one literal mock/text task, trial and attempt (#761). Both use the byte-preserving adapter; local execution uses the shared runner service, current `EvaluationOutcome` writer schema 1.8 and local 0/1/2 exits. Ordinary `run`, historical schemas and artifact commands remain available; none are deprecated. Unsupported mappings, flags, ambient configuration, fixtures and adjacent trigger work fail explicitly. Remove `--runner-compat` to retain native/local behavior, or explicitly choose terminal JSON with `runner run`. No Lab change is required because no new result evidence/status is introduced. See the [compatibility and migration table](site/src/content/docs/guides/runner-compatibility.mdx).
+
+- **Runner negotiation 1.0** - Add offline JSON stdin/stdout `runner capabilities` and `runner negotiate`, matching HTTP APIs, strict request/response schemas, conformance fixtures and live Lab incompatibility diagnostics (#757). Compatibility alone never starts work.
+- **Exact captured mock/text work units** - Add `runner validate` / `runner run` and HTTP equivalents with fail-closed shard/task/trial/attempt admission, one fresh engine call, no task scanning, cache or automatic retries, and live Lab selection validation (#758). Each explicit repeat executes again, not deduplication. Opt-in Copilot/text is described above; general native file/tool/skill workflows remain unavailable. Existing local commands and artifacts are unchanged; no forms are deprecated. See the [contract and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+- **Input-derived runner identities** - Admitted validation/execution receipts now carry `identity` with version `sha256-waza-c14n-v1`, canonical input digest and run/shard/task/trial/attempt lineage through CLI JSON, HTTP, Lab and validation export (#759). Independent frozen source and producer vectors define the stability boundary. Invalid/unadmitted work has no identity; later execution failures retain it without implying execution success. Historical local results and receipts without identities are unchanged and are not backfilled. The unshipped `sha256-json-v1` draft is not compatible; compare version and ID together. See [normalization, conformance and migration](site/src/content/docs/guides/runner-identities.mdx).
+- **Runner terminal envelope** - `runner run` and HTTP `/runner/run` now emit one schema-validated `waza.runner-terminal` envelope, with success/evaluation/infrastructure/cancellation/timeout/unsupported/invalid exits 0–6, actual admitted identity and bounded observed verdicts (#760). This replaces only the earlier unshipped run receipt, not offline negotiation/validation or local result artifacts. Lab's explicit mock-run action shows and exports the real response; edits and errors clear stale success. Short/failed output never retries, and SIGKILL/host loss cannot guarantee delivery. See [outcomes, failure boundaries and migration](site/src/content/docs/guides/runner-terminal.mdx).
+- **Task-level MCP mocks** - Task YAML accepts `mcp_mocks`. A task entry replaces the same-named eval-level mock for that task only, a new name adds a mock, and other eval-level mocks still apply. Run, preflight, `waza check` and result cache keys use each task's effective mocks. Mock fixtures are read only for enabled tasks selected by the run, and an eval-level mock's fixtures only when one of those tasks or configured trigger tests uses it. A task file that already contained an `mcp_mocks` key, previously ignored with an unknown-field warning, now applies it; an empty task list is rejected. `before_run` hooks now run before tasks are loaded for MCP admission and before the engine starts, still once per run (once per pass with `--baseline`), so they can generate task inputs. Admission retains trigger-only dependencies after initialization and each pass's setup. Ctrl+C during `before_run`, MCP admission or engine initialization now stops the run promptly, and `after_run` still runs once (bounded to one minute after an interrupt).
+- **Lab conversation viewer** - The opt-in Lab inspector shows recorded user and agent messages in saved order without mixing in tool events or inventing message provenance (#753). It displays the first repetition; missing messages remain unavailable.
+- **Program-grader context** - `WAZA_GRADING_CONTEXT` points program graders to a private temporary JSON file containing recorded run evidence, including tool and mocked-command observations (#799). Stdin and `WAZA_WORKSPACE_DIR` are unchanged; unavailable evidence remains null, and write or cleanup failures fail grading. See the [program grader](docs/graders/program.md) for privacy and same-user trust boundaries.
+- **Host lifecycle evidence** - New results use schema `1.8` and can record model-turn boundaries and host shell observations in `runs[].host_lifecycle` (#816). Only structured native events are projected; missing observations are not inferred, and historical results remain readable.
+
+### Changed
+
+- **Copilot runtime dependencies** - Update the Go SDK to `1.0.28` and bundled CLI to `1.0.105` (#751, #820). Published standalone `v0.39.1` bundled SDK `1.0.21` and CLI `1.0.85`.
+- **Release validation** - Harden offline release gates to require complete fresh mock outcomes, reject forbidden runtime launches and verify all native test shards (#800).
+- **Frontend dependencies** - Update the dashboard's `fast-uri` and site's `postcss-selector-parser` transitive dependencies (#780).
 
 ### Fixed
 
-- **Misleading significance flag** — `is_significant` and the dashboard's "✓ significant" badge tested whether a CI on a task's own 0–1 score excluded zero. That compares an absolute, non-negative score with zero instead of testing a difference between runs, so it was not a significance test. The field is no longer populated (older results files still load) and the badge is removed.
+- **MCP mock sequences across turns** - Finite MCP mock sequences now continue across initial, scripted follow-up, and responder-driven turns in one task attempt, even when the native runtime restarts the mock server. Each task, trial, and retry still starts fresh, and existing first-match and exhaustion behavior is unchanged. Existing eval YAML needs no new field or flag. Cleanup refuses detected replacements and fails the run if attempt-owned state cannot be removed.
+- **MCP mock cache invalidation** - MCP-backed task cache keys now include the resolved mock configuration, so changed inline or fixture responses run again. Tasks without MCP mocks keep their existing cache keys. A cached outcome that records a mocked MCP server the task no longer mocks is re-run instead of reused.
+- **Lab conversations** - Conversation views omit messages without non-whitespace text while retaining the original events in Trajectory (#801).
+- **Responder turns** - Successful responder decisions terminate classification rather than triggering a duplicate decision (#749). Execution errors without a responder decision remain visible instead of becoming successful turns (#796).
+- **ADC SDK and task diagnostics** - Honor configured HTTP retry limits, initialize Apps consistently and interrupt blocked port-forward I/O on cancellation. Unsupported task `inputs.environment` is reported without exposing values instead of silently ignored (#842); per-task environment support is not added.
+
+**Full comparison:** [v0.39.1...v0.40.0](https://github.com/microsoft/waza/compare/v0.39.1...v0.40.0).
+
+## [0.39.1] - 2026-10-26
+
+### Fixed
+
+- **Single-skill dev targets** - `waza dev` accepts workspace skill names, directories, and existing `SKILL.md` files consistently in iterative, Copilot-report, and trigger-scaffolding modes, including Windows paths. Bare names retain workspace precedence; explicit paths never fall back to another skill. Batch names and `--all` are unchanged ([#747](https://github.com/microsoft/waza/pull/747), fixes [#746](https://github.com/microsoft/waza/issues/746)).
+
+### Changed
+
+- **Documentation assistant** - Add Ask Waza, guarded public-chat configuration, authenticated local-preview tooling, and optional Turnstile integration. Availability follows the deployed site's configuration ([#730](https://github.com/microsoft/waza/pull/730), [#731](https://github.com/microsoft/waza/pull/731), [#732](https://github.com/microsoft/waza/pull/732), [#733](https://github.com/microsoft/waza/pull/733)).
+- **Documentation** - Update skill-target examples and publish v0.39.0 and Dashboard Lab release articles ([#747](https://github.com/microsoft/waza/pull/747), [#726](https://github.com/microsoft/waza/pull/726)).
+- **Dashboard build dependencies** - Update Vite from 8.3.1 to 8.3.5 and coordinated locked build-tool dependencies ([#729](https://github.com/microsoft/waza/pull/729)).
+
+**Full comparison:** [v0.39.0...v0.39.1](https://github.com/microsoft/waza/compare/v0.39.0...v0.39.1). **Contributors:** @spboyer, Copilot, and Dependabot.
+
+## [0.39.0] - 2026-10-20
+
+### Added
+
+- **Scenario-first eval authoring** — `waza new eval --scenario --template repository|cli|mcp` scaffolds workflows without a required skill. Scenarios require exact eval schema `2.0`, disable ambient skills unless opted in, and bypass result caching; legacy v1 suites retain their behavior ([#670](https://github.com/microsoft/waza/pull/670)).
+- **Agent-free preflight and descriptive requirements** — `waza preflight` checks local prerequisites and named grader references without starting agents or services. Tasks can describe outcome, boundary, recovery, and quality requirements; metadata does not add assertions or prove satisfaction ([#671](https://github.com/microsoft/waza/pull/671)).
+- **Deterministic dependency recovery** — Finite MCP/CLI fault sequences, recovery examples, configured dependency modes, and captured CLI attempts support testing agent decisions against controlled failures, not real-service reliability or host isolation ([#720](https://github.com/microsoft/waza/pull/720)).
+- **Recorded reliability** — Trial counts, Wilson 95% task/suite pass-rate intervals, and the suite `pass^k` curve are preserved and displayed separately from weighted scores. Retry-enabled trial statistics describe reliability with retries ([#688](https://github.com/microsoft/waza/pull/688)).
+- **Portable evidence and scoped requirement observations** — Ordinary run/grade paths expose source attribution, availability, completeness, opt-in selected-file capture, and supported captured-file regrading. Historical absence remains unassessed; metadata does not verify external state ([#672](https://github.com/microsoft/waza/pull/672)).
+- **Evidence-backed independent prompt judging** — Final prompt graders can select bounded frozen evidence via `evidence_context`. Fresh separately owned judge sessions receive per-grader selections; persisted bundles support saved-result regrading. Explicit credentials and model calls are required; this is not OS sandboxing ([#704](https://github.com/microsoft/waza/pull/704)).
+- **Experimental Dashboard Lab** — `waza serve --lab` opens saved-result charts, filtering, history, task evidence, descriptive comparisons, and reports without replacing the classic dashboard. Recorded evidence includes reliability, provenance, requirement observations, and prompt-judging metadata ([#652](https://github.com/microsoft/waza/pull/652), [#723](https://github.com/microsoft/waza/pull/723)).
+- **Controlled release policies** — Source-bound planning, paired collection, strict assessment, decision views, and exports keep release dimensions separate. The default collector is offline/mock; historical results are not adopted as strict paired evidence ([#668](https://github.com/microsoft/waza/pull/668)).
+- **Opt-in native release comparisons** — Explicit `native-copilot` planning/collection supports fixed named models, single turns, native text checks, retained attempts/lifecycle/output/usage, and dashboard exports. Durable creation supports Linux/macOS only; skills, client tools, native assurance, runtime-version evidence, and provider currency are unsupported or unavailable as documented. Collection can incur usage; observed budgets are not atomic spending caps ([#724](https://github.com/microsoft/waza/pull/724)).
+- **Bounded grader assurance** — `waza assure` checks supported native graders against fixed reference cases; separate `waza assure calibrate` requires explicit paid-call acknowledgment and reviewed inputs. Additional preserved-native and fault/retry components retain separate, non-default API/profile boundaries ([#666](https://github.com/microsoft/waza/pull/666), [#667](https://github.com/microsoft/waza/pull/667), [#703](https://github.com/microsoft/waza/pull/703)).
+
+### Fixed
+
+- **Misleading significance flag** — `is_significant` no longer treats a task's non-negative score interval excluding zero as a significance test; the dashboard badge is removed and older results still load ([#688](https://github.com/microsoft/waza/pull/688)).
+- **Skill base directory** — Injected skill context includes the skill's base directory for resolving supporting files ([#673](https://github.com/microsoft/waza/pull/673)).
+- **Dashboard table compatibility** — Completed the TanStack React Table v9 migration ([#684](https://github.com/microsoft/waza/pull/684)).
+- **Release CI reliability** — Restored historical reader compatibility and reduced parser/materialization overhead without weakening validation boundaries, coverage, limits, or deadlines (issues [#691](https://github.com/microsoft/waza/issues/691), [#692](https://github.com/microsoft/waza/issues/692)).
+
+### Changed
+
+- **Compatibility coverage** — Added an offline compatibility corpus for existing v1 workflows ([#669](https://github.com/microsoft/waza/pull/669)).
+- **Dependencies** — Updated Copilot SDK Go from `1.0.15` to `1.0.21`, OpenTelemetry, Azure Blob Storage SDK, Astro/Starlight, React Query, dashboard/build tooling, and related lockfiles ([#712](https://github.com/microsoft/waza/pull/712), [#721](https://github.com/microsoft/waza/pull/721), plus dependency updates in the full comparison).
+- **Documentation and contributor tooling** — Expanded workflow prerequisites, compatibility and recovery guidance, evidence limitations, Lab coverage, review conventions, and Squad configuration ([#699](https://github.com/microsoft/waza/pull/699), [#700](https://github.com/microsoft/waza/pull/700), [#725](https://github.com/microsoft/waza/pull/725)).
+
+### Compatibility and operational notes
+
+- New scenario evals require exact `schemaVersion: "2.0"`; older executables reject that major. A present `scenario` must be a nonblank string: remove invalid/null legacy fields or supply the valid scenario contract. Task/results versions evolve separately; new results use `1.7`.
+- Selected-file private publication and native durable collection have Linux/macOS limits. Check individual operation documentation for Windows reader, stdout, and unsupported-output behavior.
+- Existing default commands do not opt into paid calibration or native collection. Evidence-backed prompt grading invokes a judge model when explicitly configured. Missing evidence is not a pass.
+
+**Full comparison:** [v0.38.10...v0.39.0](https://github.com/microsoft/waza/compare/v0.38.10...v0.39.0). **Contributors:** @spboyer, @akunzai, Copilot, and Dependabot. **First-time contributor:** @akunzai.
 
 ## [0.38.6] - 2026-08-14
 
@@ -620,7 +725,7 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.6...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.40.0...HEAD
 [0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
 [0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5
 [0.38.4]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.3...azd-ext-microsoft-azd-waza_0.38.4

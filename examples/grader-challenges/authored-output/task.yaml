@@ -1,0 +1,11 @@
+id: finite-output
+name: Finite authored output
+inputs:
+  prompt: Describe the synthetic local state.
+requirements:
+  - id: resulting-state
+    category: outcome
+    description: The output declares ready state and no forbidden marker.
+    checks:
+      - scope: eval
+        grader: state

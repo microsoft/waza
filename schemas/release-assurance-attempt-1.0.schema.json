@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "jsonDigest": {
+      "additionalProperties": false,
+      "description": "SHA-256 in the json-v1 domain; not interchangeable with other encodings or proof of authenticity.",
+      "properties": {
+        "encoding": {
+          "const": "json-v1"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "encoding",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceOrigin": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "eval_id": {
+          "type": "string"
+        },
+        "prior_attempts": {
+          "type": "string"
+        },
+        "run_number": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "eval_id",
+        "task_id",
+        "run_number",
+        "attempt_count",
+        "prior_attempts"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AssuranceOutput": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "const": "available"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "availability",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "const": "unavailable"
+            },
+            "reason": {
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "required": [
+            "availability",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "releasepolicy_AssuranceRow": {
+      "additionalProperties": false,
+      "properties": {
+        "collection_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "key": {
+          "$ref": "#/$defs/releasepolicy_AttemptKey"
+        },
+        "kind": {
+          "const": "waza.release-assurance-attempt"
+        },
+        "origin": {
+          "$ref": "#/$defs/models_EvidenceOrigin"
+        },
+        "output": {
+          "$ref": "#/$defs/releasepolicy_AssuranceOutput"
+        },
+        "row_digest": {
+          "$ref": "#/$defs/jsonDigest"
+        },
+        "sequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "sequence",
+        "collection_id",
+        "key",
+        "origin",
+        "row_digest",
+        "output"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AttemptKey": {
+      "additionalProperties": false,
+      "properties": {
+        "arm": {
+          "enum": [
+            "baseline",
+            "candidate"
+          ]
+        },
+        "attempt_ordinal": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "cluster_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "eval_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "trial_ordinal": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cluster_id",
+        "task_id",
+        "trial_ordinal",
+        "arm",
+        "eval_id",
+        "attempt_ordinal"
+      ],
+      "type": "object"
+    },
+    "sourceDigest": {
+      "additionalProperties": false,
+      "description": "SHA-256 in the source-bytes domain; not interchangeable with other encodings or proof of authenticity.",
+      "properties": {
+        "encoding": {
+          "const": "source-bytes"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "encoding",
+        "sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/release-assurance-attempt-1.0.schema.json",
+  "$ref": "#/$defs/releasepolicy_AssuranceRow",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Structural admission only. Strict readers additionally verify original JSON tokens, self-digest omission, exact source bytes, ordered replay, source/review freshness, deterministic regrading and base non-assurance conditions. Hashes are local consistency, not authentication.",
+  "title": "waza.release-assurance-attempt 1.0 (independent offline profile)"
+}

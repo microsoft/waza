@@ -5,6 +5,17 @@ description: Complete reference for all waza commands and flags.
 
 Complete reference for all `waza` CLI commands and their options.
 
+**Version boundary (November 4, 2026):** published standalone `v0.40.0`
+adds the bounded runner/text and selected AgentV assertion adapter, task-level
+MCP mocks, program-grader context, host lifecycle evidence and Lab conversations.
+It retains the `waza dev SKILL.md` file-target fix and v0.39.0 scenario flags, preflight,
+selected-file evidence/regrade, assurance profiles, controlled policy commands
+and `serve --lab`. Install the release or run `waza update`; a source build is
+optional. Explicit opt-in and platform restrictions remain; see the
+[feature/platform matrix](../releases/#upcoming-main-only-capabilities).
+The azd extension is versioned separately; verify its own help rather than
+assuming prefix parity.
+
 ## Installation
 
 ```bash
@@ -60,7 +71,7 @@ or runtime enforcement. The separately typed report is not `results.json`.
 Ref-only eval graders with a missing pinned cache remain unresolved until
 their preset/fallback can supply the effective name. Explicit duplicate names
 remain invalid; task/checkpoint graders still require inline declarations.
-See [Offline Eval Preflight](/guides/preflight/) for descriptive requirement
+See [Offline Eval Preflight](../../guides/preflight/) for descriptive requirement
 references, capability/dependency plans, and offline limitations.
 
 ## waza run
@@ -80,21 +91,21 @@ waza run [eval.yaml | skill-name | agent-name]
 | `[agent-name]` | Custom agent name (auto-detects eval.yaml for `.agent.md` files) |
 | *(none)* | Auto-detect using workspace detection |
 
-**Custom agents:** Waza discovers both `SKILL.md` and `.agent.md` files. You can target a custom agent by name just like a skill. See [Evaluating Custom Agents](/guides/custom-agents) for details.
+**Custom agents:** Waza discovers both `SKILL.md` and `.agent.md` files. You can target a custom agent by name just like a skill. See [Evaluating Custom Agents](../../guides/custom-agents/) for details.
 
 **APM-managed skills:** Waza detects compiled APM skills at `skills/<name>/.apm/skills/<name>/SKILL.md`, so `waza run <name>` and no-argument workspace detection work without symlinking `SKILL.md` into the source skill directory. If both `skills/<name>/SKILL.md` and the APM compiled output exist for the same skill, the top-level `SKILL.md` takes precedence.
 
 ### Flags
 
-The private dependency-fault harness does not add a public `run` flag, automatic
-retry policy or finite-sequence runtime configuration. Its injected native
-dispatch tests do not certify SDK resume or platform stdio. See
-[Private Fault Harness](/waza/guides/private-fault-fixtures/).
+Finite MCP/CLI fault sequences are configured in scenario eval YAML, not through
+a `run` flag. They do not add an automatic retry policy or certify real CLI/MCP
+implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--context-dir` | `-c` | string | `./fixtures` | Fixtures directory path |
 | `--output` | `-o` | string | | Save results JSON to file |
+| `--runner-compat` | | bool | false | Added in v0.40.0: route one compatible inline mock/text suite through runner 1.0, retaining local results and exits; unsupported mappings/flags fail. |
 | `--output-dir` | `-d` | string | | Directory for structured output; each run creates a UTC-timestamped subdirectory of the specified directory. Mutually exclusive with `--output`. |
 | `--verbose` | `-v` | bool | false | Detailed progress output |
 | `--parallel` | | bool | false | Run tasks concurrently |
@@ -118,20 +129,25 @@ dispatch tests do not certify SDK resume or platform stdio. See
 | `--session-log` | | bool | false | Enable session event logging (NDJSON) |
 | `--session-dir` | | string | `.` | Directory for session log files |
 | `--no-summary` | | bool | false | Skip combined summary.json for multi-skill runs |
+| `--interpret` | | bool | false | Print optional interpretation with per-trial scoped requirement observations/evidence metadata when present; legacy no-metadata text is unchanged and malformed evidence is withheld. |
 | `--skip-graders` | | bool | false | Skip grading (execution only); grade later with `waza grade` |
 | `--no-skills` | | bool | false | Disable all skill loading for the evaluation |
 | `--transcript-dir` | | string | | Save per-task transcript JSON files |
 | `--no-cache` | | bool | false | Explicitly disable result caching |
 | `--keep-workspace` | | bool | false | Preserve temp workspaces after execution for debugging |
 | `--auto-file-issue` | | bool | false | Auto-file or update a GitHub issue for failing runs (requires `gh` and `GITHUB_REPOSITORY`) |
-| `--otel-exporter` | | string | | Export OpenTelemetry traces using `otlp`, `stdout`, or `file`. Off by default. See [OpenTelemetry Tracing](/guides/otel/). |
+| `--otel-exporter` | | string | | Export OpenTelemetry traces using `otlp`, `stdout`, or `file`. Off by default. See [OpenTelemetry Tracing](../../guides/otel/). |
 | `--otel-endpoint` | | string | | OTLP endpoint (host:port or URL); only used with `--otel-exporter=otlp` |
 | `--otel-headers` | | string | | Comma-separated `key=value` OTLP headers (e.g. for auth) |
 | `--otel-file` | | string | | File path for span JSON when `--otel-exporter=file` |
 | `--otel-include-payloads` | | bool | false | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
-| `--snapshot` | | string | | Capture a self-contained `snapshot.json` per task to the given directory for later replay. See [`waza replay`](#waza-replay). |
+| `--snapshot` | | string | | Capture redacted per-trial observations and portable evidence to the given directory; not a complete workspace. See [Snapshot & Replay](/waza/guides/snapshot-replay/). |
+| `--snapshot-file` | | string[] | | Repeatable reviewed agent-visible UTF-8 regular-file allow-list; requires `--snapshot`. Linux/macOS only. |
+| `--snapshot-evaluator-only` | | string[] | | Repeatable evaluator-only file/directory exclusions; requires `--snapshot` and `--snapshot-file`. Metadata inventory capped at 256 inspections/depth 32 before selected content; limit/inspection/resource failure prevents capture. Never capture credentials or evaluator-only files. |
+| `--snapshot-max-file-bytes` | | int64 | 1048576 | Positive input/sanitized byte limit per file (1 MiB). |
+| `--snapshot-max-total-bytes` | | int64 | 10485760 | Positive aggregate input/sanitized byte limit (10 MiB). |
 | `--snapshot-env-allow` | | string[] | | Allow-list of environment variable name patterns to embed in snapshots (default-deny; supports `WAZA_*` wildcards). |
-| `--redact` | | string | | Path to a custom YAML redaction policy applied to snapshot output (merged with the built-in default rules). |
+| `--redact` | | string | | Custom snapshot redaction policy; replaces defaults unless `extend: true`. |
 
 ### Examples
 
@@ -348,9 +364,12 @@ Wildcard-directory globs that select the default `tasks/` path remain supported.
 Globs that cannot select that task or a safe literal alternative, or that select
 generated non-task files, are rejected before writing. For example,
 `fixtures/*.yaml` is supported, but `fixtures/*` selects `.gitkeep` and must be
-narrowed. A failed later write can leave earlier created files;
-inspect and remove only the generated partial files before retrying. The
-scaffold is not a whole-directory transaction.
+narrowed. A failed creation or write rolls back files created by the attempt,
+including a partial output. File ownership handles remain open through success
+or rollback, preventing an unlinked inode from being recycled before the
+ownership check. Observed replacements are preserved; cleanup and handle-close
+failures are reported instead of silently deleting unowned output. Empty directories may
+remain, so this is not a whole-directory transaction.
 Scenario mode also rejects symlinked parents in the selected output path,
 including its root and nested task/fixture directories. Choose a physical output
 path instead. Relative paths use the retained working directory; absolute paths
@@ -358,9 +377,15 @@ are checked from their filesystem root. The literal macOS `/var` and `/tmp`
 aliases are accepted only when their targets exactly match the expected
 `/private` locations. Admitted directory handles are retained, so replacing a
 parent path cannot redirect subsequent file creation. Moving an admitted
-directory can move its outputs; this is not a filesystem sandbox or whole-suite
-rollback. This parent policy applies to scenario generation, not legacy
+directory can move its outputs; rollback removes only this attempt's owned
+files, not unrelated content or whole directories. This is not a filesystem
+sandbox. This parent policy applies to scenario generation, not legacy
 skill/eval scaffolding.
+
+Scenario templates honor configured task discovery, including literal custom
+directories such as `cases/*.task.yaml`. An incompatible glob/suffix, unsafe
+destination, or glob selecting generated non-task artifacts fails scaffolding
+instead of producing an undiscoverable task.
 
 ### Examples
 
@@ -514,6 +539,32 @@ waza compare [results-1.json] [results-2.json] ...
 | Flag | Description |
 |------|-------------|
 | `--format` | Output format: `table` (default), `json` |
+| `--release-policy` | Explicit independent fixed-design release policy; requires `--collection-dir` instead of historical positional results. |
+| `--collection-dir` | New paired collection sidecars. Invalid, incomplete, rejected or inconclusive selected policy exits `1`. |
+| `--assurance-contract` | Explicit independent offline assurance profile; requires `--release-policy`, `--collection-dir` and current per-arm eval/reference inputs. Empty selection fails. |
+| `--baseline-eval`, `--candidate-eval` | Current per-arm eval sources required for selected assurance assessment. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Optional cwd-relative per-arm context overrides. |
+| `--baseline-references`, `--candidate-references` | Current evaluator-only finite authored reference labels required for selected assurance. |
+| `--baseline-review`, `--candidate-review` | Optional separately supplied current review files. |
+| `--baseline-accept-review-source`, `--candidate-accept-review-source` | Explicit acceptance of each supplied current review source; not authenticated human review. |
+
+Selected policy assessment does not change default descriptive comparisons.
+Policy metadata in ordinary results is not enforcement, and older executables
+reject the new flags. `compare-plan` and `compare-collect` default to offline
+mock collection; explicitly pass `--collector native-copilot` to both to select
+the bounded Copilot SDK profile. It may incur provider usage and is limited to
+fixed named models, single turns, no skills, deny-all client tools and native
+text/string checks. It does not establish server isolation, authenticated
+assurance or provider/runtime versions. Native durable creation supports
+Linux/macOS only; Windows reader checks do not certify writing. Do not adopt
+historical outcomes as fresh evidence.
+See [controlled comparisons](/waza/guides/controlled-comparisons/).
+
+**Existing legacy JSON limitation:** when task sets differ, missing-task score
+and pass-rate entries use non-finite values internally, so `compare --format
+json` fails to encode the report. Table output still displays those entries as
+`n/a`. This predates controlled-policy selection; no missing-task JSON fix or
+change to legacy task-set semantics is included here.
 
 ### Examples
 
@@ -538,9 +589,103 @@ When the input files include the `tool_events[]` array (`results.json` schema 1.
 
 The section is suppressed when none of the compared files contain tool data, so legacy 1.0 results remain unchanged.
 
+## waza compare-plan
+
+Bind a mandatory fixed design and explicit requirements to inspected sources
+before collecting outcomes. Collection defaults to offline mock. Explicit
+`--collector native-copilot` selects the bounded Copilot SDK profile; static
+metadata is not assurance.
+
+| Flag | Description |
+|---|---|
+| `--collector` | Collection profile: `mock` (default, offline) or `native-copilot` (explicit, may incur provider usage). |
+| `--baseline-eval`, `--candidate-eval` | Required source eval YAML files. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Cwd-relative context override; default is each eval directory's `fixtures`. |
+| `--design` | Required policy-1.0 design member JSON, with empty allocation; seed generated once. |
+| `--requirements` | Required explicit identity/runtime/assurance/billing member JSON. |
+| `--allow-change` | Comma-separated `engine,model,reasoning_effort`; exact actual per-task differences only. |
+| `-o`, `--output` | Required new private policy file; no overwrite. |
+
+Invalid or unsupported planning exits `1`; nothing is collected. Planned trial
+ordinals must match effective `config.trials_per_task`. The policy's metadata
+alone never enforces a gate.
+
+## waza compare-assurance-plan
+
+Create a new independently versioned offline assurance contract before BEGIN,
+without changing frozen base policy/journal/decision 1.0 semantics. The selected
+base policy must explicitly require assurance.
+
+| Flag | Description |
+|---|---|
+| `--release-policy` | Required exact base 1.0 policy with assurance required. |
+| `--baseline-eval`, `--candidate-eval` | Required current per-arm eval YAML. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Optional context overrides with the existing cwd semantics. |
+| `--baseline-references`, `--candidate-references` | Required current evaluator-only reference-label JSON with finite authored outputs. |
+| `--baseline-review`, `--candidate-review` | Optional separately supplied current review declarations. |
+| `--baseline-accept-review-source`, `--candidate-accept-review-source` | Explicit acceptance of each supplied current review source; supplying a file alone is not acceptance. |
+| `-o`, `--output` | Required **new** exclusive contract file; no overwrite. |
+
+No existing contract is an input to planning. Collection/assessment must select
+the resulting `--assurance-contract` explicitly with `--release-policy` and
+current per-arm inputs; assessment additionally needs `--collection-dir`.
+Missing/empty required flags fail; empty contract selection never falls back.
+Unreviewed examples remain nonpassing. Review-source acceptance is not
+authenticated human review; test-only reviewed declarations are synthetic.
+
+Only mock/no-skills/native-text finite authored outputs are supported. Fresh
+exact offline1.0 reports for both arms, retained actual-response deterministic
+regrade and every base non-assurance condition are required for an outer pass.
+No live SDK assurance, calibration, paid1.1/billing support or automatic paid validation.
+Stored report pass labels are never adopted. The base API/dashboard intentionally
+remain nonpassing for required assurance. See the
+[independent profile lifecycle](/waza/guides/controlled-comparisons/#opt-in-separately-to-offline-assurance).
+
+## waza compare-collect
+
+Collect fresh paired attempts under an explicit frozen policy. The default
+`mock` collector is offline. Explicitly select `--collector native-copilot` for
+the fixed-model, single-turn Copilot SDK profile, which may incur provider
+usage. Sources are rechecked before BEGIN and every attempt; private frozen
+requests avoid mutable fixture rereads. Native durable creation is Linux/macOS
+only.
+
+| Flag | Description |
+|---|---|
+| `--collector` | Collection profile: `mock` (default, offline) or `native-copilot` (explicit, may incur provider usage). |
+| `--baseline-eval`, `--candidate-eval` | Required exact source eval YAML files. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Same context semantics used during planning. |
+| `--release-policy` | Required precollection policy. |
+| `--collection-dir` | Required new private directory; no overwrite, adoption or resume. |
+| `--assurance-contract` | Optional explicit independent offline contract; requires `--release-policy` and current per-arm references. Empty selection fails. |
+| `--baseline-references`, `--candidate-references` | Required current evaluator-only labels when assurance is selected. |
+| `--baseline-review`, `--candidate-review` | Optional separately supplied current review files for selected assurance. |
+| `--baseline-accept-review-source`, `--candidate-accept-review-source` | Separate explicit acceptance of each supplied review source. |
+
+Source drift, unsupported capability, cancellation or persistence errors exit
+`1`. Successful collection persists evidence, **not a release pass**. Assess
+it separately with `compare` or `gate --release-policy --collection-dir`.
+The [offline example](/waza/guides/controlled-comparisons/) intentionally remains
+inconclusive; no default live/paid execution or adaptive stopping is enabled.
+The native profile supports no skills, deny-all client tools and native
+text/string checks only; hooks, MCP, repositories, cache, concurrency, resume,
+checkpoints, multiturn and other graders are unsupported. Usage limits use
+final observations and best-effort prestart checks, so in-flight overshoot is
+possible; they are not a hard spending cap. Runtime version, provider currency
+and ambiguous output presence remain unavailable.
+Operationally incomplete native collection exits nonzero even if core
+publication completed; inspect `native-stop.json` for the error, budget or
+currentness cause. The API collection item's `error` may coexist with attempts.
+Selected assurance additionally persists `assurance-contract.json`,
+`assurance.ndjson` actual-response rows and `assurance-ledger.json`. Sources,
+evaluator evidence and review inputs are rechecked after verification and before
+final publication. A captured empty response has an explicit available `value:
+""`; unavailable output has a reason and **no value**. Neither collection nor
+stored grader assurance reports are adopted as an outer release pass.
+
 ## waza replay
 
-Replay a self-contained task snapshot to verify deterministic reproduction. Snapshots are produced by `waza run --snapshot <dir>` and contain the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes — everything required to re-derive the run without contacting the engine.
+Check a task snapshot's offline consistency or compare two snapshots. Snapshots are produced by `waza run --snapshot <dir>` and contain the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes. Hashes are not preserved file contents. Replay does not reconstruct a workspace, re-run graders, verify external state, or reproduce an agent execution.
 
 ```bash
 waza replay <snapshot.json> [flags]
@@ -556,7 +701,7 @@ waza replay <snapshot.json> [flags]
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--mode` | string | `model-replay` | Replay mode. `model-replay` re-checks internal consistency without contacting the engine. `live` (planned) re-runs against the real engine. |
+| `--mode` | string | `model-replay` | Offline consistency check. `live` is unsupported and returns exit code `2`. |
 | `--bisect` | string | | Path to a second snapshot to compare against the primary. Reports the first divergent turn. |
 | `--json` | bool | false | Emit machine-readable JSON to stdout instead of a human summary. |
 | `--strict` | bool | true | In `model-replay` mode, also re-check final status and grader outcome consistency. |
@@ -564,7 +709,7 @@ waza replay <snapshot.json> [flags]
 ### Modes
 
 - **`model-replay`** — Re-checks the snapshot's grader outcomes and tool-event tape for internal consistency (monotonic sequence, validation/score agreement). Fast, fully offline, ideal for CI.
-- **`live`** — _Planned for Wave 4._ Re-runs the task against the real engine and diffs the resulting tool events against the snapshot's, ignoring durations and raw text.
+- **`live`** — Unsupported; returns exit code `2`. No live replay behavior or delivery date is promised.
 
 ### Exit codes
 
@@ -572,7 +717,7 @@ waza replay <snapshot.json> [flags]
 |------|---------|
 | `0` | Snapshots match / replay succeeded |
 | `1` | Divergence detected (kind/value rendered to stderr or `--json` output) |
-| `2` | Load, parse, schema-version, or I/O error |
+| `2` | Snapshot load, parse, schema-version or I/O error; JSON output error; unsupported live mode or unknown mode |
 
 ### Examples
 
@@ -606,6 +751,32 @@ waza gate --baseline baseline.json --current results.json [flags]
 | `--on-new-tasks` | `allow` | Policy when current has tasks not in baseline: `allow`, `warn`, `fail`. |
 | `--on-removed-tasks` | `warn` | Policy when baseline has tasks not in current: `allow`, `warn`, `fail`. |
 | `--format` | `human` | Output format: `human`, `json`, `markdown`, `github-actions`. |
+| `--release-policy` | _(off)_ | Explicit independently versioned fixed-design policy assessment; selected nonpass exits `1`. |
+| `--collection-dir` | _(unset)_ | New paired collection, required with `--release-policy`; no historical adoption or resume. |
+| `--assurance-contract` | _(off)_ | Explicit independent offline profile; requires `--release-policy`, `--collection-dir` and current per-arm inputs. Empty selection fails. |
+| `--baseline-eval`, `--candidate-eval` | _(unset)_ | Required current eval sources for selected assurance. |
+| `--baseline-context-dir`, `--candidate-context-dir` | _(unset)_ | Optional per-arm context overrides. |
+| `--baseline-references`, `--candidate-references` | _(unset)_ | Required current evaluator-only finite authored reference labels for selected assurance. |
+| `--baseline-review`, `--candidate-review` | _(unset)_ | Optional separately supplied current review declarations. |
+| `--baseline-accept-review-source`, `--candidate-accept-review-source` | _(unset)_ | Explicit per-arm acceptance of each supplied current review source, not authenticated human review. |
+
+The default exit matrix below is unchanged. Explicit policy mode cannot be
+combined with legacy baseline/current/threshold/golden/task-set flags. It emits
+separate compatibility, completeness, assurance, golden, billing, statistical
+and operational states. Missing required golden evidence, unavailable final
+billing, missing assurance and an inconclusive comparison are not the same
+reason. Static preflight declarations never count as observed assurance.
+
+An independent contract permits only an **outer** `waza.release-assured-decision`
+1.0 pass when both fresh exact offline1.0 reports, retained actual-response
+deterministic regrade and every base non-assurance condition pass. The embedded
+base decision and API/dashboard remain nonpassing for required assurance.
+Assessment rechecks current sources/evidence/review; stored report pass labels
+are not adopted. Use `--format json` for the machine-readable outer contract or
+the default human output. Selected assurance does not promise legacy
+markdown/GitHub Actions layouts. Its nonpass exit is `1`, not the legacy
+exit matrix below. No live SDK assurance, calibration, paid1.1/billing support or automatic
+paid validation is selected; old executables reject new command/unknown flags.
 
 ### Exit codes
 
@@ -651,11 +822,14 @@ waza gate --baseline baseline.json --current results.json \
   --format markdown > gate-report.md
 ```
 
-See the [CI/CD guide](/guides/ci-cd/#regression-gates-with-waza-gate) for full GitHub Actions and Azure DevOps snippets.
+See the [CI/CD guide](../../guides/ci-cd/#regression-gates-with-waza-gate) for full GitHub Actions and Azure DevOps snippets.
 
 ## waza adversarial
 
-Run offline adversarial / fault-injection packs against a skill. See the [Adversarial harness guide](/guides/adversarial/) for full coverage of the built-in packs and the `adversarial:` spec block.
+Run adversarial packs with an explicit engine. Mock validates harness wiring
+only; real skill evaluation requires `--skill`, `--engine copilot-sdk`,
+authentication/model access and possible usage costs. See the
+[Adversarial harness guide](../../guides/adversarial/).
 
 ```bash
 waza adversarial [flags]
@@ -750,6 +924,37 @@ waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml \
   --format github-actions
 ```
 
+<span id="waza-interop-source-build-preview"></span>
+
+## waza interop (v0.40.0)
+
+Offline stdin/stdout conversion of **one selected AgentV `contains` assertion**,
+not an upstream task or suite:
+
+```bash
+# From the repository root, using a binary built from this source.
+adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
+waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
+  < internal/interop/testdata/agentv/suite.yaml > one-native-grader.yaml
+waza interop export --adapter "$adapter" < one-native-grader.yaml
+```
+
+`--adapter` requires the exact pin. Import requires an exact `--test` ID and
+1-based `--assertion` index, outputs one native grader mapping, and explicitly
+diagnoses excluded suite semantics. Export accepts one named text grader with
+exactly one `contains_cs` check and outputs one AgentV assertion. Unknown fields
+on the selected assertion/native grader fail; no silent grader substitution.
+Unknown versions, malformed/ambiguous YAML and invalid selections return exit 2.
+These pre-output failures emit no converted stdout. Delivery failures can leave
+partial output; a broken pipe may terminate the process instead of returning
+exit 2. Discard output from failed commands. Shell redirection can create or
+truncate a file before failure.
+Input is bounded to 4 MiB; no providers, scripts, reference reads or model calls.
+
+See [External Assertion Interoperability](/waza/guides/external-interoperability/)
+for supported fields, licensing, upstream oracle evidence and acceptance gaps.
+AgentEvals-spec, Harbor, ASSERT and whole-suite AgentV imports are unsupported.
+
 ## waza migrate
 
 Check or migrate a public schema artifact.
@@ -758,16 +963,17 @@ Check or migrate a public schema artifact.
 waza migrate <file>
 ```
 
-Legacy eval/task/result defaults remain `1.4`. Compatible legacy YAML evals use
+Legacy eval/result input and reader defaults remain `1.4`; task YAML has no
+independent version field. Compatible legacy YAML evals use
 the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
 their artifact shape, including custom `.json` filenames.
 
-This legacy input/reader policy is separate from new result emission: current
-evaluations and regrades write results `1.6`. Task YAML has no independent version
-field. Historical result versions and missing reliability metadata are preserved
+This legacy input/reader policy is separate from new result emission: evaluations
+and regrades in v0.40.0 write results `1.8`; published `v0.39.1` writes
+`1.7`. Historical result versions and missing reliability metadata are preserved
 when reading/re-saving; migration does not upgrade them.
-Compatibility reports select the current version by artifact type: eval `1.4`
-or result writer `1.6`. Missing/`1.4` result versions are explicitly labeled as
+Compatibility reports select the executing binary's current version by artifact
+type: eval `1.4` or, for current source, result writer `1.8`. Missing/`1.4` result versions are explicitly labeled as
 the legacy reader default alongside the current writer version, not rewritten.
 
 A present `scenario` header requires a nonblank native string and exact schema
@@ -1170,17 +1376,44 @@ Remote program graders require `--allow-exec` or interactive confirmation before
 Improve skill compliance iteratively.
 
 ```bash
-waza dev [skill-name | skill-path]
+waza dev <skill-name | skill-path>
+waza dev <skill-name...>
+waza dev --all
 ```
+
+A single target can be a workspace skill name, a directory, or a `SKILL.md`
+file, using relative or absolute paths. Bare names resolve workspace skills
+first, then fall back to existing local directories. Prefix a directory with
+`./` (or `.\` on Windows) to select that path explicitly. Other file targets are
+rejected. Multiple positional arguments remain workspace skill names.
+
+```bash
+waza dev ./skills/code-explainer
+waza dev ./skills/code-explainer/SKILL.md
+waza dev SKILL.md
+waza dev .
+```
+
+```powershell
+waza dev .\skills\code-explainer\SKILL.md
+```
+
+The same single-target forms work with `--copilot` and `--scaffold-triggers`.
 
 ### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--target` | Target level: `low`, `medium`, `high` |
+| `--target` | Target level: `low`, `medium`, `medium-high`, `high` (default: `medium-high`; iterative mode only) |
 | `--max-iterations` | Max improvement loops (default: 5) |
 | `--auto` | Auto-apply without prompting |
-| `--fast` | Skip integration tests |
+| `--copilot` | Generate a non-interactive recommendations report without modifying the skill |
+| `--model` | Model to use with `--copilot` |
+| `--scaffold-triggers` | Generate `tests/trigger_tests.yaml` from frontmatter trigger phrases |
+| `--all` | Process all skills in the workspace |
+| `--filter` | Filter `--all` skills by adherence level |
+
+`--target`, `--max-iterations`, and `--auto` are not valid with `--copilot`.
 
 ### Workflow
 
@@ -1196,9 +1429,122 @@ Iteratively:
 5. Re-scores
 6. Repeats until target reached
 
+## waza assure
+
+Challenge scoped native file/output checks against evaluator-only references
+without running a task agent.
+
+```bash
+waza assure eval.yaml --references labels.json
+waza assure eval.yaml --references labels.json \
+  --review current-review.json --accept-review-source selected-source \
+  --output assurance.json
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--references` | Required strict versioned label JSON; relative snapshots are rooted at this document's directory |
+| `--review` | Separate current-source supplied review declaration |
+| `--accept-review-source` | Explicit evaluator acceptance of that source; not human authentication |
+| `-o, --output` | Write standalone `waza.grader-assurance` report |
+| `--calibrate` | Currently unavailable: report not assessed with zero paid calls and null usage/credits |
+
+Exit 1 unless the strict finite-corpus assessment passes. Missing evidence,
+unknown completeness, unreviewed labels, operational failures and critical
+false acceptance cannot pass. Preserved subsets cannot prove missing-path absence.
+Executable provenance observes the on-disk file opened at `os.Executable()`,
+not mapped executing bytes, RAM or authenticity. Path replacement may change
+the digest or make acquisition fail; unavailable provenance cannot pass.
+The portable digest algorithm and binding domain are unchanged. No assurance
+cache is reused. Existing `grade`, `run` and golden-task semantics are unchanged.
+See [grader challenges](../../guides/graders/#challenge-the-checks-not-just-the-answer).
+
+The separate internal evaluator API `assurance.Calibrate` has no default engine
+factory. Its version-1.1 report claims require separate explicit consumer
+selection; the offline CLI above continues to emit
+offline version `1.0`. See the
+[evaluator boundary](/waza/guides/graders/) for selection, notice, supported
+rubric modes and missing/operational evidence.
+
+### waza assure calibrate
+
+This distinctly selected command can incur paid provider usage. It is not enabled
+by the existing `assure --calibrate` flag, and bundled labels remain unreviewed.
+
+```bash
+waza assure calibrate eval.yaml --references reviewed-labels.json \
+  --review current-review.json --accept-review-source selected-source \
+  --rubric-root evaluator-rubrics --accept-paid-calls \
+  --timeout 10m --output calibrated-assurance.json
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--references` | Required evaluator-only labels and rooted evidence |
+| `--review` | Required separate current supplied review |
+| `--accept-review-source` | Required explicit source acceptance, not human authentication |
+| `--rubric-root` | Required root for original local rubric reads |
+| `--accept-paid-calls` | Default false; explicit acknowledgment for this invocation |
+| `--timeout` | Positive cooperative assessment duration, default `10m`; not a spend cap |
+| `-o, --output` | Unix only: atomically replace requested standalone report; also write JSON to stdout |
+
+On other platforms, including Windows, an explicit `--output` exits 2 before
+preflight, producer, paid notice or engine creation. Omit the flag and capture
+stdout instead; default stdout remains available on every platform.
+
+Without payment acknowledgment the admitted notice refuses execution with an
+empty ledger/null billing. No interactive prompt, generic `--yes`, model override
+or automatic review acceptance is provided. Notice failure blocks construction;
+ambient custom-provider redirects are rejected. Reviewed model/protocol and
+actual/maximum independent-job counts print to stderr before any owned engine;
+these counts do not bound provider follow-ups, retries, credits or money.
+
+Only a clean strict pass exits 0. Ordinary nonpass/refusal exits 1; invalid,
+operational, canceled, notice-I/O, output or root-close failure exits 2. A nonnil
+partial report is output even when the API also returns an error. Cleanup uses
+cooperative deadlines, not forced join. Version-1.1 inspection is explicit and
+does not certify server isolation, current evidence or human identity.
+
 ## waza grade
 
 Re-grade previous evaluation results without re-executing the agent.
+
+File-based graders require the actual preserved agent workspace via `--workspace`. Snapshot hashes and tool events cannot reconstruct those files. Prompt graders may contact the configured judge model.
+
+Final prompt graders with `config.evidence_context` instead verify the persisted
+`judge_evidence` bundle and create fresh isolated judge sessions, never resuming
+saved actor/judge sessions or fetching `snapshot_path`. Evidence-only grading
+does not inspect `--workspace`. Do not mix it with legacy prompt graders or
+`--evidence-snapshot`; newly selected files must already be captured.
+
+```bash
+waza grade examples/evidence-judge/eval.yaml --results results.json --task report --output regraded.json
+```
+
+This can incur new model charges. Original execution billing is unchanged; new
+sessions appear in `regrade_usage`. Ordinary failed judgments retain `grade`'s
+zero exit with `passed: false` / `status: failed`. Operational evidence/judge
+errors return nonzero, `status: error` and no `overall_score`; requested output
+retains admitted-source run diagnostics, and output-write errors propagate.
+See [frozen judging configuration and prerequisites](/waza/guides/graders/#evidence-backed-independent-judging).
+
+The narrow `--evidence-snapshot` mode verifies captured file contents instead.
+It requires `--task`, exactly one assessed matching run, original manifest
+SHA-256/full-origin verification, complete unredacted required files and text
+digests, and no explicit `--workspace`. Cached source eval IDs can differ while
+task/run/attempt identity must match. No `snapshot_path` is fetched implicitly.
+Only file graders with explicit required `must_exist` / `content_patterns` paths
+are supported; wildcard/absence checks, no-explicit-file-check graders, and
+all non-file graders and output-based expectations are rejected before
+materialization. Only required files are privately materialized; checks cover
+that captured subset, not original-workspace absence. `must_not_match` checks
+only its selected file's complete verified text.
+Older workspace grading remains unchanged.
+
+Regrading retains `source_manifest_sha256` and invalidates original
+result/validation/grader-configuration/checkpoint links. Original checkpoints
+do not observe new declarations. Inspection adds no automatic paid calls.
+See [capture and regrading limits](/waza/guides/snapshot-replay/).
 
 ```bash
 waza grade <eval.yaml>
@@ -1211,6 +1557,7 @@ waza grade <eval.yaml>
 | `--results` | | string | | **Required.** Path to `waza run` output JSON |
 | `--task` | | string | | Grade a specific task ID only |
 | `--workspace` | | string | `.` | Agent workspace directory for file-based graders |
+| `--evidence-snapshot` | | string | | Explicit reviewed snapshot for verified file-only regrading on Linux/macOS; requires `--task` and is incompatible with explicit `--workspace` |
 | `--judge-model` | | string | | Model for prompt graders (overrides execution model) |
 | `--output` | `-o` | string | | Write full EvaluationOutcome JSON |
 | `--verbose` | `-v` | bool | false | Verbose output |
@@ -1229,6 +1576,10 @@ waza grade eval.yaml --results results.json --judge-model claude-opus-4.6
 
 # Save graded results for comparison
 waza grade eval.yaml --results results.json -o graded.json
+
+# File-only regrading of one assessed run from reviewed captured contents
+waza grade eval.yaml --results results.json --task report-task \
+  --evidence-snapshot ./reviewed-snapshot.json -o regraded.json
 ```
 
 ## waza session
@@ -1255,7 +1606,54 @@ Render a session timeline from an NDJSON event log.
 waza session view <session-file>
 ```
 
+## waza runner
+
+`runner adapt --eval <file> --task <file> --run-key <key> --shard <key>
+--task-id <id> --trial 1 --attempt 1` captures a compatible local mock/text suite
+offline as request JSON. `--timeout-ms` optionally asserts its effective timeout.
+To preserve local result JSON instead, use `run <file> --runner-compat --output
+<file>`. See [local compatibility and migration](../../guides/runner-compatibility/)
+for the exact supported profile, rejected flags and before/after examples.
+
+**Available in v0.40.0:** inspect supported runner versions/capabilities and
+check compatibility without starting an eval or model:
+
+```bash
+waza runner capabilities
+waza runner negotiate < examples/runner/negotiation.json
+waza runner validate < examples/runner/unit.json
+waza runner run < examples/runner/unit.json
+```
+
+The `negotiate` command takes one JSON request on stdin and writes one
+`waza.runner-negotiation` response to stdout. Exit 0 means compatible, 5 means
+unsupported version/capability, 6 means invalid request, and 2 means output
+failure. These are negotiation exits, not new meanings for local `waza run`.
+`validate` checks a complete captured request without a runtime; `run` executes
+exactly one inline text attempt with no discovery, cache or retries.
+Mock requests require `inline.mock-text`; production Copilot/text requests
+require `inline.copilot-text`, an explicit model and `allow_paid_execution: true`.
+Both disable ambient skills; Copilot/text also denies all tools. Validate
+`examples/runner/copilot-unit.json` offline before explicitly running it
+(each dispatch may incur charges). General native file/tool/skill workflows
+remain unsupported. The receipt
+is `waza.runner-unit` for offline validation, and `waza.runner-terminal` for run.
+Run exits: 0 success, 1 failed checks, 2 infrastructure/output failure,
+3 cancellation, 4 timeout, 5 incompatible runner requirements,
+6 invalid input. Paid consent alone does not enable an unsupported profile.
+See [terminal outcomes, schema and migration](../../guides/runner-terminal/).
+For a local image build and exact mock/text stdin/stdout invocation, see the
+[local runner container reference](../../guides/runner-container/).
+Admitted receipts carry `identity` version `sha256-waza-c14n-v1`, canonical input
+digest and logical lineage; validation alone derives it without execution.
+Save stdout with `> validation.json`; identity is not proof of execution or
+duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
+See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
+
 ## waza serve
+
+Standalone v0.40.0 also exposes negotiation and exact-unit validation/run through HTTP.
+See [Runner contract and API](../../guides/runner-contract/) for routes and schemas.
 
 Start the interactive dashboard.
 
@@ -1310,7 +1708,7 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 | `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
-The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. The pinned SDK (`github.com/github/copilot-sdk/go` v1.0.14) exposes this typed API; older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
+The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Standalone v0.40.0 uses `github.com/github/copilot-sdk/go` v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
 ## Graders
 

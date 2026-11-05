@@ -1,0 +1,16 @@
+schemaVersion: "2.0"
+name: controlled-offline-example
+scenario: controlled-offline
+version: "1.0"
+config:
+  executor: mock
+  model: offline-harness
+  trials_per_task: 2
+  timeout_seconds: 30
+  max_attempts: 2
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 0.8
+tasks:
+  - task.yaml

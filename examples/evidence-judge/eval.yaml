@@ -1,0 +1,28 @@
+name: evidence-judge
+description: Judge a recorded report using bounded frozen evidence.
+skill: evidence-judge
+version: "1.0"
+config:
+  executor: copilot-sdk
+  model: gpt-5-mini
+  trials_per_task: 1
+  timeout_seconds: 120
+graders:
+  - type: prompt
+    name: grounded_report
+    config:
+      model: gpt-5-mini
+      prompt: |
+        Evaluate the recorded task using the supplied evidence.
+        Check the reported status, item count, and sum against report.json.
+        Prefer observed tool results over unsupported actor claims.
+        Call exactly one of set_waza_grade_pass or set_waza_grade_fail once.
+      evidence_context:
+        files: [report.json]
+        evaluator_only: [references]
+metrics:
+  - name: pass_rate
+    weight: 1
+    threshold: 1
+tasks:
+  - tasks/report.yaml

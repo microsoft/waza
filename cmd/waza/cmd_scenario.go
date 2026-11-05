@@ -76,10 +76,8 @@ func scenarioNewCommandE(cmd *cobra.Command, name, outputPath, template string) 
 			return err
 		}
 	}
-	for _, path := range paths {
-		if err := writeScenarioFileAt(parents[path], filepath.Base(path), filepath.Join(base, path), files[path]); err != nil {
-			return err
-		}
+	if err := writeScenarioFiles(paths, parents, base, files, writeScenarioFileAt); err != nil {
+		return err
 	}
 	for _, path := range paths {
 		closeErr := parents[path].Close()
@@ -106,18 +104,73 @@ func checkScenarioOutput(parent *os.Root, name, path string) error {
 	return nil
 }
 
-func writeScenarioFileAt(parent *os.Root, name, path, contents string) error {
-	file, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("refusing to overwrite existing file: %s", path)
-	}
-	if err != nil {
-		return fmt.Errorf("creating %s: %w", path, err)
-	}
-	_, writeErr := file.WriteString(contents)
-	closeErr := file.Close()
-	if err := errors.Join(writeErr, closeErr); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
+func writeScenarioFiles(paths []string, parents map[string]*os.Root, base string, files map[string]string,
+	create func(*os.Root, string, string, string) (*os.File, error),
+) (err error) {
+	created := make(map[string]*os.File, len(paths))
+	defer func() {
+		if err != nil {
+			for _, path := range slices.Backward(paths) {
+				file := created[path]
+				if file == nil {
+					continue
+				}
+				original, originalErr := file.Stat()
+				if originalErr != nil {
+					err = errors.Join(err, fmt.Errorf("inspecting scenario rollback ownership %s: %w", path, originalErr))
+					continue
+				}
+				parent, name := parents[path], filepath.Base(path)
+				current, statErr := parent.Lstat(name)
+				switch {
+				case errors.Is(statErr, os.ErrNotExist):
+					continue
+				case statErr != nil:
+					err = errors.Join(err, fmt.Errorf("checking scenario rollback %s: %w", path, statErr))
+				case !os.SameFile(original, current):
+					err = errors.Join(err, fmt.Errorf("refusing scenario rollback of replaced file %s; inspect retained output", path))
+				default:
+					if removeErr := parent.Remove(name); removeErr != nil {
+						err = errors.Join(err, fmt.Errorf("rolling back scenario output %s: %w", path, removeErr))
+					}
+				}
+			}
+		}
+		for _, path := range paths {
+			if file := created[path]; file != nil {
+				if closeErr := file.Close(); closeErr != nil {
+					err = errors.Join(err, fmt.Errorf("closing scenario output %s: %w", path, closeErr))
+				}
+			}
+		}
+	}()
+	for _, path := range paths {
+		file, createErr := create(parents[path], filepath.Base(path), filepath.Join(base, path), files[path])
+		if file != nil {
+			created[path] = file
+		}
+		if createErr != nil {
+			return createErr
+		}
 	}
 	return nil
+}
+
+func writeScenarioFileAt(parent *os.Root, name, path, contents string) (*os.File, error) {
+	file, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		return nil, fmt.Errorf("refusing to overwrite existing file: %s", path)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("creating %s: %w", path, err)
+	}
+	_, statErr := file.Stat()
+	if statErr != nil {
+		return nil, errors.Join(fmt.Errorf("inspecting new scenario file %s; retained because ownership is unavailable: %w", path, statErr), file.Close())
+	}
+	_, writeErr := file.WriteString(contents)
+	if writeErr != nil {
+		return file, fmt.Errorf("writing %s: %w", path, writeErr)
+	}
+	return file, nil
 }

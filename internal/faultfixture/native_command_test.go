@@ -97,7 +97,7 @@ func TestNativeCommandActualAdapterEmitsBeforePublishingReceipt(t *testing.T) {
 	require.Equal(t, "temporarily unavailable", stderr.String())
 	first := session.Invocations()
 	require.Len(t, first, 1)
-	require.Equal(t, 75, first[0].ExitCode)
+	require.Equal(t, new(75), first[0].ExitCode)
 	require.Equal(t, 0, first[0].ResponseIndex)
 	code, err = commandmock.RunNativeCommand(context.Background(), root, session.ID(), "inventory-cli", []string{"read"}, workspace, options)
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestNativeCommandActualAdapterEmitsBeforePublishingReceipt(t *testing.T) {
 	receipts, err := session.Close()
 	require.NoError(t, err)
 	require.Len(t, receipts, 2)
-	require.Equal(t, 0, receipts[1].ExitCode)
+	require.Equal(t, new(0), receipts[1].ExitCode)
 }
 
 func TestNativeCommandActualAdapterCannotReceiptFailedEmission(t *testing.T) {
@@ -131,5 +131,5 @@ func TestNativeCommandActualAdapterCannotReceiptFailedEmission(t *testing.T) {
 	require.ErrorContains(t, err, "capture")
 	require.NotContains(t, err.Error(), "expected 2 call(s)", "attempt count must not be reduced to delivered receipts")
 	require.Len(t, receipts, 1)
-	require.Equal(t, 0, receipts[0].ExitCode, "the one real emission may report its configured code")
+	require.Equal(t, new(0), receipts[0].ExitCode, "the one real emission may report its configured code")
 }

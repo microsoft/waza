@@ -1,8 +1,43 @@
 # Waza
 
-A Go CLI for evaluating AI agent skills — scaffold eval suites, run benchmarks, and compare results across models.
+A Go CLI for evaluating agent workflows, skills, and custom agents — author repository, CLI, and MCP scenarios, run graded trials, and inspect the evidence.
 
 📖 **[Getting Started / Docs](https://microsoft.github.io/waza/)**
+
+The docs header includes **Ask Waza** for cited documentation Q&A and pasted
+YAML/error troubleshooting. The panel currently explains that public chat is
+unavailable until the public service is configured. Development
+fixtures are explicitly simulated. A separately launched, authenticated
+loopback-only private preview can test the operator backend without putting its
+Function key in the browser. See [scope, privacy, and integration handoff](site/src/content/docs/guides/docs-assistant.mdx).
+
+**Choose your path:** [Concepts and learning order](site/src/content/docs/concepts.mdx)
+→ [offline harness Quick Start](site/src/content/docs/quick-start.mdx)
+→ [authenticated workflow evaluation](site/src/content/docs/getting-started.mdx)
+→ [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
+Mock success checks the harness, not agent quality or live service safety.
+
+**Version boundary (November 4, 2026):** the published standalone CLI is
+`v0.40.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.40.0)). Scenario authoring, preflight, selected-file evidence,
+assurance profiles, controlled release policies, recorded reliability, and the
+opt-in dashboard Lab were introduced in `v0.39.0` and remain included.
+Install the published binary or run `waza update`; a source build is optional.
+Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
+[feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
+
+**v0.40.0 adds** bounded
+runner/text execution, selected AgentV assertion conversion, task-level MCP
+mocks, program-grader context, host lifecycle evidence, and Lab conversations.
+Read [Waza v0.40.0: run exactly the work you declared](https://microsoft.github.io/waza/releases/v0-40-0/)
+for the release story and known limits.
+These additions are not in an installed v0.39.1 binary. The separately versioned
+azd extension/registry and native runner image have independent publication and
+acceptance gates; see the
+[release scope and acceptance boundaries](site/src/content/docs/reference/releases.mdx#v0400-highlights-and-boundaries).
+The exact-unit runner deadlines do not fix the legacy multi-trial timeout issue
+[#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
+fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
 
 ## Installation
 
@@ -28,21 +63,30 @@ Or browse the [GitHub Releases](https://github.com/microsoft/waza/releases) page
 
 ### Install from Source
 
-Requires Go 1.26+, Make, Node.js, and npm. The source build generates the dashboard assets before embedding them in the binary.
+Requires Go 1.26+, Git LFS, Make, Node.js 22.23.4+ on the 22.x line or Node.js 24+ (recommended), and npm 9.6.5+. This shared development baseline also supports the docs site; the dashboard alone supports Node.js 20.19+ on 20.x or 22.13+ on 22.x, or 24+. Engine compatibility does not replace running the relevant checks. The source build generates the dashboard assets before embedding them in the binary.
 
 Note: due to the use of LFS artifacts you cannot install waza using `go install`. To install waza outside of a normal release, clone the repository:
 
 ```bash
-git clone https://github.com/microsoft/waza.git
+git clone --branch v0.40.0 https://github.com/microsoft/waza.git
 cd waza
 
 # ensure git LFS-based artifacts are available (for embedded copilot binaries)
 git lfs install
 git lfs pull
 
-make build
+make build VERSION=0.40.0
 ./waza <waza command line>
 ```
+
+The verified `v0.40.0` tag resolves to
+`93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`. The immutable tag's
+`version.txt` and `extension.yaml` remain `0.39.1`. The release workflow updates
+those files only in a later version-sync branch, not in the tag.
+`make build` defaults to `VERSION=0.1.0`, so pass `VERSION=0.40.0` explicitly
+when building this tag. Official release builds inject the version from the
+tag with linker flags. A locally stamped binary is not a verified release asset,
+and does not prove extension registry synchronization.
 
 Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it and its runtime assets to a versioned directory in the local user cache on first use (or under `COPILOT_HOME/cache` when set). Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary. Installation failures are reported without falling back to a CLI on `PATH`; set `COPILOT_CLI_INSTALL_VERBOSE=1` for installation diagnostics.
 
@@ -61,10 +105,23 @@ azd ext install microsoft.azd.waza
 azd waza --help
 ```
 
-Once installed, all waza commands are available under `azd waza`. For example:
+The extension has its own version and artifact history; a command prefix does
+not establish parity with standalone main. Check `azd waza --version` and
+`azd waza --help` before following examples. The registry currently lists
+through `0.40.0`, matching the separately published `0.40.0` extension artifact.
+The [separate v0.40.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
+is published with six platform archives, and this repository's registry and
+version metadata are synchronized to `0.40.0`. The standalone v0.40.0 additions
+below are not included in a v0.39.1 extension installation. Artifact publication
+and registry synchronization are separate gates; check the installed version.
+The source URL above follows `main`, not this branch. Before the
+[release-sync PR #883](https://github.com/microsoft/waza/pull/883) merges, that URL
+still serves `0.39.1`; after the merge it includes `0.40.0`. Updating an
+installation before the merge cannot select `0.40.0` from that source.
+For supported commands, for example:
 
 ```bash
-azd waza init my-eval --interactive
+azd waza init my-eval
 azd waza run examples/code-explainer/eval.yaml -v
 ```
 
@@ -91,8 +148,8 @@ agent quality.
 See **[Getting Started Guide](docs/GETTING-STARTED.md)** for a complete walkthrough:
 
 ```bash
-# Initialize a new project
-waza init my-project && cd my-project
+# Initialize without the interactive skill prompt
+waza init my-project --no-skill && cd my-project
 
 # Create a new skill
 waza new skill my-skill
@@ -101,12 +158,19 @@ waza new skill my-skill
 # Write evaluation tasks in evals/my-skill/tasks/
 # Add test fixtures in evals/my-skill/fixtures/
 
-# Run evaluations
+# Offline harness check (no model calls; not skill quality)
+# Set config.executor: mock in evals/my-skill/eval.yaml first.
 waza run my-skill
 
 # Check skill readiness
 waza check my-skill
 ```
+
+### Fixture Isolation
+
+Each task uses a fresh copied workspace; original fixtures are not modified.
+This is not host filesystem/network sandboxing. Final-file checks cannot prove
+the absence of transient edits or external side effects.
 
 ### All Commands
 
@@ -150,6 +214,20 @@ waza spec verify skills/my-skill evals/my-skill/eval.yaml --fail --format github
 # Resolve remote grader refs and write waza.lock
 waza get evals/my-skill/eval.yaml
 
+# Challenge native file/output checks with evaluator-only references (offline)
+waza assure eval.yaml --references labels.json
+
+# Inspect its standalone JSON locally in the dashboard's Assurance view.
+# Bundled authored-output examples remain unreviewed: expected exit 1/not assessed.
+# Calibrated 1.1 claims require explicit inspector selection.
+# Existing `assure --calibrate` remains unavailable and makes zero paid calls.
+# Executable provenance observes on-disk path bytes, not the mapped image,
+# running RAM or authenticity; unavailable provenance cannot pass.
+# A separate `assure calibrate` command requires reviewed inputs and explicit
+# --accept-paid-calls; it can incur provider usage and is never enabled by default.
+# Internal preserved-native mechanical assurance has a separately selected 1.2
+# API/profile; default CLI and dashboard readers do not admit it automatically.
+
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 
@@ -163,13 +241,20 @@ waza grade eval.yaml --results results.json
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
-# Capture snapshots during a run and replay them later for determinism checks
+# Capture snapshots during a run and inspect offline consistency
 waza run eval.yaml --snapshot ./snapshots/
 waza replay ./snapshots/my-task-run1.json
 
-# Run offline adversarial / fault-injection packs against a skill
+# Offline adversarial harness smoke (not skill safety)
 waza adversarial --list-packs
-waza adversarial --skill ./skills/my-skill --model gpt-4o
+waza adversarial --engine mock --packs prompt-injection,scope-bypass
+# Real evaluation requires auth/model access and may incur usage.
+# SKILL.md must declare name: my-skill; --skill is a name, not a path.
+# Requires the skill-binding fix in v0.39.0 or later, not v0.38.10.
+(
+  cd skills/my-skill &&
+  waza adversarial --engine copilot-sdk --packs prompt-injection --skill my-skill --model gpt-4o
+)
 
 # Check whether a schema artifact needs migration
 waza migrate eval.yaml
@@ -194,6 +279,104 @@ to create or update evals and guide eval-driven implementation. It provides the
 canonical workflow, target-specific validation steps, and a reusable delegation prompt.
 
 ## Commands
+
+<span id="waza-interop-source-build-preview"></span>
+
+### `waza interop` (v0.40.0)
+
+Project one explicitly selected, pinned AgentV case-sensitive `contains`
+assertion to a native grader, or export the same single-check native subset:
+
+```bash
+# From the repository root, using a binary built from this source.
+adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
+waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
+  < internal/interop/testdata/agentv/suite.yaml > one-native-grader.yaml
+waza interop export --adapter "$adapter" < one-native-grader.yaml
+```
+
+These are offline stdin/stdout conversions, **not whole-task or suite imports**.
+Import explicitly diagnoses excluded task/provider/fixture/sibling semantics;
+unsupported selected fields fail. No upstream scripts or model calls execute.
+Only one case-sensitive substring check is supported; AgentEvals-spec, Harbor
+and ASSERT formats are not supported. See the [pinned compatibility matrix,
+runnable example and remaining #789 gaps](docs/INTEROPERABILITY.md).
+
+<span id="waza-runner-source-build-preview"></span>
+
+### `waza runner` (v0.40.0)
+
+Negotiate, validate offline, then explicitly execute one captured inline text unit:
+
+```bash
+waza runner capabilities
+waza runner negotiate < examples/runner/negotiation.json
+waza runner validate < examples/runner/unit.json
+waza runner run < examples/runner/unit.json
+```
+
+The v0.40.0 release implements `negotiation`, `exact-unit`, `inline.mock-text`,
+`terminal-result` and opt-in `inline.copilot-text`.
+Only `runner run` starts an engine; each dispatch runs its selected task/trial/
+attempt once, without discovery, cache or retries. Admitted receipts include
+versioned [logical identities](site/src/content/docs/guides/runner-identities.mdx)
+derived from the original captured input, not proof of execution or deduplication.
+`runner run` writes one [terminal envelope](site/src/content/docs/guides/runner-terminal.mdx):
+success 0, failed checks 1, infrastructure failure 2, cancellation 3, timeout 4,
+unsupported capability/version 5, invalid input 6. Validation remains an offline
+receipt, not execution evidence. An eval/task execution deadline still yields
+timeout 4 when the outer request budget remains active; task timeouts override
+the eval budget. These exact-unit controls do not fix the separate legacy
+multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865).
+Copilot/text execution requires the new profile, an explicit
+model and `allow_paid_execution: true`; all tools and skills are disabled.
+The eval executor is `copilot-sdk`, while the terminal execution mode is `copilot`.
+Paid native HTTP execution additionally requires a loopback peer,
+`localhost`/loopback Host and same-origin browser requests; it is not exposed
+for remote users or through trust-rewriting reverse proxies. Remote mock and
+offline routes retain their existing behavior. Use local `waza runner run`
+outside this HTTP boundary; request consent is not server-owner authorization.
+For both profiles, eval metrics are validated, identity-bound metadata only:
+success describes the selected attempt, not aggregate metrics, metric thresholds
+or whole-evaluation success. The local compatibility adapter still rejects
+nonempty metrics.
+`examples/runner/copilot-unit.json` can be validated offline; running it may
+incur charges on every dispatch. General native file/tool/skill workflows remain
+unsupported. Existing
+local commands and artifacts are unchanged. Captured tasks must explicitly
+declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
+`inputs: {}` is rejected before runtime construction. See the
+[runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+Maintainers can run the [offline production-process controls](docs/RUNNER_CONTRACT.md#offline-production-process-controls)
+with a synthetic stdio peer; these do not call a provider or prove bundled-runtime
+or container-image readiness.
+
+For one explicit mock/text suite, `waza run custom-suite.yaml --runner-compat
+--output local-results.json` routes through that same runner service while
+retaining historical result JSON and local 0/1/2 exits. `waza runner adapt`
+captures compatible sources offline as runner request JSON. Unsupported mappings
+are hard errors; remove `--runner-compat` to retain ordinary local workflows.
+The task entry must be eval-relative, and successful adaptation passes shared
+offline admission within the complete 4 MiB emitted-byte limit.
+See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
+
+The [local container reference](site/src/content/docs/guides/runner-container.mdx)
+keeps the default scratch image mock-only and provides an explicit
+`native-reference` target for the exact-unit native Copilot text profile. The
+native target includes the glibc runtime dependencies and is exercised against
+an isolated synthetic provider with no external network or paid requests; this
+is execution evidence, not provider/model-quality evidence. Local image IDs
+are not registry pins. Native Linux AMD64 acceptance and the pinned public-image
+gate have separate recorded evidence under #762. Publication and public-image acceptance are
+separate gates: a publisher run alone does not establish anonymous availability,
+signed provenance or caller acceptance. The
+[published image record](site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence)
+identifies the immutable digest, source and declared Linux AMD64 platform;
+publisher attempt 1 and the anonymous-digest verifier succeeded. Acceptance is
+limited to that Linux AMD64 image's mock and bundled-native synthetic-provider
+production controls, not live-provider reliability. Independent infrastructure-owner
+review was waived for this one publication, not performed. See the
+[container guide's acceptance procedure](site/src/content/docs/guides/runner-container.mdx#verify-an-authorized-public-digest).
 
 ### `waza preflight <eval.yaml>`
 
@@ -440,7 +623,7 @@ Run an evaluation benchmark from a spec file.
 | `--parallel` | | Run tasks concurrently |
 | `--workers <n>` | | Concurrent workers (default: auto, requires `--parallel`) |
 | `--trials <n>` | | Run each task `n` times to detect flakiness (omit to use `config.trials_per_task`; if provided, `n` must be >= 1) |
-| `--interpret` | | Print plain-language result interpretation |
+| `--interpret` | | Print optional plain-language interpretation, including per-trial scoped requirement observations/evidence when present; legacy no-metadata text remains unchanged. |
 | `--format <fmt>` | | Output format: `default` or `github-comment` (default: `default`) |
 | `--cache` | | Enable result caching to speed up repeated runs |
 | `--no-cache` | | Explicitly disable result caching |
@@ -467,9 +650,13 @@ Run an evaluation benchmark from a spec file.
 | `--otel-headers` | | Comma-separated `key=value` OTLP headers (e.g. for auth) |
 | `--otel-file` | | File path for span JSON when `--otel-exporter=file` |
 | `--otel-include-payloads` | | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
-| `--snapshot <dir>` | | Capture self-contained `snapshot.json` per task for later [`waza replay`](#waza-replay-snapshotjson). |
+| `--snapshot <dir>` | | Capture redacted per-trial observations and portable evidence for [`waza replay`](#waza-replay-snapshotjson); not a complete workspace. |
+| `--snapshot-file <path>` | | Repeatable reviewed agent-visible UTF-8 regular-file allow-list; requires `--snapshot`. Linux/macOS only. |
+| `--snapshot-evaluator-only <path>` | | Repeatable evaluator-only file/directory exclusions; requires `--snapshot` and `--snapshot-file`. Metadata inventory capped at 256 inspections/depth 32 before selected content. Never select credentials or evaluator-only files. |
+| `--snapshot-max-file-bytes <n>` | | Positive per-file capture limit (default: 1048576 bytes / 1 MiB). |
+| `--snapshot-max-total-bytes <n>` | | Positive aggregate capture limit (default: 10485760 bytes / 10 MiB). |
 | `--snapshot-env-allow <patterns>` | | Allow-list of env var name patterns embedded in snapshots (default-deny; supports `WAZA_*` wildcards). |
-| `--redact <path>` | | YAML redaction policy applied to snapshot output (merged with built-in defaults). |
+| `--redact <path>` | | YAML redaction policy applied to snapshot output (replaces defaults unless `extend: true`). |
 
 **Result Caching**
 
@@ -547,10 +734,112 @@ Compare results from multiple evaluation runs side by side — per-task score de
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
+| `--release-policy <file>` | | Explicit fixed-design policy assessment; requires `--collection-dir` instead of historical result arguments |
+| `--collection-dir <dir>` | | New paired collection sidecars; missing/invalid/inconclusive selected evidence exits `1` |
+
+`gate` accepts the same explicit policy selection. Its ordinary regression,
+golden, task-set defaults and `0/1/2/3` exits remain unchanged. Policy metadata in
+an ordinary results file is **not** enforcement; older executables reject the
+new flags. Use `waza compare-plan` to bind an explicit design to inspected
+sources and `waza compare-collect` for fresh paired attempts. The default mock
+collector is offline; pass `--collector native-copilot` to both commands to
+select the supported paid-capable Copilot SDK profile. Native collection is
+limited to fixed named models, single turns, no skills, deny-all client tools
+and native text/string checks. It is not server isolation or authenticated
+assurance; runtime version, provider currency and ambiguous output presence
+remain unavailable. New durable collection is Linux/macOS-only. See
+[the native profile and limits](docs/CONTROLLED-COMPARISONS.md#opt-in-native-copilot-collection).
+Strict reassessment rejects absent, null or case-aliased required verdict fields;
+only explicitly observed `false` and numeric zero may count as failed checks.
+Selected requirements and promoted cluster/task/trial keys also reject
+case aliases, including contradictory declarations in either order.
+Do not convert historical results into policy receipts. The
+[offline example](examples/controlled-comparison/) intentionally remains
+statistically inconclusive; mock observations are not agent-quality evidence.
+See [controlled comparison contracts](docs/CONTROLLED-COMPARISONS.md) for the
+fixed-design assumptions, missing-evidence states and current limitations.
+
+### `waza compare-assurance-plan`
+
+Explicitly bind an **independent offline assurance contract** to a base policy
+with assurance required, before fresh collection:
+
+```bash
+waza compare-assurance-plan --release-policy policy.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --output assurance-contract.json
+```
+
+These paths represent your authored inputs. Output must be a new file. Collect
+with `compare-collect --assurance-contract assurance-contract.json`, then assess
+with `compare` or `gate` using that explicit contract, `--release-policy`,
+`--collection-dir` and current per-arm eval/reference inputs. Optional per-arm
+`--review` and `--accept-review-source` are separately supplied acceptance, not
+authenticated human review. Unreviewed examples remain nonpassing.
+An explicitly supplied review timestamp must be a nonnull date-time string:
+two-digit hours, dot-separated fractions and bounded numeric timezone offsets.
+Omitted timestamps remain allowed only for unreviewed/submitted declarations.
+
+Only mock/no-skills/native-text/finite-authored-output qualification is supported:
+both arms need fresh exact offline1.0 reports and deterministic regrading of
+retained actual responses, plus every base non-assurance pass condition.
+No live SDK assurance, calibration, paid1.1/billing support or automatic paid validation.
+Frozen base 1.0 policy/journal/decision and legacy defaults stay unchanged; the
+base API/dashboard remain nonpassing when assurance is required. Only explicit
+outer assessment can pass. Use JSON for machine-readable outer decisions;
+selected human output does not promise all legacy rendering layouts.
+See [profile artifacts, flags and limits](docs/CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile).
+
+Native source projection, root-free capture reconstruction and attempt
+inspection support the explicitly selected native collector; they are not
+independent collection modes. Retained local evidence is not independently
+witnessed execution, server isolation, authenticated assurance or release
+authority. Windows supplied-reader checks do not certify durable writing. See
+[the native profile and limits](docs/CONTROLLED-COMPARISONS.md#opt-in-native-copilot-collection).
 
 ### `waza replay <snapshot.json>`
 
-Replay a task snapshot to verify deterministic reproduction. Snapshots are produced by `waza run --snapshot <dir>` and capture the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes.
+Check a task snapshot's offline consistency or compare two snapshots. Snapshots are produced by `waza run --snapshot <dir>` and capture the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes. Digests are not file contents: replay does not reconstruct a workspace, re-run graders, verify external state, or reproduce an agent execution.
+
+Snapshot capture sanitizes typed JSON tool/context payloads, structurally sensitive keys, and grader feedback/details before serialization, without modifying the original results. Opaque bytes, unsafe keys/identifiers, duplicate or trailing JSON, excessive nesting, and invalid policies fail capture explicitly. Pattern matching is not a confidentiality proof: review artifacts before sharing. Actual rule-match counts include selected files and secret environment-key removals; normalization-only file changes can set `redacted` without adding secret matches.
+
+New captures set each artifact's `redacted` flag from changes to its own materialized content, not the capture-wide match count. The result includes changes to its validation subtree; unrelated metadata, environment or file changes do not mark unchanged siblings. JSON representation-only normalization and no-op replacements do not mark core artifacts changed, while removal of a materialized field does. Existing artifacts retain their recorded flags.
+
+The manifest fingerprints the captured environment allow-list/configuration (`environment`, snapshot pointer `/env`) and engine configuration (`engine-config`, `/engine`), not the full host environment. Optional `--interpret` output reports per-trial scoped check observations and evidence metadata without changing legacy no-metadata text; malformed evidence is withheld.
+
+Portable evidence uses independent manifest version **1.0** and ordinary snapshot schema **1.1**, retaining legacy task semantics and historical result readers; newly generated results from current source use **1.8**. Published v0.39.1 writes results **1.7**. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
+
+Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. Capture adds no export, upload, or local-path fetch. Existing explicitly configured result storage still uploads results, including evidence metadata, but does not fetch or upload the separate snapshot files. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
+
+A fresh capture with any selected-file requests uses private publication even if
+every requested file is unavailable. This request marker is in-memory only:
+loaded or manually constructed zero-file snapshots retain historical writer
+routing. Capture/publication failures retain safely validated source identity;
+missing or rejected identity is explicitly unavailable, and numeric lineage
+alone cannot establish attribution. Original execution result fields are unchanged.
+
+Evaluator-only identity admission uses a metadata-only exclusion inventory capped
+at 256 entry inspections and depth 32. Limits or inspection/resource failures
+prevent selected-content capture, without pruning exclusions or raising process
+limits. Unrelated hard links remain eligible. No-follow root admission permits
+only explicitly checked macOS `/var` and `/tmp` system aliases. These identity and
+before/after metadata checks are bounded observations, not atomic snapshots or
+guarantees against concurrent same-user namespace changes. Regrading checks
+materialized expected bytes before returning the workspace, not after return.
+
+On Linux/macOS, selected-state snapshot destinations also admit/create each
+component without following arbitrary symlinks. Only the final directory must
+be `0700`; missing directories are created `0700`. Non-creating identity checks
+precede evidence writes and surround publication. These are observations, not
+moving-directory protection. A later failure may leave newly created empty
+directories; ordinary metadata-only snapshot paths retain historical behavior.
+On private-file cleanup failure, at most one independently verified complete
+residual path is retained with an error and unavailable capture evidence; it
+may be a hidden temporary file. Additional possible residue is reported
+explicitly. Partial/changed files and unverified moved-root locations are not
+reported as complete snapshots, and no full cleanup guarantee is made.
 
 ```bash
 # Capture during a run
@@ -565,12 +854,12 @@ waza replay ./snapshots/a.json --bisect ./snapshots/b.json --json
 
 | Flag | Description |
 |------|-------------|
-| `--mode <mode>` | Replay mode: `model-replay` (default, offline consistency check) or `live` (planned) |
+| `--mode <mode>` | Replay mode: `model-replay` (default, offline consistency check) or `live` (unsupported; exits `2`) |
 | `--bisect <file>` | Path to second snapshot to bisect against the primary |
 | `--json` | Emit machine-readable JSON instead of human summary |
 | `--strict` | Re-check final status and grader outcome consistency (default true) |
 
-Exit codes: `0` match, `1` divergence, `2` load/parse error.
+Exit codes: `0` match, `1` divergence, `2` snapshot load/parse/I/O, JSON output, unsupported live mode, or unknown mode error.
 
 ### `waza adversarial`
 
@@ -603,9 +892,9 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while new result writers independently emit `1.6`. Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
-Compatibility reports use the current version for the artifact type: legacy eval
-`1.4` or result writer `1.6`. Unversioned/`1.4` results explicitly distinguish
+Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while current source result writers independently emit `1.8` (published v0.39.1 writes `1.7`). Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
+Compatibility reports use the executing binary's current version for the artifact type: legacy eval
+`1.4` or, for current source, result writer `1.8`. Unversioned/`1.4` results explicitly distinguish
 their legacy reader default from the current writer version without upgrading them.
 
 ```bash
@@ -697,9 +986,26 @@ Append a remote grader preset reference to `eval.yaml`, resolve it with the same
 | `--set key=value` | Add a local override, repeatable (for example, `--set config.threshold=0.9`) |
 | `--allow-exec` | Allow remote program graders without interactive confirmation |
 
-### `waza dev [skill-path]`
+### `waza dev <skill-name | skill-path>`
 
 Iteratively score and improve skill frontmatter in a SKILL.md file.
+
+A single target can be a workspace skill name, a directory, or a `SKILL.md` file,
+using relative or absolute paths. Bare names resolve workspace skills first,
+then fall back to local directories; prefix a directory with `./` (or `.\` on
+Windows) to select that path explicitly.
+
+```bash
+waza dev code-explainer
+waza dev ./skills/code-explainer
+waza dev ./skills/code-explainer/SKILL.md
+waza dev SKILL.md                     # file in the current directory
+waza dev .                            # current skill directory
+```
+
+The same target forms work with `--copilot` and `--scaffold-triggers`.
+Multiple positional targets remain workspace skill names; `--all` processes
+all skills in the workspace.
 
 Use `--copilot` for a non-interactive, single-pass markdown report that:
 1. Summarizes current skill details and token usage
@@ -995,8 +1301,14 @@ waza serve --lab --results-dir ./results
 # Opens http://localhost:3000/#/lab; classic dashboard stays at http://localhost:3000/#/
 ```
 The lab uses saved Waza results for linked charts, searchable history, stable-task
-comparisons, recorded evidence, and JSON/CSV/print reports. Local results refresh
-every 15 seconds or on demand; nonempty remote archives refresh on demand rather
+comparisons, recorded evidence, and JSON/CSV/print reports.
+**Added in v0.40.0:** The inspector's **Conversation** tab, not available in
+published `v0.39.1`, shows full recorded user/agent messages
+without tool-event noise or per-message expansion. It uses the first repetition;
+missing messages are not reconstructed, and responder metadata does not establish
+per-message simulated-user provenance.
+Local results refresh every 15 seconds or on demand; nonempty remote archives
+refresh on demand rather
 than being downloaded repeatedly. Current runs shows **saved-result event replay**,
 not live worker discovery or execution controls. Readiness, coverage, and revision
 metadata absent from the API remain explicitly unavailable. `--lab` cannot be
@@ -1006,6 +1318,11 @@ execution are not implemented. See the [dashboard lab guide](site/src/content/do
 Refreshes update mounted evidence after same-ID regrading and preserve cached
 results on failure. Missing/null weighted scores are unavailable, not zero.
 Singleton suites keep the candidate picker; closed streams require manual reconnect.
+Controlled collections and native attempt evidence use the classic **Release
+policies** view at `/#/release`, not Lab's descriptive **Compare** workspace.
+From Lab, choose **Original dashboard → Release policies** on the same server.
+See the [release evidence guide](site/src/content/docs/guides/dashboard.mdx#release-policies)
+for decision JSON and native-attempt CSV exports.
 
 **AI Credit usage:**
 
@@ -1073,11 +1390,33 @@ waza results compare run-20250226-001 run-20250226-002 --format json
 
 Run graders against agent output without executing an agent. Designed for standalone grading of previous eval runs.
 
+File-based checks ordinarily require the actual preserved agent workspace, selected with `--workspace`; neither snapshot hashes nor a successful replay supplies that state. Prompt graders can contact the configured judge model. The explicit `--evidence-snapshot` mode instead verifies selected captured files for a narrow file-only operation on Linux/macOS, without model calls.
+
+Final prompt graders can opt into `config.evidence_context: {}` to judge frozen
+task/conversation/tool/output evidence in a fresh isolated session, without actor
+continuation or live workspace access. Add `files: [report.json]` inside that
+object for explicit selected-file evidence. Required evidence fails closed;
+checkpoint, pairwise, and continued-session evidence judging are unsupported.
+Saved evidence-only grading needs neither the original workspace nor a snapshot,
+but calls the judge model and records new usage separately from execution billing.
+See the [canonical evidence-judging guide](https://microsoft.github.io/waza/guides/graders/#evidence-backed-independent-judging)
+and [runnable example](examples/evidence-judge/eval.yaml) for credentials, limits,
+platforms, failure exits, and metadata-only dashboard reporting.
+
+Ordinary and snapshot grading reject duplicate task IDs before any grader runs.
+The legacy snapshot-evidence path checks selected manifests' digests and full
+origin; cached manifests can retain a different source eval ID but not a different
+task/run/attempt. Historical runs remain supported unless the new evidence mode
+is requested. API and interpretation output withhold requirement observations
+whose task/artifact references do not match the bound manifest; reference-free
+historical observations remain displayable.
+
 | Flag | Description |
 |------|-------------|
 | `--task <id>` | Task ID to grade |
 | `--results <file>` | Path to waza run output JSON |
 | `--workspace <dir>` | Agent workspace directory for file-based graders; must point to the agent's actual workspace (default: `.`) |
+| `--evidence-snapshot <path>` | Explicit reviewed snapshot for file-only regrading on Linux/macOS; requires `--task`, exactly one assessed matching run, and no explicit `--workspace`. |
 | `--judge-model <model>` | Model for prompt graders |
 | `-o, --output <file>` | Write full EvaluationOutcome JSON (compatible with `waza compare`) |
 | `-v, --verbose` | Verbose output |
@@ -1086,6 +1425,22 @@ Run graders against agent output without executing an agent. Designed for standa
 waza run eval.yaml --output results.json
 waza grade eval.yaml --results results.json
 ```
+
+Evidence-snapshot regrading accepts only file graders with explicit required
+`must_exist` / `content_patterns` paths. It verifies original manifest SHA-256,
+full origin, and complete unredacted file text/digests, then materializes only
+required files privately. All non-file graders, output-based expectations,
+wildcard/absence checks, and no-explicit-file-check grading are rejected;
+the older workspace mode is unchanged. Checks cover only the materialized
+captured subset, not absence from the original workspace. `must_not_match`
+checks only the complete verified text of its selected file.
+Regraded manifests retain `source_manifest_sha256` and invalidate original
+result/validation/grader-configuration/checkpoint links. Original checkpoints
+never become observations of new declarations.
+The byte-limit flags govern capture, not admission of independently supplied
+snapshots; review supplied artifact sizes before file regrading.
+For descriptive `requirements` linked to existing scoped checks, see the
+[task authoring example](site/src/content/docs/guides/eval-yaml.mdx#link-intent-to-existing-checks).
 
 ### `waza session list`
 
@@ -1185,7 +1540,7 @@ waza results list
 waza results compare run-id-1 run-id-2
 ```
 
-For step-by-step setup and troubleshooting, see [Getting Started with Azure Storage](../docs/guides/azure-storage/) guide.
+For step-by-step setup and troubleshooting, see [Getting Started with Azure Storage](site/src/content/docs/guides/azure-storage.mdx).
 
 ## Building
 
@@ -1217,6 +1572,15 @@ skills/                Example skills
 ```
 
 ## Eval Spec Format
+
+Task YAML's `inputs.environment` is accepted for compatibility but is **not
+applied** during execution. Non-empty maps emit a task-load warning and an
+unsupported `task.environment` preflight diagnostic; omitted or empty maps do
+not. Variable names and values are not included in these messages. Existing run
+exit policies and preflight's default warning-only / opt-in `--strict` behavior
+are unchanged. Configure required environment outside Waza before starting the
+process, not per task. Native snapshot execution still rejects non-empty maps.
+See the [task schema reference](https://microsoft.github.io/waza/reference/schema/#inputsenvironment-unsupported).
 
 ```yaml
 name: my-eval
@@ -1326,7 +1690,10 @@ Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, 
 
 With explicit effort, choose a concrete model from `waza models`. Waza checks the runtime's supported-effort metadata before creating or resuming hosted Copilot sessions; unknown models, unavailable metadata, and unsupported efforts produce actionable errors instead of silently using a different effort. Custom-provider efforts are forwarded directly because the hosted catalog does not describe those models. Result setup metadata and cache keys include both eval-level effort settings; regrading replaces the judge effort, including clearing a previously pinned value when omitted.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. New evaluations and regrades emit results `1.6`, separately from their input version. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. Evaluations and regrades from current source emit results `1.8`, separately from their input version; published v0.39.1 writes `1.7`. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+
+Standalone v0.40.0 writes results `1.8`; this does not change legacy eval/result
+reader defaults, task YAML, or the independent runner request/terminal version `1.0`.
 
 Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
 `scenario: <workflow-name>`. Only this exact scenario version is supported;
@@ -1366,6 +1733,28 @@ Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
 older executables reject it before running. Results and tasks remain `1.x`,
 so existing result readers and the dashboard keep working. Optional `skill:`
 retains existing skill/custom-agent context and discovery precedence. Without
+a target, enabled eval skill directories or explicit task skill directories,
+scenarios disable ambient skill loading. Named disabled entries filter eval
+directories; explicit task directories retain their existing opt-in precedence.
+An explicit empty task `skill_directories: []` disables discovery for that task;
+`--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+The historical native loader/model validation used by `waza run` is not full
+JSON-schema validation: legacy default/`1.0`-`1.4` data can still load without
+a target and retain existing discovery behavior. That compatibility is not
+a recommended authoring workflow; use a named legacy target or scenario `2.0`.
+Schema `skill` uses a length-only constraint, so whitespace passes that check
+but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
+separate preflight checks are not a universal runtime target-enforcement gate.
+Scenario `2.0` requires a nonblank `scenario` and may omit `skill`.
+Scenario `2.0` bypasses result caching with an explicit notice because external
+workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
+
+Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
+`scenario: <workflow-name>`. Only this exact scenario version is supported;
+older executables reject it before running. Results and tasks remain `1.x`,
+so existing result readers and the dashboard keep working. Optional `skill:`
+retains existing skill/custom-agent context and discovery precedence. Without
 a target or explicit skill directories, scenarios disable ambient skill loading.
 An explicit empty task `skill_directories: []` disables discovery for that task;
 `--no-skills` overrides every task. Legacy suites keep their existing defaults.
@@ -1374,7 +1763,33 @@ workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
-`results.json` is currently emitted at `schemaVersion` `1.6`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds the optional eval-level `config.sandbox` block for Copilot-native task isolation plus `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`waza assure` and the separately selected `waza assure calibrate` materialize
+locked grader presets from the local cache only, rechecking digest, trust and
+offline schema/override admission after preflight. Missing or changed pins/cache
+fail without fetching. Original eval bytes retain the reference binding;
+resolved-config and declaration digests bind the materialized configuration.
+Direct assurance API references remain unsupported, and materialization neither
+authenticates presets nor authorizes paid calls.
+
+`waza assure calibrate --output` uses private sibling staging and atomic
+replacement on Unix only. Other platforms, including Windows, reject an explicit
+`--output` with exit 2 before preflight, producer, paid notice or engine creation;
+omit the flag and capture stdout instead. Default stdout remains available on
+every platform.
+
+Private calibration consumes bounded source-bound rubric copies through canonical
+native construction, rather than reopening retained audit files. Selected native
+metadata identifies `acquired:sha256:<digest>`; ordinary path/builtin APIs are
+unchanged. Retained-source decoding follows the same acquisition boundary. Audit
+files stay in the worktree cache. The shared store retains worktree, cache and
+private-directory roots for audit creation and cleanup, checking cache/private
+directory identities before and after writes. Changed namespaces fail closed;
+unknown residual files are retained with an explicit cleanup failure. POSIX
+checks reject group/world-writable cache parents and private children with
+group/other mode bits. These retained-root checks do not certify Windows ACLs,
+cache confidentiality or whole-filesystem ancestry.
+
+A source build currently emits `results.json` at `schemaVersion` `1.8`; published `v0.39.1` writes `1.7`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds the optional eval-level `config.sandbox` block for Copilot-native task isolation plus `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` adds optional frozen `runs[].judge_evidence`, metadata-only `runs[].prompt_judging` observations and separate current-regrade `regrade_usage.sessions` for evidence-enabled prompt graders, plus configured live/mocked `runs[].dependency_modes`. Version `1.8` adds optional `runs[].host_lifecycle` model-turn and host shell evidence projected from structured native session events (omitted when unavailable). The saved bundle contains sanitized evidence, whereas API/report metadata does not copy its bodies. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 The dashboard displays these recorded Wilson intervals and pass^k estimates separately from bootstrap weighted-score intervals, with available trial counts. Missing historical statistics show **Not assessed**; readers never infer them from scores or successful outcomes. None of these intervals is a significance test between runs.
 
@@ -1393,7 +1808,62 @@ mcp_mocks:
 
 Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
 
-Unmatched MCP diagnostics omit argument values to avoid exposing credentials or private payloads. The in-process mock handler rejects a tool call if its context is already canceled or expired before fixture dispatch, using the existing MCP `isError` result. This admission check is not per-request stdio cancellation, timeout injection, or filesystem/network sandboxing. Mock responses verify controlled interactions, not the external server implementation.
+Fixture entries must be regular JSON files; symlinks to regular files remain supported. On Unix, fixture admission uses nonblocking opens and checks the opened file, rejecting FIFOs without waiting for a writer so `after_run` can execute. This is not a deadline for unresponsive filesystems or a race-free/nonblocking opening guarantee on Windows.
+
+Unmatched MCP diagnostics omit argument values to avoid exposing credentials or private payloads. In scenario evals (`scenario` plus exact `schemaVersion: "2.0"`), a response may use a finite `sequence` of at most 100 `return` or `error` steps, optionally delayed up to 300,000 ms. Each matching call consumes one step; exhaustion returns an MCP error and never falls through to a live server. This can simulate an upstream timeout error, but not transport cancellation. Mock responses verify controlled interactions, not the external server implementation.
+
+**Added in v0.40.0:** A task can declare its own `mcp_mocks` when one case needs a different answer. Published `v0.39.1` does not apply task-level MCP mocks. Each task entry replaces the eval mock with the same name for that task only, a new name adds a mock, and the other eval mocks still apply. This keeps a case-specific response, such as approving one question, out of every other task. Task mocks follow the enclosing eval's `schemaVersion` and require `executor: copilot-sdk`; relative `fixtures` paths resolve from the eval directory. An empty task list is rejected; omit the field to use the eval mocks.
+
+In v0.40.0, task loading and filter errors are reported before engine startup. The runner repeats admission after engine initialization and after each new pass's `before_run` setup (including the second baseline pass), retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. Inline mock `input_schema` declarations are validated offline during admission, including declarations on replaced eval mocks; use self-contained schemas (internal `$ref` values are supported), or omit the schema for the default.
+
+Admission also validates selected fixture-backed tool `input_schema` declarations, including eval fixtures needed only by trigger tests. Omitted/null schemas retain the default; whole-tool overrides and genuinely unused fixture metadata remain excluded.
+
+The CLI discovers `trigger_tests.yaml` after `before_run` and before engine startup, and uses that same parsed spec for the trigger phase. Trigger tests use eval-level MCP dependencies, not task overrides: an eval mock's fixtures can be skipped only when every selected task replaces it **and no trigger phase needs it**. Offline preflight applies the same dependency rule without constructing a trigger runner or starting servers. The mock executor synthesizes trigger results without MCP execution. Task filters, `--skip-graders`, `--no-skills`, and task cache hits do not disable trigger tests.
+
+Canceling during Copilot SDK startup stops waiting and cleans up partial startup; canceling the original caller after successful startup does not terminate the healthy shared client. Reinitializing a healthy client remains idempotent even with a canceled caller context. A canceled shared startup can be replaced on the next client lookup once its cleanup has succeeded, but global shared-client shutdown still rejects new clients. Custom client factories must unblock `Start` on its lifetime-context cancellation or `ForceStop`; each partial-startup cleanup wait reports an error after its two-second deadline. This bounds caller waiting, not goroutine termination for a noncooperating custom client; pending or failed cleanup remains tracked rather than being treated as completed.
+
+Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
+
+**Post-v0.40.0 source behavior:** The following cleanup notes describe
+[#870](https://github.com/microsoft/waza/pull/870) and its cancellation-join follow-up,
+integrated after the immutable
+v0.40.0 tag at `93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`. They do not describe
+the published v0.40.0 binaries or extension.
+
+For canceled sends and disconnects that finish during forced cleanup, joining the
+force-stop callback uses only the remaining post-force grace. A callback that
+finishes in that budget does not retire the client merely because the session
+returned first. A blocked callback still retires the client at the same deadline;
+a completed session is not marked abandoned.
+
+Waiting for a retired client's replacement honors each request's cancellation; retiring an old generation does not wait for replacement startup. Parent cancellation remains a failure even after a skill invocation ends the turn early, or when session/global cleanup finishes without an SDK error. This bounds caller waiting, not child-process lifetime: retired shared clients remain tracked until command-level shutdown so active sibling sessions are not force-stopped. Repeated unresponsive trials can therefore retain multiple client processes until finalization; there is no per-run process-count bound.
+
+Shutdown-usage fallback is excluded for session IDs with an in-progress disconnect. If a disconnect exceeds the cancellation grace and is abandoned, that engine retains the exclusion for its lifetime, even if the background disconnect later completes. This avoids fallback resuming or shutting down a session whose disconnect has not been joined. Already recorded RPC metrics and observed event usage remain available, but missing final usage is not invented. Skipped fallback emits a warning, or a `shutdown_usage/usage_missing_or_partial` diagnostic when lifecycle diagnostics are enabled. Fallback after joined disconnects and usage captured before ephemeral-session teardown keep their existing behavior.
+
+Outcome publication applies permissions through the owned temporary-file handle, so replacement of its pathname cannot redirect that permission change to another file. Existing regular-file permissions and the creation umask remain respected. Use output directories and ancestors that untrusted users cannot modify: publication and temporary-path cleanup still use pathnames and do not provide an attacker-writable-namespace confinement guarantee.
+
+Completed startup keeps its lifetime context alive through graceful SDK cleanup. Authentication failure immediately cleans up an owned client and retains any cleanup error; later engine shutdown still performs final SDK cleanup. Shared clients remain the top-level owner's responsibility. Partial-startup cleanup remains once-only.
+
+```yaml
+# tasks/publish.yaml
+id: publish
+name: Publish when the user confirms
+inputs:
+  prompt: Publish the reviewed version.
+mcp_mocks:
+  - name: host # replaces the eval-level "host" mock for this task
+    tools:
+      ask_user:
+        responses:
+          - match_schema:
+              type: object
+              required: [choices]
+              properties:
+                choices: { type: array, contains: { const: Publish this version } }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
+```
 
 ### Command Mocks
 
@@ -1422,7 +1892,9 @@ command_mocks:
 
 Each response matches the complete argument vector, excluding the executable. `args_regex` applies a full-string regular expression to each argument at the same position. Responses are checked in order; the first match wins. `stdout` strings are emitted as-is and structured values are JSON-encoded. `fixture` reads a response file relative to `eval.yaml`. `environment` can require exact environment-variable values, and `workdir` can require an exact workspace-relative directory. `expect_calls` checks the exact invocation count after the task finishes.
 
-Task-level `command_mocks` replace the eval-level list; use `command_mocks: []` on a task to disable inherited mocks. Mocked invocations (command, sanitized arguments, exit code, and response index) are available to graders and appear under `runs[].command_invocations` in `results.json`. Verbose output shows the same sanitized records. An unmatched invocation of a declared executable exits with an actionable missing-fixture error including sanitized arguments and working-directory context. Only declared executable names are intercepted; this feature is not a shell sandbox, and other commands continue to resolve through the host `PATH`. Host commands reached through shim pass-through do not inherit the internal `WAZA_COMMAND_MOCK_*` variables. Do not use real credentials in response fixtures.
+Task-level `command_mocks` replace the eval-level list; use `command_mocks: []` on a task to disable inherited mocks. Scenario evals may add finite response `sequence` arrays (at most 100 steps, each delayed up to 300,000 ms); exhausted sequences fail closed. Mocked invocations (command, sanitized arguments, optional exit code, and response index) are available to graders and appear under `runs[].command_invocations` in `results.json`, including earlier failures before a later successful retry. Abruptly interrupted sequence attempts remain recorded with `exit_code` omitted (unavailable), while completed zero exits are explicit. Inline `code` graders receive these records as `command_invocations` and canonical MCP/tool evidence as `tool_events`, including during offline regrading. Verbose output shows the same sanitized records. An unmatched invocation of a declared executable exits with an actionable missing-fixture error including sanitized arguments and working-directory context. Only declared executable names are intercepted; this feature is not a shell sandbox, and other commands continue to resolve through the host `PATH`. Host commands reached through shim pass-through do not inherit the internal `WAZA_COMMAND_MOCK_*` variables. Do not use real credentials in response fixtures.
+
+Each run in results schema `1.7` and later may include `runs[].dependency_modes`, listing configured MCP servers and effective CLI mocks as `live` or `mocked`. This is configuration metadata, not proof that a dependency was called or that a mock verifies a real component. There is no recorded-replay mode in these scenarios. The [dependency recovery guide](site/src/content/docs/guides/dependency-recovery.mdx) includes runnable fixtures for transient/permanent errors, permission denial, timeout errors, malformed payloads, unmatched calls, and prohibited side effects.
 
 Choose the mechanism that matches the dependency boundary:
 
@@ -1432,21 +1904,6 @@ Choose the mechanism that matches the dependency boundary:
 | `mcp_mocks` | The skill calls structured tools from an MCP server rather than a shell executable. |
 | Hooks | Setup, teardown, or validation should run around a task/eval; hooks do not intercept commands started by the agent. |
 | Live integration tests | Real CLI/service behavior, authentication, or infrastructure interaction is what the test must verify. Keep these separate from hermetic evals. |
-
-### Private Dependency-Fault Harness
-
-The #662 groundwork provides **private, injected test adapters**, not public
-finite-sequence YAML or automatic recovery. Source validators retain field
-presence, reject invalid finite fragments before eager resource decoding, and
-require explicit scenario eligibility. Existing repeating mocks, defaults and
-task `command_mocks: []` replacement remain unchanged.
-
-Native harness tests cover irreversible allocation, failed/interrupted delivery,
-bounded MCP workers, redaction and receipt custody. Owned MCP cancellation
-requires caller-supplied endpoints whose concurrent close interrupts I/O; these
-tests do not certify platform stdio, arbitrary closers or resumed SDK attempts.
-Captured array ordinals and verified content do not prove external integration.
-See the [private fault harness guide](site/src/content/docs/guides/private-fault-fixtures.mdx).
 
 ### Adversarial Packs
 
@@ -1591,8 +2048,9 @@ selects `row-2`, including when regrading with `--task row-2`. Explicit `id` and
 lexically within the eval directory and remain inside after symlinks resolve.
 Contained links and relative sources under an aliased eval directory are allowed;
 an alternate physical absolute spelling outside the lexical alias root is rejected.
-This is a bounded path check, not a universal physical-equivalence, retained-root,
-or race-free guarantee.
+The final CSV open and parse use a retained eval-directory root, preventing a
+replacement symlink from redirecting the read outside it. This does not freeze
+concurrent file contents or provide universal physical equivalence.
 
 **Example task prompt using CSV variables:**
 
@@ -1603,11 +2061,12 @@ expected_output: "{{.Vars.expected_output}}"
 language: "{{.Vars.language}}"
 ```
 
-Tasks can also be mixed — use both explicit task files and CSV-generated tasks:
+A nonempty `tasks_from` takes precedence over YAML `tasks`; the two sources are
+not combined:
 
 ```yaml
 tasks:
-  - "tasks/*.yaml"        # Explicit tasks
+  - "tasks/*.yaml"        # Used only when tasks_from is absent or empty
 
 tasks_from: ./test-cases.csv    # CSV-generated tasks
 range: [1, 20]                  # Only first 20 data rows
@@ -1692,8 +2151,8 @@ hooks:
 - `error_on_fail` — Fail entire evaluation if hook fails (default: `false`)
 
 **Lifecycle Points:**
-- `before_run` — Execute once before all tasks
-- `after_run` — Execute once after all tasks
+- `before_run` — Execute once before all tasks, before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets
+- `after_run` — Execute once after all tasks, including after an interrupted run (bounded to one minute)
 - `before_task` — Execute before each task
 - `after_task` — Execute after each task
 
@@ -1780,6 +2239,14 @@ inputs:
 
 After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
 
+For complete, copyable scripted and adaptive tasks, see the
+[two-question multi-turn example](site/src/content/docs/guides/eval-yaml.mdx#complete-multi-turn-example).
+It includes agent-free preflight, a scripted mock control, real-execution
+prerequisites, and how to interpret stop, abstention, and follow-up limits.
+
+When execution fails before a responder decision, Waza reports the available
+execution error instead of masking it as a missing decision-tool call.
+
 **Fields** (under `inputs.responder`):
 
 | Field           | Required | Description |
@@ -1805,12 +2272,12 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | ba
 
 **Option 2: Install from source**
 ```bash
-# Requires Go 1.26+ and Git LFS
+# Requires Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+, npm 9.6.5+
 git clone https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-go build -o waza ./cmd/waza
+make build
 ```
 
 **Option 3: Use Docker**
@@ -1912,7 +2379,8 @@ See [`examples/ci/README.md`](examples/ci/README.md) for detailed documentation 
 
 ### Available Grader Types
 
-Waza supports multiple grader types for comprehensive evaluation:
+Waza supports 13 native grader kinds. `trigger_tests` is suite configuration,
+not a grader kind; regex/keyword checks belong to `text`.
 
 | Grader | Purpose | Documentation |
 |--------|---------|---------------|
@@ -1924,7 +2392,16 @@ Waza supports multiple grader types for comprehensive evaluation:
 | `action_sequence` | Tool call sequence validation with F1 scoring | [docs/GRADERS.md](docs/GRADERS.md#action_sequence---tool-call-sequence-validation) |
 | `skill_invocation` | Skill orchestration sequence validation | [docs/GRADERS.md](docs/GRADERS.md#skill_invocation---skill-invocation-sequence-validation) |
 | `prompt` | LLM-as-judge evaluation with rubrics (built-in: `groundedness`, `helpfulness`, `instruction-following`, `refusal-correctness`, `tool-use-appropriateness`) | [docs/GRADERS.md](docs/GRADERS.md#prompt---llm-based-evaluation) |
-| `trigger_tests` | Prompt trigger accuracy detection | [docs/GRADERS.md](docs/GRADERS.md#trigger-tests) |
+| `trigger` | Prompt trigger accuracy detection | [Trigger](docs/graders/trigger.md) |
+| `json_schema` | Structured output validation | [JSON Schema](docs/graders/json_schema.md) |
+| `program` | External program exit-status checks, with grading context JSON | [Program](docs/graders/program.md) |
+| `tool_constraint` | Required/forbidden tool policies | [Tool Constraint](docs/graders/tool_constraint.md) |
+| `tool_calls` | Tool event and argument checks | [Tool Calls](docs/graders/tool_calls.md) |
+
+**Added in v0.40.0:** Program graders receive `WAZA_GRADING_CONTEXT`, the
+path to a private JSON file with recorded run evidence. Output on stdin and
+`WAZA_WORKSPACE_DIR` are unchanged; unavailable evidence remains null and
+cleanup failures are reported. Published `v0.39.1` does not provide this file.
 
 See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration options and examples.
 
@@ -1933,6 +2410,8 @@ See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration 
 - **[Getting Started](docs/GETTING-STARTED.md)** - Complete walkthrough: init → new → run → check
 - **[Demo Guide](docs/DEMO-GUIDE.md)** - 7 live demo scenarios for presentations
 - **[Grader Reference](docs/GRADERS.md)** - Complete grader types and configuration
+- **[Grader Challenges and Assurance](docs/GRADER-CHALLENGES.md)** - Offline native checks and separately selected calibration; bundled labels remain unreviewed, paid calls require explicit acknowledgment
+- **[October 5–19, 2026 feature coverage audit](docs/FEATURE-COVERAGE-2026-10-05-19.md)** - Linked merged-change inventory and documentation/Lab coverage matrix
 - **[Tutorial](docs/TUTORIAL.md)** - Getting started with writing skill evals
 - **[CI Integration](docs/SKILLS_CI_INTEGRATION.md)** - GitHub Actions workflows for skill evaluation
 - **[Token Management](docs/TOKEN-LIMITS.md)** - Tracking and optimizing skill context size

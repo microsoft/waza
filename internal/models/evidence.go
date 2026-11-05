@@ -3,29 +3,66 @@ package models
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"sync"
 
 	"github.com/microsoft/waza/internal/jsonutil"
+	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // EvidenceManifest is descriptive provenance, not an enforcement or assurance
 // verdict. Its version is independent of the result and snapshot schemas.
 type EvidenceManifest struct {
-	Version              string               `json:"version"`
-	SHA256               string               `json:"sha256"`
-	SourceManifestSHA256 string               `json:"source_manifest_sha256,omitempty"`
-	Origin               EvidenceOrigin       `json:"origin"`
-	Runtime              EvidenceRuntime      `json:"runtime"`
-	Redaction            EvidenceRedaction    `json:"redaction"`
-	Artifacts            []EvidenceArtifact   `json:"artifacts"`
-	Diagnostics          []EvidenceDiagnostic `json:"diagnostics,omitempty"`
-	unknownFields        bool
-	unknownRaw           json.RawMessage
+	Version                string               `json:"version"`
+	SHA256                 string               `json:"sha256"`
+	SourceManifestSHA256   string               `json:"source_manifest_sha256,omitempty"`
+	Origin                 EvidenceOrigin       `json:"origin"`
+	Runtime                EvidenceRuntime      `json:"runtime"`
+	Redaction              EvidenceRedaction    `json:"redaction"`
+	Artifacts              []EvidenceArtifact   `json:"artifacts"`
+	Diagnostics            []EvidenceDiagnostic `json:"diagnostics,omitempty"`
+	unknownFields          bool
+	invalidRequiredObjects bool
+	invalidSchema          bool
+	unknownRaw             json.RawMessage
 }
 
 func (m *EvidenceManifest) HasUnknownFields() bool { return m.unknownFields }
 
+func (m *EvidenceManifest) HasInvalidRequiredObjects() bool { return m.invalidRequiredObjects }
+
+func (m *EvidenceManifest) HasInvalidSchema() bool { return m.invalidSchema }
+
+var evidenceManifestSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileEvidenceManifestSchema(schemas.EvidenceManifestSchemaJSON)
+})
+
+var referenceInputManifestSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileEvidenceManifestSchema(schemas.ReferenceInputEvidenceManifestSchemaJSON)
+})
+
+func compileEvidenceManifestSchema(source string) (*jsonschema.Schema, error) {
+	var document any
+	if err := json.Unmarshal([]byte(source), &document); err != nil {
+		return nil, fmt.Errorf("parsing embedded evidence schema: %w", err)
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.UseLoader(schemaloader.Offline{})
+	if err := compiler.AddResource("evidence-manifest.json", document); err != nil {
+		return nil, fmt.Errorf("adding embedded evidence schema: %w", err)
+	}
+	schema, err := compiler.Compile("evidence-manifest.json")
+	if err != nil {
+		return nil, fmt.Errorf("compiling embedded evidence schema: %w", err)
+	}
+	return schema, nil
+}
+
 func (m *EvidenceManifest) UnmarshalJSON(data []byte) error {
-	if _, err := jsonutil.Parse(data); err != nil {
+	instance, err := jsonutil.Parse(data)
+	if err != nil {
 		return err
 	}
 	type alias EvidenceManifest
@@ -36,16 +73,35 @@ func (m *EvidenceManifest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
+	loadSchema := evidenceManifestSchema
+	if decoded.Version == "1.1" {
+		loadSchema = referenceInputManifestSchema
+	}
+	schema, err := loadSchema()
+	if err != nil {
+		return err
+	}
 	*m = EvidenceManifest(decoded)
 	m.unknownFields = unknown
-	if unknown {
+	m.invalidSchema = schema.Validate(instance) != nil
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, field := range []string{"origin", "runtime", "redaction"} {
+		raw := bytes.TrimSpace(fields[field])
+		if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+			m.invalidRequiredObjects = true
+		}
+	}
+	if unknown || m.invalidSchema {
 		m.unknownRaw = append(json.RawMessage(nil), data...)
 	}
 	return nil
 }
 
 func (m EvidenceManifest) MarshalJSON() ([]byte, error) {
-	if m.unknownFields {
+	if m.unknownFields || m.invalidSchema {
 		return append([]byte(nil), m.unknownRaw...), nil
 	}
 	type alias EvidenceManifest

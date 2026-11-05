@@ -26,6 +26,20 @@ With Azure Storage:
 - **Historical archive** — Results organized by date
 - **No extra config** — Uses your existing Azure credentials
 
+## Portable evidence
+
+Existing explicitly configured result storage uploads the serialized evaluation
+result, including per-run `evidence`, `requirement_explanations` and
+`snapshot_path` metadata when present. It does not follow that path or upload
+separate snapshot files or their selected workspace contents. A downloaded
+result's local snapshot path may therefore be unavailable on another machine.
+
+Capture itself adds no storage configuration or upload. Review result payloads
+before enabling storage: recorded outputs and other existing result fields are
+still included, and snapshot redaction is not a confidentiality guarantee for the
+entire result. See [Snapshot & Replay](/waza/guides/snapshot-replay/) for evidence
+availability, explicit local selection and capture limits.
+
 ## Prerequisites
 
 ### Azure Account

@@ -1,0 +1,435 @@
+[
+  {
+    "name": "baseline",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+      "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+      "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+    }
+  },
+  {
+    "name": "presentation",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "# equivalent\r\n{tasks: [\"adjacent-must-not-be-opened/*.yaml\"], name: Runner example, scenario: runner-example, schemaVersion: \"2.0\", config: {timeout_seconds: 30, max_attempts: 0x3, trials_per_task: 03, model: mock-model, executor: mock}}\r\n",
+        "task": "---\r\nexpected: {output_contains: [hello]}\r\ninputs: {prompt: \"he\\u006clo\"}\r\nname: Selected task\r\nid: selected\r\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+      "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+      "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+    }
+  },
+  {
+    "name": "offers-and-consent",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "9.0",
+        "1.0"
+      ],
+      "required_capabilities": [
+        "inline.mock-text",
+        "exact-unit",
+        "negotiation"
+      ],
+      "optional_capabilities": [
+        "future"
+      ],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": true
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+      "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+      "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+    }
+  },
+  {
+    "name": "run-key",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "another-run",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "240cab362a863e137eabc5ef48183de2aec01005c8f415895d7f75f1b59a4240",
+      "run": "run-57d1cf38cb33f4dae1b48aae38990396ba310e77bf7bc0a7abdd43030c4e1a78",
+      "shard": "shard-3b4fe5198cb936dfe399d14778717909a77509ba899912559c835175f6eff0d7",
+      "task": "task-d5b398e877b4653bb42e7392d164bcc78e264fe01085bb60f6f50def7432e185",
+      "trial": "trial-b4c350a83a71413563b91e9ac993a9819defb4612ceab6b47b8feb12a7815a0f",
+      "attempt": "attempt-5c53064c7634ec8fec1a789537f1970ba980cffd3174b87706f90a597939e0d6"
+    }
+  },
+  {
+    "name": "timeout",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60001,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "0b65ea62e8f21e9fb88ffe716890d31917d06ebcf8aee5e17c35c3f7b5997ef5",
+      "run": "run-d56b82aff9fc6bf46114cef34e89ef31dc0b86a87d1332244b088f1bbf530c6c",
+      "shard": "shard-3c383ba806f18313c1af86849d4468a3c2bd364ba7ba716e1006ddf4d85717e3",
+      "task": "task-27ee044e9b6441dc745000da728fc77c8108efe43729c33d14b60a453caccc5e",
+      "trial": "trial-dbe6da346b4d66152c92b98b55f6fe89c33ee4d8ed17b1fc73744b53933b2131",
+      "attempt": "attempt-a6e52cb1a30c268c3e202a1b893a34f7bc886edf2f0febee8fa4478939552e85"
+    }
+  },
+  {
+    "name": "eval-source",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: other-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models11:other-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "73345794d89c8efff6df1954197205b8dceb254069ed041ff5bf5a5a4c425e59",
+      "run": "run-f81902140f5a0bf9389d9b0cd15da33b93920b337fbeeb957223e1e80b95e1e5",
+      "shard": "shard-9122c566a549a2a94f21436241bf679d59522f4ed875c24267801331b2616878",
+      "task": "task-39a0306a938d8b65eed6abac455ac7a25af9e70450e5800fd21829fe47cdedcb",
+      "trial": "trial-010581a532d7f4aca797aaa636038309f6e8ff00855bce475d3fee89fa65c4ab",
+      "attempt": "attempt-11845bdc3c7874c1b7adfce6409135d913db0f8530d7bc71b254e6e57cd0c10f"
+    }
+  },
+  {
+    "name": "shard",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-b",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-b",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "8865ee21c2d5ffe9fd0716d410b953b70afa9aa0b36a16ddbb0ab1d006695112",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-31d4d07ff4dc1125904c29ade5143367bf93f365b5a29d6d636e964baaea89db",
+      "task": "task-851877db927cdcd0eb2d76aadccd10137c547c30c98dfd89f6a5e4ed983f06ba",
+      "trial": "trial-9839cdab0375774265c31918812b91cecc5e8fd140209e138cbab073c26c01a1",
+      "attempt": "attempt-d8acbf674d3903d64e0e001e11b2ac2a5716a1d8148c58635f11c1c080ae7d6c"
+    }
+  },
+  {
+    "name": "task-source",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: goodbye\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts7:goodbyes4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "2ed8d7e1e81ea6e58ce4d4fded15d9ea71e98b9abc7ddbc084bf66c9b7b42d27",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-195e6c9707306772570f5081db69d40adb4a6c2c9e459ab0d65192c0554704ff",
+      "trial": "trial-493bda6497ad53c53702ee621fda7b7d95fd1e088223829d6e4829e01e5c8e13",
+      "attempt": "attempt-9866cd02884011024fb225ef91e23d04c70543e9114681fcaf1f4cb35d9783f7"
+    }
+  },
+  {
+    "name": "task-key",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "other",
+        "trial": 2,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: other\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids5:others6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "c8f08734548e049039d09bdf1b78fc40df6280e6654f8a5f02d827c4e860afcf",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-d3165750876e3b702a6f58461970376e53858a7b46c437be5ad8876ad615c9ac",
+      "trial": "trial-127fc83dd462e97c72fa93bf0d5a7b4d0c8a8531ae3afa9143012bddabff66ac",
+      "attempt": "attempt-7669fbfb0f7ca6fd6250ffdc30fb27618e76bde79db4349efea8e70ccb122bb5"
+    }
+  },
+  {
+    "name": "trial",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 3,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "fafef1dcdb9ddc507f1c35c59e603ef23042bf4dd9671ced203f7ca3f009e04f",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+      "trial": "trial-cf70698981a7bb5516bc293943c827786758f87ff37a0089b6fd28499d7d886d",
+      "attempt": "attempt-2d7ae69628f2cde3f75a1e82255eae749e3af627d50377fbc63ed2a9d24ce7dd"
+    }
+  },
+  {
+    "name": "attempt",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 3
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+        "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm5:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:timeout_secondsi2:30s15:trials_per_taski1:3s4:names14:Runner examples8:scenarios14:runner-examples13:schemaVersions3:2.0s5:tasksa1:s34:adjacent-must-not-be-opened/*.yaml",
+    "canonical_task": "m4:s8:expectedm1:s15:output_containsa1:s5:hellos2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names13:Selected task",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "563ed279d1aa5ae9f46a65dcc1983096fc641f5a9860b6c9b7bf80ae8d362065",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+      "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+      "attempt": "attempt-f10272493f0c171f1723cc682cfd16649c9d6f1aecbcc816f513356772895077"
+    }
+  }
+]

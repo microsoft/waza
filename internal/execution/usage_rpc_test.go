@@ -3,10 +3,7 @@ package execution
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -38,29 +35,8 @@ func usageRPCSession(t *testing.T, failMethod string, events []copilot.SessionEv
 		}()
 		reader := bufio.NewReader(conn)
 		for {
-			length := 0
-			for {
-				header, err := reader.ReadString('\n')
-				if err != nil {
-					return
-				}
-				if header == "\r\n" {
-					break
-				}
-				if after, ok := strings.CutPrefix(header, "Content-Length: "); ok {
-					length, err = strconv.Atoi(strings.TrimSpace(after))
-					if err != nil {
-						t.Error(err)
-						return
-					}
-				}
-			}
-			if length <= 0 || length > 1<<20 {
-				t.Errorf("invalid frame length %d", length)
-				return
-			}
-			body := make([]byte, length)
-			if _, err := io.ReadFull(reader, body); err != nil {
+			body, err := readTestRPCFrame(reader)
+			if err != nil {
 				return
 			}
 			var req struct {
@@ -110,12 +86,7 @@ func usageRPCSession(t *testing.T, failMethod string, events []copilot.SessionEv
 					response["error"] = map[string]any{"code": -32601, "message": "unexpected method"}
 				}
 			}
-			encoded, err := json.Marshal(response)
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			if _, err = fmt.Fprintf(conn, "Content-Length: %d\r\n\r\n%s", len(encoded), encoded); err != nil {
+			if err := writeTestRPCFrame(conn, response); err != nil {
 				return
 			}
 		}
@@ -193,6 +164,7 @@ func TestUsageRPCWrapperFallbackAndErrors(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}
+
 			usage, err := session.ShutdownUsage(t.Context())
 			if tc.noEvent {
 				require.ErrorContains(t, err, "no final session.shutdown")

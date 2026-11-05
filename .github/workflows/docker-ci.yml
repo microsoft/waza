@@ -8,10 +8,16 @@ on:
       - '.dockerignore'
       - 'go.mod'
       - 'go.sum'
+      - 'version.txt'
       - 'cmd/**'
       - 'internal/**'
       - 'web/**'
       - 'schemas/**'
+      - 'examples/runner/unit.json'
+      - 'examples/runner/copilot-unit.json'
+      - 'examples/runner/container/**'
+      - '.github/scripts/testdata/runner-runtime/**'
+      - '.github/scripts/testdata/native-bundle-probe/**'
       - 'docs.go'
       - 'docs/graders/**'
       - '.github/workflows/docker-ci.yml'
@@ -19,10 +25,14 @@ on:
     branches: [main]
     paths: *docker-paths
 
+permissions:
+  contents: read
+
 jobs:
   docker-build:
     name: Build and Verify Docker Image
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Repository
@@ -45,3 +55,27 @@ jobs:
 
       - name: Verify
         run: docker run --rm waza:ci-${{ github.sha }} --version
+
+  runner-reference:
+    name: Local runner container contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Build and execute production-boundary controls
+        run: node --test examples/runner/container/test.mjs
+      - name: Execute offline synthetic subprocess and bundled-runtime controls
+        run: node --test examples/runner/container/native-test.mjs examples/runner/container/native-lifecycle.test.mjs
+      - name: Execute native bundled-runtime container controls
+        env:
+          WAZA_REQUIRE_NATIVE_AMD64: '1'
+        run: node --test examples/runner/container/native-bundle-test.mjs

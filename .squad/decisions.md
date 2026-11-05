@@ -1,5 +1,9 @@
 # Team Decisions
 
+Current team ownership and model policy: `.squad/governance.md` and
+`.squad/model-policy.md` (2026-10-15). Earlier model assignments below and in
+member histories are preserved as historical records, not active instructions.
+
 ## 2026-02-19: User directive — preserve .squad/ state
 
 **By:** Shayne Boyer (via Copilot)
@@ -399,3 +403,41 @@ All issues routed to qualified squad members:
 | #89 | CI/CD integration guide (P1) | squad:livingston + squad:saul | Documentation with doc-review gate |
 
 **Why:** Batch review + triage ensures all green PRs merge cleanly and new work is routed to the right specialist without manual coordination. Parallel work begins immediately once triage is complete.
+
+## 2026-10-15: Squad 1.0, complete ownership, and GPT-first role models
+
+**Status:** Active
+**Source:** User-approved Squad upgrade and team expansion; codebase at `b8be34296`;
+published `@bradygaster/squad-cli@1.0.0`; current host model identifiers.
+
+**Decision:** Upgrade managed Squad assets from 0.10.0 to the latest npm-published
+stable 1.0.0, pin the state MCP package, and preserve Waza's eleven customized
+workflows and repository contributor safeguards. GitHub's 1.0.1 release was not
+available as an npm package at implementation time; do not substitute an insider tag.
+
+Refresh every active charter against the current CLI/runtime, evidence/assurance/
+release-policy foundations, React dashboard and opt-in Lab, Astro/Starlight docs,
+tests, packaging, and developer workflows. Add Yen for frontend/design/accessibility,
+Danny for DevRel/socialization drafts, and Virgil for release/developer infrastructure.
+Rusty retains architecture/review, not routine frontend implementation.
+
+Use persisted role choices in `config.json`: Sol for implementation, Terra for
+architecture/performance analysis and all code reviews, Luna for documentation,
+DevRel, logging, and monitoring. Exact IDs and explicit fallback rules live in
+`model-policy.md`; model configuration is not proof of host entitlement.
+
+Replace eager fan-out with one accountable owner and a bounded independent gate.
+Keep fixed Scribe/Ralph/Rai/Fact Checker support identities separate from specialist
+issue routing. Public posting, release publication, and paid calls need their own approval.
+
+**Casting migration:** The old casting pair lacked the schema/revision fields
+required by Squad 1.0. Preserve its original bytes in
+`casting/legacy-v0.10.0/`, normalize the live pair, and publish it through the SDK's
+locked registry/history transaction API. Correct the active Ocean's Eleven metadata
+without renaming members. Retain Scribe's old registry entry inactive only for
+historical references; Scribe remains an active fixed support identity.
+
+**Supersedes:** The model assignments from 2026-02-18 ("Model selection directive"
+and "Web UI model assignments"), 2026-02-20 ("Model assignment overhaul"), and the
+model portions of 2026-03-05 ("Model + Workflow Directive"). Existing worktree,
+compatibility, documentation, and green-CI requirements remain in force.

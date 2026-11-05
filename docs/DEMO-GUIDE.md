@@ -8,6 +8,40 @@ This guide provides step-by-step instructions for 9 practical demonstrations cov
 
 ## Quick Setup
 
+For the v0.40.0 exact-unit runner, open **Runner contract** in
+`waza serve --lab`, then **Validate selection**. The requested and resolved
+tuple and validation state come from the offline API; this button never runs
+an engine. Execute the same mock-only example explicitly with
+`waza runner run < examples/runner/unit.json`. The validation result also shows
+the input-derived identity hierarchy/version/digest and exports the same JSON;
+identity does not prove execution. See the
+[runner guide](../site/src/content/docs/guides/runner-contract.mdx).
+The separate **Run selected unit** action actually executes once and displays
+the [terminal outcome and diagnostics](../site/src/content/docs/guides/runner-terminal.mdx),
+with an exact terminal JSON export. This demo remains mock-only; opted-in exact
+Copilot/text CLI execution has its own paid-call and disabled-tool/skill boundaries.
+
+For an offline controlled-comparison demo, follow
+[the source-bound planning and collection example](CONTROLLED-COMPARISONS.md).
+Its one-cluster mock design intentionally remains inconclusive (selected gate
+exit `1`), not a release claim. Serve its collection parent and open the
+**Release policies** tab to inspect separate assurance/golden/billing/statistical
+states and complete or interrupted attempt accounting.
+
+This demo stays on the default offline mock collector. A separate, explicitly
+selected native Copilot profile can incur provider usage and supports only a
+bounded fixed-model, single-turn/no-skills/text-check matrix. Do not run it as
+part of the offline demo; see the
+[native collection contract](CONTROLLED-COMPARISONS.md#opt-in-native-copilot-collection)
+for its supported scope, artifacts and limits.
+
+![Native release evidence view with recovered attempts and unavailable values](https://raw.githubusercontent.com/microsoft/waza/main/docs/images/native-release-evidence.png)
+
+*Deterministic SDK-fake illustration of a nonpassing golden-veto decision.
+Runtime version and provider currency are unavailable; native assurance is
+unsupported. This screenshot demonstrates rendering, not paid/live execution
+or model quality.*
+
 Before any demo, ensure waza is installed:
 
 ```bash
@@ -649,6 +683,16 @@ stable-task comparisons, and JSON/CSV/print reports. Explain that Current runs
 replays artifact-derived events, not live worker telemetry; readiness, coverage,
 and git revisions are unavailable. The separate `/#/lab/demo` route is synthetic
 and is never used as an API-error fallback.
+
+**Added in v0.40.0:** In the real-results inspector, select **Conversation**
+to read the full recorded
+user/agent exchange without opening individual Trajectory events. Tool events,
+reasoning, and streaming deltas are excluded. This shows only the first
+repetition, not a complete trial export. User/agent labels describe message roles;
+the responder's simulated-user follow-up count does not establish per-message
+provenance. Missing messages stay unavailable. The synthetic demo has no recorded
+conversation; use a saved multi-turn evaluation for this walkthrough.
+Published `v0.39.1` does not include this tab.
 
 ### Setup
 

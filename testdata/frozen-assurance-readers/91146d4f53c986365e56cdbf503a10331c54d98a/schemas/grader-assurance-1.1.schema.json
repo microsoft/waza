@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/grader-assurance-1.1.schema.json",
+  "title": "Waza explicit judge calibration report 1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "assessment_mode", "created_at", "state", "reason", "labels_sha256", "review", "bindings", "requirements", "domains", "calibration", "cache_policy", "limitations"],
+  "properties": {
+    "kind": { "const": "waza.grader-assurance" },
+    "schema_version": { "const": "1.1" },
+    "assessment_mode": { "const": "independent_authored_rubric_calibration" },
+    "created_at": { "$ref": "grader-assurance-1.0.schema.json#/properties/created_at" },
+    "state": { "$ref": "grader-assurance-1.0.schema.json#/$defs/state" },
+    "reason": { "type": "string" },
+    "labels_sha256": { "$ref": "grader-reference-1.0.schema.json#/$defs/sha256" },
+    "review": { "$ref": "grader-assurance-1.0.schema.json#/properties/review" },
+    "bindings": { "$ref": "grader-assurance-1.0.schema.json#/$defs/bindings" },
+    "requirements": { "$ref": "grader-assurance-1.0.schema.json#/properties/requirements" },
+    "domains": { "$ref": "grader-assurance-1.0.schema.json#/properties/domains" },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reason", "max_judge_executions", "executions", "billable_calls_bounded", "cost_bounded", "samples", "confidence_supported", "usage", "credits", "execution_ledger"],
+      "properties": {
+        "state": { "$ref": "grader-assurance-1.0.schema.json#/$defs/state" },
+        "reason": { "type": "string" },
+        "protocol": { "const": "fixed_corpus_agreement_v1" },
+        "model": { "type": "string", "minLength": 1 },
+        "max_judge_executions": { "$ref": "#/$defs/count" },
+        "executions": { "$ref": "#/$defs/count" },
+        "billable_calls_bounded": { "const": false },
+        "cost_bounded": { "const": false },
+        "samples": { "$ref": "#/$defs/count" },
+        "confidence_supported": { "const": false },
+        "usage": { "$ref": "#/$defs/usage" },
+        "credits": { "type": ["number", "null"], "minimum": 0 },
+        "execution_ledger": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/execution" } }
+      }
+    },
+    "cache_policy": { "const": "no_reuse" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "models": {
+      "type": ["array", "null"], "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+    },
+    "diagnostic": {
+      "type": "object", "additionalProperties": false, "required": ["stage", "code"],
+      "properties": {
+        "stage": { "enum": ["initialize", "execute", "disconnect", "ephemeral_delete", "usage_metrics", "shutdown_usage", "shutdown_delete", "client_stop", "commandmock_cleanup", "git_cleanup", "workspace_cleanup"] },
+        "code": { "enum": ["provider_failed", "start_failed", "auth_failed", "create_failed", "resume_failed", "send_failed", "execute_failed", "cleanup_failed", "expected_skill_cancellation", "usage_missing_or_partial", "model_attribution_missing", "shutdown_rpc_failed", "history_failed", "fallback_disconnect_failed", "observer_failed", "engine_closed", "session_busy"] }
+      }
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["case_id", "task_id", "requirement_id", "check", "initialized", "executed", "callbacks", "requested_model", "event_models", "accounting_models", "event_model_attribution_complete", "accounting_model_attribution_complete", "usage_source", "usage_complete", "state", "reason", "diagnostics", "usage", "credits"],
+      "properties": {
+        "case_id": { "type": "string", "minLength": 1 },
+        "task_id": { "type": "string", "minLength": 1 },
+        "requirement_id": { "type": "string", "minLength": 1 },
+        "check": { "$ref": "grader-reference-1.0.schema.json#/$defs/check" },
+        "initialized": { "type": "boolean" },
+        "executed": { "type": "boolean" },
+        "callbacks": { "$ref": "#/$defs/count" },
+        "requested_model": { "type": "string", "minLength": 1 },
+        "event_models": { "$ref": "#/$defs/models" },
+        "accounting_models": { "$ref": "#/$defs/models" },
+        "event_model_attribution_complete": { "type": "boolean" },
+        "accounting_model_attribution_complete": { "type": "boolean" },
+        "usage_source": { "type": "string" },
+        "usage_complete": { "type": "boolean" },
+        "state": { "$ref": "grader-assurance-1.0.schema.json#/$defs/state" },
+        "reason": { "type": "string" },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } },
+        "usage": { "$ref": "#/$defs/usage" },
+        "credits": { "type": ["number", "null"], "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "event_model_attribution_complete": { "const": true } } },
+          "then": { "properties": { "event_models": { "type": "array", "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "accounting_model_attribution_complete": { "const": true } } },
+          "then": { "properties": { "accounting_models": { "type": "array", "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "usage_complete": { "const": true } } },
+          "then": {
+            "properties": {
+              "accounting_model_attribution_complete": { "const": true },
+              "usage": {
+                "type": "object",
+                "required": ["ai_credits", "model_metrics"],
+                "properties": {
+                  "model_metrics": { "minProperties": 1, "additionalProperties": { "required": ["ai_credits"] } }
+                }
+              },
+              "credits": { "type": "number" },
+              "usage_source": { "minLength": 1 }
+            }
+          },
+          "else": { "properties": { "usage": { "type": "null" }, "credits": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "executed": { "const": false } } },
+          "then": { "properties": { "callbacks": { "const": 0 } } }
+        },
+        {
+          "if": { "properties": { "executed": { "const": true } } },
+          "then": { "properties": { "initialized": { "const": true } } }
+        },
+        {
+          "if": { "properties": { "state": { "const": "passed" } } },
+          "then": {
+            "properties": {
+              "initialized": { "const": true },
+              "executed": { "const": true },
+              "callbacks": { "minimum": 1 },
+              "event_model_attribution_complete": { "const": true },
+              "accounting_model_attribution_complete": { "const": true },
+              "usage_complete": { "const": true },
+              "diagnostics": { "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "model_usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "request_count", "request_cost"],
+      "properties": {
+        "input_tokens": { "$ref": "#/$defs/count" },
+        "output_tokens": { "$ref": "#/$defs/count" },
+        "cache_read_tokens": { "$ref": "#/$defs/count" },
+        "cache_write_tokens": { "$ref": "#/$defs/count" },
+        "request_count": { "type": "number", "minimum": 0 },
+        "request_cost": { "type": "number", "minimum": 0 },
+        "ai_credits": { "type": "number", "minimum": 0 }
+      }
+    },
+    "usage": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "required": ["turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "premium_requests"],
+      "properties": {
+        "turns": { "$ref": "#/$defs/count" },
+        "input_tokens": { "$ref": "#/$defs/count" },
+        "output_tokens": { "$ref": "#/$defs/count" },
+        "cache_read_tokens": { "$ref": "#/$defs/count" },
+        "cache_write_tokens": { "$ref": "#/$defs/count" },
+        "premium_requests": { "type": "number", "minimum": 0 },
+        "ai_credits": { "type": "number", "minimum": 0 },
+        "provider": { "type": "string" },
+        "provider_host": { "type": "string" },
+        "model_metrics": { "type": "object", "additionalProperties": { "$ref": "#/$defs/model_usage" } }
+      }
+    }
+  }
+}

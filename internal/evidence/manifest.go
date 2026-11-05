@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -26,7 +28,13 @@ func JSONDigest(value any) (*models.EvidenceDigest, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err = json.Marshal(value)
+	return parsedJSONDigest(value)
+}
+
+// The caller must have obtained value from jsonutil.Parse. Its strict admission
+// and exact number tokens need not be repeated through another JSON round trip.
+func parsedJSONDigest(value any) (*models.EvidenceDigest, error) {
+	data, err := json.Marshal(value)
 	if err != nil {
 		return nil, errors.New("evidence: content cannot be normalized")
 	}
@@ -45,7 +53,22 @@ func Seal(manifest *models.EvidenceManifest) error {
 	if manifest == nil {
 		return errors.New("evidence: manifest is required")
 	}
+	if manifest.HasInvalidRequiredObjects() || manifest.HasInvalidSchema() {
+		return Validate(manifest)
+	}
+	if manifest.Version != "" && manifest.Version != Version {
+		return errors.New("evidence: Seal only supports snapshot manifest version 1.0")
+	}
+	if err := models.ValidateNativeEvidenceProfile(manifest); err != nil && manifest.Version != "" {
+		return err
+	}
+	if strings.HasPrefix(manifest.Origin.EvalID, "reference:") {
+		return errors.New("evidence: synthetic reference origins are not native execution evidence")
+	}
 	manifest.Version = Version
+	if manifest.Artifacts == nil {
+		manifest.Artifacts = []models.EvidenceArtifact{}
+	}
 	digest, err := manifestDigest(manifest)
 	if err != nil {
 		return err
@@ -55,8 +78,17 @@ func Seal(manifest *models.EvidenceManifest) error {
 }
 
 func Validate(manifest *models.EvidenceManifest) error {
-	if manifest == nil || manifest.Version != Version || manifest.HasUnknownFields() {
+	if manifest == nil || manifest.Version != Version && manifest.Version != ReferenceInputVersion || manifest.HasUnknownFields() {
 		return errors.New("evidence: unsupported or absent manifest version")
+	}
+	if manifest.HasInvalidRequiredObjects() {
+		return errors.New("evidence: origin, runtime and redaction must be objects")
+	}
+	if manifest.HasInvalidSchema() {
+		return errors.New("evidence: manifest JSON does not match the evidence schema")
+	}
+	if manifest.Artifacts == nil {
+		return errors.New("evidence: artifacts must be an array")
 	}
 	digest, err := manifestDigest(manifest)
 	if err != nil {
@@ -64,6 +96,9 @@ func Validate(manifest *models.EvidenceManifest) error {
 	}
 	if digest.SHA256 != manifest.SHA256 {
 		return errors.New("evidence: manifest identity does not match its content")
+	}
+	if manifest.Version == ReferenceInputVersion {
+		return validateReferenceInputProfile(manifest)
 	}
 	if manifest.SourceManifestSHA256 != "" && !validSHA(manifest.SourceManifestSHA256) {
 		return errors.New("evidence: invalid source manifest SHA256")
@@ -145,7 +180,7 @@ func manifestDigest(manifest *models.EvidenceManifest) (*models.EvidenceDigest, 
 		return nil, errors.New("evidence: manifest must be an object")
 	}
 	delete(object, "sha256")
-	return JSONDigest(object)
+	return parsedJSONDigest(object)
 }
 
 func CompleteOrigin(origin models.EvidenceOrigin) bool {
@@ -154,7 +189,7 @@ func CompleteOrigin(origin models.EvidenceOrigin) bool {
 
 // Bind checks the selected result row without relabeling cached source lineage.
 func Bind(manifest *models.EvidenceManifest, evalID, taskID string, runNumber, attempts int, cached bool) error {
-	if err := Validate(manifest); err != nil {
+	if err := ValidateNative(manifest); err != nil {
 		return err
 	}
 	origin := manifest.Origin
@@ -165,6 +200,48 @@ func Bind(manifest *models.EvidenceManifest, evalID, taskID string, runNumber, a
 		return errors.New("evidence: attribution does not match the selected result")
 	}
 	return nil
+}
+
+func ValidateExplanations(manifest *models.EvidenceManifest, taskID string, explanations []models.RequirementExplanation) error {
+	for _, explanation := range explanations {
+		if explanation.TaskID != "" && explanation.TaskID != taskID {
+			return errors.New("evidence: requirement observation belongs to a different task")
+		}
+		for _, check := range explanation.Checks {
+			for _, reference := range check.References {
+				artifact, err := Resolve(manifest, reference)
+				if err != nil {
+					return fmt.Errorf("evidence: requirement reference: %w", err)
+				}
+				if artifact.Availability != "captured" {
+					return errors.New("evidence: requirement reference points to an artifact without captured content")
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// MetadataExplanations omits value pointers because metadata alone cannot verify
+// their targets. Content-aware operations must use VerifyContent separately.
+func MetadataExplanations(manifest *models.EvidenceManifest, taskID string, explanations []models.RequirementExplanation) ([]models.RequirementExplanation, bool, error) {
+	if err := ValidateExplanations(manifest, taskID, explanations); err != nil {
+		return nil, false, err
+	}
+	projected := slices.Clone(explanations)
+	withheld := false
+	for i := range projected {
+		projected[i].Checks = slices.Clone(projected[i].Checks)
+		for j := range projected[i].Checks {
+			check := &projected[i].Checks[j]
+			check.References = slices.Clone(check.References)
+			for k := range check.References {
+				withheld = withheld || check.References[k].Pointer != ""
+				check.References[k].Pointer = ""
+			}
+		}
+	}
+	return projected, withheld, nil
 }
 
 func validPointer(pointer string) bool {
@@ -187,6 +264,9 @@ func Reference(manifest *models.EvidenceManifest, id string) (models.EvidenceRef
 		return models.EvidenceReference{}, errors.New("evidence: manifest is required")
 	}
 	reference := models.EvidenceReference{Origin: manifest.Origin, ArtifactID: id}
+	if manifest.Version == ReferenceInputVersion {
+		reference.Pointer = "/output"
+	}
 	if _, err := Resolve(manifest, reference); err != nil {
 		return models.EvidenceReference{}, err
 	}
@@ -197,14 +277,8 @@ func Resolve(manifest *models.EvidenceManifest, reference models.EvidenceReferen
 	if err := Validate(manifest); err != nil {
 		return nil, err
 	}
-	if !CompleteOrigin(manifest.Origin) {
-		return nil, errors.New("evidence: execution attribution is incomplete")
-	}
-	if reference.Origin != manifest.Origin {
-		return nil, errors.New("evidence: reference belongs to a different eval/task/run/attempt")
-	}
-	if reference.Pointer != "" && !validPointer(reference.Pointer) {
-		return nil, errors.New("evidence: invalid artifact-relative pointer")
+	if err := validateReference(manifest.Origin, manifest.Version, reference); err != nil {
+		return nil, err
 	}
 	for _, artifact := range manifest.Artifacts {
 		if artifact.ID == reference.ArtifactID {
@@ -214,6 +288,71 @@ func Resolve(manifest *models.EvidenceManifest, reference models.EvidenceReferen
 	return nil, errors.New("evidence: referenced artifact is absent")
 }
 
+// Resolver owns validated metadata for repeated lookups without rehashing the
+// entire manifest. It does not establish content or provenance authenticity.
+type Resolver struct {
+	origin    models.EvidenceOrigin
+	version   string
+	artifacts map[string]models.EvidenceArtifact
+}
+
+func NewResolver(manifest *models.EvidenceManifest) (*Resolver, error) {
+	if err := Validate(manifest); err != nil {
+		return nil, err
+	}
+	resolver := &Resolver{
+		origin: manifest.Origin, version: manifest.Version,
+		artifacts: make(map[string]models.EvidenceArtifact, len(manifest.Artifacts)),
+	}
+	for _, artifact := range manifest.Artifacts {
+		resolver.artifacts[artifact.ID] = cloneArtifact(artifact)
+	}
+	return resolver, nil
+}
+
+func cloneArtifact(artifact models.EvidenceArtifact) models.EvidenceArtifact {
+	if artifact.ContentDigest != nil {
+		digest := *artifact.ContentDigest
+		artifact.ContentDigest = &digest
+	}
+	if artifact.SourceDigest != nil {
+		digest := *artifact.SourceDigest
+		artifact.SourceDigest = &digest
+	}
+	return artifact
+}
+
+func (resolver *Resolver) Resolve(reference models.EvidenceReference) (*models.EvidenceArtifact, error) {
+	if resolver == nil {
+		return nil, errors.New("evidence: manifest is required")
+	}
+	if err := validateReference(resolver.origin, resolver.version, reference); err != nil {
+		return nil, err
+	}
+	artifact, ok := resolver.artifacts[reference.ArtifactID]
+	if !ok {
+		return nil, errors.New("evidence: referenced artifact is absent")
+	}
+	artifact = cloneArtifact(artifact)
+	return &artifact, nil
+}
+
+func validateReference(origin models.EvidenceOrigin, version string, reference models.EvidenceReference) error {
+	if !CompleteOrigin(origin) {
+		return errors.New("evidence: execution attribution is incomplete")
+	}
+	if reference.Origin != origin {
+		return errors.New("evidence: reference belongs to a different eval/task/run/attempt")
+	}
+	if reference.Pointer != "" && !validPointer(reference.Pointer) {
+		return errors.New("evidence: invalid artifact-relative pointer")
+	}
+	if version == ReferenceInputVersion && reference.Pointer != "/output" {
+		return errors.New("evidence: authored input references require the relative /output pointer")
+	}
+	return nil
+}
+
 // VerifyContent requires actual content, not a source hash. Required evidence
 // consumers must request complete, unredacted artifacts independently.
 func VerifyContent(manifest *models.EvidenceManifest, reference models.EvidenceReference, data []byte, requireComplete, requireUnredacted bool) error {
@@ -221,6 +360,18 @@ func VerifyContent(manifest *models.EvidenceManifest, reference models.EvidenceR
 	if err != nil {
 		return err
 	}
+	return verifyArtifactContent(artifact, reference, data, requireComplete, requireUnredacted)
+}
+
+func (resolver *Resolver) VerifyContent(reference models.EvidenceReference, data []byte, requireComplete, requireUnredacted bool) error {
+	artifact, err := resolver.Resolve(reference)
+	if err != nil {
+		return err
+	}
+	return verifyArtifactContent(artifact, reference, data, requireComplete, requireUnredacted)
+}
+
+func verifyArtifactContent(artifact *models.EvidenceArtifact, reference models.EvidenceReference, data []byte, requireComplete, requireUnredacted bool) error {
 	if artifact.Availability != "captured" || artifact.ContentDigest == nil {
 		return errors.New("evidence: required content was not preserved")
 	}
@@ -236,7 +387,7 @@ func VerifyContent(manifest *models.EvidenceManifest, reference models.EvidenceR
 		if err != nil {
 			return err
 		}
-		digest, err := JSONDigest(value)
+		digest, err := parsedJSONDigest(value)
 		if err != nil {
 			return err
 		}

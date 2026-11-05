@@ -77,6 +77,42 @@ func artifactCaptureInput() CaptureInput {
 	}
 }
 
+func TestArtifactCaptureSourceJSONDetectsDeepMutation(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		change func(*CaptureInput)
+	}{
+		{"message", func(in *CaptureInput) { in.Request.Message = "changed" }},
+		{"context", func(in *CaptureInput) { in.Request.Context["value"] = "changed" }},
+		{"instructions", func(in *CaptureInput) { in.Request.Instructions[0].Content[0] = 'x' }},
+		{"no-skills", func(in *CaptureInput) { in.Request.NoSkills = true }},
+		{"tool-policy", func(in *CaptureInput) { in.Request.ToolPolicy.Mode = execution.ToolPolicyDenyAll }},
+		{"task", func(in *CaptureInput) { in.Task.Stimulus.FollowUps[0] = "changed" }},
+		{"tool-args", func(in *CaptureInput) { in.Run.ToolEvents[0].Args = map[string]any{"value": "changed"} }},
+		{"command-args", func(in *CaptureInput) { in.Run.CommandInvocations[0].Args[0] = "changed" }},
+		{"validation-details", func(in *CaptureInput) { in.Run.Validations["check"].Details["value"] = "changed" }},
+		{"checkpoint-details", func(in *CaptureInput) { in.Run.Checkpoints[0].Validations["check"].Details["value"] = "changed" }},
+		{"engine", func(in *CaptureInput) { in.Engine.JudgeModel = "changed" }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			in := artifactCaptureInput()
+			in.Request.Instructions = []execution.InstructionFile{{Path: "AGENTS.md", Content: []byte("plain")}}
+			in.Request.ToolPolicy = execution.NewToolPolicy(nil)
+			in.Task.Stimulus.FollowUps = []string{"plain"}
+			before := artifactCaptureSourceJSON(t, in)
+			tt.change(&in)
+			require.NotEqual(t, before, artifactCaptureSourceJSON(t, in))
+		})
+	}
+	t.Run("nil-request", func(t *testing.T) {
+		in := artifactCaptureInput()
+		in.Request = nil
+		var document map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(artifactCaptureSourceJSON(t, in), &document))
+		require.Equal(t, "null", string(document["Request"]))
+	})
+}
+
 func TestCapturedArtifactLocatorsMatchSerializedSnapshot(t *testing.T) {
 	collections := []string{"tool-events", "command-invocations", "validations", "checkpoints"}
 	for _, tt := range []struct {
@@ -321,9 +357,9 @@ func artifactCaptureSourceJSON(t *testing.T, in CaptureInput) []byte {
 		value := reflect.ValueOf(*in.Request)
 		request = make(map[string]any, value.NumField()-1)
 		for i := range value.NumField() {
-			name := value.Type().Field(i).Name
-			if name != "PermissionHandler" {
-				request[name] = value.Field(i).Interface()
+			field := value.Type().Field(i)
+			if field.Name != "PermissionHandler" && field.Tag.Get("json") != "-" {
+				request[field.Name] = value.Field(i).Interface()
 			}
 		}
 	}

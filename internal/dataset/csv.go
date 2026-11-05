@@ -2,8 +2,12 @@ package dataset
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+
+	"github.com/microsoft/waza/internal/rootedfile"
 )
 
 // Row represents a single CSV row with column name to value mapping.
@@ -11,14 +15,34 @@ type Row map[string]string
 
 // LoadCSV reads a CSV file and returns rows as maps of column to value.
 // The first row is treated as headers (column names).
-func LoadCSV(path string) ([]Row, error) {
+func LoadCSV(path string) (rows []Row, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("csv: open %s: %w", path, err)
 	}
-	defer f.Close() //nolint:errcheck
+	defer func() { err = errors.Join(err, f.Close()) }()
 
-	reader := csv.NewReader(f)
+	return readCSV(f, path)
+}
+
+func readCSVAt(root *os.Root, path string) (rows []Row, err error) {
+	f, err := rootedfile.Open(root, path)
+	if err != nil {
+		return nil, fmt.Errorf("csv: open confined %s: %w", path, err)
+	}
+	defer func() { err = errors.Join(err, f.Close()) }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("csv: inspecting %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("csv: %s must be a regular file", path)
+	}
+	return readCSV(f, path)
+}
+
+func readCSV(input io.Reader, path string) ([]Row, error) {
+	reader := csv.NewReader(input)
 	records, err := reader.ReadAll()
 	if err != nil {
 		return nil, fmt.Errorf("csv: parse %s: %w", path, err)
@@ -60,15 +84,9 @@ func LoadCSVRange(path string, start, end int) ([]Row, error) {
 		return nil, err
 	}
 
-	// Clamp end to available rows
-	if end > len(allRows) {
-		end = len(allRows)
-	}
+	return selectCSVRange(allRows, start, end), nil
+}
 
-	// If start is beyond available rows, return empty
-	if start > len(allRows) {
-		return []Row{}, nil
-	}
-
-	return allRows[start-1 : end], nil
+func selectCSVRange(rows []Row, start, end int) []Row {
+	return rows[min(start-1, len(rows)):min(end, len(rows))]
 }

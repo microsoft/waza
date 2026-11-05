@@ -68,6 +68,41 @@ func TestTranscriptEventUnmarshalMinimal(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestTranscriptEventRoundTripPreservesToolShellOutput(t *testing.T) {
+	original := TranscriptEvent{
+		SessionEvent: copilot.SessionEvent{
+			Data: &copilot.ToolShellOutputData{
+				Text:       "partial output",
+				ToolCallID: "call-123",
+			},
+		},
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var restored TranscriptEvent
+	require.NoError(t, json.Unmarshal(data, &restored))
+	require.Equal(t, original.Type(), restored.Type())
+
+	output, ok := restored.Data.(*copilot.ToolShellOutputData)
+	require.True(t, ok)
+	require.Equal(t, "partial output", output.Text)
+	require.Equal(t, "call-123", output.ToolCallID)
+}
+
+func TestTranscriptEventRoundTripPreservesLegacyToolPartialResult(t *testing.T) {
+	input := []byte(`{"type":"tool.execution_partial_result","message":"legacy output","tool_call_id":"call-123"}`)
+
+	var restored TranscriptEvent
+	require.NoError(t, json.Unmarshal(input, &restored))
+	require.Equal(t, copilot.SessionEventType("tool.execution_partial_result"), restored.Type())
+
+	data, err := json.Marshal(restored)
+	require.NoError(t, err)
+	require.JSONEq(t, string(input), string(data))
+}
+
 // TestTranscriptEventRoundTripPreservesUncoveredType guards against losing the
 // event type for kinds without a dedicated transcriptData mapping (for example
 // session.idle, session.shutdown, assistant.usage). These fall to the

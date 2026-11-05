@@ -6,6 +6,10 @@ description: Inspect local prerequisites and descriptive requirement references 
 `waza preflight` builds an agent-free inventory of an eval's local prerequisites.
 It does **not** replace `waza check` skill readiness or execute the evaluation.
 
+**Available in v0.39.0:** install the published standalone release or run
+`waza update` before these commands. See [availability](../../reference/releases/) and the
+[credential-free Quick Start](../../quick-start/).
+
 ```bash
 waza preflight eval.yaml
 waza preflight eval.yaml --context-dir ./fixtures --format json > preflight.json
@@ -120,6 +124,11 @@ its turn. These limitations apply even when references resolve.
 
 ## Local resolution
 
+Static grader validation leaves caller-owned tool-argument declarations
+unchanged and disables external JSON Schema loading. Program declarations are
+checked for their required command without loading project timeout defaults or
+launching a process; runtime constructors still resolve their existing defaults.
+
 Task globs and `tasks_from` CSV paths resolve from the eval directory. Nonempty
 `tasks_from` retains runtime precedence over YAML task lists; CSV range, ID
 fallback, variables and template rules are shared with execution. CSV rows do
@@ -138,7 +147,9 @@ Regrading and run analysis use the same CSV loader: results from that range can
 be regraded with `waza grade eval.yaml --results results.json --task row-2`, or
 by omitting `--task` to grade all selected tasks. Explicit CSV IDs/names and
 template variables retain their precedence. Contained links remain allowed;
-resolved escapes are rejected, without a retained-root or race-free guarantee.
+resolved escapes are rejected. The final CSV read uses a retained eval-directory
+root so late symlink replacement cannot escape it; concurrent file contents are
+not frozen.
 An aliased eval base allows relative contained sources and absolute paths within
 the lexical alias root. An alternate physical absolute spelling outside that
 lexical root is rejected even when it resolves inside; physical equivalence alone
@@ -184,9 +195,29 @@ SKILL.md/agent/cwd/directory discovery precedence and report requested
 allowlist/deny-all as unresolved, never proof of enforcement or observed behavior.
 
 Command-mock fixtures resolve from the eval directory. Task `command_mocks`
-replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
-server declarations. MCP fixture responses and matchers are parsed without
-starting a mock. External schema references are not fetched.
+replaces eval mocks, including explicit `[]`. Task `mcp_mocks` replace only the
+same-named eval MCP mocks and are listed as dependencies of their task. A task
+mock that fails to decode, such as an invalid matcher, is reported as
+`task.configuration` with its task file; fixture and admission failures are
+reported as `mock.mcp` with the task file and task id. When a task cannot be
+decoded offline, for example because a matcher references an external schema,
+its MCP mocks are still checked for executor, schema version, names and fixtures.
+Same-name MCP mocks shadow live server declarations in the phase that uses those
+mocks. A live server that every inspected task mocks is not inspected only when
+no eval-level trigger phase needs it. Likewise, an eval MCP mock that every task
+replaces is reported as `mock.mcp_replaced`, omitted from dependencies, and its
+fixtures left unread only when no trigger phase needs it; its inline tool
+declarations are still validated.
+
+Trigger tests use eval-level MCP mocks and live servers, not task replacements.
+Their dependencies are retained even when every task supplies its own mock.
+Retention does not unshadow a live server covered by an eval-level mock.
+The mock executor synthesizes successfully parsed trigger tests without MCP.
+If trigger discovery or parsing fails, preflight conservatively retains eval-level
+dependencies and reports independent diagnostics instead of assuming they are
+unused. `waza run` applies the same dependency rule to the tasks selected to run.
+MCP fixture responses and matchers are parsed
+without starting a mock. External schema references are not fetched.
 
 The `native_sandbox` capability reports whether the selected executor can apply
 Copilot's native OS sandbox. An enabled `config.sandbox` block adds an
@@ -212,9 +243,13 @@ pinned cached presets, and merged overrides. External schema prerequisites
 stop that materialization with an unresolved diagnostic and `complete: false`;
 ordinary matcher literals and MCP returned payloads are not treated as schemas.
 Invalid static grader fields still fail by default when the same pinned preset
-or merged override also has an unavailable schema. Fixture-backed MCP responses
-likewise retain both invalid regex configuration and unresolved schema
-prerequisites, across responses and declaration order. These mixed cases report
+or merged override also has an unavailable schema. Inline and fixture-backed MCP
+responses retain both invalid regex configuration and unresolved schema
+prerequisites, across responses and declaration order. Finite mock source errors
+also do not suppress independent eval, task, or checkpoint grader diagnostics.
+Task sequence eligibility is checked against the enclosing eval version before
+offline decoding; an unavailable grader schema cannot hide an unsupported sequence.
+These mixed cases report
 `invalid` plus an `unresolved` diagnostic and keep `complete: false`; a regex or
 static-field failure never makes an external schema prerequisite verified.
 Later grader schema-file and MCP input-schema compilation also sets

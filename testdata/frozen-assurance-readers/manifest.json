@@ -1,0 +1,53 @@
+{
+  "repository": "https://github.com/microsoft/waza",
+  "readers": {
+    "d82cba11265919996660e02d348bb92a3ff1fd4d": {
+      "web/src/types/assurance.ts": {
+        "sha256": "70c1f02b179f9b77863aceda9d4f822c079239df5689d4f8ac80de544eec5f2b",
+        "git_blob": "d2ed723dd31ceee56d73cc55183411369caa8b91"
+      },
+      "web/src/lib/strictJson.ts": {
+        "sha256": "8003a2d26a0b914ab24b8d5150fb233e341165631b9ba7e3819c138cf8c3719a",
+        "git_blob": "ea5460bbe3d4fc71d10855288657d5b3abdfb529"
+      },
+      "schemas/grader-assurance-1.0.schema.json": {
+        "sha256": "6da27acc2c920a992b7e8c92dd88ff328aaebd0cf470afc55d5ec3361d78bda3",
+        "git_blob": "0d9eb9c98860324401223ffa387849323d0e2c1f"
+      },
+      "schemas/grader-reference-1.0.schema.json": {
+        "sha256": "456b93323d956ed3c0551135c3c59d6556180bb42b3fd803a57021316496b663",
+        "git_blob": "5a8bc6f7b7699824e06e05d0364768cb1b1d977a"
+      },
+      "schemas/evidence-manifest-1.0.schema.json": {
+        "sha256": "bf4e4822b59e65e5caca2eefcb9cdef066fc710a560bd3b4798d4e21ad233e5a",
+        "git_blob": "2f87f86a599d02f6741d5063801b3c86848b0b54"
+      }
+    },
+    "91146d4f53c986365e56cdbf503a10331c54d98a": {
+      "web/src/types/assurance.ts": {
+        "sha256": "5b088adffc4e1802231e423a4a6c163b8fc1dedb074a76da6e440a24bacb7c61",
+        "git_blob": "53d2f81b1232598c955174936382f126b5635dab"
+      },
+      "web/src/lib/strictJson.ts": {
+        "sha256": "8003a2d26a0b914ab24b8d5150fb233e341165631b9ba7e3819c138cf8c3719a",
+        "git_blob": "ea5460bbe3d4fc71d10855288657d5b3abdfb529"
+      },
+      "schemas/grader-assurance-1.0.schema.json": {
+        "sha256": "6da27acc2c920a992b7e8c92dd88ff328aaebd0cf470afc55d5ec3361d78bda3",
+        "git_blob": "0d9eb9c98860324401223ffa387849323d0e2c1f"
+      },
+      "schemas/grader-reference-1.0.schema.json": {
+        "sha256": "456b93323d956ed3c0551135c3c59d6556180bb42b3fd803a57021316496b663",
+        "git_blob": "5a8bc6f7b7699824e06e05d0364768cb1b1d977a"
+      },
+      "schemas/evidence-manifest-1.0.schema.json": {
+        "sha256": "bf4e4822b59e65e5caca2eefcb9cdef066fc710a560bd3b4798d4e21ad233e5a",
+        "git_blob": "2f87f86a599d02f6741d5063801b3c86848b0b54"
+      },
+      "schemas/grader-assurance-1.1.schema.json": {
+        "sha256": "e0de56187ec2a3994532d926535d3328c9fd9fc2e50368302ca4a80cc06d6ada",
+        "git_blob": "312c63f35c6d97a259dbec9f9e1d89460095a77a"
+      }
+    }
+  }
+}

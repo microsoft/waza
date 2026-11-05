@@ -8,21 +8,34 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
+// RunError identifies the failed grader while preserving its error text and cause.
+type RunError struct {
+	Kind models.GraderKind
+	err  error
+}
+
+func (e *RunError) Error() string { return e.err.Error() }
+func (e *RunError) Unwrap() error { return e.err }
+
 // RunAll runs spec-level graders and task-level validators, returning the
 // combined results. Judge settings provide defaults for prompt graders.
 func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel, judgeReasoningEffort string, updateSnapshots bool) (map[string]models.GraderResults, error) {
+	return runAll(ctx, specGraders, tc, gCtx, judgeModel, judgeReasoningEffort, updateSnapshots, Create)
+}
+
+func runAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel, judgeReasoningEffort string, updateSnapshots bool, create func(string, models.GraderParameters) (Grader, error)) (map[string]models.GraderResults, error) {
 	results := make(map[string]models.GraderResults)
 
 	for _, vCfg := range specGraders {
 		params := applyDefaults(vCfg.Parameters, judgeModel, judgeReasoningEffort, updateSnapshots)
-		grader, err := Create(vCfg.Identifier, params)
+		grader, err := create(vCfg.Identifier, params)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
+			return nil, &RunError{Kind: vCfg.Kind, err: fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)}
 		}
 
 		result, err := grader.Grade(ctx, gCtx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)
+			return nil, &RunError{Kind: grader.Kind(), err: fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)}
 		}
 
 		result.Weight = vCfg.EffectiveWeight()
@@ -31,18 +44,18 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 
 	for _, vCfg := range tc.Validators {
 		if vCfg.Kind == "" {
-			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
+			return nil, &RunError{Kind: vCfg.Kind, err: fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)}
 		}
 
 		params := applyDefaults(vCfg.Parameters, judgeModel, judgeReasoningEffort, updateSnapshots)
-		grader, err := Create(vCfg.Identifier, params)
+		grader, err := create(vCfg.Identifier, params)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
+			return nil, &RunError{Kind: vCfg.Kind, err: fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)}
 		}
 
 		result, err := grader.Grade(ctx, gCtx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)
+			return nil, &RunError{Kind: grader.Kind(), err: fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)}
 		}
 
 		result.Weight = vCfg.EffectiveWeight()

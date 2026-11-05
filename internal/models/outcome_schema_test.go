@@ -148,10 +148,10 @@ func TestEvaluationOutcome_CommandInvocationsRoundTrip(t *testing.T) {
 		TestOutcomes: []TestOutcome{{
 			TestID: "cli-task",
 			Runs: []RunResult{{
-				CommandInvocations: []CommandInvocation{{
-					Command: "az", Args: []string{"account", "show"},
-					ExitCode: 0, ResponseIndex: 1,
-				}},
+				CommandInvocations: []CommandInvocation{
+					{Command: "az", Args: []string{"account", "show"}, ExitCode: new(0), ResponseIndex: 1},
+					{Command: "az", Args: []string{"account", "show"}, ResponseIndex: 1},
+				},
 			}},
 		}},
 	}
@@ -167,8 +167,12 @@ func TestEvaluationOutcome_CommandInvocationsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := restored.TestOutcomes[0].Runs[0].CommandInvocations
-	if len(got) != 1 || got[0].Command != "az" || got[0].ResponseIndex != 1 {
+	if len(got) != 2 || got[0].Command != "az" || got[0].ResponseIndex != 1 ||
+		got[0].ExitCode == nil || *got[0].ExitCode != 0 || got[1].ExitCode != nil {
 		t.Fatalf("command invocations lost fidelity: %+v", got)
+	}
+	if !strings.Contains(string(data), `"exit_code":0`) || strings.Count(string(data), `"exit_code"`) != 1 {
+		t.Fatalf("unknown exit result must be omitted without losing explicit zero: %s", data)
 	}
 }
 

@@ -1,0 +1,19 @@
+schemaVersion: "2.0"
+name: authored-output-challenges
+scenario: Finite synthetic output, not historical execution.
+config:
+  executor: mock
+  model: harness
+  trials_per_task: 1
+  timeout_seconds: 10
+graders:
+  - name: state
+    type: text
+    config:
+      regex_match: ['(?m)^state:\s*ready$']
+      regex_not_match: ['forbidden:\s*yes']
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 1
+tasks: [task.yaml]

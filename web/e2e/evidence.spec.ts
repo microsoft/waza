@@ -1,0 +1,305 @@
+import { test, expect, type Page } from "@playwright/test";
+import type { EvidenceRun } from "../src/api/client";
+import { mockAllAPIs } from "./helpers/api-mock";
+import { evidenceDetail, evidenceRun } from "./fixtures/evidence-data";
+
+async function openEvidence(page: Page, runs?: EvidenceRun[]) {
+  await mockAllAPIs(page);
+  if (runs) {
+    await page.route(/\/api\/runs\/run-001$/, (route) => route.fulfill({ json: evidenceDetail(runs) }));
+  }
+  await page.goto("/#/runs/run-001");
+  await page.getByRole("button", { name: "Evidence", exact: true }).click();
+  return page.getByTestId("evidence-view");
+}
+
+test("legacy results without evidence stay unassessed", async ({ page }) => {
+  const view = await openEvidence(page);
+  await expect(view.getByText(/Evidence unassessed:/)).toHaveCount(4);
+  await expect(view).not.toContainText("Manifest 1.0");
+  await expect(view).toContainText("not verified enforcement");
+});
+
+for (const pointer of ["/missing-value-DO-NOT-DISPLAY", "/0"]) {
+  test(`metadata-only requirement reference does not claim verified value ${pointer}`, async ({ page }) => {
+    const run = evidenceRun();
+    const reference = run.explanations![0].checks![0].references![0];
+    reference.pointer = pointer;
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText(`Evidence: ${reference.artifact_id} · artifact metadata only; value pointer unverified`);
+    await expect(view).not.toContainText(`${reference.artifact_id}${pointer}`);
+    await expect(view).not.toContainText("DO-NOT-DISPLAY");
+    await expect(view).not.toContainText("Evidence metadata withheld");
+  });
+}
+
+test("every trial retains partial mock evidence and cached source origin", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => requests.push(new URL(request.url()).pathname));
+  const view = await openEvidence(page, [evidenceRun(), evidenceRun(2), {
+    runNumber: 3, attempts: 1, cached: false, assessment: "unassessed",
+    message: "Historical absence is not success.",
+  }]);
+  await expect(view).toContainText("Run 1 · 2 attempts · recorded");
+  await expect(view).toContainText("Run 2 · 2 attempts · recorded");
+  await expect(view).toContainText("Run 3 · 1 attempt · unassessed");
+  await expect(view.getByText(/cached source evidence/)).toHaveCount(2);
+  await expect(view).toContainText("eval source-evaluation · task report-task · run 2 · attempt 2 · prior attempts not_preserved");
+  await expect(view).toContainText("Actual execution mode: mock");
+  await expect(view).toContainText("SDK: unavailable · Effective model: unavailable");
+  await expect(view).toContainText("Requested no-skills: true");
+  await expect(view).toContainText("Native skill control: mock_not_applicable");
+  await expect(view).toContainText("not proof of SDK enforcement");
+  await expect(view.getByRole("row", { name: /workspace-file\/report.txt/ }).first()).toContainText("complete");
+  await expect(view.getByRole("row", { name: /^workspace unavailable/ }).first()).toContainText("partial");
+  await expect(view).toContainText("Content SHA-256 (utf8)");
+  await expect(view).toContainText("Source SHA-256 (json-v1)");
+  await expect(view).toContainText("snapshot/toolEvents");
+  await expect(view).toContainText("no source bytes");
+  await expect(view).toContainText("normalization; this flag is not a secret-match count");
+  await expect(view).toContainText("1 rule match.");
+  await expect(view).not.toContainText("1 rule matches");
+  await expect(view.getByRole("link")).toHaveCount(0);
+  await expect(view.getByRole("button")).toHaveCount(0);
+  expect(requests.filter((path) => /snapshot|report\.txt|upload|grade|replay/.test(path))).toEqual([]);
+});
+
+for (const [evalID, taskID] of [
+  ["", "report-task"], ["source-evaluation", ""], ["", ""],
+] as const) {
+  test(`capture failure with unavailable origin ${JSON.stringify([evalID, taskID])} retains explicit identity labels`, async ({ page }) => {
+    const run = evidenceRun();
+    run.cached = false;
+    delete run.explanations;
+    run.manifest!.origin.eval_id = evalID;
+    run.manifest!.origin.task_id = taskID;
+    run.manifest!.artifacts = [];
+    run.manifest!.diagnostics = [{
+      category: "capture", code: "origin_unavailable",
+      message: "Source identity could not be safely preserved.",
+    }];
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText(`Source origin: eval ${evalID || "unavailable"} · task ${taskID || "unavailable"} · run 1 · attempt 2`);
+    await expect(view).toContainText("capture / origin_unavailable");
+    await expect(view).not.toContainText("Evidence metadata withheld");
+    await expect(view).not.toContainText("Source origin: eval  ·");
+    await expect(view).not.toContainText("· task  ·");
+  });
+}
+
+for (const fields of [
+  ["run_number"], ["attempt_count"], ["run_number", "attempt_count"],
+] as const) {
+  test(`unavailable zero lineage ${fields.join(",")} retains recorded metadata without inventing attribution`, async ({ page }) => {
+    const run = evidenceRun();
+    delete run.explanations;
+    for (const field of fields) run.manifest!.origin[field] = 0;
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText("Run 1 · 2 attempts · recorded");
+    await expect(view).toContainText(`Source origin: eval source-evaluation · task report-task · run ${run.manifest!.origin.run_number || "unavailable"} · attempt ${run.manifest!.origin.attempt_count || "unavailable"}`);
+    await expect(view).toContainText("Manifest 1.0");
+    await expect(view).not.toContainText("Evidence metadata withheld");
+    await expect(view).not.toContainText("Evidence:");
+  });
+}
+
+for (const field of ["run_number", "attempt_count"] as const) {
+  test(`nonzero ${field} mismatch remains withheld`, async ({ page }) => {
+    const run = evidenceRun();
+    delete run.explanations;
+    run.manifest!.origin[field] += 1;
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText("Evidence metadata withheld");
+    await expect(view).not.toContainText("Manifest 1.0");
+  });
+}
+
+for (const matchCount of [0, 2] as const) {
+  test(`${matchCount} redaction matches retain the plural label`, async ({ page }) => {
+    const run = evidenceRun();
+    run.manifest!.redaction.match_count = matchCount;
+    if (matchCount === 0) run.manifest!.redaction.applied_rules = [];
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText(`${matchCount} rule matches.`);
+    await expect(view).not.toContainText("Evidence metadata withheld");
+  });
+}
+
+test("scoped checks and operational uncertainty do not invent a cause", async ({ page }) => {
+  const view = await openEvidence(page, [evidenceRun()]);
+  await expect(view).toContainText("task / report-check: grader_recorded_failure · operational_status_unavailable");
+  await expect(view).toContainText("checkpoint / report-check / turn 2: unresolved · insufficient_evidence");
+  await expect(view).toContainText("unknown / run_error");
+  await expect(view).toContainText("no agent cause is inferred");
+  await expect(view).toContainText("Evidence: tool-events · artifact metadata only; value pointer unverified · eval source-evaluation");
+  await expect(view).not.toContainText("Evidence: tool-events/toolEvents/0");
+});
+
+for (const assessment of ["recorded", "unassessed"] as const) {
+  for (const checks of ["omitted", "null", "empty", "populated"] as const) {
+    test(`${assessment} explanations with ${checks} checks retain explicit uncertainty and valid siblings`, async ({ page }) => {
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      const run = evidenceRun();
+      const requirement = run.explanations![0];
+      if (checks === "omitted") delete requirement.checks;
+      if (checks === "null") requirement.checks = null;
+      if (checks === "empty") requirement.checks = [];
+      run.explanations!.push({
+        ...evidenceRun().explanations![0],
+        requirement_id: "populated-control",
+      });
+      if (assessment === "unassessed") {
+        delete run.manifest;
+        run.assessment = "unassessed";
+        run.cached = false;
+        run.message = "No evidence manifest recorded; historical absence is not success.";
+        for (const explanation of run.explanations!) {
+          for (const check of explanation.checks ?? []) {
+            delete check.references;
+          }
+        }
+      }
+
+      const view = await openEvidence(page, [run]);
+      const target = view.getByRole("heading", { name: "Requirement required-report", exact: true }).locator("..");
+      const control = view.getByRole("heading", { name: "Requirement populated-control", exact: true }).locator("..");
+      const unavailable = "Check observations unavailable; requirement satisfaction is unassessed.";
+      if (checks === "populated") {
+        await expect(target).not.toContainText(unavailable);
+        await expect(target).toContainText("task / report-check: grader_recorded_failure · operational_status_unavailable");
+        await expect(target).toContainText("checkpoint / report-check / turn 2: unresolved · insufficient_evidence");
+      } else {
+        await expect(target).toContainText(unavailable);
+        await expect(target).not.toContainText("grader_recorded_pass");
+        await expect(target).not.toContainText("grader_recorded_failure");
+        await expect(target).not.toContainText("Evidence:");
+      }
+      await expect(control).toContainText("task / report-check: grader_recorded_failure · operational_status_unavailable");
+      if (assessment === "recorded") {
+        await expect(control).toContainText("Evidence: tool-events · artifact metadata only; value pointer unverified · eval source-evaluation");
+        await expect(control).not.toContainText("Evidence: tool-events/toolEvents/0");
+      } else {
+        await expect(view).not.toContainText("Evidence:");
+      }
+      await expect(control).not.toContainText(unavailable);
+      await expect(view).toContainText(`Run 1 · 2 attempts · ${assessment}`);
+      await expect(view).not.toContainText("Evidence metadata withheld");
+      await expect(view.getByRole("table")).toHaveCount(assessment === "recorded" ? 1 : 0);
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+test("unknown version values are unavailable rather than inferred", async ({ page }) => {
+  const run = evidenceRun();
+  run.manifest!.runtime.waza_version = "unknown";
+  run.manifest!.runtime.sdk_version = "unknown";
+  run.manifest!.runtime.effective_model_version = "unknown";
+  const view = await openEvidence(page, [run]);
+  await expect(view).toContainText("waza: unavailable · SDK: unavailable · Effective model: unavailable");
+});
+
+for (const limitations of [null, []] as const) {
+  test(`schema-valid ${limitations === null ? "null" : "empty"} redaction limitations remain displayable`, async ({ page }) => {
+    const run = evidenceRun();
+    run.manifest!.redaction.limitations = limitations === null ? null : [];
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText("Manifest 1.0");
+    await expect(view).toContainText("No limitations recorded; this is not proof of secret absence.");
+    await expect(view).not.toContainText("Evidence metadata withheld");
+    await expect(view.getByRole("table")).toHaveCount(1);
+  });
+}
+
+test("overall operational errors remain distinct from a passing check", async ({ page }) => {
+  const run = evidenceRun();
+  run.explanations![0].checks![0] = {
+    check: { scope: "eval", grader: "content" },
+    observation: "grader_recorded_pass",
+    category: "operational_error",
+    message: "The run recorded an operational error; a check result alone cannot establish requirement satisfaction.",
+  };
+  run.manifest!.diagnostics![0].category = "timeout";
+  const view = await openEvidence(page, [run]);
+  await expect(view).toContainText("grader_recorded_pass · operational_error");
+  await expect(view).toContainText("timeout / run_error");
+  await expect(view).not.toContainText("agent caused");
+});
+
+for (const [native, noSkills] of [
+  ["unknown", null], ["sdk_default", false], ["requested_sdk_disable", true],
+] as const) {
+  test(`requested native skill control ${native} is not enforcement`, async ({ page }) => {
+    const run = evidenceRun();
+    run.manifest!.runtime.native_skill_control = native;
+    run.manifest!.runtime.no_skills = noSkills;
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText(`Native skill control: ${native}`);
+    await expect(view).toContainText(`Requested no-skills: ${noSkills === null ? "unknown" : String(noSkills)}`);
+    await expect(view).toContainText("Verified enforcement: unknown");
+  });
+}
+
+for (const invalid of ["api-invalid", "unknown-version", "unknown-metadata", "wrong-origin", "missing-content", "malformed-runtime", "null-waza-version", "unknown-encoding", "duplicate-artifact", "absent-complete", "malformed-limitations"] as const) {
+  test(`${invalid} metadata is withheld without rendering payload or references`, async ({ page }) => {
+    const run = evidenceRun();
+    run.manifest!.origin.eval_id = "DO-NOT-DISPLAY-ORIGIN";
+    run.explanations![0].requirement_id = "DO-NOT-DISPLAY-REQUIREMENT";
+    if (invalid === "api-invalid") run.assessment = "invalid";
+    if (invalid === "unknown-version") run.manifest!.version = "2.0";
+    if (invalid === "unknown-metadata") Object.assign(run.manifest!.runtime, { unexpected: "DO-NOT-DISPLAY-METADATA" });
+    if (invalid === "wrong-origin") run.manifest!.origin.run_number = 10;
+    if (invalid === "missing-content") delete run.manifest!.artifacts[0].content_digest;
+    if (invalid === "malformed-runtime") Object.assign(run.manifest!, { runtime: null });
+    if (invalid === "null-waza-version") Object.assign(run.manifest!.runtime, { waza_version: null });
+    if (invalid === "unknown-encoding") run.manifest!.artifacts[0].content_digest!.encoding = "unrecognized";
+    if (invalid === "duplicate-artifact") run.manifest!.artifacts.push(run.manifest!.artifacts[0]);
+    if (invalid === "absent-complete") run.manifest!.artifacts[3].completeness = "complete";
+    if (invalid === "malformed-limitations") Object.assign(run.manifest!.redaction, { limitations: "not-an-array" });
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText("Evidence metadata withheld");
+    await expect(view).not.toContainText("DO-NOT-DISPLAY");
+    await expect(view.getByRole("table")).toHaveCount(0);
+  });
+}
+
+test("server-withheld metadata never appears as recorded success", async ({ page }) => {
+  const view = await openEvidence(page, [{
+    runNumber: 1, attempts: 1, cached: false, assessment: "invalid",
+    message: "Evidence identity or metadata is invalid; do not use it for state reconstruction.",
+  }]);
+  await expect(view).toContainText("1 attempt · invalid");
+  await expect(view).toContainText("do not use it for state reconstruction");
+  await expect(view).not.toContainText("Manifest");
+});
+
+for (const cached of [false, true]) {
+  for (const absent of ["missing", "null"] as const) {
+    test(`${cached ? "cached" : "ordinary"} recorded assessment with ${absent} manifest is withheld`, async ({ page }) => {
+      const run = evidenceRun();
+      run.cached = cached;
+      run.explanations![0].requirement_id = "DO-NOT-DISPLAY-REQUIREMENT";
+      if (absent === "missing") delete run.manifest;
+      else Object.assign(run, { manifest: null });
+      const view = await openEvidence(page, [run]);
+      await expect(view).toContainText("Evidence metadata withheld");
+      await expect(view).toContainText("2 attempts · invalid");
+      await expect(view).not.toContainText("· recorded");
+      await expect(view).not.toContainText("DO-NOT-DISPLAY");
+      await expect(view.getByRole("table")).toHaveCount(0);
+    });
+  }
+}
+
+test("regraded original capture digest and unavailable links stay explicit", async ({ page }) => {
+  const run = evidenceRun();
+  run.manifest!.source_manifest_sha256 = "e".repeat(64);
+  run.manifest!.artifacts.push({
+    id: "validations", kind: "grader_results", availability: "unavailable",
+    completeness: "unknown", reason: "Original observations do not apply to new declarations.",
+  });
+  const view = await openEvidence(page, [run]);
+  await expect(view).toContainText(`Original capture SHA-256: ${"e".repeat(64)}`);
+  await expect(view).toContainText("Original observations do not apply to new declarations.");
+});

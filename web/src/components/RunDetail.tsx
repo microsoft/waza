@@ -38,6 +38,7 @@ function formatCIRange(lower: number, upper: number): string {
 }
 import { exportRunDetailToCSV } from "../lib/export";
 import TrajectoryViewer from "./TrajectoryViewer";
+import EvidenceView from "./EvidenceView";
 
 /** Compute weighted score from grader results when not provided by backend. */
 function computeWeightedScore(task: TaskResult): number | null {
@@ -348,7 +349,7 @@ function DetailSkeleton() {
 
 export default function RunDetail({ id }: { id: string }) {
   const { data, isLoading, isError, error, refetch } = useRunDetail(id);
-  const [activeTab, setActiveTab] = useState<"tasks" | "prompts" | "trajectory">("tasks");
+  const [activeTab, setActiveTab] = useState<"tasks" | "prompts" | "trajectory" | "evidence">("tasks");
   const [trajectoryTask, setTrajectoryTask] = useState<TaskResult | null>(null);
 
   if (isLoading) return <DetailSkeleton />;
@@ -386,6 +387,13 @@ export default function RunDetail({ id }: { id: string }) {
         <ArrowLeft className="h-4 w-4" />
         Back to runs
       </a>
+
+      <div className="rounded border border-zinc-700 p-3 text-sm text-zinc-400" data-testid="assurance-not-assessed">
+        Grader assurance: not assessed for this historical run. Native passes, cached
+        results and a judge model do not establish reviewed reference agreement.
+        {" "}<a href="#/assurance" className="text-blue-400">Inspect a separate supplied assurance report</a>;
+        reports are not automatically associated with this run.
+      </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold text-zinc-100">{data.spec}</h1>
@@ -432,6 +440,12 @@ export default function RunDetail({ id }: { id: string }) {
       <ReliabilityCard statistics={data.statistics} passed={data.passCount} total={data.taskCount} />
 
       <div className="flex gap-1 border-b border-zinc-700">
+        <button
+          onClick={() => setActiveTab("evidence")}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "evidence" ? "border-b-2 border-blue-500 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
+        >
+          Evidence
+        </button>
         <button
           onClick={() => { setActiveTab("tasks"); setTrajectoryTask(null); }}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
@@ -502,6 +516,7 @@ export default function RunDetail({ id }: { id: string }) {
       )}
 
       {activeTab === "prompts" && <PromptsTab tasks={data.tasks} />}
+      {activeTab === "evidence" && <EvidenceView tasks={data.tasks} regradeUsage={data.regradeUsage} />}
 
       {activeTab === "trajectory" && (
         <div className="space-y-4">

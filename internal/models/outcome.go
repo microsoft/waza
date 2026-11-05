@@ -103,6 +103,7 @@ type EvaluationOutcome struct {
 	// EvaluationUsage is present for current evaluations, including cache-only
 	// runs. Its sessions, not cached task diagnostics, define billing scope.
 	EvaluationUsage *EvaluationUsage `json:"evaluation_usage,omitempty"`
+	RegradeUsage    *EvaluationUsage `json:"regrade_usage,omitempty"`
 }
 
 type EvaluationUsage struct {
@@ -219,6 +220,14 @@ type TestOutcome struct {
 	SkillImpact *SkillImpactMetric `json:"skill_impact,omitempty"`
 }
 
+// DependencyMode records the configured mode for a declared dependency.
+// It describes configuration, not proof that the dependency was invoked.
+type DependencyMode struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	Mode string `json:"mode"`
+}
+
 // GroupStats holds aggregate statistics for a group of test outcomes.
 type GroupStats struct {
 	Name     string  `json:"name"`
@@ -235,8 +244,10 @@ type SkillInvocation struct {
 
 // RunResult is the result of a single run/trial
 type RunResult struct {
-	RunNumber int `json:"run_number"`
-	Attempts  int `json:"attempts"`
+	JudgeEvidence *JudgeEvidence           `json:"judge_evidence,omitempty"`
+	PromptJudging []PromptJudgeObservation `json:"prompt_judging,omitempty"`
+	RunNumber     int                      `json:"run_number"`
+	Attempts      int                      `json:"attempts"`
 	// Prompt is the resolved initial task prompt for this run. It may be
 	// recorded before execution starts when request setup fails.
 	Prompt string `json:"prompt,omitempty"`
@@ -267,9 +278,15 @@ type RunResult struct {
 	// backward compatibility; new consumers should prefer ToolEvents.
 	ToolEvents []ToolEvent `json:"tool_events,omitempty"`
 
+	// HostLifecycle is ordered model-turn and host shell evidence projected
+	// from structured native session events. Nil means unavailable.
+	HostLifecycle *HostLifecycle `json:"host_lifecycle,omitempty"`
 	// CommandInvocations records sanitized calls handled by declarative
 	// command_mocks. Response output is intentionally excluded.
 	CommandInvocations []CommandInvocation `json:"command_invocations,omitempty"`
+	// DependencyModes records the configured mode for declared dependencies.
+	// It describes configuration, not proof that a dependency was invoked.
+	DependencyModes []DependencyMode `json:"dependency_modes,omitempty"`
 
 	// SnapshotPath is the on-disk path of the self-contained snapshot.json
 	// artifact for this run, as returned by snapshot.Writer.Write. It is

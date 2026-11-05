@@ -1,6 +1,6 @@
 ---
 title: Graders
-description: Complete reference for all 12 grader types — how they work, configuration options, and real-world examples.
+description: Complete reference for all 13 native grader kinds, configuration, and examples.
 ---
 
 {/* cspell:ignore astrojs fastapi */}
@@ -36,16 +36,199 @@ graders:
 
 Run `waza get eval.yaml` after adding a `ref`; it writes `waza.lock` with the commit SHA and content digest. `waza run` expands locked refs from the local module cache and fails if the lock or digest is missing.
 
+## Challenge the checks, not just the answer
+
+New authors can start with [the catalog](#at-a-glance) and
+[Text](#text), then return to these explicitly selected advanced profiles.
+Assurance/calibration profiles below are available in v0.39.0 with separate
+explicit selection, paid-call acknowledgment where applicable, and platform limits; see
+[release availability](../../reference/releases/).
+
+<details>
+<summary>Advanced assurance profiles and observational limits</summary>
+
+Before relying on a grader, compare its actual verdict against independently
+reviewed evidence. A correct outcome and a different valid tool path should
+pass. Plausible success prose with wrong resulting state, and a correct outcome
+with a forbidden side effect, should fail the relevant check. Keep the grader
+configuration fixed across all cases.
+
+The contributor baseline corpus demonstrates those checks on 12 synthetic
+scenarios across MCP, CLI and repository state, with four candidates each:
+
+```bash
+NO_COLOR=1 go test ./internal/graders -run '^TestBaselineChallenge' -count=1
+```
+
+It uses existing file and tool-call graders, runs offline without an agent or
+model, and does not change current commands, defaults or golden-task semantics.
+The [challenge inventory](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md)
+describes its state predicates and limitations.
+
+<Aside type="caution" title="Candidate coverage is not reviewed assurance">
+These labels are not independently human-reviewed. MCP/CLI state is synthetic,
+not proof of a live external operation, and recorded calls do not establish
+authoritative resulting state. Missing required evidence is insufficient
+evidence, not a successful bad-case rejection proving assurance. A passing
+finite corpus does not establish universal grader correctness or model-backed
+calibration.
+</Aside>
+
+### Strict preserved-file assurance
+
+`waza assure eval.yaml --references labels.json` compares actual native file
+grader outputs with fixed labels and emits a scoped `waza.grader-assurance`
+report. It is offline and never runs a task agent. A supplied current-review
+document needs separate explicit source acceptance; bundled labels remain
+unreviewed. Exact source/declaration bindings and an observed executable-path
+digest, complete unredacted
+files and good/alternative/critical-bad coverage are independent gates.
+
+Both `assure` and `assure calibrate` materialize locked grader presets from the
+local cache only, rechecking digest, trust and offline schema/override admission
+after preflight. Missing or changed pins/cache fail without fetching. Original
+eval bytes retain the reference; resolved-config and declaration digests bind
+the materialized configuration. Direct API references remain unsupported, even
+with a supplied native type. This neither authenticates presets nor authorizes
+paid calls.
+
+The executable digest hashes the on-disk file opened at `os.Executable()` at
+observation time, not the mapped running image, RAM or authenticity. Replacement
+can change the observed bytes or make acquisition fail. Missing applicable
+provenance remains unavailable, with no zero or startup-cache digest fallback.
+The existing portable algorithm and report domain are unchanged.
+
+Finite authored output separately supports native text and inline JSON-schema
+checks. Labels select exactly one historical snapshot or authored document;
+original authored envelope bytes are externally bound by SHA-256. Empty and
+whitespace strings are supplied input, while null is unavailable. This scope
+does not establish historical execution, tool completeness or billing.
+The exact envelope requires outer `schemaVersion: "2.0"` and
+`kind: "waza.grader-reference-input"` to prevent native historical import; the
+inner payload `1.0` and evidence `1.1` retain their independent meanings.
+
+Unpreserved paths cannot prove absence. Unknown snapshot output/event completeness
+is not upgraded by success text, hashes or stored grader verdicts. Missing
+evidence and operational errors never count as correct negative rejection.
+Any wrongly accepted targeted critical bad case fails independently of average
+agreement. These finite cases supply no universal confidence guarantee.
+
+The internal mechanical observation resolver has no eval-context fallback:
+snapshot-backed Diff observations need a caller-supplied evaluator-resolved
+`context_dir`. Omission returns `not_assessed` before consulting unrelated
+working-directory files. Ordinary eval Diff defaults, explicitly supplied
+relative bases and snapshot-free observations are unchanged.
+
+The existing offline `assure --calibrate` remains unavailable: it reports not assessed,
+makes zero paid calls and leaves usage/credits null. See the
+[CLI reference](../../reference/cli/#waza-assure) and
+[exact contract](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md#strict-file-content-assurance).
+
+The separate evaluator API `assurance.Calibrate` requires explicit selection,
+a bound local rubric, frozen native declarations and inputs, a construction-only
+factory and successful pre-initialization notice. It has no default factory.
+Freezing copies matcher declarations without compiling regular expressions or
+loading external schema references, including in unselected eval, task and
+checkpoint graders. Nested JSON numbers retain their exact values; compilation
+and resource policy remain the responsibility of the selected validation path.
+Preserved workspace verification reuses validated manifest metadata and one
+path policy within each call while still checking every required file's locator,
+raw and typed content digests, completeness and redaction state.
+Independent native callbacks, lifecycle diagnostics and independent received-event/
+accounting attribution remain distinct from native candidate verdicts; missing
+or operational evidence cannot establish strict pass. Report-1.1 claims require
+separate explicit [dashboard inspection](/waza/guides/dashboard/#grader-assurance).
+Neither schema admission nor a finite agreement authenticates human review,
+proves exhaustive server isolation or authorizes paid calls.
+
+The distinctly selected `waza assure calibrate` command supplies an owned factory
+only for that operation. Required references/review/current-source acceptance and
+rubric root remain independent of `--accept-paid-calls`, which defaults to false.
+Without acknowledgment its notice refuses execution with an empty ledger/null
+billing, on both interactive and noninteractive input. There is no prompt or
+generic `--yes` fallback. Its admitted job count is not a provider spending cap.
+The positive cooperative timeout defaults to 10m; partial reports remain available
+with execution errors. Explicit `--output` requires Unix atomic replacement;
+other platforms, including Windows, refuse it before preflight or paid calls.
+Omit the flag and capture stdout instead. See the [explicit calibration flags](/waza/reference/cli/#waza-assure-calibrate)
+for error exits, source/provider boundaries and output persistence.
+
+Private calibration and retained-source decoding use bounded, content-bound
+acquired copies through the same native parsers and formatter, without reopening
+audit-copy paths. Selected rubric metadata is `acquired:sha256:<digest>`;
+ordinary path/builtin APIs retain `file:`/`builtin:` metadata. Selected acquired
+task decoding additionally requires an explicit nonblank `id` and refuses
+`prompt_file` rather than reopening a pathname; ordinary task-loading APIs
+retain their existing behavior.
+
+The shared audit store retains worktree, `.cache` and private-directory
+`os.Root` handles for creation and cleanup rather than reopening absolute paths.
+Cache and private-child identities are compared before and after audit writes;
+replacement refuses further writes, and cleanup cannot delete
+replacement-namespace files. POSIX checks reject group/world-writable cache
+parents and private children with group/other mode bits; changed permissions
+that violate these checks fail closed. Unknown residual files are retained with
+an explicit cleanup failure. Judge/source decoding still consumes digest-bound
+acquired bytes, not audit paths.
+
+Consumption integrity does not certify cache confidentiality. Retained-root
+namespace custody and POSIX-mode checks do not establish whole-filesystem
+ancestry or Windows ACLs. Windows mode bits are not ACL certification, and
+cross-platform source support is not evidence of actual Windows execution.
+
+### Separately selected preserved-native assurance
+
+The offline evaluator API `assurance.VerifyPreserved` selects report `1.2` and
+`preserved_native_mechanical_assurance`; `assurance.ParsePreservedReport` is its
+separate strict reader. Default CLI assurance, offline `Verify`, calibrated
+`1.1` reading and dashboard inspection do not select this profile.
+
+It challenges the current selected grader against preserved artifacts. The
+native-declaration binding identifies that current declaration, not the grader
+or source version used in an earlier execution. Historical grader correspondence
+is not certified.
+
+It checks actual snapshot bytes, exact native origins/artifact locators and
+digests, complete unredacted selected evidence and consumed raw field presence
+before invoking existing tool-call, tool-constraint, action-sequence and
+required-file existence/content graders. Canonical event arguments and
+normalized digest arguments retain their native differences. Complete explicit
+empty tapes are specific to this operation; the nonempty-tape importer is
+unchanged. Missing/null arguments are not an empty object.
+
+Selected files cannot prove absence. Adapter limits are 16 MiB raw snapshot,
+4 MiB decoded bytes per file, 8 MiB selected-file total and 256 selected paths.
+Unsupported modes remain not assessed. Unknown historical collector completeness
+cannot be promoted by synthetic complete fixtures.
+
+Strict pass requires eligible supplied review, verified provenance, complete
+scoped coverage and actual mechanical agreement; targeted critical false
+acceptance independently fails. Calibration remains not selected with null
+billing and no ledger, even if requested. No engine factory or paid execution
+is involved. See the
+[preserved-native boundary](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md#separately-selected-preserved-native-observations).
+
+Internal engine-free qualification helpers additionally check bounded original
+source custody, immutable projections and capture-only equivalence. They are
+unexported preparation primitives, not a new CLI mode, public report format,
+deployed backend, production review/currentness authority or task execution path.
+Private local journal and injected freshness controls preserve original artifact
+bytes, sync ordering and nonpass uncertainty within an accepted local-host scope;
+they do not establish global reservation or authenticate current human review.
+See the [internal boundary](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md#private-engine-free-qualification-primitives).
+
 ---
+
+</details>
 
 ## At a glance
 
-waza ships with **several built-in grader types**. Pick the right one for the job:
+waza ships with **13 native grader kinds**. Pick the right one for the job:
 
 | Type                                                   | YAML key           | What it checks                                       |
 | ------------------------------------------------------ | ------------------ | ---------------------------------------------------- |
 | [Inline Script](#inline-script-code)                   | `code`             | Python/JS assertion expressions against output       |
-| [Text](#Text)                                          | `text`             | Text and regex matching against output               |
+| [Text](#text)                                          | `text`             | Text and regex matching against output               |
 | [File](#file)                                          | `file`             | File existence and content patterns in workspace     |
 | [Diff](#diff)                                          | `diff`             | Workspace files vs. expected snapshots or fragments  |
 | [JSON Schema](#json-schema-json_schema)                | `json_schema`      | Output validates against a JSON Schema               |
@@ -54,7 +237,7 @@ waza ships with **several built-in grader types**. Pick the right one for the jo
 | [Action Sequence](#action-sequence-action_sequence)    | `action_sequence`  | Tool call ordering and completeness                  |
 | [Skill Invocation](#skill-invocation-skill_invocation) | `skill_invocation` | Which skills were invoked and in what order          |
 | [Program](#program)                                    | `program`          | External command (any language) grades via exit code |
-| [Tool Constraint](#tool-constraint)                    | `tool_constraint`  | Validate tool usage constraints (expect/reject lists and argument patterns) |
+| [Tool Constraint](#tool-constraint-tool_constraint)                    | `tool_constraint`  | Validate tool usage constraints (expect/reject lists and argument patterns) |
 | [Tool Calls](#tool-calls-tool_calls)                   | `tool_calls`       | Validate required/forbidden tools and call count bounds                    |
 | [Trigger](#trigger)                                    | `trigger`          | Heuristic grader for validating whether a prompt should activate a skill   |
 
@@ -83,24 +266,68 @@ Evaluates Python or JavaScript assertion expressions against the execution conte
 | `outcome`     | `dict` | Structured outcome state             |
 | `transcript`  | `list` | Full execution transcript events     |
 | `tool_calls`  | `list` | Tool calls extracted from transcript |
+| `tool_events` | `list` | Canonical per-call evidence including arbitrary tool arguments, success, error, and result |
+| `command_invocations` | `list` | Sanitized mocked CLI attempts; omitted `exit_code` means no completed result was captured |
+| `host_lifecycle` | `dict` or `None` | Model turns and host shell calls/exits from native session events; `None` when unavailable |
 | `errors`      | `list` | Errors from transcript               |
 | `duration_ms` | `int`  | Execution wall-clock time            |
+
+The evidence arrays default to empty when unavailable; absence is not proof that
+a dependency succeeded. Use `tool_events` for MCP operation arguments rather than
+the legacy typed `tool_calls` view. `command_invocations` preserves completed
+exit zero distinctly from an interrupted attempt with no `exit_code`.
+
+#### Background shell lifecycle
+
+**Added in v0.40.0:** `host_lifecycle` and result schema 1.8 are not in
+published standalone `v0.39.1`.
+
+`host_lifecycle` is `None`/`null` when no native session events were recorded
+(mock engines, historical results, snapshot replay). Otherwise it has:
+
+- `model_turns`: `turn_id`, `start_index`, optional `end_index`, and
+  `parent_tool_call_id` for sub-agent turns.
+- `shells`: one entry per `shell_id` with `calls` (built-in `bash`/`powershell`
+  start, `read_*`, `write_*` and `stop_*` calls that name the shell, with
+  `role`, optional `mode`/`detach`/`turn_id`, `start_index`, and
+  `complete_index`/`success` once completed) and `exits` (`source` is
+  `system.notification`, `tool_result` or `tool_execution`; `exit_code` is
+  omitted when the host did not report one).
+
+Every index is a position in the run's recorded event stream, so indexes from
+different lists can be compared. A `system.notification` exit followed by a later
+`model_turns` entry establishes only that the host notification was recorded
+before that turn. It does not verify delivery into the model's context or model
+awareness of the exit; notification delivery by the embedded CLI is unverified.
+Values are never inferred from tool output text or command lines,
+and completions after recording ended (for example a detached shell finishing
+after the session went idle) are absent, so a missing exit is not proof that a
+process is still running. More than one `start` call for a `shell_id` means the
+ID was reused.
+MCP-attributed tool calls are excluded even when they share a built-in shell
+tool's name.
+
+```yaml
+- type: code
+  name: exit_notification_recorded_before_next_turn
+  config:
+    language: javascript
+    assertions:
+      - "host_lifecycle !== null"
+      - "host_lifecycle.shells.some(s => s.calls.some(c => c.role === 'start' && c.mode === 'async' && c.success === true) && s.exits.some(e => e.source === 'system.notification' && e.exit_code === 0 && host_lifecycle.model_turns.some(t => t.start_index > e.index)))"
+```
 
 **Built-in functions:** `len`, `any`, `all`, `str`, `int`, `float`, `bool`, `list`, `dict`, `re`
 
 **Scoring:** `passed_assertions / total_assertions`
 
-<Aside type="caution" title="No generator expressions">
-Python's `eval()` does not support generator expressions in a restricted scope.
+<Aside type="tip" title="Nested Python expressions">
+Python generator expressions and comprehensions can access the execution context
+and allowed helpers from nested scopes. Other built-in functions remain unavailable.
 
 ```yaml
-# ❌ Fails at runtime
 assertions:
   - "any(kw in output for kw in ['azure', 'deploy'])"
-
-# ✅ Use explicit boolean chains instead
-assertions:
-  - "'azure' in output.lower() or 'deploy' in output.lower()"
 ```
 
 </Aside>
@@ -344,11 +571,12 @@ This is the closest Waza match for OpenAI Evals `modelgraded` specs. See the eva
 | Option             | Type     | Default      | Description                                          |
 | ------------------ | -------- | ------------ | ---------------------------------------------------- |
 | `prompt`           | `string` | _(required¹)_ | Instructions for the judge LLM                       |
-| `rubric`           | `string` | _(optional)_ | Reusable rubric by name (e.g. `groundedness`) or path to a local `.md` file. See [Rubric library](/reference/rubrics/). |
-| `model`            | `string` | _(required)_ | Model to use for judging                             |
+| `rubric`           | `string` | _(optional)_ | Reusable rubric by name (e.g. `groundedness`) or path to a local `.md` file. See [Rubric library](../../reference/rubrics/). |
+| `model`            | `string` | eval `judge_model` | Optional per-grader judge model override. See evidence-model fallback below. |
 | `reasoning_effort` | `string` | eval `judge_reasoning_effort` | Judge effort: `low`, `medium`, `high`, `xhigh`, or `max`. Requires `executor: copilot-sdk`. |
 | `continue_session` | `bool`   | `false`      | Resume the agent's session (judge sees full context) |
 | `mode`             | `string` | `independent` | Judging mode: `independent` (standard) or `pairwise` (compare two, requires `--baseline`) |
+| `evidence_context` | `object` | omitted | Opt into bounded frozen evidence in a separately owned, fresh judge session; final eval/task graders only. |
 
 ¹ Either `prompt` or `rubric` is required. When only `rubric` is set, the rubric's body becomes the judge prompt. When both are set, the inline `prompt` wins (useful for ad-hoc overrides while keeping the rubric metadata attached for reporting).
 
@@ -377,6 +605,176 @@ select a concrete model from `waza models`. Waza validates hosted Copilot model 
 against the runtime catalog before execution rather than allowing a silent downgrade.
 For custom providers, effort is forwarded directly and provider errors are surfaced.
 
+### Evidence-backed independent judging
+
+**Available in v0.39.0 and opt-in:** install the published standalone release or
+run `waza update`; see [release availability](../../reference/releases/).
+Older CLIs do not implement the evidence-isolation profile.
+
+Set `evidence_context` to judge a recorded execution without resuming the actor
+or giving the judge its live workspace. Omit it to retain existing prompt-grader
+behavior. An empty object `{}` requests the recorded task, visible user/assistant
+messages, canonical tool arguments/results, and final actor output, with no files.
+Hidden reasoning and ambient instructions are not evidence sections.
+
+For evidence-backed judging, model precedence is the grader's `model`,
+`waza grade --judge-model` when regrading, eval `judge_model`, eval `model`,
+then `auto`. Only the configured model choice is inherited, never actor runtime
+state. An explicit hosted reasoning effort is checked against the isolated
+judge client's own model catalog before creating its session; `auto`,
+unsupported efforts and unverifiable model metadata are rejected.
+Custom providers retain direct effort passthrough.
+
+This is the grader from the runnable
+[evidence-judge example](https://github.com/microsoft/waza/tree/main/examples/evidence-judge):
+
+```yaml
+- type: prompt
+  name: grounded_report
+  config:
+    model: gpt-5-mini
+    prompt: |
+      Evaluate the recorded task using the supplied evidence.
+      Check the reported status, item count, and sum against report.json.
+      Prefer observed tool results over unsupported actor claims.
+      Call exactly one of set_waza_grade_pass or set_waza_grade_fail once.
+    evidence_context:
+      files: [report.json]
+      evaluator_only: [references]
+```
+
+Use `executor: copilot-sdk`. `files` contains exact slash-relative, agent-visible
+file paths: no globs, directories, traversal, absolute paths, or whole-workspace
+capture. `evaluator_only` excludes explicitly reviewed files/directories before
+selected-file reads. Do not select answer keys, labels, grader prompts, or private
+instructions. Existing sensitive-path and symlink protections still apply.
+Exclusions from all final eval and task graders apply to the capture union;
+saved regrading revalidates those exclusions and the union limits before any
+judge starts, without recapturing files. Conflicting declarations fail rather
+than weakening an exclusion. Each judge receives only
+its own selected files, not another grader's files or exclusions.
+
+| Scope / setting | Evidence context |
+| --- | --- |
+| Final eval grader / final task validator | Supported |
+| Saved-result `waza grade` | Supported with a valid persisted bundle |
+| Checkpoint grader / assurance calibration | Rejected |
+| `mode: pairwise` / `continue_session: true` | Rejected |
+| Controlled execution / `--evidence-snapshot` | Rejected |
+
+#### Required evidence and limits
+
+Every requested section and file is required. Explicit empty output, empty files,
+and an observed zero-tool execution are valid. An absent event source is not an
+observed empty tool list. Missing tool completions/results, unavailable sections,
+redacted required content, and unsupported capture fail before judge startup.
+There is no truncation, partial-grading fallback, or live-file recovery.
+Present null/scalar options, aliases/merges in evidence-enabled grader
+configuration, duplicate declarations, and malformed new wire fields are rejected.
+
+The fixed limits are **64 files** in the run's union, **64 KiB per file**, and
+**256 KiB for the entire compact JSON-encoded bundle**, including core evidence and metadata.
+Exclusions are also limited to 64 paths. Source values, structure traversal and
+sanitized/encoded bytes are bounded; JSON escaping and metadata consume the
+encoded budget. Formatting whitespace outside JSON strings does not consume
+this budget; whitespace within strings does. Pretty-printed saved results use
+the same limit as compact capture. Each filtered delivery must fit too. Rubric
+text has a separate 256 KiB cap. These bounds do not guarantee sufficient model
+context. Selected-file capture requires Linux/macOS; it also retains the existing
+[filesystem admission limits](/waza/guides/snapshot-replay/#filesystem-admission-and-observation-limits).
+
+Evidence freezes after the last actor turn and command-mock finalization, before
+any final grader can resume or mutate the actor. Result schema `1.7` stores
+`runs[].judge_evidence` (independent bundle version `1.0`) and typed
+`runs[].prompt_judging` observations. An independently requested snapshot `1.2`
+references that same frozen digest as `judgeEvidenceSHA256`; it does not recapture
+judging files or duplicate the bundle. Ordinary snapshots remain `1.1`.
+Tasks with an effective evidence grader bypass cache reads and writes.
+
+#### Runtime, credentials, and claim boundaries
+
+Each judgment, including a retry or regrade, creates a fresh session on a
+separately owned pinned SDK runtime/client. It uses private empty working/config/
+state roots, replacement judge instructions, and only the two grade tools.
+Actor sessions, resources, skills, instructions, hooks, MCP, command mocks,
+on-demand discovery and session retrieval are not inherited. Tool-source
+impersonation and permissions outside the grade tools fail closed. Exactly one
+valid grade callback is required; a later execution, policy, cancellation or
+cleanup error still makes the operation fail.
+
+Hosted authentication requires an explicit environment credential, in priority
+order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`. Stored CLI/gh login and
+keychain credentials are not copied. Keep credentials out of evals and results.
+Explicit BYOK uses `COPILOT_BASE_URL`, optional `COPILOT_PROVIDER`,
+`COPILOT_WIRE_API`, `COPILOT_API_KEY`, and `COPILOT_BEARER_TOKEN`; existing
+`COPILOT_PROVIDER_*` aliases remain accepted and canonical names win.
+Arbitrary actor environment, PATH, proxy and certificate variables are not
+inherited; endpoints requiring those ambient settings are not supported by this
+profile. `COPILOT_CLI_PATH`, when set, must identify the same installed native
+executable as the pinned embedded runtime, not a standalone CLI or copied binary.
+
+The isolation contract is about exposed capabilities, discovery, and supplied
+evidence, **not an OS sandbox**, protection from hostile same-user processes,
+absence of provider/authentication traffic, unbiased judging, or better accuracy.
+The pinned-runtime canary test uses synthetic credentials and loopback inference;
+native-platform execution evidence must be reported separately.
+
+Digests establish integrity of supplied bytes, not authenticity against a writer
+who can replace both bytes and hashes, nor truth of actor claims. Submission is
+observed from a real grade callback, not merely constructing a request.
+`inspection: not_observable` explicitly means Waza cannot tell whether the model
+read or understood every item. The dashboard's existing
+[Evidence view](/waza/guides/dashboard/#prompt-judging) shows metadata only.
+The saved result itself contains the bounded sanitized bundle: review it before
+sharing; redaction does not certify absence of secrets.
+
+#### Regrade without the original workspace
+
+From the repository root:
+
+```bash
+waza preflight examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures
+waza run examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures --output results.json
+waza grade examples/evidence-judge/eval.yaml --results results.json --task report --output regraded.json
+```
+
+Provide the explicit hosted/BYOK credentials above before model-backed commands.
+The evidence-only regrade never inspects `--workspace`, resumes a saved session,
+follows `snapshot_path`, or reruns the actor. It verifies original types, digest,
+eval/task/run/attempt binding, completeness and the current selection before
+model startup. It uses the recorded task even if task YAML changed. A changed
+rubric is allowed; newly requested files must already be captured. Historical,
+cached, invalid or incomplete bundles fail operationally. Do not mix evidence
+regrading with legacy prompt graders; mechanical graders retain their own inputs.
+Saving cached-source rejection diagnostics does not make that evidence eligible
+for a later regrade.
+
+Ordinary failed judgments retain `grade`'s existing zero exit with `passed: false`
+and `status: failed`; operational errors return nonzero, `status: error`, and no
+`overall_score` in the grading summary. Once evidence grading starts, `--output`
+retains safe per-run failure diagnostics before returning an error; output-write errors
+also propagate. Malformed results that cannot be decoded fail before regrading.
+Valid, run-bound legacy snapshot manifests remain provenance only: old
+validations, result, grader-configuration and checkpoint artifacts become
+unavailable for the new assessment. Invalid or mismatched unused manifests are
+omitted with a warning; the frozen judge bundle is validated independently.
+Original execution billing is unchanged. Each actual new judge session is counted
+once under `regrade_usage.sessions`, separate from historical `evaluation_usage`.
+In a mixed-task invocation, a later mechanical grader's operational failure
+still saves earlier judge observations and current charges to `--output`;
+the overall grading status is `error` and its score is withheld. If verbose
+diagnostic output fails after judging, the saved observations and charges are
+retained and the affected run is marked as an error. Mechanical
+errors remain fail-fast: an error before the first evidence attempt starts no
+judge, and a later mechanical error does not start further judges, including
+within a task that mixes mechanical and evidence graders in either order.
+Local evidence-admission and diagnostic-output errors also stop further judges;
+prompt-execution failures can still aggregate across independent tasks.
+This field describes only the current regrade; a later mechanical-only regrade
+omits it instead of repeating earlier judge usage.
+Missing usage/credits remain unavailable; explicit reported zero remains zero.
+This is model-backed regrading and can incur new charges, not offline replay.
+
 ### Using a reusable rubric
 
 ```yaml
@@ -393,7 +791,7 @@ For custom providers, effort is forwarded directly and provider errors are surfa
     model: "gpt-4o-mini"
 ```
 
-The rubric markdown ships with a YAML frontmatter (`name`, `version`, `scale`, `description`, optional `goldens`) so each rubric is versioned, self-documenting, and testable. See [Rubric library](/reference/rubrics/) for the full schema and the list of built-in rubrics.
+The rubric markdown ships with a YAML frontmatter (`name`, `version`, `scale`, `description`, optional `goldens`) so each rubric is versioned, self-documenting, and testable. See [Rubric library](../../reference/rubrics/) for the full schema and the list of built-in rubrics.
 
 ### How it works
 
@@ -728,7 +1126,10 @@ Argument matchers apply on top of the existing required/forbidden checks — a t
 
 ## Program
 
-Runs any external command to grade the agent output. The agent output is passed via **stdin**, and the workspace directory is available as the `WAZA_WORKSPACE_DIR` environment variable. Exit code 0 means pass (score `1.0`); non-zero means fail (score `0.0`).
+Runs any external command to grade the agent output. The agent output is passed via **stdin**, and the workspace directory is available as `WAZA_WORKSPACE_DIR`. Exit code 0 means pass (score `1.0`); non-zero means fail (score `0.0`).
+
+**Added in v0.40.0:** `WAZA_GRADING_CONTEXT` holds the path of a JSON file
+with the run's grading context. Published `v0.39.1` does not provide it.
 
 ```yaml
 - type: program
@@ -744,6 +1145,28 @@ Runs any external command to grade the agent output. The agent output is passed 
 | `command` | `string`    | _(required)_ | Program to execute              |
 | `args`    | `list[str]` | `[]`         | Arguments passed to the program |
 | `timeout` | `int`       | `30`         | Max execution time in seconds   |
+
+### Grading context file
+
+`WAZA_GRADING_CONTEXT` points to `context.json` in a new private temporary directory. The file contains the same run evidence that inline `code` graders receive on stdin. Stdin is unchanged, so existing program graders keep working. After the program exits, Waza deletes the directory and everything in it, once it has verified that the directory and `context.json` are still the entries it created. Treat them as read-only.
+
+The directory has mode `0700` and the file `0600` on Linux and macOS. On Windows, both get a protected DACL that grants access only to the current user. If the directory or `context.json` was moved away, deleted or replaced, Waza does not delete the replacement and grading fails with an error naming the path. If the file cannot be written or the directory cannot be removed, grading also fails with the path, so transcript data is never left behind silently.
+
+Trust model: the grader program and other processes running as the same user are trusted; the program can read and copy the context anyway. The private directory protects against other local users. A replacement made by a concurrently running same-user process between Waza's check and its deletion is out of scope.
+
+| Field                 | Type           | Description                                                                   |
+| --------------------- | -------------- | ----------------------------------------------------------------------------- |
+| `version`             | `int`          | Context format version, currently `1`. Additive fields keep the version.      |
+| `output`              | `string`       | Final agent output (same text as stdin)                                       |
+| `outcome`             | `object`       | Outcome data (`{}` when none)                                                 |
+| `transcript`          | `list`         | Transcript events (`[]` when none)                                            |
+| `tool_calls`          | `list`         | Tool calls derived from the transcript (`[]` when none)                       |
+| `tool_events`         | `list \| null` | Normalized per-call tool records                                              |
+| `host_lifecycle`      | `object \| null` | Model turns and host shell calls/exits; `null` when unavailable (see [background shell lifecycle](#background-shell-lifecycle)) |
+| `command_invocations` | `list \| null` | Sanitized `command_mocks` calls: `command`, `response_index`, optional `args` and `exit_code` |
+| `duration_ms`         | `int`          | Run duration in milliseconds                                                  |
+
+`null` for `tool_events` or `command_invocations` means no evidence was recorded or preserved for the run (for example, no `command_mocks` were configured). It does not prove that zero calls happened; an empty list does. `waza grade --results` builds the file offline from the saved run.
 
 ### Example: shell script grader
 
@@ -773,6 +1196,26 @@ if os.path.exists(os.path.join(workspace, "result.json")):
 else:
     print("✗ result.json missing")
     sys.exit(1)
+```
+
+### Example: checking mocked CLI calls
+
+```python
+#!/usr/bin/env python3
+"""scripts/check_commands.py — asserts on sanitized command_mocks calls."""
+import json, os, sys
+
+with open(os.environ["WAZA_GRADING_CONTEXT"], encoding="utf-8") as f:
+    ctx = json.load(f)
+
+calls = ctx["command_invocations"]
+if calls is None:
+    print("no command invocation evidence recorded")
+    sys.exit(1)
+if not any(c["command"] == "az" and c.get("args", [])[:2] == ["account", "show"] for c in calls):
+    print("expected 'az account show'")
+    sys.exit(1)
+print(f"{len(calls)} mocked command call(s) checked")
 ```
 
 ---

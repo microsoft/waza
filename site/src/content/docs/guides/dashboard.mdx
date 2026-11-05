@@ -24,6 +24,49 @@ event replay, not worker monitoring. The synthetic demo is isolated at `/#/lab/d
 
 ## Views
 
+### Release policies
+
+The separate **Release policies** tab reassesses local controlled collections
+under the configured `--results-dir` through `/api/release-collections`.
+Compatibility, completeness, assurance, golden, billing, statistics and
+operations are shown independently. Invalid or interrupted evidence never
+appears as a pass; partial started/completed attempt counts are descriptive,
+with endpoint rates unavailable until final raw-result verification.
+
+Tokens, AI credits and provider currency remain distinct. Exact usage tokens
+are transported as strings so JavaScript does not round large integers.
+Unavailable is not zero. Policy sidecars never become ordinary result rows.
+Mock observations are harness evidence, not agent quality; source binding is
+local consistency, not authenticated provenance. See
+[controlled comparisons](/waza/guides/controlled-comparisons/).
+
+For selected native collections, optional `decision.native` data exposes the
+profile/version and each attempt's key, status, category/error, output
+availability, observed event/accounting models, usage completeness and
+lifecycle phases. Runtime version and provider currency remain unavailable;
+native assurance is unsupported. Collection errors are preserved alongside
+attempts, including an operational error after core artifacts were published;
+`native-stop.json` retains the stop cause. JSON export must preserve these
+optional observations and errors rather than turning an incomplete collection
+into a success.
+
+![Native release evidence view with recovered attempts and unavailable values](https://raw.githubusercontent.com/microsoft/waza/main/docs/images/native-release-evidence.png)
+
+*Deterministic SDK-fake illustration of a nonpassing golden-veto decision.
+Runtime version and provider currency are unavailable; native assurance is
+unsupported. This screenshot demonstrates rendering, not paid/live execution
+or model quality. Collection errors remain alongside attempts and are preserved
+in JSON export.*
+
+For legacy/mock collections, this view intentionally preserves **base 1.0**
+decisions: required assurance remains nonpassing even when independent
+assurance artifacts are present. Only explicit outer CLI assessment with
+`--assurance-contract`, current per-arm inputs and fresh qualification/regrading
+can pass. A selected native collection can pass its supported base decision
+within the bounded profile, but it cannot satisfy required assurance. The
+dashboard does not adopt stored report pass labels, authenticate reviewers or
+expose an outer-profile pass as a base decision.
+
 ### Dashboard Overview
 
 Summary of all evaluation runs:
@@ -45,7 +88,65 @@ Detailed results for a single evaluation run:
 - **Validator Results** — Per-validator scores and messages
 - **Execution Stats** — Duration, token usage, tool calls
 - **Trajectory Viewer** — Two-mode trace inspection (see below)
+- **Evidence** — Every task trial's recorded provenance, explicit unavailable states, and scoped grader observations (see below)
 - **Export** — Download run as JSON
+
+#### Portable evidence
+
+The **Evidence** tab shows **every trial**, not just the task's aggregate result.
+Historical results without metadata are unassessed; invalid evidence is withheld,
+not repaired or used as proof of state.
+The API preserves the legacy shape by omitting `evidenceRuns` when every task
+run lacks both evidence and requirement explanations. If any run has metadata,
+every trial is included, even rows missing historical metadata.
+
+![Every trial's portable evidence, runtime uncertainty, and artifact availability](/waza/images/explore/evidence-tab.png)
+
+Each trial includes source eval/task/run/attempt and prior-attempt state,
+cached-source labeling, manifest/original-capture SHA-256, requested engine/model,
+actual execution mode, dependency mode, requested tool policy, verified
+enforcement, versions, and requested `no_skills`/native skill control. Null or
+unknown versions are unavailable. Native skill control describes the actual
+request, not proven SDK enforcement.
+
+Artifact rows separate **source hashes** (no source bytes) from **content hashes**
+and snapshot locators, with availability, completeness, reasons, and changed-file
+flags. Redaction rule-match counts do not certify confidentiality; normalization
+can change a file without matching a secret. A complete selected file does not
+make the workspace complete, and external state remains unavailable.
+Schema-valid null or empty redaction limitations remain displayable as
+unrecorded limitations, not proof of secret absence. Malformed non-array
+limitations are still withheld.
+
+Scoped requirement checks display existing grader observations and full-origin
+references. Unresolved names/collisions, qualitative checks, uncertified inputs,
+and operational uncertainty remain explicit. Recorded pass/fail is not
+requirement enforcement, a requirement score, or a causal diagnosis. Original
+checkpoints cannot observe new declarations after regrading.
+
+This tab does **not** fetch local paths, download captured contents, upload
+evidence, call a model, or reconstruct a workspace. See
+[Snapshot & Replay](/waza/guides/snapshot-replay/) for bounded capture,
+offline consistency checks, and verified file-only regrading.
+
+#### Prompt judging
+
+The existing **Evidence** tab includes a distinct **Prompt judging** subsection,
+not another evidence page. For every task/run/attempt it shows frozen bundle
+identity, coverage/counts, fixed limits and each bound grader's delivery digest,
+state (`prepared`, `submitted`, `failed`), purpose, requested model, session,
+elapsed time, safe diagnostics and observed usage. Historical absence remains
+unassessed; unavailable evidence and invalid/unbound observations are explicit.
+
+Only an actual recorded grade callback marks submission observed. Inspection is
+always not observable: inline exposure is not proof that a model read every item.
+Reported zero AI credits remains zero; missing credits are unavailable. Current
+regrade usage is separate from unchanged original execution billing.
+**Export prompt judging metadata** downloads these verified metadata rows as JSON,
+not file contents, evidence bodies, file paths, rendered prompts or raw grader
+details. It does not call a model or fetch local artifacts.
+See [evidence-backed judging](/waza/guides/graders/#evidence-backed-independent-judging)
+for the bounded saved-result contract and authenticity/accuracy limitations.
 
 #### Current-evaluation AI Credits
 
@@ -87,6 +188,52 @@ The waterfall timeline arranges tool call spans on a horizontal axis proportiona
 - **Span correlation** — Start and complete events matched by `toolCallId`
 - **Interleaved support** — Handles concurrent or nested tool calls
 - **Detail sidebar** — Click a span to see arguments, result, and raw event data; press Escape to close
+
+### Grader Assurance
+
+Historical run details explicitly show **not assessed** for grader assurance.
+Native passes, cached verdicts and a configured judge model do not establish
+reviewed reference agreement.
+
+The **Assurance** view reads a supplied standalone `waza.grader-assurance` 1.0
+report using the same versioned JSON schema as the CLI. Inspection stays entirely
+in your browser: no automatic upload, grader/model calls or association with a
+historical run. Importing rejects malformed/ambiguous raw JSON, invalid UTF-8,
+non-finite numbers and unsupported shapes; it does not verify report freshness,
+fingerprints, evidence or reviewer identity.
+
+Before schema validation, numeric wire tokens with fractional values cannot
+round into accepted integer counts, including underflow to zero. Valid integral
+decimal/exponent forms and finite fractions remain supported. This safeguard
+does not provide arbitrary-precision decoding or add a new safe-integer cap to
+report `1.0`; existing `1.1` count bounds remain unchanged. An invalid import
+clears the displayed report instead of retaining stale claims.
+
+Calibrated report `1.1` claims require the separate **Explicitly inspect
+calibrated report 1.1** selection; they are not silently accepted by the default
+offline reader. Changing that selection clears the previous report. The
+versioned calibrated shape includes the explicit independent-authored-rubric
+operation and a required judge execution ledger; unknown versions or missing
+ledger fields are rejected.
+
+The ledger separates initialization, actual execution, native callback counts,
+requested model, received-event model attribution, authoritative accounting
+attribution, finalized usage/credits and sanitized lifecycle diagnostics.
+Unavailable models or credits remain unavailable; callback counts are not
+billable-call counts. These are supplied claims, not reverified execution,
+exhaustive event delivery or server-side tool isolation. Inspection neither
+runs nor authorizes paid calibration, authenticates labels, or accepts the
+report for a historical run.
+
+Scoped requirement links lead to case observations with actual native verdict,
+score and feedback, artifact-relative evidence references, coverage and separate
+review/provenance states. Invalid, unavailable, unsupported and operational
+states remain distinct from agreement. Domain criteria describe a fixed finite
+corpus, not independence or confidence. Unavailable credits remain unavailable;
+an explicitly supplied zero is shown as zero. Judge-execution limits never bound
+SDK follow-up billable calls or spend.
+
+![Local supplied assurance report](https://raw.githubusercontent.com/microsoft/waza/main/docs/images/assurance-report.png)
 
 ### Compare View
 

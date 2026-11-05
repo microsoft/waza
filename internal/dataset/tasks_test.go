@@ -3,6 +3,8 @@ package dataset
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -154,4 +156,86 @@ func TestLoadTasksFilesystemRootContainment(t *testing.T) {
 		require.Len(t, tasks, 1)
 		require.Equal(t, "root-contained", tasks[0].Stimulus.Message)
 	}
+}
+
+func TestTaskCSVOpenRejectsReplacementAfterContainment(t *testing.T) {
+	for _, parent := range []bool{false, true} {
+		t.Run(map[bool]string{false: "leaf", true: "parent"}[parent], func(t *testing.T) {
+			dir, outside := t.TempDir(), t.TempDir()
+			var err error
+			dir, err = filepath.EvalSymlinks(dir)
+			require.NoError(t, err)
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "data"), 0o755))
+			writeCSV(t, filepath.Join(dir, "data"), "tasks.csv", "prompt\ninside\n")
+			writeCSV(t, outside, "tasks.csv", "prompt\noutside\n")
+			root, err := os.OpenRoot(dir)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, root.Close()) }()
+			path := filepath.Join(dir, "data", "tasks.csv")
+			resolved, err := filepath.EvalSymlinks(path)
+			require.NoError(t, err)
+			relative, err := filepath.Rel(dir, resolved)
+			require.NoError(t, err)
+			require.True(t, filepath.IsLocal(relative))
+			target, replacement := path, filepath.Join(outside, "tasks.csv")
+			if parent {
+				target, replacement = filepath.Dir(path), outside
+			}
+			require.NoError(t, os.Rename(target, target+".original"))
+			require.NoError(t, os.Symlink(replacement, target))
+			rows, err := readCSVAt(root, relative)
+			require.Error(t, err)
+			require.Nil(t, rows)
+		})
+	}
+}
+
+func TestTaskCSVReadKeepsRetainedRoot(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "suite")
+	require.NoError(t, os.Mkdir(dir, 0o755))
+	writeCSV(t, dir, "tasks.csv", "prompt\noriginal\n")
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, root.Close()) }()
+	renameErr := os.Rename(dir, dir+".original")
+	if runtime.GOOS == "windows" && renameErr != nil {
+		require.ErrorIs(t, renameErr, syscall.Errno(32))
+		rows, err := readCSVAt(root, "tasks.csv")
+		require.NoError(t, err)
+		require.Equal(t, []Row{{"prompt": "original"}}, rows, "the pinned root still reads its original namespace")
+		require.NoError(t, root.Close())
+		require.NoError(t, os.Rename(dir, dir+".original"), "closing the root releases the Windows pin")
+		require.NoError(t, os.Mkdir(dir, 0o755))
+		writeCSV(t, dir, "tasks.csv", "prompt\nreplacement\n")
+		rows, err = readCSVAt(root, "tasks.csv")
+		require.ErrorIs(t, err, os.ErrClosed)
+		require.Nil(t, rows, "a closed root must not reopen the replacement path")
+		return
+	}
+	require.NoError(t, renameErr)
+	require.NoError(t, os.Mkdir(dir, 0o755))
+	writeCSV(t, dir, "tasks.csv", "prompt\nreplacement\n")
+	rows, err := readCSVAt(root, "tasks.csv")
+	require.NoError(t, err)
+	require.Equal(t, []Row{{"prompt": "original"}}, rows)
+}
+
+func TestTaskCSVReadRejectsInvalidFiles(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	for _, path := range []string{".", "missing.csv"} {
+		rows, err := readCSVAt(root, path)
+		require.Error(t, err)
+		require.Nil(t, rows)
+	}
+	writeCSV(t, dir, "invalid.csv", "prompt\n\"unclosed\n")
+	rows, err := readCSVAt(root, "invalid.csv")
+	require.ErrorContains(t, err, "csv: parse")
+	require.Nil(t, rows)
+	require.NoError(t, root.Close())
+	rows, err = readCSVAt(root, "invalid.csv")
+	require.ErrorIs(t, err, os.ErrClosed)
+	require.Nil(t, rows)
 }

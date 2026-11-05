@@ -86,7 +86,7 @@ func TestInspectMCPFixtureInputSchemaTypes(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, data, 0o600))
 			spec := &models.EvalSpec{MCPMocks: []models.MCPMockConfig{{Name: "fixture", Fixtures: dir}}}
 			report := &Report{Complete: true}
-			inspectMCP(report, spec, dir)
+			inspectMCP(report, spec, dir, nil)
 			require.Equal(t, !tc.valid, report.Failed(false), "%+v", report.Diagnostics)
 			require.Equal(t, !tc.valid, hasDiagnostic(report, "mock.input_schema", Invalid))
 			require.Len(t, report.Dependencies, 1)
@@ -122,7 +122,7 @@ func TestInspectMCPFixtureInvalidSchemaPrecedence(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("tool-%d.json", i)), data, 0o600))
 			}
 			report := &Report{Complete: true}
-			inspectMCP(report, &models.EvalSpec{MCPMocks: []models.MCPMockConfig{{Name: "fixture", Fixtures: dir}}}, dir)
+			inspectMCP(report, &models.EvalSpec{MCPMocks: []models.MCPMockConfig{{Name: "fixture", Fixtures: dir}}}, dir, nil)
 			require.True(t, report.Failed(false))
 			require.False(t, report.Complete)
 			require.True(t, hasDiagnostic(report, "mock.input_schema", Invalid))
@@ -196,7 +196,7 @@ func TestInspectMCPUnavailableSchemaCompleteness(t *testing.T) {
 			tool.Responses = []models.MCPMockResponse{response}
 			spec := &models.EvalSpec{MCPMocks: []models.MCPMockConfig{{Name: "mock", Tools: map[string]models.MCPMockTool{"read": tool}}}}
 			report := &Report{Complete: true}
-			inspectMCP(report, spec, t.TempDir())
+			inspectMCP(report, spec, t.TempDir(), nil)
 			require.Equal(t, field == "return", report.Complete)
 			require.False(t, report.Failed(false), "%+v", report.Diagnostics)
 			require.Len(t, report.Dependencies, 1)

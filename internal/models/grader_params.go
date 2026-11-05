@@ -226,11 +226,12 @@ const (
 )
 
 type PromptGraderParameters struct {
-	Prompt          string           `yaml:"prompt,omitempty" json:"prompt,omitempty"`
-	Model           string           `yaml:"model,omitempty" json:"model,omitempty"`
-	ReasoningEffort string           `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
-	ContinueSession bool             `yaml:"continue_session,omitempty" json:"continue_session,omitempty"`
-	Mode            PromptGraderMode `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Prompt          string                 `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	Model           string                 `yaml:"model,omitempty" json:"model,omitempty"`
+	ReasoningEffort string                 `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+	ContinueSession bool                   `yaml:"continue_session,omitempty" json:"continue_session,omitempty"`
+	Mode            PromptGraderMode       `yaml:"mode,omitempty" json:"mode,omitempty"`
+	EvidenceContext *PromptEvidenceContext `yaml:"evidence_context,omitempty" json:"evidence_context,omitempty"`
 	// Rubric is an optional reference to a reusable rubric. It can be either
 	// the name of a built-in rubric ("groundedness") or a path to a local
 	// rubric markdown file ("./rubrics/my-custom.md"). When set, the rubric's
@@ -293,7 +294,19 @@ func decodeGraderParameters(kind GraderKind, configNode *yaml.Node) (GraderParam
 	case GraderKindDiff:
 		return decodeYAMLNode[DiffGraderParameters](configNode)
 	case GraderKindPrompt:
-		return decodeYAMLNode[PromptGraderParameters](configNode)
+		if err := validatePromptEvidenceNode(configNode); err != nil {
+			return nil, err
+		}
+		params, err := decodeYAMLNode[PromptGraderParameters](configNode)
+		if err != nil {
+			return nil, err
+		}
+		if params.EvidenceContext != nil {
+			if err := validateEvidenceYAMLStructure(configNode, 0); err != nil {
+				return nil, err
+			}
+		}
+		return params, params.ValidateEvidenceContext()
 	case GraderKindJSONSchema:
 		return decodeYAMLNode[JSONSchemaGraderParameters](configNode)
 	case GraderKindProgram:

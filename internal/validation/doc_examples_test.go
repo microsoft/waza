@@ -295,6 +295,25 @@ expected:
 	taskExamples := map[string]string{
 		"basic usage": taskBasicUsage,
 		"behavioral":  taskBehavioral,
+		// "Task-level MCP mocks" in eval-yaml.mdx and README.md
+		"task mcp mocks": `id: publish
+name: Publish when the user confirms
+inputs:
+  prompt: Publish the reviewed version.
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_schema:
+              type: object
+              required: [choices]
+              properties:
+                choices: { type: array, contains: { const: Publish this version } }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
+`,
 	}
 
 	for name, yaml := range taskExamples {

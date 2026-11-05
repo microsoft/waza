@@ -30,6 +30,9 @@ func TestEvidenceSchemaAcceptsCapturedAndRegradedManifest(t *testing.T) {
 			manifest, err = evidence.Regrade(manifest)
 			require.NoError(t, err)
 		}
+		manifest.Redaction.Limitations = nil
+		require.NoError(t, evidence.Seal(manifest))
+		require.NoError(t, evidence.Validate(manifest), "null limitations remain valid in the existing Go contract")
 		data, err := json.Marshal(manifest)
 		require.NoError(t, err)
 		var instance any
@@ -42,5 +45,19 @@ func TestEvidenceSchemaAcceptsCapturedAndRegradedManifest(t *testing.T) {
 		delete(object, "unhashed")
 		object["version"] = "2.0"
 		require.Error(t, compiled.Validate(instance))
+		for _, artifacts := range [][]models.EvidenceArtifact{nil, {}} {
+			manifest.Artifacts = artifacts
+			require.NoError(t, evidence.Seal(manifest))
+			data, err = json.Marshal(manifest)
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(data, &instance))
+			require.NoError(t, compiled.Validate(instance))
+			object, ok = instance.(map[string]any)
+			require.True(t, ok)
+			require.Empty(t, object["artifacts"])
+			require.NotNil(t, object["artifacts"])
+			object["artifacts"] = nil
+			require.Error(t, compiled.Validate(instance))
+		}
 	}
 }

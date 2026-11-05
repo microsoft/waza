@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
@@ -91,6 +92,73 @@ func TestNewSessionEventsCollector_Error(t *testing.T) {
 
 		require.Equal(t, tc.Expected, coll.ErrorMessage())
 	}
+}
+
+func TestSessionEventsCollectorSuppressesAllIntentToolShellOutput(t *testing.T) {
+	coll := NewSessionEventsCollector()
+	const intentCallID = "intent-call"
+
+	coll.On(copilot.SessionEvent{
+		Data: &copilot.ToolExecutionStartData{
+			ToolCallID: intentCallID,
+			ToolName:   "report_intent",
+		},
+	})
+	for _, text := range []string{"first chunk", "second chunk"} {
+		coll.On(copilot.SessionEvent{
+			Data: &copilot.ToolShellOutputData{
+				Text:       text,
+				ToolCallID: intentCallID,
+			},
+		})
+	}
+
+	require.Empty(t, coll.SessionEvents(), "intent start and every shell-output chunk must be suppressed")
+	require.True(t, coll.intentToolIDs[intentCallID], "shell output must not clear the intent filter")
+
+	coll.On(copilot.SessionEvent{
+		Data: &copilot.ToolExecutionCompleteData{ToolCallID: intentCallID},
+	})
+	require.Empty(t, coll.SessionEvents(), "intent completion must be suppressed")
+	require.False(t, coll.intentToolIDs[intentCallID], "completion must clear the intent filter")
+
+	coll.On(copilot.SessionEvent{
+		Data: &copilot.ToolShellOutputData{
+			Text:       "unrelated output",
+			ToolCallID: "ordinary-call",
+		},
+	})
+	require.Len(t, coll.SessionEvents(), 1, "ordinary tool output must continue to be collected")
+}
+
+func TestSessionEventsCollectorPreservesLegacyPartialResultFixture(t *testing.T) {
+	wireEvent, err := os.ReadFile("../testdata/legacy_tool_execution_partial_result.json")
+	require.NoError(t, err)
+
+	var event copilot.SessionEvent
+	require.NoError(t, json.Unmarshal(wireEvent, &event))
+	require.Equal(t, copilot.SessionEventType("tool.execution_partial_result"), event.Type())
+
+	coll := NewSessionEventsCollector()
+	coll.On(event)
+	require.Len(t, coll.SessionEvents(), 1)
+
+	text, toolCallID, ok := copilotevents.ToolOutput(coll.SessionEvents()[0])
+	require.True(t, ok)
+	require.Equal(t, "legacy shell output", text)
+	require.Equal(t, "legacy-call-123", toolCallID)
+
+	persisted, err := json.Marshal(models.TranscriptEvent{SessionEvent: coll.SessionEvents()[0]})
+	require.NoError(t, err)
+
+	var restored models.TranscriptEvent
+	require.NoError(t, json.Unmarshal(persisted, &restored))
+	require.Equal(t, event.Type(), restored.Type())
+
+	text, toolCallID, ok = copilotevents.ToolOutput(restored.SessionEvent)
+	require.True(t, ok)
+	require.Equal(t, "legacy shell output", text)
+	require.Equal(t, "legacy-call-123", toolCallID)
 }
 
 func TestSessionEventsCollector_OnSkillInvokedCallback(t *testing.T) {

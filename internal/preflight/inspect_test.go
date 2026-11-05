@@ -81,6 +81,80 @@ func TestInspectValidDeterministicAndDescriptive(t *testing.T) {
 	require.Equal(t, first, Inspect(path, Options{}))
 }
 
+func TestInspectExpectationResultNameCollisions(t *testing.T) {
+	for _, tc := range []struct {
+		field, name     string
+		schemaSupported bool
+	}{
+		{"output_contains", "_output_contains", true},
+		{"output_not_contains", "_output_not_contains", true},
+		{"output_contains_any", "_output_contains_any", false},
+	} {
+		for _, scope := range []string{"eval", "task"} {
+			for _, values := range []string{"[]", "['ready']"} {
+				t.Run(tc.field+"/"+scope+"/"+values, func(t *testing.T) {
+					eval, task := validEval, validTask
+					if scope == "eval" {
+						eval += "\ngraders:\n  - name: " + tc.name + "\n    type: text\n    config: {contains: ['ready']}\n"
+					} else {
+						task = strings.ReplaceAll(task, "state", tc.name)
+					}
+					task += "\nexpected:\n  " + tc.field + ": " + values + "\n"
+					path, _ := writeSuite(t, eval, task)
+					report := Inspect(path, Options{})
+					require.True(t, report.Complete)
+					require.Equal(t, !tc.schemaSupported, report.Failed(false), "%+v", report.Diagnostics)
+					require.Equal(t, !tc.schemaSupported, hasDiagnostic(report, "task.schema", Invalid))
+					require.Equal(t, values != "[]", hasDiagnostic(report, "grader.result_collision", Unresolved))
+					require.Equal(t, values != "[]" || !tc.schemaSupported, report.Failed(true), "%+v", report.Diagnostics)
+				})
+			}
+		}
+	}
+}
+
+func TestInspectUnsupportedTaskEnvironment(t *testing.T) {
+	for _, tt := range []struct {
+		name, field    string
+		wantDiagnostic bool
+	}{
+		{"absent", "", false},
+		{"empty", "  environment: {}\n", false},
+		{"populated", "  environment: {PRIVATE_SETTING: sensitive-value}\n", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			task := strings.Replace(validTask, "inputs:\n", "inputs:\n"+tt.field, 1)
+			require.Contains(t, task, tt.field)
+			path, dir := writeSuite(t, validEval, task)
+			r := Inspect(path, Options{})
+			require.Len(t, r.Tasks, 1)
+			require.True(t, r.Complete)
+			require.False(t, r.Failed(false), "%+v", r.Diagnostics)
+			require.Equal(t, tt.wantDiagnostic, r.Failed(true))
+			var diagnostics []Diagnostic
+			for _, diagnostic := range r.Diagnostics {
+				if diagnostic.Code == "task.environment" {
+					diagnostics = append(diagnostics, diagnostic)
+					require.Equal(t, Unsupported, diagnostic.State)
+					require.Equal(t, "warning", diagnostic.Severity)
+					require.Equal(t, filepath.Join(dir, "task.yaml"), diagnostic.Source)
+					require.Equal(t, "task", diagnostic.TaskID)
+					require.Contains(t, diagnostic.Message, "not applied during task execution")
+				}
+			}
+			if tt.wantDiagnostic {
+				require.Len(t, diagnostics, 1)
+			} else {
+				require.Empty(t, diagnostics)
+			}
+			data, err := json.Marshal(r)
+			require.NoError(t, err)
+			require.NotContains(t, string(data), "PRIVATE_SETTING")
+			require.NotContains(t, string(data), "sensitive-value")
+		})
+	}
+}
+
 func TestInspectInvalidConfigurations(t *testing.T) {
 	tests := []struct {
 		name, eval, task, code string
@@ -182,7 +256,7 @@ func TestInspectCSVSourcePathParity(t *testing.T) {
 			require.NoError(t, err)
 			spec.Config.InstructionFiles = []string{"missing.txt"}
 			diagnostics := &Report{Complete: true}
-			tasks, sources := discoverTasks(diagnostics, spec, dir)
+			tasks, sources, _ := discoverTasks(diagnostics, spec, dir)
 			require.Len(t, tasks, 1)
 			inspectTask(diagnostics, tasks[0], spec, sources[0], dir, filepath.Join(dir, "fixtures"))
 			require.True(t, hasDiagnostic(diagnostics, "instruction.file", Invalid))

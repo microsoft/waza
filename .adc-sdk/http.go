@@ -7,11 +7,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -51,6 +54,7 @@ type HTTPClient struct {
 	timeout        time.Duration
 	defaultParams  map[string]string
 	client         *http.Client
+	maxRetries     int
 }
 
 // HTTPClientConfig contains configuration for creating an HTTPClient.
@@ -59,6 +63,8 @@ type HTTPClientConfig struct {
 	Headers       map[string]string
 	Timeout       time.Duration
 	DefaultParams map[string]string
+	// MaxRetries bounds retries after the initial attempt. Zero or negative disables retries.
+	MaxRetries int
 }
 
 // NewHTTPClient creates a new HTTPClient with the given configuration.
@@ -74,6 +80,7 @@ func NewHTTPClient(config HTTPClientConfig) *HTTPClient {
 		defaultHeaders: config.Headers,
 		timeout:        timeout,
 		defaultParams:  config.DefaultParams,
+		maxRetries:     config.MaxRetries,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -158,14 +165,10 @@ func (c *HTTPClient) request(ctx context.Context, method, path string, body inte
 		req.Header.Set(k, v)
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, &HTTPError{
-				Status:     0,
-				StatusText: "Request timeout",
-				Message:    fmt.Sprintf("Request timed out after %v", c.timeout),
-			}
+			return nil, fmt.Errorf("request interrupted: %w", ctx.Err())
 		}
 		return nil, &HTTPError{
 			Status:     0,
@@ -206,6 +209,78 @@ func (c *HTTPClient) request(ctx context.Context, method, path string, body inte
 	}
 
 	return respBody, nil
+}
+
+// do retries before returning a response, never after the caller starts reading its body.
+func (c *HTTPClient) do(req *http.Request) (*http.Response, error) {
+	for attempt := 0; ; attempt++ {
+		if err := req.Context().Err(); err != nil {
+			return nil, err
+		}
+		current := req
+		if attempt > 0 {
+			current = req.Clone(req.Context())
+			if req.GetBody != nil {
+				body, err := req.GetBody()
+				if err != nil {
+					return nil, fmt.Errorf("replaying request body: %w", err)
+				}
+				current.Body = body
+			}
+		}
+		resp, err := c.client.Do(current)
+		if contextErr := req.Context().Err(); contextErr != nil {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			return nil, contextErr
+		}
+		if attempt >= c.maxRetries ||
+			(req.Body != nil && req.GetBody == nil) || !retryableResponse(resp, err) {
+			return resp, err
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		timer := time.NewTimer(retryDelay(attempt))
+		select {
+		case <-req.Context().Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, req.Context().Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func retryableResponse(resp *http.Response, err error) bool {
+	if err != nil {
+		var networkError net.Error
+		return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+			errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) ||
+			errors.Is(err, syscall.EPIPE) ||
+			(errors.As(err, &networkError) && (networkError.Timeout() || networkError.Temporary()))
+	}
+	switch resp.StatusCode {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError,
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func retryDelay(attempt int) time.Duration {
+	const maxDelay = 2 * time.Second
+	delay := 100 * time.Millisecond
+	for i := 0; i < attempt && delay < maxDelay; i++ {
+		delay *= 2
+	}
+	if delay > maxDelay {
+		return maxDelay
+	}
+	return delay
 }
 
 // Get performs a GET request.
@@ -322,7 +397,7 @@ func (c *HTTPClient) GetStream(ctx context.Context, path string) (*http.Response
 		req.Header.Set(key, value)
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform request: %w", err)
 	}

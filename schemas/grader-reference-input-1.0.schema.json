@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/grader-reference-input-1.0.schema.json",
+  "title": "Waza authored finite grader reference input 1.0",
+  "description": "The payload family is independently versioned 1.0 and evidence is independently versioned 1.1. The outer schemaVersion 2.0 and distinct kind are mandatory native-history import fences, not a historical schema upgrade. Completeness describes only the exact supplied grader input; no session, workspace, runtime billing or enforcement is implied. Readers additionally enforce a 1 MiB raw document limit, duplicate-key and Unicode admission, metadata origin and content digests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "payload", "evidence"],
+  "properties": {
+    "schemaVersion": { "const": "2.0" },
+    "kind": { "const": "waza.grader-reference-input" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schema_version", "source_scope", "id", "output"],
+      "properties": {
+        "kind": { "const": "waza.grader-reference-input" },
+        "schema_version": { "const": "1.0" },
+        "source_scope": { "const": "authored_finite_output" },
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+        "output": { "type": ["string", "null"], "maxLength": 1048576 }
+      }
+    },
+    "evidence": { "$ref": "evidence-manifest-1.1.schema.json" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "payload": { "properties": { "output": { "type": "null" } } }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "artifacts": { "items": { "properties": { "availability": { "const": "unavailable" } } } }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "artifacts": { "items": { "properties": { "availability": { "const": "captured" } } } }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

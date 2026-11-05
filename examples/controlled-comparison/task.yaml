@@ -1,0 +1,8 @@
+id: hello
+name: Offline controlled greeting
+golden: true
+inputs:
+  prompt: hello
+expected:
+  output_contains:
+    - hello

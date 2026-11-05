@@ -37,7 +37,10 @@ const (
 	// 1.5 adds task stats.pass_rate_ci and summary statistics success_rate_ci
 	// and pass_hat_k. is_significant is no longer written but still accepted.
 	// 1.6 adds optional run evidence and requirement_explanations.
-	CurrentResultSchemaVersion = "1.6"
+	// 1.7 adds frozen judge_evidence, prompt_judging, and separate regrade_usage.
+	// It also adds optional configured dependency modes to each run.
+	// 1.8 adds optional run host_lifecycle evidence from native session events.
+	CurrentResultSchemaVersion = "1.8"
 
 	// ScenarioSchemaVersion is eval-only. A major boundary makes older
 	// executables reject no-ambient-discovery semantics instead of ignoring them.
@@ -90,7 +93,8 @@ func ProbeEvaluationOutcomeSchemaVersion(data []byte) (version string, ok bool, 
 func hasEvaluationOutcomeShape(fields map[string]json.RawMessage) bool {
 	var kind string
 	if raw, exists := fields["kind"]; exists {
-		if err := json.Unmarshal(raw, &kind); err == nil && kind == "waza.preflight" {
+		if err := json.Unmarshal(raw, &kind); err == nil &&
+			(kind == "waza.preflight" || strings.HasPrefix(kind, "waza.release-")) {
 			return false
 		}
 	}
@@ -176,6 +180,11 @@ func LoadEvaluationOutcome(path string) (*EvaluationOutcome, error) {
 // ParseEvaluationOutcome decodes results while preserving declared versions.
 // A missing version retains the legacy reader default, not the writer version.
 func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, error) {
+	// Outer tasks/runs aliases or duplicates must not hide an authored
+	// manifest from the nested native-profile admission guards.
+	if err := ValidateNativeJSONAdmission(data, EvaluationOutcome{}); err != nil {
+		return nil, err
+	}
 	var header struct {
 		SchemaVersion string          `json:"schemaVersion"`
 		Kind          json.RawMessage `json:"kind"`

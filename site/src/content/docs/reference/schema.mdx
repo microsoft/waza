@@ -7,6 +7,124 @@ description: Complete reference for eval.yaml and task file formats.
 
 Complete reference for YAML schema used in waza evaluations.
 
+## Separate grader-assurance reports
+
+Assurance documents do not change native eval/task/historical result versions.
+Offline reports use `waza.grader-assurance` version `1.0`; calibrated evaluator
+reports use version `1.1` with required
+`assessment_mode: independent_authored_rubric_calibration` and a required
+`calibration.execution_ledger` array. Default offline readers reject `1.1`;
+explicit consumer selection is required.
+
+The calibrated ledger distinguishes actual lifecycle/callback evidence,
+requested model, independent received-event and accounting attribution,
+sanitized diagnostics and finalized usage/credits. Incomplete usage is null,
+not zero; known complete accounting survives operational failure. Exact
+versioned schemas reject unknown members and inconsistent lifecycle shapes.
+Supplied-claim admission additionally checks aggregate accounting, provenance
+and scoped finite-case/domain consistency, but does not authenticate a reviewer
+or re-execute source evidence. See the
+[grader guide](/waza/guides/graders/) and
+[explicit inspector](/waza/guides/dashboard/#grader-assurance).
+
+Preserved-native mechanical reports separately select version `1.2` with
+`assessment_mode: preserved_native_mechanical_assurance`.
+The internal `assurance.VerifyPreserved` operation and
+`assurance.ParsePreservedReport` reader use this profile; default CLI/dashboard
+readers and calibrated `1.1` reading do not admit it automatically.
+Its source scopes are `preserved_native_selected_artifacts` and
+`preserved_file_subset`. Calibration is not selected: usage/credits remain
+null, executions/samples are zero and no execution ledger is present.
+Current native grader bindings do not certify historical grader correspondence.
+
+## Portable evidence
+
+Tasks retain their legacy format; v0.40.0 writes results `1.8`, while
+published `v0.39.1` writes `1.7`. Historical results retain their declared
+`1.x` versions or the missing-version `1.4` reader default.
+Snapshot schema `1.1` adds optional `evidence`
+and selected `workspaceFiles`; the portable manifest has an independent
+`version: "1.0"`. Legacy artifacts still load without assessed evidence.
+New evidence consumers reject duplicate keys, unknown metadata, and unsupported
+manifest versions; historical same-major reader tolerance does not authorize
+unrecognized evidence.
+
+The independent manifest schema is
+[`schemas/evidence-manifest-1.0.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/evidence-manifest-1.0.schema.json).
+It is embedded for Go consumers as `schemas.EvidenceManifestSchemaJSON`, not
+versioned with the result/task schemas.
+
+The dashboard API omits `evidenceRuns` entirely when all task runs lack both
+evidence and requirement explanations, preserving the legacy response shape.
+The UI reports that absence as unassessed. If any run has either kind of
+metadata, the API returns every trial, including historical missing-metadata
+rows; absence is never inferred to be successful capture.
+
+| Manifest field | Meaning |
+| --- | --- |
+| `version`, `sha256` | Independent manifest version and canonical metadata digest |
+| `source_manifest_sha256` | Original capture digest retained after regrading |
+| `origin` | `eval_id`, `task_id`, `run_number`, `attempt_count`, `prior_attempts`; references are scoped to all fields |
+| `runtime` | Requested engine/model/tool policy, actual engine-derived execution mode, dependency mode, verified enforcement, waza/SDK/effective-model/Go/platform versions |
+| `runtime.no_skills` | `boolean|null` from the actual execution request; unknown is not inferred false |
+| `runtime.native_skill_control` | `unknown`, `sdk_default`, `requested_sdk_disable`, `mock_not_applicable`; requested native control, not SDK enforcement proof |
+| `artifacts[]` | `id`, `kind`, `availability`, `completeness`, optional content/source digest, snapshot document/pointer, reason, redacted flag |
+| `redaction` | Policy, actual matched rules and count, limitations; normalization-only changes are not secret matches |
+| `diagnostics[]` | Typed category/code and safe message; operational uncertainty, not causal classification |
+
+`captured` artifacts require a content digest and snapshot pointer. `digest_only`
+uses a separate source digest without preserved content or a content locator.
+`unavailable` / `not_requested` have reasons and no locator. Most tapes have
+`unknown` completeness; run errors make them `partial`. A selected file may be
+`complete` while the workspace remains partial/unavailable. External state,
+grader implementation, rubric version, and lockfile provenance are unavailable.
+Unknown/null versions stay unavailable rather than being guessed.
+Captured `environment` and `engine-config` artifacts fingerprint the snapshot's
+`/env` allow-list/configuration and `/engine` configuration respectively; they
+do not certify the full host environment. Secret environment-key removals count
+as actual redaction matches.
+
+Cached evidence keeps the original full source origin; task/run/attempt still
+match even if source eval ID differs. Per-run `requirement_explanations` contain
+scoped named-check observations and references with the full origin. Unique
+names resolve; missing/flattened collisions remain unresolved. Observations are
+existing grader pass/fail, qualitative prompt checks, or typed unavailable
+operational status, not new requirement scores or enforcement. Regrading
+invalidates original result/validation/grader-configuration/checkpoint links:
+old checkpoints never observe newly declared checks.
+
+Canonical JSON hashes use Go map-encoded sorted UTF-8 object keys, exact numeric
+lexical tokens, Go `encoding/json` HTML escaping (`<`, `>`, `&`) and U+2028/U+2029
+escaping, and ordered arrays (`json-v1`). Manifest SHA-256
+omits its own member entirely and includes all recognized metadata, including
+timings; no cross-run hash stability is claimed. Source configuration,
+instruction, and fixture digests do not preserve source bytes. See
+[Snapshot & Replay](/waza/guides/snapshot-replay/) for capture safety and the
+narrow verified file-only regrading operation, and
+[Schema Changes](/waza/reference/schema-changes/) for compatibility.
+
+## Frozen prompt-judging evidence
+
+Result writer `1.7` adds optional `runs[].judge_evidence` and
+`runs[].prompt_judging`, plus separate current-invocation `regrade_usage.sessions`.
+The bundle has its own strict version `1.0` and embedded
+[`judge-evidence-1.0.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/judge-evidence-1.0.schema.json).
+It is not an evidence-manifest document variant. Presence-bearing sections retain
+captured empty values versus unavailable/null items, full origin, source mode,
+fixed limits, redaction and integrity metadata. Readers retain legacy defaults.
+Optional snapshot `1.2` references the frozen digest as `judgeEvidenceSHA256`;
+ordinary snapshots remain `1.1`.
+
+Final eval/task `prompt` config accepts an optional object `evidence_context`
+with exact slash-relative `files` and `evaluator_only` arrays. `{}` opts into core
+recorded evidence; null/wrong types, duplicate paths, traversal and glob paths are
+invalid. Checkpoint, pairwise and `continue_session: true` combinations are
+unsupported. The new profile rejects ambiguous keys, aliases/merges, malformed
+Unicode and invalid wire types before lossy decoding. The runtime verifies
+digest, complete binding, required sections and current selection before judging.
+See [the canonical contract](/waza/guides/graders/#evidence-backed-independent-judging)
+for limits, native-platform/authentication requirements and privacy boundaries.
+
 ## Optional descriptive task requirements
 
 `requirements` is an optional task array. Each entry has `id` (task-local stable
@@ -15,11 +133,16 @@ optional `checks`. A check has `scope: eval|task|checkpoint`, `grader` (explicit
 existing grader name), and `after_turn` only for checkpoint scope.
 Absent/empty checks are uncovered/unresolved. Metadata is descriptive and keeps
 v1 runtime behavior unchanged; minimum-version notes are not enforcement.
-See [Offline Eval Preflight](/guides/preflight/) for schema-valid examples,
+See [Offline Eval Preflight](../../guides/preflight/) for schema-valid examples,
 reference diagnostics and the independent `waza.preflight` JSON artifact.
 
 Nonempty `tasks_from` selects CSV tasks instead of YAML `tasks`; either a
 nonempty task list or a nonempty CSV source is required by the eval schema.
+CSV paths are bounded to the eval directory both lexically and after symlinks
+resolve; filesystem/volume-root eval directories are valid. Inclusive `range`
+bounds use 1-based data rows, excluding the header. Fallback IDs/names retain the
+original row number (`range: [2, 2]` selects `row-2`). This is not retained-root,
+snapshot, or race-free-read assurance.
 
 ## eval.yaml
 
@@ -140,7 +263,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.6`
+**Default:** legacy eval schema version (`1.4`); v0.40.0 result writers independently emit `1.8` (published `v0.39.1` writes `1.7`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
@@ -157,7 +280,7 @@ different-major versions are rejected rather than silently reserialized.
 schemaVersion: "1.3"
 ```
 
-See [Schema Changes](/reference/schema-changes/) for the versioning policy and changelog.
+See [Schema Changes](../schema-changes/) for the versioning policy and changelog.
 
 ### mcp_mocks
 
@@ -219,19 +342,21 @@ mcp_mocks:
 | `match_regex` | object | Per-field regular expression match |
 | `return` | any | JSON value returned as the mocked tool result |
 | `error` | string | Tool error text returned with `isError: true` |
+| `sequence` | array | Finite scenario-2.0 response steps with `return`/`error` and optional `delay_ms` |
+| `delay_ms` | integer | Per-step delay from 0 to 300,000 ms; not a host/process timeout guarantee |
 
-Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
+Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture. Finite `sequence` responses are available only in scenario evals using exact `schemaVersion: "2.0"`; each matching call consumes one step, sequences contain 1–100 steps, and optional step delays are bounded at 300,000 ms.
 
-Unmatched-call diagnostics omit argument values, including nested payloads. A canceled or expired context at the in-process handler's tool-call admission boundary produces an MCP `isError` result before matching or returning a fixture; non-tool methods retain their existing behavior. This does not implement per-request stdio cancellation or a timeout fixture, and adds no YAML or result fields.
+In **v0.40.0**, a task can replace an eval-level mock by name with its own [`mcp_mocks`](#mcp_mocks-optional) entry. Published `v0.39.1` does not apply task-level mocks. Other eval-level mocks remain available to that task.
+
+Unmatched-call diagnostics omit argument values, including nested payloads. A
+canceled or expired context at the in-process handler's tool-call admission
+boundary produces an MCP `isError` result before matching or returning a fixture.
+This is not per-request stdio cancellation. An error text containing “timeout”
+models a dependency-reported error, not transport cancellation. See
+[Dependency Recovery](/waza/guides/dependency-recovery/).
 
 ### command_mocks
-
-Private raw-fragment validators can inspect finite `sequence` and `delay_ms`
-presence before normalization, but these are **not registered public eval/runtime
-fields**. Valid standalone finite task declarations still reject as unregistered.
-Do not infer execution support from a validator or source snapshot. See
-[Private Fault Harness](/waza/guides/private-fault-fixtures/) for the injected testing
-boundary and cancellation limitations.
 
 **Type:** array
 **Required:** no
@@ -269,8 +394,10 @@ command_mocks:
 | `stderr` | string | Output written to stderr. |
 | `exit_code` | integer | Process exit code from 0 through 255; defaults to 0. |
 | `fixture` | string | Relative path to raw stdout fixture bytes, resolved from `eval.yaml`. |
+| `sequence` | array | Finite response steps, only for scenario eval schema `2.0`; at most 100 steps |
+| `delay_ms` | integer | Per-step delay from 0 to 300,000 ms |
 
-Task-level `command_mocks` replace the eval-level list; an empty list disables the inherited mocks. Configured commands with unmatched calls fail closed and report the executable, sanitized argument vector, and working directory that need a response fixture. Sanitized calls appear in `runs[].command_invocations` and the grader context. Real credentials should not be placed in mock responses.
+Task-level `command_mocks` replace the eval-level list; an empty list disables the inherited mocks. Configured commands with unmatched calls fail closed and report the executable, sanitized argument vector, and working directory that need a response fixture. Sanitized calls appear in `runs[].command_invocations` and the grader context. Real credentials should not be placed in mock responses. Only declared executable names are intercepted; other commands may resolve through the host `PATH`, and shims are not host sandboxing.
 
 ### adversarial
 
@@ -681,6 +808,20 @@ expected: # Required: validation rules
     max_tool_calls: 5
 ```
 
+### inputs.environment (unsupported)
+
+This compatibility field is accepted as a string-to-string map, but its values
+are **not applied** during task execution. A non-empty map emits a task-load
+warning and an unsupported `task.environment` preflight diagnostic without
+printing variable names or values. Omitted or empty maps emit neither.
+Existing run exit policies are unchanged; preflight remains warning-only by
+default and retains its existing `--strict` failure policy.
+
+Remove this field and configure required environment variables outside Waza
+before starting the process. The Copilot client process is shared across tasks,
+so this is not per-task environment isolation. Native snapshot execution
+continues to reject non-empty task environment maps.
+
 ### id
 
 **Type:** string  
@@ -757,10 +898,40 @@ instruction_files:
 
 ### command_mocks (optional)
 
-Replace the eval-level command mock list for this task. The enclosing eval must use `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`. Use an empty list to disable inherited mocks.
+Replace the eval-level command mock list for this task. The enclosing eval must use `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`. Finite response sequences additionally require scenario eval schema `2.0`. Use an empty list to disable inherited mocks.
 
 ```yaml
 command_mocks: []
+```
+
+### mcp_mocks (optional)
+
+**Added in v0.40.0:** Published `v0.39.1` does not apply task-level
+`mcp_mocks`.
+
+Replace or add MCP mocks for this task. Each entry replaces the eval-level [`mcp_mocks`](#mcp_mocks) entry with the same name for this task only, and a new name adds a mock; other eval-level mocks still apply. Entries use the eval-level fields. The enclosing eval must use `schemaVersion: "1.1"` or newer and `executor: copilot-sdk`, and finite response sequences require scenario eval schema `2.0`. Relative `fixtures` paths resolve from the eval directory. The list must not be empty; omit it to use the eval-level mocks.
+
+An eval mock that every selected task replaces is unused by those tasks, but its
+fixtures are skipped only when no trigger phase needs it; its inline tools are
+still validated. Trigger tests use eval-level mocks and live servers, not task
+replacements. An eval-level mock still shadows the same-named live server in that
+phase. Successfully parsed trigger tests with the mock executor are synthesized
+without MCP; unresolved trigger discovery or parsing conservatively retains
+eval-level dependencies during preflight. See the
+[preflight dependency rules](/waza/guides/preflight/).
+
+Task loading and filter errors are reported before engine startup. Admission validates inline mock `input_schema` declarations offline, even on replaced eval mocks. Schemas must be self-contained (internal `$ref` values are supported); omission or `null` retains the default tool schema.
+
+```yaml
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_regex: { question: "(?i)publish" }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
 ```
 
 ## inputs Section
@@ -1009,15 +1180,71 @@ expected:
 
 **Type:** array of objects
 
-Expected execution outcomes.
+Descriptive metadata consumed by static spec coverage. These entries are
+**not native runtime assertions**: `condition` is not evaluated as a state
+predicate, and metadata does not verify that a tool or external action happened.
+The native fields are `type`, `value` and `condition`; `tool_name` is unsupported.
 
 ```yaml
 expected:
   outcomes:
-    - type: task_completed
-    - type: tool_called
-      tool_name: code_analyzer
+    - type: local-record
+      value: record.txt
+      condition: "contains complete or done (descriptive only)"
 ```
+
+For an executable outcome, use explicit native graders and associate
+`requirements.checks` with their names. This task permits two valid final states
+but rejects a wrong state or a forbidden retained file:
+
+```yaml
+id: local-record
+name: Inspect a local record
+inputs:
+  prompt: "Inspect record.txt; do not create forbidden.txt."
+  files:
+    - path: record.txt
+expected:
+  outcomes:
+    - type: local-record
+      value: record.txt
+graders:
+  - name: final-state
+    type: file
+    config:
+      must_exist: [record.txt]
+      must_not_exist: [forbidden.txt]
+      content_patterns:
+        - path: record.txt
+          must_match: ["^(complete|done)\\n?$"]
+  - name: no-delete-tool
+    type: tool_calls
+    config:
+      forbidden_tools: [delete_record]
+requirements:
+  - id: saved
+    category: outcome
+    description: Accept complete or done, not an arbitrary state.
+    checks:
+      - scope: task
+        grader: final-state
+  - id: boundary
+    category: boundary
+    description: No retained forbidden file or observed delete_record call.
+    checks:
+      - scope: task
+        grader: final-state
+      - scope: task
+        grader: no-delete-tool
+```
+
+For ordered tool observations use `action_sequence` with
+`expected_actions` and an appropriate `matching_mode`; do not demand one tool
+sequence when alternative implementations are valid. File checks observe only
+the supplied final workspace, and tool graders observe recorded calls, not
+external state or absent transient effects. The offline regression suite runs
+the example with `complete`, `done`, wrong-state and forbidden-file controls;
+none is evidence of live agent behavior.
 
 ### behavior
 

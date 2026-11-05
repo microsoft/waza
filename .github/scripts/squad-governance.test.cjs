@@ -1,0 +1,386 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
+const root = fs.realpathSync(path.resolve(__dirname, '../..'));
+const read = (file) => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
+const prose = (text) => text.replace(/\s+/g, ' ');
+const charterFiles = [
+  '.squad/agents/rai/charter.md',
+  '.squad/templates/Rai-charter.md',
+  '.squad/agents/fact-checker/charter.md',
+  '.squad/templates/fact-checker-charter.md',
+];
+const policyFiles = [
+  '.squad/rai/policy.md',
+  '.squad/templates/rai-policy.md',
+  '.squad/templates/fact-checker-policy.md',
+];
+const callerFiles = [
+  '.squad/governance.md',
+  '.github/skills/coordinator-init-mode/SKILL.md',
+  '.github/skills/reviewer-protocol/SKILL.md',
+  '.github/skills/agent-collaboration/SKILL.md',
+];
+
+function assertClearance(text) {
+  const source = prose(text);
+  assert.match(source,
+    /After successful focused rereview.*independently corrected revision.*may issue approval\/PASS/);
+  assert.match(source, /not native repository approval, merge or publishing authority/);
+  assert.doesNotMatch(source, /(?:or |not )approve the immediate revision/);
+}
+
+function assertPersistence(text) {
+  const source = prose(text);
+  assert.match(source, /Charter output\/persistence restrictions take precedence/);
+  assert.match(source, /[Rr]eturn findings in the current review response/);
+  assert.match(source,
+    /[Oo]nly an authorized coordinator or Scribe handles required persistence under the current state contract/);
+  assert.doesNotMatch(source,
+    /findings .*are logged|Decisions that affect other agents go to|Justification logged to|Each agent's `history.md` starts/);
+}
+
+function assertCharter(text) {
+  const source = prose(text);
+  assertClearance(text);
+  for (const pattern of [
+    /no automatic/, /selected.*gate/,
+    /does not implement, advise, or pair on the immediate revision/,
+    /different qualified revision owner, neither the locked-out author nor the rejecting gate/,
+    /original author remains locked out throughout that revision cycle/,
+    /[Rr]eturn findings and review verdicts in the current review response/,
+    /Do not create histories, audit trails, verification logs, proposals, or decision-inbox entries/,
+    /Only an authorized coordinator or Scribe handles required persistence under the current state contract/,
+  ]) assert.match(source, pattern);
+}
+
+function assertPolicy(text) {
+  const source = prose(text);
+  assertClearance(text);
+  assertPersistence(text);
+  for (const pattern of [
+    /on request|on-demand/, /selected.*gate/,
+    /different qualified revision owner/, /locked-out author/, /rejecting gate/,
+    /does not implement, pair on, or advise the immediate revision/,
+    /concrete counter-evidence/, /violated requirement/, /affected scope/,
+  ]) assert.match(source, pattern);
+  assert.doesNotMatch(source, /spawned automatically|runs in background by default|blocking by default/);
+}
+
+function assertStateOwnership(text) {
+  assertPersistence(text);
+  const row = (file) => text.split('\n').find((line) => line.startsWith(`| \`${file}\` |`));
+  for (const member of ['rai', 'fact-checker']) {
+    for (const file of ['policy.md', 'audit-trail.md']) {
+      const cells = row(`.squad/${member}/${file}`).split('|');
+      assert.match(cells[3], /Coordinator/);
+      assert.doesNotMatch(cells[3], /append only|propose updates via decisions inbox/);
+      if (file === 'audit-trail.md') {
+        assert.match(cells[2], /no routine reviewer logging/);
+        assert.match(cells[3], /Scribe.*only when the current state contract requires persistence/);
+      }
+    }
+  }
+  assert.match(row('.squad/agents/{name}/history.md').split('|')[3], /only where charter permits/);
+}
+
+function assertRejectionPolicy(text) {
+  const policy = prose(text.split('## Integration with Reviewer Rejection Protocol')[1] || '');
+  for (const pattern of [
+    /Squad only/, /ordinary Copilot work/,
+    /concrete counter-evidence/, /violated requirement/, /affected scope/,
+    /minimum condition for approval/, /different qualified revision owner/,
+    /not the locked-out author or the rejecting gate/,
+    /does not implement, pair on, or advise the immediate revision/,
+    /Focused rereview/, /blockers, delta, and regressions/,
+  ]) assert.match(policy, pattern);
+  assert.doesNotMatch(policy, /usually the agent that produced|Pair mode|revise with grounding/i);
+}
+
+test('installed Squad help distinguishes coordinator and host-dependent menu invocation', () => {
+  const validate = (text) => {
+    assert.match(text, /Squad coordinator agent and the separate squad menu skill/);
+    assert.match(text, /host-dependent/);
+    assert.match(text, /\.github\/skills\/squad\/SKILL\.md/);
+    assert.doesNotMatch(text,
+      /squad-commands|\.copilot\/skills|Squad is not a skill|slash command also does not exist/);
+  };
+  const help = read('.github/skills/squad-help/SKILL.md');
+  validate(help);
+  assert.throws(() => validate(`${help}\nSquad is not a skill.`), assert.AssertionError);
+  assert.throws(() => validate(help.replaceAll('host-dependent', 'universally unsupported')),
+    assert.AssertionError);
+  assert.throws(() => validate(help.replaceAll('/squad/SKILL.md', '/squad-commands/SKILL.md')),
+    assert.AssertionError);
+  const menu = read('.github/skills/squad/SKILL.md');
+  assert.match(menu, /^name: squad$/m);
+  assert.match(menu, /^user-invocable: true$/m);
+  assert.match(menu, /Host-dependent invocation/);
+  for (const file of ['.github/agents/squad.agent.md', '.squad/templates/squad.agent.md.template']) {
+    assert.match(prose(read(file)),
+      /Where the host exposes user-invocable skills as commands, use `\/squad`; otherwise use the natural-language menu triggers/);
+  }
+});
+
+test('delegated Scribe merges preserve Coordinator acceptance and decision-only output', () => {
+  const authority = (text) => {
+    const source = prose(text).replaceAll('**', '');
+    assert.match(source, /Coordinator alone accepts decisions/);
+    assert.match(source,
+      /only the Coordinator or a coordinator-delegated Scribe may record already-accepted decisions/);
+    assert.doesNotMatch(source, /Only Squad \(Coordinator\).*records accepted decisions/);
+  };
+  const prompt = (text) => {
+    const source = prose(text);
+    assert.match(source, /ACCEPTED_DECISIONS: \{inbox IDs already accepted by the Coordinator\}/);
+    assert.match(source, /Coordinator alone accepts decisions/);
+    assert.match(source, /Without explicit delegation and accepted inbox IDs, stop without writes/);
+    assert.match(source, /Merge only ACCEPTED_DECISIONS/);
+    assert.match(source, /Return the merge result to the Coordinator/);
+    assert.match(source, /do not create logs or update specialist histories/i);
+    assert.doesNotMatch(source,
+      /ORCHESTRATION LOG:|SESSION LOG:|CROSS-AGENT:|HISTORY SUMMARIZATION|DECISIONS ARCHIVE|Write `(?:orchestration-log|log)\/|Append .*history\.md/i);
+  };
+  const skill = read('.github/skills/coordinator-source-of-truth/SKILL.md');
+  authority(skill);
+  const ledger = (text) => {
+    const row = text.split('\n').find((line) => line.startsWith('| `.squad/decisions.md` |'));
+    assert.match(row.split('|')[3], /Coordinator or coordinator-delegated Scribe/);
+    assert.match(row.split('|')[3], /already-accepted decisions only, append only/);
+  };
+  ledger(skill);
+  const row = skill.split('\n').find((line) => line.startsWith('| `.squad/decisions.md` |'));
+  const noDelegate = row.replace('Coordinator or coordinator-delegated Scribe', 'Coordinator only');
+  assert.throws(() => ledger(skill.replace(row, noDelegate)), assert.AssertionError);
+  assert.throws(() => authority(skill.replace('coordinator-delegated Scribe may record',
+    'Coordinator alone may record')), assert.AssertionError);
+  for (const file of ['.github/agents/squad.agent.md', '.squad/templates/squad.agent.md.template']) {
+    const source = read(file);
+    const hierarchy = source.split('## Source of Truth Hierarchy')[1]
+      .split('## Casting & Persistent Naming')[0];
+    authority(hierarchy);
+    assert.throws(() => authority(hierarchy.replace('coordinator-delegated Scribe may record',
+      'Coordinator alone may record')), assert.AssertionError);
+    const spawn = source.split('**Scribe Spawn Template**')[1].split('**On-demand reference:**')[0];
+    prompt(spawn);
+  }
+  for (const file of ['.squad/agents/scribe/charter.md', '.squad/templates/scribe-charter.md']) {
+    const source = prose(read(file));
+    assert.match(source, /Coordinator alone accepts decisions/);
+    assert.match(source, /without them, stop without writes and leave proposals untouched/i);
+  }
+  const reference = read('.squad/templates/after-agent-reference.md');
+  assert.match(prose(reference),
+    /only for an explicit Coordinator delegation of already-accepted durable decisions/);
+  assert.doesNotMatch(reference, /Only if agents ran or inbox has files|model: "claude-/);
+  const spawn = reference.split('prompt: |')[1].split('```')[0];
+  prompt(spawn);
+  for (const [before, after] of [
+    ['Merge only ACCEPTED_DECISIONS', 'Merge every inbox proposal'],
+    ['Without explicit delegation and accepted', 'Without checking delegation or accepted'],
+    ['Return the merge result to the Coordinator', 'Write a durable health report'],
+  ]) {
+    assert.ok(spawn.includes(before));
+    assert.throws(() => prompt(spawn.replace(before, after)), assert.AssertionError);
+  }
+  for (const forbidden of [
+    'ORCHESTRATION LOG: Write `orchestration-log/session.md`.',
+    'SESSION LOG: Write `log/session.md`.',
+    'CROSS-AGENT: Append specialist history.md.',
+    'HISTORY SUMMARIZATION [HARD GATE].',
+    'DECISIONS ARCHIVE [HARD GATE].',
+  ]) assert.throws(() => prompt(`${spawn}\n${forbidden}`), assert.AssertionError);
+  const archive = prose(reference.split('### Coordinator-only archival reference')[1] || '');
+  assert.match(archive,
+    /For non-local storage, checkout tracking is not a persistence requirement: do not run this Git gate/);
+  assert.match(archive,
+    /require a successful persistence acknowledgement, and re-read the destination through that backend before removing any source entries/);
+});
+
+test('delegated merge requirements resolve active rules and current-head evidence', () => {
+  assert.match(read('.squad/governance.md'),
+    /Repository merge requirements remain in `\.github\/PR_REQUIREMENTS\.md`/);
+  assert.match(read('AGENTS.md'), /^## CI\/CD$/m);
+  assert.match(read('AGENTS.md'), /gh api repos\/microsoft\/waza\/rules\/branches\/main/);
+  const good = read('.github/PR_REQUIREMENTS.md');
+  const validate = (text) => {
+    const source = prose(text);
+    assert.match(source, /AGENTS\.md#cicd/);
+    assert.match(source, /gh api repos\/microsoft\/waza\/rules\/branches\/main/);
+    assert.match(source, /status contexts and enforced integration IDs to actual check runs/);
+    assert.match(source, /passing applicable checks on the current PR head/);
+    assert.match(source, /After any source or base update, refresh the head, checks, and review evidence/);
+    assert.match(source, /approval override never waives failing checks or unresolved work/);
+    assert.doesNotMatch(source, /Build and Test Go Implementation|Lint Go Code/);
+  };
+  validate(good);
+  for (const [before, after] of [
+    ['gh api repos/microsoft/waza/rules/branches/main', 'use the copied workflow names'],
+    ['current PR head', 'an earlier PR head'],
+    ['approval override never waives failing', 'approval override waives failing'],
+  ]) {
+    assert.ok(good.includes(before));
+    assert.throws(() => validate(good.replace(before, after)), assert.AssertionError);
+  }
+  assert.throws(() => validate(`${good}\nRequire Build and Test Go Implementation.`),
+    assert.AssertionError);
+});
+
+test('actual Init Mode seeds governance-aligned Fact Checker charter and review policies', (t) => {
+  const init = read('.github/skills/coordinator-init-mode/SKILL.md');
+  const seeds = [...init.matchAll(/`([^`]+)` is seeded from `([^`]+)`/g)]
+    .map((match) => ({ destination: match[1], template: match[2] }));
+  assert.deepEqual(seeds, [
+    { destination: '.squad/agents/rai/charter.md', template: 'Rai-charter.md' },
+    { destination: '.squad/rai/policy.md', template: 'rai-policy.md' },
+    { destination: '.squad/agents/fact-checker/charter.md', template: 'fact-checker-charter.md' },
+    { destination: '.squad/fact-checker/policy.md', template: 'fact-checker-policy.md' },
+  ]);
+  assert.match(prose(init), /Waza reviewer seeding override \(Squad only\)/);
+  assert.match(init, /not pristine upstream replacements/);
+  assert.match(init, /Ordinary Copilot work does/);
+  const scratch = fs.mkdtempSync(path.join(root, '.squad-governance-test-'));
+  t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  for (const { destination, template } of seeds) {
+    assert.ok(fs.readdirSync(path.join(root, '.squad/templates')).includes(template),
+      `case-exact tracked template: ${template}`);
+    const source = path.join(root, '.squad/templates', template);
+    const target = path.join(scratch, destination);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(source, target);
+    assert.deepEqual(fs.readFileSync(target), fs.readFileSync(source));
+  }
+  const seededPolicy = fs.readFileSync(path.join(scratch, '.squad/fact-checker/policy.md'), 'utf8');
+  assertRejectionPolicy(seededPolicy.replace(/\r\n/g, '\n'));
+  const activeCharter = read('.squad/agents/fact-checker/charter.md');
+  const seededCharter = fs.readFileSync(path.join(scratch, '.squad/agents/fact-checker/charter.md'), 'utf8');
+  const activation = (text) => prose(text.split('## Activation')[1].split('## Output')[0]).trim();
+  assert.equal(activation(seededCharter), activation(activeCharter));
+  for (const member of ['rai', 'fact-checker']) {
+    const seeded = fs.readFileSync(path.join(scratch, `.squad/agents/${member}/charter.md`), 'utf8');
+    const active = read(`.squad/agents/${member}/charter.md`);
+    assertCharter(seeded);
+    assertCharter(active);
+    const output = (text) => prose(text.split('## Output')[1].split('## Boundaries')[0]).trim();
+    assert.equal(output(seeded), output(active));
+    assert.equal(activation(seeded), activation(active));
+    const policy = fs.readFileSync(path.join(scratch, `.squad/${member}/policy.md`), 'utf8');
+    assertPolicy(policy);
+  }
+  assert.match(prose(read('.squad/governance.md')),
+    /different qualified revision owner.*does not implement, pair on, or advise.*focused rereview/);
+  assert.match(prose(fs.readFileSync(path.join(scratch, '.squad/rai/policy.md'), 'utf8')),
+    /different qualified revision owner.*not the locked-out author or rejecting gate.*concrete counter-evidence.*does not implement, pair on, or advise.*focused rereview/);
+});
+
+test('reviewer consistency matrix covers active and seeded roles, policies, gates, outputs and callers', (t) => {
+  for (const file of charterFiles) assertCharter(read(file));
+  for (const file of policyFiles) assertPolicy(read(file));
+  for (const file of [...policyFiles, ...callerFiles]) {
+    const text = read(file);
+    assertClearance(text);
+    assertPersistence(text);
+    assert.match(prose(text), /different qualified revision owner/, file);
+    assert.match(prose(text), /ordinary Copilot work|ordinary Copilot workflow/i, file);
+  }
+  for (const file of ['.github/agents/squad.agent.md', '.squad/templates/squad.agent.md.template']) {
+    const source = read(file);
+    for (const [start, end] of [
+      ['## Rai — RAI Reviewer', '## Fact Checker —'],
+      ['## Fact Checker —', '## PRD Mode'],
+    ]) {
+      const role = source.split(start)[1].split(end)[0];
+      assertClearance(role);
+      assertPersistence(role);
+      assert.match(prose(role), /on request or selection as a bounded gate, never automatic review/);
+      assert.doesNotMatch(role, /spawned automatically|runs in background by default|auto-trigger|audit-trail\.md|history\.md|inbox\/fact-checker-/);
+      assert.match(prose(role), /ordinary Copilot work/);
+    }
+    t.diagnostic(`${file}: both roles agree on bounded activation, gate clearance and output ownership`);
+  }
+  const protocol = prose(read('.github/skills/reviewer-protocol/SKILL.md'));
+  assert.match(protocol, /locked-out author may NOT contribute.*not as a co-author, advisor, or pair/);
+  assert.match(protocol, /Quality Engineer reviews v2 → approves/);
+  assertStateOwnership(read('.github/skills/coordinator-source-of-truth/SKILL.md'));
+  t.diagnostic(`Consistency matrix: ${charterFiles.length} active/template charters, ${policyFiles.length} policies, ${callerFiles.length} callers, explicit state ownership and both coordinator role sections`);
+});
+
+test('reviewer contracts reject permanent gate lockout, self-revision, authoring and forbidden persistence', () => {
+  for (const file of charterFiles) {
+    const good = read(file);
+    for (const [before, after] of [
+      ['may issue approval/PASS', 'must never approve the immediate revision'],
+      ['does not implement, advise, or pair on', 'implements, advises, and pairs on'],
+      ['neither the locked-out author\nnor the rejecting gate', 'including the locked-out author or rejecting gate'],
+      ['original author remains locked out', 'original author may self-revise'],
+      ['Do not create histories,\naudit trails, verification logs, proposals, or decision-inbox entries.',
+        'Create histories, audit trails and decision-inbox entries.'],
+      ['not native repository approval, merge or publishing authority', 'native repository approval and merge authority'],
+    ]) {
+      assert.ok(good.includes(before), `${file}: negative control source`);
+      assert.throws(() => assertCharter(good.replace(before, after)), assert.AssertionError);
+    }
+  }
+  for (const file of policyFiles) {
+    const good = read(file);
+    assertPolicy(good);
+    for (const [before, after] of [
+      ['Charter output/persistence restrictions take precedence', 'Policy overrides charter output restrictions'],
+      ['Only an authorized coordinator or Scribe handles required persistence', 'Reviewer must write audit trails and decision-inbox entries'],
+    ]) {
+      assert.ok(good.includes(before), file);
+      assert.throws(() => assertPersistence(good.replace(before, after)), assert.AssertionError);
+    }
+    assert.throws(() => assertPersistence(`${good}\nAll findings are logged by Fact Checker.`),
+      assert.AssertionError);
+    assert.throws(() => assertPolicy(`${good}\nReviewer runs in background by default.`),
+      assert.AssertionError);
+  }
+  const ownership = read('.github/skills/coordinator-source-of-truth/SKILL.md');
+  assertStateOwnership(ownership);
+  for (const member of ['rai', 'fact-checker']) {
+    for (const file of ['policy.md', 'audit-trail.md']) {
+      const row = ownership.split('\n').find((line) => line.startsWith(`| \`.squad/${member}/${file}\` |`));
+      const cells = row.split('|');
+      const bad = row.replace(cells[3], ` ${member} (append only) `);
+      assert.throws(() => assertStateOwnership(ownership.replace(row, bad)), assert.AssertionError);
+    }
+  }
+  assert.throws(() => assertStateOwnership(ownership.replace('only where charter permits', 'always')),
+    assert.AssertionError);
+});
+
+test('source contract rejects re-admitted authors, reviewer pairing and missing rejection evidence', () => {
+  const good = read('.squad/templates/fact-checker-policy.md');
+  assertRejectionPolicy(good);
+  for (const [before, after] of [
+    ['different qualified revision owner', 'original author'],
+    ['does not implement, pair on, or advise', 'pairs on and implements'],
+    ['concrete counter-evidence', 'unsupported assertions'],
+  ]) {
+    assert.ok(good.includes(before));
+    assert.throws(() => assertRejectionPolicy(good.replace(before, after)), assert.AssertionError);
+  }
+});
+
+test('active and delivered rejection callers preserve independent ownership and focused rereview', () => {
+  for (const file of [
+    '.github/agents/squad.agent.md',
+    '.squad/templates/squad.agent.md.template',
+    '.github/skills/reviewer-protocol/SKILL.md',
+    '.github/skills/agent-collaboration/SKILL.md',
+    '.squad/templates/rai-policy.md',
+    '.squad/templates/workflow-wiring-guide.md',
+    '.squad/templates/workflow-wiring-appendix-a-code-reviewer.md',
+    '.squad/templates/issue-lifecycle.md',
+  ]) {
+    const text = prose(read(file));
+    assert.match(text, /different qualified revision owner/, file);
+    assert.match(text, /concrete counter-evidence/, file);
+    assert.match(text, /focused rereview/i, file);
+    assert.doesNotMatch(text,
+      /original author addresses feedback|\{Author\} revises|Pair mode|pair-mode guidance|enters pair mode/i, file);
+  }
+});

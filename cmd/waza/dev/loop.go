@@ -48,7 +48,11 @@ func runDev(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return errors.New("skill name or path required with --scaffold-triggers")
 		}
-		return runScaffoldTriggers(cmd, args[0])
+		skillDir, err := resolveSkillDir(args[0], pcfg)
+		if err != nil {
+			return err
+		}
+		return runScaffoldTriggers(cmd, skillDir)
 	}
 
 	copilotMode, err := cmd.Flags().GetBool("copilot")
@@ -135,31 +139,9 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return errors.New("skill name or path required (or use --all)")
 	}
 
-	skillDir := args[0]
-
-	// If arg looks like a skill name (not a path), resolve via workspace
-	if !workspace.LooksLikePath(skillDir) {
-		wd, wdErr := os.Getwd()
-		if wdErr != nil {
-			return fmt.Errorf("getting working directory: %w", wdErr)
-		}
-		ctx, ctxErr := workspace.DetectContext(wd, workspace.WithSkillsDir(pcfg.Paths.Skills), workspace.WithEvalsDir(pcfg.Paths.Evals), workspace.WithEvalFile(pcfg.Files.EvalFile))
-		if ctxErr != nil {
-			return fmt.Errorf("detecting workspace: %w", ctxErr)
-		}
-		si, findErr := workspace.FindSkill(ctx, skillDir)
-		if findErr != nil {
-			return findErr
-		}
-		skillDir = si.Dir
-	}
-
-	if !filepath.IsAbs(skillDir) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("getting working directory: %w", err)
-		}
-		skillDir = filepath.Join(wd, skillDir)
+	skillDir, err := resolveSkillDir(args[0], pcfg)
+	if err != nil {
+		return err
 	}
 
 	cfg := &devConfig{
@@ -593,38 +575,7 @@ func writeSkillFile(skill *skill.Skill) error {
 
 // runScaffoldTriggers reads a skill's SKILL.md, parses trigger phrases from
 // the description frontmatter, and writes tests/trigger_tests.yaml.
-func runScaffoldTriggers(cmd *cobra.Command, skillArg string) error {
-	skillDir := skillArg
-
-	// Resolve skill name to directory if it doesn't look like a path.
-	if !workspace.LooksLikePath(skillDir) {
-		wd, wdErr := os.Getwd()
-		if wdErr != nil {
-			return fmt.Errorf("getting working directory: %w", wdErr)
-		}
-		scfg, _ := projectconfig.Load(wd)
-		if scfg == nil {
-			scfg = projectconfig.New()
-		}
-		ctx, ctxErr := workspace.DetectContext(wd, workspace.WithSkillsDir(scfg.Paths.Skills), workspace.WithEvalsDir(scfg.Paths.Evals), workspace.WithEvalFile(scfg.Files.EvalFile))
-		if ctxErr != nil {
-			return fmt.Errorf("detecting workspace: %w", ctxErr)
-		}
-		si, findErr := workspace.FindSkill(ctx, skillDir)
-		if findErr != nil {
-			return findErr
-		}
-		skillDir = si.Dir
-	}
-
-	if !filepath.IsAbs(skillDir) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("getting working directory: %w", err)
-		}
-		skillDir = filepath.Join(wd, skillDir)
-	}
-
+func runScaffoldTriggers(cmd *cobra.Command, skillDir string) error {
 	// Read SKILL.md
 	skillPath := filepath.Join(skillDir, "SKILL.md")
 	data, err := os.ReadFile(skillPath)

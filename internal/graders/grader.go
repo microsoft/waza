@@ -35,9 +35,12 @@ type Context struct {
 	TestCase   *models.TestCase
 	Transcript []models.TranscriptEvent
 	Output     string
-	Outcome    map[string]any
-	DurationMS int64
-	Metadata   map[string]any
+	// OutputPresent opts independent prompt grading into byte-exact injection,
+	// including an explicitly present empty output. False preserves legacy rendering.
+	OutputPresent bool
+	Outcome       map[string]any
+	DurationMS    int64
+	Metadata      map[string]any
 
 	// WorkspaceDir is the sandbox folder we used for this session - it should contain any edits
 	// or other changes we've made. This can be useful for things like the [FileGrader],
@@ -62,6 +65,9 @@ type Context struct {
 	// legacy SessionDigest.ToolCalls only has typed built-in fields.
 	ToolEvents []models.ToolEvent
 
+	// HostLifecycle holds model-turn and host shell evidence; nil means unavailable.
+	HostLifecycle *models.HostLifecycle
+
 	// CommandInvocations holds sanitized arguments for mocked CLI calls.
 	CommandInvocations []models.CommandInvocation
 
@@ -78,7 +84,13 @@ type Context struct {
 
 	// Executor runs model-backed grader prompts through the same execution layer
 	// as task prompts. Only prompt graders require it.
-	Executor Executor
+	Executor            Executor
+	EvidenceExecutor    Executor
+	JudgeModelFallback  string
+	JudgeEvidence       *models.JudgeEvidence
+	JudgeOrigin         models.EvidenceOrigin
+	RecordPromptJudging func(models.PromptJudgeObservation)
+	JudgingPurpose      string
 
 	RecordUsage func(models.SessionDigest)
 	// RecordResponseUsage preserves the engine's cumulative/per-turn semantics.
@@ -100,6 +112,8 @@ func Create(identifier string, params models.GraderParameters) (Grader, error) {
 // that legacy constructors defer until Grade; Create retains its behavior.
 func ValidateConfig(identifier string, params models.GraderParameters) error {
 	switch p := params.(type) {
+	case models.ProgramGraderParameters:
+		return validateProgramParameters(identifier, p)
 	case models.InlineScriptGraderParameters:
 		if len(p.Assertions) == 0 {
 			return fmt.Errorf("code grader %q has no assertions", identifier)

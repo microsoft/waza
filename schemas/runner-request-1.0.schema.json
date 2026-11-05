@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/runner-request-1.0.schema.json",
+  "title": "Waza single-unit runner request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "versions", "required_capabilities", "optional_capabilities", "run_key", "selection", "input", "timeout_ms", "allow_paid_execution"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "versions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"}},
+    "required_capabilities": {"$ref": "#/$defs/capabilities"},
+    "optional_capabilities": {"$ref": "#/$defs/capabilities"},
+    "run_key": {"$ref": "#/$defs/key"},
+    "selection": {"$ref": "#/$defs/selection"},
+    "input": {
+      "type": "object", "additionalProperties": false,
+      "required": ["shard", "eval", "task"],
+      "properties": {
+        "shard": {"$ref": "#/$defs/key"},
+        "eval": {"type": "string", "minLength": 1},
+        "task": {"type": "string", "minLength": 1}
+      }
+    },
+    "timeout_ms": {"type": "integer", "minimum": 1, "maximum": 86400000},
+    "allow_paid_execution": {"type": "boolean"}
+  },
+  "$defs": {
+    "key": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "capabilities": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"}
+    },
+    "selection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["shard", "task", "trial", "attempt"],
+      "properties": {
+        "shard": {"$ref": "#/$defs/key"}, "task": {"$ref": "#/$defs/key"},
+        "trial": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "attempt": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+      }
+    }
+  }
+}

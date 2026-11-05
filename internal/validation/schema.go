@@ -79,8 +79,10 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 	// any schema validation errors in addition to the YAML parsing error for
 	// the "tasks" field, but we won't attempt to validate any tasks.
 	var spec struct {
-		Tasks  []string `yaml:"tasks"`
-		Config struct {
+		Tasks         []string `yaml:"tasks"`
+		SchemaVersion string   `yaml:"schemaVersion"`
+		Scenario      string   `yaml:"scenario"`
+		Config        struct {
 			Executor string `yaml:"executor"`
 		} `yaml:"config"`
 	}
@@ -105,12 +107,29 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 				continue
 			}
 			errs := ValidateTaskBytes(taskData)
+			version := spec.SchemaVersion
+			if version == "" {
+				version = models.CurrentSchemaVersion
+			}
+			if faultErr := models.ValidateTaskFaultSources(taskData, version); faultErr != nil {
+				errs = append(errs, faultErr.Error())
+			}
 			if len(errs) == 0 {
 				var task models.TestCase
 				if decodeErr := yaml.Unmarshal(taskData, &task); decodeErr != nil {
 					errs = append(errs, fmt.Sprintf("parsing task: %v", decodeErr))
-				} else if executorErr := task.ValidateForExecutor(spec.Config.Executor); executorErr != nil {
-					errs = append(errs, executorErr.Error())
+				} else {
+					if executorErr := task.ValidateForExecutor(spec.Config.Executor); executorErr != nil {
+						errs = append(errs, executorErr.Error())
+					}
+					if nameErr := models.ValidateMCPMockNames(task.MCPMocks); nameErr != nil {
+						errs = append(errs, nameErr.Error())
+					}
+					if len(task.MCPMocks) > 0 {
+						if versionErr := models.ValidateMCPMocksSchemaVersion(&models.EvalSpec{SchemaVersion: version, Scenario: spec.Scenario}); versionErr != nil {
+							errs = append(errs, versionErr.Error())
+						}
+					}
 				}
 			}
 			if len(errs) > 0 {

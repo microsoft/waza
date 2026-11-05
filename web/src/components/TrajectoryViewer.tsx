@@ -142,23 +142,25 @@ function TimelineRow({
   const [expanded, setExpanded] = useState(false);
   const kind = classifyEvent(event);
   const Icon = iconMap[kind];
+  const content = typeof event.content === "string" ? event.content : undefined;
+  const message = typeof event.message === "string" ? event.message : undefined;
 
   const description = event.toolName
     ? event.toolName
-    : event.content
-      ? event.content.length > 120
-        ? event.content.slice(0, 120) + "…"
-        : event.content
-      : event.message
-        ? event.message.length > 120
-          ? event.message.slice(0, 120) + "…"
-          : event.message
+    : content?.trim()
+      ? content.length > 120
+        ? content.slice(0, 120) + "…"
+        : content
+      : message?.trim()
+        ? message.length > 120
+          ? message.slice(0, 120) + "…"
+          : message
         : event.type;
 
   // Determine if there is expandable content
   const hasContent =
-    event.content ||
-    event.message ||
+    content ||
+    message ||
     event.arguments !== undefined ||
     event.toolResult !== undefined;
 
@@ -211,9 +213,9 @@ function TimelineRow({
         {expanded && (
           <div className="space-y-2">
             {/* Full message / content */}
-            {(event.content || event.message) && (
+            {(content || message) && (
               <pre className="max-h-64 overflow-auto rounded bg-zinc-900 p-2.5 text-xs text-zinc-300">
-                <code>{event.content ?? event.message}</code>
+                <code>{content ?? message}</code>
               </pre>
             )}
 

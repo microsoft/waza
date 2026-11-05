@@ -44,6 +44,9 @@ const (
 )
 
 type gateOptions struct {
+	releaseSelected  bool
+	releasePolicy    string
+	collectionDir    string
 	baselinePath     string
 	currentPath      string
 	maxRegressionPct float64
@@ -87,6 +90,7 @@ type GoldenStatus struct {
 }
 
 func newGateCommand() *cobra.Command {
+	var assurance assuranceFlags
 	opts := &gateOptions{
 		maxRegressionPct: 0,
 		goldenMustPass:   true,
@@ -113,7 +117,13 @@ Exit codes (stable):
 
 Golden failures take precedence over plain regressions. Tasks are marked
 golden by adding 'golden: true' to the task YAML; the flag is persisted to
-results.json so the gate can read it without re-loading YAML.`,
+results.json so the gate can read it without re-loading YAML.
+
+Explicit --release-policy and --collection-dir select a separate fixed-design
+paired-collection assessment. Rejected, invalid, incomplete or inconclusive
+selected policies exit 1 with distinct decision dimensions. Do not combine
+this mode with legacy baseline/current/threshold/golden/task-set flags.
+Without explicit policy selection all default gate behavior/exits above remain.`,
 		Example: `  # Fail the build on ANY drop in pass rate (default --max-regression-pct=0),
   # or if any golden task fails.
   waza gate --baseline baseline.json --current results.json
@@ -130,11 +140,25 @@ results.json so the gate can read it without re-loading YAML.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts.releaseSelected = cmd.Flags().Changed("release-policy") || cmd.Flags().Changed("collection-dir") || assurance.assessmentSelected(cmd)
+			if opts.releaseSelected || opts.releasePolicy != "" || opts.collectionDir != "" {
+				for _, flag := range []string{"baseline", "current", "max-regression-pct", "golden-must-pass", "on-new-tasks", "on-removed-tasks"} {
+					if cmd.Flags().Changed(flag) {
+						return &ExitCodeError{Code: 1, Err: fmt.Errorf("selected release policy cannot be combined with legacy --%s", flag)}
+					}
+				}
+			}
+			if assurance.assessmentSelected(cmd) {
+				return runAssuredAssessment(cmd, &assurance, opts.releasePolicy, opts.collectionDir, opts.format)
+			}
 			return runGate(cmd.OutOrStdout(), opts)
 		},
 	}
 
 	f := cmd.Flags()
+	f.StringVar(&opts.releasePolicy, "release-policy", "", "Explicit independently versioned release policy; selected rejection/inconclusive/invalid exits 1")
+	f.StringVar(&opts.collectionDir, "collection-dir", "", "New paired collection directory required with --release-policy (no historical adoption)")
+	assurance.flags(cmd, true)
 	f.StringVar(&opts.baselinePath, "baseline", "", "Path to the baseline results.json (required)")
 	f.StringVar(&opts.currentPath, "current", "", "Path to the candidate results.json (required)")
 	f.Float64Var(&opts.maxRegressionPct, "max-regression-pct", opts.maxRegressionPct,
@@ -152,6 +176,9 @@ results.json so the gate can read it without re-loading YAML.`,
 }
 
 func runGate(out io.Writer, opts *gateOptions) error {
+	if opts.releaseSelected || opts.releasePolicy != "" || opts.collectionDir != "" {
+		return runControlledAssessment(out, opts.releasePolicy, opts.collectionDir, opts.format)
+	}
 	if err := validateGateOptions(opts); err != nil {
 		return &ExitCodeError{Code: GateExitConfigError, Err: err}
 	}

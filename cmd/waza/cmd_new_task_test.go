@@ -155,6 +155,7 @@ func TestNewTaskFromPromptCommand_CopilotInitErrorReturned(t *testing.T) {
 	client := NewMockCopilotClient(ctrl)
 
 	client.EXPECT().Start(gomock.Any()).Return(errors.New("engine failed to initialize"))
+	client.EXPECT().Stop().Times(1).Return(nil)
 
 	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
 		NewTaskList: func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },

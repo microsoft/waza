@@ -1,0 +1,1164 @@
+[
+  {
+    "name": "baseline",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "434e396a2372622cb6b3b6dfc398246de7fd37ca4072432e95eb2585938086cc",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-8447bf1a46a0bc5b36908ca579448f47da972acdeb151c66905fa6f169f521ca",
+      "trial": "trial-98cce55c504fe23478e6afeeeae33d93a61ccb507bf8d41ef5e4c74cbf48c59a",
+      "attempt": "attempt-4e3af06559069ae2d27e3e6ac48daa14295ace300acd82bbe007c4606988ebf0"
+    }
+  },
+  {
+    "name": "presentation-equivalent",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "# same declarations\r\n{tasks: [\"ignored/*.yaml\"], config: {max_attempts: 0x3, trials_per_task: 03, model: mock-model, executor: mock}, name: Identities, scenario: identities, schemaVersion: \"2.0\"}\r\n",
+        "task": "---\r\ninputs:\r\n  prompt: \"he\\u006clo\"\r\nname: Selected\r\nid: selected\r\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "434e396a2372622cb6b3b6dfc398246de7fd37ca4072432e95eb2585938086cc",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-8447bf1a46a0bc5b36908ca579448f47da972acdeb151c66905fa6f169f521ca",
+      "trial": "trial-98cce55c504fe23478e6afeeeae33d93a61ccb507bf8d41ef5e4c74cbf48c59a",
+      "attempt": "attempt-4e3af06559069ae2d27e3e6ac48daa14295ace300acd82bbe007c4606988ebf0"
+    }
+  },
+  {
+    "name": "run-key",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "another-run",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "452345d899d702541bdb1a5a227f1c283d5eb9df8a26aa336e7b45576609e570",
+      "run": "run-936ef68ebb6a1ffa2b0289cc4fe37cd5541d2ec877b4fefdf45412fb0b2452d5",
+      "shard": "shard-90d91f83e4a80a080b011cfb92a99cf4f9d330454ae3b198013a61f55607fcd0",
+      "task": "task-cb75d9058f167f018328ed40a6af3b134b35953beedbc7f5629ff0a4fc383b6b",
+      "trial": "trial-cebee773a99ec40e034b6a8d17436c14d9909988b680d86cdf0f272a2810700b",
+      "attempt": "attempt-e204c98d46350f2a1056b16cb5ff9a28554840fa6b2c02ec33fec363d9f7a46b"
+    }
+  },
+  {
+    "name": "timeout",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60001,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "fd176bd84c45c4b761c3774f288052dbc203dc1fcf0614498a59d44e8d53792a",
+      "run": "run-cbcac122a1a3a1beefaca117c6b1e5e9ba3566aeca52a7893bf8ba2ca273aed5",
+      "shard": "shard-571f4bde12cba6c5490633e569d7afc5737832d08d4b2671cf75953e2355ef21",
+      "task": "task-814738487feeebb0aa6cc9f113c7e4231aa3d9f243053aeff0236751379fd2d6",
+      "trial": "trial-e4fca7decf3347e37bccb75ae69c9ed55b4f66c29ab11cbfb7a15e50fdb32ebf",
+      "attempt": "attempt-66a5b9cbec59be37faa6baf5ebe2fb34d83b7451d66c32b658f87f3a2b237a1f"
+    }
+  },
+  {
+    "name": "eval-source",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: other-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models11:other-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "3accf1539bc43367a3674a5d4e4fbd5a22a75480bc2809808b484e8d95ec2fe2",
+      "run": "run-def6de23cc808f35681ca7c96626115da4c1f03a931c50533f138c7cf2b3fd7f",
+      "shard": "shard-a6c879e887162704f32b157162e6800c9c358506ceb4385c3dc644c9032a4824",
+      "task": "task-5eb97545c88f46badb2d3de86aba63c6ceb04dca0b781a7509368c3f02414e9e",
+      "trial": "trial-100b0e1f7c32c6ac29ae67786bf54d9453ba83a0c6250f68f9da72902c07899e",
+      "attempt": "attempt-113810e22c11e5591ac9155900d3ee704f965f1bcfd304f5db6c3f18c0edd785"
+    }
+  },
+  {
+    "name": "shard",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-b",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-b",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "4ae0b1e5d4912af8775e924d7df6012fcbfb6e394983a496542c4b4964fb8b37",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-01df7b940b2419a3e1aaa60425b3ca9e2c0269f694242ad0f40f4319ad4cd1ea",
+      "task": "task-ccb275ce8dc13e841694932b07559b645b5b21ba63d29b5f2b01b12ca052f6a4",
+      "trial": "trial-38a737fce0430bb49eb4d6ab11ca65c45eaf3c4e023d121905022e77db4d3867",
+      "attempt": "attempt-f229e55221d685f0be9c668a571533a77d9b3110ae215823e1bb47f62248ceea"
+    }
+  },
+  {
+    "name": "task-source",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: goodbye}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts7:goodbyes4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "5c49ce31f560f01ab824e2051035e285b87eb327347c6714ffe75af47bcbcbb7",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-44bddfee6538d53f3eaf84024814d33383d6cc86ed7aea17ee147bdea66c84f5",
+      "trial": "trial-5a8de4a85c75a58d5bd851a06466c504d06cb453bda57e269dc3c8328d65d454",
+      "attempt": "attempt-4b55f768c15f20b05b7016d40f32263308987788d770e37d0e4914026a218154"
+    }
+  },
+  {
+    "name": "task-key",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "other",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: other\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids5:others6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "171d75ac39d006332b189ee8d9e0dcec594c2bf613a949a7a467146e5b00e3c6",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-aa3eae0a64c9d76d8b945637cfed0ce19118255aaf475fa862346fd6d228ba74",
+      "trial": "trial-b9f8b26356383e70b670760fd1e8c6ace15b8c63dff30d5cc2ec1d859e3770b6",
+      "attempt": "attempt-dab2c97ad7cc20b5d0baeddba34381f1ae3bd840243670530e7fb06400f70c77"
+    }
+  },
+  {
+    "name": "trial",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "7a6ca7a9c42144f4249bbc844659d887095018a6afdc0a7a765d53f4e066dab2",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-8447bf1a46a0bc5b36908ca579448f47da972acdeb151c66905fa6f169f521ca",
+      "trial": "trial-662b6f02b4192125e2324de54c301850c2a098887b7c7b94d5f72a43e8a624e7",
+      "attempt": "attempt-03a5da938c97a2c568905f34903500a4f9ce12326556d9846f784144fc1f29d4"
+    }
+  },
+  {
+    "name": "attempt",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 2
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "90d898d67c4e2bd12c44ac4335f86ffc98929c1ec41c184275ccbe426873ad55",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-8447bf1a46a0bc5b36908ca579448f47da972acdeb151c66905fa6f169f521ca",
+      "trial": "trial-98cce55c504fe23478e6afeeeae33d93a61ccb507bf8d41ef5e4c74cbf48c59a",
+      "attempt": "attempt-8d6be4cbff74eccf97a38e9ef7e78b9608fa39ad99e0a2f543e032eb91a96f63"
+    }
+  },
+  {
+    "name": "negotiation-only",
+    "profile": "exact-unit",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "9.0",
+        "1.0"
+      ],
+      "required_capabilities": [
+        "negotiation"
+      ],
+      "optional_capabilities": [
+        "future"
+      ],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "id: selected\nname: Selected\ninputs: {prompt: hello}\n"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": true
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m3:s2:ids8:selecteds6:inputsm1:s6:prompts5:hellos4:names8:Selected",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "434e396a2372622cb6b3b6dfc398246de7fd37ca4072432e95eb2585938086cc",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-8447bf1a46a0bc5b36908ca579448f47da972acdeb151c66905fa6f169f521ca",
+      "trial": "trial-98cce55c504fe23478e6afeeeae33d93a61ccb507bf8d41ef5e4c74cbf48c59a",
+      "attempt": "attempt-4e3af06559069ae2d27e3e6ac48daa14295ace300acd82bbe007c4606988ebf0"
+    }
+  },
+  {
+    "name": "absent",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m0:",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "bc14d97c1e2b6dacda5dcd990322e0ac22b50abf06ac0baf50d82f5f887c3eed",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-95c25fe18eaf81dc6a60ea02aebad95cc0c872ceb4751210f19ac11360f7b705",
+      "trial": "trial-8ccb71a33984a3370c895a65cf86be702716c35a8f48b2e224b725f9ff402044",
+      "attempt": "attempt-a3ed6e48dadd1feb0ad0ae1d3cf494dd8d479b1d741389d849146d0efea26cb1"
+    }
+  },
+  {
+    "name": "null",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: null}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vn",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "c790460bf96001661c684f48b1f3c0baa6cab7d1ca5612fa119e359e2abe864c",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-7a7116da1bd1d0f8b1eceaac19d1a4ea788dbef0805e2dd23955ee2dfbc7ebd6",
+      "trial": "trial-43907cd8207e3aae058097c0b00add86b1198a2edb4a0ae5bd7b736faef24d2e",
+      "attempt": "attempt-7ea45d7c856f0cccba5a6d7430b7c8d4995ddee7e5647a25c257820a41b9fed7"
+    }
+  },
+  {
+    "name": "empty-string",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: \"\"}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vs0:",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "ffa4c24562b2de832260d92c947e1f66f9333c830cdb39f56f2d5048cbbea3c8",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-b99a4c5c1bddb535b0c42f6fbbfb0796c2a7bf4ba7ea3c463d381b675972cc71",
+      "trial": "trial-35e50468578d653c44674298d4323ec2a9cf2f036cc8b2f98adae3ddcc60beef",
+      "attempt": "attempt-58f300c9bc94d07e219d36705cb2860026dafe1c9e760d00c7864338485cce2d"
+    }
+  },
+  {
+    "name": "false",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: false}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vb0",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "c9cb50d5fc88d7c446ab83981f85971e36b2d1bde44d0f07585f66f09543f202",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-645c3d7b0cd8bd5447ecc90b46b09b4fb8f3234c2ea198f4a902ae3c1cce73c3",
+      "trial": "trial-50ee994dfd519c40d184fd3b4bb077a6a935022788674fd1b81ad28c8ce4a70b",
+      "attempt": "attempt-620afd193339b33389d4dc218f6438208073f44014ecfde5eb5dc27a0713b629"
+    }
+  },
+  {
+    "name": "zero-int",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: 0}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vi1:0",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "47b86d1fe2e9c6fedc7d8df350b00adbf00094103293b70dca871f081da01bc1",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-cf33547eaaaa0de96f5ae5ffbc7b94843d1d0351fe0ce0dca4bb1b9d25e29ebd",
+      "trial": "trial-c2afac8b274ea895fc2509ac7a9484fc775d5e5ee35354fbed4807fbebe14909",
+      "attempt": "attempt-96fc736cc5062acd7ac11db0d86a542fd01c3367f827f8546062423371c0881b"
+    }
+  },
+  {
+    "name": "zero-float",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: 0.0}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vf3:0e0",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "6eb5c5d137fb6a47ed5049a1b27b70cbd7555a7ae89f0153f038f73aa49536e1",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-666dd0af4af2b6209a4656f57f0c43c677739bf866338c34aac79226870b600f",
+      "trial": "trial-abcbc1550896b1de16155a3db2e2ecc613b00bb5fd8c8bc64156ca76ced2f8cc",
+      "attempt": "attempt-a4322e4ce07f5f7654921ef4c76ac6f24174fb720df04a54886247a60fc9b114"
+    }
+  },
+  {
+    "name": "negative-zero-float",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: -0.0}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vf4:-0e0",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "a2eab6dd9f48d4ad6cd156862f00f55e564a286c35e5deb123014244af9ad647",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-a78dae9922090a89afc92373f8e764a7ffbb25357a1a11fab89b295d0fd86334",
+      "trial": "trial-a2c58bec569de50e0c83770aa8ae3580b95f33359af27fd07a585e95fbdbbcb3",
+      "attempt": "attempt-3d33b8951416ba74411b28b8e61aec87df6187df7f24fd6c0f996b782fc01c6e"
+    }
+  },
+  {
+    "name": "empty-map",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: {}}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vm0:",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "9507c3a4d67996b88ec8e1ace3f97c702cfdb83bc0a375762de9edf0659f9974",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-fac96848fad51ac9aa5fb128abd5d0a71f1eac498d1effb01d677b61f04dbaed",
+      "trial": "trial-c79d1b9a2aba03c118b4b827139ba7f4842d28170b39303c96b52221e200ad92",
+      "attempt": "attempt-88c6278e54df64a524f0f53adc805574a44305d9df8f4a8bbf5075f12b34bd95"
+    }
+  },
+  {
+    "name": "empty-array",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: []}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:va0:",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "c4d9fd8c9e1ee917b1e995c3e715458371d5a2ba768ab9e9c1a33148ccee3190",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-ccc27fa06c2876519bf5072c491be3fd554d23504e852d708156f849c06fbbaf",
+      "trial": "trial-5e0b45f756ac8dfe7f79a3276237756cf69b27ed259cd1de6dd5e6804726316a",
+      "attempt": "attempt-85d29ca9eca6efa878d8ded798e5c92e7d973ded9138eff5d7be22f38247a565"
+    }
+  },
+  {
+    "name": "large-int",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: 9007199254740993}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vi16:9007199254740993",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "725ab9826489728d8a2c89715742df05f3e074aedf1593bdfc3f80692021ae48",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-6d7e037803868b92b3e9dcf2509d216cd00feefa186a65f66eca8e8a8e54fc83",
+      "trial": "trial-363da9e5c8ab696bc7546cd284ecc129b7dccddf596f52e3864b5f9197262928",
+      "attempt": "attempt-b106e893e0b751d4402c898fee9eccd35d665d3161079b1a8ac1c8c671127491"
+    }
+  },
+  {
+    "name": "nearby-large-int",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: 9007199254740992}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vi16:9007199254740992",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "e88c6f63c9e961169675a01becf3c47b84b92e36483a7e04953a6a2fa955d6f8",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-cd3de20edc5d7eec63a569c663ff1310a24d24939fb47a422a2e50dc309dd2b4",
+      "trial": "trial-ddd85393d36cab7b68f1c1d9518873a6a2b0995476c551aee5fd0b2b9352309d",
+      "attempt": "attempt-c71491683fa47db4b61d93c8ff0ad01e420737d0ba0e486f56f39e2f1fce3777"
+    }
+  },
+  {
+    "name": "decimal-precision",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: !!float 1.2345678901234567890123456789}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vf33:12345678901234567890123456789e-28",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "8778a26823d9306a804c9b8039d7979d44fac4e9cba104027c87adb75097ed2f",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-7d1a22658c21dbc1c996c95cb85abd74fbb6874ee4711d8f375e458d83569790",
+      "trial": "trial-ded16fd3c27206f4f90d9ac3831701b3528090bd59de4a418641c30bf5cac0bd",
+      "attempt": "attempt-0590cddb419c07dbe038e391411681dabcf98ed7dc72406062083b0575194620"
+    }
+  },
+  {
+    "name": "unicode-composed",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: \"\\u00e9\"}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vs2:é",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "ea49017dfa98f62517b5cf8cbc86db8531622a2a07ee1c568c9bd0046a159e88",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-deaa47bb7b0a8ed84c27c49ec9672dba45dd2c02fcf6995da15048b68c61af79",
+      "trial": "trial-5ca2efde693b73b49eb3c041e3fea7c20377952f8530921aeed41a5ab1074c7d",
+      "attempt": "attempt-ea080d87446fa52966a10bba7017e18bba7a4ef6e4ce158914f56d3af57112a0"
+    }
+  },
+  {
+    "name": "unicode-decomposed",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: \"e\\u0301\"}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vs3:é",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "38a01336b3274f32f5685245c82c2556b9369ed898bc052a1e158f3c63eac0cf",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-139fc3a6a8e9159c78cd6e2f7d2894c50e3f61782505fd05428954756c882fe4",
+      "trial": "trial-5da1c02583a16bf9332f2a85c5345fcfbec999d232b0e0f26ab1a2b00e159960",
+      "attempt": "attempt-2343f6c22fc6e27f764396b7bcbc2d9e1414af3f739cbcb58e12f6e1c33accf9"
+    }
+  },
+  {
+    "name": "text-lf",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: \"a\\nb\"}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vs3:a\nb",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "f9ec4f218ac37f2fb0b8121a99271600a810ecd8316346b2bafefc51ddb00b0b",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-c3cbd3b62e5abb949abb927564967286b843e25b71646492f2d51082ff63f66c",
+      "trial": "trial-5f00e6be1631a565b8b41788f069adf53e56221ad0f21d64608a9d2abfc73308",
+      "attempt": "attempt-7c555d18fe4db318a8e45bea166f897924d3bc7a6cf4d3c1597c2364c164a6ee"
+    }
+  },
+  {
+    "name": "text-crlf",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: \"a\\r\\nb\"}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:vs4:a\r\nb",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "6e7df690c6154996966d37a96536d26dfa28d3a15161eb3d6be93f6279673357",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-71a0367d89ce886e00f5b01758920a42c0477d582160baac4a3c458e1214350f",
+      "trial": "trial-89498613e5e49dcd380c7ee4098314cedfd3303809a0408e9722e38480a29167",
+      "attempt": "attempt-51f8557f762fd143c413e2c797eedb4bf6d852b8d5fae41a35b5f1c62be4f17e"
+    }
+  },
+  {
+    "name": "array-order-a",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: [a, b]}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:va2:s1:as1:b",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "02abc4a53b9454afc20fe0a26c608a13e7383b3c92c26a553cae4439d3c4957d",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-f7be8290455f452bdf20cae3ae38347ffd70d4495bf0b3ed723fdbb786f9c616",
+      "trial": "trial-831770e1e67b92b1be4a2d90592c7fc59129b21e3639d869477a915f748846bc",
+      "attempt": "attempt-7ea6642712bfa2a4681e7bf54a58d78c6e53f3149a88de32d51991babe203f45"
+    }
+  },
+  {
+    "name": "array-order-b",
+    "profile": "canonical-only",
+    "request": {
+      "schema_version": "1.0",
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "optional_capabilities": [],
+      "run_key": "identity-conformance",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 1,
+        "attempt": 1
+      },
+      "input": {
+        "shard": "shard-a",
+        "eval": "schemaVersion: \"2.0\"\nscenario: identities\nname: Identities\nconfig: {executor: mock, model: mock-model, trials_per_task: 3, max_attempts: 3}\ntasks: [\"ignored/*.yaml\"]\n",
+        "task": "{v: [b, a]}"
+      },
+      "timeout_ms": 60000,
+      "allow_paid_execution": false
+    },
+    "canonical_eval": "m5:s6:configm4:s8:executors4:mocks12:max_attemptsi1:3s5:models10:mock-models15:trials_per_taski1:3s4:names10:Identitiess8:scenarios10:identitiess13:schemaVersions3:2.0s5:tasksa1:s14:ignored/*.yaml",
+    "canonical_task": "m1:s1:va2:s1:bs1:a",
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "b9a805d7e7de3507fb7f7d6822866bf886c693433e0b3e9a15c9b6b9a626db7e",
+      "run": "run-ff5adf8cf43f40b44184ce7849fc702037a3b94df296e550435df497720c1c85",
+      "shard": "shard-3d97389cfd4aa1a6642658c6d0e46436647d5abcaaacf3c9cb4a0d43051123b0",
+      "task": "task-a0ac0d8aedacbe9f4f943c562aa52ac04b33ad24544547286a7f04bc4166c091",
+      "trial": "trial-d3620576503d1d2fd16c45d9068397bb8c5ad4966e37dac15ec14ddf0f5a620b",
+      "attempt": "attempt-35eaca6620ed8f646b49e6a1a4ededd3fd2fa03934a1049543b2d989c39cf9a0"
+    }
+  }
+]

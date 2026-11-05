@@ -69,9 +69,10 @@ func buildToolEvents(events []copilot.SessionEvent) []models.ToolEvent {
 				p.event.Result = normalizeResultValue(complete.Result)
 			}
 			if !p.event.Success {
-				// Include the result string as the error message when
-				// available so consumers don't have to dig into Result.
-				if s := stringifyResult(complete.Result); s != "" {
+				// Older completions carried errors only in their result.
+				if complete.Error != nil && complete.Error.Message != "" {
+					p.event.Error = complete.Error.Message
+				} else if s := stringifyResult(complete.Result); s != "" {
 					p.event.Error = s
 				}
 			}

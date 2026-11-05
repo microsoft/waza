@@ -6,6 +6,7 @@ import Search from 'virtual:starlight/components/Search';
 import SiteTitle from 'virtual:starlight/components/SiteTitle';
 import SocialIcons from 'virtual:starlight/components/SocialIcons';
 import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+import ChatWidget from './ChatWidget.astro';
 
 const shouldRenderSearch =
 	config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
@@ -38,6 +39,7 @@ const currentPath = Astro.url.pathname;
 	</nav>
 	<div class="sl-flex print:hidden">
 		{shouldRenderSearch && <Search />}
+		<ChatWidget />
 	</div>
 	<div class="sl-hidden md:sl-flex print:hidden right-group">
 		<div class="sl-flex social-icons">

@@ -2,20 +2,53 @@
   "universe_usage_history": [
     {
       "universe": "The Usual Suspects",
-      "timestamp": "2026-02-18T00:00:00Z",
-      "agents_in_use": 6,
-      "capacity": 6,
-      "agents": ["rusty", "linus", "basher", "livingston", "saul", "scribe"]
+      "used_at": "2026-02-18T00:00:00Z"
+    },
+    {
+      "universe": "Ocean's Eleven",
+      "used_at": "2026-10-15T19:07:46.602Z"
+    },
+    {
+      "universe": "Ocean's Eleven",
+      "used_at": "2026-10-28T17:51:06.508Z"
     }
   ],
   "assignment_cast_snapshots": {
     "2026-02-18": {
-      "timestamp": "2026-02-18T00:00:00Z",
       "universe": "The Usual Suspects",
-      "cast": ["rusty", "linus", "basher", "livingston", "saul", "scribe"],
-      "capacity_used": 6,
-      "capacity_available": 0,
-      "notes": "Initial team assembly for waza project"
+      "created_at": "2026-02-18T00:00:00Z",
+      "agents": [
+        "rusty",
+        "linus",
+        "basher",
+        "livingston",
+        "saul",
+        "scribe"
+      ]
+    },
+    "2026-10-15-squad-modernization": {
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-10-15T19:07:46.602Z",
+      "agents": [
+        "rusty",
+        "linus",
+        "basher",
+        "livingston",
+        "saul",
+        "turk",
+        "yen",
+        "danny",
+        "virgil"
+      ]
+    },
+    "member-add-tess-r2": {
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-10-28T17:51:06.508Z",
+      "agents": [
+        "tess"
+      ]
     }
-  }
+  },
+  "transaction_id": "ad3752ee-1f19-4bf6-85b4-c1e99c6266e4",
+  "registry_revision": 2
 }

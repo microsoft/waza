@@ -6,6 +6,8 @@ const navItems = [
   { href: "#/compare", label: "Compare", icon: GitCompareArrows },
   { href: "#/trends", label: "Trends", icon: TrendingUp },
   { href: "#/live", label: "Live", icon: Radio },
+  { href: "#/assurance", label: "Assurance" },
+  { href: "#/release", label: "Release policies", icon: GitCompareArrows },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {

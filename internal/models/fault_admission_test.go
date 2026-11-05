@@ -65,9 +65,13 @@ func TestFaultAdmissionScalarPresenceAndEligibility(t *testing.T) {
 	require.NoError(t, validateDeclaredFaults(document, ScenarioSchemaVersion, false))
 	require.NoError(t, validateDeclaredFaults(document, "", true), "standalone shape does not prove enclosing eval eligibility")
 	require.ErrorContains(t, validateDeclaredFaults(document, "1.4", false), "requires explicit")
-	tc, err := ParseTestCase(append([]byte("id: finite\ninputs: {prompt: test}\n"), document...), "task.yaml")
-	require.ErrorContains(t, err, "not registered")
-	require.Nil(t, tc, "intermediate source admission cannot silently ignore valid finite task configuration")
+	task := []byte("id: finite\nname: finite\ninputs: {prompt: test}\ncommand_mocks:\n  - name: probe\n    responses:\n      - args: []\n        sequence: [{exit_code: 0}]\n")
+	tc, err := ParseTestCase(task, "task.yaml")
+	require.NoError(t, err, "task documents have no independent version; enclosing eval admission happens in orchestration")
+	require.NotNil(t, tc.CommandMocks)
+	require.Len(t, *tc.CommandMocks, 1)
+	require.ErrorContains(t, ValidateTaskFaultSources(task, "1.4"), "requires explicit")
+	require.NoError(t, ValidateTaskFaultSources(task, ScenarioSchemaVersion))
 }
 
 func TestFaultAdmissionKeepsLegacyAndPayloadSemantics(t *testing.T) {

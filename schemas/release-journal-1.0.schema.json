@@ -1,0 +1,7 @@
+{
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/release-journal-1.0.schema.json",
+  "$ref": "release-artifacts-1.0.schema.json#/$defs/releasepolicy_Journal",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Generated structural schema. Normative numeric-token identity, conditional availability, ordered replay, source binding and statistical admission are additionally enforced by Waza's strict Go reader.",
+  "title": "waza.release-journal 1.0"
+}

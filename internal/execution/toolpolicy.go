@@ -233,8 +233,8 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 	case *copilot.PermissionRequestWorkflow:
 		return canonicalWorkflowToolName(req.Name), true
 	case *copilot.RawPermissionRequest:
-		// The bundled CLI 1.0.85 still emits "factory", which SDK 1.0.15
-		// preserves as raw JSON. Its fields match the renamed workflow type.
+		// Older external CLIs emit "factory", preserved by the SDK as raw
+		// JSON. Its fields match the renamed workflow type.
 		if req.Kind() != "factory" {
 			return "", false
 		}

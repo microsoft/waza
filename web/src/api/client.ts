@@ -111,17 +111,230 @@ export interface TaskResult {
   weightedScore?: number;
   duration: number;
   graderResults: GraderResult[];
+  dependencyModes?: { kind: string; name: string; mode: "live" | "mocked" }[];
+  commandInvocations?: {
+    command: string;
+    args?: string[];
+    exit_code?: number;
+    response_index: number;
+  }[];
   transcript?: TranscriptEvent[];
   sessionDigest?: SessionDigest;
   responder?: ResponderInfo;
   bootstrapCI?: BootstrapCI;
   passRateCI?: ConfidenceInterval;
   trials?: { passed: number; total: number };
+  evidenceRuns?: EvidenceRun[];
+  promptJudgingRuns?: PromptJudgingRun[];
+}
+
+export interface PromptJudgeUsage {
+  inputTokens: number;
+  outputTokens: number;
+  aiCredits?: number;
+}
+
+export interface PromptJudgeObservation {
+  grader: string;
+  state: string;
+  purpose: string;
+  submissionObserved: boolean;
+  inspection: "not_observable";
+  deliverySHA256?: string;
+  fileCount: number;
+  model?: string;
+  sessionID?: string;
+  durationMs: number;
+  usage?: PromptJudgeUsage;
+  diagnostics?: string[];
+}
+
+export interface PromptJudgingRun {
+  runNumber: number;
+  attempts: number;
+  cached: boolean;
+  assessment: string;
+  executionMode?: string;
+  bundleSHA256?: string;
+  coverage?: { section: string; availability: string; completeness: string; count?: number }[];
+  limits?: { max_files: number; max_file_bytes: number; max_bundle_bytes: number };
+  observations: PromptJudgeObservation[];
+  message: string;
+}
+
+export function canDisplayPromptJudging(run: PromptJudgingRun): boolean {
+  const keys = (value: object, allowed: string[]) => Object.keys(value).every((key) => allowed.includes(key));
+  const count = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+  const digest = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  const label = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_. /-]{0,127}$/.test(value);
+  if (!run || !keys(run, ["runNumber", "attempts", "cached", "assessment", "executionMode", "bundleSHA256", "coverage", "limits", "observations", "message"]) ||
+      !count(run.runNumber) || !count(run.attempts) || typeof run.cached !== "boolean" ||
+      !["recorded", "unavailable", "invalid", "unassessed"].includes(run.assessment) || typeof run.message !== "string" ||
+      !Array.isArray(run.observations)) return false;
+  if (run.assessment === "invalid" || run.assessment === "unassessed") return run.observations.length === 0 && !run.bundleSHA256 && !run.coverage && !run.limits && !run.executionMode;
+  if (!digest(run.bundleSHA256) || !["live", "mock", "unknown"].includes(run.executionMode ?? "") ||
+      !run.limits || !keys(run.limits, ["max_files", "max_file_bytes", "max_bundle_bytes"]) ||
+      run.limits.max_files !== 64 || run.limits.max_file_bytes !== 65536 || run.limits.max_bundle_bytes !== 262144 ||
+      !Array.isArray(run.coverage) || run.coverage.length !== 5 ||
+      new Set(run.coverage.map((section) => section?.section)).size !== 5) return false;
+  if (!run.coverage.every((section) => section && keys(section, ["section", "availability", "completeness", "count"]) &&
+      ["task", "output", "messages", "tool_events", "files"].includes(section.section) &&
+      ["captured", "unavailable"].includes(section.availability) &&
+      ["complete", "incomplete", "unknown"].includes(section.completeness) &&
+      (section.count === undefined || count(section.count)))) return false;
+  return run.observations.every((observation) => observation &&
+    keys(observation, ["grader", "state", "purpose", "submissionObserved", "inspection", "deliverySHA256", "fileCount", "model", "sessionID", "durationMs", "usage", "diagnostics"]) &&
+    label(observation.grader) && ["prepared", "submitted", "failed", "invalid"].includes(observation.state) &&
+    ["run", "regrade", "unknown"].includes(observation.purpose) &&
+    typeof observation.submissionObserved === "boolean" && observation.inspection === "not_observable" &&
+    (observation.deliverySHA256 === undefined || digest(observation.deliverySHA256)) &&
+    (observation.state !== "submitted" || (observation.submissionObserved && digest(observation.deliverySHA256))) &&
+    count(observation.fileCount) && count(observation.durationMs) &&
+    [observation.model, observation.sessionID].every((value) => value === undefined || label(value)) &&
+    (observation.usage === undefined || (observation.usage !== null &&
+      keys(observation.usage, ["inputTokens", "outputTokens", "aiCredits"]) &&
+      count(observation.usage.inputTokens) && count(observation.usage.outputTokens) &&
+      (observation.usage.aiCredits === undefined || (Number.isFinite(observation.usage.aiCredits) && observation.usage.aiCredits >= 0)))) &&
+    (observation.diagnostics === undefined || (Array.isArray(observation.diagnostics) &&
+      observation.diagnostics.every((code) => ["invalid_observation", "invalid_evidence", "judge_failed", "judge_policy_denied"].includes(code)))));
+}
+
+export interface EvidenceOrigin {
+  eval_id: string;
+  task_id: string;
+  run_number: number;
+  attempt_count: number;
+  prior_attempts: string;
+}
+
+export interface EvidenceReference {
+  origin: EvidenceOrigin;
+  artifact_id: string;
+  pointer?: string;
+}
+
+export interface EvidenceManifest {
+  version: string;
+  sha256: string;
+  source_manifest_sha256?: string;
+  origin: EvidenceOrigin;
+  runtime: {
+    waza_version: string;
+    requested_engine: string;
+    requested_model: string;
+    execution_mode: string;
+    dependency_mode: string;
+    requested_policy: string;
+    verified_enforcement: string;
+    go_version: string;
+    platform: string;
+    sdk_version: string | null;
+    effective_model_version: string | null;
+    no_skills: boolean | null;
+    native_skill_control: "unknown" | "sdk_default" | "requested_sdk_disable" | "mock_not_applicable";
+  };
+  redaction: { policy: string; applied_rules?: string[]; match_count: number; limitations: string[] | null };
+  artifacts: {
+    id: string;
+    kind: string;
+    availability: string;
+    completeness: string;
+    document?: string;
+    pointer?: string;
+    content_digest?: { sha256: string; encoding: string };
+    source_digest?: { sha256: string; encoding: string };
+    reason?: string;
+    redacted?: boolean;
+  }[];
+  diagnostics?: { category: string; code: string; message: string }[];
+}
+
+export interface EvidenceRun {
+  runNumber: number;
+  attempts: number;
+  cached: boolean;
+  assessment: string;
+  message?: string;
+  manifest?: EvidenceManifest;
+  explanations?: {
+    task_id: string;
+    requirement_id: string;
+    checks?: {
+      check: { scope: string; grader: string; after_turn?: number };
+      observation: string;
+      category: string;
+      message: string;
+      references?: EvidenceReference[];
+    }[] | null;
+  }[];
+}
+
+// A rendering guard, not a replacement for the server's digest/origin verification.
+export function canDisplayEvidence(run: EvidenceRun): boolean {
+  const manifest = run.manifest;
+  if (run.assessment !== "recorded" || !manifest || manifest.version !== "1.0") return false;
+  const knownKeys = (value: object, keys: string[]) =>
+    Object.keys(value).every((key) => keys.includes(key));
+  const digest = (value: EvidenceManifest["artifacts"][number]["content_digest"]) =>
+    value != null && knownKeys(value, ["sha256", "encoding"]) &&
+    /^[a-f0-9]{64}$/.test(value.sha256) && ["json-v1", "utf8", "source-bytes"].includes(value.encoding);
+  if (!knownKeys(manifest, ["version", "sha256", "source_manifest_sha256", "origin", "runtime", "redaction", "artifacts", "diagnostics"]) ||
+      !/^[a-f0-9]{64}$/.test(manifest.sha256) ||
+      (manifest.source_manifest_sha256 !== undefined && !/^[a-f0-9]{64}$/.test(manifest.source_manifest_sha256))) return false;
+  const { origin, runtime, redaction, artifacts } = manifest;
+  if (!origin || !runtime || !redaction || !Array.isArray(artifacts)) return false;
+  if (!knownKeys(origin, ["eval_id", "task_id", "run_number", "attempt_count", "prior_attempts"]) ||
+      ![origin.eval_id, origin.task_id, origin.prior_attempts].every((value) => typeof value === "string") ||
+      !Number.isSafeInteger(origin.run_number) || origin.run_number < 0 ||
+      !Number.isSafeInteger(origin.attempt_count) || origin.attempt_count < 0 ||
+      (origin.run_number !== 0 && origin.run_number !== run.runNumber) ||
+      (origin.attempt_count !== 0 && origin.attempt_count !== run.attempts)) return false;
+  if (!knownKeys(runtime, ["waza_version", "requested_engine", "requested_model", "execution_mode", "dependency_mode", "requested_policy", "verified_enforcement", "go_version", "platform", "sdk_version", "effective_model_version", "no_skills", "native_skill_control"]) ||
+      ![runtime.waza_version, runtime.requested_engine, runtime.requested_model, runtime.execution_mode, runtime.dependency_mode, runtime.requested_policy, runtime.verified_enforcement, runtime.go_version, runtime.platform].every((value) => typeof value === "string") ||
+      !["mock", "live", "unknown"].includes(runtime.execution_mode) ||
+      ![runtime.sdk_version, runtime.effective_model_version].every((value) => value === null || typeof value === "string") ||
+      !(runtime.no_skills === null || typeof runtime.no_skills === "boolean") ||
+      !["unknown", "sdk_default", "requested_sdk_disable", "mock_not_applicable"].includes(runtime.native_skill_control)) return false;
+  if (!knownKeys(redaction, ["policy", "applied_rules", "match_count", "limitations"]) ||
+      typeof redaction.policy !== "string" || !Number.isSafeInteger(redaction.match_count) || redaction.match_count < 0 ||
+      !(redaction.limitations === null || (Array.isArray(redaction.limitations) && redaction.limitations.every((value) => typeof value === "string"))) ||
+      (redaction.applied_rules !== undefined && (!Array.isArray(redaction.applied_rules) || !redaction.applied_rules.every((value) => typeof value === "string")))) return false;
+  const ids = new Set<string>();
+  return artifacts.every((artifact) => {
+    if (!artifact || !knownKeys(artifact, ["id", "kind", "availability", "completeness", "document", "pointer", "content_digest", "source_digest", "reason", "redacted"]) ||
+        ![artifact.id, artifact.kind, artifact.completeness].every((value) => typeof value === "string") ||
+        !["complete", "partial", "unknown"].includes(artifact.completeness) ||
+        ![artifact.document, artifact.pointer, artifact.reason].every((value) => value === undefined || typeof value === "string") ||
+        (artifact.redacted !== undefined && typeof artifact.redacted !== "boolean")) return false;
+    if (!artifact.id || ids.has(artifact.id)) return false;
+    ids.add(artifact.id);
+    switch (artifact.availability) {
+      case "captured":
+        return digest(artifact.content_digest) && artifact.content_digest!.encoding !== "source-bytes" &&
+          (artifact.source_digest === undefined || digest(artifact.source_digest)) &&
+          artifact.document === "snapshot" && typeof artifact.pointer === "string" && artifact.pointer.startsWith("/") &&
+          (artifact.completeness === "complete" || !!artifact.reason);
+      case "digest_only":
+        return digest(artifact.source_digest) && artifact.content_digest === undefined &&
+          artifact.document === undefined && artifact.pointer === undefined && !!artifact.reason;
+      case "unavailable":
+      case "not_requested":
+        return !!artifact.reason && artifact.completeness !== "complete" &&
+          artifact.content_digest === undefined && artifact.source_digest === undefined &&
+          artifact.document === undefined && artifact.pointer === undefined;
+      default:
+        return false;
+    }
+  }) && (manifest.diagnostics === undefined || (Array.isArray(manifest.diagnostics) &&
+    manifest.diagnostics.every((value) => value && knownKeys(value, ["category", "code", "message"]) &&
+      [value.category, value.code, value.message].every((field) => typeof field === "string"))));
+
 }
 
 export interface RunDetail extends RunSummary {
   tasks: TaskResult[];
   statistics?: ReliabilitySummary;
+  regradeUsage?: PromptJudgeUsage;
 }
 
 export type TaskResultWire = Omit<TaskResult, "graderResults"> & {

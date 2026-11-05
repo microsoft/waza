@@ -41,11 +41,53 @@ func TestCheck_NewerVersionAvailable(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
 	ch.Run(context.Background())
-	result := ch.Result()
+	result := waitCheckResult(t, ch)
 	require.NotNil(t, result)
 	assert.True(t, result.UpdateAvail)
 	assert.Equal(t, "1.0.0", result.CurrentVersion)
 	assert.Equal(t, "1.2.0", result.LatestVersion)
+}
+
+func TestCheck_ResultBeforeCompletionIsUnavailable(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, err := w.Write([]byte(`[{"tag_name":"v1.2.0"}]`))
+		require.NoError(t, err)
+	}))
+	defer srv.Close()
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
+	ch.Run(t.Context())
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("version request did not reach the gated server")
+	}
+	require.Nil(t, ch.Result(), "unfinished checks are unavailable, not API failures")
+	select {
+	case <-ch.done:
+		t.Fatal("version check completed before its response was released")
+	default:
+	}
+	close(release)
+	released = true
+	result := waitCheckResult(t, ch)
+	require.NotNil(t, result)
+	require.True(t, result.UpdateAvail)
+	require.Equal(t, "1.2.0", result.LatestVersion)
 }
 
 func TestCheck_CurrentVersionIsCurrent(t *testing.T) {
@@ -53,7 +95,7 @@ func TestCheck_CurrentVersionIsCurrent(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
 	ch.Run(context.Background())
-	result := ch.Result()
+	result := waitCheckResult(t, ch)
 	require.NotNil(t, result)
 	assert.False(t, result.UpdateAvail)
 }
@@ -63,7 +105,7 @@ func TestCheck_CurrentVersionIsNewer(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v2.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
 	ch.Run(context.Background())
-	result := ch.Result()
+	result := waitCheckResult(t, ch)
 	require.NotNil(t, result)
 	assert.False(t, result.UpdateAvail)
 }
@@ -73,7 +115,7 @@ func TestCheck_DevVersion(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("dev", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
 	ch.Run(context.Background())
-	assert.Nil(t, ch.Result(), "dev version should be skipped")
+	assert.Nil(t, waitCheckResult(t, ch), "dev version should be skipped")
 }
 
 func TestCheck_CacheHit(t *testing.T) {
@@ -120,7 +162,7 @@ func TestCheck_APIFailure(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
 	ch.Run(context.Background())
-	assert.Nil(t, ch.Result(), "API failure should return nil")
+	assert.Nil(t, waitCheckResult(t, ch), "API failure should return nil")
 }
 
 func TestCheck_APITimeout(t *testing.T) {
@@ -143,7 +185,7 @@ func TestCheck_SkipsAzdExtTags(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
 	ch.Run(context.Background())
-	result := ch.Result()
+	result := waitCheckResult(t, ch)
 	require.NotNil(t, result)
 	assert.True(t, result.UpdateAvail)
 	assert.Equal(t, "2.0.0", result.LatestVersion)
@@ -154,7 +196,7 @@ func TestCheck_NoReleases(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
 	ch.Run(context.Background())
-	assert.Nil(t, ch.Result(), "no releases should return nil")
+	assert.Nil(t, waitCheckResult(t, ch), "no releases should return nil")
 }
 
 func TestCheck_CacheDirCreated(t *testing.T) {
@@ -163,7 +205,7 @@ func TestCheck_CacheDirCreated(t *testing.T) {
 	cacheDir := filepath.Join(t.TempDir(), "nested", "dir")
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(cacheDir))
 	ch.Run(context.Background())
-	result := ch.Result()
+	result := waitCheckResult(t, ch)
 	require.NotNil(t, result)
 	_, err := os.Stat(filepath.Join(cacheDir, cacheFile))
 	assert.NoError(t, err)
@@ -244,7 +286,7 @@ func TestCheck_ContextCanceled(t *testing.T) {
 	cancel()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(t.TempDir()))
 	ch.Run(ctx)
-	assert.Nil(t, ch.Result(), "canceled context should return nil")
+	assert.Nil(t, waitCheckResult(t, ch), "canceled context should return nil")
 }
 
 func TestCheck_InvalidCacheJSON(t *testing.T) {
@@ -254,7 +296,7 @@ func TestCheck_InvalidCacheJSON(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(cacheDir))
 	ch.Run(context.Background())
-	result := ch.Result()
+	result := waitCheckResult(t, ch)
 	require.NotNil(t, result)
 	assert.True(t, result.UpdateAvail)
 	assert.Equal(t, "2.0.0", result.LatestVersion)

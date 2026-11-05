@@ -1,0 +1,64 @@
+name: assert-demo
+description: Demonstrates eval spec v2 assert features
+version: "1.0"
+tags:
+  - demo
+  - assert
+providers:
+  - llm
+prompts:
+  - "{{ input }}"
+tests:
+  - id: contains-check
+    assert:
+      - type: contains
+        value: Hello
+      - type: regex
+        value: "[Hh]ello"
+      - Response must contain the word Hello
+    vars:
+      input:
+        - role: system
+          content: Always include the word 'Hello' in your response.
+        - role: user
+          content: Say hello world
+  - id: json-response
+    assert:
+      - type: is-json
+        required: true
+      - type: contains
+        value: "\"status\""
+      - type: contains
+        value: "\"ok\""
+      - Response must be valid JSON with a status field
+    vars:
+      input:
+        - role: system
+          content: You are a JSON API. Respond with ONLY raw JSON. Never use markdown code blocks, backticks,
+            or any text outside the JSON object.
+        - role: user
+          content: "Return a JSON object with fields: status set to \"ok\" and code set to 200."
+  - id: regex-check
+    assert:
+      - type: regex
+        value: Good (morning|afternoon|evening)
+        required: true
+      - Response must include a formal greeting pattern
+    vars:
+      input:
+        - role: user
+          content: "Greet me with exactly one of: 'Good morning', 'Good afternoon', or 'Good evening'. Start
+            your response with that greeting."
+  - id: equals-check
+    assert:
+      - type: equals
+        value: "4"
+        required: true
+      - Response must be exactly the number 4
+    vars:
+      input:
+        - role: system
+          content: You are a calculator. Respond with ONLY the numeric result. No words, no punctuation, no
+            explanation, no newlines. Just the bare number.
+        - role: user
+          content: What is 2 + 2?

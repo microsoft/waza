@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "1.7",
+  "eval_id": "normalized-run",
+  "skill": "compatibility-skill",
+  "eval_name": "compatibility",
+  "timestamp": "0001-01-01T00:00:00Z",
+  "config": {"runs_per_test": 1, "model_id": "mock-model", "engine_type": "mock", "timeout_sec": 30},
+  "summary": {
+    "total_tests": 1, "succeeded": 1, "failed": 0, "errors": 0, "skipped": 0,
+    "success_rate": 1, "aggregate_score": 1, "weighted_score": 1,
+    "min_score": 1, "max_score": 1, "std_dev": 0, "duration_ms": 0
+  },
+  "metrics": {},
+  "tasks": [{
+    "test_id": "compatibility-task",
+    "display_name": "Compatibility task",
+    "golden": true,
+    "status": "passed",
+    "runs": [{
+      "run_number": 1,
+      "attempts": 1,
+      "prompt": "Say ready.",
+      "status": "passed",
+      "duration_ms": 0,
+      "validations": {
+        "answer": {
+          "identifier": "answer", "type": "text", "score": 1, "weight": 1,
+          "passed": true, "feedback": "All text checks passed", "duration_ms": 0,
+          "details": {"contains": ["ready"], "contains_cs": null, "failures": null, "not_contains": null, "not_contains_cs": null, "regex_match": null, "regex_not_match": null}
+        },
+        "final": {
+          "identifier": "final", "type": "text", "score": 1, "weight": 1,
+          "passed": true, "feedback": "All text checks passed", "duration_ms": 0,
+          "details": {"contains": ["ready"], "contains_cs": null, "failures": null, "not_contains": null, "not_contains_cs": null, "regex_match": null, "regex_not_match": null}
+        }
+      },
+      "session_digest": {"tool_call_count": 0, "tools_used": [], "errors": [], "session_id": "normalized-session"},
+      "final_output": "Mock response for: Confirm ready.\nTask: Compatibility task",
+      "checkpoints": [{
+        "after_turn": 1,
+        "status": "passed",
+        "validations": {
+          "intermediate": {
+            "identifier": "intermediate", "type": "text", "score": 1, "weight": 1,
+            "passed": true, "feedback": "All text checks passed", "duration_ms": 0,
+            "details": {"contains": ["ready"], "contains_cs": null, "failures": null, "not_contains": null, "not_contains_cs": null, "regex_match": null, "regex_not_match": null}
+          }
+        }
+      }]
+    }],
+    "stats": {
+      "pass_rate": 1, "flakiness_percent": 0, "passed_runs": 1, "failed_runs": 0,
+      "error_runs": 0, "total_runs": 1, "avg_score": 1, "avg_weighted_score": 1,
+      "min_score": 1, "max_score": 1, "std_dev_score": 0, "score_variance": 0,
+      "ci95_lo": 0, "ci95_hi": 0, "flaky": false, "avg_duration_ms": 0
+    }
+  }],
+  "evaluation_usage": {"sessions": [{"session_id": "normalized-session"}]}
+}

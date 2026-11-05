@@ -73,6 +73,8 @@ func resetRunGlobals() {
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return orchestration.NewEvalRunner(cfg, engine, opts...)
 	}
+	shutdownSharedClientForRun = execution.ShutdownSharedClient
+	runSharedClientShutdownTimeout = 30 * time.Second
 }
 
 // helper creates a valid minimal eval spec YAML in a temp dir,
@@ -151,6 +153,7 @@ tasks:
 // ---------------------------------------------------------------------------
 
 func TestRunCommand_RequiresExactlyOneArg(t *testing.T) {
+	t.Chdir(isolatedCLITempDir(t))
 	tests := []struct {
 		name string
 		args []string
@@ -165,6 +168,9 @@ func TestRunCommand_RequiresExactlyOneArg(t *testing.T) {
 			cmd.SetArgs(tt.args)
 			err := cmd.Execute()
 			assert.Error(t, err, "expected error for args=%v", tt.args)
+			if len(tt.args) == 0 {
+				assert.ErrorContains(t, err, "no eval.yaml specified and workspace detection failed")
+			}
 		})
 	}
 }
@@ -2728,7 +2734,9 @@ func TestPrintSummary_PartialReliabilityCurve(t *testing.T) {
 			outcome := &models.EvaluationOutcome{
 				Digest: models.OutcomeDigest{Statistics: &models.StatisticalSummary{PassHatK: tc.curve}},
 			}
-			out := captureStdout(t, func() { printSummary(outcome) })
+			var output bytes.Buffer
+			require.NoError(t, printSummary(&output, outcome))
+			out := output.String()
 			if tc.want == "" {
 				assert.NotContains(t, out, "Reliability:")
 			} else {
@@ -2758,7 +2766,9 @@ func TestPrintSummary_ReportsPassRateIntervalsAndReliability(t *testing.T) {
 		}},
 	}
 
-	out := captureStdout(t, func() { printSummary(outcome) })
+	var output bytes.Buffer
+	require.NoError(t, printSummary(&output, outcome))
+	out := output.String()
 
 	assert.Contains(t, out, "Success CI95:   [9.5%, 90.5%]")
 	assert.Contains(t, out, "Reliability:    pass^1=67%  pass^2=50%  pass^3=50%")
@@ -2771,7 +2781,9 @@ func TestPrintSummary_OmitsIntervalMissingFromOlderResults(t *testing.T) {
 		Digest: models.OutcomeDigest{TotalTests: 2, Statistics: &models.StatisticalSummary{}},
 	}
 
-	out := captureStdout(t, func() { printSummary(outcome) })
+	var output bytes.Buffer
+	require.NoError(t, printSummary(&output, outcome))
+	out := output.String()
 
 	assert.NotContains(t, out, "Success CI95")
 	assert.NotContains(t, out, "Reliability")

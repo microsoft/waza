@@ -10,7 +10,64 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
+	"github.com/stretchr/testify/require"
 )
+
+func TestMapTranscriptEventsPreservesToolOutputAcrossProtocols(t *testing.T) {
+	modern := models.TranscriptEvent{
+		SessionEvent: copilot.SessionEvent{
+			Data: &copilot.ToolShellOutputData{
+				Text:       "modern output",
+				ToolCallID: "modern-call",
+			},
+		},
+	}
+
+	var legacy models.TranscriptEvent
+	require.NoError(t, json.Unmarshal([]byte(
+		`{"type":"tool.execution_partial_result","message":"legacy output","tool_call_id":"legacy-call"}`,
+	), &legacy))
+
+	for _, tc := range []struct {
+		name     string
+		event    models.TranscriptEvent
+		wantType string
+		wantText string
+		wantID   string
+	}{
+		{
+			name:     "modern shell output",
+			event:    modern,
+			wantType: string(copilot.SessionEventTypeToolShellOutput),
+			wantText: "modern output",
+			wantID:   "modern-call",
+		},
+		{
+			name:     "persisted legacy partial result",
+			event:    legacy,
+			wantType: "tool.execution_partial_result",
+			wantText: "legacy output",
+			wantID:   "legacy-call",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			persisted, err := json.Marshal(tc.event)
+			require.NoError(t, err)
+
+			var restored models.TranscriptEvent
+			require.NoError(t, json.Unmarshal(persisted, &restored))
+
+			mapped := mapTranscriptEvents([]models.TranscriptEvent{restored})
+			require.Len(t, mapped, 1)
+			require.Equal(t, tc.wantType, mapped[0].Type)
+			require.Equal(t, tc.wantText, mapped[0].Message)
+			require.Equal(t, tc.wantID, mapped[0].ToolCallID)
+		})
+	}
+}
 
 func TestRunEventsFromDetailGeneratesSequencedLifecycle(t *testing.T) {
 	detail := sampleRun("run-001", "code-explainer", "gpt-4o", 1, 1, 1000, time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC))

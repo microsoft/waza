@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'schemas/**'
+      - 'internal/runneridentity/testdata/**'
+      - 'internal/runnerunit/testdata/**'
+      - 'internal/runnerterminal/testdata/**'
   workflow_run:
     workflows: ['Release']
     types: [completed]
@@ -24,14 +28,15 @@ jobs:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     name: Build
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.19.0'
+          node-version: '24'
           cache: npm
           cache-dependency-path: site/package-lock.json
 
@@ -40,6 +45,9 @@ jobs:
 
       - name: Build site
         run: cd site && npm run build
+        env:
+          PUBLIC_CHAT_API_URL: ${{ vars.PUBLIC_CHAT_API_URL }}
+          PUBLIC_CHAT_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_CHAT_TURNSTILE_SITEKEY }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
@@ -50,6 +58,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     name: Deploy
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

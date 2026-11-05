@@ -51,20 +51,19 @@ type TranscriptEvent struct {
 	copilot.SessionEvent `json:"-"`
 }
 
+type transcriptEventJSON struct {
+	Content    *string                              `json:"content,omitempty"`
+	Type       copilot.SessionEventType             `json:"type"`
+	Message    *string                              `json:"message,omitempty"`
+	Arguments  any                                  `json:"arguments,omitempty"`
+	Success    *bool                                `json:"success,omitempty"`
+	ToolCallID *string                              `json:"tool_call_id,omitempty"`
+	ToolName   *string                              `json:"tool_name,omitempty"`
+	ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
+}
+
 func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
-	v := struct {
-		Content *string                  `json:"content,omitempty"`
-		Type    copilot.SessionEventType `json:"type"`
-
-		Message *string `json:"message,omitempty"`
-
-		// tool call fields
-		Arguments  any                                  `json:"arguments,omitempty"`
-		Success    *bool                                `json:"success,omitempty"`
-		ToolCallID *string                              `json:"tool_call_id,omitempty"`
-		ToolName   *string                              `json:"tool_name,omitempty"`
-		ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
-	}{
+	v := transcriptEventJSON{
 		Type: te.Type(),
 	}
 
@@ -84,24 +83,16 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 		v.ToolResult = complete.Result
 		v.Success = &complete.Success
 	}
-	if partial, ok := copilotevents.ToolPartial(te.SessionEvent); ok {
-		v.ToolCallID = &partial.ToolCallID
+	if output, toolCallID, ok := copilotevents.ToolOutput(te.SessionEvent); ok {
+		v.ToolCallID = &toolCallID
+		v.Message = &output
 	}
 
 	return json.Marshal(v)
 }
 
 func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
-	var v struct {
-		Content    *string                              `json:"content,omitempty"`
-		Type       copilot.SessionEventType             `json:"type"`
-		Message    *string                              `json:"message,omitempty"`
-		Arguments  any                                  `json:"arguments,omitempty"`
-		Success    *bool                                `json:"success,omitempty"`
-		ToolCallID *string                              `json:"tool_call_id,omitempty"`
-		ToolName   *string                              `json:"tool_name,omitempty"`
-		ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
-	}
+	var v transcriptEventJSON
 
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
@@ -141,8 +132,16 @@ func transcriptData(
 			Success:    derefBool(success),
 			ToolCallID: derefString(toolCallID),
 		}
-	case copilot.SessionEventTypeToolExecutionPartialResult:
-		return &copilot.ToolExecutionPartialResultData{ToolCallID: derefString(toolCallID)}
+	case copilot.SessionEventTypeToolShellOutput:
+		return &copilot.ToolShellOutputData{
+			Text:       derefString(message),
+			ToolCallID: derefString(toolCallID),
+		}
+	case "tool.execution_partial_result":
+		return copilotevents.RawData(eventType, map[string]any{
+			"partialOutput": derefString(message),
+			"toolCallId":    derefString(toolCallID),
+		})
 	case copilot.SessionEventTypeSessionError:
 		return &copilot.SessionErrorData{Message: derefString(message)}
 	default:

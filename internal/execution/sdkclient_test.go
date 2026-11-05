@@ -8,7 +8,9 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/commandmock"
@@ -34,6 +36,24 @@ func (s *stubClient) ResumeSessionWithOptions(context.Context, string, *copilot.
 func (s *stubClient) DeleteSession(context.Context, string) error { return nil }
 func (s *stubClient) ListModels(context.Context) ([]copilot.ModelInfo, error) {
 	return nil, nil
+}
+
+type blockingStopClient struct {
+	stubClient
+	started chan struct{}
+	forced  chan struct{}
+	once    sync.Once
+}
+
+func (c *blockingStopClient) Stop() error {
+	c.stops++
+	close(c.started)
+	<-c.forced
+	return nil
+}
+
+func (c *blockingStopClient) ForceStop() {
+	c.once.Do(func() { close(c.forced) })
 }
 
 func TestSharedClient_ReturnsSameInstance(t *testing.T) {
@@ -109,6 +129,40 @@ func TestShutdownSharedClient_StopsAllCLIArgClients(t *testing.T) {
 		if client.stops != 1 {
 			t.Fatalf("expected client %d Stop to be called once, got %d", i, client.stops)
 		}
+	}
+}
+
+func TestShutdownSharedClientBoundsRetiredClientCleanup(t *testing.T) {
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+
+	oldTimeout := sharedClientShutdownTimeout
+	sharedClientShutdownTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { sharedClientShutdownTimeout = oldTimeout })
+	embeddedCLIPath = func() (string, error) { return "/tmp/embedded-copilot", nil }
+	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
+	client := &blockingStopClient{started: make(chan struct{}), forced: make(chan struct{})}
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient { return client }
+	t.Cleanup(func() { sharedConstruct = newCopilotClient })
+
+	retired := SharedClient(SharedClientOptions{})
+	retireSharedClient(retired)
+	start := time.Now()
+	err := ShutdownSharedClient(context.Background())
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, time.Since(start), 250*time.Millisecond)
+	require.Equal(t, 1, client.stops)
+	select {
+	case <-client.started:
+	default:
+		t.Fatal("retired client cleanup was not attempted")
+	}
+	select {
+	case <-client.forced:
+	default:
+		t.Fatal("timed-out retired client was not force-stopped")
 	}
 }
 
@@ -473,9 +527,12 @@ func TestSharedClient_SandboxStartupCompatibility(t *testing.T) {
 			embeddedCLIPath = func() (string, error) { return "/cache/copilot", nil }
 			t.Cleanup(func() { embeddedCLIPath = embedded.Path })
 			var options []*copilot.ClientOptions
+			var stubs []*stubClient
 			sharedConstruct = func(opts *copilot.ClientOptions) CopilotClient {
 				options = append(options, opts)
-				return &stubClient{}
+				stub := &stubClient{}
+				stubs = append(stubs, stub)
+				return stub
 			}
 			t.Cleanup(func() { sharedConstruct = newCopilotClient })
 
@@ -504,12 +561,9 @@ func TestSharedClient_SandboxStartupCompatibility(t *testing.T) {
 				require.NotContains(t, key, tc.value)
 			}
 			require.NoError(t, ShutdownSharedClient(t.Context()))
-			firstStub, ok := first.(*stubClient)
-			require.True(t, ok)
-			secondStub, ok := second.(*stubClient)
-			require.True(t, ok)
-			require.Equal(t, 1, firstStub.stops)
-			require.Equal(t, 1, secondStub.stops)
+			for _, stub := range stubs {
+				require.Equal(t, 1, stub.stops)
+			}
 		})
 	}
 }

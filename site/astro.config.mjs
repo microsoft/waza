@@ -17,7 +17,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'waza',
-			description: 'CLI tool for evaluating AI Agent Skills',
+			description: 'Evaluate agent workflows, skills, and custom agents',
 			components: {
 				Header: './src/components/Header.astro',
 			},
@@ -29,6 +29,10 @@ export default defineConfig({
 			],
 			customCss: ['./src/styles/custom.css'],
 			sidebar: [
+				{
+					label: 'Concepts and Learning Path',
+					slug: 'concepts',
+				},
 				{
 					label: 'Quick Start',
 					slug: 'quick-start',
@@ -42,7 +46,16 @@ export default defineConfig({
 					items: [
 						{ label: 'Writing Eval Specs', slug: 'guides/eval-yaml' },
 						{ label: 'Offline Eval Preflight', slug: 'guides/preflight' },
-						{ label: 'Private Fault Harness', slug: 'guides/private-fault-fixtures' },
+						{ label: 'Dependency Recovery', slug: 'guides/dependency-recovery' },
+
+						{ label: 'Controlled comparisons', slug: 'guides/controlled-comparisons' },
+						{ label: 'Preserving Existing Workflows', slug: 'guides/compatibility' },
+						{ label: 'External Assertion Interoperability', slug: 'guides/external-interoperability' },
+						{ label: 'Runner Contract & API', slug: 'guides/runner-contract' },
+						{ label: 'Runner Logical Identities', slug: 'guides/runner-identities' },
+						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },
+						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },
+						{ label: 'Local Runner Container', slug: 'guides/runner-container' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },
 						{ label: 'Validators & Graders', slug: 'guides/graders' },
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },
@@ -61,10 +74,20 @@ export default defineConfig({
 					label: 'Reference',
 					items: [
 						{ label: 'CLI Commands', slug: 'reference/cli' },
+						{ label: 'Project Configuration', slug: 'reference/waza-yaml' },
+						{ label: 'Statistical Fields', slug: 'reference/statistical-fields' },
 						{ label: 'YAML Schema', slug: 'reference/schema' },
 						{ label: 'Rubric Library', slug: 'reference/rubrics' },
 						{ label: 'Schema Changes', slug: 'reference/schema-changes' },
-						{ label: 'Releases', slug: 'reference/releases' },
+						{
+							label: 'Releases',
+							items: [
+								{ label: 'Overview & downloads', slug: 'reference/releases' },
+								{ label: 'Waza v0.40.0', slug: 'releases/v0-40-0' },
+								{ label: 'Waza v0.39.0', slug: 'releases/v0-39-0' },
+								{ label: 'Introducing Dashboard Lab', slug: 'releases/dashboard-lab' },
+							],
+						},
 					],
 				},
 				{

@@ -12,6 +12,80 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCacheKeyMCPEffectiveFixtures(t *testing.T) {
+	dir := t.TempDir()
+	fixtures := filepath.Join(dir, "mcp")
+	require.NoError(t, os.Mkdir(fixtures, 0700))
+	fixture := filepath.Join(fixtures, "read.json")
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"responses":[{"sequence":[{"return":1},{"return":2}]}]}`), 0600))
+	spec := &models.EvalSpec{SchemaVersion: models.ScenarioSchemaVersion,
+		MCPMocks: []models.MCPMockConfig{{Name: "counter", Fixtures: "mcp"}}}
+	task := &models.TestCase{TestID: "cache"}
+	contextDir := t.TempDir()
+	key, err := CacheKeyWithSpecDir(spec, task, contextDir, dir)
+	require.NoError(t, err)
+	legacyCaller, err := CacheKey(spec, task, dir)
+	require.NoError(t, err)
+	require.Equal(t, key, legacyCaller)
+
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"responses":[{"sequence":[{"return":3},{"return":2}]}]}`), 0600))
+	changed, err := CacheKeyWithSpecDir(spec, task, contextDir, dir)
+	require.NoError(t, err)
+	require.NotEqual(t, key, changed)
+
+	spec.MCPMocks[0].Tools = map[string]models.MCPMockTool{"read": {
+		Responses: []models.MCPMockResponse{{Return: "inline override"}},
+	}}
+	overridden, err := CacheKeyWithSpecDir(spec, task, contextDir, dir)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"responses":[{"sequence":[{"return":4}]}]}`), 0600))
+	same, err := CacheKeyWithSpecDir(spec, task, contextDir, dir)
+	require.NoError(t, err)
+	require.Equal(t, overridden, same, "overridden fixture responses are not effective behavior")
+	spec.MCPMocks[0].Fixtures = fixtures
+	absolute, err := CacheKeyWithSpecDir(spec, task, contextDir, dir)
+	require.NoError(t, err)
+	require.Equal(t, same, absolute, "equivalent relative and absolute fixture paths resolve identically")
+	require.NoError(t, os.WriteFile(filepath.Join(fixtures, "ignored.txt"), []byte("not a tool"), 0600))
+	ignored, err := CacheKeyWithSpecDir(spec, task, contextDir, dir)
+	require.NoError(t, err)
+	require.Equal(t, same, ignored)
+}
+
+func TestCacheKeyMCPRejectsUnresolvedConfig(t *testing.T) {
+	for _, invalid := range []string{"missing-fixtures", "invalid-version", "external-schema", "unmarshalable-output"} {
+		t.Run(invalid, func(t *testing.T) {
+			dir := t.TempDir()
+			spec := &models.EvalSpec{SchemaVersion: models.ScenarioSchemaVersion,
+				MCPMocks: []models.MCPMockConfig{{Name: "counter", Tools: map[string]models.MCPMockTool{
+					"read": {Responses: []models.MCPMockResponse{{Sequence: []models.MCPMockStep{{Return: 1}}}}},
+				}}}}
+			switch invalid {
+			case "missing-fixtures":
+				spec.MCPMocks[0].Fixtures = "missing"
+			case "invalid-version":
+				spec.SchemaVersion = "1.4"
+			case "external-schema":
+				spec.MCPMocks[0].Tools["read"].Responses[0].MatchSchema = map[string]any{"$ref": "file:///unavailable-cache-schema.json"}
+			case "unmarshalable-output":
+				spec.MCPMocks[0].Tools["read"].Responses[0].Sequence[0].Return = make(chan int)
+			}
+			key, err := CacheKeyWithSpecDir(spec, &models.TestCase{}, dir, dir)
+			require.Error(t, err)
+			require.Empty(t, key)
+			if invalid == "external-schema" {
+				require.ErrorContains(t, err, "external schema references are unavailable offline")
+			}
+			if invalid == "unmarshalable-output" {
+				require.ErrorContains(t, err, "marshaling MCP mocks for cache")
+			}
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			require.Empty(t, entries, "cache resolution must not materialize subprocess configuration or state")
+		})
+	}
+}
+
 func TestCacheKey(t *testing.T) {
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{

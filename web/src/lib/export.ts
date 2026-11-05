@@ -7,7 +7,7 @@ function escapeCSV(value: string): string {
   if (FORMULA_RE.test(safe)) {
     safe = "'" + safe;
   }
-  if (safe.includes(",") || safe.includes('"') || safe.includes("\n")) {
+  if (safe.includes(",") || safe.includes('"') || safe.includes("\r") || safe.includes("\n")) {
     return `"${safe.replace(/"/g, '""')}"`;
   }
   return safe;

@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -228,18 +229,17 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 	if len(document.Content) != 1 {
 		return nil
 	}
+
 	root := document.Content[0]
 	finite, err := faultPathPresent(root, []string{"command_mocks", "[]", "responses", "[]", "sequence"}, nil)
 	if err != nil {
 		return err
 	}
-	if !task {
-		mcpFinite, err := faultPathPresent(root, []string{"mcp_mocks", "[]", "tools", "*", "responses", "[]", "sequence"}, nil)
-		if err != nil {
-			return err
-		}
-		finite = finite || mcpFinite
+	mcpFinite, err := faultPathPresent(root, []string{"mcp_mocks", "[]", "tools", "*", "responses", "[]", "sequence"}, nil)
+	if err != nil {
+		return err
 	}
+	finite = finite || mcpFinite
 	if !finite {
 		return nil
 	}
@@ -247,24 +247,29 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 	if err != nil {
 		return err
 	}
-	if task {
+	if task && version == "" {
 		version = ScenarioSchemaVersion
 	}
+	var errs []error
 	for _, source := range sources {
 		var err error
 		switch source.Kind {
 		case "command":
 			err = ValidateCommandFaultResponse(source.Data, FaultSourceYAML, version)
 		case "mcp":
-			if !task {
-				err = ValidateMCPFaultResponse(source.Data, FaultSourceYAML, version)
-			}
+			err = ValidateMCPFaultResponse(source.Data, FaultSourceYAML, version)
 		}
 		if err != nil {
-			return fmt.Errorf("%s mock response[%d]: %w", source.Kind, source.Index, err)
+			errs = append(errs, fmt.Errorf("%s mock response[%d]: %w", source.Kind, source.Index, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
+}
+
+// ValidateTaskFaultSources checks finite task-level mock responses against the
+// enclosing eval version. Task documents have no independent version field.
+func ValidateTaskFaultSources(data []byte, enclosingVersion string) error {
+	return validateDeclaredFaults(data, enclosingVersion, true)
 }
 
 type faultPathVisit struct {

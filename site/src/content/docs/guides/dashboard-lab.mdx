@@ -5,6 +5,11 @@ description: Try the real-results evaluation workspace with linked charts, run h
 
 import ZoomImage from '../../../components/ZoomImage.astro';
 
+**Available in v0.39.0 and opt-in:** install the published standalone release
+or build current source as described in
+[release availability](../../reference/releases/). Older standalone
+`v0.38.10` does not include this prototype.
+
 `waza serve --lab` opens the **experimental real-results dashboard** at `/#/lab`.
 The classic dashboard remains available at `/#/` on the same server. The Go
 evaluation engine is unchanged; the lab is a viewer, not an execution service.
@@ -16,6 +21,22 @@ The default lab reads your saved Waza results, never substitutes synthetic data
 on errors, and labels unsupported metadata as unavailable.
 
 ## Run locally
+
+Standalone v0.40.0 adds a **Runner contract** section for live, offline
+version/capability checks and exact work selection validation. It shows requested
+and resolved shard/task/trial/attempt, validation state, zero engine calls and
+that adjacent work was not selected. Admitted results also show the input-derived
+logical run/shard/task/trial/attempt hierarchy, canonical digest and derivation
+version, and export the same validation JSON. Identity is not execution evidence;
+older or rejected receipts show it as unavailable. Compatibility and validation
+never start an evaluation. The separate **Run mock unit** action executes the
+captured mock request once, showing the actual terminal outcome, exit, failure
+boundary, schema/input binding checks, observed verdicts and linked diagnostics.
+It exports the exact terminal JSON; edits, new runs and reload errors clear
+previous success. See [terminal interpretation](../runner-terminal/).
+This is separate from saved run evidence and is
+unavailable in the synthetic demo. See [Runner contract and API](../runner-contract/)
+and [logical identity normalization and migration](../runner-identities/).
 
 For a dashboard built from this source tree:
 
@@ -79,21 +100,93 @@ the frontend-only development workflow above.
 |---|---|
 | Overview | Eval/skill/model/window filters, selectable quality-chart dates, model cross-filtering, failing-run drilldown |
 | Current runs | Select a saved run and inspect artifact-derived SSE activity; reconnection, deduplication, and terminal states |
-| Run history | Search, outcome filters, evidence inspection, and selection of two runs from the same eval |
+| Run history | Search, outcome filters, task evidence inspection, and selection of two runs from the same eval |
 | Compare | Baseline/candidate selection, reported weighted task-score deltas, regression evidence, added/missing task coverage |
 | Reports | Filtered JSON/CSV downloads and browser print/save-PDF |
 | Skills & evals | Suites observed in run history; readiness, requirement coverage, and skill token budgets explicitly unavailable |
 
-Try **Overview → failing run → Grader evidence → Trajectory → Reports**.
+Try **Overview → failing run → Grader evidence → Conversation → Recorded evidence → Trajectory → Reports**.
 The inspector uses actual recorded prompts, graders, session digests, responder
-metadata, model usage, and the existing trajectory viewer. It supports keyboard
-focus containment, Escape to close, and focus restoration. Detail artifacts are
-loaded on demand rather than downloading all transcripts for the overview.
+metadata, model usage, reliability statistics, portable evidence, scoped
+requirement observations, prompt-judging metadata, and the existing trajectory
+viewer. It supports keyboard focus containment, Escape to close, and focus
+restoration. Detail artifacts are loaded on demand rather than downloading all
+transcripts for the overview.
 Evidence tabs use a single Tab stop with ArrowLeft/ArrowRight, Home, and End to
 move focus and selection. Nullable task/grader arrays are empty recorded
 evidence, not errors or invented scores, including in JSON reports.
 
+### Read a multi-turn conversation
+
+**Added in v0.40.0:** The Conversation tab described here is not included
+in published `v0.39.1`.
+
+Open a run, select its task, and choose **Conversation**. Recorded user and
+**Agent under test** messages appear in their saved order, fully expanded with
+line breaks preserved. Tool events, reasoning and streaming deltas are omitted;
+use **Trajectory** for the underlying event view.
+
+This view uses only saved `user.message` and `assistant.message` events from the
+**first repetition**. It does not assess transcript completeness or reconstruct
+missing messages from the initial prompt, grader feedback or final output.
+Only messages with non-whitespace text appear. Missing, empty, non-string and
+whitespace-only content is omitted; substantive text is preserved verbatim.
+The count and numbering reflect messages with recorded text. If none remain, the
+empty state says "No recorded conversation text for the first repetition of this
+task." and points to **Trajectory**; later repetitions may contain recorded text.
+Saved transcript data is unchanged. **Trajectory** retains every event and shows
+the original event type for user and assistant messages without non-whitespace text.
+The synthetic demo does not invent a recorded conversation.
+
+**User** labels identify the message role, not whether a human or model authored
+that specific message. When responder metadata exists, its simulated-user
+follow-up count is shown separately, even when no message text was recorded;
+per-message provenance is unavailable.
+Changing tasks or refreshing saved results updates the conversation along with
+the other inspector evidence.
+
+<ZoomImage src="../../images/dashboard-lab-conversation.png" alt="Lab Conversation tab showing expanded, ordered user and agent messages from an authored mock fixture." />
+
 <ZoomImage src="../../images/dashboard-lab-compare.png" alt="Baseline comparison with aligned task scores, regressions, and added task coverage." />
+
+<ZoomImage src="../../images/dashboard-lab-evidence.png" alt="Lab inspector displaying fixture-backed reliability and evidence metadata, marked mock and not verified." />
+
+This evidence screenshot uses cached mock-provenance metadata, without a new
+independent judging claim. Recorded judging is tested separately using a
+producer-projected, non-cached task; cached evidence and fresh judging are not
+combined for the same task repetition.
+
+The **Recorded evidence** tab shows stored task trial counts and intervals,
+suite reliability, provenance-bound evidence metadata, and independent prompt
+judge observations. Invalid metadata is withheld; missing historical metadata is
+**Not assessed**. Digests and artifact references do not expose file contents or
+prove external state, requirement enforcement, or that a judge inspected every
+item. The synthetic demo does not fabricate these records.
+Malformed trial counts, intervals, and `pass^k` estimates are explicitly withheld
+rather than formatted as valid reliability evidence; recorded zeroes remain
+visible.
+
+### Release policies and assurance use classic views
+
+Lab's **Compare** workspace is descriptive; it does not assess controlled
+release policies or load native collection sidecars. From Lab, choose
+**Original dashboard → Release policies** to open `/#/release` on the same
+server. The [release evidence view](../dashboard/#release-policies) reads local
+controlled collections under `--results-dir`, including native attempt
+outcomes, errors, output, model attribution, usage completeness, and lifecycle
+observations. It provides decision JSON and native-attempt CSV exports,
+separate from Lab's run reports.
+
+[Native collection](../controlled-comparisons/#opt-in-to-native-copilot-collection)
+requires explicit policy selection and may incur provider usage. Viewing saved
+evidence does not start collection. Native assurance is unsupported; runtime
+version and provider currency remain unavailable. Client tool denial is not
+server isolation, and observed budgets are not atomic spending caps.
+
+For a supplied standalone assurance report, choose **Original dashboard →
+Assurance** at `/#/assurance`. The [assurance inspector](../dashboard/#grader-assurance)
+validates the report in your browser; it does not run graders or establish a
+release-policy pass.
 
 The real-results **Skill** and **Eval** controls are independent: select one
 eval when a skill has multiple suites, or combine both to narrow the scope.
@@ -150,13 +243,18 @@ stream**; they do not claim an automatic retry is in progress.
   The candidate picker remains available for singleton suites; only comparison
   evidence requires a matching baseline.
 - Comparisons are descriptive, not claims of statistical significance.
+- Comparisons align weighted task scores; they do not compare confidence
+  intervals, `pass^k`, provenance, or prompt-judging observations.
 - Eval names do not prove matching spec/grader revisions; verify compatibility
   before drawing conclusions. Git revisions and full configurations are unavailable.
 - JSON exports have their own report format marker and `synthetic: false`, with
   selected API run details. Detail downloads use bounded concurrency; any failure
   aborts the export without downloading a partial report. These reports are not
-  Waza `EvaluationOutcome` artifacts. CSV preserves numeric credit precision and
-  leaves unknown fields empty; browser print can save a PDF.
+  Waza `EvaluationOutcome` artifacts. JSON includes recorded reliability,
+  evidence, and prompt-judging API metadata. CSV is a run-level summary only; it
+  does not include task-level intervals, provenance, evidence, or judge
+  observations. It preserves numeric credit precision and leaves unknown fields
+  empty; browser print can save a PDF.
 
 ### Isolated synthetic demo
 
@@ -207,11 +305,13 @@ CLI command in the browser**.
 | Skill/custom-agent authoring, scaffolding, suggestions | Skills/evals catalog and capability map | Suite discovery, editing, validation, registry/lock provenance |
 | Sensei/readiness, tokens, spec verification, coverage | Illustrative per-skill quality/coverage/budget | Real check/coverage outputs and artifact links |
 | Eval model, judge, repetitions, weighted graders | Real history, recorded metadata, score matrix, grader evidence | Full-fidelity repetition-level data and configuration |
-| Triggers, responders, command mocks, fixture isolation | Configuration/capability map | Dedicated outcomes, sanitized command evidence, invocation inspection |
+| Triggers, responders, command mocks, fixture isolation | Recorded responder metadata, declared dependency modes in Configuration, and sanitized mocked CLI attempts in Trajectory | Dedicated trigger/MCP invocation analysis and fixture-isolation evidence; declarations do not prove dependency use |
 | Custom-agent tool policies | Actual digest/trajectory denials in the inspector; illustrative demo denial | Richer invocation and policy analysis |
 | Token, request, per-model AI Credit diagnostics | Real summary totals, precise credits/coverage, task digest, model usage in recorded metadata | Dedicated session-ledger and per-model analysis views |
 | Snapshot/replay, adversarial packs, telemetry | Trajectory and capability map | Real snapshot/fault-pack links and trace correlation |
 | Compare, CI, storage, result reports | Real storage sources, stable-task comparisons, report download | Compatible spec versions, CI/revision provenance, durable ingestion |
+| Controlled release policies and native collection | Separate classic Release policies view at `/#/release`, including native evidence and exports | No Lab policy assessment or collection controls; descriptive Compare is not a release gate |
+| Grader assurance | Separate classic Assurance inspector at `/#/assurance` for supplied reports | No Lab assurance execution or inferred qualification from task scores |
 | Runtime progress/cancellation/retries | Artifact-derived SSE replay; explicit demo playback | Authoritative worker state, live events, authenticated run-control APIs |
 
 The real catalog derives observed suites from results; it does not discover all

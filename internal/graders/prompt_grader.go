@@ -11,6 +11,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -36,6 +37,10 @@ const promptGraderTimeoutEnv = "WAZA_PROMPT_GRADER_TIMEOUT"
 // invalid, zero, or negative values fall back to defaultPromptGraderTimeout so a
 // misconfiguration can never disable the timeout entirely.
 func resolvePromptGraderTimeout() time.Duration {
+	return resolvePromptGraderTimeoutWithRedaction(false)
+}
+
+func resolvePromptGraderTimeoutWithRedaction(redact bool) time.Duration {
 	raw := strings.TrimSpace(os.Getenv(promptGraderTimeoutEnv))
 	if raw == "" {
 		return defaultPromptGraderTimeout
@@ -52,8 +57,13 @@ func resolvePromptGraderTimeout() time.Duration {
 			return d
 		}
 	}
-	slog.Warn("ignoring invalid "+promptGraderTimeoutEnv+", using default",
-		"value", raw, "default", defaultPromptGraderTimeout)
+	if redact {
+		slog.Warn("ignoring invalid "+promptGraderTimeoutEnv+", using default",
+			"default", defaultPromptGraderTimeout)
+	} else {
+		slog.Warn("ignoring invalid "+promptGraderTimeoutEnv+", using default",
+			"value", raw, "default", defaultPromptGraderTimeout)
+	}
 	return defaultPromptGraderTimeout
 }
 
@@ -75,15 +85,17 @@ func NewPromptGrader(name string, args models.PromptGraderParameters) (*promptGr
 			return nil, fmt.Errorf("rubric %q: %w", args.Rubric, err)
 		}
 		rubric = r
-		// If neither an inline prompt nor a rubric body would seed the judge,
-		// the grader has nothing to send. The rubric body is required by
-		// Rubric.Validate, so reaching here means the rubric resolved cleanly
-		// and supplies the prompt.
-		if args.Prompt == "" {
-			args.Prompt = rubric.Body
-		}
 	}
+	return newPromptGraderWithRubric(name, args, rubric)
+}
 
+func newPromptGraderWithRubric(name string, args models.PromptGraderParameters, rubric *Rubric) (*promptGrader, error) {
+	if err := validatePromptSeed(name, args); err != nil {
+		return nil, err
+	}
+	if rubric != nil && args.Prompt == "" {
+		args.Prompt = rubric.Body
+	}
 	if args.Prompt == "" {
 		return nil, errors.New("required field 'prompt' is missing (provide 'prompt' or 'rubric')")
 	}
@@ -96,6 +108,9 @@ func NewPromptGrader(name string, args models.PromptGraderParameters) (*promptGr
 }
 
 func validatePromptSeed(name string, args models.PromptGraderParameters) error {
+	if err := args.ValidateEvidenceContext(); err != nil {
+		return err
+	}
 	if name == "" {
 		return errors.New("missing name")
 	}
@@ -107,7 +122,9 @@ func validatePromptSeed(name string, args models.PromptGraderParameters) error {
 
 // Grade implements [Grader].
 func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
-
+	if p.args.EvidenceContext != nil {
+		return p.gradeEvidence(ctx, gradingContext)
+	}
 	if p.args.Mode == models.PromptGraderModePairwise && gradingContext.BaselineOutput != "" {
 		return p.gradePairwise(ctx, gradingContext)
 	}
@@ -140,7 +157,7 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 			resumeID = gradingContext.SessionID
 		}
 		message := p.renderJudgePrompt(gradingContext)
-		resp, err := executePromptGrader(ctx, gradingContext, &execution.ExecutionRequest{
+		req := &execution.ExecutionRequest{
 			ModelID:              p.args.Model,
 			ReasoningEffort:      p.args.ReasoningEffort,
 			Message:              message,
@@ -153,7 +170,28 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 			NoSkills:             true,
 			EphemeralSession:     true,
 			SkipWorkspaceCapture: true,
-		})
+		}
+		if gradingContext.OutputPresent && !p.args.ContinueSession && p.args.Mode != models.PromptGraderModePairwise {
+			allowed := make([]string, 0, len(req.Tools))
+			for _, tool := range req.Tools {
+				allowed = append(allowed, "custom:"+tool.Name)
+			}
+			req.ToolPolicy = execution.NewToolPolicy(&allowed)
+			// Source-bearing permissions must represent actual custom callbacks,
+			// not a workflow or hook borrowing an allowlisted callback name.
+			req.PermissionHandler = func(request copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+				custom, ok := request.(*copilot.PermissionRequestCustomTool)
+				if ok && custom != nil {
+					for _, tool := range req.Tools {
+						if custom.ToolName == tool.Name {
+							return &rpc.PermissionDecisionApproveOnce{}, nil
+						}
+					}
+				}
+				return &rpc.PermissionDecisionReject{}, nil
+			}
+		}
+		resp, err := executePromptGrader(ctx, gradingContext, req)
 
 		// The SDK unconditionally sends tool results back to the model after
 		// the grade tool calls fire, which starts a follow-up assistant turn.
@@ -236,6 +274,14 @@ func (p *promptGrader) detailsWith(prompt, response string, passes, failures []s
 // (and misleading if Output is some stale or summarized snapshot), so we leave
 // the rubric body untouched in that mode.
 func (p *promptGrader) renderJudgePrompt(gradingContext *Context) string {
+	if gradingContext != nil && gradingContext.OutputPresent && !p.args.ContinueSession && p.args.Mode != models.PromptGraderModePairwise {
+		taskInput := ""
+		if gradingContext.TestCase != nil {
+			taskInput = gradingContext.TestCase.Stimulus.Message
+		}
+		effective := &Rubric{Body: p.args.Prompt}
+		return effective.RenderPromptExact(taskInput, "", gradingContext.Output)
+	}
 	if p.rubric == nil || gradingContext == nil {
 		return p.args.Prompt
 	}
@@ -259,7 +305,7 @@ func executePromptGrader(ctx context.Context, gradingContext *Context, req *exec
 	if gradingContext.Executor == nil {
 		return nil, errors.New("prompt grader requires an execution engine")
 	}
-	execCtx, cancel := context.WithTimeout(ctx, resolvePromptGraderTimeout())
+	execCtx, cancel := context.WithTimeout(ctx, resolvePromptGraderTimeoutWithRedaction(gradingContext.OutputPresent))
 	defer cancel()
 	resp, err := execution.ExecuteRecorded(execCtx, gradingContext.Executor, req)
 	if resp != nil {

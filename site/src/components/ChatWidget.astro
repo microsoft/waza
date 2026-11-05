@@ -1,0 +1,134 @@
+---
+import { publicChatConfig } from '../scripts/chat-public-config';
+
+const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
+const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
+const publicChat = publicChatConfig(import.meta.env);
+const interactive = fixtures || privatePreview || !!publicChat;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+  <div data-chat-root
+    data-meta-url={`${base}/chat-meta.json`}>
+    <button type="button" class="chat-button chat-launcher" data-chat-open aria-haspopup="dialog" disabled>Ask Waza</button>
+    <dialog aria-labelledby="chat-title" data-chat-dialog>
+      <div class="chat-heading">
+        <h2 id="chat-title">Ask Waza</h2>
+        <button type="button" class="chat-button chat-button-quiet" data-chat-close aria-label="Close Ask Waza">Close</button>
+      </div>
+      <p class="chat-intro">
+        {interactive
+          ? 'Ask about Waza commands, writing evals, or troubleshooting an error. Paste YAML below for a schema check.'
+          : 'Chat is not available yet. Use documentation search or the CLI reference to find an answer.'}
+      </p>
+      {fixtures && <p class="chat-notice">Development fixtures: answers are simulated, not live.</p>}
+      <p class="chat-notice">
+        AI answers can be wrong. Do not share secrets or sensitive information.
+        {(privatePreview || publicChat) && ' History may be retained.'}
+      </p>
+      <p class="chat-help">
+        <a href={`${base}/reference/cli/`}>CLI reference</a>
+        {' | '}
+        <a href={`${base}/guides/docs-assistant/`}>Privacy &amp; limits</a>
+      </p>
+      <p data-chat-knowledge class="chat-notice" hidden></p>
+      <details class="chat-provenance" data-chat-provenance hidden>
+        <summary>About these answers</summary>
+        <p data-chat-snapshot></p>
+      </details>
+      <ol data-chat-messages aria-label="Conversation"></ol>
+      <p data-chat-status role="status" aria-live="polite"></p>
+      <form data-chat-form>
+        <label for="chat-question">Question or error message</label>
+        <textarea id="chat-question" name="question" required rows="3" disabled={!interactive}
+          placeholder="How do I write an eval for a custom agent?"></textarea>
+        <details>
+          <summary>Check pasted YAML (optional)</summary>
+          <label for="chat-document-kind">Document type</label>
+          <select id="chat-document-kind" name="documentKind" disabled={!interactive}>
+            <option value="eval">Eval specification</option>
+            <option value="task">Task</option>
+            <option value="config">Project configuration</option>
+          </select>
+          <label for="chat-yaml">YAML without credentials</label>
+          <textarea id="chat-yaml" name="yaml" rows="5" spellcheck="false" disabled={!interactive}></textarea>
+        </details>
+        <div data-chat-challenge></div>
+        <div class="chat-actions">
+          <button type="button" class="chat-button chat-button-quiet" data-chat-clear disabled={!interactive}>Clear conversation</button>
+          <div class="chat-submit-actions">
+            <button type="button" class="chat-button" data-chat-cancel disabled>Cancel request</button>
+            <button type="submit" class="chat-button chat-button-primary" data-chat-send disabled>Send</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+  </div>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>('[data-chat-root]')) {
+    let ready: Promise<void> | undefined;
+    const launcher = root.querySelector<HTMLButtonElement>('[data-chat-open]');
+    launcher?.addEventListener('click', () => {
+      const dialog = root.querySelector<HTMLDialogElement>('[data-chat-dialog]');
+      dialog?.showModal();
+      if (!ready) {
+        ready = import('../scripts/chat').then(({ initializeChat }) => initializeChat(root))
+          .catch(() => {
+            const status = root.querySelector('[data-chat-status]');
+            if (status) status.textContent = 'Chat could not load. Please use documentation search.';
+          });
+      }
+    });
+    root.querySelector('[data-chat-close]')?.addEventListener('click', () => {
+      root.querySelector<HTMLDialogElement>('[data-chat-dialog]')?.close();
+    });
+    if (launcher) launcher.disabled = false;
+  }
+</script>
+
+<style>
+  .chat-launcher { white-space: nowrap; margin-inline-start: .5rem; }
+  dialog { box-sizing: border-box; width: min(42rem, calc(100vw - 2rem)); max-height: 90dvh; margin: auto; overflow: auto;
+    border: 1px solid var(--waza-border); border-radius: .75rem; padding: 1.25rem;
+    color: var(--waza-text); background: var(--waza-surface); }
+  dialog::backdrop { background: rgb(0 0 0 / .5); }
+  .chat-heading, .chat-actions, .chat-submit-actions { display: flex; align-items: center; gap: .5rem; }
+  .chat-heading, .chat-actions { justify-content: space-between; }
+  .chat-actions { flex-wrap: wrap; margin-block-start: .5rem; }
+  .chat-submit-actions { flex-wrap: wrap; margin-inline-start: auto; }
+  h2 { margin: 0; font-size: 1.25rem; color: var(--waza-text-heading); }
+  .chat-intro { margin-block: .75rem .5rem; }
+  .chat-notice, .chat-help, .chat-provenance { font-size: .875rem; line-height: 1.5; }
+  .chat-notice, .chat-provenance { color: var(--sl-color-gray-2); }
+  .chat-provenance { margin-block: .75rem; }
+  .chat-provenance summary { cursor: pointer; width: fit-content; }
+  .chat-provenance p { overflow-wrap: anywhere; white-space: pre-wrap; }
+  form { display: grid; gap: .5rem; }
+  label { display: block; font-weight: 600; font-size: .875rem; }
+  textarea, select { box-sizing: border-box; width: 100%; padding: .625rem .75rem; color: inherit;
+    background: var(--waza-surface-raised); border: 1px solid var(--waza-border-hover); border-radius: .5rem;
+    font: inherit; }
+  textarea { resize: vertical; }
+  .chat-button { display: inline-flex; align-items: center; justify-content: center;
+    min-height: 2.75rem; padding: .5rem 1rem; border: 1px solid var(--waza-border-hover);
+    border-radius: 999rem; font: inherit; font-size: .875rem; font-weight: 600; line-height: 1.25;
+    color: var(--waza-text-heading); background: var(--waza-surface-raised); cursor: pointer; }
+  .chat-button:hover:not(:disabled) { border-color: var(--sl-color-accent-high); }
+  .chat-button.chat-launcher { color: var(--sl-color-accent-high); background: var(--sl-color-accent-low); }
+  .chat-button-primary { color: var(--sl-color-black); background: var(--sl-color-accent-high);
+    border-color: var(--sl-color-accent-high); }
+  .chat-button-primary:hover:not(:disabled) { filter: brightness(.95); }
+  .chat-button-quiet { color: var(--waza-text); background: transparent; border-color: transparent; }
+  .chat-button-quiet:hover:not(:disabled) { background: var(--waza-surface-raised); }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  button:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--sl-color-accent-high); outline-offset: 3px; }
+  ol { padding-inline-start: 1.25rem; max-height: 35dvh; overflow: auto; }
+  [data-chat-status] { min-height: 1.5em; font-size: .875rem; }
+  :global([data-chat-messages] pre) { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: .35rem 0; }
+  :global([data-chat-messages] li) { margin-block: .75rem; }
+  :global([data-chat-messages] a) { color: var(--sl-color-text-accent); }
+  :global([data-chat-messages] ul) { padding-inline-start: 1.25rem; }
+  @media print { [data-chat-root] { display: none; } }
+</style>

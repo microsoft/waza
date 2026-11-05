@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/commandmock"
@@ -40,12 +41,15 @@ type SharedClientOptions struct {
 var (
 	sharedMu        sync.Mutex
 	sharedClients   map[string]CopilotClient
+	sharedRetired   []CopilotClient
 	sharedClosed    bool
 	sharedShutdown  sync.Once
 	sharedErr       error
 	sharedConstruct = newCopilotClient // overridable for tests
 	embeddedCLIPath = embedded.Path    // overridable for tests
 )
+
+var sharedClientShutdownTimeout = 30 * time.Second
 
 var errSharedClientClosed = errors.New("shared Copilot client has been shut down")
 
@@ -78,8 +82,10 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 	if sharedClosed {
 		return &startupErrorClient{err: errSharedClientClosed}
 	}
-	if client := sharedClients[key]; !opts.SanitizeEnvironment && client != nil {
-		return client
+	if !opts.SanitizeEnvironment {
+		if client, ok := reusableSharedClient(key); ok {
+			return client
+		}
 	}
 
 	logLevel := opts.LogLevel
@@ -108,12 +114,43 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		// or a second read of the host environment.
 		fingerprint := sha256.Sum256(fmt.Appendf(nil, "%q\x00%q\x00%q", conn.Path, environ, clientOptions.GitHubToken))
 		key += fmt.Sprintf("\x00%x", fingerprint)
-		if client := sharedClients[key]; client != nil {
+		if client, ok := reusableSharedClient(key); ok {
 			return client
 		}
 	}
-	sharedClients[key] = sharedConstruct(clientOptions)
+	sharedClients[key] = manageStartup(sharedConstruct(clientOptions))
 	return sharedClients[key]
+}
+
+// reusableSharedClient returns the client cached under key unless its startup
+// failed in a replaceable way, in which case the entry is dropped. Callers
+// must hold sharedMu.
+func reusableSharedClient(key string) (CopilotClient, bool) {
+	client := sharedClients[key]
+	if client == nil {
+		return nil, false
+	}
+	if managed, ok := client.(*startupClient); !ok || !managed.replaceable() {
+		return client, true
+	}
+	delete(sharedClients, key)
+	return nil, false
+}
+
+func retireSharedClient(client CopilotClient) {
+	managed, ok := client.(*startupClient)
+	if !ok {
+		return
+	}
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+	for key, current := range sharedClients {
+		if current == managed {
+			delete(sharedClients, key)
+			sharedRetired = append(sharedRetired, managed)
+			return
+		}
+	}
 }
 
 func sharedClientKey(cliArgs []string, sanitizeEnvironment bool) string {
@@ -121,41 +158,66 @@ func sharedClientKey(cliArgs []string, sanitizeEnvironment bool) string {
 }
 
 func sharedClientOptions(logLevel string, cliArgs []string, sanitizeEnvironment bool) (*copilot.ClientOptions, error) {
-	if cliPath := os.Getenv("COPILOT_CLI_PATH"); cliPath != "" {
-		info, err := os.Stat(cliPath)
-		if err != nil {
-			return nil, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: %w", cliPath, err)
-		}
-		if info.IsDir() {
-			return nil, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: path is a directory", cliPath)
-		}
-		slog.Info("using Copilot CLI", "source", "COPILOT_CLI_PATH", "path", cliPath)
-		return sharedCopilotClientOptions(logLevel, cliArgs, cliPath, sanitizeEnvironment)
-	}
-
-	cliPath, err := embeddedCLIPath()
+	conn, err := clientConnection(cliArgs)
 	if err != nil {
-		return nil, fmt.Errorf("embedded Copilot CLI is unavailable and COPILOT_CLI_PATH is not set; refusing to fall back to PATH: %w", err)
+		return nil, err
 	}
-	slog.Info("using Copilot CLI", "source", "embedded", "path", cliPath)
-	return sharedCopilotClientOptions(logLevel, cliArgs, cliPath, sanitizeEnvironment)
-}
-
-func sharedCopilotClientOptions(logLevel string, cliArgs []string, cliPath string, sanitizeEnvironment bool) (*copilot.ClientOptions, error) {
 	if sanitizeEnvironment {
-		return copilotClientOptions(logLevel, cliArgs, cliPath, true), nil
+		// Sandboxed clients keep their explicit environment allowlist and never
+		// receive the command-mock shim environment.
+		return copilotClientOptions(logLevel, cliArgs, conn.Path, true), nil
 	}
 	// Client environments are startup-only; later unsandboxed task sessions may
 	// create command mocks even when the first eval or grader does not use them.
-	// Sandboxed clients keep their explicit environment allowlist.
 	env, err := commandmock.RuntimeEnvironment()
 	if err != nil {
 		return nil, err
 	}
-	return &copilot.ClientOptions{
-		LogLevel:   logLevel,
-		Connection: copilot.StdioConnection{Path: cliPath, Args: append([]string{}, cliArgs...), Env: env},
-	}, nil
+	conn.Env = env
+	return &copilot.ClientOptions{LogLevel: logLevel, Connection: conn}, nil
+}
+
+func clientOptions(logLevel string, cliArgs []string, sanitizeEnvironment bool) (*copilot.ClientOptions, error) {
+	conn, err := clientConnection(cliArgs)
+	if err != nil {
+		return nil, err
+	}
+	if sanitizeEnvironment {
+		return copilotClientOptions(logLevel, cliArgs, conn.Path, true), nil
+	}
+	return &copilot.ClientOptions{LogLevel: logLevel, Connection: conn}, nil
+}
+
+func clientConnection(cliArgs []string) (copilot.StdioConnection, error) {
+	// SDK v1.0.0: CLIArgs/CLIPath/AutoStart/AutoRestart moved onto the
+	// Connection (StdioConnection) or were removed. AutoStart/AutoRestart
+	// are managed internally by the SDK now. StdioConnection is consumed
+	// by value, so we set Path before assigning it to opts.Connection.
+	conn := copilot.StdioConnection{
+		Args: append([]string{}, cliArgs...),
+		Env:  os.Environ(),
+	}
+
+	if cliPath := os.Getenv("COPILOT_CLI_PATH"); cliPath != "" {
+		info, err := os.Stat(cliPath)
+		if err != nil {
+			return copilot.StdioConnection{}, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: %w", cliPath, err)
+		}
+		if info.IsDir() {
+			return copilot.StdioConnection{}, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: path is a directory", cliPath)
+		}
+		conn.Path = cliPath
+		slog.Info("using Copilot CLI", "source", "COPILOT_CLI_PATH", "path", cliPath)
+		return conn, nil
+	}
+
+	cliPath, err := embeddedCLIPath()
+	if err != nil {
+		return copilot.StdioConnection{}, fmt.Errorf("embedded Copilot CLI is unavailable and COPILOT_CLI_PATH is not set; refusing to fall back to PATH: %w", err)
+	}
+	conn.Path = cliPath
+	slog.Info("using Copilot CLI", "source", "embedded", "path", cliPath)
+	return conn, nil
 }
 
 func copilotClientOptions(logLevel string, cliArgs []string, cliPath string, sanitizeEnvironment bool) *copilot.ClientOptions {
@@ -274,12 +336,19 @@ func (c *startupErrorClient) ListModels(context.Context) ([]copilot.ModelInfo, e
 // client was ever constructed. Safe to call multiple times. Should be invoked
 // once from the top-level command after all engines have been Shutdown and
 // all graders have completed.
-func ShutdownSharedClient(_ context.Context) error {
+func ShutdownSharedClient(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	shutdownCtx, cancel := context.WithTimeout(ctx, sharedClientShutdownTimeout)
+	defer cancel()
+
 	sharedMu.Lock()
-	clients := make([]CopilotClient, 0, len(sharedClients))
+	clients := make([]CopilotClient, 0, len(sharedClients)+len(sharedRetired))
 	for _, client := range sharedClients {
 		clients = append(clients, client)
 	}
+	clients = append(clients, sharedRetired...)
 	if len(clients) > 0 {
 		sharedClosed = true
 	}
@@ -290,8 +359,14 @@ func ShutdownSharedClient(_ context.Context) error {
 	}
 	sharedShutdown.Do(func() {
 		var errs []error
+		stopErrs := make(chan error, len(clients))
 		for _, client := range clients {
-			if err := client.Stop(); err != nil {
+			go func(client CopilotClient) {
+				stopErrs <- stopSharedClient(shutdownCtx, client)
+			}(client)
+		}
+		for range clients {
+			if err := <-stopErrs; err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -303,6 +378,31 @@ func ShutdownSharedClient(_ context.Context) error {
 	return sharedErr
 }
 
+func stopSharedClient(ctx context.Context, client CopilotClient) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- client.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+	}
+
+	if force, ok := client.(interface{ ForceStop() }); ok {
+		go force.ForceStop()
+	}
+	timer := time.NewTimer(startupCleanupTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return errors.Join(ctx.Err(), err)
+	case <-timer.C:
+		return errors.Join(ctx.Err(), errors.New("shared Copilot client cleanup exceeded force-stop grace"))
+	}
+}
+
 // resetSharedClientForTest restores SharedClient to a pristine state. For
 // tests only.
 func resetSharedClientForTest() {
@@ -310,6 +410,7 @@ func resetSharedClientForTest() {
 	defer sharedMu.Unlock()
 	sharedShutdown = sync.Once{}
 	sharedClients = nil
+	sharedRetired = nil
 	sharedClosed = false
 	sharedErr = nil
 }

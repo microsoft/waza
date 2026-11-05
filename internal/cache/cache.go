@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
+	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -31,7 +33,16 @@ func New(dir string) *Cache {
 // - task content (test case definition)
 // - model ID
 // - fixture file hashes
+// - the task's effective MCP mocks, with fixture contents resolved
+// MCP fixtures use fixtureDir as their base; use CacheKeyWithSpecDir when the
+// eval and task resource directories differ.
 func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (string, error) {
+	return CacheKeyWithSpecDir(spec, task, fixtureDir, fixtureDir)
+}
+
+// CacheKeyWithSpecDir resolves MCP fixtures relative to the eval directory,
+// independently of the task resource directory.
+func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDir, specDir string) (string, error) {
 	h := sha256.New()
 
 	// Include spec identity
@@ -67,20 +78,23 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 	if err := writeInt(h, spec.Config.MaxAttempts); err != nil {
 		return "", err
 	}
-	var resolvedSandbox *models.SandboxConfig
+	// Only an enabled sandbox contributes to the key, so omitted and disabled
+	// blocks keep the keys computed before sandboxing existed.
 	if sandbox := spec.Config.Sandbox; sandbox != nil && sandbox.Enabled {
 		resolved, err := sandbox.ResolvePaths()
 		if err != nil {
 			return "", fmt.Errorf("resolving sandbox configuration: %w", err)
 		}
-		resolvedSandbox = &resolved
-	}
-	sandboxJSON, err := json.Marshal(resolvedSandbox)
-	if err != nil {
-		return "", fmt.Errorf("marshaling sandbox configuration: %w", err)
-	}
-	if _, err := h.Write(sandboxJSON); err != nil {
-		return "", err
+		if err := writeString(h, "native-sandbox-v1"); err != nil {
+			return "", err
+		}
+		sandboxJSON, err := json.Marshal(resolved)
+		if err != nil {
+			return "", fmt.Errorf("marshaling sandbox configuration: %w", err)
+		}
+		if _, err := h.Write(sandboxJSON); err != nil {
+			return "", err
+		}
 	}
 	if err := writeBool(h, spec.Config.TriggerSkillRouting); err != nil {
 		return "", err
@@ -125,7 +139,56 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 		return "", fmt.Errorf("hashing fixtures: %w", err)
 	}
 
+	// Hash each task's effective mocks (task overrides applied), so an edited
+	// task or inherited eval mock does not reuse an outcome from different responses.
+	if effective := models.EffectiveMCPMocks(spec, task); len(effective) > 0 {
+		resolved := make(map[string]*mcpmock.Config, len(effective))
+		for _, mock := range effective {
+			cfg, err := mcpmock.FromEvalConfigOfflineWithVersion(mock, specDir, spec.SchemaVersion)
+			if err != nil {
+				return "", fmt.Errorf("resolving MCP mock %q for cache: %w", mock.Name, err)
+			}
+			resolved[cfg.Name] = cfg
+		}
+		// Earlier keys omitted MCP mocks, so salt only MCP-backed keys to
+		// invalidate entries that could not reflect their mock configuration.
+		if err := writeString(h, "mcp-mock-attempt-v1"); err != nil {
+			return "", err
+		}
+		mocksJSON, err := json.Marshal(resolved)
+		if err != nil {
+			return "", fmt.Errorf("marshaling MCP mocks for cache: %w", err)
+		}
+		if _, err := h.Write(mocksJSON); err != nil {
+			return "", err
+		}
+	}
+
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// RecordedMCPMocksMatch reports whether a cached outcome is safe to reuse for
+// the given effective MCP mocks. Keys written before MCP mocks were hashed
+// ignored eval-level mocks, so a mocked outcome can sit under the key a task
+// without mocks now computes. An outcome whose runs record a mocked MCP
+// dependency that is not currently mocked must be re-run. Runs that predate
+// recorded dependency modes cannot be checked.
+func RecordedMCPMocksMatch(outcome *models.TestOutcome, effective []models.MCPMockConfig) bool {
+	if outcome == nil {
+		return true
+	}
+	mocked := make(map[string]bool, len(effective))
+	for _, mock := range effective {
+		mocked[strings.TrimSpace(mock.Name)] = true
+	}
+	for _, run := range outcome.Runs {
+		for _, mode := range run.DependencyModes {
+			if mode.Kind == "mcp" && mode.Mode == "mocked" && !mocked[mode.Name] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Get retrieves a cached test outcome if it exists

@@ -36,7 +36,7 @@
 
 **Responsibilities:**
 - Rusty reviews code quality, architectural alignment, test coverage
-- For Copilot SDK changes, flag for Richard Park review
+- For Copilot SDK changes, Rusty reviews SDK contracts and compatibility evidence; Linus retains implementation ownership. Select another qualified AI reviewer if Rusty authored the work, preserving existing reviewer/author lockouts under `.squad/governance.md`.
 - For performance-critical paths, request benchmarking data
 - Approve or request revisions
 

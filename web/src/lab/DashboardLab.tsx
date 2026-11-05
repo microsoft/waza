@@ -32,6 +32,7 @@ import { reportDetails, useLabSource, useLabComparison } from "./source";
 import RunActivity from "./RunActivity";
 import { ModelChart, QualityChart } from "./Charts";
 import RunInspector from "./RunInspector";
+import RunnerNegotiation from "./RunnerNegotiation";
 import {
   alignTasks,
   duration,
@@ -60,6 +61,7 @@ const sections = [
   { id: "compare", label: "Compare", icon: GitCompareArrows },
   { id: "reports", label: "Reports", icon: FileBarChart2 },
   { id: "catalog", label: "Skills & evals", icon: Layers3 },
+  { id: "runner", label: "Runner contract", icon: ShieldCheck },
 ] as const;
 type Section = (typeof sections)[number]["id"];
 
@@ -1225,6 +1227,8 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                         ? "Make a change. Measure its impact. Inspect the evidence."
                         : section === "reports"
                           ? "Turn evaluation evidence into a clear, shareable snapshot."
+                          : section === "runner"
+                            ? "Check versions and capabilities before dispatching work. No execution is enabled."
                           : "Connect skill readiness, evaluation coverage, and execution evidence."}
               </p>
             </div>
@@ -1242,7 +1246,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
               {section === "reports" ? "Explore runs" : "Build report"}
             </button>
           </div>
-          <div className="lab-filterbar">
+          {section !== "runner" && <div className="lab-filterbar">
             <span>
               <SlidersHorizontal size={15} />
               Scope
@@ -1353,8 +1357,8 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
             >
               Reset filters
             </button>
-          </div>
-          {!demo && (
+          </div>}
+          {!demo && section !== "runner" && (
             <div className="lab-history-toolbar">
               <p role={source.isError ? "alert" : "status"}>
                 {source.isError
@@ -1372,6 +1376,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
               </button>
             </div>
           )}
+          {section === "runner" && <RunnerNegotiation demo={demo} />}
           {section === "overview" && (
             <>
               <Metrics items={filtered} />

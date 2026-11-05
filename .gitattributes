@@ -5,5 +5,25 @@
 .squad/orchestration-log/** merge=union
 # Set the default behavior, in case people don't have core.autocrlf set.
 * text=auto
+# Squad commits hash these exact bytes; Windows checkout must retain LF.
+.squad/casting/registry.json text eol=lf
+.squad/casting/history.json text eol=lf
+.squad/casting/legacy-v0.10.0/** -text
+testdata/frozen-assurance-readers/** -text
+schemas/grader-assurance-1.0.schema.json text eol=lf
+schemas/grader-reference-1.0.schema.json text eol=lf
+schemas/evidence-manifest-1.0.schema.json text eol=lf
+examples/grader-challenges/authored-output/eval.yaml text eol=lf
 *.zst filter=lfs diff=lfs merge=lfs -text
 internal/embedded/zcopilotruntimeassets_*.tgz filter=lfs diff=lfs merge=lfs -text
+internal/releasepolicy/testdata/journal_711867044.go.original -text
+internal/nativesnapshot/testdata/g2-original/nativesnapshot-files.go.original -text
+internal/nativesnapshot/testdata/g2-original/nativesnapshot-join.go.original -text
+internal/nativesnapshot/testdata/g2-original/nativesnapshot-snapshot.go.original -text
+internal/nativesnapshot/testdata/g2-original/orchestration-request_files.go.original -text
+internal/nativesnapshot/testdata/g2-original/orchestration-runner.go.original -text
+internal/testutil/readeroracle/testdata/15c/*.original -text
+# Preserve upstream interoperability oracle and fixture checksums on all hosts.
+internal/interop/testdata/agentv/suite.yaml -text
+internal/interop/testdata/agentv/assertions.ts -text
+internal/interop/testdata/agentv/LICENSE -text

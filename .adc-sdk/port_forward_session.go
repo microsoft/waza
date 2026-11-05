@@ -19,9 +19,10 @@ import (
 // After the JSON handshake, all data is transferred as raw binary WebSocket frames
 // (no base64 encoding), making it efficient for high-throughput TCP tunneling.
 type PortForwardSession struct {
-	ws     *websocket.Conn
-	closed bool
-	mu     sync.Mutex
+	ws      *websocket.Conn
+	closed  bool
+	mu      sync.Mutex
+	writeMu sync.Mutex
 }
 
 // newPortForwardSession creates a new port-forward session.
@@ -110,11 +111,27 @@ func (s *PortForwardSession) IsConnected() bool {
 
 // Read returns a channel that yields raw TCP data chunks from the remote port.
 // The channel is closed when the tunnel ends, an error occurs, or the context is cancelled.
+// Cancellation closes the tunnel to interrupt an idle read. Only one reader may be active.
 func (s *PortForwardSession) Read(ctx context.Context) <-chan []byte {
 	ch := make(chan []byte)
 
 	go func() {
-		defer close(ch)
+		done := make(chan struct{})
+		watcherDone := make(chan struct{})
+		go func() {
+			defer close(watcherDone)
+			select {
+			case <-ctx.Done():
+				s.Close()
+			case <-done:
+			}
+		}()
+		defer func() {
+			close(done)
+			<-watcherDone
+			s.Close()
+			close(ch)
+		}()
 
 		for {
 			s.mu.Lock()
@@ -146,24 +163,28 @@ func (s *PortForwardSession) Read(ctx context.Context) <-chan []byte {
 
 // Write sends data through the tunnel to the remote port as a binary WebSocket frame.
 func (s *PortForwardSession) Write(data []byte) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.ws == nil || s.closed {
+	ws := s.ws
+	closed := s.closed
+	s.mu.Unlock()
+	if ws == nil || closed {
 		return fmt.Errorf("WebSocket is not connected")
 	}
 
-	return s.ws.WriteMessage(websocket.BinaryMessage, data)
+	return ws.WriteMessage(websocket.BinaryMessage, data)
 }
 
 // Close closes the WebSocket connection.
 func (s *PortForwardSession) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.ws != nil && !s.closed {
-		s.closed = true
-		return s.ws.Close()
+	if s.ws == nil || s.closed {
+		s.mu.Unlock()
+		return nil
 	}
-	return nil
+	s.closed = true
+	ws := s.ws
+	s.mu.Unlock()
+	return ws.Close()
 }

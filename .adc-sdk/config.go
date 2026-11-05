@@ -41,8 +41,10 @@ type Config struct {
 	// Defaults to DefaultTimeout if not specified.
 	Timeout time.Duration
 
-	// MaxRetries is the maximum number of retry attempts for failed requests.
-	// Defaults to DefaultMaxRetries if not specified.
+	// MaxRetries is the maximum number of retries after the initial HTTP attempt.
+	// Zero uses DefaultMaxRetries; a negative value disables retries.
+	// Transient network errors and HTTP 408, 429, 500, 502, 503, and 504 are retried
+	// with exponential backoff from 100ms, capped at 2s, respecting the request context.
 	MaxRetries int
 
 	// SpaceID is the optional sandbox space ID to scope all operations.

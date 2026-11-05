@@ -1,0 +1,401 @@
+---
+title: Controlled comparisons
+description: Explicit fixed-design release assessment, lineage boundaries and current integration limitations.
+---
+
+Source-bound planning, paired collection, strict reassessment, structural schemas
+and a separate dashboard decision view use the offline mock collector by
+default. A separately selected `native-copilot` profile supports a bounded,
+potentially paid Copilot SDK path; see
+[the native collection scope](#opt-in-to-native-copilot-collection). Other strict
+collection paths are unsupported; ordinary runs retain all existing
+capabilities. The independent offline assurance profile remains separate and
+does not change base 1.0. Mock observations validate the harness, not agent
+quality.
+
+**Available in v0.39.0 and explicitly selected:** install the standalone release as described in
+[release availability](../../reference/releases/#upcoming-main-only-capabilities).
+Older `v0.38.10` does not include this workflow. Platform, paid-call and profile
+restrictions below still apply.
+
+Ordinary opt-in snapshot `run` capture and supported `grade` paths already
+produce scoped result-level `evidence` and `requirement_explanations`.
+These observations are not strict paired-release evidence:
+
+| Ordinary operation | Available observation | Limit |
+| --- | --- | --- |
+| Run without snapshot | Grader outcomes and scoped requirement explanations when assessable | No preserved snapshot bytes; absent evidence stays unassessed |
+| Run with `--snapshot` | Per-trial source manifest, availability/completeness and scoped explanations | Capture can be partial, unavailable or errored; metadata is not external-state verification |
+| Grade with workspace or selected evidence snapshot | Supported native regrade observations and scoped explanations | Only supported checks and verified selected bytes; no inferred workspace or fresh agent run |
+
+Missing, unassessed and error states remain distinct and cannot pass by default.
+Ordinary snapshot results and historical results are not adopted as strict
+paired evidence. Snapshot-only metadata cannot satisfy selected required
+release evidence.
+
+## Native implementation boundaries
+
+The native source projector, retained source capture, policy-slot validation
+and attempt-tape reader are implementation components used by the explicitly
+selected CLI producer. Static possible slots or caller-supplied tape joins do
+not themselves prove actual execution, durable acknowledgment, retry
+permission, currentness or release authority. A `structurally_matched` result
+describes supplied consistency only. Strict native readers reject torn or
+contradictory records rather than accepting a shorter valid prefix.
+
+Native durable creation supports Linux/macOS only; Windows supplied-reader
+checks do not certify writing. Ordinary collectors, legacy decoders and default
+command behavior remain unchanged. See the
+[detailed native contract](https://github.com/microsoft/waza/blob/main/docs/CONTROLLED-COMPARISONS.md#opt-in-native-copilot-collection).
+
+## Plan and collect offline with the default mock
+
+```bash
+waza compare-plan \
+  --baseline-eval examples/controlled-comparison/eval.yaml \
+  --candidate-eval examples/controlled-comparison/eval.yaml \
+  --design examples/controlled-comparison/design.json \
+  --requirements examples/controlled-comparison/requirements.json \
+  --output policy.json
+waza compare-collect \
+  --baseline-eval examples/controlled-comparison/eval.yaml \
+  --candidate-eval examples/controlled-comparison/eval.yaml \
+  --release-policy policy.json --collection-dir new-collection
+```
+
+The example is intentionally inconclusive on assessment (exit `1`): one
+deterministic cluster does not justify a release claim. Design/requirements
+use the corresponding policy 1.0 member shapes. Explicit requiredness cannot
+silently default; input allocation must be empty. The planner generates the
+seed once and binds exact effective trial counts before any outcomes.
+`--allow-change model` expands actual differences to exact per-task entries;
+timeouts/retries/graders/fixtures cannot be hidden by a model allowance.
+
+Source inspection is engine-free and never turns preflight inventory readiness
+into assurance. Both sources are rechecked before BEGIN and every attempt;
+execution uses privately frozen input bytes, then a fresh initialized mock and
+workspace after its durable start. Actual copied resource/instruction order and
+bytes, resolved prompts, native scoped checks, remaining settings and executable
+path-file bytes are bound. Present lock bytes are bound; only inspected empty rubric/
+lock applicability is `not_applicable`. Requested model labels do not establish
+provider versions. The harness's `mock_no_provider` identity is not agent quality
+or loaded-image authenticity.
+The unchanged digest observes the on-disk file at `os.Executable()` at observation
+time, not the mapped running image or RAM. Path replacement can change the
+observed bytes or make acquisition fail; this is not stronger identity proof.
+
+Context flags retain cwd-relative behavior; task context roots do too.
+`inputs.context.fixture` stays eval-directory-relative. Unused fixture files
+are not falsely reported as executed-input drift. No CSV/template-generated
+tasks, skills/agents, external dependencies, hooks, parallelism, multiturn,
+checkpoint or non-text graders are supported by this collection producer.
+
+## Opt in to native Copilot collection
+
+The bundled eval is a mock harness fixture, not a native-Copilot example. For
+native collection, supply your own fixed named-model evals and predeclared
+design/requirements. Explicitly select the native profile during both planning
+and collection; assessment selects the resulting envelope as usual. Do not run
+these commands as part of offline example checks; native collection may incur
+provider usage:
+
+```bash
+waza compare-plan --collector native-copilot \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --design design.json --requirements requirements.json \
+  --output native-policy.json
+waza compare-collect --collector native-copilot \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --release-policy native-policy.json --collection-dir new-native-collection
+waza gate --release-policy native-policy.json \
+  --collection-dir new-native-collection --format json
+```
+
+This explicitly selected profile is limited to Copilot SDK, fixed named models,
+single turns, no skills, deny-all **client** tools and native text/string
+checks. It does not support hooks, MCP, repositories, cache, concurrency,
+resume, checkpoints, multiturn or other graders. Planning does not invoke the
+SDK; collection may incur provider usage. Native durable creation is Linux and
+macOS only and rejects other platforms before reserving outputs. Client tool
+denial is not server isolation.
+
+Observed input/output tokens and AI credits are distinct from provider
+currency. Required prior usage that is unavailable blocks further starts;
+best-effort checks run before new attempts and already-running work can
+overshoot limits asynchronously. There is no token-price conversion or hard
+spending cap. Runtime version and provider currency remain unavailable, and
+ambiguous output presence is not converted into empty output. Required
+unsupported runtime, assurance or currency evidence does not pass.
+
+The native policy is a `waza.release-native-policy` 1.0 envelope embedding the
+core policy protocol 1.0, native task profile 2.0, source-capture digest and
+required `collection_profile: "copilot_sdk_single_turn_text_v1"` discriminator.
+Frozen core-only readers reject both the outer envelope and an extracted core
+policy with that unknown discriminator; stripping the wrapper does not make
+native policy legacy-compatible. Ordinary mock policy and gate defaults do
+not change.
+
+The public native 2.0 adapter bounds selected source files and ordinary
+evaluator input files to 16 MiB each, while the captured evaluator executable
+is limited to 256 MiB. Aggregate sources are limited to 512 MiB and 16,384
+entries, and the full capture wire to 1 GiB. These are artifact-admission
+bounds, not process-memory caps; decoding large captures may require additional
+memory. Per-attempt digest-only descriptors are limited to 128 MiB, requests to
+16 MiB and source paths to 4,096 bytes. Native tapes and record streams are
+limited to 16 MiB. Oversized payloads or aggregate tapes fail explicitly,
+leaving durable pending/nonpassing evidence; the adapter does not silently
+discard data or promise unbounded retention. These public bounds do not change
+existing private 1.0 bounds.
+
+Operationally incomplete native collection returns nonzero even if core
+publication completed. `native-stop.json` retains the error, budget or
+currentness cause; the API collection item's `error` may coexist with its
+attempts. The optional API `decision.native` view lists retained attempt
+lifecycle, status, output availability, model observations and usage
+completeness while labeling unavailable runtime/currency and unsupported
+assurance. See the
+[full contract](https://github.com/microsoft/waza/blob/main/docs/CONTROLLED-COMPARISONS.md#opt-in-native-copilot-collection)
+for artifact and statistical boundaries.
+
+## Dashboard and structural schemas
+
+Serve the local collection parent with `waza serve --results-dir <root>` and
+open **Release policies**. `/api/release-collections` recomputes strict decisions
+without mixing sidecars into ordinary runs. All seven dimensions and available
+full/partial attempt counts remain separate; missing rates are unavailable.
+Exact usage numbers are transported as strings, not rounded JavaScript numbers.
+This independently tagged `waza.release-decision-view` 1.0 transport is distinct
+from the stored numeric-token `waza.release-decision` artifact.
+Interrupted tapes never become completed evidence or resumed collections.
+
+Each API request retains the configured results-root handle and opens
+collections relative to it. Full and partial decisions use one retained
+collection handle, so replacing a pathname cannot redirect artifact reads.
+Owned handles close before publication; cancellation or close errors cannot
+publish a successful response. This is **confinement, not snapshot immutability
+or authenticity**: it does not guarantee race-free no-follow/ABA protection or
+exclude mounts/devices. The new confined reader supports Unix/Windows retained
+handles; Windows may prevent directory rename while the handle is held, and
+closing the owning handles releases that pin. Retention does not promise rename
+availability on every platform. The reader explicitly rejects JavaScript/Plan 9
+pathname-backed roots.
+Windows supplied-artifact reading is not support for durable collection.
+For native policies, the returned decision may also include the optional
+`native` profile view and per-attempt lifecycle/usage fields; this does not
+upgrade unavailable runtime, currency or assurance into observed evidence.
+
+The versioned `schemas/release-*-1.0.schema.json` files provide structural
+validation. The Go reader additionally enforces exact JSON tokens, source
+binding, conditional availability, transitions and statistical validity.
+Actual result rows and their independent result projections must explicitly
+declare each required verdict member. Missing, null or case-aliased `passed`
+and `score` fields cannot become observed `false` or zero, even when those
+values would agree with the journal. Explicit `false` and numeric zero remain
+valid observations; legacy ordinary-result decoding is unchanged.
+Selected policy/planning requirements and complete or partial attempt identities
+also reject known-key aliases before typed decoding. Untagged embedded fields
+use their promoted JSON names, with JSON depth/tag shadowing and ambiguity
+rules; arbitrary dynamic-detail map keys remain unchanged.
+
+Number-preserving JSON admission also rejects invalid UTF-8 and unpaired
+escaped UTF-16 surrogates before decoding. Malformed strings cannot become
+valid U+FFFD identity evidence; valid surrogate pairs, U+FFFD and escaped
+backslashes remain supported without changing JSON-v1 number tokens.
+
+The base API/dashboard intentionally remain **nonpassing when assurance is
+required**, even when an independent profile is present. Only explicit outer
+CLI assessment can pass; stored report/view pass labels cannot upgrade base
+semantics.
+
+## Opt in separately to offline assurance
+
+Full actual rows are retained in the fixed evaluator-owned
+`assurance-rows.ndjson` tape: payload fsync precedes its assurance digest/output
+record and the core terminal. Readers require exact positional count/order,
+JSON-v1 identity and final-result agreement; missing, torn, duplicated, reordered
+or orphan payloads cannot pass. Fixed artifacts use bounded (16 MiB), rooted,
+regular-file reads; cancellation stops additive assessment. JSON-v1-equivalent
+whitespace is not an exact-source-byte authenticity claim.
+
+Freeze a base policy with `requirements.assurance: true`, then create an
+independent contract before collection. The following paths are your authored
+inputs, not bundled ready-to-pass fixtures:
+
+```bash
+waza compare-assurance-plan \
+  --release-policy policy.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --output assurance-contract.json
+waza compare-collect \
+  --release-policy policy.json --assurance-contract assurance-contract.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --collection-dir new-assured-collection
+waza gate \
+  --release-policy policy.json --assurance-contract assurance-contract.json \
+  --collection-dir new-assured-collection \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json --format json
+```
+
+`compare` accepts the same assessment inputs without historical positional
+results. Optional per-arm context overrides retain existing cwd resolution.
+Contract output is a new exclusive file; collection is a new directory.
+Collection and assessment require explicit `--assurance-contract` and
+`--release-policy`; assessment also needs `--collection-dir` and **current**
+per-arm eval/reference inputs. Missing/empty required values fail, not fall back.
+Old executables reject new commands/flags; legacy defaults stay unchanged.
+
+Only **mock / no_skills / native text / finite authored outputs** are admitted.
+Every actual endpoint needs an unambiguous requirement/check mapping. Both
+arms need fresh exact offline1.0 reports, deterministic regrading of retained
+actual responses, and all base non-assurance pass conditions, including
+statistics, golden first-attempt veto, operations and any required billing
+totals. No live SDK assurance, calibration, paid1.1/billing support or automatic paid
+validation is supported.
+
+References remain evaluator-only and use the existing grader-reference and
+authored-output contracts. Reviews are separately supplied current inputs:
+`--baseline-review` / `--candidate-review`, plus independent explicit
+`--baseline-accept-review-source` / `--candidate-accept-review-source`.
+Supply the same selected inputs throughout all stages. A file is not acceptance,
+acceptance without a supplied review is invalid, and neither authenticates a
+human. Unreviewed examples remain nonpassing; test reviewed declarations are
+clearly synthetic. Revocation/staleness invalidates eligibility; withheld
+revocations cannot be discovered.
+Explicit `reviewed_at` values must be nonnull date-time strings with two-digit
+hours, dot-separated fractional seconds and bounded numeric timezone offsets;
+typed decoding cannot normalize malformed original timestamps into eligibility.
+Unreviewed/submitted declarations may omit the timestamp.
+
+Sources/evidence/review are rechecked after verification, before final
+publication and before assessment returns. Stored pass reports are never
+adopted. These finite-corpus reports do not claim live-agent reliability, full
+correctness, confidence calibration or authenticated human review.
+
+The independent contract, attempt row, final ledger and outer decision use
+`waza.release-assurance-contract`, `waza.release-assurance-attempt`,
+`waza.release-assurance-ledger` and `waza.release-assured-decision`, each at
+`1.0`, with dedicated schemas. Regenerate them with
+`go run schemas/assurance_generate.go`; frozen base schemas are not broadened.
+Contract/ledger self-digests omit the `digest` member and use JSON-v1, as do
+policy/plan/config/task/grader declarations, core journal and result-row
+identities. Eval/executable/labels/review/authored documents, final NDJSON tape
+and raw result files use **exact source bytes**, including whitespace/newlines.
+Those domains are not interchangeable. The contract digest identifies the
+collection. Hashes and a nonce prove local consistency, not authenticity,
+global uniqueness or globally witnessed precommitment.
+
+An actually empty response is explicitly
+`{"availability":"available","value":""}`. An unavailable response has a
+nonblank `reason` and **no value**; an empty result field cannot manufacture a
+captured response. Regrading checks actual result-row lineage and preserved
+native verdicts/scores; no chosen successful attempt replaces earlier failures.
+
+Use `--format json` for the outer machine-readable decision or human output
+(`gate` default; `compare` table selection renders human text). Other selected
+styles do not promise legacy layouts. Selected nonpass exits `1`; an outer pass
+still embeds a nonpassing base decision. See the
+[complete profile contract](https://github.com/microsoft/waza/blob/main/docs/CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile)
+for raw-reader validation beyond structural schemas.
+
+## Explicit enforcement
+
+```bash
+waza compare --release-policy policy.json --collection-dir new-collection --format json
+waza gate --release-policy policy.json --collection-dir new-collection --format json
+```
+
+Both flags are mandatory, and the selected policy must exactly match the
+precollection commitment. Selected nonpass exits `1`; output separates
+compatibility, completeness, assurance, golden, billing, statistics and
+operations. No historical result adoption or resume is supported. Do not mix
+this mode with legacy gate flags or positional comparison files.
+
+Without explicit selection, compare/gate defaults, golden union/task-set
+semantics and gate `0/1/2/3` exits remain unchanged. Metadata alone does not
+enforce a policy. Old executables reject the new unknown flags.
+
+## Statistical design first
+
+The estimand is expected candidate-minus-baseline pass reliability for the
+**fixed declared suite under its repeated-execution mechanism**. Select one
+first-attempt or retry-policy endpoint before collection. Report both endpoint
+reliabilities and recovery/attempt counts, but do not treat retries or tasks
+within a cluster as independent samples.
+
+For independent bounded cluster differences in `[-1,1]`, declared coefficients
+`w`, error probability `alpha` and external conservative family bound `M`,
+the two-sided Hoeffding radius is:
+
+```text
+h = sqrt(2 * log(2*M/alpha) * sum(w*w))
+```
+
+One selected contrast is verified; larger `M` is not a verified full-family
+inventory. `.05`, `M=1`, `h<=.1` gives a mathematical precision requirement of
+738 equal independent clusters, **not power, cost or an execution promise**.
+Actual frozen weights must meet the declared precision with conservative
+rounding. Reserve extra precision margin before collection, never afterwards.
+
+Canonical Go JSON coefficient tokens admit routine uniform 3/12/738 and
+ordinary relative allocations. Narrow representation-mass admission precedes
+exact rational normalization of the whole declared set; both estimate and
+radius use it. Omitted cluster/task mass and hidden coefficient precision
+reject rather than being normalized away.
+
+Independence needs a mechanism, justification and limitations. Fresh sessions,
+reset fixtures and frozen pair ordering do not remove shared service/time/state
+dependence. Unjustified independence stays descriptive/inconclusive. No
+adaptive stopping, outcome-selected seeds, post-hoc endpoints, selected
+successful attempts or denominator changes are supported.
+
+## Evidence is not an assurance label
+
+Independent JSON-v1 policy/receipt/journal identity uses strict original JSON
+numeric tokens; duplicate, unknown, trailing or unsupported content rejects.
+Per-task effective settings and source identities bind the plan. Only exact
+declared engine/model/reasoning changes are allowed. Expected runtime belongs
+to the plan; actual observed versions belong to attempts/receipts. Requested
+model labels never supply unknown actual provenance.
+
+Source identity, stored-byte digest and aggregate manifest identity are
+different domains. Captured artifacts may still be incomplete/redacted.
+Rubric/lock `not_applicable` is a verified empty inventory, not unavailable
+applicable evidence. Preflight completeness/reference verification means
+examined declarations, not runtime readiness, enforcement or satisfaction.
+
+Every required golden task must pass its first attempt in **both arms for
+every planned trial**, independently of selected endpoint. Recovery cannot
+average away a first-attempt golden failure. Missing required golden evidence
+is distinct from observed failure and from missing required assurance.
+
+## Durable collection and spend
+
+A new private Linux/macOS collection requires both durable BEGINs before
+engines and a synced start before each attempt. Shared contiguous events
+record exact cluster/arm/task/trial/retry order. Reassessment checks the exact
+durable NDJSON stream, BEGINs, complete journal, final receipts, result
+projection and actual run/attempt/grader rows. Missing/crashed/contradictory
+publications never pass. Unsupported platforms fail closed only for this new
+protocol; legacy writers remain available.
+
+File and containing-directory sync primitives are checked. Machine-crash
+durability still depends on storage/filesystem semantics. Local hashes are
+consistency checks, not authenticity or independently witnessed precommitment.
+
+Tokens, provider currency and AI credits are independent. Unavailable is not
+zero; tokens are exact nonnegative integers. Only final complete attributable
+totals satisfy a required budget. Partial zero does not pass. Final observed
+spend can exceed a budget: asynchronous overshoot is not prevented by an atomic
+spend cap.
+
+Program process-launch/timeout failures can look like nil-error grader
+rejections. Unsupported operational observability therefore cannot be counted
+as behavioral failures or successes. Ordinary runs retain those features;
+affirmative controlled instrumentation is currently limited to the safe
+mock/native-text/string-expectation path.

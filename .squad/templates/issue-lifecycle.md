@@ -339,6 +339,13 @@ See `.squad/templates/ralph-reference.md` for Ralph's full lifecycle.
 
 ## PR Review Handling
 
+**Waza policy:** AI-only Squad membership is not a CI-only approval policy.
+Squad implementation and consultation stay with qualified AI members under
+`.squad/governance.md`; repository-required independent native approvals and
+CODEOWNERS remain unchanged. Do not select the automated-approval/no-review
+patterns below merely because humans are not Squad members. Roster changes do
+not reset author/reviewer lockouts or authorize merging.
+
 ### Automated Approval (CI-only projects)
 
 If the project has no human reviewers configured:
@@ -361,7 +368,8 @@ If the project requires human approval:
 If the issue was assigned to a squad member and they authored the PR:
 1. Another squad member reviews (conflict of interest avoidance)
 2. Original author is locked out from re-working rejected code (rejection lockout)
-3. Reviewer can approve edits or reject outright
+3. The Coordinator selects a different qualified revision owner, not the locked-out author or rejecting gate
+4. Rejection includes concrete counter-evidence; the reviewer does not implement, pair on, or advise the immediate revision and performs focused rereview only
 
 ## Common Issue Lifecycle Patterns
 

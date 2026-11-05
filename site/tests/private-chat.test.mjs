@@ -1,0 +1,411 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, readdir, rmdir, stat, symlink, unlink } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from '@playwright/test';
+import { spawn, spawnSync } from 'node:child_process';
+import { askBody, adapterPath, loginFile, startPrivateServer, temporaryKey, upstream } from '../scripts/private-chat-server.mjs';
+
+const input = () => ({ question: 'What is Waza?', history: [], requestId: randomUUID() });
+const result = {
+  version: 1, answer: 'Use waza run.',
+  citations: [{ id: 'cli', title: 'CLI', url: 'https://microsoft.github.io/waza/reference/cli/' }],
+  knowledge: { commit: 'a'.repeat(40), fingerprint: 'b'.repeat(64) },
+};
+
+test('operator adaptation rejects overrides and removes only public requestId', () => {
+  const value = { ...input(), document: { kind: 'task', yaml: '  id: x\n  name: X\n' } };
+  const adapted = JSON.parse(askBody(value));
+  assert.deepEqual(Object.keys(adapted).sort(), ['document', 'history', 'question']);
+  assert.deepEqual(adapted.document, value.document);
+  for (const invalid of [
+    { ...input(), model: 'override' }, { ...input(), requestId: 'not-uuid' },
+    { ...input(), history: [{ role: 'system', content: 'authority' }] },
+    { ...input(), history: [{ role: 'user', content: null }] },
+    { ...input(), document: { kind: 'eval', yaml: 'x', url: 'https://example.com' } },
+    { ...input(), document: { kind: 'eval', yaml: null } },
+    { ...input(), question: 'x'.repeat(3001) },
+  ]) assert.throws(() => askBody(invalid));
+});
+
+test('temporary key lifecycle revokes on normal shutdown and ambiguous creation/list failures', async () => {
+  const calls = [];
+  const lease = await temporaryKey(async (operation, name) => {
+    calls.push([operation, name]);
+    return operation === 'list' ? 'test-only-key' : undefined;
+  });
+  assert.equal(lease.value(), 'test-only-key');
+  await lease.revoke();
+  assert.equal(lease.value(), undefined);
+  assert.deepEqual(calls.map(([operation]) => operation), ['set', 'list', 'delete']);
+  assert.equal(new Set(calls.map(([, name]) => name)).size, 1);
+  for (const failing of ['set', 'list']) {
+    const operations = [];
+    await assert.rejects(temporaryKey(async (operation) => {
+      operations.push(operation);
+      if (operation === failing) throw new Error('secret-canary');
+    }), /temporary ask key revoked/);
+    assert.equal(operations.at(-1), 'delete');
+  }
+  await assert.rejects(temporaryKey(async () => { throw new Error('secret-canary'); }),
+    (error) => /manual ask-key revocation required: docs-local-[a-f0-9]+/.test(error.message)
+      && !error.message.includes('secret-canary'));
+});
+
+test('preview login is exclusive/private and removed on graceful cleanup', async () => {
+  const credentials = await loginFile();
+  try {
+    assert.equal((await stat(credentials.path)).mode & 0o777, 0o600);
+    assert.equal((await stat(new URL('.', `file://${credentials.path}`))).mode & 0o777, 0o700);
+    assert.deepEqual(JSON.parse(await readFile(credentials.path, 'utf8')), credentials.login);
+    assert.equal(credentials.login.password.length > 32, true);
+  } finally { await credentials.remove(); }
+  await assert.rejects(stat(credentials.path), { code: 'ENOENT' });
+});
+
+test('launcher rejects checkout-local TMPDIR and symlink aliases before creating credentials or keys', async () => {
+  const local = await mkdtemp(fileURLToPath(new URL('../public/private-login-test-', import.meta.url)));
+  const external = await mkdtemp(join(tmpdir(), 'waza-login-alias-test-'));
+  const alias = join(external, 'checkout-alias');
+  await symlink(local, alias, 'dir');
+  try {
+    for (const temporary of [local, alias]) {
+      const child = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', `
+        import { launchPreview } from './scripts/private-chat.mjs';
+        await launchPreview({ createLease: async () => { console.log('UNEXPECTED_KEY_ATTEMPT'); throw new Error(); } });
+      `], {
+        cwd: new URL('../', import.meta.url),
+        env: { ...process.env, TMPDIR: temporary, TMP: temporary, TEMP: temporary },
+        encoding: 'utf8', timeout: 20000,
+      });
+      assert.equal(child.status, 1, child.stderr);
+      assert.match(child.stderr, /outside the checkout/);
+      assert.doesNotMatch(child.stdout, /UNEXPECTED_KEY_ATTEMPT/);
+      assert.deepEqual(await readdir(local), []);
+    }
+  } finally {
+    await unlink(alias);
+    await rmdir(external);
+    await rmdir(local);
+  }
+});
+
+test('launcher preserves safe residue diagnostics after partial login write and failed close', async () => {
+  const child = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', `
+    import { open } from 'node:fs/promises';
+    import { loginFile } from './scripts/private-chat-server.mjs';
+    import { launchPreview } from './scripts/private-chat.mjs';
+    await launchPreview({
+      createLease: async () => { console.log('UNEXPECTED_KEY_ATTEMPT'); throw new Error(); },
+      createLogin: () => loginFile({ openFile: async (...args) => {
+        const file = await open(...args);
+        return {
+          stat: () => file.stat(),
+          writeFile: async (value) => { await file.writeFile(value); throw new Error('sensitive-write-canary'); },
+          close: async () => { await file.close(); throw new Error('sensitive-close-canary'); },
+        };
+      } }),
+    });
+  `], { cwd: new URL('../', import.meta.url), encoding: 'utf8', timeout: 20000 });
+  assert.equal(child.status, 1);
+  assert.match(child.stderr, /File close also failed/);
+  assert.doesNotMatch(child.stderr, /sensitive-.*-canary/);
+  assert.doesNotMatch(child.stdout, /UNEXPECTED_KEY_ATTEMPT/);
+  const directory = child.stderr.match(/Inspect residue at ([^\n]+)/)?.[1];
+  assert.ok(directory);
+  assert.match(basename(directory), /^waza-private-preview-/);
+  try {
+    assert.deepEqual(await readdir(directory), ['login.json']);
+    assert.equal((await stat(join(directory, 'login.json'))).mode & 0o777, 0o600);
+  } finally {
+    await unlink(join(directory, 'login.json'));
+    await rmdir(directory);
+  }
+});
+
+function raw(url, headers) {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(url, { headers }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+test('actual Astro server protects bootstrap and adapter, forwards fixed bounded ask requests, and never exposes key', async () => {
+  const port = 4325;
+  const origin = `http://127.0.0.1:${port}`;
+  const login = { username: 'test-preview', password: 'test-only-password' };
+  const authorization = `Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}`;
+  const calls = [];
+  let mode = 'answer';
+  let returnedKnowledge = result.knowledge;
+  let release;
+  const { server, adapter } = await startPrivateServer({
+    port, login, key: () => 'server-only-canary-key',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (mode === 'pending') await new Promise((resolve) => { release = resolve; });
+      if (mode === 'network') throw new Error('server-only-canary-key');
+      if (mode === 'malformed') return Response.json({ answer: 'invalid' });
+      if (mode === 'auth') return new Response('server-only-canary-key', { status: 401 });
+      if (mode === 'echo') return Response.json({ ...result, answer: 'server-only-canary-key' });
+      if (mode === 'oversized') return new Response('x'.repeat(65537), { headers: { 'Content-Type': 'application/json' } });
+      if (mode === 'quota') return Response.json({
+        version: 1, error: { code: 'QUOTA_EXCEEDED', message: 'server-only-canary-key', retryAfterSeconds: 12 },
+      }, { status: 429 });
+      return Response.json({ ...result, knowledge: returnedKnowledge });
+    },
+  });
+
+  const post = (value = input(), headers = {}) => fetch(`${origin}${adapterPath}`, {
+    method: 'POST',
+    headers: { authorization, origin, 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(value),
+  });
+  try {
+    assert.equal(server.address.address, '127.0.0.1');
+    for (const path of ['/', '/waza/quick-start/', '/@vite/client', '/waza/@vite/client',
+      '/waza/src/scripts/chat.ts', '/waza/chat-meta.json', adapterPath]) {
+      const response = await fetch(`${origin}${path}`);
+      assert.equal(response.status, 401, path);
+      assert.match(response.headers.get('www-authenticate'), /Basic/);
+    }
+    assert.equal((await fetch(`${origin}/waza/quick-start/`, { headers: { authorization } })).status, 200);
+    assert.equal(await raw(`${origin}/`, { authorization, Host: `evil.example:${port}` }), 403);
+    assert.equal(await raw(`${origin}/`, { authorization, Origin: 'https://evil.example' }), 403);
+    assert.equal(await raw(`${origin}/waza/`, {
+      Connection: 'Upgrade', Upgrade: 'websocket', Origin: origin,
+      'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13',
+    }), 403);
+    assert.equal((await post(input(), { origin: 'https://evil.example' })).status, 403);
+    assert.equal((await post(input(), { origin: '' })).status, 403);
+    assert.equal((await post(input(), { authorization: 'Basic invalid' })).status, 401);
+    assert.equal((await post({ ...input(), model: 'override' })).status, 400);
+    assert.equal((await post({ ...input(), question: 'x'.repeat(32769) })).status, 413);
+    assert.equal(calls.length, 0);
+    const response = await post();
+    assert.deepEqual(await response.json(), result);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, upstream);
+    assert.equal(calls[0].options.redirect, 'error');
+    assert.deepEqual(Object.keys(calls[0].options.headers).sort(), ['Content-Type', 'x-functions-key']);
+    assert.equal(calls[0].options.headers['x-functions-key'], 'server-only-canary-key');
+    assert.equal(JSON.parse(calls[0].options.body).requestId, undefined);
+    mode = 'quota';
+    const quota = await post();
+    assert.equal(quota.status, 429);
+    const quotaBody = await quota.json();
+    assert.equal(quotaBody.error.retryAfterSeconds, 12);
+    assert.doesNotMatch(JSON.stringify(quotaBody), /server-only-canary-key/);
+    for (const failure of ['network', 'malformed', 'auth', 'echo', 'oversized']) {
+      mode = failure;
+      const failed = await post();
+      assert.equal(failed.status, 502, failure);
+      assert.doesNotMatch(await failed.text(), /server-only-canary-key/);
+    }
+    mode = 'pending';
+    const pending = post();
+    while (!release) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal((await post()).status, 503);
+    release();
+    await pending;
+    assert.equal(calls.length, 8);
+    mode = 'answer';
+    const browser = await chromium.launch();
+    try {
+      const context = await browser.newContext({ httpCredentials: login });
+      const page = await context.newPage();
+      let navigations = 0;
+      page.on('framenavigated', () => navigations++);
+      await page.goto(`${origin}/waza/quick-start/`);
+      await page.getByRole('button', { name: 'Ask Waza', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Ready for your question.' }).waitFor();
+      const introduction = await page.locator('.chat-intro').innerText();
+      assert.match(introduction, /Waza commands, writing evals, or troubleshooting/);
+      assert.doesNotMatch(introduction, /Azure|hosted-skills|operator|local server/);
+      assert.doesNotMatch(await page.getByRole('dialog').innerText(), /Private preview|authenticated operator|Azure hosted-skills/);
+      assert.match(await page.getByRole('dialog').innerText(), /Do not share secrets/);
+      assert.match(await page.getByRole('dialog').innerText(), /History may be retained/);
+      assert.equal(await page.locator('[data-chat-knowledge]').isVisible(), false);
+      assert.equal(await page.locator('[data-chat-provenance]').isVisible(), false);
+      await page.getByLabel('Question or error message').fill('What is Waza?');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor();
+      assert.equal(await page.locator('[data-chat-messages] a').count(), 1);
+      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /Some answers may differ from the docs/);
+      assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /aaaa|fingerprint|operator knowledge/);
+      assert.equal(await page.locator('[data-chat-snapshot]').isVisible(), false);
+      await page.getByText('About these answers', { exact: true }).click();
+      assert.equal(await page.locator('[data-chat-snapshot]').isVisible(), true);
+      assert.match(await page.locator('[data-chat-snapshot]').innerText(), new RegExp(result.knowledge.commit));
+      assert.match(await page.locator('[data-chat-snapshot]').innerText(), /fingerprint differs/);
+      const docs = await (await fetch(`${origin}/waza/chat-meta.json`, { headers: { authorization } })).json();
+      assert.notEqual(docs.fingerprint, result.knowledge.fingerprint, 'the first answer must exercise a real snapshot mismatch');
+      returnedKnowledge = { commit: docs.commit, fingerprint: docs.fingerprint };
+      await page.getByLabel('Question or error message').fill('And the current docs?');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor();
+      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /Some answers may differ/);
+      const mixed = await page.locator('[data-chat-snapshot]').innerText();
+      assert.ok(mixed.includes(`Answer 1: ${result.knowledge.commit}. Documentation fingerprint differs`));
+      assert.ok(mixed.includes(`Answer 2: ${docs.commit}. Documentation fingerprint matches`));
+      for (let turn = 0; turn < 5; turn++) {
+        await page.getByLabel('Question or error message').fill(`Matching answer ${turn}`);
+        await page.getByRole('button', { name: 'Send', exact: true }).click();
+        await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor();
+      }
+      assert.equal(await page.locator('[data-chat-messages] > li').count(), 12);
+      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /same documentation snapshot/);
+      assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /Some answers may differ/);
+      assert.ok(!(await page.locator('[data-chat-snapshot]').innerText()).includes(result.knowledge.commit));
+      await page.getByRole('button', { name: 'Clear conversation', exact: true }).click();
+      assert.equal(await page.locator('[data-chat-knowledge]').isVisible(), false);
+      assert.equal(await page.locator('[data-chat-provenance]').isVisible(), false);
+      assert.equal(navigations, 1, 'authenticated Vite socket must not cause reconnect reloads');
+      assert.equal(calls.length, 15);
+      await context.close();
+    } finally { await browser.close(); }
+    adapter.stop();
+    assert.equal((await post()).status, 503);
+  } finally {
+    adapter.stop();
+    await server.stop();
+    delete process.env.PUBLIC_CHAT_PRIVATE_PREVIEW;
+  }
+});
+
+test('actual launcher SIGTERM awaits revocation and removes login instead of Vite exiting early', async () => {
+  const child = spawn(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', `
+    import { launchPreview } from './scripts/private-chat.mjs';
+    await launchPreview({ port: 4326, createLease: async () => ({
+      name: 'test-lease', value: () => 'test-only-key',
+      revoke: async () => { await new Promise(r => setTimeout(r, 50)); console.log('TEST_REVOKED'); },
+    }) });
+  `], { cwd: new URL('../', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', (chunk) => { output += chunk; });
+  child.stderr.on('data', (chunk) => { output += chunk; });
+  const exit = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
+  const timer = setTimeout(() => child.kill('SIGTERM'), 20000);
+  try {
+    while (!output.includes('Preview PID:')) {
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error('Test launcher exited before readiness.');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const path = output.match(/login file \(0600\): ([^\n]+)/)?.[1];
+    assert.ok(path);
+    child.kill('SIGTERM');
+    assert.deepEqual(await exit, { code: 0, signal: null });
+    assert.match(output, /TEST_REVOKED/);
+    assert.doesNotMatch(output, /test-only-key/);
+    await assert.rejects(stat(path), { code: 'ENOENT' });
+  } finally {
+    clearTimeout(timer);
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+  }
+});
+
+test('authenticated adapter aborts upstream on deadline, disconnect and active shutdown without retries', async () => {
+  const port = 4325;
+  const origin = `http://127.0.0.1:${port}`;
+  const login = { username: 'test-preview', password: 'test-only-password' };
+  const authorization = `Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}`;
+  const headers = { authorization, origin, 'Content-Type': 'application/json' };
+  let calls = 0;
+  let pending = true;
+  let signal;
+  let expire;
+  let started = Promise.withResolvers();
+  let aborted = Promise.withResolvers();
+  async function within(promise) {
+    let timer;
+    try {
+      return await Promise.race([promise, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Expected cancellation barrier was not reached.')), 3000);
+      })]);
+    } finally { clearTimeout(timer); }
+  }
+  const { server, adapter } = await startPrivateServer({
+    port, login, key: () => 'test-only-key',
+    scheduleDeadline: (abort) => { expire = abort; },
+    fetchImpl: async (_url, options) => {
+      calls++;
+      if (!pending) return Response.json(result);
+      signal = options.signal;
+      const response = new Promise((_, reject) => {
+        const cancelled = () => {
+          aborted.resolve();
+          reject(new DOMException('Test upstream cancelled', 'AbortError'));
+        };
+        if (signal.aborted) cancelled();
+        else signal.addEventListener('abort', cancelled, { once: true });
+      });
+      started.resolve();
+      return response;
+    },
+  });
+  const post = () => fetch(`${origin}${adapterPath}`, {
+    method: 'POST', headers, body: JSON.stringify(input()),
+  });
+  const recovered = async () => {
+    pending = false;
+    const response = await within(post());
+    assert.equal(response.status, 200);
+    await response.body.cancel();
+    pending = true;
+    started = Promise.withResolvers();
+    aborted = Promise.withResolvers();
+  };
+  try {
+    const deadline = post();
+    await within(started.promise);
+    assert.equal(calls, 1);
+    assert.equal(signal.aborted, false);
+    expire();
+    assert.equal((await within(deadline)).status, 502);
+    await within(aborted.promise);
+    assert.equal(signal.aborted, true);
+    assert.equal(calls, 1);
+    await recovered();
+    assert.equal(calls, 2);
+
+    const disconnected = Promise.withResolvers();
+    const client = httpRequest(`${origin}${adapterPath}`, { method: 'POST', headers }, (response) => {
+      response.resume();
+      disconnected.reject(new Error(`Unexpected disconnect response: ${response.statusCode}`));
+    });
+    client.on('error', disconnected.resolve);
+    client.end(JSON.stringify(input()));
+    await within(started.promise);
+    assert.equal(calls, 3);
+    assert.equal(signal.aborted, false);
+    client.destroy(new Error('Intentional test client disconnect'));
+    await within(disconnected.promise);
+    await within(aborted.promise);
+    assert.equal(signal.aborted, true);
+    assert.equal(calls, 3);
+    await recovered();
+    assert.equal(calls, 4);
+
+    const shutdown = post();
+    await within(started.promise);
+    assert.equal(signal.aborted, false);
+    adapter.stop();
+    await within(aborted.promise);
+    assert.equal((await within(shutdown)).status, 502);
+    assert.equal(signal.aborted, true);
+    assert.equal((await within(post())).status, 503);
+    assert.equal(calls, 5, 'shutdown must not retry or admit another upstream call');
+  } finally {
+    adapter.stop();
+    await server.stop();
+    delete process.env.PUBLIC_CHAT_PRIVATE_PREVIEW;
+  }
+});

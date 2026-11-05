@@ -3,6 +3,7 @@ package graders
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 
@@ -39,12 +40,8 @@ func validateToolSpecsWithLoader(specs []models.ToolSpecParameters, fieldName st
 			return nil, err
 		}
 
-		// Persist Compile() side-effects back into the map. Map values are not
-		// addressable, so iterating gives us a value-copy of each Matcher;
-		// calling Compile() on that copy mutates only the local, and Match()
-		// would have to recompile on every call. Reassigning the (now-compiled)
-		// copy into the map preserves compiledRegex/compiledSchema for hot
-		// paths and keeps subsequent Match() calls allocation-free.
+		// Cache compiled matchers only in the grader-owned map.
+		spec.Args = maps.Clone(spec.Args)
 		for argName, m := range spec.Args {
 			if err := m.CompileWithLoader(loader); err != nil {
 				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)
@@ -74,6 +71,7 @@ func validateAllowOnlySpecsWithLoader(specs []models.ToolSpecParameters, fieldNa
 			return nil, err
 		}
 
+		spec.Args = maps.Clone(spec.Args)
 		for argName, m := range spec.Args {
 			if err := m.CompileWithLoader(loader); err != nil {
 				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)

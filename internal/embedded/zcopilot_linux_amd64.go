@@ -14,57 +14,57 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-//go:embed zcopilot_1.0.85_linux_amd64.zst
+//go:embed zcopilot_1.0.105_linux_amd64.zst
 var localEmbeddedCopilotCLI []byte
 
-//go:embed zcopilot_1.0.85_linux_amd64.license
+//go:embed zcopilot_1.0.105_linux_amd64.license
 var localEmbeddedCopilotCLILicense []byte
 
-//go:embed zcopilotruntime_1.0.85_linux-x64.so.zst
+//go:embed zcopilotruntime_1.0.105_linux-x64.so.zst
 var localEmbeddedCopilotRuntimeLib []byte
 
-//go:embed zcopilotruntimewrapper_1.0.85_linux-x64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.105_linux-x64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutable []byte
 
-//go:embed zcopilotruntimeassets_1.0.85_linux-x64.tgz
+//go:embed zcopilotruntimeassets_1.0.105_linux-x64.tgz
 var localEmbeddedCopilotRuntimeAssets []byte
 
-//go:embed zcopilot_1.0.85_linuxmusl_amd64.zst
+//go:embed zcopilot_1.0.105_linuxmusl_amd64.zst
 var localEmbeddedCopilotCLILinuxMusl []byte
 
-//go:embed zcopilotruntime_1.0.85_linuxmusl-x64.so.zst
+//go:embed zcopilotruntime_1.0.105_linuxmusl-x64.so.zst
 var localEmbeddedCopilotRuntimeLibLinuxMusl []byte
 
-//go:embed zcopilotruntimewrapper_1.0.85_linuxmusl-x64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.105_linuxmusl-x64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutableLinuxMusl []byte
 
-//go:embed zcopilotruntimeassets_1.0.85_linuxmusl-x64.tgz
+//go:embed zcopilotruntimeassets_1.0.105_linuxmusl-x64.tgz
 var localEmbeddedCopilotRuntimeAssetsLinuxMusl []byte
 
 func init() {
 	embeddedcli.Setup(embeddedcli.Config{
 		Cli:                            cliReader(),
 		License:                        localEmbeddedCopilotCLILicense,
-		Version:                        "1.0.85",
-		CliHash:                        mustDecodeBase64("Dg6b3SCLPTP7E7Jo0IQ5BPu9cei2q04kj04kH6SY7L8="),
+		Version:                        "1.0.105",
+		CliHash:                        mustDecodeBase64("QwX/scK6c4h1t6H8RQ5FlgbvRHqo+56f4LzTdtSaTTM="),
 		RuntimeLib:                     runtimeLibReader(),
-		RuntimeLibHash:                 mustDecodeBase64("cfBYLb9Vz3J83WzV5heYT8SQUCe7J8pbJnkoHoZQ31Q="),
+		RuntimeLibHash:                 mustDecodeBase64("v4mMWJgY9ZmxNFA3j8kY7e4xsTi5tcFTLvfBmuNVdY0="),
 		RuntimeNode:                    runtimeLibReader(),
-		RuntimeNodeHash:                mustDecodeBase64("cfBYLb9Vz3J83WzV5heYT8SQUCe7J8pbJnkoHoZQ31Q="),
+		RuntimeNodeHash:                mustDecodeBase64("v4mMWJgY9ZmxNFA3j8kY7e4xsTi5tcFTLvfBmuNVdY0="),
 		RuntimeExecutable:              runtimeExecutableReader(),
-		RuntimeExecutableHash:          mustDecodeBase64("Dg6b3SCLPTP7E7Jo0IQ5BPu9cei2q04kj04kH6SY7L8="),
+		RuntimeExecutableHash:          mustDecodeBase64("QwX/scK6c4h1t6H8RQ5FlgbvRHqo+56f4LzTdtSaTTM="),
 		RuntimeAssets:                  bytes.NewReader(localEmbeddedCopilotRuntimeAssets),
-		RuntimeAssetsHash:              mustDecodeBase64("0zmBYauFE+Xep6W8LwVboJ/sCjFmsvQ3SGTJ7Ck3Re0="),
+		RuntimeAssetsHash:              mustDecodeBase64("h0nBQfaQqaajevrnxAHdDgYIBCwHuQFysjVm7eJMwW4="),
 		LinuxMuslCli:                   linuxMuslCLIReader(),
-		LinuxMuslCliHash:               mustDecodeBase64("9MCJE3G+5ISzzKzHBpd+gUDNS01/5RXkRDCAESt8XDU="),
+		LinuxMuslCliHash:               mustDecodeBase64("pC//K0XIGix4HwOTeTqabHo76fqqr8FCDpfoaCYTv9Q="),
 		LinuxMuslRuntimeLib:            linuxMuslRuntimeLibReader(),
-		LinuxMuslRuntimeLibHash:        mustDecodeBase64("BWkfigsM6w5ieWo9pnJzQdErpnJBX78+nKWJP1gGOy0="),
+		LinuxMuslRuntimeLibHash:        mustDecodeBase64("UsVPu/GoruFp18r5hQXd2a8SqF6M2n5ybHXvsVHB2ec="),
 		LinuxMuslRuntimeNode:           linuxMuslRuntimeLibReader(),
-		LinuxMuslRuntimeNodeHash:       mustDecodeBase64("BWkfigsM6w5ieWo9pnJzQdErpnJBX78+nKWJP1gGOy0="),
+		LinuxMuslRuntimeNodeHash:       mustDecodeBase64("UsVPu/GoruFp18r5hQXd2a8SqF6M2n5ybHXvsVHB2ec="),
 		LinuxMuslRuntimeExecutable:     linuxMuslRuntimeExecutableReader(),
-		LinuxMuslRuntimeExecutableHash: mustDecodeBase64("9MCJE3G+5ISzzKzHBpd+gUDNS01/5RXkRDCAESt8XDU="),
+		LinuxMuslRuntimeExecutableHash: mustDecodeBase64("pC//K0XIGix4HwOTeTqabHo76fqqr8FCDpfoaCYTv9Q="),
 		LinuxMuslRuntimeAssets:         bytes.NewReader(localEmbeddedCopilotRuntimeAssetsLinuxMusl),
-		LinuxMuslRuntimeAssetsHash:     mustDecodeBase64("07cIDzM5fsC+3PFwE4cvKvTGEY49vSNIr6EU2v9vG7A="),
+		LinuxMuslRuntimeAssetsHash:     mustDecodeBase64("vlCxxg4OEAZpU75njDaqh1q21ltx9rZH/Xy2mvgoNEU="),
 	})
 }
 

@@ -1,0 +1,21 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "The Usual Suspects",
+      "timestamp": "2026-02-18T00:00:00Z",
+      "agents_in_use": 6,
+      "capacity": 6,
+      "agents": ["rusty", "linus", "basher", "livingston", "saul", "scribe"]
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "2026-02-18": {
+      "timestamp": "2026-02-18T00:00:00Z",
+      "universe": "The Usual Suspects",
+      "cast": ["rusty", "linus", "basher", "livingston", "saul", "scribe"],
+      "capacity_used": 6,
+      "capacity_available": 0,
+      "notes": "Initial team assembly for waza project"
+    }
+  }
+}

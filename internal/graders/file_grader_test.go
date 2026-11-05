@@ -362,25 +362,29 @@ func TestFileGrader_Grade(t *testing.T) {
 		})
 		require.NoError(t, err)
 
+		workspace := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workspace, "result.txt"), []byte("stale"), 0o644))
 		results, err := g.Grade(context.Background(), &Context{
+			WorkspaceDir:   workspace,
 			WorkspaceFiles: map[string][]byte{"result.txt": []byte("captured")},
 		})
 		require.NoError(t, err)
 		require.True(t, results.Passed, results.Feedback)
 	})
 
-	t.Run("captured forbidden path is cleaned before lookup", func(t *testing.T) {
+	t.Run("captured files without a workspace fail closed", func(t *testing.T) {
 		g, err := NewFileGrader("test", models.FileGraderParameters{
 			MustNotExist: []string{"./forbidden.txt"},
 		})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
-			WorkspaceFiles: map[string][]byte{"forbidden.txt": []byte("present")},
+			WorkspaceFiles: map[string][]byte{},
 		})
 		require.NoError(t, err)
 		require.False(t, results.Passed)
-		require.Contains(t, results.Feedback, "forbidden.txt")
+		require.Zero(t, results.Score)
+		require.Contains(t, results.Feedback, "No workspace directory")
 	})
 
 	t.Run("result details contains expected fields", func(t *testing.T) {

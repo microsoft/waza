@@ -10,6 +10,7 @@ import (
 
 	"github.com/microsoft/waza/internal/adversarial"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -180,19 +181,38 @@ func runAdversarial(cmd *cobra.Command, opts *adversarialOptions) error {
 		return &ExitCodeError{Code: AdversarialExitConfig, Err: err}
 	}
 
+	skillName := strings.TrimSpace(opts.skill)
 	engineName := strings.TrimSpace(opts.engine)
 	if engineName == "" {
-		if opts.skill == "" {
+		if skillName == "" {
 			engineName = "mock"
 		} else {
 			engineName = "copilot-sdk"
 		}
 	}
-	skillName := strings.TrimSpace(opts.skill)
 	if skillName == "" {
+		if engineName != "mock" {
+			return &ExitCodeError{Code: AdversarialExitConfig, Err: errors.New("adversarial requires --skill with a declared skill name; use --engine mock for harness-only checks")}
+		}
 		// Use a deterministic placeholder for mock runs so the synthesized
 		// spec validates without forcing the caller to pick one.
 		skillName = "adversarial-target"
+	}
+
+	var skillPaths []string
+	if strings.TrimSpace(opts.skill) != "" {
+		// Resolve against the caller's workspace before the synthesized spec moves.
+		ws, resolveErr := resolveWorkspace(nil)
+		if resolveErr == nil {
+			var selected *workspace.SkillInfo
+			selected, resolveErr = workspace.FindSkill(ws, skillName)
+			if resolveErr == nil {
+				skillPaths = []string{selected.Dir}
+			}
+		}
+		if resolveErr != nil && engineName != "mock" {
+			return &ExitCodeError{Code: AdversarialExitConfig, Err: fmt.Errorf("resolve adversarial skill %q: %w", skillName, resolveErr)}
+		}
 	}
 
 	// Materialize packs.
@@ -253,6 +273,7 @@ func runAdversarial(cmd *cobra.Command, opts *adversarialOptions) error {
 			Workers:       opts.workers,
 			EngineType:    engineName,
 			ModelID:       opts.model,
+			SkillPaths:    skillPaths,
 		},
 		Tasks:       taskGlobs,
 		Adversarial: cfg,

@@ -6,18 +6,72 @@ How to decide who handles what.
 
 | Work Type | Route To | Examples |
 |-----------|----------|----------|
-| Go backend / CLI commands | Linus | Internal packages, API endpoints, CLI flags, execution engine |
-| React / frontend / Web UI | Rusty | Components, pages, styling, state management, Vite config |
-| Testing / QA | Basher | Go unit tests, integration tests, Playwright E2E tests, test infrastructure |
-| Documentation | Livingston, Saul | README, docs/, changelogs, API docs, design notes |
-| Go performance / optimization | Turk | Profiling, allocation analysis, concurrency, I/O optimization, Azure SDK tuning |
+| Go backend / CLI / SDK execution | Linus | `cmd/waza/`, `internal/execution/`, `internal/orchestration/`, configuration, discovery, tool policies |
+| Graders / requirements / evidence / assurance | Linus | `internal/graders/`, `internal/requirements/`, `internal/evidence/`, `internal/assurance/`, source/schema validation |
+| Mock / private native / fault adapters | Linus | `internal/commandmock/`, `internal/mcpmock/`, `internal/faultfixture/`, `internal/faultsequence/`, `internal/nativesnapshot/` |
+| Backend APIs / storage / release policy | Linus | `internal/webapi/`, `internal/webserver/`, `internal/mcp/`, `internal/jsonrpc/`, `internal/storage/`, `internal/releasepolicy/` |
+| Frontend / web design / React / accessibility | Yen | `web/src/`, dashboard views, real-vs-demo Lab states, responsive/keyboard interaction |
+| Testing / QA / evaluation quality | Basher | Go tests, unit tests, integration tests, CLI isolation, compatibility corpus, schema/reader preservation, Playwright, false-acceptance coverage |
+| Technical documentation / examples | Livingston | README, `docs/`, `site/src/content/docs/`, `examples/`, usage skills, technical release notes |
+| Documentation architecture / review | Saul | Navigation, terminology, style, reference accuracy, documentation impact |
+| Go performance / reliability analysis | Turk | Reproducible profiles/benchmarks, allocation, contention, cancellation, capture/storage scaling |
+| Developer relations / socialization | Danny | DevRel, demo narratives, adoption journeys, draft announcements/social copy, community feedback |
+| Release media / capture / video exports | Tess | Release media, feature screenshots, screen recordings, promo clips, short-form video, media artifact organization |
+| Release / developer infrastructure | Virgil | CI, scripts, installers, embedded assets, Docker, azd packaging, Pages, dependency/toolchain maintenance |
 | Architecture / Design decisions | Rusty | System design, component architecture, API contracts, large refactors |
-| Copilot SDK integration | Richard Park 👤 | SDK usage, API contracts, integration patterns |
-| Backend overflow | Charles Lowell 👤 | Secondary backend review, overflow capacity |
 | Code review | Rusty | Review all PRs, check quality, suggest improvements |
 | Scope & priorities | Rusty | What to build next, trade-offs, epic planning |
 | Async issue work (bugs, tests, small features) | @copilot 🤖 | Well-defined tasks matching capability profile |
-| Session logging | Scribe | Automatic — never needs routing |
+
+Choose one accountable specialist, not multiple co-owners. Supporting context can
+come from another member without creating a second implementation assignment.
+Scribe, Ralph, Rai, and Fact Checker are bounded support identities under
+`.squad/governance.md`, not specialist routing destinations.
+
+Before any dispatch, apply `.squad/model-policy.md`. All code-review assignments
+use `gpt-5.6-terra`, even when the selected reviewer's implementation model differs.
+
+## Module Ownership
+
+| Module | Primary | Secondary |
+|--------|---------|-----------|
+| `cmd/waza/` | Linus | Rusty |
+| `internal/` | Linus | Rusty |
+| `schemas/` | Linus | Basher |
+| `web/src/` | Yen | Linus |
+| `web/e2e/` | Basher | Yen |
+| `site/src/content/docs/` | Livingston | Saul |
+| `site/e2e/` | Basher | Saul |
+| `.github/workflows/` | Virgil | Basher |
+| `.github/scripts/` | Virgil | Basher |
+| `internal/embedded/` | Virgil | Linus |
+| `install.sh` | Virgil | Linus |
+| `install.ps1` | Virgil | Linus |
+| `Makefile` | Virgil | Linus |
+| `Dockerfile` | Virgil | Linus |
+| `docs/` | Livingston | Saul |
+| `README.md` | Livingston | Saul |
+| `examples/` | Livingston | Basher |
+| `skills/` | Livingston | Linus |
+| `DEMO-SCRIPT.md` | Danny | Livingston |
+| `docs/DEMO-GUIDE.md` | Danny | Livingston |
+| `docs/RELEASE-MEDIA.md` | Tess | Livingston |
+| `docs/templates/release-media-task.md` | Tess | Livingston |
+| `.squad/config.json` | Rusty | Virgil |
+| `.squad/governance.md` | Rusty | Saul |
+| `.squad/model-policy.md` | Rusty | Virgil |
+
+## AI-only Consultation
+
+Linus owns Copilot SDK and backend implementation. Rusty provides architecture
+and independent review; Basher provides bounded test-strategy input when needed.
+Route issues and implementation questions only to qualified AI members, never
+to humans. If coverage is missing, report the gap to the coordinator rather than
+creating a human handoff. Preserve existing reviewer/author lockouts when choosing
+an owner or reviewer; membership cleanup does not reset them.
+
+This routing policy does not change repository access, CODEOWNERS, required
+independent native approvals, or the project owner's decision authority.
 
 ## Issue Routing
 
@@ -29,6 +83,11 @@ How to decide who handles what.
 | `squad:basher` | Pick up issue and complete the work | Basher |
 | `squad:livingston` | Pick up issue and complete the work | Livingston |
 | `squad:saul` | Pick up issue and complete the work | Saul |
+| `squad:turk` | Investigate the bounded performance/reliability question | Turk |
+| `squad:yen` | Own frontend implementation, design, or accessibility | Yen |
+| `squad:danny` | Own a demo, adoption, feedback, or draft socialization task | Danny |
+| `squad:tess` | Own release-media preparation; capture only after the documented readiness gate | Tess |
+| `squad:virgil` | Own build, release, packaging, or developer infrastructure | Virgil |
 | `squad:copilot` | Assign to @copilot for autonomous work (if enabled) | @copilot 🤖 |
 
 ### How Issue Assignment Works
@@ -39,6 +98,13 @@ How to decide who handles what.
 4. When `squad:copilot` is applied and auto-assign is enabled, `@copilot` is assigned on the issue and picks it up autonomously.
 5. Members can reassign by removing their label and adding another member's label.
 6. The `squad` label is the "inbox" — untriaged issues waiting for Rusty's review.
+
+Release-media issues use `squad:tess` for AI ownership, not a human GitHub
+assignee. The label is not a readiness signal or permission to capture/publish.
+Ralph and dispatched agents must honor the task's unresolved readiness checklist.
+Use [the release-media process](../docs/RELEASE-MEDIA.md) for every release.
+Danny owns narrative, storyboards, hooks, scripts and caption copy; Tess owns
+actual capture, editing, caption timing and exports. Virgil verifies release scope.
 
 ### Lead Triage Guidance for @copilot
 
@@ -52,23 +118,27 @@ When triaging, Rusty should ask:
 
 ## Rules
 
-1. **Eager by default** — spawn all agents who could usefully start work, including anticipatory downstream work.
-2. **Scribe always runs** after substantial work, always as `mode: "background"`. Never blocks.
+1. **One accountable owner** — dispatch the smallest sufficient specialist assignment. Add parallel work only for concrete independent deliverables.
+2. **Bounded support** — Scribe records meaningful accepted decisions/handoffs only when needed; no automatic per-task logger or routine review fan-out.
 3. **Quick facts → coordinator answers directly.** Don't spawn an agent for "what port does the server run on?"
 4. **When two agents could handle it**, pick the one whose domain is the primary concern.
-5. **"Team, ..." → fan-out.** Spawn all relevant agents in parallel as `mode: "background"`.
-6. **Anticipate downstream work.** If a feature is being built, spawn Basher to write test cases simultaneously.
+5. **"Team, ..." requests coordination, not an unlimited fan-out.** Identify owners and dependencies first; avoid duplicate work.
+6. **Test planning follows scope.** Bring Basher in for concrete acceptance/test-design needs, not speculative downstream work.
 7. **Issue-labeled work** — when a `squad:{member}` label is applied to an issue, route to that member. Rusty handles all `squad` (base label) triage.
 8. **@copilot routing** — when evaluating issues, check @copilot's capability profile in `team.md`. Route 🟢 good-fit tasks to `squad:copilot`. Flag 🟡 needs-review tasks for PR review. Keep 🔴 not-suitable tasks with squad members.
-9. **Doc-review gate** — When a PR touches `cmd/waza/`, `internal/`, or `web/src/`, Saul reviews whether documentation needs updating. Check: are new flags documented? Are screenshots still accurate? Do examples still work?
-10. **Doc-consistency gate** — When a PR touches `docs/`, `README.md`, `DEMO-SCRIPT.md`, or any markdown documentation file, Saul reviews for style consistency, cross-references, and accuracy.
+9. **Documentation impact** — Changes to CLI, internal contracts, schemas, and dashboard UX must assess documentation impact using the matrix below. Saul owns that assessment; Livingston writes technical updates. Do not automatically add another mandatory reviewer.
+10. **Selected gate** — Use one independent gate for ordinary work under `.squad/governance.md`. Saul normally gates documentation; Rusty normally gates code. Authors never self-approve.
+11. **Publication is separate** — Danny drafts, Tess prepares media, and Virgil prepares releases. None publishes, uploads, posts, tags, merges, or incurs paid eval usage without the applicable explicit authorization.
 
 ## Documentation Impact Matrix
 
 | Path Changed | Doc Files to Check | What to Verify |
 |---|---|---|
-| `cmd/waza/*.go` | README.md (Commands), docs/GUIDE.md | New flags documented, examples updated |
-| `internal/scoring/` | README.md (Validators), docs/GUIDE.md | Validator docs match implementation |
-| `web/src/` | docs/GUIDE.md (Dashboard), docs/DEMO-GUIDE.md | Screenshots current, view descriptions match |
-| `schemas/` | README.md (YAML Schema), docs/GUIDE.md | Schema examples match definitions |
+| `cmd/waza/` | README.md, docs/GUIDE.md, `site/src/content/docs/reference/cli.mdx` | Flags, defaults, exits, examples, and paid-call consent match |
+| `internal/graders/`, `internal/scoring/`, `internal/requirements/` | README.md, docs/GUIDE.md, `site/src/content/docs/` | Grader/requirement semantics and examples match |
+| `internal/evidence/`, `internal/snapshot/`, `internal/assurance/`, `internal/releasepolicy/` | docs/PRD.md, docs/GRADER-CHALLENGES.md, docs/CONTROLLED-COMPARISONS.md, `site/src/content/docs/` | Versions, availability, binding/claim limits, private vs public scope |
+| `web/src/` | docs/GUIDE.md, docs/DEMO-GUIDE.md, `site/src/content/docs/`, docs/images/ | Screenshots, accessibility, real/demo separation, missing-data states |
+| `schemas/`, `internal/models/` | README.md, docs/GUIDE.md, `site/src/content/docs/`, examples/ | Native source/schema parity, historical reader behavior, example versions |
 | `install.sh` | README.md (Install), docs/GUIDE.md (Install) | Install instructions current |
+| `install.ps1`, `internal/embedded/`, `.github/workflows/release.yml` | README.md, docs/RELEASE.md, `site/src/content/docs/` | Cross-platform installs, bundled runtime, release/azd distribution |
+| `DEMO-SCRIPT.md`, release messaging | README.md, CHANGELOG.md, docs/DEMO-GUIDE.md | Runnable/current claims, audience, explicit approval before publication |

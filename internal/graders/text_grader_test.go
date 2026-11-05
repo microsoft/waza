@@ -16,6 +16,43 @@ func TestTextGrader_Basic(t *testing.T) {
 	require.Equal(t, "test", g.Name())
 }
 
+func TestTextGraderEvaluationErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		params models.TextGraderParameters
+		errors int
+		passed bool
+		score  float64
+	}{
+		{"valid-match", models.TextGraderParameters{RegexMatch: []string{"hello"}}, 0, true, 1},
+		{"valid-failure", models.TextGraderParameters{RegexNotMatch: []string{"hello"}}, 0, false, 0},
+		{"invalid-match", models.TextGraderParameters{RegexMatch: []string{"["}}, 1, false, 0},
+		{"invalid-not-match", models.TextGraderParameters{RegexNotMatch: []string{"["}}, 1, false, 0},
+		{"mixed", models.TextGraderParameters{
+			RegexMatch: []string{"hello", "["}, RegexNotMatch: []string{"hello", "("},
+		}, 2, false, 0.25},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, err := NewTextGrader("text", tc.params)
+			require.NoError(t, err)
+			result, err := g.Grade(t.Context(), &Context{Output: "hello"})
+			require.NoError(t, err)
+			require.Equal(t, tc.passed, result.Passed)
+			require.Equal(t, tc.score, result.Score)
+			if tc.errors == 0 {
+				require.NotContains(t, result.Details, "evaluation_errors")
+			} else {
+				require.Len(t, result.Details["evaluation_errors"], tc.errors)
+				messages, ok := result.Details["evaluation_errors"].([]string)
+				require.True(t, ok)
+				for _, message := range messages {
+					require.Contains(t, result.Details["failures"], message)
+				}
+			}
+		})
+	}
+}
+
 func TestTextGrader_RegexMatch(t *testing.T) {
 	tests := []struct {
 		name             string

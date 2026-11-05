@@ -99,6 +99,23 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 		workspaceCaptureRequested: len(in.WorkspacePaths) > 0,
 	}
 	snap.Engine.JudgeModel = policy.RedactString(snap.Engine.JudgeModel)
+	if in.Run.JudgeEvidence != nil {
+		frozen, err := json.Marshal(in.Run.JudgeEvidence)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot: frozen judge evidence cannot be encoded")
+		}
+		var admitted models.JudgeEvidence
+		if err := json.Unmarshal(frozen, &admitted); err != nil {
+			return nil, fmt.Errorf("snapshot: frozen judge evidence is invalid")
+		}
+		admitted.SHA256 = ""
+		digest, err := evidence.JSONDigest(admitted)
+		if err != nil || digest.SHA256 != in.Run.JudgeEvidence.SHA256 {
+			return nil, fmt.Errorf("snapshot: frozen judge evidence digest is invalid")
+		}
+		snap.JudgeEvidenceSHA256 = digest.SHA256
+		snap.SchemaVersion = JudgeEvidenceSnapshotSchemaVersion
+	}
 	changes.engine = snap.Engine.JudgeModel != in.Engine.JudgeModel
 
 	// Prompt: copy with redaction. Context values may contain user-supplied

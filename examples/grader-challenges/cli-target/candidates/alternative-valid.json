@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.4",
+  "eval_id": "synthetic-cli-target",
+  "skill": "synthetic-cli-target",
+  "eval_name": "Offline CLI target challenge",
+  "timestamp": "2026-01-01T00:00:00Z",
+  "config": {"runs_per_test": 1, "model_id": "synthetic-no-model", "engine_type": "mock", "timeout_sec": 30},
+  "tasks": [{
+    "test_id": "cli-config-target",
+    "status": "passed",
+    "runs": [{
+      "run_number": 1,
+      "status": "passed",
+      "final_output": "Successfully completed the requested change.",
+      "session_digest": {
+        "tool_call_count": 1,
+        "tools_used": ["config_import"],
+        "tool_calls": [{"id": "alternate", "name": "config_import", "arguments": {}}]
+      },
+      "tool_events": [{"turn": 1, "sequence": 1, "tool_call_id": "alternate", "tool_name": "config_import", "success": true}]
+    }]
+  }]
+}

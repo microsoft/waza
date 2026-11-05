@@ -1,0 +1,405 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/mcpmock"
+	"github.com/microsoft/waza/internal/models"
+	"github.com/stretchr/testify/require"
+)
+
+const admissionTrigger = "skill: example\nshould_trigger_prompts:\n  - prompt: trigger probe\n"
+const triggerAdmissionEval = `schemaVersion: "1.1"
+name: trigger-admission
+skill: example
+config: {executor: copilot-sdk, model: test, trials_per_task: 1, timeout_seconds: 10}
+metrics: []
+tasks: [task.yaml]
+mcp_mocks:
+  - name: host
+    fixtures: missing-host-fixtures
+    tools:
+      ask_user:
+        responses: [{return: {answer: eval}}]
+`
+const triggerAdmissionTask = `id: probe
+name: Probe
+inputs: {prompt: task probe}
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses: [{return: {answer: task}}]
+`
+
+func TestRunCommandTriggerDependenciesAdmittedBeforeEngine(t *testing.T) {
+	for _, mode := range []string{"absent", "valid", "generated", "malformed", "unreadable"} {
+		t.Run(mode, func(t *testing.T) {
+			resetRunGlobals()
+			dir := t.TempDir()
+			path, output := filepath.Join(dir, "eval.yaml"), filepath.Join(dir, "results.json")
+			require.NoError(t, os.WriteFile(path, []byte(triggerAdmissionEval), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(triggerAdmissionTask), 0o600))
+			triggerPath := filepath.Join(dir, "trigger_tests.yaml")
+			switch mode {
+			case "valid":
+				require.NoError(t, os.WriteFile(triggerPath, []byte(admissionTrigger), 0o600))
+			case "generated":
+				staged := filepath.Join(dir, "staged-trigger.yaml")
+				require.NoError(t, os.WriteFile(staged, []byte(admissionTrigger), 0o600))
+				eval := triggerAdmissionEval + "hooks:\n  before_run:\n    - command: '" +
+					cliHookCommand(t, "copy", staged, triggerPath) + "'\n      error_on_fail: true\n"
+				require.NoError(t, os.WriteFile(path, []byte(eval), 0o600))
+				require.NoFileExists(t, triggerPath)
+			case "malformed":
+				require.NoError(t, os.WriteFile(triggerPath, []byte("skill: ["), 0o600))
+			case "unreadable":
+				require.NoError(t, os.Mkdir(triggerPath, 0o700))
+			}
+			previous := newRunEngine
+			t.Cleanup(func() { newRunEngine = previous })
+			engine := &taskAdmissionStartupEngine{}
+			constructions := 0
+			newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+				constructions++
+				return engine, nil
+			}
+			cmd := newRunCommand()
+			cmd.SetArgs([]string{path, "--context-dir", dir, "--output", output, "--skip-graders", "--no-skills"})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err := cmd.Execute()
+			require.NoFileExists(t, output)
+			if mode == "absent" {
+				require.ErrorContains(t, err, "task admission startup sentinel")
+				require.Equal(t, 1, constructions, "replaced missing eval fixtures are valid without a trigger phase")
+				return
+			}
+			require.Zero(t, constructions)
+			require.ErrorContains(t, err, "MCP mock admission")
+			require.ErrorContains(t, err, "missing-host-fixtures")
+			if mode == "malformed" || mode == "unreadable" {
+				require.ErrorContains(t, err, "loading trigger tests", "trigger errors do not hide independent mock failures")
+			}
+		})
+	}
+}
+
+type triggerConfigCapture struct {
+	*execution.MockEngine
+	mu       sync.Mutex
+	answers  []string
+	prompts  []string
+	readErrs []error
+}
+
+func TestRunCommandTriggerFixtureInputSchemaAdmittedBeforeExecution(t *testing.T) {
+	for _, kind := range []string{"invalid", "valid", "null", "omitted", "overridden", "unused"} {
+		t.Run(kind, func(t *testing.T) {
+			resetRunGlobals()
+			dir := t.TempDir()
+			fixtures := filepath.Join(dir, "fixtures")
+			require.NoError(t, os.Mkdir(fixtures, 0o700))
+			tool := map[string]any{"responses": []any{map[string]any{"return": map[string]any{"answer": "eval"}}}}
+			switch kind {
+			case "invalid", "overridden", "unused":
+				tool["input_schema"] = map[string]any{"type": 42}
+			case "valid":
+				tool["input_schema"] = map[string]any{"type": "object"}
+			case "null":
+				tool["input_schema"] = nil
+			}
+			fixture, err := json.Marshal(tool)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(fixtures, "ask_user.json"), fixture, 0o600))
+			eval := `schemaVersion: "1.1"
+name: trigger-fixture-schema
+skill: example
+config: {executor: copilot-sdk, model: test, trials_per_task: 1, timeout_seconds: 10}
+metrics: []
+tasks: [task.yaml]
+mcp_mocks:
+  - name: host
+    fixtures: fixtures
+`
+			if kind == "overridden" {
+				eval += "    tools:\n      ask_user:\n        responses: [{return: {answer: eval}}]\n"
+			}
+			spec, output := filepath.Join(dir, "eval.yaml"), filepath.Join(dir, "results.json")
+			require.NoError(t, os.WriteFile(spec, []byte(eval), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(triggerAdmissionTask), 0o600))
+			if kind != "unused" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "trigger_tests.yaml"), []byte(admissionTrigger), 0o600))
+			}
+			previous := newRunEngine
+			t.Cleanup(func() { newRunEngine = previous })
+			engine := &triggerConfigCapture{MockEngine: execution.NewMockEngine("test")}
+			constructions := 0
+			newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+				constructions++
+				return engine, nil
+			}
+			cmd := newRunCommand()
+			cmd.SetArgs([]string{spec, "--context-dir", dir, "--output", output, "--no-skills", "--skip-graders"})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err = cmd.Execute()
+			if kind == "invalid" {
+				require.ErrorContains(t, err, "input schema")
+				require.ErrorContains(t, err, "ask_user")
+				require.Zero(t, constructions)
+				require.Empty(t, engine.prompts, "invalid trigger fixtures must fail before any task execution")
+				require.NoFileExists(t, output)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, 1, constructions)
+			for _, readErr := range engine.readErrs {
+				require.NoError(t, readErr)
+			}
+			expected := []string{"task", "eval"}
+			if kind == "unused" {
+				expected = []string{"task"}
+			}
+			require.Equal(t, expected, engine.answers)
+			data, err := os.ReadFile(output)
+			require.NoError(t, err)
+			var outcome models.EvaluationOutcome
+			require.NoError(t, json.Unmarshal(data, &outcome))
+			if kind != "unused" {
+				require.Len(t, outcome.TriggerResults, 1)
+				require.Equal(t, "trigger probe", outcome.TriggerResults[0].Prompt)
+			}
+		})
+	}
+}
+
+type triggerFixtureMutationEngine struct {
+	*triggerConfigCapture
+	initializations int
+	mutateAt        int
+	fixturePath     string
+	stagedPath      string
+}
+
+func (e *triggerFixtureMutationEngine) Initialize(ctx context.Context) error {
+	e.initializations++
+	if e.initializations == e.mutateAt {
+		if err := os.WriteFile(e.fixturePath, []byte("{"), 0o600); err != nil {
+			return fmt.Errorf("invalidating trigger fixture during initialization: %w", err)
+		}
+	}
+	return e.MockEngine.Initialize(ctx)
+}
+
+func (e *triggerFixtureMutationEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	response, err := e.triggerConfigCapture.Execute(ctx, req)
+	if err == nil && e.stagedPath != "" && req.Message == "task probe" {
+		err = os.WriteFile(e.stagedPath, []byte("{"), 0o600)
+		if err != nil {
+			err = fmt.Errorf("staging invalid trigger fixture for the next setup: %w", err)
+		}
+	}
+	return response, err
+}
+
+func TestRunCommandReadmitsChangedTriggerOnlyFixtures(t *testing.T) {
+	for _, mode := range []string{"valid", "cli-initialize", "runner-initialize", "second-baseline-setup", "unused"} {
+		t.Run(mode, func(t *testing.T) {
+			resetRunGlobals()
+			dir := t.TempDir()
+			fixtures := filepath.Join(dir, "fixtures")
+			require.NoError(t, os.Mkdir(fixtures, 0o700))
+			fixture := filepath.Join(fixtures, "ask_user.json")
+			validFixture := []byte(`{"responses":[{"return":{"answer":"eval"}}]}`)
+			require.NoError(t, os.WriteFile(fixture, validFixture, 0o600))
+			eval := `schemaVersion: "1.1"
+name: changed-trigger-fixtures
+skill: example
+config: {executor: copilot-sdk, model: test, trials_per_task: 1, timeout_seconds: 10}
+metrics: []
+tasks: [task.yaml]
+mcp_mocks:
+  - name: host
+    fixtures: fixtures
+`
+			log := filepath.Join(dir, "hooks.log")
+			eval += "hooks:\n  before_run:\n    - command: '" +
+				cliHookCommand(t, "append", log, "before") + "'\n      error_on_fail: true\n"
+			engine := &triggerFixtureMutationEngine{
+				triggerConfigCapture: &triggerConfigCapture{MockEngine: execution.NewMockEngine("test")},
+				fixturePath:          fixture,
+			}
+			switch mode {
+			case "cli-initialize", "unused":
+				engine.mutateAt = 1
+			case "runner-initialize":
+				engine.mutateAt = 2
+			case "second-baseline-setup":
+				engine.stagedPath = filepath.Join(dir, "staged.json")
+				require.NoError(t, os.WriteFile(engine.stagedPath, validFixture, 0o600))
+				eval += "    - command: '" + cliHookCommand(t, "copy", engine.stagedPath, fixture) +
+					"'\n      error_on_fail: true\n"
+				skills := filepath.Join(dir, "skills", "example")
+				require.NoError(t, os.MkdirAll(skills, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(skills, "SKILL.md"),
+					[]byte("---\nname: example\ndescription: An admission test skill.\n---\nAnswer the prompt.\n"), 0o600))
+				eval = strings.Replace(eval, "timeout_seconds: 10}", "timeout_seconds: 10, skill_directories: [skills]}", 1)
+			}
+			eval += "  after_run:\n    - command: '" + cliHookCommand(t, "append", log, "after") +
+				"'\n      error_on_fail: true\n"
+			spec, output := filepath.Join(dir, "eval.yaml"), filepath.Join(dir, "results.json")
+			require.NoError(t, os.WriteFile(spec, []byte(eval), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(triggerAdmissionTask), 0o600))
+			if mode != "unused" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "trigger_tests.yaml"), []byte(admissionTrigger), 0o600))
+			}
+			previous := newRunEngine
+			t.Cleanup(func() { newRunEngine = previous })
+			newRunEngine = func(models.Config) (execution.AgentEngine, error) { return engine, nil }
+			args := []string{spec, "--context-dir", dir, "--output", output, "--skip-graders"}
+			if mode == "second-baseline-setup" {
+				args = append(args, "--baseline")
+			} else {
+				args = append(args, "--no-skills")
+			}
+			cmd := newRunCommand()
+			cmd.SetArgs(args)
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err := cmd.Execute()
+			hookData, hookErr := os.ReadFile(log)
+			require.NoError(t, hookErr)
+			expectedHooks := "before\nafter\n"
+			if mode == "second-baseline-setup" {
+				expectedHooks += "before\nafter\n"
+			}
+			require.Equal(t, expectedHooks, string(hookData))
+			for _, readErr := range engine.readErrs {
+				require.NoError(t, readErr)
+			}
+			if mode != "valid" {
+				data, readErr := os.ReadFile(fixture)
+				require.NoError(t, readErr)
+				require.Equal(t, "{", string(data), "setup must actually invalidate the trigger-only fixture")
+			}
+			if mode == "valid" || mode == "unused" {
+				require.NoError(t, err)
+				expected := []string{"task", "eval"}
+				if mode == "unused" {
+					expected = []string{"task"}
+				}
+				require.Equal(t, expected, engine.answers)
+				data, readErr := os.ReadFile(output)
+				require.NoError(t, readErr)
+				var outcome models.EvaluationOutcome
+				require.NoError(t, json.Unmarshal(data, &outcome))
+				require.Len(t, outcome.TestOutcomes, 1)
+				if mode == "valid" {
+					require.Len(t, outcome.TriggerResults, 1)
+					require.Equal(t, "trigger probe", outcome.TriggerResults[0].Prompt)
+				} else {
+					require.Empty(t, outcome.TriggerResults)
+				}
+				return
+			}
+			require.ErrorContains(t, err, "MCP mock admission")
+			require.ErrorContains(t, err, "ask_user.json")
+			expected := []string(nil)
+			if mode == "second-baseline-setup" {
+				expected = []string{"task"}
+			}
+			require.Equal(t, expected, engine.answers, "reject changed trigger fixtures before starting this pass's tasks")
+			require.NoFileExists(t, output)
+		})
+	}
+}
+
+func (e *triggerConfigCapture) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	cfg, ok := req.MCPServers["host"].(copilot.MCPStdioServerConfig)
+	if !ok || len(cfg.Args) == 0 {
+		return nil, fmt.Errorf("host mock requires stdio configuration with a fixture argument: %T", req.MCPServers["host"])
+	}
+	data, err := os.ReadFile(cfg.Args[len(cfg.Args)-1])
+	var mock mcpmock.Config
+	if err == nil {
+		err = json.Unmarshal(data, &mock)
+	}
+	var answer string
+	if err == nil {
+		value, ok := mock.Tools["ask_user"].Responses[0].Return.(map[string]any)
+		if !ok {
+			err = fmt.Errorf("ask_user response must be an object")
+		} else if answer, ok = value["answer"].(string); !ok {
+			err = fmt.Errorf("ask_user answer must be a string")
+		}
+	}
+	e.mu.Lock()
+	e.readErrs = append(e.readErrs, err)
+	e.prompts = append(e.prompts, req.Message)
+	if err == nil {
+		e.answers = append(e.answers, answer)
+	}
+	e.mu.Unlock()
+	resp := &execution.ExecutionResponse{Success: true, FinalOutput: "ready"}
+	if req.Message == "trigger probe" {
+		resp.SkillInvocations = []execution.SkillInvocation{{Name: "example"}}
+	}
+	return resp, err
+}
+
+func TestRunCommandTriggerUsesEvalMocksAndSavesResultsAcrossCacheHit(t *testing.T) {
+	dir := t.TempDir()
+	path, output := filepath.Join(dir, "eval.yaml"), filepath.Join(dir, "results.json")
+	eval := strings.Replace(triggerAdmissionEval, "    fixtures: missing-host-fixtures\n", "", 1)
+	require.NoError(t, os.WriteFile(path, []byte(eval), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(triggerAdmissionTask), 0o600))
+	triggerPath := filepath.Join(dir, "trigger_tests.yaml")
+	require.NoError(t, os.WriteFile(triggerPath, []byte(admissionTrigger), 0o600))
+	previous := newRunEngine
+	t.Cleanup(func() { newRunEngine = previous })
+	for run := range 2 {
+		resetRunGlobals()
+		engine := &triggerConfigCapture{MockEngine: execution.NewMockEngine("test")}
+		newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+			// Discovery must use the exact spec admitted before engine creation.
+			require.NoError(t, os.WriteFile(triggerPath, []byte("skill: ["), 0o600))
+			return engine, nil
+		}
+		cmd := newRunCommand()
+		cmd.SetArgs([]string{path, "--context-dir", dir, "--output", output,
+			"--skip-graders", "--no-skills", "--cache", "--cache-dir", filepath.Join(dir, "cache")})
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		require.NoError(t, cmd.Execute())
+		for _, err := range engine.readErrs {
+			require.NoError(t, err)
+		}
+		if run == 0 {
+			require.Equal(t, []string{"task", "eval"}, engine.answers)
+			require.Equal(t, []string{"task probe", "trigger probe"}, engine.prompts)
+		} else {
+			require.Equal(t, []string{"eval"}, engine.answers, "a cached task must not skip the trigger phase")
+			require.Equal(t, []string{"trigger probe"}, engine.prompts)
+		}
+		data, err := os.ReadFile(output)
+		require.NoError(t, err)
+		var outcome models.EvaluationOutcome
+		require.NoError(t, json.Unmarshal(data, &outcome))
+		require.Len(t, outcome.TriggerResults, 1)
+		require.Equal(t, "trigger probe", outcome.TriggerResults[0].Prompt)
+		require.True(t, outcome.TriggerResults[0].DidTrigger)
+		require.NotNil(t, outcome.TriggerMetrics)
+		require.NoError(t, os.WriteFile(triggerPath, []byte(admissionTrigger), 0o600))
+	}
+}

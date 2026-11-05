@@ -2,7 +2,9 @@ package models
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,21 +33,31 @@ type TestCase struct {
 	// nil inherits the eval-level value; 0 disables the check for this task.
 	FirstEventTimeoutSec *int                 `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
 	CommandMocks         *[]CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
-	Validators           []ValidatorInline    `yaml:"graders,omitempty" json:"validators,omitempty"`
+	// MCPMocks replace same-named eval mcp_mocks for this task and add new
+	// names; other eval mocks still apply. See EffectiveMCPMocks.
+	MCPMocks   []MCPMockConfig   `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
+	Validators []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
 	// Checkpoints attach graders to intermediate turn boundaries in a
 	// multi-turn run. Each checkpoint specifies `after_turn: N` (1-based,
 	// where turn 1 is the initial prompt) and a list of graders that run
 	// against the cumulative conversation state at the end of that turn.
 	// Checkpoints are additive — task-level `graders:` still run against
 	// the final state after all turns complete.
-	Checkpoints    []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
-	Requirements   []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
-	sourceDocument []byte
+	Checkpoints          []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Requirements         []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
+	sourceDocument       []byte
+	capturedInlinePrompt bool
 }
 
 // SourceBytes returns the original input, before prompt-file resolution.
 func (tc *TestCase) SourceBytes() []byte {
 	return bytes.Clone(tc.sourceDocument)
+}
+
+// HasCapturedInlinePrompt distinguishes an explicit (possibly empty) prompt
+// in strictly parsed captured source from omission or resolved prompt_file text.
+func (tc *TestCase) HasCapturedInlinePrompt() bool {
+	return tc.capturedInlinePrompt
 }
 
 // CheckpointOnFailure controls multi-turn behavior when a checkpoint fails.
@@ -102,6 +114,9 @@ func (c *Checkpoint) Validate() error {
 			c.AfterTurn, CheckpointContinue, CheckpointStop, c.OnFailure)
 	}
 	for i := range c.Graders {
+		if params, ok := c.Graders[i].Parameters.(PromptGraderParameters); ok && params.EvidenceContext != nil {
+			return fmt.Errorf("after_turn %d: evidence_context is supported only by final graders, not checkpoints", c.AfterTurn)
+		}
 		if err := c.Graders[i].Validate(); err != nil {
 			return fmt.Errorf("after_turn %d: grader[%d]: %w", c.AfterTurn, i, err)
 		}
@@ -113,12 +128,13 @@ func (c *Checkpoint) Validate() error {
 //
 // Deprecated alias: TestStimulus is provided for backward compatibility.
 type TaskStimulus struct {
-	Message     string            `yaml:"prompt" json:"message"`
-	MessageFile string            `yaml:"prompt_file,omitempty" json:"message_file,omitempty"`
-	Metadata    map[string]any    `yaml:"context,omitempty" json:"metadata,omitempty"`
-	Resources   []ResourceRef     `yaml:"files,omitempty" json:"resources,omitempty"`
-	Repos       []GitResource     `yaml:"repos,omitempty" json:"repos,omitempty"`
-	WorkDir     string            `yaml:"workdir,omitempty" json:"workdir,omitempty"`
+	Message     string         `yaml:"prompt" json:"message"`
+	MessageFile string         `yaml:"prompt_file,omitempty" json:"message_file,omitempty"`
+	Metadata    map[string]any `yaml:"context,omitempty" json:"metadata,omitempty"`
+	Resources   []ResourceRef  `yaml:"files,omitempty" json:"resources,omitempty"`
+	Repos       []GitResource  `yaml:"repos,omitempty" json:"repos,omitempty"`
+	WorkDir     string         `yaml:"workdir,omitempty" json:"workdir,omitempty"`
+	// Environment is retained for compatibility but is not applied during execution.
 	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
 	FollowUps   []string          `yaml:"follow_up_prompts,omitempty" json:"follow_ups,omitempty"`
 	Responder   *ResponderConfig  `yaml:"responder,omitempty" json:"responder,omitempty"`
@@ -417,6 +433,9 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 	if tc.CommandMocks != nil && executor != "copilot-sdk" {
 		return fmt.Errorf("test case %q: command_mocks requires executor copilot-sdk", tc.TestID)
 	}
+	if len(tc.MCPMocks) > 0 && executor != "copilot-sdk" {
+		return fmt.Errorf("test case %q: mcp_mocks requires executor copilot-sdk", tc.TestID)
+	}
 	for _, v := range tc.Validators {
 		if err := validateGraderReasoningEffort(v.Identifier, v.Parameters, executor); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
@@ -436,6 +455,14 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 func (tc *TestCase) Validate() error {
 	if tc.CommandMocks != nil {
 		if err := ValidateCommandMocks(*tc.CommandMocks); err != nil {
+			return fmt.Errorf("test case %q: %w", tc.TestID, err)
+		}
+	}
+	if tc.MCPMocks != nil {
+		if len(tc.MCPMocks) == 0 {
+			return fmt.Errorf("test case %q: mcp_mocks must not be empty; omit it to use the eval mcp_mocks", tc.TestID)
+		}
+		if err := ValidateMCPMockNames(tc.MCPMocks); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
 		}
 	}
@@ -535,43 +562,56 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseTestCase(data, path, offline, nil)
+	return parseTestCase(data, path, offline, os.ReadFile, nil)
+}
+
+// ParseCapturedTestCaseOffline resolves prompt_file through a captured-byte reader.
+// The reader receives the same task-directory-relative path as the loader.
+func ParseCapturedTestCaseOffline(data []byte, path string, readFile func(string) ([]byte, error)) (*TestCase, error) {
+	if readFile == nil {
+		return nil, fmt.Errorf("offline task parsing requires a source reader")
+	}
+	source, err := validateCapturedModelSource(data, true)
+	if err != nil {
+		return nil, err
+	}
+	tc, err := parseTestCase(data, path, true, readFile, nil)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := capturedTaskMetadata(tc.Stimulus.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	tc.Stimulus.Metadata = metadata
+	tc.capturedInlinePrompt = mappingValue(mappingValue(source, "inputs"), "prompt").Kind != 0
+	return tc, nil
 }
 
 // ParseTestCase preserves native task loading and path-relative prompt resolution.
 func ParseTestCase(data []byte, path string) (*TestCase, error) {
-	return parseTestCase(data, path, false, nil)
+	return parseTestCase(data, path, false, os.ReadFile, nil)
 }
 
 // ParseTestCaseOffline examines immutable bytes with offline schema loading.
 // validate checks static configuration when external dependencies block native decode.
 func ParseTestCaseOffline(data []byte, path string, validate func(string, GraderParameters) error) (*TestCase, error) {
-	return parseTestCase(data, path, true, validate)
+	return parseTestCase(data, path, true, os.ReadFile, validate)
 }
 
-func parseTestCase(data []byte, path string, offline bool, validate func(string, GraderParameters) error) (*TestCase, error) {
+func parseTestCase(data []byte, path string, offline bool, readFile func(string) ([]byte, error), validate func(string, GraderParameters) error) (*TestCase, error) {
 	data = bytes.Clone(data)
+	var sourceErr error
 	if err := validateDeclaredFaults(data, "", true); err != nil {
-		return nil, fmt.Errorf("task fault sources: %w", err)
+		sourceErr = fmt.Errorf("task fault sources: %w", err)
 	}
-	var source yaml.Node
-	if err := yaml.Unmarshal(data, &source); err != nil {
-		return nil, fmt.Errorf("parsing test case YAML: %w", err)
-	}
-	if len(source.Content) == 1 {
-		finite, err := faultPathPresent(source.Content[0], []string{"command_mocks", "[]", "responses", "[]", "sequence"}, nil)
-		if err != nil {
-			return nil, fmt.Errorf("task fault sources: %w", err)
-		}
-		if finite {
-			return nil, fmt.Errorf("finite task responses are not registered for public scenario execution")
-		}
-	}
-
 	if offline {
 		if err := guardOfflineModelSchemas(data, true, validate); err != nil {
-			return nil, fmt.Errorf("task schema dependencies: %w", err)
+			sourceErr = errors.Join(sourceErr, fmt.Errorf("task schema dependencies: %w", err))
 		}
+	}
+	if sourceErr != nil {
+		return nil, sourceErr
 	}
 
 	var tc TestCase
@@ -591,9 +631,12 @@ func parseTestCase(data []byte, path string, offline bool, validate func(string,
 	if err := tc.Validate(); err != nil {
 		return nil, err
 	}
+	if len(tc.Stimulus.Environment) > 0 {
+		slog.Warn("inputs.environment is unsupported and is not applied during task execution")
+	}
 
 	// Resolve prompt_file into the prompt message
-	if err := tc.Stimulus.resolvePromptFile(filepath.Dir(path)); err != nil {
+	if err := tc.Stimulus.resolvePromptFileWithReader(filepath.Dir(path), readFile); err != nil {
 		return nil, fmt.Errorf("test case %s: %w", path, err)
 	}
 
@@ -620,10 +663,10 @@ func parseTestCase(data []byte, path string, offline bool, validate func(string,
 	return &tc, nil
 }
 
-// resolvePromptFile loads prompt content from a file if prompt_file is set.
+// resolvePromptFileWithReader loads prompt content if prompt_file is set.
 // The path is resolved relative to baseDir. Absolute and traversal paths are
 // rejected, consistent with resource path validation in the runner.
-func (s *TaskStimulus) resolvePromptFile(baseDir string) error {
+func (s *TaskStimulus) resolvePromptFileWithReader(baseDir string, readFile func(string) ([]byte, error)) error {
 	if s.MessageFile == "" {
 		return nil
 	}
@@ -642,7 +685,7 @@ func (s *TaskStimulus) resolvePromptFile(baseDir string) error {
 
 	resolved := filepath.Join(baseDir, clean)
 
-	data, err := os.ReadFile(resolved)
+	data, err := readFile(resolved)
 	if err != nil {
 		return fmt.Errorf("reading prompt_file %q: %w", s.MessageFile, err)
 	}

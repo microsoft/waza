@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -62,7 +63,8 @@ func TestScenarioExclusiveWriteAfterPreflight(t *testing.T) {
 			} else {
 				require.NoError(t, os.WriteFile(path, original, 0o600))
 			}
-			require.ErrorContains(t, writeScenarioFileAt(parent, "eval.yaml", path, "new scaffold contents"), "refusing to overwrite")
+			_, err = writeScenarioFileAt(parent, "eval.yaml", path, "new scaffold contents")
+			require.ErrorContains(t, err, "refusing to overwrite")
 			if symlink {
 				link, err := os.Readlink(path)
 				require.NoError(t, err)
@@ -83,12 +85,16 @@ func TestScenarioExclusiveWrite(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, parent.Close()) }()
 	path := filepath.Join(dir, "eval.yaml")
-	require.NoError(t, writeScenarioFileAt(parent, "eval.yaml", path, "scaffold bytes\n"))
+	info, err := writeScenarioFileAt(parent, "eval.yaml", path, "scaffold bytes\n")
+	require.NoError(t, err)
+	require.NotNil(t, info)
+	require.NoError(t, info.Close())
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, "scaffold bytes\n", string(data))
 	missingParent := filepath.Join(dir, "missing", "eval.yaml")
-	err = writeScenarioFileAt(parent, "missing/eval.yaml", missingParent, "scaffold bytes\n")
+	info, err = writeScenarioFileAt(parent, "missing/eval.yaml", missingParent, "scaffold bytes\n")
+	require.Nil(t, info)
 	require.ErrorIs(t, err, fs.ErrNotExist)
 	require.ErrorContains(t, err, "creating")
 	require.NoFileExists(t, missingParent)
@@ -247,7 +253,9 @@ func TestScenarioRetainedDirectoryDoesNotFollowReplacement(t *testing.T) {
 			} else {
 				require.NoError(t, os.Mkdir(target, 0o755))
 			}
-			require.NoError(t, writeScenarioFileAt(retained, "report.txt", "parent/report.txt", "retained"))
+			file, err := writeScenarioFileAt(retained, "report.txt", "parent/report.txt", "retained")
+			require.NoError(t, err)
+			require.NoError(t, file.Close())
 			require.NoFileExists(t, filepath.Join(target, "report.txt"))
 			data, err := os.ReadFile(filepath.Join(dir, "original", "report.txt"))
 			require.NoError(t, err)
@@ -335,7 +343,9 @@ func TestScenarioTrustedWorkingDirectoryAlias(t *testing.T) {
 	t.Chdir(alias)
 	root, err := openScenarioDirectory("output/nested", true)
 	require.NoError(t, err)
-	require.NoError(t, writeScenarioFileAt(root, "report.txt", "output/nested/report.txt", "trusted cwd"))
+	file, err := writeScenarioFileAt(root, "report.txt", "output/nested/report.txt", "trusted cwd")
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
 	require.NoError(t, root.Close())
 	data, err := os.ReadFile(filepath.Join(target, "output", "nested", "report.txt"))
 	require.NoError(t, err)
@@ -352,10 +362,257 @@ func TestScenarioDarwinSystemOutputAlias(t *testing.T) {
 		t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
 		root, err := openScenarioDirectory(filepath.Join(dir, "new", "nested"), true)
 		require.NoError(t, err)
-		require.NoError(t, writeScenarioFileAt(root, "report.txt", "report.txt", "system alias"))
+		file, err := writeScenarioFileAt(root, "report.txt", "report.txt", "system alias")
+		require.NoError(t, err)
+		require.NoError(t, file.Close())
 		require.NoError(t, root.Close())
 		data, err := os.ReadFile(filepath.Join(dir, "new", "nested", "report.txt"))
 		require.NoError(t, err)
 		require.Equal(t, "system alias", string(data))
 	}
+}
+
+func TestScenarioWriteFailureRollsBackCreatedOutputs(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		for failure := range 3 {
+			t.Run(fmt.Sprintf("partial=%t/failure=%d", partial, failure), func(t *testing.T) {
+				dir := t.TempDir()
+				root, err := os.OpenRoot(dir)
+				require.NoError(t, err)
+				defer func() { require.NoError(t, root.Close()) }()
+				paths := []string{"a.yaml", "b.yaml", "c.yaml"}
+				parents := make(map[string]*os.Root)
+				files := make(map[string]string)
+				for _, path := range paths {
+					parents[path], files[path] = root, "complete\n"
+				}
+				require.NoError(t, root.WriteFile("keep.txt", []byte("unrelated\n"), 0o600))
+				calls := 0
+				create := func(parent *os.Root, name, path, contents string) (*os.File, error) {
+					index := calls
+					calls++
+					if index == failure {
+						if !partial {
+							return nil, io.ErrShortWrite
+						}
+						info, err := writeScenarioFileAt(parent, name, path, "partial\n")
+						require.NoError(t, err)
+						return info, io.ErrShortWrite
+					}
+					return writeScenarioFileAt(parent, name, path, contents)
+				}
+				require.ErrorIs(t, writeScenarioFiles(paths, parents, dir, files, create), io.ErrShortWrite)
+				for _, path := range paths {
+					require.NoFileExists(t, filepath.Join(dir, path))
+				}
+				data, err := root.ReadFile("keep.txt")
+				require.NoError(t, err)
+				require.Equal(t, "unrelated\n", string(data))
+				require.NoError(t, writeScenarioFiles(paths, parents, dir, files, writeScenarioFileAt))
+				for _, path := range paths {
+					data, err := root.ReadFile(path)
+					require.NoError(t, err)
+					require.Equal(t, "complete\n", string(data))
+				}
+			})
+		}
+	}
+}
+
+func TestScenarioRollbackPreservesCompetingReplacement(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, root.Close()) }()
+	paths := []string{"a.yaml", "b.yaml"}
+	parents := map[string]*os.Root{"a.yaml": root, "b.yaml": root}
+	files := map[string]string{"a.yaml": "owned\n", "b.yaml": "unused\n"}
+	create := func(parent *os.Root, name, path, contents string) (*os.File, error) {
+		if name == "b.yaml" {
+			require.NoError(t, root.Rename("a.yaml", "original.yaml"))
+			require.NoError(t, root.WriteFile("a.yaml", []byte("competing\n"), 0o600))
+			return nil, io.ErrShortWrite
+		}
+		return writeScenarioFileAt(parent, name, path, contents)
+	}
+	err = writeScenarioFiles(paths, parents, dir, files, create)
+	require.ErrorIs(t, err, io.ErrShortWrite)
+	require.ErrorContains(t, err, "refusing scenario rollback of replaced file")
+	for path, expected := range map[string]string{"a.yaml": "competing\n", "original.yaml": "owned\n"} {
+		data, err := root.ReadFile(path)
+		require.NoError(t, err)
+		require.Equal(t, expected, string(data))
+	}
+}
+
+func TestScenarioRollbackAfterExclusiveCollision(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, root.Close()) }()
+	require.NoError(t, root.WriteFile("b.yaml", []byte("competing\n"), 0o600))
+	err = writeScenarioFiles([]string{"a.yaml", "b.yaml"},
+		map[string]*os.Root{"a.yaml": root, "b.yaml": root}, dir,
+		map[string]string{"a.yaml": "owned\n", "b.yaml": "must not overwrite\n"}, writeScenarioFileAt)
+	require.ErrorContains(t, err, "refusing to overwrite")
+	require.NoFileExists(t, filepath.Join(dir, "a.yaml"))
+	data, err := root.ReadFile("b.yaml")
+	require.NoError(t, err)
+	require.Equal(t, "competing\n", string(data))
+}
+
+func TestScenarioRollbackCleanupErrorsAndMissingOutput(t *testing.T) {
+	for _, closed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("closed=%t", closed), func(t *testing.T) {
+			dir := t.TempDir()
+			root, err := os.OpenRoot(dir)
+			require.NoError(t, err)
+			defer func() {
+				if !closed {
+					require.NoError(t, root.Close())
+				}
+			}()
+			create := func(parent *os.Root, name, path, contents string) (*os.File, error) {
+				if name == "b.yaml" {
+					if closed {
+						require.NoError(t, root.Close())
+					} else {
+						require.NoError(t, root.Remove("a.yaml"))
+					}
+					return nil, io.ErrShortWrite
+				}
+				return writeScenarioFileAt(parent, name, path, contents)
+			}
+			err = writeScenarioFiles([]string{"a.yaml", "b.yaml"},
+				map[string]*os.Root{"a.yaml": root, "b.yaml": root}, dir,
+				map[string]string{"a.yaml": "owned\n", "b.yaml": "unused\n"}, create)
+			require.ErrorIs(t, err, io.ErrShortWrite)
+			if closed {
+				require.ErrorIs(t, err, os.ErrClosed)
+				require.ErrorContains(t, err, "checking scenario rollback")
+				data, readErr := os.ReadFile(filepath.Join(dir, "a.yaml"))
+				require.NoError(t, readErr)
+				require.Equal(t, "owned\n", string(data))
+			} else {
+				require.Equal(t, io.ErrShortWrite, err)
+				require.NoFileExists(t, filepath.Join(dir, "a.yaml"))
+			}
+		})
+	}
+}
+
+func TestScenarioRollbackUsesRetainedParent(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "parent")
+	require.NoError(t, os.Mkdir(parent, 0o755))
+	root, err := os.OpenRoot(parent)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, root.Close()) }()
+	paths := []string{"a.yaml", "b.yaml"}
+	parents := map[string]*os.Root{"a.yaml": root, "b.yaml": root}
+	files := map[string]string{"a.yaml": "owned\n", "b.yaml": "unused\n"}
+	pinned := false
+	create := func(retained *os.Root, name, path, contents string) (*os.File, error) {
+		if name == "b.yaml" {
+			renameErr := os.Rename(parent, parent+".original")
+			pinned = runtime.GOOS == "windows" && renameErr != nil
+			if pinned {
+				require.ErrorIs(t, renameErr, syscall.Errno(32))
+				return nil, io.ErrShortWrite
+			}
+			require.NoError(t, renameErr)
+			require.NoError(t, os.Mkdir(parent, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(parent, "a.yaml"), []byte("competing\n"), 0o600))
+			return nil, io.ErrShortWrite
+		}
+		return writeScenarioFileAt(retained, name, path, contents)
+	}
+	require.ErrorIs(t, writeScenarioFiles(paths, parents, parent, files, create), io.ErrShortWrite)
+	if pinned {
+		require.NoFileExists(t, filepath.Join(parent, "a.yaml"), "rollback removes the owned output through the pinned root")
+		require.NoError(t, root.Close())
+		require.NoError(t, os.Rename(parent, parent+".original"), "closing the root releases the Windows pin")
+		require.NoError(t, os.Mkdir(parent, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(parent, "a.yaml"), []byte("competing\n"), 0o600))
+		file, err := writeScenarioFileAt(root, "a.yaml", "a.yaml", "must not reopen replacement")
+		require.Nil(t, file)
+		require.ErrorIs(t, err, os.ErrClosed)
+	}
+	require.NoFileExists(t, filepath.Join(parent+".original", "a.yaml"))
+	data, err := os.ReadFile(filepath.Join(parent, "a.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "competing\n", string(data))
+}
+
+func TestScenarioRollbackRetainsOwnershipAcrossUnlinkAndRecreate(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failure=%t", fail), func(t *testing.T) {
+			dir := t.TempDir()
+			root, err := os.OpenRoot(dir)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, root.Close()) }()
+			var held *os.File
+			create := func(parent *os.Root, name, path, contents string) (*os.File, error) {
+				if name == "b.yaml" && fail {
+					original, err := held.Stat()
+					require.NoError(t, err)
+					require.NoError(t, root.Remove("a.yaml"))
+					require.NoError(t, root.WriteFile("a.yaml", []byte("foreign\n"), 0o600))
+					retained, err := held.Stat()
+					require.NoError(t, err, "ownership must remain pinned after unlink")
+					replacement, err := root.Stat("a.yaml")
+					require.NoError(t, err)
+					require.True(t, os.SameFile(original, retained))
+					require.False(t, os.SameFile(retained, replacement), "the held inode must not be recycled")
+					return nil, io.ErrShortWrite
+				}
+
+				file, err := writeScenarioFileAt(parent, name, path, contents)
+				if name == "a.yaml" {
+					held = file
+				}
+				return file, err
+			}
+			err = writeScenarioFiles([]string{"a.yaml", "b.yaml"},
+				map[string]*os.Root{"a.yaml": root, "b.yaml": root}, dir,
+				map[string]string{"a.yaml": "owned\n", "b.yaml": "complete\n"}, create)
+			if fail {
+				require.ErrorIs(t, err, io.ErrShortWrite)
+				require.ErrorContains(t, err, "refusing scenario rollback of replaced file")
+				data, err := root.ReadFile("a.yaml")
+				require.NoError(t, err)
+				require.Equal(t, "foreign\n", string(data))
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, ^uintptr(0), held.Fd(), "success and rollback must both release ownership")
+		})
+	}
+}
+
+func TestScenarioRollbackReportsLostOwnershipHandle(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, root.Close()) }()
+	var held *os.File
+	create := func(parent *os.Root, name, path, contents string) (*os.File, error) {
+		if name == "b.yaml" {
+			require.NoError(t, held.Close())
+			return nil, io.ErrShortWrite
+		}
+		file, err := writeScenarioFileAt(parent, name, path, contents)
+		held = file
+		return file, err
+	}
+	err = writeScenarioFiles([]string{"a.yaml", "b.yaml"},
+		map[string]*os.Root{"a.yaml": root, "b.yaml": root}, dir,
+		map[string]string{"a.yaml": "owned\n", "b.yaml": "unused\n"}, create)
+	require.ErrorIs(t, err, io.ErrShortWrite)
+	require.ErrorIs(t, err, os.ErrClosed)
+	require.ErrorContains(t, err, "inspecting scenario rollback ownership")
+	require.ErrorContains(t, err, "closing scenario output")
+	data, err := root.ReadFile("a.yaml")
+	require.NoError(t, err)
+	require.Equal(t, "owned\n", string(data), "unverifiable ownership must leave an explicit residual")
 }

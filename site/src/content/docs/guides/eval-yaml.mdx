@@ -7,6 +7,13 @@ description: Complete guide to YAML structure for evaluation benchmarks.
 
 A complete reference for writing `eval.yaml` specifications and task definitions.
 
+**Available in v0.39.0:** scenario authoring and preflight are included in the
+published standalone release. Install it or run `waza update`; see
+[availability and platform limits](../../reference/releases/).
+Before the real-agent examples below, complete
+[authentication, model access, permissions and usage prerequisites](../../getting-started/#authenticate-before-real-execution).
+For credential-free harness checks start with [Quick Start](../../quick-start/).
+
 ## Offline planning and descriptive requirements
 
 Run `waza preflight eval.yaml --format json` before starting an evaluation.
@@ -22,6 +29,21 @@ create assertions, enforce runtime policy, require one implementation path, or
 change existing v1 grading/exits. Reference resolution is not satisfaction.
 Use [Offline Eval Preflight](../preflight/) for complete valid examples and the
 static-versus-runtime evidence distinction.
+
+## Frozen independent prompt graders
+
+Final eval graders and task `graders` may set `config.evidence_context: {}` to
+request frozen task/conversation/tool/output evidence in a fresh judge session.
+Add `files: [report.json]` and `evaluator_only: [references]` inside that object
+for reviewed explicit file selection. Use `executor: copilot-sdk`; do not use the
+option in `checkpoints`, with `mode: pairwise`, or with `continue_session: true`.
+Omission retains existing behavior; present null is not omission.
+
+The [evidence-backed judging reference](/waza/guides/graders/#evidence-backed-independent-judging)
+contains the canonical runnable YAML, limits, explicit authentication and saved
+regrade commands. Required missing/redacted/incomplete evidence is an operational
+error, not a partial judgment. The persisted bundle is independent of optional
+snapshots; each final grader receives only its own selected file subset.
 
 ## Agent-ready workflow
 
@@ -87,8 +109,12 @@ output path; symlinked roots or generated task/fixture parents are rejected.
 Use a physical `--output` path. Relative paths start at the retained working
 directory; absolute paths are admitted from the filesystem root, with only
 verified literal macOS `/var` and `/tmp` system aliases. Writes use retained
-directory handles rather than following replaced parent paths. This does not
-provide rollback or prevent an admitted directory from subsequently being moved.
+directory handles rather than following replaced parent paths. Failed creation
+or writing rolls back this attempt's owned files, including a partial output.
+Created-file handles stay open until success or rollback so unlinked ownership
+cannot be confused with a recycled inode. Observed replacements and unknown
+content are preserved, with explicit cleanup and handle-close errors.
+Empty directories can remain, and an admitted directory can subsequently move.
 
 Scenario `2.0` bypasses result caching with an explicit notice, even with
 `--cache`, until external workflow dependencies can be fully fingerprinted.
@@ -301,8 +327,8 @@ tasks:
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
 | `tasks_from`  | string | ✗        | Relative or absolute CSV dataset path; takes precedence over `tasks` when nonempty         |
 | `hooks`       | object | ✗        | Lifecycle hooks that run shell commands at specific points (see [Hooks](#hooks))           |
-| `mcp_mocks`   | array  | ✗        | Hermetic MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"` |
-| `command_mocks` | array | ✗       | Hermetic executable shims for CLI-dependent evals; requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk` |
+| `mcp_mocks`   | array  | ✗        | MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"`; finite sequences require scenario `2.0` |
+| `command_mocks` | array | ✗       | Executable shims for CLI-dependent evals; requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`; finite sequences require scenario `2.0` |
 | `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
@@ -317,7 +343,7 @@ The schema's `skill` constraint is length-only: whitespace passes that check
 but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
 separate preflight checks are not universal runtime target enforcement.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.4`; scenario evals must select `2.0`. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
+`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.4`; scenario evals must select `2.0`. See [Schema Changes](../../reference/schema-changes/) for the compatibility policy.
 
 ## Targeting Custom Agents
 
@@ -343,7 +369,7 @@ config:
 - If both `SKILL.md` and `.agent.md` exist in the same directory, `SKILL.md` takes priority
 - Custom agents can declare a `tools:` field in frontmatter, which auto-injects a `tool_constraint` grader
 
-**Learn more:** See the [Evaluating Custom Agents](/guides/custom-agents) guide for detailed examples and the auto-injected tool constraint behavior.
+**Learn more:** See the [Evaluating Custom Agents](../custom-agents/) guide for detailed examples and the auto-injected tool constraint behavior.
 
 ## Config Section
 
@@ -513,7 +539,7 @@ tasks:
 
 Response matching is evaluated in order. `match` requires exact full-argument equality, `match_schema` validates the call arguments against an inline JSON Schema, and `match_regex` applies regular expressions to individual argument fields. Unknown tools or calls that do not match any response fail loudly with an MCP tool error that points to the missing mock fixture.
 
-Unmatched MCP errors intentionally omit argument values, rather than echoing private or nested payloads. The in-process mock handler also rejects tool calls whose context is already canceled or expired before fixture dispatch. This is an admission check only: it does not add per-request stdio cancellation or simulated delays/timeouts. Existing responses remain first-match, repeatable fixtures; an `error` response can model a permanent dependency failure or denial, but it does not verify a live service. The returned JSON value is encoded inside a valid MCP text result, so an unexpected application value is not a malformed MCP/JSON-RPC envelope.
+Unmatched MCP errors intentionally omit argument values, rather than echoing private or nested payloads. Scenario evals with exact `schemaVersion: "2.0"` can use finite `sequence` steps of `return` or `error`, with optional delays from 0 to 300,000 ms and at most 100 steps. A matching call consumes one step; exhaustion and unmatched calls fail closed. An `error` containing “timeout” is a dependency-reported error, not transport cancellation. A malformed application value is still encoded in a valid MCP result, not a malformed MCP/JSON-RPC envelope. See the [Dependency Recovery guide](/waza/guides/dependency-recovery/) for complete scenarios and isolation limits.
 
 You can keep larger fixtures in JSON files instead of inline YAML:
 
@@ -524,6 +550,48 @@ mcp_mocks:
 ```
 
 Each `.json` fixture can either contain a single tool definition (tool name from the filename) or a `{ "tools": { ... } }` object with multiple tools.
+
+### Task-level MCP mocks
+
+**Added in v0.40.0:** Published `v0.39.1` does not apply task-level
+`mcp_mocks`.
+
+A task can declare `mcp_mocks` when one case needs a different response, for example approving a question that other tasks must decline. Each task entry replaces the eval mock with the same name for that task only, and a new name adds a mock. Other eval mocks still apply, so a task restates only the servers it changes.
+
+```yaml
+# tasks/publish.yaml
+id: publish
+name: Publish when the user confirms
+inputs:
+  prompt: Publish the reviewed version.
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_schema:
+              type: object
+              required: [choices]
+              properties:
+                choices: { type: array, contains: { const: Publish this version } }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
+```
+
+Task mocks follow the enclosing eval's `schemaVersion` (1.1 or newer, and scenario `2.0` for finite sequences) and require `executor: copilot-sdk`. Relative `fixtures` paths resolve from the eval directory, like task `command_mocks` fixtures. An eval mock that every selected task replaces has its fixtures skipped only when no trigger phase needs it; its inline tools are still validated. An empty task list is rejected; omit the field to use the eval mocks.
+
+Fixture entries must be regular JSON files; symlinks to regular files remain supported. On Unix, admission opens fixtures nonblocking and validates the opened file, rejecting FIFOs without waiting for a writer so `after_run` can run. This does not bound unresponsive filesystem operations or promise race-free/nonblocking opening on Windows.
+
+The CLI discovers `trigger_tests.yaml` after `before_run`, before starting the engine, and reuses that parsed spec during execution. Trigger tests use eval-level MCP mocks and live servers rather than task overrides. Preflight inspects those dependencies using local reads only, including when a trigger file cannot be parsed; independent mock diagnostics are retained. The mock executor synthesizes trigger results without MCP. Task filtering, `--skip-graders`, `--no-skills`, and cached task results do not skip trigger tests.
+
+Admission validates selected fixture-backed tool `input_schema` declarations offline, including fixtures needed only by trigger tests. Omitted/null schemas retain the default; whole-tool overrides and genuinely unused fixture metadata are not admitted.
+
+SDK startup cancellation releases the waiting run and cleans up partial startup without tying a successfully started client's lifetime to its original caller. Reinitializing a healthy client remains idempotent even with a canceled caller context. A canceled shared startup is replaceable after successful cleanup; global shared-client shutdown still rejects new clients. A custom client factory must honor startup-context cancellation or expose `ForceStop`. Each partial-startup cleanup wait has a two-second deadline and reports an error if cleanup has not settled; it cannot guarantee goroutine termination for a noncooperating custom client. Pending or failed cleanup remains tracked.
+
+Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
+
+After completed startup, the lifetime context stays alive through graceful SDK cleanup. Authentication failure cleans up an owned client immediately and retains cleanup errors; engine shutdown still performs final cleanup. Shared clients are stopped only by their top-level owner. Partial-startup cleanup remains once-only.
 
 ## Command Mocks
 
@@ -557,6 +625,12 @@ tasks:
 
 Task-level `command_mocks` replace the eval-level list. Set `command_mocks: []` on a task to disable inherited mocks. A command that is configured but called with unmatched arguments fails closed with a diagnostic asking for a matching response fixture. Invocation records contain sanitized arguments, exit codes, and response indexes in `runs[].command_invocations`; graders can also read them from their context. Verbose runs print those sanitized details. Only declared executable names are intercepted, so `command_mocks` is not a command sandbox. Do not put real credentials in mock output.
 
+Scenario evals with exact `schemaVersion: "2.0"` may use a response `sequence`
+of at most 100 output steps; each may delay up to 300,000 ms. A matching call
+consumes one step and exhaustion fails closed. Earlier failed attempts remain
+in `runs[].command_invocations` even when a later attempt succeeds. Task-level
+empty-list replacement is unchanged.
+
 ### Choosing a test boundary
 
 | Mechanism | Use it for |
@@ -579,7 +653,7 @@ adversarial:
   on_unsafe_outcome: fail  # or "warn"
 ```
 
-`packs` must name one or more built-in packs. In v0.38.0 those are `prompt-injection` and `scope-bypass`. `on_unsafe_outcome: fail` exits 2 when an unsafe outcome is observed; `warn` records the unsafe result but exits 0. See the [Adversarial Harness guide](/guides/adversarial/) for pack behavior and CI examples.
+`packs` must name one or more built-in packs. In v0.38.0 those are `prompt-injection` and `scope-bypass`. `on_unsafe_outcome: fail` exits 2 when an unsafe outcome is observed; `warn` records the unsafe result but exits 0. See the [Adversarial Harness guide](../adversarial/) for pack behavior and CI examples.
 
 ## Graders Section
 
@@ -632,7 +706,7 @@ All graders return:
 - `passed`: boolean
 - `message`: human-readable result
 
-See the **[Validators & Graders](../graders/)** guide for all 12 types and examples.
+See the **[Validators & Graders](../graders/)** guide for all 13 native kinds and examples.
 
 ## Mapping OpenAI Evals `modelgraded` YAML
 
@@ -782,7 +856,46 @@ expected:
 | `expected`    | object | Validation rules and expected behavior              |
 | `skill_directories` | string[] | Skill directories for this task (overrides eval-level) |
 | `instruction_files` | string[] | Instruction files for this task (adds to eval-level files) |
-| `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](/reference/cli/#waza-gate) (must always pass) |
+| `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](../../reference/cli/#waza-gate) (must always pass) |
+| `requirements` | array | Descriptive intent linked to explicitly scoped existing graders; does not add assertions or change pass/fail |
+
+### Link intent to existing checks
+
+Use `requirements` to identify the intent behind an existing named grader:
+
+```yaml
+id: report-task
+name: Report the inspected result
+inputs:
+  prompt: "Return a report containing the word inspected."
+graders:
+  - name: report-check
+    type: text
+    config:
+      contains: ["inspected"]
+requirements:
+  - id: report-content
+    category: outcome
+    description: The report identifies the inspected result.
+    checks:
+      - scope: task
+        grader: report-check
+```
+
+`task` selects a task grader; `eval` selects an eval-level grader.
+`checkpoint` selects a checkpoint grader and requires the matching `after_turn`.
+Names must resolve uniquely in their scope. A final result name shared by eval
+and task graders is unresolved because the stored result map does not distinguish
+their observations. Missing checks and requirements without checks stay unassessed.
+
+`runs[].requirement_explanations` records existing grader outcomes and their
+uncertainty, not new requirement scores, enforcement, or causes. A passing check
+does not erase an overall operational error. With `--snapshot`, references identify
+the whole captured artifact and an artifact-relative result pointer; they are not
+file contents or proof that a grader's workspace is reconstructible.
+Regrading applies the currently selected declarations and never reassesses
+historical checkpoints. See [portable evidence](/waza/guides/snapshot-replay/#scoped-requirement-observations)
+and the [result schema](/waza/reference/schema/#portable-evidence).
 
 ### Inputs Section
 
@@ -857,6 +970,142 @@ inputs:
 ```
 
 After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
+
+Each successful decision tool ends the responder's classification turn without
+another model round. This does not discard conflicting calls that were already
+issued: multiple decisions in one classification still fail the run.
+
+#### Complete multi-turn example
+
+Choose **scripted follow-ups** when the next user messages are known in advance.
+Choose an **adaptive responder** when the evaluated agent decides which question
+to ask next. The examples below use the same two-question interview without a
+skill or external tools, so you can check conversation setup independently of
+your product workflow.
+
+Create `eval.yaml` and a `tasks/` directory. This is a scenario eval, so it uses
+exact schema version `2.0` and does not discover ambient skills.
+
+```yaml
+name: multi-turn-demo
+scenario: two-question-interview
+schemaVersion: "2.0"
+version: "1.0"
+config:
+  executor: copilot-sdk
+  model: gpt-4.1
+  trials_per_task: 1
+  timeout_seconds: 120
+metrics:
+  - name: task_completion
+    weight: 1.0
+    threshold: 1.0
+graders:
+  - type: text
+    name: final-preferences
+    config:
+      regex_match: ["(?i)blue", "(?i)cat"]
+tasks:
+  - tasks/scripted.yaml
+  - tasks/adaptive.yaml
+```
+
+Create `tasks/scripted.yaml`:
+
+```yaml
+id: scripted-preferences
+name: Scripted preferences
+inputs:
+  prompt: |
+    Ask for my favorite color, then my favorite animal, one question at a time.
+    After both answers, summarize the color and animal without another question.
+  follow_up_prompts:
+    - "My favorite color is blue."
+    - "My favorite animal is a cat."
+```
+
+The scripted messages are sent in order after successive agent turns; they do
+not adapt to what the agent actually asked.
+
+Create `tasks/adaptive.yaml`:
+
+```yaml
+id: adaptive-preferences
+name: Adaptive preferences
+inputs:
+  prompt: |
+    Ask for my favorite color, then my favorite animal, one question at a time.
+    After both answers, summarize the color and animal without another question.
+  responder:
+    instructions: |
+      Your favorite color is blue and your favorite animal is a cat.
+      Answer only the question asked. Do not invent other preferences.
+      Stop when the agent has summarized both preferences and asks nothing else.
+      Abstain if an answer cannot be inferred from these facts.
+    max_followups: 3
+```
+
+The responder model defaults to `config.model`; set `inputs.responder.model`
+only when you intentionally want a different model. `max_followups` counts
+responder replies, not model requests or the initial actor turn, and must be at
+least one. Leave room beyond the expected two replies for the completion check:
+reaching the cap stops further classification and reports `cap_exhausted`,
+which is not proof the conversation completed successfully.
+
+`preflight` validates the configuration without starting a model:
+
+```bash
+waza preflight eval.yaml
+```
+
+**Before real execution**, configure SDK authentication, verify model access,
+and approve any runtime/tool permissions required by your environment. Both
+actor and responder inference may incur usage; the follow-up limit is not a
+provider spending cap. These commands exercise the real configured model:
+
+```bash
+waza run eval.yaml --task "Scripted preferences" --output scripted-results.json
+waza run eval.yaml --task "Adaptive preferences" --output adaptive-results.json
+```
+
+For an agent-free **scripted harness control only**, change `config.executor`
+from `copilot-sdk` to `mock` in `eval.yaml`, then run only the scripted task:
+
+```bash
+waza run eval.yaml --task "Scripted preferences" --output scripted-smoke.json
+```
+
+Expect exit `1`: generic mock output does not satisfy both preference predicates.
+This checks wiring, not real conversation quality. The mock engine does not call
+responder decision tools, so it is not an adaptive responder substitute. Restore
+`config.executor: copilot-sdk` before using the real-execution commands above.
+
+Inspect `tasks[].runs[].responder` in the adaptive results: `stopped` means the
+responder chose to stop, `abstained` means the brief could not supply an answer,
+and `cap_exhausted` means the reply limit was reached. Also check the run status
+and graders; a normal stop is not automatically a passing evaluation.
+
+If execution fails before the responder records a decision, an available
+execution error is reported as `responder execution failed: ...` in the run's
+error and responder reason. A successful response that contains only text still
+reports `responder did not call a decision tool`. That message also remains the
+fallback when no decision and no execution error detail are available. This
+distinction improves diagnosis; it does not repair provider failures or change
+grading. Execution responses snapshot collected diagnostic output safely alongside
+SDK event delivery; this does not wait for future events or change final usage
+collection.
+
+:::caution[Duplicate decision errors]
+An error such as `responder called responder_stop after a decision was already recorded`
+is not an abstention or a follow-up limit. A nonterminal decision can allow an
+unnecessary model round before the accepted reply is delivered. The lifecycle
+fix in [#749](https://github.com/microsoft/waza/pull/749) marks the three
+internal decision tools terminal; check release notes before assuming an
+installed binary includes it. `IsTerminal` is an SDK registration option, not
+an eval YAML field or a prompt workaround. Terminality ends only the current
+classification; the responder session remains available for the next actor
+message. Conflicting decisions already issued in the same response remain errors.
+:::
 
 ### Per-Turn Checkpoints
 
@@ -1187,6 +1436,8 @@ hooks:
 | `before_task` | Before each individual task               |
 | `after_task`  | After each individual task                |
 
+`before_run` runs before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets. The runner repeats admission after engine initialization and after each new pass's setup, retaining trigger-only dependencies and returning detected configuration errors before task execution without repeating hooks. In `--baseline` mode each pass runs `before_run`, MCP admission, and `after_run`, including when the second pass generates changed task or fixture files. If the run is interrupted (Ctrl+C), `after_run` still runs once, for at most one minute.
+
 Each hook entry:
 
 | Field               | Type      | Default      | Description                       |
@@ -1248,8 +1499,9 @@ CSV paths resolve from the eval directory unless absolute. They must be lexicall
 inside that directory and remain inside after symlinks resolve. Contained links
 are allowed. An aliased eval base accepts relative contained sources, but an
 alternate physical absolute spelling outside the lexical alias root is rejected.
-The check does not provide universal physical equivalence, a retained-root, or a
-race-free guarantee.
+The final CSV open and parse use a retained eval-directory root, so a late
+replacement symlink cannot redirect reads outside it. This does not freeze
+concurrent file contents or provide universal physical equivalence.
 
 ---
 

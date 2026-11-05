@@ -34,8 +34,8 @@
 ## Model
 
 - **Preferred:** auto
-- **Rationale:** Coordinator selects the best model based on task type — cost first unless writing code
-- **Fallback:** Standard chain — the coordinator handles fallback automatically
+- **Rationale:** Follow the current role assignments in `.squad/config.json` and `.squad/model-policy.md`.
+- **Fallback:** Use the Waza GPT-first policy, not the generic silent fallback chain.
 
 ## Collaboration
 
