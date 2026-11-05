@@ -2,10 +2,12 @@ package orchestration
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/microsoft/waza/internal/dataset"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -13,6 +15,32 @@ import (
 // LoadSelectedTestCases loads the active tasks execution would select from an
 // eval spec before command-level task and tag filters are applied.
 func LoadSelectedTestCases(spec *models.EvalSpec, specDir string, now time.Time) ([]*models.TestCase, error) {
+	return loadSelectedTestCases(spec, specDir, now, models.LoadTestCase, mcpmock.ValidateInlineMockDeclarations)
+}
+
+// LoadSelectedTestCasesOffline uses execution's task selection while refusing
+// external schema resolution during task decoding and MCP validation.
+func LoadSelectedTestCasesOffline(spec *models.EvalSpec, specDir string, now time.Time) ([]*models.TestCase, error) {
+	load := func(path string) (*models.TestCase, error) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		return models.ParseTestCaseOffline(data, path, graders.ValidateConfig)
+	}
+	return loadSelectedTestCases(spec, specDir, now, load, mcpmock.ValidateInlineMockDeclarationsOffline)
+}
+
+type testCaseLoader func(string) (*models.TestCase, error)
+type inlineMockValidator func([]models.MCPMockConfig, string, string) error
+
+func loadSelectedTestCases(
+	spec *models.EvalSpec,
+	specDir string,
+	now time.Time,
+	load testCaseLoader,
+	validateInlineMocks inlineMockValidator,
+) ([]*models.TestCase, error) {
 	if spec.TasksFrom != "" {
 		return loadSelectedTestCasesFromCSV(spec, specDir, now)
 	}
@@ -35,7 +63,7 @@ func LoadSelectedTestCases(spec *models.EvalSpec, specDir string, now time.Time)
 
 	testCases := make([]*models.TestCase, 0, len(testFiles))
 	for _, path := range testFiles {
-		tc, err := models.LoadTestCase(path)
+		tc, err := load(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
 		}
@@ -54,7 +82,7 @@ func LoadSelectedTestCases(spec *models.EvalSpec, specDir string, now time.Time)
 			if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 			}
-			if err := mcpmock.ValidateInlineMockDeclarations(tc.MCPMocks, specDir, spec.SchemaVersion); err != nil {
+			if err := validateInlineMocks(tc.MCPMocks, specDir, spec.SchemaVersion); err != nil {
 				return nil, fmt.Errorf("invalid test case %s: MCP mock admission: %w", path, err)
 			}
 		}

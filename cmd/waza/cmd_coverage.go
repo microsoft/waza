@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/skill"
@@ -36,23 +37,19 @@ type coverageReport struct {
 }
 
 type evalSpecLite struct {
-	SchemaVersion string                 `yaml:"-"`
-	Scenario      string                 `yaml:"scenario,omitempty"`
-	Skill         string                 `yaml:"skill"`
-	Config        coverageEvalConfig     `yaml:"config"`
-	Inputs        map[string]string      `yaml:"inputs,omitempty"`
-	Tasks         []string               `yaml:"tasks"`
-	TasksFrom     string                 `yaml:"tasks_from,omitempty"`
-	Range         [2]int                 `yaml:"range,omitempty"`
-	Graders       []coverageGraderConfig `yaml:"graders"`
+	SchemaVersion string                `yaml:"-"`
+	Scenario      string                `yaml:"scenario,omitempty"`
+	Skill         string                `yaml:"skill"`
+	Config        coverageEvalConfig    `yaml:"config"`
+	Inputs        map[string]string     `yaml:"inputs,omitempty"`
+	Tasks         []string              `yaml:"tasks"`
+	TasksFrom     string                `yaml:"tasks_from,omitempty"`
+	Range         [2]int                `yaml:"range,omitempty"`
+	Graders       []models.GraderConfig `yaml:"-"`
 }
 
 type coverageEvalConfig struct {
 	EngineType string `yaml:"executor"`
-}
-
-type coverageGraderConfig struct {
-	Kind models.GraderKind `yaml:"type"`
 }
 
 func (s *evalSpecLite) selectionSpec() *models.EvalSpec {
@@ -165,7 +162,7 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 			continue
 		}
 		evalBySkill[skillName] = append(evalBySkill[skillName], evalPath)
-		tasks, selectionErr := orchestration.LoadSelectedTestCases(
+		tasks, selectionErr := orchestration.LoadSelectedTestCasesOffline(
 			spec.selectionSpec(),
 			filepath.Dir(evalPath),
 			time.Unix(0, 0).UTC(),
@@ -372,13 +369,29 @@ func parseEvalSpec(evalPath string) (*evalSpecLite, error) {
 	if err != nil {
 		return nil, err
 	}
-	var spec evalSpecLite
-	if err := yaml.Unmarshal(data, &spec); err != nil {
+	var raw struct {
+		evalSpecLite `yaml:",inline"`
+		Graders      []yaml.Node `yaml:"graders"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
+	spec := &raw.evalSpecLite
 	spec.SchemaVersion = version
 	spec.Scenario = scenario
-	return &spec, nil
+	spec.Graders = make([]models.GraderConfig, 0, len(raw.Graders))
+	for _, node := range raw.Graders {
+		graderData, err := yaml.Marshal(&node)
+		if err != nil {
+			return nil, err
+		}
+		grader, err := models.DecodeGraderConfigOffline(graderData, graders.ValidateConfig)
+		if err != nil {
+			return nil, err
+		}
+		spec.Graders = append(spec.Graders, grader)
+	}
+	return spec, nil
 }
 
 func parseSkillName(path string) string {

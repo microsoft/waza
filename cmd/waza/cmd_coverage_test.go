@@ -3,8 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -363,7 +366,7 @@ graders:
 
 			spec, err := parseEvalSpec(filepath.Join(root, evalPath))
 			require.NoError(t, err)
-			selected, selectionErr := orchestration.LoadSelectedTestCases(
+			selected, selectionErr := orchestration.LoadSelectedTestCasesOffline(
 				spec.selectionSpec(),
 				filepath.Dir(filepath.Join(root, evalPath)),
 				time.Unix(0, 0).UTC(),
@@ -392,4 +395,105 @@ graders:
 			}
 		})
 	}
+}
+
+func TestCoverageCommand_InvalidGraderCannotReportFull(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, filepath.Join("skills", "greeting"), "greeting")
+	writeTask(t, root, filepath.Join("evals", "greeting", "tasks", "first.yaml"), "first")
+	writeEval(t, root, filepath.Join("evals", "greeting", "eval.yaml"), `
+schemaVersion: "1.4"
+name: invalid-grader
+skill: greeting
+config:
+  executor: mock
+  model: mock
+  trials_per_task: 1
+  timeout_seconds: 5
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 1
+tasks: [tasks/*.yaml]
+graders:
+  - name: output
+    type: text
+    config: {regex_match: [".+"]}
+  - name: js
+    type: code
+    config: {}
+`)
+
+	report := executeCoverageJSON(t, root)
+	require.Len(t, report.Skills, 1)
+	assert.NotEqual(t, "✅ Full", report.Skills[0].Coverage)
+	assert.Zero(t, report.CoveragePct)
+}
+
+func TestCoverageCommand_TaskSelectionDoesNotLoadExternalSchemas(t *testing.T) {
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{"type":"object"}`))
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	writeSkill(t, root, filepath.Join("skills", "greeting"), "greeting")
+	writeEval(t, root, filepath.Join("evals", "greeting", "eval.yaml"), `
+schemaVersion: "1.4"
+name: external-task-schema
+skill: greeting
+config:
+  executor: copilot-sdk
+  model: mock
+  trials_per_task: 1
+  timeout_seconds: 5
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 1
+tasks: [tasks/*.yaml]
+graders:
+  - name: output
+    type: text
+    config: {regex_match: [".+"]}
+  - name: files
+    type: file
+    config: {must_exist: [output.txt]}
+`)
+	writeEval(t, root, filepath.Join("evals", "greeting", "tasks", "first.yaml"), `
+id: first
+name: first
+inputs:
+  prompt: Say hello.
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_schema:
+              $ref: `+server.URL+`/schema.json
+            return: {answer: hello}
+`)
+
+	report := executeCoverageJSON(t, root)
+	require.Len(t, report.Skills, 1)
+	assert.Equal(t, 0, report.Skills[0].Tasks)
+	assert.Equal(t, "⚠️ Partial", report.Skills[0].Coverage)
+	assert.Zero(t, requests.Load())
+}
+
+func executeCoverageJSON(t *testing.T, root string) coverageReport {
+	t.Helper()
+	var stdout bytes.Buffer
+	cmd := newCoverageCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{root, "--format", "json"})
+	require.NoError(t, cmd.Execute())
+
+	var report coverageReport
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &report))
+	return report
 }
