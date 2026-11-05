@@ -132,7 +132,14 @@ func validateInlineMockDeclarations(mocks []models.MCPMockConfig, baseDir, versi
 		}
 		var err error
 		if offline {
-			_, err = FromEvalConfigOfflineWithVersion(declared, baseDir, version)
+			var errs []error
+			for name, tool := range declared.Tools {
+				if inputErr := validateMockInputSchema(declared.Name, name, tool.InputSchema, baseDir); inputErr != nil {
+					errs = append(errs, inputErr)
+				}
+			}
+			_, configErr := FromEvalConfigOfflineWithVersion(declared, baseDir, version)
+			err = errors.Join(append(errs, configErr)...)
 		} else {
 			err = validateMockAdmission(declared, baseDir, version)
 		}

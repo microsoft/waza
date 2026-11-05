@@ -484,6 +484,51 @@ mcp_mocks:
 	assert.Zero(t, requests.Load())
 }
 
+func TestCoverageCommand_InvalidMCPInputSchemaCannotReportFull(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, filepath.Join("skills", "greeting"), "greeting")
+	writeEval(t, root, filepath.Join("evals", "greeting", "eval.yaml"), `
+schemaVersion: "1.4"
+name: invalid-mcp-input-schema
+skill: greeting
+config:
+  executor: copilot-sdk
+  model: mock
+  trials_per_task: 1
+  timeout_seconds: 5
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 1
+tasks: [tasks/*.yaml]
+graders:
+  - name: output
+    type: text
+    config: {regex_match: [".+"]}
+  - name: files
+    type: file
+    config: {must_exist: [output.txt]}
+`)
+	writeEval(t, root, filepath.Join("evals", "greeting", "tasks", "first.yaml"), `
+id: first
+name: first
+inputs:
+  prompt: Say hello.
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        input_schema: {type: 42}
+        responses:
+          - return: {answer: hello}
+`)
+
+	report := executeCoverageJSON(t, root)
+	require.Len(t, report.Skills, 1)
+	assert.Equal(t, 0, report.Skills[0].Tasks)
+	assert.Equal(t, "⚠️ Partial", report.Skills[0].Coverage)
+}
+
 func executeCoverageJSON(t *testing.T, root string) coverageReport {
 	t.Helper()
 	var stdout bytes.Buffer
