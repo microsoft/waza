@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/Masterminds/semver/v3"
 	copilot "github.com/github/copilot-sdk/go"
@@ -61,9 +62,13 @@ type CopilotClient interface {
 }
 
 func newCopilotClient(clientOptions *copilot.ClientOptions) CopilotClient {
-	return &copilotClientWrapper{
-		inner: copilot.NewClient(clientOptions),
+	wrapper := &copilotClientWrapper{inner: copilot.NewClient(clientOptions)}
+	if clientOptions != nil {
+		if conn, ok := clientOptions.Connection.(copilot.StdioConnection); ok {
+			wrapper.processEnv = slices.Clone(conn.Env)
+		}
 	}
+	return wrapper
 }
 
 // NewOwnedCopilotClient constructs a dedicated SDK client. Supply this factory
@@ -75,6 +80,9 @@ func NewOwnedCopilotClient(clientOptions *copilot.ClientOptions) CopilotClient {
 
 type copilotClientWrapper struct {
 	inner *copilot.Client
+	// processEnv is the environment the CLI process starts with; sandbox
+	// policies deny its temporary roots even if the host environment changes.
+	processEnv []string
 }
 
 func (w *copilotClientWrapper) CreateSession(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
@@ -84,7 +92,7 @@ func (w *copilotClientWrapper) CreateSession(ctx context.Context, config *copilo
 		return nil, err
 	}
 
-	return &copilotSessionWrapper{inner: sess, client: w.inner, getStatus: w.inner.GetStatus}, nil
+	return &copilotSessionWrapper{inner: sess, client: w.inner, getStatus: w.inner.GetStatus, processEnv: w.processEnv}, nil
 }
 
 func (w *copilotClientWrapper) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (CopilotSession, error) {
@@ -94,7 +102,7 @@ func (w *copilotClientWrapper) ResumeSessionWithOptions(ctx context.Context, ses
 		return nil, err
 	}
 
-	return &copilotSessionWrapper{inner: sess, client: w.inner, getStatus: w.inner.GetStatus}, nil
+	return &copilotSessionWrapper{inner: sess, client: w.inner, getStatus: w.inner.GetStatus, processEnv: w.processEnv}, nil
 }
 
 func (w *copilotClientWrapper) Start(ctx context.Context) error {
@@ -128,6 +136,7 @@ type copilotSessionWrapper struct {
 	inner        *copilot.Session
 	client       *copilot.Client
 	getStatus    func(context.Context) (*copilot.GetStatusResponse, error)
+	processEnv   []string
 	disconnected bool
 }
 
@@ -157,7 +166,7 @@ func (w *copilotSessionWrapper) ConfigureSandbox(ctx context.Context, workspaceD
 	if err := w.checkSandboxRuntime(ctx); err != nil {
 		return err
 	}
-	options, permissions, err := sessionSandboxConfiguration(workspaceDir, readonlyDirs, config)
+	options, permissions, err := sessionSandboxConfiguration(workspaceDir, readonlyDirs, config, w.processEnv)
 	if err != nil {
 		return err
 	}

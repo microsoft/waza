@@ -121,14 +121,14 @@ func TestSessionSandboxConfiguration_RestrictsAccessToWorkspace(t *testing.T) {
 	declaredReadwrite := filepath.Join(t.TempDir(), "read-write")
 	require.NoError(t, os.Mkdir(declaredReadonly, 0o755))
 	require.NoError(t, os.Mkdir(declaredReadwrite, 0o755))
-	expectedDeniedPaths, err := deniedTemporaryRoots()
+	expectedDeniedPaths, err := deniedTemporaryRoots(nil)
 	require.NoError(t, err)
 
 	options, permissions, err := sessionSandboxConfiguration(workspace, []string{skillDir}, models.SandboxConfig{
 		Enabled:        true,
 		ReadonlyPaths:  []string{declaredReadonly},
 		ReadwritePaths: []string{declaredReadwrite},
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	require.True(t, options.SandboxConfig.Enabled)
@@ -169,9 +169,30 @@ func TestSessionSandboxConfiguration_AdditionalDirectoriesExcludeFiles(t *testin
 	_, permissions, err := sessionSandboxConfiguration(workspace, nil, models.SandboxConfig{
 		Enabled:       true,
 		ReadonlyPaths: []string{file, directory},
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{directory}, permissions.Paths.AdditionalDirectories)
+}
+
+func TestSessionSandboxConfiguration_DeniesClientStartupTemporaryRoot(t *testing.T) {
+	startupTemp, err := filepath.EvalSymlinks(newSandboxTestRoot(t))
+	require.NoError(t, err)
+	liveTemp, err := filepath.EvalSymlinks(newSandboxTestRoot(t))
+	require.NoError(t, err)
+	t.Setenv("TMPDIR", startupTemp)
+	t.Setenv("TEMP", "")
+	t.Setenv("TMP", "")
+	client, ok := newCopilotClient(copilotClientOptions("error", nil, "/unused/copilot", true)).(*copilotClientWrapper)
+	require.True(t, ok)
+
+	// The host environment changes after the CLI process environment is fixed.
+	t.Setenv("TMPDIR", liveTemp)
+	options, _, err := sessionSandboxConfiguration(newSandboxTestRoot(t), nil, models.SandboxConfig{Enabled: true}, client.processEnv)
+	require.NoError(t, err)
+
+	denied := options.SandboxConfig.UserPolicy.Filesystem.DeniedPaths
+	require.Contains(t, denied, startupTemp, "the CLI process still uses its startup temporary root")
+	require.Contains(t, denied, liveTemp)
 }
 
 func TestDeniedTemporaryRoots_IncludesDistinctEnvironmentDirectories(t *testing.T) {
@@ -181,7 +202,7 @@ func TestDeniedTemporaryRoots_IncludesDistinctEnvironmentDirectories(t *testing.
 	t.Setenv("TEMP", distinctTemp)
 	t.Setenv("TMP", "relative-invalid")
 
-	roots, err := deniedTemporaryRoots()
+	roots, err := deniedTemporaryRoots(nil)
 	require.NoError(t, err)
 	require.Contains(t, roots, distinctTemp)
 	require.NotContains(t, roots, "relative-invalid")
@@ -192,7 +213,7 @@ func TestDeniedTemporaryRoots_IgnoresInvalidPrimaryTempDirectory(t *testing.T) {
 	t.Setenv("TEMP", "")
 	t.Setenv("TMP", "")
 
-	roots, err := deniedTemporaryRoots()
+	roots, err := deniedTemporaryRoots(nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, roots)
 	for _, root := range roots {
@@ -361,7 +382,7 @@ func TestSessionSandboxConfiguration_AppliesExplicitCapabilityOptIns(t *testing.
 		AllowLocalNetwork:    true,
 		GitAuth:              true,
 		GHAuth:               true,
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	sandbox := options.SandboxConfig
@@ -373,7 +394,7 @@ func TestSessionSandboxConfiguration_AppliesExplicitCapabilityOptIns(t *testing.
 }
 
 func TestSessionSandboxConfiguration_DisabledLeavesCopilotPolicyUnchanged(t *testing.T) {
-	options, permissions, err := sessionSandboxConfiguration(t.TempDir(), []string{t.TempDir()}, models.SandboxConfig{})
+	options, permissions, err := sessionSandboxConfiguration(t.TempDir(), []string{t.TempDir()}, models.SandboxConfig{}, nil)
 
 	require.NoError(t, err)
 	require.Nil(t, options)

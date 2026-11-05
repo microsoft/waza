@@ -1822,7 +1822,7 @@ func canonicalSandboxPath(path string) (string, error) {
 }
 
 func validateSandboxPathPolicy(workspaceDir string, skillDirs []string, config models.SandboxConfig) error {
-	tempDirs, err := deniedTemporaryRoots()
+	tempDirs, err := deniedTemporaryRoots(nil)
 	if err != nil {
 		return err
 	}
@@ -1868,13 +1868,21 @@ func validateSandboxPathPolicy(workspaceDir string, skillDirs []string, config m
 	return nil
 }
 
-func deniedTemporaryRoots() ([]string, error) {
+// deniedTemporaryRoots returns the temporary roots of the live host
+// environment together with those in processEnv, the environment snapshot the
+// Copilot CLI process was started with. The CLI and its sandboxed children
+// keep using that snapshot after the host environment changes, so both sets
+// must be denied.
+func deniedTemporaryRoots(processEnv []string) ([]string, error) {
 	candidates := []string{os.TempDir()}
 	for _, name := range []string{"TMPDIR", "TEMP", "TMP"} {
-		candidates = append(candidates, os.Getenv(name))
+		candidates = append(candidates, os.Getenv(name), environmentValue(processEnv, name))
 	}
 	if runtime.GOOS == "windows" {
 		candidates = append(candidates, filepath.Join(os.Getenv("SystemRoot"), "Temp"))
+		if systemRoot := environmentValue(processEnv, "SystemRoot"); systemRoot != "" {
+			candidates = append(candidates, filepath.Join(systemRoot, "Temp"))
+		}
 	} else {
 		candidates = append(candidates, "/tmp")
 	}
@@ -1902,6 +1910,19 @@ func deniedTemporaryRoots() ([]string, error) {
 	return roots, nil
 }
 
+// environmentValue returns the last value of name in environ, matching names
+// case-insensitively on Windows.
+func environmentValue(environ []string, name string) string {
+	value := ""
+	for _, entry := range environ {
+		key, entryValue, ok := strings.Cut(entry, "=")
+		if ok && (key == name || (runtime.GOOS == "windows" && strings.EqualFold(key, name))) {
+			value = entryValue
+		}
+	}
+	return value
+}
+
 func pathsOverlap(first, second string) bool {
 	contains := func(base, target string) bool {
 		baseInfo, err := os.Stat(base)
@@ -1921,11 +1942,13 @@ func pathsOverlap(first, second string) bool {
 	return contains(first, second) || contains(second, first)
 }
 
-func sessionSandboxConfiguration(workspaceDir string, readonlyDirs []string, config models.SandboxConfig) (*rpc.SessionUpdateOptionsParams, *rpc.PermissionsConfigureParams, error) {
+// sessionSandboxConfiguration builds the session policy. processEnv is the
+// environment snapshot the Copilot CLI process was started with.
+func sessionSandboxConfiguration(workspaceDir string, readonlyDirs []string, config models.SandboxConfig, processEnv []string) (*rpc.SessionUpdateOptionsParams, *rpc.PermissionsConfigureParams, error) {
 	if !config.Enabled {
 		return nil, nil, nil
 	}
-	deniedTempDirs, err := deniedTemporaryRoots()
+	deniedTempDirs, err := deniedTemporaryRoots(processEnv)
 	if err != nil {
 		return nil, nil, err
 	}
