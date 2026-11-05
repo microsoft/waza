@@ -152,7 +152,11 @@ func (s SandboxConfig) ResolvePaths() (SandboxConfig, error) {
 				if err != nil {
 					return nil, fmt.Errorf("resolving sandbox path %q: %w", value, err)
 				}
-				path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+				if path == "~" {
+					path = home
+				} else {
+					path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+				}
 			}
 			if path == "" || !filepath.IsAbs(path) {
 				return nil, fmt.Errorf("sandbox path %q must resolve to an absolute path", value)

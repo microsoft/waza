@@ -80,6 +80,27 @@ config:
 	}, *spec.Config.Sandbox)
 }
 
+func TestSandboxConfig_ResolvePaths_ExpandsBareHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	want, err := filepath.EvalSymlinks(home)
+	require.NoError(t, err)
+	want, err = filepath.Abs(want)
+	require.NoError(t, err)
+
+	t.Run("readonly_paths", func(t *testing.T) {
+		resolved, err := SandboxConfig{Enabled: true, ReadonlyPaths: []string{"~"}}.ResolvePaths()
+		require.NoError(t, err)
+		require.Equal(t, []string{want}, resolved.ReadonlyPaths)
+	})
+	t.Run("readwrite_paths", func(t *testing.T) {
+		resolved, err := SandboxConfig{Enabled: true, ReadwritePaths: []string{"~"}}.ResolvePaths()
+		require.NoError(t, err)
+		require.Equal(t, []string{want}, resolved.ReadwritePaths)
+	})
+}
+
 func TestLoadEvalSpec_RejectsUnknownSandboxFields(t *testing.T) {
 	specPath := filepath.Join(t.TempDir(), "spec.yaml")
 	err := os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
