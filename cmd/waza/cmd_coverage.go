@@ -10,8 +10,10 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -34,11 +36,38 @@ type coverageReport struct {
 }
 
 type evalSpecLite struct {
-	Scenario  string                `yaml:"scenario,omitempty"`
-	Skill     string                `yaml:"skill"`
-	Tasks     []string              `yaml:"tasks"`
-	TasksFrom string                `yaml:"tasks_from,omitempty"`
-	Graders   []models.GraderConfig `yaml:"graders"`
+	SchemaVersion string                 `yaml:"-"`
+	Scenario      string                 `yaml:"scenario,omitempty"`
+	Skill         string                 `yaml:"skill"`
+	Config        coverageEvalConfig     `yaml:"config"`
+	Inputs        map[string]string      `yaml:"inputs,omitempty"`
+	Tasks         []string               `yaml:"tasks"`
+	TasksFrom     string                 `yaml:"tasks_from,omitempty"`
+	Range         [2]int                 `yaml:"range,omitempty"`
+	Graders       []coverageGraderConfig `yaml:"graders"`
+}
+
+type coverageEvalConfig struct {
+	EngineType string `yaml:"executor"`
+}
+
+type coverageGraderConfig struct {
+	Kind models.GraderKind `yaml:"type"`
+}
+
+func (s *evalSpecLite) selectionSpec() *models.EvalSpec {
+	return &models.EvalSpec{
+		SchemaVersion: s.SchemaVersion,
+		Scenario:      s.Scenario,
+		SkillName:     s.Skill,
+		Config: models.Config{
+			EngineType: s.Config.EngineType,
+		},
+		Inputs:    s.Inputs,
+		Tasks:     s.Tasks,
+		TasksFrom: s.TasksFrom,
+		Range:     s.Range,
+	}
 }
 
 func newCoverageCommand() *cobra.Command {
@@ -112,7 +141,7 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 	evalBySkill := make(map[string][]string)
 	tasksBySkill := make(map[string]int)
 	gradersBySkill := make(map[string]map[string]struct{})
-	var parseFailures []string
+	var inspectionFailures []string
 
 	evalPaths, err := discoverEvalFiles(absRoot, skillPaths, discoverPaths)
 	if err != nil {
@@ -122,7 +151,7 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 	for _, evalPath := range evalPaths {
 		spec, parseErr := parseEvalSpec(evalPath)
 		if parseErr != nil {
-			parseFailures = append(parseFailures, fmt.Sprintf("%s (%v)", evalPath, parseErr))
+			inspectionFailures = append(inspectionFailures, fmt.Sprintf("%s (%v)", evalPath, parseErr))
 			continue
 		}
 		skillName := strings.TrimSpace(spec.Skill)
@@ -136,11 +165,16 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 			continue
 		}
 		evalBySkill[skillName] = append(evalBySkill[skillName], evalPath)
-		taskCount := len(spec.Tasks)
-		if taskCount == 0 && spec.TasksFrom != "" {
-			taskCount = 1 // tasks_from references an external file; count as having tasks
+		tasks, selectionErr := orchestration.LoadSelectedTestCases(
+			spec.selectionSpec(),
+			filepath.Dir(evalPath),
+			time.Unix(0, 0).UTC(),
+		)
+		if selectionErr != nil {
+			inspectionFailures = append(inspectionFailures, fmt.Sprintf("%s (%v)", evalPath, selectionErr))
+		} else {
+			tasksBySkill[skillName] += len(tasks)
 		}
-		tasksBySkill[skillName] += taskCount
 		if _, ok := gradersBySkill[skillName]; !ok {
 			gradersBySkill[skillName] = make(map[string]struct{})
 		}
@@ -151,9 +185,9 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 			}
 		}
 	}
-	if len(parseFailures) > 0 {
-		sort.Strings(parseFailures)
-		fmt.Fprintf(os.Stderr, "warning: failed to parse %d eval file(s): %s\n", len(parseFailures), strings.Join(parseFailures, "; "))
+	if len(inspectionFailures) > 0 {
+		sort.Strings(inspectionFailures)
+		fmt.Fprintf(os.Stderr, "warning: failed to inspect %d eval file(s): %s\n", len(inspectionFailures), strings.Join(inspectionFailures, "; "))
 	}
 
 	skillNames := make([]string, 0, len(skillPaths))
@@ -334,10 +368,16 @@ func parseEvalSpec(evalPath string) (*evalSpecLite, error) {
 	if err != nil {
 		return nil, err
 	}
+	version, scenario, err := models.ClassifyEvalSpec(data, evalPath)
+	if err != nil {
+		return nil, err
+	}
 	var spec evalSpecLite
 	if err := yaml.Unmarshal(data, &spec); err != nil {
 		return nil, err
 	}
+	spec.SchemaVersion = version
+	spec.Scenario = scenario
 	return &spec, nil
 }
 

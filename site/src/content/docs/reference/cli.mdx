@@ -1023,8 +1023,8 @@ waza coverage [root]
 
 ### Coverage Levels
 
-- **Full**: Skill or agent has an `eval.yaml`/`eval.yml` with tasks (via `tasks:` or `tasks_from:`) and at least 2 distinct grader types.
-- **Partial**: Skill or agent has an `eval.yaml`/`eval.yml` but fewer than 2 grader types or no tasks.
+- **Full**: Skill or agent has an `eval.yaml`/`eval.yml` with at least one active task discovered through `tasks:` or selected through `tasks_from:`, and at least 2 distinct grader types.
+- **Partial**: Skill or agent has an `eval.yaml`/`eval.yml` but fewer than 2 grader types or no selected tasks. Unmatched task patterns and empty CSV selections count as zero tasks.
 - **Missing**: No `eval.yaml`/`eval.yml` found for the skill or agent.
 
 **Note**: Coverage now reports both `SKILL.md` (skills) and `.agent.md` (custom agents) files. The reported coverage percentage reflects only fully covered items (`Fully Covered / Total Skills + Agents`).
