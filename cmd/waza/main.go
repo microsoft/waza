@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/microsoft/waza/internal/clierrors"
 )
 
 // Exit codes for different failure modes
@@ -23,25 +25,7 @@ func (e *TestFailureError) Error() string {
 	return e.Message
 }
 
-// ExitCodeError lets a subcommand request a specific process exit code while
-// still returning an error to cobra so the message is printed and usage is
-// suppressed. Used by `waza gate` to expose its documented exit code matrix
-// (0/1/2/3) independently of cobra's default behavior.
-type ExitCodeError struct {
-	Code int
-	Err  error
-}
-
-func (e *ExitCodeError) Error() string {
-	if e.Err == nil {
-		return fmt.Sprintf("exit code %d", e.Code)
-	}
-	return e.Err.Error()
-}
-
-func (e *ExitCodeError) Unwrap() error {
-	return e.Err
-}
+type ExitCodeError = clierrors.ExitCodeError
 
 func main() {
 	// Cobra and the final diagnostic share one process-only budget. Diagnostic
