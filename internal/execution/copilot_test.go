@@ -991,7 +991,6 @@ func TestCopilotResumeSessionID_Live(t *testing.T) {
 }
 
 func TestCopilotNativeSandbox_Live(t *testing.T) {
-	skipIfCopilotNotEnabled(t)
 	t.Setenv("WAZA_VISIBLE_CANARY", "must-not-reach-copilot")
 
 	cwd, err := os.Getwd()
@@ -1013,6 +1012,14 @@ When requested, run the bundled scripts/helper.sh relative to this SKILL.md file
 		[]byte("#!/bin/sh\nprintf '%s\\n' 'skill-script-ran'\n"),
 		0o755,
 	))
+	// The helper assertion is only meaningful when the canary skill itself is
+	// the concrete directory granted to the sandbox. This check runs offline.
+	canonicalSkillDir, err := filepath.EvalSymlinks(skillDir)
+	require.NoError(t, err)
+	selectedSkillDirs, err := resolveSandboxSkillDirs([]string{skillDir}, "sandbox-canary", nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{canonicalSkillDir}, selectedSkillDirs)
+	skipIfCopilotNotEnabled(t)
 
 	outsideRead := filepath.Join(root, "outside-read.txt")
 	outsideWrite := filepath.Join(root, "outside-write.txt")
@@ -1065,6 +1072,7 @@ exit 0
 			{Path: "canary.sh", Content: []byte(canaryScript)},
 		},
 		SkillPaths: []string{skillDir},
+		SkillName:  "sandbox-canary",
 		Sandbox: &models.SandboxConfig{
 			Enabled:        true,
 			ReadonlyPaths:  []string{declaredReadonlyDir},
