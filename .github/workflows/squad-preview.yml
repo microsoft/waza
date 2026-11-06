@@ -38,6 +38,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
+      - name: Install and prove rejecting runtime guard
+        run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
+
+      - name: Verify uncached compatibility inventory
+        run: make test-compat-inventory
+
       - name: Build Web UI
         if: hashFiles('web/package.json') != ''
         working-directory: web
@@ -55,7 +61,14 @@ jobs:
         run: go vet ./...
 
       - name: Execute Tests
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        run: go test -count=1 -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Reject tolerated runtime launches
+        run: |
+          if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
+            echo "Preview Go tests attempted to launch the Copilot runtime." >&2
+            exit 1
+          fi
 
       - name: Build Binary
         run: go build -v -o waza ./cmd/waza
@@ -64,12 +77,4 @@ jobs:
         run: ./waza --version
 
       - name: Integration Test
-        run: |
-          set +e
-          ./waza run ./examples/code-explainer/eval.yaml --verbose
-          EXIT_CODE=$?
-          if [ $EXIT_CODE -gt 1 ]; then
-            echo "::error::waza crashed with exit code $EXIT_CODE"
-            exit $EXIT_CODE
-          fi
-          echo "Preview integration test completed (exit code: $EXIT_CODE)"
+        run: bash .github/scripts/release_integration_test.sh ./waza

@@ -75,6 +75,124 @@ func TestGoWorkflowsInstallOfflineAssertionOracleRuntimeOnEveryPlatform(t *testi
 	}
 }
 
+type ordinaryValidationStep struct {
+	Name string `yaml:"name"`
+	If   string `yaml:"if"`
+	Run  string `yaml:"run"`
+}
+
+func checkOrdinaryOfflineValidation(source []byte, workflowName string) error {
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []ordinaryValidationStep `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	jobs := []string{"validate"}
+	if workflowName == "go-ci.yml" {
+		jobs = []string{"build-and-test", "build-and-test-windows"}
+	}
+	for _, jobName := range jobs {
+		steps := workflow.Jobs[jobName].Steps
+		positions := make(map[string]int, len(steps))
+		commands := make(map[string]string, len(steps))
+		conditions := make(map[string]string, len(steps))
+		for i, step := range steps {
+			positions[step.Name] = i
+			commands[step.Name] = step.Run
+			conditions[step.Name] = step.If
+		}
+		required := []string{
+			"Install and prove rejecting runtime guard",
+			"Verify uncached compatibility inventory",
+			"Execute Tests",
+			"Reject tolerated runtime launches",
+			"Integration Test",
+		}
+		for _, name := range required {
+			if _, ok := positions[name]; !ok {
+				return fmt.Errorf("%s: missing %s", jobName, name)
+			}
+		}
+		for i := 1; i < len(required); i++ {
+			if positions[required[i-1]] >= positions[required[i]] {
+				return fmt.Errorf("%s: %s must precede %s", jobName, required[i-1], required[i])
+			}
+		}
+		if commands[required[0]] != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` {
+			return fmt.Errorf("%s: rejecting runtime guard must use the proven installer", jobName)
+		}
+		if commands[required[1]] != "make test-compat-inventory" {
+			return fmt.Errorf("%s: compatibility inventory must use the canonical Make target", jobName)
+		}
+		testCommand := commands[required[2]]
+		if strings.Count(testCommand, "go test ") == 0 ||
+			strings.Count(testCommand, "go test -count=1 ") != strings.Count(testCommand, "go test ") {
+			return fmt.Errorf("%s: broad Go tests must be uncached", jobName)
+		}
+		if !strings.Contains(commands[required[3]], `"$COPILOT_CLI_PATH.invoked"`) {
+			return fmt.Errorf("%s: tolerated runtime launches must fail validation", jobName)
+		}
+		integration := commands[required[4]]
+		if !strings.Contains(integration, "bash .github/scripts/release_integration_test.sh") {
+			return fmt.Errorf("%s: integration must use the production artifact gate", jobName)
+		}
+		if conditions[required[4]] != "" {
+			return fmt.Errorf("%s: integration must execute on every job platform", jobName)
+		}
+		if workflowName == "go-ci.yml" {
+			if conditions[required[1]] != "matrix.os == 'ubuntu-latest'" {
+				return fmt.Errorf("%s: compatibility inventory should execute once without duplicating Windows", jobName)
+			}
+			if !strings.Contains(integration, `if [ "$RUNNER_OS" = Windows ]`) ||
+				!strings.Contains(integration, "BINARY_NAME=waza.exe") {
+				return fmt.Errorf("%s: Windows integration must invoke the native executable", jobName)
+			}
+		} else if conditions[required[1]] != "" {
+			return fmt.Errorf("%s: preview compatibility inventory must execute", jobName)
+		}
+	}
+	return nil
+}
+
+func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
+	for _, name := range []string{"go-ci.yml", "squad-preview.yml"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkOrdinaryOfflineValidation(source, name); err != nil {
+				t.Fatal(err)
+			}
+			mutations := [][2]string{
+				{`bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
+				{"make test-compat-inventory", ":"},
+				{"go test -count=1 ", "go test "},
+				{`"$COPILOT_CLI_PATH.invoked"`, `"$COPILOT_CLI_PATH.unchecked"`},
+				{"bash .github/scripts/release_integration_test.sh", "./waza run"},
+			}
+			if name == "go-ci.yml" {
+				mutations = append(mutations,
+					[2]string{"      - name: Integration Test\n        run:", "      - name: Integration Test\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
+					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
+				)
+			}
+			for _, mutation := range mutations {
+				mutated := strings.Replace(string(source), mutation[0], mutation[1], 1)
+				if mutated == string(source) {
+					t.Fatalf("mutation did not change workflow: %s", mutation[0])
+				}
+				if err := checkOrdinaryOfflineValidation([]byte(mutated), name); err == nil {
+					t.Fatalf("mutation was accepted: %s", mutation[0])
+				}
+			}
+		})
+	}
+}
+
 func readTriggers(source []byte) (workflowTriggers, error) {
 	var workflow struct {
 		On workflowTriggers `yaml:"on"`

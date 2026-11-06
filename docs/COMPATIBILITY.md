@@ -28,6 +28,12 @@ SDK fakes rather than copying them into a second suite. It includes all CLI
 subpackages, every grader and the ownership areas below. Do not substitute
 only the new `Compatibility` selector for the release gate.
 
+Ordinary Linux, Windows, and preview validation run the broad Go suite with
+`-count=1` under the rejecting runtime policy. Linux and preview also execute
+`make test-compat-inventory`, which checks the corpus prerequisites and prints
+the exact package inventory subsumed by that broad run; it does not execute the
+same packages a second time.
+
 Ordinary and `--runner-compat` benchmark summaries use the command's configured
 output writer and propagate write failures, including short writes, as output
 errors (exit 2), before saving the requested result file. The summary text is
