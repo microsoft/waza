@@ -236,6 +236,32 @@ Sources: [major API break](https://github.com/microsoft/waza/pull/684#discussion
 [coordinated modules](https://github.com/microsoft/waza/pull/566#discussion_r3886209518),
 [stale release metadata](https://github.com/microsoft/waza/pull/527#discussion_r3787431986).
 
+### Preserve measured performance characteristics
+
+- Optimize the production lifecycle at representative scale. Retain focused Go
+  benchmarks with `-benchmem`; include construction, refresh, or serialization
+  when production repeats that work. For dashboard changes, measure the relevant
+  production bundle, DOM, or browser path. Compare against current `main` with
+  interleaved runs rather than relying on a reusable-object microbenchmark alone.
+- Scope caches and compiled state to the smallest real lifecycle: a grading pass,
+  immutable assurance case, dashboard snapshot/refresh, or one staging call.
+  Bound entries by admitted input/configuration, cache only validated successes,
+  and replace refresh state transactionally. Use content identity when file
+  metadata is insufficient; do not expose cached pointers/slices mutably or leak
+  state between tasks, runs, or workspaces.
+- Make expensive work lazy only through an explicit path whose callers do not
+  consume the omitted result, such as metadata-only skill parsing, per-schema
+  validation, or non-home route loading. Preserve general API behavior, wire
+  field presence, ordering, errors, ownership checks, and accessibility. For
+  large histories or captures, reduce repeated copies, per-item serialization,
+  and DOM growth without dropping source data.
+
+Sources: [production-lifecycle regex benchmark](https://github.com/microsoft/waza/pull/849),
+[transactional dashboard projections](https://github.com/microsoft/waza/pull/858),
+[explicit metadata-only parsing](https://github.com/microsoft/waza/pull/843),
+[bounded trend-chart DOM](https://github.com/microsoft/waza/pull/856),
+[owned capture buffers](https://github.com/microsoft/waza/pull/833).
+
 ## Building and Testing
 
 > **Requires Go 1.26 or later.** The module targets `go 1.26` (`go.mod`), which means Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
