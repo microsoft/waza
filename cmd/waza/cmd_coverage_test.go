@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestBuildCoverageReport_NoEvals(t *testing.T) {
@@ -470,6 +471,39 @@ graders:
 	assert.Equal(t, 1, report.Skills[0].Tasks)
 	assert.Equal(t, []string{"text"}, report.Skills[0].Graders)
 	assert.Equal(t, "⚠️ Partial", report.Skills[0].Coverage)
+}
+
+func TestStandaloneYAMLNode_RejectsNestedRepeatedAliases(t *testing.T) {
+	budget := maxGraderYAMLExpansionNodes
+
+	_, err := standaloneYAMLNode(repeatedAliasNode(15), make(map[*yaml.Node]bool), 0, &budget)
+
+	require.EqualError(t, err, "grader YAML alias expansion exceeds 100000 nodes")
+}
+
+func TestStandaloneYAMLNode_BoundsAggregateExpansion(t *testing.T) {
+	budget := maxGraderYAMLExpansionNodes
+
+	_, err := standaloneYAMLNode(repeatedAliasNode(14), make(map[*yaml.Node]bool), 0, &budget)
+	require.NoError(t, err)
+	_, err = standaloneYAMLNode(repeatedAliasNode(14), make(map[*yaml.Node]bool), 0, &budget)
+
+	require.EqualError(t, err, "grader YAML alias expansion exceeds 100000 nodes")
+}
+
+func repeatedAliasNode(levels int) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "value"}
+	for range levels {
+		target := node
+		node = &yaml.Node{
+			Kind: yaml.SequenceNode,
+			Content: []*yaml.Node{
+				{Kind: yaml.AliasNode, Alias: target},
+				{Kind: yaml.AliasNode, Alias: target},
+			},
+		}
+	}
+	return node
 }
 
 func TestCoverageCommand_InvalidGraderCannotReportFull(t *testing.T) {

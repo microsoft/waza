@@ -36,6 +36,8 @@ type coverageReport struct {
 	Skills      []coverageSkillRow `json:"skills"`
 }
 
+const maxGraderYAMLExpansionNodes = 100000
+
 type evalSpecLite struct {
 	SchemaVersion string                `yaml:"-"`
 	Scenario      string                `yaml:"scenario,omitempty"`
@@ -383,8 +385,9 @@ func parseEvalSpec(evalPath string) (*evalSpecLite, error) {
 	spec.SchemaVersion = version
 	spec.Scenario = scenario
 	spec.Graders = make([]models.GraderConfig, 0, len(raw.Graders))
+	expansionBudget := maxGraderYAMLExpansionNodes
 	for _, node := range raw.Graders {
-		standalone, err := standaloneYAMLNode(&node, make(map[*yaml.Node]bool), 0)
+		standalone, err := standaloneYAMLNode(&node, make(map[*yaml.Node]bool), 0, &expansionBudget)
 		if err != nil {
 			return nil, err
 		}
@@ -401,10 +404,14 @@ func parseEvalSpec(evalPath string) (*evalSpecLite, error) {
 	return spec, nil
 }
 
-func standaloneYAMLNode(node *yaml.Node, active map[*yaml.Node]bool, depth int) (*yaml.Node, error) {
+func standaloneYAMLNode(node *yaml.Node, active map[*yaml.Node]bool, depth int, budget *int) (*yaml.Node, error) {
 	const maxYAMLDepth = 128
 	if node == nil {
 		return nil, fmt.Errorf("grader YAML alias has no target")
+	}
+	*budget = *budget - 1
+	if *budget < 0 {
+		return nil, fmt.Errorf("grader YAML alias expansion exceeds %d nodes", maxGraderYAMLExpansionNodes)
 	}
 	if depth > maxYAMLDepth {
 		return nil, fmt.Errorf("grader YAML alias expansion exceeds %d levels", maxYAMLDepth)
@@ -416,7 +423,7 @@ func standaloneYAMLNode(node *yaml.Node, active map[*yaml.Node]bool, depth int) 
 	defer delete(active, node)
 
 	if node.Kind == yaml.AliasNode {
-		return standaloneYAMLNode(node.Alias, active, depth+1)
+		return standaloneYAMLNode(node.Alias, active, depth+1, budget)
 	}
 
 	cloned := *node
@@ -424,7 +431,7 @@ func standaloneYAMLNode(node *yaml.Node, active map[*yaml.Node]bool, depth int) 
 	cloned.Alias = nil
 	cloned.Content = make([]*yaml.Node, len(node.Content))
 	for i, child := range node.Content {
-		expanded, err := standaloneYAMLNode(child, active, depth+1)
+		expanded, err := standaloneYAMLNode(child, active, depth+1, budget)
 		if err != nil {
 			return nil, err
 		}
