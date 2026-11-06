@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/checks"
+	"github.com/microsoft/waza/internal/clierrors"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
@@ -141,7 +142,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		if exceeded > 0 {
 			cmd.SilenceErrors = true
 			cmd.SilenceUsage = true
-			return errors.New(output)
+			return &clierrors.ExitCodeError{Code: 1, Err: errors.New(output)}
 		}
 	}
 
@@ -360,7 +361,10 @@ func runCheckBatch(cmd *cobra.Command, skills []workspace.SkillInfo, format stri
 	if strict && anyExceeded {
 		cmd.SilenceErrors = true
 		cmd.SilenceUsage = true
-		return errors.New("one or more skills have files exceeding token limits")
+		return &clierrors.ExitCodeError{
+			Code: 1,
+			Err:  errors.New("one or more skills have files exceeding token limits"),
+		}
 	}
 	return nil
 }
