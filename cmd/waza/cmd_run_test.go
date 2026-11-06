@@ -9,6 +9,8 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +28,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/statistics"
+	"github.com/microsoft/waza/internal/webapi"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -347,6 +350,68 @@ func TestRunCommand_OutputJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &result))
 	assert.Equal(t, "test-eval", result["eval_name"])
 	assert.Equal(t, "test-skill", result["skill"])
+}
+
+func TestRunCommand_GroupByTags(t *testing.T) {
+	resetRunGlobals()
+
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.yaml")
+	require.NoError(t, os.WriteFile(taskPath, []byte(`id: smoke
+name: Smoke
+tags: [smoke]
+inputs:
+  prompt: "Reply DOGFOOD_OK."
+`), 0o644))
+
+	specPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(`schemaVersion: "2.0"
+name: grouping-repro
+scenario: synthetic-reply
+version: "1.0"
+config:
+  executor: mock
+  model: offline
+  trials_per_task: 1
+  timeout_seconds: 5
+  group_by: tags
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 1
+tasks: ["task.yaml"]
+graders:
+  - type: text
+    name: response
+    config:
+      regex_match: ["(?s).+"]
+`), 0o644))
+
+	outFile := filepath.Join(dir, "result.json")
+	var output bytes.Buffer
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--output", outFile})
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, output.String(), "RESULTS BY GROUP")
+	assert.Contains(t, output.String(), "smoke:")
+	assert.NotContains(t, output.String(), "unknown group_by")
+
+	data, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+	var outcome models.EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &outcome))
+	require.Len(t, outcome.TestOutcomes, 1)
+	assert.Equal(t, "smoke", outcome.TestOutcomes[0].Group)
+	require.Len(t, outcome.Digest.Groups, 1)
+	assert.Equal(t, models.GroupStats{
+		Name:     "smoke",
+		Passed:   1,
+		Total:    1,
+		AvgScore: 1,
+	}, outcome.Digest.Groups[0])
 }
 
 func TestRunCommand_ReporterJUnit(t *testing.T) {
@@ -2190,6 +2255,53 @@ func TestRunCommand_OutputDirSingleSkill(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "expected at least one .json result in run subdirectory")
+}
+
+func TestRunCommand_MultiModelOutputHasDistinctDashboardRuns(t *testing.T) {
+	resetRunGlobals()
+	defer resetRunGlobals()
+
+	fixedTime := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
+		opts = append(opts, orchestration.WithClock(func() time.Time {
+			return fixedTime
+		}))
+		return orchestration.NewEvalRunner(cfg, engine, opts...)
+	}
+
+	specPath := createTestSpec(t, "mock")
+	outDir := filepath.Join(t.TempDir(), "results")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{
+		specPath,
+		"--model", "model-a",
+		"--model", "model-b",
+		"--output-dir", outDir,
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	require.NoError(t, cmd.Execute())
+
+	store := webapi.NewFileStore(outDir)
+	handler := webapi.NewHandlers(store)
+	request := httptest.NewRequest(http.MethodGet, "/api/runs", nil)
+	response := httptest.NewRecorder()
+	handler.HandleRuns(response, request)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+
+	var runs []webapi.RunSummary
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&runs))
+	require.Len(t, runs, 2)
+
+	runIDs := map[string]struct{}{}
+	models := map[string]struct{}{}
+	for _, run := range runs {
+		runIDs[run.ID] = struct{}{}
+		models[run.Model] = struct{}{}
+	}
+	require.Len(t, runIDs, 2, "each model result must retain a distinct dashboard identity")
+	require.Equal(t, map[string]struct{}{"model-a": {}, "model-b": {}}, models)
 }
 
 func TestWriteOutputDir_SingleSkill(t *testing.T) {

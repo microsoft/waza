@@ -10,8 +10,11 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -33,12 +36,37 @@ type coverageReport struct {
 	Skills      []coverageSkillRow `json:"skills"`
 }
 
+const maxGraderYAMLExpansionNodes = 100000
+
 type evalSpecLite struct {
-	Scenario  string                `yaml:"scenario,omitempty"`
-	Skill     string                `yaml:"skill"`
-	Tasks     []string              `yaml:"tasks"`
-	TasksFrom string                `yaml:"tasks_from,omitempty"`
-	Graders   []models.GraderConfig `yaml:"graders"`
+	SchemaVersion string                `yaml:"-"`
+	Scenario      string                `yaml:"scenario,omitempty"`
+	Skill         string                `yaml:"skill"`
+	Config        coverageEvalConfig    `yaml:"config"`
+	Inputs        map[string]string     `yaml:"inputs,omitempty"`
+	Tasks         []string              `yaml:"tasks"`
+	TasksFrom     string                `yaml:"tasks_from,omitempty"`
+	Range         [2]int                `yaml:"range,omitempty"`
+	Graders       []models.GraderConfig `yaml:"-"`
+}
+
+type coverageEvalConfig struct {
+	EngineType string `yaml:"executor"`
+}
+
+func (s *evalSpecLite) selectionSpec() *models.EvalSpec {
+	return &models.EvalSpec{
+		SchemaVersion: s.SchemaVersion,
+		Scenario:      s.Scenario,
+		SkillName:     s.Skill,
+		Config: models.Config{
+			EngineType: s.Config.EngineType,
+		},
+		Inputs:    s.Inputs,
+		Tasks:     s.Tasks,
+		TasksFrom: s.TasksFrom,
+		Range:     s.Range,
+	}
 }
 
 func newCoverageCommand() *cobra.Command {
@@ -112,7 +140,7 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 	evalBySkill := make(map[string][]string)
 	tasksBySkill := make(map[string]int)
 	gradersBySkill := make(map[string]map[string]struct{})
-	var parseFailures []string
+	var inspectionFailures []string
 
 	evalPaths, err := discoverEvalFiles(absRoot, skillPaths, discoverPaths)
 	if err != nil {
@@ -122,7 +150,7 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 	for _, evalPath := range evalPaths {
 		spec, parseErr := parseEvalSpec(evalPath)
 		if parseErr != nil {
-			parseFailures = append(parseFailures, fmt.Sprintf("%s (%v)", evalPath, parseErr))
+			inspectionFailures = append(inspectionFailures, fmt.Sprintf("%s (%v)", evalPath, parseErr))
 			continue
 		}
 		skillName := strings.TrimSpace(spec.Skill)
@@ -136,11 +164,19 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 			continue
 		}
 		evalBySkill[skillName] = append(evalBySkill[skillName], evalPath)
-		taskCount := len(spec.Tasks)
-		if taskCount == 0 && spec.TasksFrom != "" {
-			taskCount = 1 // tasks_from references an external file; count as having tasks
+		tasks, selectionErr := orchestration.LoadSelectedTestCasesOffline(
+			spec.selectionSpec(),
+			filepath.Dir(evalPath),
+			time.Unix(0, 0).UTC(),
+		)
+		if selectionErr != nil {
+			inspectionFailures = append(inspectionFailures, fmt.Sprintf("%s (%v)", evalPath, selectionErr))
+			continue
 		}
-		tasksBySkill[skillName] += taskCount
+		if len(tasks) == 0 {
+			continue
+		}
+		tasksBySkill[skillName] += len(tasks)
 		if _, ok := gradersBySkill[skillName]; !ok {
 			gradersBySkill[skillName] = make(map[string]struct{})
 		}
@@ -151,9 +187,9 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 			}
 		}
 	}
-	if len(parseFailures) > 0 {
-		sort.Strings(parseFailures)
-		fmt.Fprintf(os.Stderr, "warning: failed to parse %d eval file(s): %s\n", len(parseFailures), strings.Join(parseFailures, "; "))
+	if len(inspectionFailures) > 0 {
+		sort.Strings(inspectionFailures)
+		fmt.Fprintf(os.Stderr, "warning: failed to inspect %d eval file(s): %s\n", len(inspectionFailures), strings.Join(inspectionFailures, "; "))
 	}
 
 	skillNames := make([]string, 0, len(skillPaths))
@@ -334,11 +370,74 @@ func parseEvalSpec(evalPath string) (*evalSpecLite, error) {
 	if err != nil {
 		return nil, err
 	}
-	var spec evalSpecLite
-	if err := yaml.Unmarshal(data, &spec); err != nil {
+	version, scenario, err := models.ClassifyEvalSpec(data, evalPath)
+	if err != nil {
 		return nil, err
 	}
-	return &spec, nil
+	var raw struct {
+		evalSpecLite `yaml:",inline"`
+		Graders      []yaml.Node `yaml:"graders"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	spec := &raw.evalSpecLite
+	spec.SchemaVersion = version
+	spec.Scenario = scenario
+	spec.Graders = make([]models.GraderConfig, 0, len(raw.Graders))
+	expansionBudget := maxGraderYAMLExpansionNodes
+	for _, node := range raw.Graders {
+		standalone, err := standaloneYAMLNode(&node, make(map[*yaml.Node]bool), 0, &expansionBudget)
+		if err != nil {
+			return nil, err
+		}
+		graderData, err := yaml.Marshal(standalone)
+		if err != nil {
+			return nil, err
+		}
+		grader, err := models.DecodeGraderConfigOffline(graderData, graders.ValidateConfig)
+		if err != nil {
+			return nil, err
+		}
+		spec.Graders = append(spec.Graders, grader)
+	}
+	return spec, nil
+}
+
+func standaloneYAMLNode(node *yaml.Node, active map[*yaml.Node]bool, depth int, budget *int) (*yaml.Node, error) {
+	const maxYAMLDepth = 128
+	if node == nil {
+		return nil, fmt.Errorf("grader YAML alias has no target")
+	}
+	*budget = *budget - 1
+	if *budget < 0 {
+		return nil, fmt.Errorf("grader YAML alias expansion exceeds %d nodes", maxGraderYAMLExpansionNodes)
+	}
+	if depth > maxYAMLDepth {
+		return nil, fmt.Errorf("grader YAML alias expansion exceeds %d levels", maxYAMLDepth)
+	}
+	if active[node] {
+		return nil, fmt.Errorf("grader YAML contains a cyclic alias")
+	}
+	active[node] = true
+	defer delete(active, node)
+
+	if node.Kind == yaml.AliasNode {
+		return standaloneYAMLNode(node.Alias, active, depth+1, budget)
+	}
+
+	cloned := *node
+	cloned.Anchor = ""
+	cloned.Alias = nil
+	cloned.Content = make([]*yaml.Node, len(node.Content))
+	for i, child := range node.Content {
+		expanded, err := standaloneYAMLNode(child, active, depth+1, budget)
+		if err != nil {
+			return nil, err
+		}
+		cloned.Content[i] = expanded
+	}
+	return &cloned, nil
 }
 
 func parseSkillName(path string) string {
