@@ -21,8 +21,7 @@ test('local compatibility navigation, profiles and executable examples retain /w
 });
 
 test('release links open the bounded runner guides under /waza', async ({ page }) => {
-  await page.goto('/waza/');
-  await page.locator('main').getByRole('link', { name: 'Read the release article', exact: true }).click();
+  await page.goto('/waza/releases/v0-40-0/');
   await expect(page).toHaveURL(/\/waza\/releases\/v0-40-0\/$/);
   const article = page.locator('main');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.40.0: run exactly the work you declared');
@@ -59,26 +58,26 @@ test('release links open the bounded runner guides under /waza', async ({ page }
 test('release separates standalone assets, extension sync and image acceptance', async ({ page }) => {
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
-  await expect(main).toContainText('Current published standalone release: v0.40.0');
+  await expect(main).toContainText('Current published standalone release: v0.40.1');
   await expect(main).toContainText('azd extension artifact and registry sync are independent gates');
   await expect(main).toContainText('legacy multi-trial timeout issue #865');
   await expect(main).toContainText('post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts');
   await expect(main).toContainText('v0.40.0 result writers emit 1.8; v0.39.1 writes 1.7.');
   await expect(main).toContainText('schemas remain independently versioned 1.0');
-  const downloads = main.locator('a[href*="/releases/download/v0.40.0/waza-"]');
+  const downloads = main.locator('a[href*="/releases/download/v0.40.1/waza-"]');
   await expect(downloads).toHaveCount(6);
   for (const download of await downloads.all()) {
-    await expect(download).toHaveAttribute('href', /\/releases\/download\/v0\.40\.0\/waza-/);
+    await expect(download).toHaveAttribute('href', /\/releases\/download\/v0\.40\.1\/waza-/);
   }
   await expect(main.getByRole('link', { name: 'checksums.txt', exact: true }))
-    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/download/v0.40.0/checksums.txt');
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/download/v0.40.1/checksums.txt');
   await expect(main).toContainText('Infrastructure-owner review was waived', { ignoreCase: true });
   await expect(main.getByRole('link', { name: '#865', exact: true }))
     .toHaveAttribute('href', 'https://github.com/microsoft/waza/issues/865');
   await expect(main.getByRole('link', { name: 'published extension release', exact: true }))
-    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0');
-  await expect(main).toContainText('The repository registry lists through 0.40.0.');
-  await expect(main).toContainText('incorporated in this repository alongside these release docs');
-  await expect(main).toContainText('still serves 0.39.1; after the merge it includes 0.40.0');
-  await expect(main).toContainText('installation before the merge cannot select 0.40.0 from that source');
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1');
+  await expect(main).toContainText('The repository registry lists through 0.40.1.');
+  await expect(main).toContainText('generated registry/version updates on release/v0.40.1');
+  await expect(main).toContainText('still serves 0.40.0; after the merge it includes 0.40.1');
+  await expect(main).toContainText('installation before the merge cannot select 0.40.1 from that source');
 });

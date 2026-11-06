@@ -78,14 +78,10 @@ The [separate v0.40.1 extension artifact](https://github.com/microsoft/waza/rele
 is published, and this repository's registry and version metadata are synchronized
 to `0.40.1`. The source above installs from the main registry; an existing source
 or installation may need updating before it selects v0.40.1.
-For historical context, the
-[separate v0.40.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
-was published with guidance recording that its registry and version metadata are synchronized
-to `0.40.0`; an existing source
-or installation may need updating before it selects v0.40.0. Its archived note says the source URL above follows `main`, not this branch. Before the
-[release-sync PR #883](https://github.com/microsoft/waza/pull/883) merges, that URL
-still serves `0.39.1`; after the merge it includes `0.40.0`. Updating an
-installation before the merge cannot select `0.40.0` from that source.
+The source URL above follows `main`, not this branch. Before
+[release-sync PR #908](https://github.com/microsoft/waza/pull/908) merges, that URL
+still serves `0.40.0`; after the merge it includes `0.40.1`. Updating an
+installation before the merge cannot select `0.40.1` from that source.
 Check `azd waza --version` and
 `azd waza <command> --help` before using:
 
