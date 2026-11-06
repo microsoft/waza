@@ -252,18 +252,37 @@ jobs:
           echo "$HOME/bin" >> $GITHUB_PATH
       
       - name: Run evaluations (${{ matrix.model }})
+        id: run-eval
+        continue-on-error: true
         run: |
+          rm -f -- "results-${{ matrix.model }}.json"
           waza run \
             --model "${{ matrix.model }}" \
             --output "results-${{ matrix.model }}.json" \
             --verbose
+
+      - name: Validate result contract
+        id: validate
+        if: always()
+        run: |
+          test -s "results-${{ matrix.model }}.json"
+          jq -e '
+            .schemaVersion and .eval_id and
+            (.summary.success_rate | type == "number") and
+            (.summary.aggregate_score | type == "number") and
+            (.summary.weighted_score | type == "number") and
+            (.tasks | type == "array") and
+            (.summary.total_tests == (.tasks | length))
+          ' "results-${{ matrix.model }}.json" >/dev/null
       
       - name: Upload results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: results-${{ matrix.model }}
           path: results-${{ matrix.model }}.json
           retention-days: 30
+          if-no-files-found: error
       
       - name: Comment PR with results
         if: github.event_name == 'pull_request'
@@ -278,7 +297,22 @@ jobs:
               repo: context.repo.repo,
               body: `### Eval Results: ${{ matrix.model }}\n\nΓ£à **Passed:** ${results.summary.succeeded}\nΓ¥î **Failed:** ${results.summary.failed}`
             });
+
+      - name: Enforce evaluation status
+        if: always()
+        env:
+          RUN_OUTCOME: ${{ steps.run-eval.outcome }}
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+        run: |
+          if [ "$RUN_OUTCOME" != "success" ] || [ "$VALIDATION_OUTCOME" != "success" ]; then
+            exit 1
+          fi
 ```
+
+Removing the old result before execution prevents a stale file from satisfying
+the artifact step. Treat a missing or incomplete result as a workflow failure,
+including when the CLI itself fails; upload the fresh artifact with `if: always()`
+before re-emitting the evaluation failure.
 
 ### Recurring Regression Loop (Scheduled)
 

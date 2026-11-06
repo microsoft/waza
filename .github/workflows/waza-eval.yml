@@ -108,91 +108,95 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
-      
-      - name: Download Dependencies
-        run: go mod download
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       
       - name: Build Waza Binary
-        run: |
-          go build -v -o waza ./cmd/waza
-          chmod +x ./waza
+        run: make build VERSION=0.41.0
       
       - name: Verify Binary
         run: ./waza --version
       
-      - name: Determine Eval File
-        id: eval-file
+      - name: Resolve effective inputs
+        id: effective
+        env:
+          EVAL_INPUT: ${{ inputs.eval-yaml }}
+          CONTEXT_INPUT: ${{ inputs.context-dir }}
+          VERBOSE_INPUT: ${{ inputs.verbose }}
+          OUTPUT_INPUT: ${{ inputs.output-file }}
+          ARTIFACT_INPUT: ${{ inputs.artifact-name }}
         run: |
-          # Use input if provided (from workflow_call or workflow_dispatch)
-          # Otherwise use a default for PR/push triggers
-          if [ -n "${{ inputs.eval-yaml }}" ]; then
-            EVAL_FILE="${{ inputs.eval-yaml }}"
-          else
-            EVAL_FILE="examples/code-explainer/eval.yaml"
-          fi
+          EVAL_FILE="${EVAL_INPUT:-examples/code-explainer/eval.yaml}"
+          CONTEXT_DIR="${CONTEXT_INPUT:-$(dirname "$EVAL_FILE")/fixtures}"
+          VERBOSE="${VERBOSE_INPUT:-true}"
+          OUTPUT_FILE="${OUTPUT_INPUT:-results.json}"
+          ARTIFACT_NAME="${ARTIFACT_INPUT:-waza-evaluation-results}"
+          for value in "$EVAL_FILE" "$CONTEXT_DIR" "$OUTPUT_FILE" "$ARTIFACT_NAME"; do
+            if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+              echo "::error::Workflow path and artifact inputs must be single-line values"
+              exit 1
+            fi
+          done
           echo "eval-file=$EVAL_FILE" >> "$GITHUB_OUTPUT"
-          echo "Using eval file: $EVAL_FILE"
-      
-      - name: Determine Context Directory
-        id: context-dir
-        run: |
-          EVAL_FILE="${{ steps.eval-file.outputs.eval-file }}"
-          CONTEXT_INPUT="${{ inputs.context-dir }}"
-          
-          # If context-dir input is provided and not empty, use it
-          if [ -n "$CONTEXT_INPUT" ]; then
-            CONTEXT_DIR="$CONTEXT_INPUT"
-          else
-            # Default to fixtures directory relative to eval file
-            EVAL_DIR="$(dirname "$EVAL_FILE")"
-            CONTEXT_DIR="$EVAL_DIR/fixtures"
-          fi
-          
           echo "context-dir=$CONTEXT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Using context directory: $CONTEXT_DIR"
+          echo "verbose=$VERBOSE" >> "$GITHUB_OUTPUT"
+          echo "output-file=$OUTPUT_FILE" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
       
       - name: Run Evaluation
         id: run-eval
+        env:
+          EVAL_FILE: ${{ steps.effective.outputs.eval-file }}
+          CONTEXT_DIR: ${{ steps.effective.outputs.context-dir }}
+          VERBOSE: ${{ steps.effective.outputs.verbose }}
+          OUTPUT_FILE: ${{ steps.effective.outputs.output-file }}
         run: |
-          EVAL_FILE="${{ steps.eval-file.outputs.eval-file }}"
-          CONTEXT_DIR="${{ steps.context-dir.outputs.context-dir }}"
-          VERBOSE="${{ inputs.verbose }}"
-          OUTPUT_FILE="${{ inputs.output-file }}"
-          
-          # Build command with optional flags using an argument array
+          rm -f -- "$OUTPUT_FILE"
           CMD=(./waza run "$EVAL_FILE")
-          
-          # Add context-dir if it exists
           if [ -d "$CONTEXT_DIR" ]; then
             CMD+=("--context-dir" "$CONTEXT_DIR")
           fi
-          
-          # Add verbose flag if enabled
           if [ "$VERBOSE" = "true" ]; then
             CMD+=("--verbose")
           fi
-          
-          # Add output file
-          if [ -n "$OUTPUT_FILE" ]; then
-            CMD+=("--output" "$OUTPUT_FILE")
-          fi
-          
+          CMD+=("--output" "$OUTPUT_FILE")
           echo "Running: ${CMD[*]}"
+          set +e
           "${CMD[@]}"
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+
+      - name: Validate result artifact and generate summary
+        id: validate
+        if: always()
+        env:
+          OUTPUT_FILE: ${{ steps.effective.outputs.output-file }}
+          RUN_EXIT_CODE: ${{ steps.run-eval.outputs.exit_code }}
+        run: bash .github/scripts/validate-waza-result.sh "$OUTPUT_FILE" 0 "$RUN_EXIT_CODE"
       
       - name: Upload Results Artifact
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ inputs.artifact-name || 'waza-evaluation-results' }}
+          name: ${{ steps.effective.outputs.artifact-name }}
           path: |
-            ${{ inputs.output-file || 'results.json' }}
+            ${{ steps.effective.outputs.output-file }}
             transcripts/
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
       
       - name: Check Evaluation Status
-        if: steps.run-eval.outcome == 'failure'
+        if: always()
+        env:
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+          EVALUATION_STATUS: ${{ steps.validate.outputs.status }}
         run: |
-          echo "::error::Waza evaluation failed"
-          exit 1
+          if [ "$VALIDATION_OUTCOME" != "success" ] || [ "$EVALUATION_STATUS" != "success" ]; then
+            exit 1
+          fi

@@ -5,7 +5,7 @@ name: Skills CI Example - Waza Evaluation
 # and customize it for your skill.
 #
 # This example shows how to:
-# 1. Install waza from source
+# 1. Install the published Go waza binary
 # 2. Run evaluations with the mock executor (no API keys needed)
 # 3. Upload results as artifacts
 # 4. Use exit codes for CI pass/fail
@@ -48,34 +48,21 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       
-      - name: Setup Go Environment
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          # Waza requires Go 1.26+
-          go-version: '1.26'
-      
-      # Option 1: Install from source (recommended for CI)
-      - name: Install Waza from Source
+      - name: Install Waza
         run: |
-          go install github.com/microsoft/waza/cmd/waza@latest
+          curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
+          echo "$HOME/bin" >> "$GITHUB_PATH"
           waza --version
-      
-      # Option 2: Build from Dockerfile (alternative)
-      # Uncomment this block if you prefer Docker-based builds
-      # - name: Build Waza Docker Image
-      #   run: |
-      #     docker build -t waza:local .
-      #     docker run waza:local --version
       
       - name: Determine Eval File
         id: eval-file
+        env:
+          EVAL_INPUT: ${{ inputs.eval-yaml }}
         run: |
-          # Use workflow input if provided, otherwise default
-          if [ -n "${{ inputs.eval-yaml }}" ]; then
-            EVAL_FILE="${{ inputs.eval-yaml }}"
-          else
-            # Default location for skill evals
-            EVAL_FILE="eval/eval.yaml"
+          EVAL_FILE="${EVAL_INPUT:-eval/eval.yaml}"
+          if [[ "$EVAL_FILE" == *$'\n'* || "$EVAL_FILE" == *$'\r'* ]]; then
+            echo "::error::Evaluation file must be a single-line path"
+            exit 1
           fi
           
           # Verify file exists
@@ -98,16 +85,37 @@ jobs:
         id: run-eval
         run: |
           EVAL_FILE="${{ steps.eval-file.outputs.eval-file }}"
-          
-          # Run waza with mock executor (no API keys needed)
-          # The mock executor simulates agent behavior for testing
-          # Exit codes: 0=success, 1=test failure, 2=config error
+          rm -f -- results.json
+          set +e
           waza run "$EVAL_FILE" \
             --verbose \
             --output results.json
-          
-          # The workflow will fail if tests fail (exit code 1)
-          # or if there's a configuration error (exit code 2)
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Results
+        id: validate
+        if: always()
+        env:
+          RUN_EXIT_CODE: ${{ steps.run-eval.outputs.exit_code }}
+        run: |
+          if [ ! -s results.json ]; then
+            echo "::error::Waza did not produce results.json"
+            exit 1
+          fi
+          jq -e '
+            .schemaVersion and .eval_id and
+            (.summary.success_rate | type == "number") and
+            (.summary.aggregate_score | type == "number") and
+            (.summary.weighted_score | type == "number") and
+            (.tasks | type == "array") and
+            (.summary.total_tests == (.tasks | length))
+          ' results.json >/dev/null
+          if [ "$RUN_EXIT_CODE" != "0" ]; then
+            echo "::error::Waza evaluation exited with code $RUN_EXIT_CODE"
+            exit 1
+          fi
       
       - name: Upload Results Artifact
         if: always()
@@ -118,7 +126,7 @@ jobs:
             results.json
             transcripts/
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
       
       - name: Display Results Summary
         if: always()
@@ -131,10 +139,13 @@ jobs:
           fi
       
       - name: Check Evaluation Status
-        if: steps.run-eval.outcome == 'failure'
+        if: always()
+        env:
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
         run: |
-          echo "::error::Waza evaluation failed. Check the results artifact for details."
-          exit 1
+          if [ "$VALIDATION_OUTCOME" != "success" ]; then
+            exit 1
+          fi
 
   # Optional: Test with Copilot SDK executor (requires GITHUB_TOKEN)
   # Uncomment this job if you want to test with actual AI models
@@ -147,14 +158,10 @@ jobs:
   #     - name: Checkout Repository
   #       uses: actions/checkout@v7
   #     
-  #     - name: Setup Go Environment
-  #       uses: actions/setup-go@v7
-  #       with:
-  #         go-version: '1.26'
-  #     
   #     - name: Install Waza
   #       run: |
-  #         go install github.com/microsoft/waza/cmd/waza@latest
+  #         curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
+  #         echo "$HOME/bin" >> "$GITHUB_PATH"
   #         waza --version
   #     
   #     - name: Run Evaluation with Copilot
@@ -171,3 +178,4 @@ jobs:
   #       with:
   #         name: waza-copilot-results
   #         path: results-copilot.json
+  #         if-no-files-found: error
