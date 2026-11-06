@@ -672,13 +672,16 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
     assert.match(text, /post-v0\.40\.0 source behavior, not included in the published v0\.40\.0 artifacts/, path);
     assert.doesNotMatch(text, /remains open\/backlogged/, path);
   }
-  const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.40.0]')[0];
+  const changelog = read('CHANGELOG.md');
+  const unreleased = changelog.split('## [Unreleased]')[1]?.split('## [0.40.1]')[0];
+  const hotfix = changelog.split('## [0.40.1]')[1]?.split('## [0.40.0]')[0];
   assert.match(unreleased ?? '', /Trial timeout recovery and result persistence/);
   assert.match(unreleased ?? '', /pull\/870/);
-  assert.match(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
-  assert.match(unreleased ?? '', /pull\/882/);
-  assert.match(read('CHANGELOG.md'), /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.40\.0\.\.\.HEAD$/m);
-  const published = read('CHANGELOG.md').split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
+  assert.doesNotMatch(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(hotfix ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(hotfix ?? '', /pull\/882/);
+  assert.match(changelog, /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.40\.1\.\.\.HEAD$/m);
+  const published = changelog.split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
   assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following cleanup notes describe/);
