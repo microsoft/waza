@@ -169,9 +169,12 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 		)
 		if selectionErr != nil {
 			inspectionFailures = append(inspectionFailures, fmt.Sprintf("%s (%v)", evalPath, selectionErr))
-		} else {
-			tasksBySkill[skillName] += len(tasks)
+			continue
 		}
+		if len(tasks) == 0 {
+			continue
+		}
+		tasksBySkill[skillName] += len(tasks)
 		if _, ok := gradersBySkill[skillName]; !ok {
 			gradersBySkill[skillName] = make(map[string]struct{})
 		}

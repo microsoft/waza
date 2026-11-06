@@ -397,6 +397,43 @@ graders:
 	}
 }
 
+func TestCoverageCommand_FailedSelectionDoesNotContributeGraders(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, filepath.Join("skills", "greeting"), "greeting")
+	writeTask(t, root, filepath.Join("evals", "greeting", "selected", "tasks", "first.yaml"), "first")
+	writeEval(t, root, filepath.Join("evals", "greeting", "selected", "eval.yaml"), `
+schemaVersion: "1.4"
+name: selected-tasks
+skill: greeting
+config:
+  executor: mock
+tasks: [tasks/*.yaml]
+graders:
+  - name: output
+    type: text
+    config: {regex_match: [".+"]}
+`)
+	writeEval(t, root, filepath.Join("evals", "greeting", "missing", "eval.yaml"), `
+schemaVersion: "1.4"
+name: missing-tasks
+skill: greeting
+config:
+  executor: mock
+tasks: [tasks/missing-*.yaml]
+graders:
+  - name: js
+    type: code
+    config: {language: javascript, assertions: ["output.length > 0"]}
+`)
+
+	report := executeCoverageJSON(t, root)
+	require.Len(t, report.Skills, 1)
+	assert.Equal(t, 1, report.Skills[0].Tasks)
+	assert.Equal(t, []string{"text"}, report.Skills[0].Graders)
+	assert.Equal(t, "⚠️ Partial", report.Skills[0].Coverage)
+	assert.Zero(t, report.CoveragePct)
+}
+
 func TestCoverageCommand_InvalidGraderCannotReportFull(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, filepath.Join("skills", "greeting"), "greeting")
