@@ -1,6 +1,9 @@
 # Release Process
 
-This document describes how the Waza release process works. All releases are handled by the unified workflow at `.github/workflows/release.yml`.
+This document describes how Waza validates and publishes releases. The canonical
+validation contract is `.github/workflows/release-validation.yml`; every retained
+publisher must complete that workflow successfully for the exact source SHA it
+publishes.
 
 ## Cutting a Release
 
@@ -11,15 +14,50 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-This triggers the full pipeline: CLI build → extension build → GitHub Release → extension publish → version sync → GitHub Pages deploy.
+This triggers the full pipeline: exact-source validation → CLI build → extension
+build → GitHub Release → extension publish → version sync → GitHub Pages deploy.
 
 ## What the Workflow Does
 
-1. **setup-version** — Extracts the version from the pushed tag (strips `v`) and validates semver format.
-2. **build-cli** — Matrix build for 6 platforms (linux, darwin, windows × amd64, arm64). Builds the web UI then produces `waza-{os}-{arch}` binaries.
-3. **release-cli** — Downloads CLI artifacts, generates SHA256 checksums, and creates the **CLI GitHub Release** (`Waza vX.Y.Z`) with standalone binaries attached.
-4. **release-extension** — Syncs `version.txt` and `extension.yaml`, builds the web UI, builds and packs the azd extension, creates the **Extension GitHub Release** (`Waza azd Extension vX.Y.Z`), publishes to the azd registry, then opens a PR with updated `registry.json` and synced version files.
-5. **pages.yml** — Deploys the documentation site after the `Release` workflow completes successfully, ensuring release notes and download links published to `site/` are pushed to GitHub Pages.
+1. **validation** — Calls the reusable release validation workflow for the tag's
+   exact SHA. It requires the four native Linux race/atomic shards, the remaining
+   Linux race/atomic suite, native Windows race tests, vet, the checksum-pinned
+   lint schema, fail-closed offline integration, exhaustive shard inventories,
+   and complete digest/source evidence. Missing, failed, cancelled, skipped,
+   stale-SHA, or incomplete evidence fails validation.
+2. **setup-version** — Extracts the version from the pushed tag (strips `v`) and validates semver format.
+3. **build-cli** — After validation succeeds, matrix-builds 6 platforms (linux,
+   darwin, windows × amd64, arm64). Each binary is accompanied by its SHA256
+   digest and exact source SHA.
+4. **release-cli** — Rejects missing or stale matrix evidence, verifies every
+   digest, and creates or updates the **CLI GitHub Release** (`Waza vX.Y.Z`).
+5. **release-extension** — After validation succeeds, syncs `version.txt` and
+   `extension.yaml`, builds and packs the azd extension, records the exact source
+   SHA and package digests in `release-provenance.txt`, creates the **Extension
+   GitHub Release** (`Waza azd Extension vX.Y.Z`), publishes to the azd registry,
+   then opens a PR with updated `registry.json` and synced version files.
+6. **pages.yml** — Deploys the documentation site after the `Release` workflow completes successfully, ensuring release notes and download links published to `site/` are pushed to GitHub Pages.
+
+The retained `Squad Release` (`main`) and `Squad Insider Release` (`insider`)
+publishers first perform a lightweight exact-tag check. Untagged branch pushes
+stop there and rely on ordinary push CI instead of repeating the full release
+suite. A tagged branch head calls the same reusable validation workflow and
+publishes only its downloaded, digest-verified tested binary. Stable and insider
+release assets include `waza.sha256` and `source-sha.txt`.
+
+## Retry and Partial-Publication Behavior
+
+Validation evidence is scoped to the current workflow run and named with the
+exact `${{ github.sha }}`. Publishers do not search for a same-named check or
+artifact from another run or SHA. Retrying a failed run therefore repeats any
+missing validation/build work and cannot reuse stale evidence.
+
+CLI release upload is retry-safe and replaces assets for the same tag. Extension
+release and registry publication remain sequential; if a later step fails after
+an earlier external write, rerun the same tag workflow only after inspecting the
+existing release/registry state. The workflow never treats a partially published
+release as proof that remaining publishers succeeded, and the version-sync PR is
+still subject to normal review and CI.
 
 The version-sync PR remains open until its normal review requirements and real
 CI checks pass. The release workflow does not synthesize successful checks or

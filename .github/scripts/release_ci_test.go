@@ -36,67 +36,139 @@ type releaseJob struct {
 }
 
 func TestReleaseWorkflowGates(t *testing.T) {
-	for _, file := range []string{"squad-release.yml", "squad-insider-release.yml"} {
-		t.Run(file, func(t *testing.T) {
-			source, err := os.ReadFile(filepath.Join("..", "workflows", file))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := validateReleaseWorkflow(source, file); err != nil {
-				t.Fatal(err)
-			}
-			var workflow releaseWorkflow
-			if err := yaml.Unmarshal(source, &workflow); err != nil {
-				t.Fatal(err)
-			}
-			steps := releaseSteps(workflow.Jobs["release"])
-			gate := steps["Require every validation branch"]
-			results := []string{"success", "failure", "cancelled", "skipped", ""} //nolint:misspell // GitHub's exact job conclusion.
-			for _, native := range results {
-				for _, build := range results {
-					cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", gate.Run)
-					cmd.Env = append(os.Environ(), "NATIVE_RESULT="+native, "BUILD_RESULT="+build)
-					if err := cmd.Run(); (err == nil) != (native == "success" && build == "success") {
-						t.Fatalf("native=%q build=%q: gate error = %v", native, build, err)
-					}
+	source := readReleaseWorkflow(t, "release-validation.yml")
+	if err := validateReleaseValidation(source); err != nil {
+		t.Fatal(err)
+	}
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	steps := releaseSteps(workflow.Jobs["complete"])
+	gate := steps["Require every validation branch"]
+	results := []string{"success", "failure", "cancelled", "skipped", ""} //nolint:misspell // GitHub's exact job conclusion.
+	for _, field := range []string{"NATIVE_RESULT", "BUILD_RESULT", "WINDOWS_RESULT", "LINT_RESULT"} {
+		for _, result := range results {
+			env := []string{"NATIVE_RESULT=success", "BUILD_RESULT=success", "WINDOWS_RESULT=success", "LINT_RESULT=success"}
+			for i := range env {
+				if strings.HasPrefix(env[i], field+"=") {
+					env[i] = field + "=" + result
 				}
 			}
-			buildSteps := releaseSteps(workflow.Jobs["build-test"])
-			testReleasePackageSelection(t, buildSteps["Execute Tests"].Run)
-			testReleaseBinaryHandoff(t, buildSteps["Record tested binary digest"].Run, steps["Verify and restore tested binary"].Run)
-			testReleaseCoverageEvidence(t, steps["Verify exhaustive native test selection and coverage"].Run)
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", gate.Run)
+			cmd.Env = append(os.Environ(), env...)
+			if err := cmd.Run(); (err == nil) != (result == "success") {
+				t.Fatalf("%s=%q: gate error = %v", field, result, err)
+			}
+		}
+	}
+	buildSteps := releaseSteps(workflow.Jobs["build-test"])
+	testReleasePackageSelection(t, buildSteps["Execute Tests"].Run)
+	testReleaseBinaryHandoff(t, buildSteps["Record tested binary digest"].Run, steps["Verify and restore tested binary"].Run)
+	testReleaseCoverageEvidence(t, steps["Verify exhaustive native test selection and coverage"].Run)
+	for _, mutation := range []struct{ name, old, new string }{
+		{"serialized-build", "  build-test:\n", "  build-test:\n    needs: [native-test-shards]\n"},
+		{"missing-build-dependency", "needs: [native-test-shards, build-test, windows-test, lint]", "needs: [native-test-shards, windows-test, lint]"},
+		{"missing-native-dependency", "needs: [native-test-shards, build-test, windows-test, lint]", "needs: [build-test, windows-test, lint]"},
+		{"missing-windows-dependency", "needs: [native-test-shards, build-test, windows-test, lint]", "needs: [native-test-shards, build-test, lint]"},
+		{"missing-lint-dependency", "needs: [native-test-shards, build-test, windows-test, lint]", "needs: [native-test-shards, build-test, windows-test]"},
+		{"cancellation-bypass", "${{ !cancelled() }}", "${{ always() }}"}, //nolint:misspell // GitHub expression.
+		{"unbound-build-result", "${{ needs.build-test.result }}", "success"},
+		{"ignored-build-result", `test "$BUILD_RESULT" = success`, ":"},
+		{"ignored-native-result", `test "$NATIVE_RESULT" = success`, ":"},
+		{"ignored-windows-result", `test "$WINDOWS_RESULT" = success`, ":"},
+		{"ignored-lint-result", `test "$LINT_RESULT" = success`, ":"},
+		{"missing-coverage-verification", "bash .github/scripts/go_test_shard_verify.sh coverage-reports", ":"},
+		{"missing-integration", "bash .github/scripts/release_integration_test.sh ./waza", ":"},
+		{"skipped-integration", "      - name: Integration Test\n", "      - name: Integration Test\n        if: 'false'\n"},
+		{"ignored-integration-failure", "      - name: Integration Test\n", "      - name: Integration Test\n        continue-on-error: true\n"},
+		{"missing-guard", `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
+		{"missing-windows-race", "go test -v -race -timeout=30m ./...", "go test ./..."},
+		{"missing-lint-schema", "run: bash .github/scripts/lint.sh", "run: golangci-lint run"},
+		{"different-download", "          name: release-tested-${{ github.sha }}\n          path: .", "          name: other-binary\n          path: ."},
+		{"missing-binary-digest", "sha256sum --check waza.sha256", ":"},
+		{"missing-executable-mode", "chmod +x waza", ":"},
+		{"missing-coverage-artifact", "            coverage.txt\n", ""},
+		{"stale-source", `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, ":"},
+		{"incomplete-evidence", "            source-sha.txt\n", ""},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
+			if changed == string(source) {
+				t.Fatal("mutation did not change production workflow")
+			}
+			if err := validateReleaseValidation([]byte(changed)); err == nil {
+				t.Fatal("unsafe production workflow mutation was admitted")
+			}
+		})
+	}
+}
+
+func TestReleasePublishersRequireValidation(t *testing.T) {
+	for _, file := range []string{"squad-release.yml", "squad-insider-release.yml"} {
+		t.Run(file, func(t *testing.T) {
+			source := readReleaseWorkflow(t, file)
+			if err := validateBranchPublisher(source, file); err != nil {
+				t.Fatal(err)
+			}
 			for _, mutation := range []struct{ name, old, new string }{
-				{"serialized-build", "  build-test:\n", "  build-test:\n    needs: [native-test-shards]\n"},
-				{"missing-build-dependency", "needs: [native-test-shards, build-test]", "needs: [native-test-shards]"},
-				{"missing-native-dependency", "needs: [native-test-shards, build-test]", "needs: [build-test]"},
-				{"cancellation-bypass", "${{ !cancelled() }}", "${{ always() }}"}, //nolint:misspell // GitHub expression.
-				{"unbound-build-result", "${{ needs.build-test.result }}", "success"},
-				{"ignored-build-result", `test "$BUILD_RESULT" = success`, ":"},
-				{"ignored-native-result", `test "$NATIVE_RESULT" = success`, ":"},
-				{"missing-coverage-verification", "bash .github/scripts/go_test_shard_verify.sh coverage-reports", ":"},
-				{"missing-integration", "bash .github/scripts/release_integration_test.sh ./waza", ":"},
-				{"skipped-integration", "      - name: Integration Test\n", "      - name: Integration Test\n        if: 'false'\n"},
-				{"ignored-integration-failure", "      - name: Integration Test\n", "      - name: Integration Test\n        continue-on-error: true\n"},
-				{"missing-guard", `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
-				{"different-download", "          name: release-tested-${{ github.sha }}\n          path: .", "          name: other-binary\n          path: ."},
-				{"missing-binary-digest", "sha256sum --check waza.sha256", ":"},
-				{"missing-executable-mode", "chmod +x waza", ":"},
-				{"missing-coverage-artifact", "            coverage.txt\n", ""},
-				{"rebuild-before-publication", "          chmod +x waza", "          go build -o waza ./cmd/waza\n          chmod +x waza"},
-				{"missing-release-tags", "          fetch-depth: 0", "          fetch-depth: 1"},
+				{"untagged-validation", "if: needs.release-candidate.outputs.publish == 'true'", "if: always()"},
+				{"missing-validation-dependency", "needs: [release-candidate, validation]", "needs: [release-candidate]"},
+				{"cancellation-bypass", "&& !cancelled()", "&& always()"}, //nolint:misspell // GitHub expression.
+				{"unbound-validation-result", "${{ needs.validation.result }}", "success"},
+				{"ignored-validation-result", `test "$VALIDATION_RESULT" = success`, ":"},
+				{"stale-source", `test "$(cat source-sha.txt)" = "$GITHUB_SHA"`, ":"},
+				{"missing-digest", "sha256sum --check waza.sha256", ":"},
+				{"different-evidence", "name: release-validation-${{ github.sha }}", "name: release-validation-other"},
 			} {
 				t.Run(mutation.name, func(t *testing.T) {
 					changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
 					if changed == string(source) {
 						t.Fatal("mutation did not change production workflow")
 					}
-					if err := validateReleaseWorkflow([]byte(changed), file); err == nil {
-						t.Fatal("unsafe production workflow mutation was admitted")
+					if err := validateBranchPublisher([]byte(changed), file); err == nil {
+						t.Fatal("unsafe branch publisher mutation was admitted")
 					}
 				})
 			}
 		})
 	}
+}
+
+func TestTagReleaseRequiresValidation(t *testing.T) {
+	source := readReleaseWorkflow(t, "release.yml")
+	if err := validateTagRelease(source); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []struct{ name, old, new string }{
+		{"missing-cli-validation", "needs: [setup-version, validation]", "needs: [setup-version]"},
+		{"missing-extension-validation", "needs: [setup-version, validation]", "needs: [setup-version]"},
+		{"stale-cli-source", `run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, "run: :"},
+		{"missing-cli-source-record", `printf '%s\n' "$GITHUB_SHA" > "${BINARY_NAME}.source-sha.txt"`, ":"},
+		{"missing-cli-digest", `sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"`, ":"},
+		{"missing-cli-source-verification", `test "$(cat "$source")" = "$GITHUB_SHA"`, ":"},
+		{"missing-extension-provenance", `printf 'source_sha=%s\n' "$GITHUB_SHA"`, ":"},
+		{"unpublished-extension-provenance", "Publish Extension Provenance", "Do Not Publish Extension Provenance"},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
+			if changed == string(source) {
+				t.Fatal("mutation did not change production workflow")
+			}
+			if err := validateTagRelease([]byte(changed)); err == nil {
+				t.Fatal("unsafe tag release mutation was admitted")
+			}
+		})
+	}
+}
+
+func readReleaseWorkflow(t *testing.T, file string) []byte {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join("..", "workflows", file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source
 }
 
 type releaseWorkflow struct {
@@ -132,53 +204,57 @@ func orderedReleaseSteps(job releaseJob, names []string) error {
 	return nil
 }
 
-func validateReleaseWorkflow(source []byte, file string) error {
+func validateReleaseValidation(source []byte) error {
 	var workflow releaseWorkflow
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
-	native, build, publish := workflow.Jobs["native-test-shards"], workflow.Jobs["build-test"], workflow.Jobs["release"]
-	if workflow.Permissions["contents"] != "write" || publish.TimeoutMinutes != 60 ||
-		build.TimeoutMinutes != 60 || build.Permissions["contents"] != "read" {
-		return fmt.Errorf("release permissions and bounded deadlines must be preserved")
+	native := workflow.Jobs["native-test-shards"]
+	build := workflow.Jobs["build-test"]
+	windows := workflow.Jobs["windows-test"]
+	lint := workflow.Jobs["lint"]
+	complete := workflow.Jobs["complete"]
+	if workflow.Permissions["contents"] != "read" || complete.TimeoutMinutes != 15 ||
+		build.TimeoutMinutes != 60 || windows.TimeoutMinutes != 60 || lint.TimeoutMinutes != 10 {
+		return fmt.Errorf("validation permissions and bounded deadlines must be preserved")
 	}
 	if native.Uses != "./.github/workflows/go-native-shards.yml" || len(native.Needs) != 0 ||
-		len(build.Needs) != 0 || build.If != "" || native.If != "" ||
-		!reflect.DeepEqual(publish.Needs, []string{"native-test-shards", "build-test"}) {
-		return fmt.Errorf("test branches must run independently and publication must depend on both")
+		len(build.Needs) != 0 || len(windows.Needs) != 0 || len(lint.Needs) != 0 ||
+		build.If != "" || windows.If != "" || lint.If != "" || native.If != "" ||
+		!reflect.DeepEqual(complete.Needs, []string{"native-test-shards", "build-test", "windows-test", "lint"}) {
+		return fmt.Errorf("validation branches must run independently and completion must depend on all of them")
 	}
-	if publish.If != "${{ !cancelled() }}" { //nolint:misspell // GitHub's exact status function.
-		return fmt.Errorf("publication must be ineligible after workflow cancellation")
-	}
-	binary, create := "Build Release Binary", "Create Release"
-	if file == "squad-insider-release.yml" {
-		binary, create = "Build Insider Release Binary", "Create Insider Pre-Release"
+	if complete.If != "${{ !cancelled() }}" { //nolint:misspell // GitHub's exact status function.
+		return fmt.Errorf("validation completion must be ineligible after workflow cancellation")
 	}
 	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Install and prove rejecting runtime guard",
-		"Test release gate failure handling", "Run Go Vet", "Execute Tests", binary, "Integration Test",
+		"Test release gate failure handling", "Run Go Vet", "Execute Tests", "Build Release Binary", "Integration Test",
 		"Record tested binary digest", "Upload tested release binary and remaining coverage"}); err != nil {
 		return err
 	}
-	if err := orderedReleaseSteps(publish, []string{"Require every validation branch", "Checkout Repository",
+	if err := orderedReleaseSteps(complete, []string{"Require every validation branch", "Checkout Repository",
 		"Download tested release binary and remaining coverage", "Download native coverage and discovery evidence",
-		"Verify exhaustive native test selection and coverage", "Verify and restore tested binary", create}); err != nil {
+		"Verify exhaustive native test selection and coverage", "Verify and restore tested binary",
+		"Record validated source", "Upload complete validation evidence"}); err != nil {
 		return err
 	}
-	steps, buildSteps := releaseSteps(publish), releaseSteps(build)
+	steps, buildSteps := releaseSteps(complete), releaseSteps(build)
 	if buildSteps["Checkout Repository"].With["lfs"] != "true" || buildSteps["Checkout Repository"].With["fetch-depth"] != "0" ||
-		steps["Checkout Repository"].With["fetch-depth"] != "0" {
-		return fmt.Errorf("tested build requires real runtime assets and release creation requires full tag history")
+		strings.Count(string(source), `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`) != 4 {
+		return fmt.Errorf("every validation branch must bind checkout to the exact source SHA")
 	}
 	gate := steps["Require every validation branch"]
 	if gate.Env["NATIVE_RESULT"] != "${{ needs.native-test-shards.result }}" ||
 		gate.Env["BUILD_RESULT"] != "${{ needs.build-test.result }}" ||
-		gate.Run != "test \"$NATIVE_RESULT\" = success\ntest \"$BUILD_RESULT\" = success\n" {
-		return fmt.Errorf("gate must reject every non-success result from both validation branches")
+		gate.Env["WINDOWS_RESULT"] != "${{ needs.windows-test.result }}" ||
+		gate.Env["LINT_RESULT"] != "${{ needs.lint.result }}" ||
+		gate.Run != "test \"$NATIVE_RESULT\" = success\ntest \"$BUILD_RESULT\" = success\ntest \"$WINDOWS_RESULT\" = success\ntest \"$LINT_RESULT\" = success\n" {
+		return fmt.Errorf("completion must reject every non-success validation result")
 	}
 	if buildSteps["Install and prove rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
 		buildSteps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
 		buildSteps["Run Go Vet"].Run != "go vet ./..." ||
-		buildSteps[binary].Run != "go build -v -o waza ./cmd/waza\n./waza --version\n" ||
+		buildSteps["Build Release Binary"].Run != "go build -v -o waza ./cmd/waza\n./waza --version\n" ||
 		buildSteps["Integration Test"].Run != "bash .github/scripts/release_integration_test.sh ./waza" {
 		return fmt.Errorf("build branch must retain vet, runtime guard, failure controls and tested binary integration")
 	}
@@ -197,10 +273,126 @@ func validateReleaseWorkflow(source []byte, file string) error {
 		steps["Verify exhaustive native test selection and coverage"].Run != "cp coverage.txt coverage-reports/coverage.txt\nbash .github/scripts/go_test_shard_verify.sh coverage-reports\n" {
 		return fmt.Errorf("publication must verify all five atomic profiles and exhaustive native inventories")
 	}
-	for _, step := range publish.Steps {
+	windowsSteps := releaseSteps(windows)
+	if windowsSteps["Run Go Vet"].Run != "go vet ./..." ||
+		windowsSteps["Execute complete Windows tests"].Run != "go test -v -race -timeout=30m ./..." {
+		return fmt.Errorf("release validation must retain native Windows vet and race execution")
+	}
+	lintSteps := releaseSteps(lint)
+	if lintSteps["Test lint script failure handling"].Run != "bash .github/scripts/lint_test.sh" ||
+		lintSteps["Verify pinned configuration and run golangci-lint"].Run != "bash .github/scripts/lint.sh" {
+		return fmt.Errorf("release validation must retain pinned lint schema verification")
+	}
+	evidence := steps["Upload complete validation evidence"]
+	if evidence.With["name"] != "release-validation-${{ github.sha }}" ||
+		evidence.With["path"] != "waza\nwaza.sha256\nsource-sha.txt\n" ||
+		evidence.With["if-no-files-found"] != "error" ||
+		steps["Record validated source"].Run != "printf '%s\\n' \"$GITHUB_SHA\" > source-sha.txt" {
+		return fmt.Errorf("complete evidence must identify the validated source and tested binary")
+	}
+	for _, step := range complete.Steps {
 		if strings.Contains(step.Run, "go build") {
-			return fmt.Errorf("publication must not rebuild its tested binary")
+			return fmt.Errorf("validation completion must not rebuild its tested binary")
 		}
+	}
+	return nil
+}
+
+func validateBranchPublisher(source []byte, file string) error {
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	candidate := workflow.Jobs["release-candidate"]
+	validation := workflow.Jobs["validation"]
+	publish := workflow.Jobs["release"]
+	if workflow.Permissions["contents"] != "write" || candidate.TimeoutMinutes != 5 || publish.TimeoutMinutes != 15 {
+		return fmt.Errorf("publisher permissions and bounded deadlines must be preserved")
+	}
+	if validation.Uses != "./.github/workflows/release-validation.yml" ||
+		!reflect.DeepEqual(validation.Needs, []string{"release-candidate"}) ||
+		validation.If != "needs.release-candidate.outputs.publish == 'true'" ||
+		validation.Permissions["contents"] != "read" {
+		return fmt.Errorf("tagged branch publication must invoke the canonical validation workflow")
+	}
+	if !reflect.DeepEqual(publish.Needs, []string{"release-candidate", "validation"}) ||
+		publish.If != "needs.release-candidate.outputs.publish == 'true' && !cancelled()" { //nolint:misspell // GitHub expression.
+		return fmt.Errorf("publication must require a tag, validation and non-cancelled run")
+	}
+	candidateSteps := releaseSteps(candidate)
+	tagStep := candidateSteps["Detect exact stable tag"]
+	createName := "Create Release"
+	if file == "squad-insider-release.yml" {
+		tagStep = candidateSteps["Detect exact insider tag"]
+		createName = "Create Insider Pre-Release"
+	}
+	if tagStep.Run == "" || !strings.Contains(tagStep.Run, `git tag --points-at "$GITHUB_SHA" --list 'v*.*.*'`) ||
+		!strings.Contains(tagStep.Run, `echo "publish=false" >> "$GITHUB_OUTPUT"`) ||
+		!strings.Contains(tagStep.Run, `if [ "${#tags[@]}" -gt 1 ]`) {
+		return fmt.Errorf("candidate detection must fail closed and skip untagged branch pushes")
+	}
+	if err := orderedReleaseSteps(publish, []string{"Require successful complete validation",
+		"Download complete validation evidence", "Require exact validated source and tested binary", createName}); err != nil {
+		return err
+	}
+	steps := releaseSteps(publish)
+	gate := steps["Require successful complete validation"]
+	if gate.Env["VALIDATION_RESULT"] != "${{ needs.validation.result }}" ||
+		gate.Run != `test "$VALIDATION_RESULT" = success` {
+		return fmt.Errorf("publisher must reject missing, failed, cancelled or skipped validation")
+	}
+	download := steps["Download complete validation evidence"]
+	if download.With["name"] != "release-validation-${{ github.sha }}" || download.With["path"] != "." ||
+		steps["Require exact validated source and tested binary"].Run != "test \"$(cat source-sha.txt)\" = \"$GITHUB_SHA\"\nsha256sum --check waza.sha256\nchmod +x waza\n./waza --version\n" {
+		return fmt.Errorf("publisher must consume complete exact-source tested evidence")
+	}
+	if !strings.Contains(steps[createName].Run, "./waza ./waza.sha256 ./source-sha.txt") {
+		return fmt.Errorf("publisher must publish source and digest evidence with the tested binary")
+	}
+	return nil
+}
+
+func validateTagRelease(source []byte) error {
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	validation := workflow.Jobs["validation"]
+	build := workflow.Jobs["build-cli"]
+	release := workflow.Jobs["release-cli"]
+	extension := workflow.Jobs["release-extension"]
+	if validation.Uses != "./.github/workflows/release-validation.yml" ||
+		validation.Permissions["contents"] != "read" {
+		return fmt.Errorf("tag release must invoke canonical exact-source validation")
+	}
+	if !reflect.DeepEqual(build.Needs, []string{"setup-version", "validation"}) ||
+		!reflect.DeepEqual(extension.Needs, []string{"setup-version", "validation"}) ||
+		!reflect.DeepEqual(release.Needs, []string{"setup-version", "build-cli", "validation"}) {
+		return fmt.Errorf("every tag publisher and artifact builder must depend on validation")
+	}
+	buildSteps := releaseSteps(build)
+	publishSteps := releaseSteps(release)
+	extensionSteps := releaseSteps(extension)
+	if buildSteps["Require exact validated source"].Run != `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"` ||
+		extensionSteps["Require exact validated source"].Run != `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"` {
+		return fmt.Errorf("tag artifacts must be built from the validated SHA")
+	}
+	buildRun := buildSteps["Build Binary"].Run
+	if !strings.Contains(buildRun, `printf '%s\n' "$GITHUB_SHA" > "${BINARY_NAME}.source-sha.txt"`) ||
+		!strings.Contains(buildRun, `sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"`) {
+		return fmt.Errorf("each CLI artifact must carry source and digest evidence")
+	}
+	checks := publishSteps["Generate SHA256 Checksums"].Run
+	if !strings.Contains(checks, `test "$(cat "$source")" = "$GITHUB_SHA"`) ||
+		!strings.Contains(checks, `sha256sum --check "$digest"`) ||
+		!strings.Contains(checks, `-name '*.source-sha.txt'`) {
+		return fmt.Errorf("CLI publication must reject stale or incomplete artifact evidence")
+	}
+	provenance := extensionSteps["Record extension artifact provenance"].Run
+	if !strings.Contains(provenance, `printf 'source_sha=%s\n' "$GITHUB_SHA"`) ||
+		!strings.Contains(provenance, `sha256sum "${packages[@]}"`) ||
+		!strings.Contains(extensionSteps["Publish Extension Provenance"].Run, "artifacts/release-provenance.txt") {
+		return fmt.Errorf("extension release must publish source-bound package digests")
 	}
 	return nil
 }

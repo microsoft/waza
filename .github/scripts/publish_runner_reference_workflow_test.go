@@ -228,8 +228,7 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 
 	for _, workflowName := range []string{
 		"go-ci.yml",
-		"squad-release.yml",
-		"squad-insider-release.yml",
+		"release-validation.yml",
 	} {
 		workflow, err := os.ReadFile(filepath.Join("..", "workflows", workflowName))
 		if err != nil {
