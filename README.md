@@ -866,7 +866,7 @@ waza migrate results.json
 
 Generate a skill-to-eval coverage grid showing which skills are fully covered, partially covered, or missing evals.
 
-**Note**: Full coverage requires tasks (via `tasks:` or `tasks_from:`) and 2+ grader types. The coverage percentage reflects only fully covered skills.
+**Note**: Full coverage requires at least one active task discovered through `tasks:` or selected through `tasks_from:`, plus 2+ grader types. Unmatched task patterns and empty CSV selections count as zero tasks. The coverage percentage reflects only fully covered skills.
 
 | Flag | Short | Description |
 |------|-------|-------------|

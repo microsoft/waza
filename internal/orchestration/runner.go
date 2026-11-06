@@ -19,7 +19,6 @@ import (
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/copilotevents"
-	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/failures"
@@ -751,81 +750,11 @@ func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
 	return testCases, nil
 }
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
-	spec := r.cfg.Spec()
-
-	// CSV dataset path: generate tasks from CSV rows
-	if spec.TasksFrom != "" {
-		return r.loadTestCasesFromCSV()
-	}
-
-	// Fall through to existing Tasks []string behavior
-	return r.loadTestCasesFromFiles()
+	return LoadSelectedTestCases(r.cfg.Spec(), r.cfg.SpecDir(), time.Now())
 }
 
-// loadTestCasesFromCSV generates in-memory TestCases from CSV rows.
 func (r *EvalRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
-	return dataset.LoadTasks(r.cfg.Spec(), r.cfg.SpecDir(), time.Now())
-}
-
-// loadTestCasesFromFiles loads test cases from YAML files via glob patterns.
-func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
-	spec := r.cfg.Spec()
-
-	// Get base directory for test file resolution (spec directory)
-	baseDir := r.cfg.SpecDir()
-	if baseDir == "" {
-		baseDir = "."
-	}
-
-	// Resolve test file patterns relative to the spec directory
-	testFiles := []string{}
-	for _, pattern := range spec.Tasks {
-		fullPattern := filepath.Join(baseDir, pattern)
-		matches, err := filepath.Glob(fullPattern)
-		if err != nil {
-			return nil, err
-		}
-		testFiles = append(testFiles, matches...)
-	}
-
-	if len(testFiles) == 0 {
-		return nil, fmt.Errorf("no test files matched patterns: %v in directory: %s", spec.Tasks, baseDir)
-	}
-
-	var testCases []*models.TestCase
-	for _, path := range testFiles {
-		tc, err := models.LoadTestCase(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
-		}
-		if err := models.ValidateTaskFaultSources(tc.SourceBytes(), spec.SchemaVersion); err != nil {
-			return nil, fmt.Errorf("invalid test case %s: task fault sources: %w", path, err)
-		}
-		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
-			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-		}
-		if tc.CommandMocks != nil {
-			if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-			}
-		}
-		if len(tc.MCPMocks) > 0 {
-			if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-			}
-			// Fixtures are admitted only for selected active tasks; see admitEvalMCPMocks.
-			if err := mcpmock.ValidateInlineMockDeclarations(tc.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: MCP mock admission: %w", path, err)
-			}
-		}
-		// Only include active test cases
-		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
-		if tc.Active == nil || *tc.Active {
-			testCases = append(testCases, tc)
-		}
-	}
-
-	return testCases, nil
+	return loadSelectedTestCasesFromCSV(r.cfg.Spec(), r.cfg.SpecDir(), time.Now())
 }
 
 // validateRequiredSkills performs preflight validation that all required skills are present.
