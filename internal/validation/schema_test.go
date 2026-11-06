@@ -93,6 +93,18 @@ func TestValidateEvalBytes_Valid(t *testing.T) {
 	require.Empty(t, errs, "valid eval should have no errors")
 }
 
+func TestValidateEvalBytes_GroupBy(t *testing.T) {
+	for _, value := range []string{"", "model", "tags"} {
+		t.Run(value, func(t *testing.T) {
+			data := strings.Replace(validEvalYAML, "  model: gpt-4o", fmt.Sprintf("  model: gpt-4o\n  group_by: %q", value), 1)
+			require.Empty(t, ValidateEvalBytes([]byte(data)))
+		})
+	}
+
+	data := strings.Replace(validEvalYAML, "  model: gpt-4o", "  model: gpt-4o\n  group_by: task_id", 1)
+	require.NotEmpty(t, ValidateEvalBytes([]byte(data)))
+}
+
 func TestValidateEvalBytes_EmptyCommandMocksRequireSupportedConfiguration(t *testing.T) {
 	valid := `schemaVersion: "1.3"
 name: command-mocks

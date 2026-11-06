@@ -412,12 +412,12 @@ test('concepts distinguish repeated trials from discarded retry outputs', () => 
 });
 
 test('release articles are linked from Releases and retain their existing screenshot assets', () => {
-  for (const slug of ['v0-40-0', 'v0-39-0', 'dashboard-lab']) {
+  for (const slug of ['v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
     const article = read(`site/src/content/docs/releases/${slug}.mdx`);
     assert.ok(read('site/astro.config.mjs').includes(`slug: 'releases/${slug}'`));
     assert.ok(read('site/src/content/docs/reference/releases.mdx').includes(`](../../releases/${slug}/)`));
     const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
-    assert.equal(screenshots.length, slug === 'v0-40-0' ? 0 : 3, slug);
+    assert.equal(screenshots.length, slug.startsWith('v0-40-') ? 0 : 3, slug);
     for (const [, source] of screenshots) {
       assert.match(source, /^\/images\/.+\.png$/);
       assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);
@@ -430,15 +430,39 @@ test('release articles are linked from Releases and retain their existing screen
   assert.match(article, /Fixture-backed native-profile view/);
 });
 
-test('v0.40.0 article owns release detail while the homepage leads with the product', () => {
+test('v0.40.1 article owns hotfix detail while the homepage leads with the product', () => {
   const homepage = read('site/src/content/docs/index.mdx');
   const intro = homepage.split('## What can waza do?')[0];
   assert.doesNotMatch(intro, /<Aside\b/);
-  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-40-0\/\)/g) ?? []).length, 1);
-  assert.match(intro, /\*\*New in v0\.40\.0:\*\*/);
+  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-40-1\/\)/g) ?? []).length, 1);
+  assert.match(intro, /\*\*New in v0\.40\.1:\*\*/);
   assert.match(homepage, /A mock pass proves harness wiring, not agent quality/);
   assert.match(homepage, /authentication, permissions and possible-cost prerequisites/);
+  assert.match(read('README.md'), /https:\/\/microsoft\.github\.io\/waza\/releases\/v0-40-1\//);
   assert.match(read('README.md'), /https:\/\/microsoft\.github\.io\/waza\/releases\/v0-40-0\//);
+
+  const hotfix = read('site/src/content/docs/releases/v0-40-1.mdx');
+  const hotfixText = hotfix.replace(/\s+/g, ' ');
+  assert.match(hotfix, /^title: "Waza v0\.40\.1: make release workflows match their contracts"$/m);
+  assert.match(hotfix, /\*\*Released November 6, 2026\*\*/);
+  for (const heading of [
+    'Count and group the work that will actually run',
+    'Make automation observe the documented process result',
+    'Keep saved runs and artifact paths distinct',
+    'Avoid canceling healthy execution and large graders',
+    'Upgrade without changing the experiment',
+  ]) assert.ok(hotfix.includes(`## ${heading}`), heading);
+  for (const phrase of [
+    'reports zero tasks and Partial coverage',
+    '`waza tokens check --strict` now exits **1**',
+    '`config.group_by: tags`',
+    'top-level eval `inputs`',
+    'distinct, monotonic nanosecond-resolution run IDs',
+    '`waza adversarial --artifacts-dir`',
+    'disarms the first-event watchdog without canceling the active request',
+    'reads its context directly from file descriptor 0',
+  ]) assert.match(hotfixText, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(hotfixText, /v0\.40\.0\.\.\.v0\.40\.1 comparison/);
 
   const article = read('site/src/content/docs/releases/v0-40-0.mdx');
   assert.match(article, /^title: "Waza v0\.40\.0: run exactly the work you declared"$/m);
@@ -478,15 +502,15 @@ test('Dashboard Lab article distinguishes saved results, synthetic examples, and
 
 test('release overview identifies the published version and retains the former availability anchor', () => {
   const overview = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(overview, /## Current published standalone release: v0\.40\.0/);
+  assert.match(overview, /## Current published standalone release: v0\.40\.1/);
   assert.match(overview, /id="upcoming-main-only-capabilities"/);
-  const downloads = [...overview.matchAll(/releases\/download\/v0\.40\.0\/(waza-[^)\s]+)/g)].map((match) => match[1]);
+  const downloads = [...overview.matchAll(/releases\/download\/v0\.40\.1\/(waza-[^)\s]+)/g)].map((match) => match[1]);
   assert.deepEqual(downloads.toSorted(), [
     'waza-darwin-amd64', 'waza-darwin-arm64', 'waza-linux-amd64',
     'waza-linux-arm64', 'waza-windows-amd64.exe', 'waza-windows-arm64.exe',
   ]);
-  assert.match(overview, /releases\/download\/v0\.40\.0\/checksums\.txt/);
-  assert.match(overview, /Other platforms were built by the release matrix, but their bytes\s+were not locally downloaded or executed/);
+  assert.match(overview, /releases\/download\/v0\.40\.1\/checksums\.txt/);
+  assert.match(overview, /publication does not\s+by itself establish execution on every platform/);
   assert.doesNotMatch(overview, /releases\/(?:download|tag)\/v0\.38\.10/);
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
 });
@@ -506,21 +530,20 @@ test('extension installation guidance identifies the current registry version', 
   assert.match(section, /azd waza --version/);
   assert.match(section, /azd waza <command> --help/);
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
-  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.40\.0/);
-  assert.match(section, /registry and version metadata are synchronized\s+to `0\.40\.0`/);
-  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.40\.0/);
+  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.40\.1/);
+  assert.match(section, /registry and version metadata are synchronized\s+to `0\.40\.1`/);
+  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.40\.1/);
   const release = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(release, /commit `058de4571b234d1133aa814613c7250cdee25b4d`/);
+  assert.match(release, /commit `dc26e098d29243972b4e00ff420ca857a9b6da4f`/);
   assert.match(release, /exactly six platform URLs, entrypoints and SHA-256 values matching the\s+published archives/);
-  assert.match(release, /actual macOS ARM64\s+archive was separately downloaded, checksum-verified and extracted/);
-  assert.match(release, /does not establish execution on the other five platforms\s+or prove that an existing installation has updated to v0\.40\.0/);
-  assert.match(release, /repository registry lists through `0\.40\.0`/);
+  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.40\.1/);
+  assert.match(release, /repository registry lists through `0\.40\.1`/);
   assert.doesNotMatch(section + release, /not yet merged to main|merge to main\s+remains pending|registry still lists through `0\.39\.1`/);
   for (const text of [read('README.md'), section, release]) {
     assert.match(text, /source (?:URL above|below) follows `main`, not this branch/);
-    assert.match(text, /release-sync PR #883/);
-    assert.match(text, /still serves `0\.39\.1`; after the merge it includes `0\.40\.0`/);
-    assert.match(text, /installation before the merge cannot select `0\.40\.0` from that source/);
+    assert.match(text, /release-sync PR #908/);
+    assert.match(text, /still serves `0\.40\.0`; after the merge it includes `0\.40\.1`/);
+    assert.match(text, /installation before the merge cannot select `0\.40\.1` from that source/);
   }
 });
 
@@ -649,13 +672,16 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
     assert.match(text, /post-v0\.40\.0 source behavior, not included in the published v0\.40\.0 artifacts/, path);
     assert.doesNotMatch(text, /remains open\/backlogged/, path);
   }
-  const unreleased = read('CHANGELOG.md').split('## [Unreleased]')[1]?.split('## [0.40.0]')[0];
+  const changelog = read('CHANGELOG.md');
+  const unreleased = changelog.split('## [Unreleased]')[1]?.split('## [0.40.1]')[0];
+  const hotfix = changelog.split('## [0.40.1]')[1]?.split('## [0.40.0]')[0];
   assert.match(unreleased ?? '', /Trial timeout recovery and result persistence/);
   assert.match(unreleased ?? '', /pull\/870/);
-  assert.match(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
-  assert.match(unreleased ?? '', /pull\/882/);
-  assert.match(read('CHANGELOG.md'), /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.40\.0\.\.\.HEAD$/m);
-  const published = read('CHANGELOG.md').split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
+  assert.doesNotMatch(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(hotfix ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(hotfix ?? '', /pull\/882/);
+  assert.match(changelog, /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.40\.1\.\.\.HEAD$/m);
+  const published = changelog.split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
   assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following cleanup notes describe/);
@@ -722,11 +748,11 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
   assert.match(release, /-ldflags "-X main\.version=\$\{VERSION\}"/);
   for (const path of ['README.md', 'site/src/content/docs/reference/releases.mdx']) {
     const text = read(path);
-    assert.match(text, /git clone --branch v0\.40\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
-    assert.match(text, /make build VERSION=0\.40\.0/, path);
+    assert.match(text, /git clone --branch v0\.40\.1 https:\/\/github\.com\/microsoft\/waza\.git/, path);
+    assert.match(text, /make build VERSION=0\.40\.1/, path);
     assert.match(text, /`version\.txt` and `extension\.yaml`/, path);
     assert.match(text, /defaults to `VERSION=0\.1\.0`/, path);
-    assert.match(text, /`93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`/, path);
+    assert.match(text, /`e0c251df896bee4e0f9b38a693a6105bf7eadd19`/, path);
   }
 });
 

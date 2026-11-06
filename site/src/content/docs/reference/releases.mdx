@@ -7,6 +7,10 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## Release articles
 
+[**Waza v0.40.1: make release workflows match their contracts**](../../releases/v0-40-1/)
+explains the selected-task coverage, strict token-budget exit, grouping, hook,
+saved-run, artifact-path, execution-startup, and JavaScript-grader hotfixes.
+
 [**Waza v0.40.0: run exactly the work you declared**](../../releases/v0-40-0/)
 explains exact work units, input-derived identities, terminal outcomes, the
 container reference, and practical evidence improvements, including the
@@ -22,21 +26,23 @@ is listed separately below.
 takes a closer look at `waza serve --lab`: finding failures, inspecting task
 evidence, comparing saved runs, and sharing reports.
 
-## Current published standalone release: v0.40.0
+## Current published standalone release: v0.40.1
 
-**Released:** November 4, 2026.
+**Released:** November 6, 2026.
 
-The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.0)
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.1)
 is published, with six platform binaries and `checksums.txt`.
 The installers select published standalone releases, not unreleased main.
 Run `waza update` to upgrade an existing standalone installation.
-See the [full comparison](https://github.com/microsoft/waza/compare/v0.39.1...v0.40.0).
-The published [checksums.txt](https://github.com/microsoft/waza/releases/download/v0.40.0/checksums.txt)
-was checked against its GitHub asset digest; its six binary checksums match
-GitHub's computed asset digests. The downloaded macOS ARM64 binary also matched
-its checksum and ran `--version` (`waza version 0.40.0`) and `runner capabilities`
-successfully. Other platforms were built by the release matrix, but their bytes
-were not locally downloaded or executed in that check.
+See the [full comparison](https://github.com/microsoft/waza/compare/v0.40.0...v0.40.1)
+and the [v0.40.1 release article](../../releases/v0-40-1/).
+The successful [release workflow](https://github.com/microsoft/waza/actions/runs/42255863296)
+built all six standalone platforms and published
+[checksums.txt](https://github.com/microsoft/waza/releases/download/v0.40.1/checksums.txt).
+The release assets expose GitHub-computed SHA-256 digests; publication does not
+by itself establish execution on every platform.
+The `v0.40.1` tag resolves to
+`e0c251df896bee4e0f9b38a693a6105bf7eadd19`.
 
 <span id="source-build-v0400-preview"></span>
 <span id="v0400-release-candidate-publication-pending"></span>
@@ -100,7 +106,7 @@ version field. See [schema versions](../schema-changes/#versioned-artifacts).
 
 ## Capabilities introduced in v0.39.0
 
-The following workflows were introduced in `v0.39.0` and remain included in `v0.40.0`.
+The following workflows were introduced in `v0.39.0` and remain included in `v0.40.1`.
 Their opt-in, platform, and evidence boundaries still apply.
 
 | Capability | Availability | Platform and scope |
@@ -112,16 +118,16 @@ Their opt-in, platform, and evidence boundaries still apply.
 | `assure` authored-case profiles | v0.39.0, explicitly selected | Bounded native file/output and offline cases; strict preserved-file publication has platform limits; private preserved-native APIs are not default reader authority |
 | `assure calibrate` | v0.39.0, separate opt-in | Reviewed inputs and explicit paid-call acknowledgment required; no default paid calibration |
 | Controlled strict collection/release policy | v0.39.0, explicit policy | Offline mock by default; explicit fixed-model, single-turn Copilot SDK native-text profile may incur provider usage; no skills, deny-all client tools (not server isolation), no assurance/runtime-version/currency claim; native durable creation Linux/macOS only |
-| azd extension commands | Registry through v0.40.0; v0.40.0 artifact published separately | Registry/version metadata synchronized; check the installed extension version |
+| azd extension commands | Registry through v0.40.1; v0.40.1 artifact published separately | Registry/version metadata synchronized; check the installed extension version |
 
 Build the tagged release source with **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+**:
 
 ```bash
-git clone --branch v0.40.0 https://github.com/microsoft/waza.git
+git clone --branch v0.40.1 https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-make build VERSION=0.40.0
+make build VERSION=0.40.1
 ./waza --version
 ```
 
@@ -130,7 +136,7 @@ does not fetch LFS artifacts or build the dashboard.
 See [Quick Start](../../quick-start/) for offline validation before credentials.
 The immutable tag retains `0.39.1` in `version.txt` and `extension.yaml`; the
 release workflow synchronizes those files in a subsequent branch, not in the
-tagged source. The Makefile defaults to `VERSION=0.1.0`; pass `VERSION=0.40.0`
+tagged source. The Makefile defaults to `VERSION=0.1.0`; pass `VERSION=0.40.1`
 for this source build. Official release binaries use the tag version injected
 with linker flags. This local version label does not verify asset publication
 or extension/registry availability.
@@ -225,12 +231,12 @@ Pre-built binaries for all major platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.40.0/waza-darwin-arm64) |
-| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.40.0/waza-darwin-amd64) |
-| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.40.0/waza-linux-amd64) |
-| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.40.0/waza-linux-arm64) |
-| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.40.0/waza-windows-amd64.exe) |
-| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.40.0/waza-windows-arm64.exe) |
+| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-darwin-arm64) |
+| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-darwin-amd64) |
+| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-linux-amd64) |
+| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-linux-arm64) |
+| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-windows-amd64.exe) |
+| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-windows-arm64.exe) |
 
 ---
 
@@ -252,7 +258,7 @@ On Windows, use this command only from Git Bash, MSYS2, or Cygwin. If PowerShell
 irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
 ```
 
-The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.40.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.40.1), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 </TabItem>
 </Tabs>
@@ -269,25 +275,22 @@ waza --version
 
 Install waza as an [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/) extension.
 
-The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
-is `0.40.0`, published November 4, 2026 with six platform archives, separate from
-the standalone release. The repository registry lists through `0.40.0`.
-The successful [release workflow](https://github.com/microsoft/waza/actions/runs/41825744913)
-generated registry/version updates on `release/v0.40.0`, incorporated in this
-repository alongside these release docs. Artifact publication and registry
+The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1)
+is `0.40.1`, published November 6, 2026 with six platform archives, separate from
+the standalone release. The repository registry lists through `0.40.1`.
+The successful [release workflow](https://github.com/microsoft/waza/actions/runs/42255863296)
+generated registry/version updates on `release/v0.40.1`. Artifact publication and registry
 synchronization remain separate gates; publishing archives alone does not
 update the registry.
 The installation source below follows `main`, not this branch. Before the
-[release-sync PR #883](https://github.com/microsoft/waza/pull/883) merges, that URL
-still serves `0.39.1`; after the merge it includes `0.40.0`. Updating an
-installation before the merge cannot select `0.40.0` from that source.
-The generated entry at commit `058de4571b234d1133aa814613c7250cdee25b4d`
+[release-sync PR #908](https://github.com/microsoft/waza/pull/908) merges, that URL
+still serves `0.40.0`; after the merge it includes `0.40.1`. Updating an
+installation before the merge cannot select `0.40.1` from that source.
+The generated entry at commit `dc26e098d29243972b4e00ff420ca857a9b6da4f`
 has exactly six platform URLs, entrypoints and SHA-256 values matching the
-published archives, with prior registry data unchanged. The actual macOS ARM64
-archive was separately downloaded, checksum-verified and extracted: its
-manifest identifies `0.40.0` and its executable reports `waza version 0.40.0`.
-That smoke check does not establish execution on the other five platforms
-or prove that an existing installation has updated to v0.40.0.
+published archives, with prior registry data unchanged. That registry comparison
+does not establish execution on all six platforms or prove that an existing
+installation has updated to v0.40.1.
 Check the installed version after adding the source:
 
 ```bash

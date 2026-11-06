@@ -19,7 +19,6 @@ import (
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/copilotevents"
-	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/failures"
@@ -111,6 +110,7 @@ type EvalRunner struct {
 	snapshotEvaluatorOnly   []string
 	snapshotWorkspaceLimits snapshot.WorkspaceLimits
 	wazaVersion             string
+	now                     func() time.Time
 	// evalRunID echoes EvaluationOutcome.RunID so per-run snapshots can be
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
@@ -182,6 +182,13 @@ func WithTaskFilters(patterns ...string) RunnerOption {
 func WithTagFilters(patterns ...string) RunnerOption {
 	return func(r *EvalRunner) {
 		r.tagFilters = patterns
+	}
+}
+
+// WithClock sets the clock used for run identity allocation.
+func WithClock(now func() time.Time) RunnerOption {
+	return func(r *EvalRunner) {
+		r.now = now
 	}
 }
 
@@ -279,6 +286,7 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		verbose:        cfg.Verbose(),
 		listeners:      []ProgressListener{},
 		failureHandler: failures.NewHandler(),
+		now:            time.Now,
 	}
 	r.newClassifier = func(cfg models.ResponderConfig, defaultModel string) responderClassifier {
 		return responder.NewWithReasoningEffort(r.engine, cfg, defaultModel, r.cfg.Spec().Config.ReasoningEffort)
@@ -287,6 +295,13 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		o(r)
 	}
 	return r
+}
+
+func (r *EvalRunner) currentTime() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
 }
 
 // OnProgress registers a progress listener
@@ -382,7 +397,7 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	// Compute the run ID once so the same value flows into both the
 	// telemetry root span and per-run snapshots (via r.evalRunID), and so
 	// runNormalBenchmark reuses it when building the EvaluationOutcome.
-	runID := fmt.Sprintf("run-%d", time.Now().Unix())
+	runID := newRunID(r.currentTime())
 	r.evalRunID = runID
 
 	// Open the root telemetry span for the whole eval. The span is a no-op
@@ -511,7 +526,7 @@ func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 	// from test code or alternative code paths that bypass RunBenchmark).
 	outcomeRunID := r.evalRunID
 	if outcomeRunID == "" {
-		outcomeRunID = fmt.Sprintf("run-%d", time.Now().Unix())
+		outcomeRunID = newRunID(r.currentTime())
 	}
 	outcome := &models.EvaluationOutcome{
 		SchemaVersion: models.CurrentResultSchemaVersion,
@@ -768,7 +783,7 @@ func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 // admissionTestCases selects the active tasks a run would execute, after task
 // and tag filters, without starting an engine.
 func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
-	testCases, err := r.loadTestCases()
+	testCases, err := LoadSelectedTestCases(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load test cases: %w", err)
 	}
@@ -781,81 +796,11 @@ func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
 	return testCases, nil
 }
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
-	spec := r.cfg.Spec()
-
-	// CSV dataset path: generate tasks from CSV rows
-	if spec.TasksFrom != "" {
-		return r.loadTestCasesFromCSV()
-	}
-
-	// Fall through to existing Tasks []string behavior
-	return r.loadTestCasesFromFiles()
+	return LoadSelectedTestCasesWithJobID(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime(), r.evalRunID)
 }
 
-// loadTestCasesFromCSV generates in-memory TestCases from CSV rows.
 func (r *EvalRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
-	return dataset.LoadTasks(r.cfg.Spec(), r.cfg.SpecDir(), time.Now())
-}
-
-// loadTestCasesFromFiles loads test cases from YAML files via glob patterns.
-func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
-	spec := r.cfg.Spec()
-
-	// Get base directory for test file resolution (spec directory)
-	baseDir := r.cfg.SpecDir()
-	if baseDir == "" {
-		baseDir = "."
-	}
-
-	// Resolve test file patterns relative to the spec directory
-	testFiles := []string{}
-	for _, pattern := range spec.Tasks {
-		fullPattern := filepath.Join(baseDir, pattern)
-		matches, err := filepath.Glob(fullPattern)
-		if err != nil {
-			return nil, err
-		}
-		testFiles = append(testFiles, matches...)
-	}
-
-	if len(testFiles) == 0 {
-		return nil, fmt.Errorf("no test files matched patterns: %v in directory: %s", spec.Tasks, baseDir)
-	}
-
-	var testCases []*models.TestCase
-	for _, path := range testFiles {
-		tc, err := models.LoadTestCase(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
-		}
-		if err := models.ValidateTaskFaultSources(tc.SourceBytes(), spec.SchemaVersion); err != nil {
-			return nil, fmt.Errorf("invalid test case %s: task fault sources: %w", path, err)
-		}
-		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
-			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-		}
-		if tc.CommandMocks != nil {
-			if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-			}
-		}
-		if len(tc.MCPMocks) > 0 {
-			if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-			}
-			// Fixtures are admitted only for selected active tasks; see admitEvalMCPMocks.
-			if err := mcpmock.ValidateInlineMockDeclarations(tc.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: MCP mock admission: %w", path, err)
-			}
-		}
-		// Only include active test cases
-		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
-		if tc.Active == nil || *tc.Active {
-			testCases = append(testCases, tc)
-		}
-	}
-
-	return testCases, nil
+	return loadSelectedTestCasesFromCSV(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime(), r.evalRunID)
 }
 
 // validateRequiredSkills performs preflight validation that all required skills are present.
@@ -1100,9 +1045,11 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 						tc.DisplayName, len(cachedOutcome.Runs), spec.Config.TrialsPerTask)
 				} else {
 					// Return cached outcome with cached flag. Stats derive from the
-					// cached runs, so recompute them in case an older waza wrote them.
+					// cached runs and group from current configuration, so recompute
+					// both in case an older waza wrote them.
 					cachedOutcome.Cached = true
 					cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
+					cachedOutcome.Group = r.resolveGroup(tc)
 					r.publishPartialTestOutcome(testNum, *cachedOutcome)
 					return *cachedOutcome, true
 				}
@@ -1203,7 +1150,7 @@ func (r *EvalRunner) buildTestOutcome(tc *models.TestCase, runs []models.RunResu
 	return models.TestOutcome{
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
-		Group:       r.resolveGroup(),
+		Group:       r.resolveGroup(tc),
 		Golden:      tc.Golden,
 		Status:      overallStatus(runs),
 		Runs:        runs,
@@ -2660,12 +2607,21 @@ func (r *EvalRunner) buildTranscript(resp *execution.ExecutionResponse) []models
 }
 
 // resolveGroup returns the group value for the current benchmark configuration.
-// Currently only "model" is supported; CSV column grouping will be added with #187.
-func (r *EvalRunner) resolveGroup() string {
+func (r *EvalRunner) resolveGroup(tc *models.TestCase) string {
 	spec := r.cfg.Spec()
 	switch spec.Config.GroupBy {
 	case "model":
 		return spec.Config.ModelID
+	case "tags":
+		encoded := make([]string, len(tc.Tags))
+		for i, tag := range tc.Tags {
+			if tag == "" {
+				encoded[i] = `\0`
+				continue
+			}
+			encoded[i] = strings.NewReplacer(`\`, `\\`, ",", `\,`).Replace(tag)
+		}
+		return strings.Join(encoded, ", ")
 	case "":
 		return ""
 	default:
