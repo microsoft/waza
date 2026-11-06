@@ -783,7 +783,7 @@ func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 // admissionTestCases selects the active tasks a run would execute, after task
 // and tag filters, without starting an engine.
 func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
-	testCases, err := r.loadTestCases()
+	testCases, err := LoadSelectedTestCases(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load test cases: %w", err)
 	}
@@ -796,11 +796,11 @@ func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
 	return testCases, nil
 }
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
-	return LoadSelectedTestCases(r.cfg.Spec(), r.cfg.SpecDir(), time.Now())
+	return LoadSelectedTestCasesWithJobID(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime(), r.evalRunID)
 }
 
 func (r *EvalRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
-	return loadSelectedTestCasesFromCSV(r.cfg.Spec(), r.cfg.SpecDir(), time.Now())
+	return loadSelectedTestCasesFromCSV(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime(), r.evalRunID)
 }
 
 // validateRequiredSkills performs preflight validation that all required skills are present.

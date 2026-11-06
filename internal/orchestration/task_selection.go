@@ -15,7 +15,13 @@ import (
 // LoadSelectedTestCases loads the active tasks execution would select from an
 // eval spec before command-level task and tag filters are applied.
 func LoadSelectedTestCases(spec *models.EvalSpec, specDir string, now time.Time) ([]*models.TestCase, error) {
-	return loadSelectedTestCases(spec, specDir, now, models.LoadTestCase, mcpmock.ValidateInlineMockDeclarations)
+	return loadSelectedTestCases(spec, specDir, now, "", models.LoadTestCase, mcpmock.ValidateInlineMockDeclarations)
+}
+
+// LoadSelectedTestCasesWithJobID loads selected tasks using the allocated ID
+// when rendering runtime CSV prompts.
+func LoadSelectedTestCasesWithJobID(spec *models.EvalSpec, specDir string, now time.Time, jobID string) ([]*models.TestCase, error) {
+	return loadSelectedTestCases(spec, specDir, now, jobID, models.LoadTestCase, mcpmock.ValidateInlineMockDeclarations)
 }
 
 // LoadSelectedTestCasesOffline uses execution's task selection while refusing
@@ -28,7 +34,7 @@ func LoadSelectedTestCasesOffline(spec *models.EvalSpec, specDir string, now tim
 		}
 		return models.ParseTestCaseOffline(data, path, graders.ValidateConfig)
 	}
-	return loadSelectedTestCases(spec, specDir, now, load, mcpmock.ValidateInlineMockDeclarationsOffline)
+	return loadSelectedTestCases(spec, specDir, now, "", load, mcpmock.ValidateInlineMockDeclarationsOffline)
 }
 
 type testCaseLoader func(string) (*models.TestCase, error)
@@ -38,11 +44,12 @@ func loadSelectedTestCases(
 	spec *models.EvalSpec,
 	specDir string,
 	now time.Time,
+	jobID string,
 	load testCaseLoader,
 	validateInlineMocks inlineMockValidator,
 ) ([]*models.TestCase, error) {
 	if spec.TasksFrom != "" {
-		return loadSelectedTestCasesFromCSV(spec, specDir, now)
+		return loadSelectedTestCasesFromCSV(spec, specDir, now, jobID)
 	}
 
 	if specDir == "" {
@@ -94,6 +101,9 @@ func loadSelectedTestCases(
 	return testCases, nil
 }
 
-func loadSelectedTestCasesFromCSV(spec *models.EvalSpec, specDir string, now time.Time) ([]*models.TestCase, error) {
-	return dataset.LoadTasks(spec, specDir, now)
+func loadSelectedTestCasesFromCSV(spec *models.EvalSpec, specDir string, now time.Time, jobID string) ([]*models.TestCase, error) {
+	if jobID == "" {
+		return dataset.LoadTasks(spec, specDir, now)
+	}
+	return dataset.LoadTasksWithJobID(spec, specDir, now, jobID)
 }
