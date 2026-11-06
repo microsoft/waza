@@ -384,7 +384,11 @@ func parseEvalSpec(evalPath string) (*evalSpecLite, error) {
 	spec.Scenario = scenario
 	spec.Graders = make([]models.GraderConfig, 0, len(raw.Graders))
 	for _, node := range raw.Graders {
-		graderData, err := yaml.Marshal(&node)
+		standalone, err := standaloneYAMLNode(&node, make(map[*yaml.Node]bool), 0)
+		if err != nil {
+			return nil, err
+		}
+		graderData, err := yaml.Marshal(standalone)
 		if err != nil {
 			return nil, err
 		}
@@ -395,6 +399,38 @@ func parseEvalSpec(evalPath string) (*evalSpecLite, error) {
 		spec.Graders = append(spec.Graders, grader)
 	}
 	return spec, nil
+}
+
+func standaloneYAMLNode(node *yaml.Node, active map[*yaml.Node]bool, depth int) (*yaml.Node, error) {
+	const maxYAMLDepth = 128
+	if node == nil {
+		return nil, fmt.Errorf("grader YAML alias has no target")
+	}
+	if depth > maxYAMLDepth {
+		return nil, fmt.Errorf("grader YAML alias expansion exceeds %d levels", maxYAMLDepth)
+	}
+	if active[node] {
+		return nil, fmt.Errorf("grader YAML contains a cyclic alias")
+	}
+	active[node] = true
+	defer delete(active, node)
+
+	if node.Kind == yaml.AliasNode {
+		return standaloneYAMLNode(node.Alias, active, depth+1)
+	}
+
+	cloned := *node
+	cloned.Anchor = ""
+	cloned.Alias = nil
+	cloned.Content = make([]*yaml.Node, len(node.Content))
+	for i, child := range node.Content {
+		expanded, err := standaloneYAMLNode(child, active, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		cloned.Content[i] = expanded
+	}
+	return &cloned, nil
 }
 
 func parseSkillName(path string) string {

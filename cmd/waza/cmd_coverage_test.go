@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -432,6 +433,43 @@ graders:
 	assert.Equal(t, []string{"text"}, report.Skills[0].Graders)
 	assert.Equal(t, "⚠️ Partial", report.Skills[0].Coverage)
 	assert.Zero(t, report.CoveragePct)
+}
+
+func TestCoverageCommand_WholeGraderAliasPreservesTasks(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, filepath.Join("skills", "greeting"), "greeting")
+	writeTask(t, root, filepath.Join("evals", "greeting", "tasks", "first.yaml"), "first")
+	evalPath := filepath.Join(root, "evals", "greeting", "eval.yaml")
+	writeEval(t, root, filepath.Join("evals", "greeting", "eval.yaml"), `
+schemaVersion: "1.4"
+name: aliased-grader
+skill: greeting
+config:
+  executor: mock
+  model: mock
+  trials_per_task: 1
+  timeout_seconds: 5
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 1
+tasks: [tasks/*.yaml]
+graders:
+  - &output
+    name: output
+    type: text
+    config: {regex_match: [".+"]}
+  - *output
+`)
+
+	_, err := models.LoadEvalSpec(evalPath)
+	require.NoError(t, err)
+
+	report := executeCoverageJSON(t, root)
+	require.Len(t, report.Skills, 1)
+	assert.Equal(t, 1, report.Skills[0].Tasks)
+	assert.Equal(t, []string{"text"}, report.Skills[0].Graders)
+	assert.Equal(t, "⚠️ Partial", report.Skills[0].Coverage)
 }
 
 func TestCoverageCommand_InvalidGraderCannotReportFull(t *testing.T) {
