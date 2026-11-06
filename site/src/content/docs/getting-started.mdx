@@ -72,13 +72,17 @@ azd waza --help
 ```
 
 Extension artifacts are versioned separately from standalone releases. The registry
-lists through `0.40.0`, matching the
-[published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0).
-The [separate v0.40.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
+lists through `0.40.1`, matching the
+[published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1).
+The [separate v0.40.1 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1)
 is published, and this repository's registry and version metadata are synchronized
-to `0.40.0`. The source above installs from the main registry; an existing source
-or installation may need updating before it selects v0.40.0.
-The source URL above follows `main`, not this branch. Before the
+to `0.40.1`. The source above installs from the main registry; an existing source
+or installation may need updating before it selects v0.40.1.
+For historical context, the
+[separate v0.40.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
+was published with guidance recording that its registry and version metadata are synchronized
+to `0.40.0`; an existing source
+or installation may need updating before it selects v0.40.0. Its archived note says the source URL above follows `main`, not this branch. Before the
 [release-sync PR #883](https://github.com/microsoft/waza/pull/883) merges, that URL
 still serves `0.39.1`; after the merge it includes `0.40.0`. Updating an
 installation before the merge cannot select `0.40.0` from that source.
