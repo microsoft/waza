@@ -52,14 +52,14 @@ test('all built internal page routes, fragments and image assets resolve under t
 
 test('beginner learning order and published release availability are visible', async ({ page }) => {
   await page.goto('/waza/');
-  await expect(page.locator('main')).toContainText('New in v0.40.0');
+  await expect(page.locator('main')).toContainText('New in v0.40.1');
   await expect(page.locator('main')).not.toContainText('building upcoming main');
   await page.goto('/waza/quick-start/');
   const navigation = page.getByRole('navigation', { name: 'Main' });
   for (const name of ['Concepts and Learning Path', 'Project Configuration', 'Statistical Fields']) {
     await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible();
   }
-  await expect(page.locator('main')).toContainText('Published standalone v0.40.0');
+  await expect(page.locator('main')).toContainText('Published standalone v0.40.1');
   await expect(page.locator('main')).toContainText('no source build is required');
   await expect(page.locator('main')).toContainText('If you prefer to build from source');
   await expect(page.locator('main')).toContainText('expect exit 1');
@@ -82,7 +82,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     const main = page.locator('main');
     await expect(main.locator('.starlight-aside')).toHaveCount(0);
     const announcement = main.getByRole('link', { name: 'Read the release article', exact: true });
-    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-40-0/');
+    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-40-1/');
     await expect(announcement).toBeInViewport();
     await expect(main.getByRole('heading', { name: 'What can waza do?', exact: true })).toBeInViewport();
     const paragraph = announcement.locator('..');
@@ -93,7 +93,21 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.screenshot({ path: join(screenshotDir, `site-v040-home-${viewport.width}.png`), fullPage: true });
 
     await announcement.click();
-    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-0\/$/);
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-1\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.40.1: make release workflows match their contracts');
+    for (const text of [
+      'Released November 6, 2026',
+      'zero tasks and Partial coverage',
+      'tokens check --strict',
+      'group_by: tags',
+      'top-level eval inputs',
+      'nanosecond-resolution run IDs',
+      'adversarial --artifacts-dir',
+      'without canceling the active request',
+      'file descriptor 0',
+    ]) await expect(page.locator('main')).toContainText(text);
+
+    await page.goto('/waza/releases/v0-40-0/');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.40.0: run exactly the work you declared');
     for (const text of [
       'Released November 4, 2026',
@@ -196,17 +210,17 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Runner contract and capability negotiation');
 
     await page.goto('/waza/reference/releases/');
-    await page.locator('main').getByRole('link', { name: 'Waza v0.40.0: run exactly the work you declared', exact: true }).click();
-    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-0\/$/);
+    await page.locator('main').getByRole('link', { name: 'Waza v0.40.1: make release workflows match their contracts', exact: true }).click();
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-1\/$/);
     if (viewport.width < 600) await page.locator('.sl-menu-button').click();
     const navigation = page.getByRole('navigation', { name: 'Main', exact: true });
-    for (const name of ['Waza v0.40.0', 'Waza v0.39.0', 'Introducing Dashboard Lab']) {
+    for (const name of ['Waza v0.40.1', 'Waza v0.40.0', 'Waza v0.39.0', 'Introducing Dashboard Lab']) {
       await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible();
     }
     await navigation.getByRole('link', { name: 'Overview & downloads', exact: true }).click();
     await expect(page).toHaveURL(/\/waza\/reference\/releases\/$/);
     if (viewport.width < 600) await page.locator('.sl-menu-button').click();
-    await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('link', { name: 'Waza v0.40.0', exact: true }).click();
-    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-0\/$/);
+    await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('link', { name: 'Waza v0.40.1', exact: true }).click();
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-1\/$/);
   });
 }

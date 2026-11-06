@@ -517,16 +517,28 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 func TestRunTest_CacheHitRecomputesStatsFromRuns(t *testing.T) {
 	spec := &models.EvalSpec{
 		SkillName: "cache-skill",
-		Config:    models.Config{TrialsPerTask: 3, TimeoutSec: 30, EngineType: "mock", ModelID: "mock-model"},
+		Config: models.Config{
+			TrialsPerTask: 3,
+			TimeoutSec:    30,
+			EngineType:    "mock",
+			ModelID:       "mock-model",
+			GroupBy:       "tags",
+		},
 	}
 	resultCache := cache.New(t.TempDir())
 	runner := NewEvalRunner(config.NewEvalConfig(spec), execution.NewMockEngine("mock-model"), WithCache(resultCache))
-	testCase := &models.TestCase{TestID: "legacy-task", DisplayName: "Legacy Task", Stimulus: models.TaskStimulus{Message: "cached"}}
+	testCase := &models.TestCase{
+		TestID:      "legacy-task",
+		DisplayName: "Legacy Task",
+		Tags:        []string{"smoke"},
+		Stimulus:    models.TaskStimulus{Message: "cached"},
+	}
 
-	// A cache entry written by an older waza: stats carry is_significant and no pass_rate_ci.
+	// A cache entry written by an older waza: stats carry is_significant and no
+	// pass_rate_ci, while the group reflects an earlier model grouping.
 	var legacy models.TestOutcome
 	require.NoError(t, json.Unmarshal([]byte(`{
-		"test_id": "legacy-task", "display_name": "Legacy Task", "status": "failed",
+		"test_id": "legacy-task", "display_name": "Legacy Task", "group": "mock-model", "status": "failed",
 		"runs": [{"status": "passed"}, {"status": "passed"}, {"status": "failed"}],
 		"stats": {"total_runs": 3, "passed_runs": 2, "is_significant": true}
 	}`), &legacy))
@@ -539,6 +551,7 @@ func TestRunTest_CacheHitRecomputesStatsFromRuns(t *testing.T) {
 	require.NotNil(t, outcome.Stats)
 	require.NotNil(t, outcome.Stats.PassRateCI, "cache hits must carry current stats")
 	assert.InDelta(t, 2.0/3.0, outcome.Stats.PassRateCI.Mean, 1e-9)
+	assert.Equal(t, "smoke", outcome.Group, "cache hits must carry the current group")
 	data, err := json.Marshal(outcome.Stats)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "is_significant")
