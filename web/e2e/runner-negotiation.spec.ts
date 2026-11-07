@@ -173,7 +173,10 @@ test.describe("Runner negotiation through the real Go API", () => {
     for (const field of ["run", "trial"] as const) {
       const contradiction = structuredClone(resumed);
       const original = contradiction.submission.reservation.binding.identity[field];
-      const changed = field === "run" ? `${original}-retagged` : original + 1;
+      const identityPattern = field === "run" ? /^run-[a-f0-9]{64}$/ : /^trial-[a-f0-9]{64}$/;
+      expect(original).toMatch(identityPattern);
+      const changed = `${original.slice(0, -1)}${original.endsWith("0") ? "1" : "0"}`;
+      expect(changed).toMatch(identityPattern);
       contradiction.submission.reservation.binding.identity[field] = changed;
       contradiction.submission.terminal.identity[field] = changed;
       expect(contradiction.submission.reservation.binding.identity[field]).not.toBe(original);
