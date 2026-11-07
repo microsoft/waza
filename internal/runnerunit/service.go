@@ -379,8 +379,8 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 // historical result writer contract, not the terminal transport envelope.
 func (s *Service) RunLocal(ctx context.Context, data []byte) (*models.EvaluationOutcome, error) {
 	report := s.run(ctx, data, true)
-	// Legacy run saves observed execution errors as failed task artifacts.
-	// Keep their typed causes for terminal callers, not the local exit policy.
+	// Local projection retains observed execution-error artifacts. Terminal
+	// callers keep typed causes; the local CLI applies the artifact's exit policy.
 	if report.localOutcome != nil && report.boundary == "execution" &&
 		report.Observation != nil && report.Observation.Status == models.StatusError {
 		return report.localOutcome, nil
