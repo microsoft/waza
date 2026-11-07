@@ -23,12 +23,13 @@ import (
 // runs before factory construction; Terminal runs after joined lifecycle.
 // Neither callback implies cancellation acknowledgment or process-wait evidence.
 type SubmissionHooks struct {
-	Admission          func(context.Context, artifactmanifest.Binding) error
-	ReuseAdmission     func(context.Context, *executionledger.CompletedExecution) error
-	PreparePublication func(context.Context, *executionledger.Ledger, executionledger.Creator, SubmissionSnapshot) (SubmissionPublication, error)
-	Reserved           func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error
-	Terminal           func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation, runnerterminal.Envelope) error
-	Artifacts          func(context.Context, *executionledger.Ledger, executionledger.Creator, SubmissionSnapshot) ([]SubmissionArtifact, error)
+	Admission           func(context.Context, artifactmanifest.Binding) error
+	ReuseAdmission      func(context.Context, *executionledger.CompletedExecution) error
+	PreparePublication  func(context.Context, *executionledger.Ledger, executionledger.Creator, SubmissionSnapshot) (SubmissionPublication, error)
+	ValidatePublication func(context.Context, SubmissionSnapshot, SubmissionPublication) error
+	Reserved            func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error
+	Terminal            func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation, runnerterminal.Envelope) error
+	Artifacts           func(context.Context, *executionledger.Ledger, executionledger.Creator, SubmissionSnapshot) ([]SubmissionArtifact, error)
 }
 
 // SubmissionSnapshot carries detached original evidence after lifecycle return.
@@ -137,6 +138,11 @@ func validateSourceReport(data []byte, source *executionledger.CompletedExecutio
 func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanifest.Backend, hooks SubmissionHooks) (result Submission, failure error) {
 	result = Submission{Kind: "waza.execution-submission-result", SchemaVersion: "1.0",
 		Status: "rejected", ExitCode: 6, Diagnostics: []runnercontract.Diagnostic{}}
+	if hooks.ValidatePublication != nil && hooks.PreparePublication == nil {
+		err := fmt.Errorf("publication content validation requires a preparation policy")
+		result.fail("publication_policy_invalid", err)
+		return result, err
+	}
 	request, err := ParseSubmission(data)
 	if err != nil {
 		result.Diagnostics = []runnercontract.Diagnostic{{
@@ -297,6 +303,19 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 			result.Terminal = nil
 			result.fail("publication_policy_failed", err)
 			return result, err
+		}
+		if hooks.ValidatePublication != nil {
+			originalSnapshot, err := submissionSnapshot(ledger, creator, report, fullReport, terminalData, terminalBinding)
+			if err != nil {
+				result.Terminal = nil
+				result.fail("report_snapshot_failed", err)
+				return result, err
+			}
+			if err := hooks.ValidatePublication(publicationContext, originalSnapshot, prepared); err != nil {
+				result.Terminal = nil
+				result.fail("publication_content_invalid", err)
+				return result, err
+			}
 		}
 		projected, err := validatePublicationTerminal(envelope, prepared.Terminal, terminalBinding)
 		if err != nil {
