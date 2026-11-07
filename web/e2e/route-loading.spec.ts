@@ -128,3 +128,35 @@ for (const target of lazyRoutes) {
     }
   });
 }
+
+for (const target of lazyRoutes.filter(({ path }) => path === "/compare" || path === "/lab/demo")) {
+  test(`${target.path} recovers from a failed chunk download`, async ({ page }) => {
+    await mockAllAPIs(page);
+    let failChunks = false;
+    await page.route(
+      (url) => /^\/assets\/[^/]+\.js$/.test(url.pathname),
+      (route) => failChunks ? route.abort("failed") : route.continue(),
+    );
+    await page.goto("/");
+    await expect(page.getByText("code-explainer")).toBeVisible();
+    failChunks = true;
+    await page.evaluate((path) => { window.location.hash = path; }, target.path);
+
+    await expect(page.getByRole("alert")).toContainText("This dashboard view could not be loaded.");
+    if (target.path === "/compare") {
+      await expect(page.getByRole("link", { name: "Compare", exact: true })).toBeVisible();
+    }
+    await page.getByRole("link", { name: "Return to runs", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Eval Runs", exact: true })).toBeVisible();
+
+    failChunks = false;
+    await page.getByRole("link", { name: "Trends", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Trends", exact: true })).toBeVisible();
+    await page.evaluate((path) => { window.location.hash = path; }, target.path);
+    await expect(page.getByRole("alert")).toBeVisible();
+    await page.getByRole("button", { name: "Reload view", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: target.heading, exact: true }),
+    ).toBeVisible();
+  });
+}
