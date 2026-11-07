@@ -54,7 +54,17 @@ jobs:
           cache-to: type=gha,mode=min
 
       - name: Verify
-        run: docker run --rm waza:ci-${{ github.sha }} --version
+        run: |
+          docker run --rm waza:ci-${{ github.sha }} --version
+          docker run --rm --pull=never --network=none --read-only \
+            --entrypoint /bin/sh waza:ci-${{ github.sha }} \
+            -c 'for path in /go/pkg/mod /root/.cache/go-build /build; do
+              if [ -e "$path" ] || [ -L "$path" ]; then
+                echo "Build cache or source leaked into runtime image: $path" >&2
+                exit 1
+              fi
+            done
+            echo "Runtime cache and source paths absent"'
 
   runner-reference:
     name: Local runner container contract
