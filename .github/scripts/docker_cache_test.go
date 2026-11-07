@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDockerGoCacheContract(t *testing.T) {
@@ -78,6 +80,86 @@ func TestDockerGoCacheContract(t *testing.T) {
 		})
 	}
 }
+
+func TestDockerRuntimeCacheProbe(t *testing.T) {
+	data, err := os.ReadFile("../workflows/docker-ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := strings.ReplaceAll(string(data), "\r\n", "\n")
+	check := func(source string) error {
+		var workflow struct {
+			Jobs map[string]releaseJob
+		}
+		if err := yaml.Unmarshal([]byte(source), &workflow); err != nil {
+			return err
+		}
+		found := 0
+		for _, step := range workflow.Jobs["docker-build"].Steps {
+			if step.Name != "Verify" {
+				continue
+			}
+			found++
+			if step.If != "" || step.ContinueOnError || strings.TrimSpace(step.Run) != dockerRuntimeProbeOracle {
+				return fmt.Errorf("Docker verification must run the version check and fail-closed loaded-image cache probe")
+			}
+		}
+		if found != 1 {
+			return fmt.Errorf("expected one Docker Verify step, found %d", found)
+		}
+		return nil
+	}
+	if err := check(source); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("crlf-workflow", func(t *testing.T) {
+		crlf := strings.ReplaceAll(source, "\n", "\r\n")
+		if crlf == source {
+			t.Fatal("CRLF control did not change the production workflow")
+		}
+		if err := check(crlf); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, mutation := range []struct {
+		name, old, replacement string
+	}{
+		{"missing-version", "docker run --rm waza:ci-${{ github.sha }} --version", "true"},
+		{"wrong-image", "--entrypoint /bin/sh waza:ci-${{ github.sha }}", "--entrypoint /bin/sh waza:other"},
+		{"network-enabled", "--network=none", "--network=bridge"},
+		{"writable-root", "--read-only", ""},
+		{"registry-fallback", "--pull=never", "--pull=always"},
+		{"missing-module-path", "/go/pkg/mod", "/unused-mod"},
+		{"missing-compiler-path", "/root/.cache/go-build", "/unused-build"},
+		{"missing-source-path", "/build; do", "/unused-source; do"},
+		{"missing-directory-check", `[ -e "$path" ]`, `[ -f "$path" ]`},
+		{"missing-symlink-check", ` || [ -L "$path" ]`, ""},
+		{"ignored-failure", "exit 1", "true"},
+		{"skipped-verification", "      - name: Verify\n", "      - name: Verify\n        if: 'false'\n"},
+		{"allowed-failure", "      - name: Verify\n", "      - name: Verify\n        continue-on-error: true\n"},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			mutated := strings.Replace(source, mutation.old, mutation.replacement, 1)
+			if mutated == source {
+				t.Fatal("mutation did not change the production workflow")
+			}
+			if err := check(mutated); err == nil {
+				t.Fatal("invalid loaded-image cache probe must fail")
+			}
+		})
+	}
+}
+
+const dockerRuntimeProbeOracle = `docker run --rm waza:ci-${{ github.sha }} --version
+docker run --rm --pull=never --network=none --read-only \
+  --entrypoint /bin/sh waza:ci-${{ github.sha }} \
+  -c 'for path in /go/pkg/mod /root/.cache/go-build /build; do
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      echo "Build cache or source leaked into runtime image: $path" >&2
+      exit 1
+    fi
+  done
+  echo "Runtime cache and source paths absent"'`
 
 const dockerCacheRuntimeOracle = `FROM alpine:3.19
 
