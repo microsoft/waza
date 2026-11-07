@@ -9,6 +9,7 @@ import artifacts from '../../../../schemas/artifact-manifest-1.0.schema.json';
 import evidence from '../../../../schemas/execution-evidence-1.0.schema.json';
 import attempts from '../../../../schemas/execution-attempt-1.0.schema.json';
 import completions from '../../../../schemas/execution-completion-1.0.schema.json';
+import evidenceCapture from '../../../../schemas/execution-evidence-capture-1.0.schema.json';
 import checkpoint from '../../../../schemas/execution-checkpoint-1.0.schema.json';
 import checkpointResult from '../../../../schemas/runner-checkpoint-result-1.0.schema.json';
 import lifecycle from '../../../../schemas/execution-lifecycle-1.0.schema.json';
@@ -27,6 +28,7 @@ export function getStaticPaths() {
     { params: { schema: 'execution-evidence-1.0.schema' }, props: { schema: evidence } },
     { params: { schema: 'execution-attempt-1.0.schema' }, props: { schema: attempts } },
     { params: { schema: 'execution-completion-1.0.schema' }, props: { schema: completions } },
+    { params: { schema: 'execution-evidence-capture-1.0.schema' }, props: { schema: evidenceCapture } },
     { params: { schema: 'execution-checkpoint-1.0.schema' }, props: { schema: checkpoint } },
     { params: { schema: 'runner-checkpoint-result-1.0.schema' }, props: { schema: checkpointResult } },
     { params: { schema: 'execution-lifecycle-1.0.schema' }, props: { schema: lifecycle } },
