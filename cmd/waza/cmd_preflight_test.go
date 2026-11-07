@@ -185,6 +185,8 @@ graders:
 	path := filepath.Join(dir, "eval.yaml")
 	taskPath := filepath.Join(dir, "task.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(eval), 0600))
+	triggerPath := filepath.Join(dir, "trigger_tests.yaml")
+	require.NoError(t, os.WriteFile(triggerPath, []byte(admissionTrigger), 0600))
 	malformedMCPPath := filepath.Join(dir, "malformed-mcp.yaml")
 	require.NoError(t, os.WriteFile(malformedMCPPath, []byte(strings.ReplaceAll(eval,
 		"headers: {Authorization: private-token}", "headers: [private-token]")), 0600))
@@ -311,6 +313,9 @@ tasks: [unsupported-task.yaml]
 	taskAfter, err := os.ReadFile(taskPath)
 	require.NoError(t, err)
 	require.Equal(t, task, string(taskAfter))
+	triggerAfter, err := os.ReadFile(triggerPath)
+	require.NoError(t, err)
+	require.Equal(t, admissionTrigger, string(triggerAfter), "trigger discovery must remain read-only")
 }
 
 func TestPreflightHumanAndErrors(t *testing.T) {

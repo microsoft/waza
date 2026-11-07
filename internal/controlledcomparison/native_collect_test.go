@@ -227,7 +227,8 @@ func TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime(t *testi
 	require.Len(t, decision.Native.Attempts, 2, "both actual default builders must have been reached")
 	for _, attempt := range decision.Native.Attempts {
 		require.Equal(t, "failed", attempt.Lifecycle["initialize"].State)
-		require.Equal(t, "failed", attempt.Lifecycle["shutdown"].State)
+		require.Equal(t, "not_attempted", attempt.Lifecycle["execute"].State)
+		require.Equal(t, "completed", attempt.Lifecycle["shutdown"].State)
 		require.Equal(t, "unavailable", attempt.OutputAvailability)
 	}
 	registries, err := filepath.Glob(filepath.Join(scratch, "waza-command-mocks-*"))
