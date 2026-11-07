@@ -93,11 +93,11 @@ output error; a failed confirmation leaves an already saved artifact intact.
 | Local exit | Meaning |
 |---|---|
 | 0 | All observed checks passed. |
-| 1 | Checks failed or an execution-error attempt was observed; requested results are saved with the native run status and failed-task aggregate. |
-| 2 | Invalid/unsupported configuration, failure before an observed attempt, lifecycle or output error. No success-shaped fallback. |
+| 1 | Completed checks failed; requested results retain the native failed verdict. |
+| 2 | Invalid/unsupported configuration, operational execution/grading, lifecycle or output error. Observed execution errors are saved as errored tasks and contribute to `summary.errors`. No success-shaped fallback. |
 
-Cancellation or timeout recorded by the attempt keeps the historical error
-artifact and local exit policy. External terminal callers instead classify
+Cancellation or timeout recorded by the attempt keeps the observed error
+artifact and runtime-error exit policy. External terminal callers instead classify
 the typed cause; their transport taxonomy is not written into local results.
 
 Change the expected string to `missing-marker` for a deliberately failing
