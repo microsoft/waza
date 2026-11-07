@@ -155,6 +155,37 @@ esac
 	return nil
 }
 
+func checkOrdinaryRuntimeMarker(t *testing.T, command string) error {
+	t.Helper()
+	guard := filepath.Join(t.TempDir(), "offline runtime")
+	for _, present := range []bool{false, true} {
+		if present {
+			if err := os.WriteFile(guard+".invoked", nil, 0o600); err != nil {
+				return err
+			}
+		}
+		cmd := exec.Command("bash", "-e", "-o", "pipefail", "-c", command)
+		cmd.Env = append(os.Environ(), "COPILOT_CLI_PATH="+filepath.ToSlash(guard))
+		output, err := cmd.CombinedOutput()
+		status := 0
+		if err != nil {
+			exit, ok := err.(*exec.ExitError)
+			if !ok {
+				return fmt.Errorf("execute runtime marker check: %w", err)
+			}
+			status = exit.ExitCode()
+		}
+		expected := 0
+		if present {
+			expected = 1
+		}
+		if status != expected {
+			return fmt.Errorf("runtime marker present=%t: exit %d; want %d\n%s", present, status, expected, output)
+		}
+	}
+	return nil
+}
+
 func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName string, packages []string) error {
 	t.Helper()
 	var workflow struct {
@@ -219,6 +250,9 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 		}
 		if !strings.Contains(commands[required[3]], `"$COPILOT_CLI_PATH.invoked"`) {
 			return fmt.Errorf("%s: tolerated runtime launches must fail validation", jobName)
+		}
+		if err := checkOrdinaryRuntimeMarker(t, commands[required[3]]); err != nil {
+			return fmt.Errorf("%s: %w", jobName, err)
 		}
 		integration := commands[required[4]]
 		if !strings.Contains(integration, "bash .github/scripts/release_integration_test.sh") {
@@ -286,7 +320,16 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 			mutations = append(mutations,
 				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./internal/models"},
 				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./cmd/waza"},
+				[2]string{`if [ -e "$COPILOT_CLI_PATH.invoked" ]; then`, "if true; then"},
 			)
+			message := "Preview Go tests attempted to launch the Copilot runtime."
+			if name == "go-ci.yml" {
+				message = "Ordinary Go tests attempted to launch the Copilot runtime."
+			}
+			mutations = append(mutations, [2]string{
+				`echo "` + message + "\" >&2\n            exit 1",
+				`echo "` + message + "\" >&2\n            :",
+			})
 			for _, mutation := range mutations {
 				mutated := strings.Replace(string(source), mutation[0], mutation[1], 1)
 				if mutated == string(source) {

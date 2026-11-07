@@ -37,6 +37,8 @@ Workflow regression controls execute the production test-selection shell with a
 recording Go substitute and compare its arguments with actual package discovery.
 They require the whole suite (excluding only the separately guarded native shard
 package on Linux), uncached race/atomic coverage, and no narrowing test selectors.
+They also execute each production runtime-marker check with an absent and a
+present marker, requiring success only when no forbidden launch was recorded.
 
 Ordinary and `--runner-compat` benchmark summaries use the command's configured
 output writer and propagate write failures, including short writes, as output
