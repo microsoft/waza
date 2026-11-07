@@ -228,6 +228,21 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 		{"symlink-referenced-js", []string{index, favicon, js, css}, nil, "", false},
 		{"placeholder-index", []string{index, favicon, js, css}, nil, "", false},
 		{"escaping-reference", []string{index, favicon, js, css}, nil, "", false},
+		{"missing-relative-preload", []string{index, favicon, js, css}, nil, "", false},
+		{"missing-relative-script", []string{index, favicon, js, css}, nil, "", false},
+		{"missing-relative-style", []string{index, favicon, js, css}, nil, "", false},
+		{"nonlocal-script", []string{index, favicon, js, css}, nil, "", false},
+		{"nonlocal-style", []string{index, favicon, js, css}, nil, "", false},
+		{"nonlocal-preload", []string{index, favicon, js, css}, nil, "", false},
+		{"empty-script-src", []string{index, favicon, js, css}, nil, "", false},
+		{"missing-style-href", []string{index, favicon, js, css}, nil, "", false},
+		{"malformed-preload", []string{index, favicon, js, css}, nil, "", false},
+		{"relative-refs", []string{index, favicon, js, css}, nil, "", true},
+		{"unquoted-refs", []string{index, favicon, js, css}, nil, "", true},
+		{"nonasset-links-inline", []string{index, favicon, js, css}, nil, "", true},
+		{"missing-preload-as-script", []string{index, favicon, js, css}, nil, "", false},
+		{"duplicate-src", []string{index, favicon, js, css}, nil, "", false},
+		{"preload-as-style", []string{index, favicon, js, css}, nil, "", true},
 	} {
 		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -277,6 +292,36 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 					html.WriteString("<html>placeholder</html>")
 				case "escaping-reference":
 					html.WriteString("<script src=\"/assets/../outside.js\"></script>\n")
+				case "missing-relative-preload":
+					html.WriteString("<link rel=\"modulepreload\" href=\"./assets/missing.js\">\n")
+				case "missing-relative-script":
+					html.WriteString("<script src=\"assets/missing.js\"></script>\n")
+				case "missing-relative-style":
+					html.WriteString("<link rel=\"stylesheet\" href=\"./assets/missing.css\">\n")
+				case "nonlocal-script":
+					html.WriteString("<script src=\"https://example.invalid/remote.js\"></script>\n")
+				case "nonlocal-style":
+					html.WriteString("<link rel=\"stylesheet\" href=\"//example.invalid/style.css\">\n")
+				case "nonlocal-preload":
+					html.WriteString("<link rel=\"modulepreload\" href=\"data:text/javascript,void(0)\">\n")
+				case "empty-script-src":
+					html.WriteString("<script src=\"\"></script>\n")
+				case "missing-style-href":
+					html.WriteString("<link rel=\"stylesheet\">\n")
+				case "malformed-preload":
+					html.WriteString("<link rel=\"modulepreload\" href=\"./assets/missing.js\n")
+				case "relative-refs":
+					html.WriteString("<script src='./assets/index-a.js?cache=1'></script>\n<link rel='stylesheet' href='assets/index-b.css'>\n")
+				case "unquoted-refs":
+					html.WriteString("<script src=./assets/index-a.js></script>\n<link rel=modulepreload href=assets/index-a.js>\n")
+				case "nonasset-links-inline":
+					html.WriteString("<link rel=\"icon\" href=\"/favicon.svg\"><link rel=\"canonical\" href=\"https://example.invalid/\"><script>globalThis.fixture = true;</script><!-- <script src=\"ignored-comment.js\"> -->\n")
+				case "missing-preload-as-script":
+					html.WriteString("<link rel=\"preload\" as=\"script\" href=\"./assets/missing.js\">\n")
+				case "duplicate-src":
+					html.WriteString("<script src=\"/assets/index-a.js\" src=\"/assets/missing.js\"></script>\n")
+				case "preload-as-style":
+					html.WriteString("<link REL=\"PRELOAD\" AS=\"STYLE\" href=\"./assets/index-b.css\">\n")
 				}
 				switch fixture.name {
 				case "empty-referenced-js":
