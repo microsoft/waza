@@ -49,17 +49,46 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       
       - name: Install Waza
+        if: github.repository != 'microsoft/waza'
         run: |
-          curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          waza --version
+          curl -fsSL \
+            https://raw.githubusercontent.com/microsoft/waza/v0.41.0/.github/scripts/install-waza-release.sh \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" 0.41.0
+
+      - name: Setup Go for repository source check
+        if: github.repository == 'microsoft/waza'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+
+      - name: Setup Node for repository source check
+        if: github.repository == 'microsoft/waza'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Build exact repository source and install offline guard
+        if: github.repository == 'microsoft/waza'
+        run: |
+          make build VERSION=0.41.0
+          echo "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
+          bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
+
+      - name: Verify Waza binary
+        run: waza --version
       
       - name: Determine Eval File
         id: eval-file
         env:
           EVAL_INPUT: ${{ inputs.eval-yaml }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          EVAL_FILE="${EVAL_INPUT:-eval/eval.yaml}"
+          default_eval=eval/eval.yaml
+          if [ "$REPOSITORY" = microsoft/waza ]; then
+            default_eval=examples/code-explainer/eval.yaml
+          fi
+          EVAL_FILE="${EVAL_INPUT:-$default_eval}"
           if [[ "$EVAL_FILE" == *$'\n'* || "$EVAL_FILE" == *$'\r'* ]]; then
             echo "::error::Evaluation file must be a single-line path"
             exit 1
@@ -83,8 +112,9 @@ jobs:
       
       - name: Run Waza Evaluation
         id: run-eval
+        env:
+          EVAL_FILE: ${{ steps.eval-file.outputs.eval-file }}
         run: |
-          EVAL_FILE="${{ steps.eval-file.outputs.eval-file }}"
           rm -f -- results.json
           set +e
           waza run "$EVAL_FILE" \
@@ -99,22 +129,18 @@ jobs:
         if: always()
         env:
           RUN_EXIT_CODE: ${{ steps.run-eval.outputs.exit_code }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          if [ ! -s results.json ]; then
-            echo "::error::Waza did not produce results.json"
-            exit 1
+          validator=.github/scripts/validate-waza-result.sh
+          if [ "$REPOSITORY" != microsoft/waza ]; then
+            validator="$RUNNER_TEMP/validate-waza-result.sh"
+            curl -fsSL \
+              https://raw.githubusercontent.com/microsoft/waza/v0.41.0/.github/scripts/validate-waza-result.sh \
+              -o "$validator"
           fi
-          jq -e '
-            .schemaVersion and .eval_id and
-            (.summary.success_rate | type == "number") and
-            (.summary.aggregate_score | type == "number") and
-            (.summary.weighted_score | type == "number") and
-            (.tasks | type == "array") and
-            (.summary.total_tests == (.tasks | length))
-          ' results.json >/dev/null
-          if [ "$RUN_EXIT_CODE" != "0" ]; then
-            echo "::error::Waza evaluation exited with code $RUN_EXIT_CODE"
-            exit 1
+          bash "$validator" results.json 0 "$RUN_EXIT_CODE"
+          if [ "$REPOSITORY" = microsoft/waza ]; then
+            test ! -e "$COPILOT_CLI_PATH.invoked"
           fi
       
       - name: Upload Results Artifact
@@ -142,8 +168,9 @@ jobs:
         if: always()
         env:
           VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+          EVALUATION_STATUS: ${{ steps.validate.outputs.status }}
         run: |
-          if [ "$VALIDATION_OUTCOME" != "success" ]; then
+          if [ "$VALIDATION_OUTCOME" != "success" ] || [ "$EVALUATION_STATUS" != "success" ]; then
             exit 1
           fi
 

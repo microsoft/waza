@@ -61,20 +61,10 @@ jobs:
             echo "::error::waza-version must be an exact numeric release such as 0.41.0"
             exit 1
           fi
-          install_dir="$RUNNER_TEMP/waza-bin"
-          mkdir -p "$install_dir"
-          curl -fL --retry 3 \
-            -o "$install_dir/waza" \
-            "https://github.com/microsoft/waza/releases/download/v${WAZA_VERSION}/waza-linux-amd64"
-          curl -fL --retry 3 \
-            -o "$install_dir/checksums.txt" \
-            "https://github.com/microsoft/waza/releases/download/v${WAZA_VERSION}/checksums.txt"
-          (
-            cd "$install_dir"
-            grep ' waza-linux-amd64$' checksums.txt | sha256sum --check -
-          )
-          chmod +x "$install_dir/waza"
-          echo "$install_dir" >> "$GITHUB_PATH"
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/install-waza-release.sh" \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" "$WAZA_VERSION"
 
       - name: Verify Waza binary
         run: waza --version
@@ -88,9 +78,14 @@ jobs:
         run: |
           rm -f -- results.json
           command=(waza run "$EVAL_PATH" --output results.json --format "$OUTPUT_FORMAT")
-          if [ -n "$TRIALS" ] && [ "$TRIALS" -gt 0 ]; then
-            command+=(--trials "$TRIALS")
-          fi
+          case "$TRIALS" in
+            ''|0) ;;
+            *[!0-9]*)
+              echo "::error::trials must be a non-negative integer"
+              exit 1
+              ;;
+            *) command+=(--trials "$TRIALS") ;;
+          esac
           set +e
           "${command[@]}"
           exit_code=$?

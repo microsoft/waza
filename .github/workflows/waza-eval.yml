@@ -72,6 +72,8 @@ on:
       - 'internal/orchestration/**'
       - 'internal/graders/**'
       - '.github/workflows/waza-eval.yml'
+      - '.github/scripts/validate-waza-result.sh'
+      - '.github/scripts/waza_workflow_contract_test.go'
   
   # Trigger on push to main branches
   push:
@@ -84,6 +86,8 @@ on:
       - 'internal/orchestration/**'
       - 'internal/graders/**'
       - '.github/workflows/waza-eval.yml'
+      - '.github/scripts/validate-waza-result.sh'
+      - '.github/scripts/waza_workflow_contract_test.go'
 
 permissions:
   contents: read
@@ -104,12 +108,14 @@ jobs:
           lfs: true
       
       - name: Setup Go Environment
+        if: github.repository == 'microsoft/waza'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
 
       - name: Setup Node.js
+        if: github.repository == 'microsoft/waza'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
@@ -117,10 +123,25 @@ jobs:
           cache-dependency-path: web/package-lock.json
       
       - name: Build Waza Binary
-        run: make build VERSION=0.41.0
+        if: github.repository == 'microsoft/waza'
+        run: |
+          make build VERSION=0.41.0
+          echo "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
+
+      - name: Install published Go binary for external callers
+        if: github.repository != 'microsoft/waza'
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/microsoft/waza/v0.41.0/.github/scripts/install-waza-release.sh \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" 0.41.0
+
+      - name: Guard automatic repository evaluations
+        if: github.repository == 'microsoft/waza' && (github.event_name == 'push' || github.event_name == 'pull_request')
+        run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
       
       - name: Verify Binary
-        run: ./waza --version
+        run: waza --version
       
       - name: Resolve effective inputs
         id: effective
@@ -132,7 +153,7 @@ jobs:
           ARTIFACT_INPUT: ${{ inputs.artifact-name }}
         run: |
           EVAL_FILE="${EVAL_INPUT:-examples/code-explainer/eval.yaml}"
-          CONTEXT_DIR="${CONTEXT_INPUT:-$(dirname "$EVAL_FILE")/fixtures}"
+          CONTEXT_DIR="$CONTEXT_INPUT"
           VERBOSE="${VERBOSE_INPUT:-true}"
           OUTPUT_FILE="${OUTPUT_INPUT:-results.json}"
           ARTIFACT_NAME="${ARTIFACT_INPUT:-waza-evaluation-results}"
@@ -157,8 +178,8 @@ jobs:
           OUTPUT_FILE: ${{ steps.effective.outputs.output-file }}
         run: |
           rm -f -- "$OUTPUT_FILE"
-          CMD=(./waza run "$EVAL_FILE")
-          if [ -d "$CONTEXT_DIR" ]; then
+          CMD=(waza run "$EVAL_FILE")
+          if [ -n "$CONTEXT_DIR" ]; then
             CMD+=("--context-dir" "$CONTEXT_DIR")
           fi
           if [ "$VERBOSE" = "true" ]; then
@@ -178,7 +199,20 @@ jobs:
         env:
           OUTPUT_FILE: ${{ steps.effective.outputs.output-file }}
           RUN_EXIT_CODE: ${{ steps.run-eval.outputs.exit_code }}
-        run: bash .github/scripts/validate-waza-result.sh "$OUTPUT_FILE" 0 "$RUN_EXIT_CODE"
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          validator=.github/scripts/validate-waza-result.sh
+          if [ "$REPOSITORY" != microsoft/waza ]; then
+            validator="$RUNNER_TEMP/validate-waza-result.sh"
+            curl -fsSL \
+              https://raw.githubusercontent.com/microsoft/waza/v0.41.0/.github/scripts/validate-waza-result.sh \
+              -o "$validator"
+          fi
+          bash "$validator" "$OUTPUT_FILE" 0 "$RUN_EXIT_CODE"
+          if [ -n "${COPILOT_CLI_PATH:-}" ] && [ -e "$COPILOT_CLI_PATH.invoked" ]; then
+            echo "::error::Automatic evaluation attempted to launch the Copilot runtime"
+            exit 1
+          fi
       
       - name: Upload Results Artifact
         if: always()

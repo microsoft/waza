@@ -19,11 +19,18 @@ func TestWazaResultValidator(t *testing.T) {
 	valid := map[string]any{
 		"schemaVersion": "1.8",
 		"eval_id":       "workflow-contract",
+		"config":        map[string]any{"runs_per_test": 1},
 		"summary": map[string]any{
 			"total_tests": 1, "succeeded": 1, "failed": 0, "errors": 0, "skipped": 0,
 			"success_rate": 1.0, "aggregate_score": 0.0, "weighted_score": 0.0,
 		},
-		"tasks": []any{map[string]any{"test_id": "workflow-task", "status": "passed", "runs": []any{}}},
+		"tasks": []any{map[string]any{
+			"test_id": "workflow-task", "status": "passed",
+			"runs": []any{map[string]any{
+				"run_number": 1, "attempts": 1, "status": "passed",
+				"duration_ms": 0, "final_output": "",
+			}},
+		}},
 	}
 
 	tests := []struct {
@@ -35,12 +42,49 @@ func TestWazaResultValidator(t *testing.T) {
 		wantStatus string
 	}{
 		{name: "passing grading with explicit zero scores", runExit: 0, threshold: "0.8", wantValid: true, wantStatus: "success"},
+		{name: "invalid threshold", runExit: 0, threshold: "invalid", wantValid: false},
+		{name: "threshold below zero", runExit: 0, threshold: "-0.1", wantValid: false},
+		{name: "threshold above one", runExit: 0, threshold: "1.1", wantValid: false},
+		{
+			name: "complete multiple trials",
+			mutate: func(result map[string]any) {
+				jsonObject(t, result["config"])["runs_per_test"] = 2
+				task := jsonObject(t, jsonItems(t, result["tasks"])[0])
+				runs := jsonItems(t, task["runs"])
+				second := cloneJSONMap(t, jsonObject(t, runs[0]))
+				second["run_number"] = 2
+				task["runs"] = append(runs, second)
+			},
+			runExit: 0, threshold: "1", wantValid: true, wantStatus: "success",
+		},
+		{
+			name: "skipped diagnostic is not successful grading",
+			mutate: func(result map[string]any) {
+				summary := jsonObject(t, result["summary"])
+				summary["succeeded"], summary["skipped"], summary["success_rate"] = 0, 1, 0.0
+				task := jsonObject(t, jsonItems(t, result["tasks"])[0])
+				task["status"], task["runs"] = "skipped", []any{}
+			},
+			runExit: 0, threshold: "0", wantValid: true, wantStatus: "failure",
+		},
+		{
+			name: "error diagnostic without trials",
+			mutate: func(result map[string]any) {
+				summary := jsonObject(t, result["summary"])
+				summary["succeeded"], summary["errors"], summary["success_rate"] = 0, 1, 0.0
+				task := jsonObject(t, jsonItems(t, result["tasks"])[0])
+				task["status"], task["runs"] = "error", []any{}
+			},
+			runExit: 1, threshold: "0", wantValid: true, wantStatus: "failure",
+		},
 		{
 			name: "completed failing grading",
 			mutate: func(result map[string]any) {
-				summary := result["summary"].(map[string]any)
+				summary := jsonObject(t, result["summary"])
 				summary["succeeded"], summary["failed"], summary["success_rate"] = 0, 1, 0.0
-				result["tasks"].([]any)[0].(map[string]any)["status"] = "failed"
+				task := jsonObject(t, jsonItems(t, result["tasks"])[0])
+				task["status"] = "failed"
+				jsonObject(t, jsonItems(t, task["runs"])[0])["status"] = "failed"
 			},
 			runExit: 1, threshold: "0.8", wantValid: true, wantStatus: "failure",
 		},
@@ -48,16 +92,16 @@ func TestWazaResultValidator(t *testing.T) {
 		{
 			name: "absent score",
 			mutate: func(result map[string]any) {
-				delete(result["summary"].(map[string]any), "aggregate_score")
+				delete(jsonObject(t, result["summary"]), "aggregate_score")
 			},
 			runExit: 0, threshold: "0.8", wantValid: false,
 		},
 		{
 			name: "inconsistent successful exit",
 			mutate: func(result map[string]any) {
-				summary := result["summary"].(map[string]any)
+				summary := jsonObject(t, result["summary"])
 				summary["succeeded"], summary["errors"], summary["success_rate"] = 0, 1, 0.0
-				result["tasks"].([]any)[0].(map[string]any)["status"] = "error"
+				jsonObject(t, jsonItems(t, result["tasks"])[0])["status"] = "error"
 			},
 			runExit: 0, threshold: "0.8", wantValid: false,
 		},
@@ -103,6 +147,14 @@ func TestWazaResultValidator(t *testing.T) {
 		command := exec.Command("bash", "validate-waza-result.sh", path, "0.8", "0")
 		require.Error(t, command.Run())
 	})
+	t.Run("multiple JSON documents", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "results.json")
+		data, err := json.Marshal(valid)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, append(append(data, '\n'), data...), 0o600))
+		command := exec.Command("bash", "validate-waza-result.sh", path, "0.8", "0")
+		require.Error(t, command.Run())
+	})
 }
 
 func TestRetainedWazaWorkflowsUseCurrentContract(t *testing.T) {
@@ -133,8 +185,7 @@ func TestRetainedWazaWorkflowsUseCurrentContract(t *testing.T) {
 	require.NoError(t, err)
 	for _, required := range []string{
 		"default: '0.41.0'",
-		"releases/download/v${WAZA_VERSION}/waza-linux-amd64",
-		"sha256sum --check",
+		"install-waza-release.sh",
 		"validate-waza-result.sh",
 		"steps.validate.outputs.success_rate",
 		"steps.validate.outputs.aggregate_score",
@@ -170,10 +221,16 @@ func TestRunHelpMatchesWorkflowFlags(t *testing.T) {
 
 func TestWorkflowContractAgainstActualCLIArtifacts(t *testing.T) {
 	dir := t.TempDir()
+	guard := exec.Command("bash", "go_offline_env.sh")
+	guard.Env = append(os.Environ(), "RUNNER_TEMP="+dir)
+	guardOutput, err := guard.Output()
+	require.NoError(t, err, string(guardOutput))
+	offlineEnv := strings.Split(strings.TrimSpace(string(guardOutput)), "\n")
 	binary := filepath.Join(dir, "waza")
 	build := exec.Command("go", "build", "-o", binary, "../../cmd/waza")
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
+	runStep := evalWorkflowStepNamed(t, readEvalWorkflowSteps(t, "waza-eval.yml", "run-evaluation"), "Run Evaluation")
 
 	tests := []struct {
 		name          string
@@ -221,6 +278,22 @@ tasks:
 			wantRunExit: 1, wantValidated: true, wantStatus: "failure",
 		},
 		{
+			name: "task runtime error",
+			spec: `name: workflow-error
+skill: workflow-contract
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  parallel: false
+  executor: mock
+  model: test-model
+tasks:
+  - "tasks/*.yaml"
+`,
+			wantRunExit: 1, wantValidated: true, wantStatus: "failure",
+		},
+		{
 			name:          "configuration error",
 			spec:          "name: invalid\nconfig: [\n",
 			wantRunExit:   2,
@@ -232,24 +305,32 @@ tasks:
 		t.Run(tt.name, func(t *testing.T) {
 			workspace := t.TempDir()
 			require.NoError(t, os.Mkdir(filepath.Join(workspace, "tasks"), 0o700))
+			taskYAML := "id: workflow-task\nname: Workflow task\ninputs:\n  prompt: Explain this code\n"
+			if tt.name == "task runtime error" {
+				taskYAML += "instruction_files:\n  - missing-workflow-instruction.md\n"
+			}
 			require.NoError(t, os.WriteFile(
 				filepath.Join(workspace, "tasks", "task.yaml"),
-				[]byte("id: workflow-task\nname: Workflow task\ninputs:\n  prompt: Explain this code\n"),
+				[]byte(taskYAML),
 				0o600,
 			))
 			specPath := filepath.Join(workspace, "eval.yaml")
 			resultPath := filepath.Join(workspace, "results.json")
 			require.NoError(t, os.WriteFile(specPath, []byte(tt.spec), 0o600))
 
-			run := exec.Command(binary, "run", specPath, "--output", resultPath, "--no-update-check")
+			runOutputs := filepath.Join(workspace, "run-output")
+			run := exec.Command("bash", "-e", "-o", "pipefail", "-c", runStep.Run)
 			run.Dir = workspace
+			run.Env = append(os.Environ(), offlineEnv...)
+			run.Env = append(run.Env, "EVAL_FILE="+specPath, "OUTPUT_FILE="+resultPath,
+				"CONTEXT_DIR=", "VERBOSE=false", "GITHUB_OUTPUT="+runOutputs,
+				"WAZA_NO_UPDATE_CHECK=1", "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			runOutput, runErr := run.CombinedOutput()
-			runExit := 0
-			if runErr != nil {
-				var exitErr *exec.ExitError
-				require.ErrorAs(t, runErr, &exitErr, string(runOutput))
-				runExit = exitErr.ExitCode()
-			}
+			require.NoError(t, runErr, string(runOutput))
+			exitOutput, readErr := os.ReadFile(runOutputs)
+			require.NoError(t, readErr)
+			runExit, parseErr := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(string(exitOutput), "exit_code=")))
+			require.NoError(t, parseErr)
 			require.Equal(t, tt.wantRunExit, runExit, string(runOutput))
 
 			githubOutput := filepath.Join(workspace, "github-output")
@@ -264,8 +345,321 @@ tasks:
 			recorded, readErr := os.ReadFile(githubOutput)
 			require.NoError(t, readErr)
 			require.Contains(t, string(recorded), "status="+tt.wantStatus)
+			if tt.name == "task runtime error" {
+				data, readErr := os.ReadFile(resultPath)
+				require.NoError(t, readErr)
+				var produced map[string]any
+				require.NoError(t, json.Unmarshal(data, &produced))
+				runs := jsonItems(t, jsonObject(t, jsonItems(t, produced["tasks"])[0])["runs"])
+				require.Len(t, runs, 1)
+				run := jsonObject(t, runs[0])
+				require.Equal(t, "error", run["status"])
+				require.Contains(t, run["error_msg"], "missing-workflow-instruction.md")
+			}
+			if tt.wantRunExit == 0 {
+				data, readErr := os.ReadFile(resultPath)
+				require.NoError(t, readErr)
+				var produced map[string]any
+				require.NoError(t, json.Unmarshal(data, &produced))
+				task := jsonObject(t, jsonItems(t, produced["tasks"])[0])
+				require.Len(t, task["runs"], 1, "production fixture must contain a real trial")
+				for _, mutation := range []struct {
+					name   string
+					change func(map[string]any)
+				}{
+					{"missing trials", func(r map[string]any) { jsonObject(t, jsonItems(t, r["tasks"])[0])["runs"] = []any{} }},
+					{"null trial", func(r map[string]any) { jsonObject(t, jsonItems(t, r["tasks"])[0])["runs"] = []any{nil} }},
+					{"incomplete trial", func(r map[string]any) {
+						jsonObject(t, jsonItems(t, r["tasks"])[0])["runs"] = []any{map[string]any{"run_number": 1, "status": "passed"}}
+					}},
+					{"missing expected trial", func(r map[string]any) { jsonObject(t, r["config"])["runs_per_test"] = 2 }},
+					{"wrong trial index", func(r map[string]any) {
+						task := jsonObject(t, jsonItems(t, r["tasks"])[0])
+						jsonObject(t, jsonItems(t, task["runs"])[0])["run_number"] = 2
+					}},
+					{"incomplete task", func(r map[string]any) { r["tasks"] = []any{map[string]any{}} }},
+					{"null score", func(r map[string]any) { jsonObject(t, r["summary"])["aggregate_score"] = nil }},
+					{"string rate", func(r map[string]any) { jsonObject(t, r["summary"])["success_rate"] = "invalid" }},
+					{"inflated skipped rate", func(r map[string]any) {
+						s := jsonObject(t, r["summary"])
+						s["succeeded"], s["skipped"] = 0, 1
+						jsonObject(t, jsonItems(t, r["tasks"])[0])["status"] = "skipped"
+					}},
+				} {
+					t.Run(mutation.name, func(t *testing.T) {
+						changed := cloneJSONMap(t, produced)
+						mutation.change(changed)
+						changedData, marshalErr := json.Marshal(changed)
+						require.NoError(t, marshalErr)
+						require.NotEqual(t, string(data), string(changedData))
+						path := filepath.Join(t.TempDir(), "mutated.json")
+						require.NoError(t, os.WriteFile(path, changedData, 0o600))
+						check := exec.Command("bash", "validate-waza-result.sh", path, "0", "0")
+						require.Error(t, check.Run())
+					})
+				}
+				entries, err := filepath.Glob(filepath.Join(dir, "*.invoked"))
+				require.NoError(t, err)
+				require.Empty(t, entries, "mock fixture must not launch Copilot")
+			}
 		})
 	}
+}
+
+func TestPinnedReleaseInstaller(t *testing.T) {
+	script, err := filepath.Abs("install-waza-release.sh")
+	require.NoError(t, err)
+	for _, control := range []string{"valid", "bad checksum", "missing checksum", "download error", "invalid version"} {
+		t.Run(control, func(t *testing.T) {
+			dir := t.TempDir()
+			payload := filepath.Join(dir, "payload")
+			require.NoError(t, os.WriteFile(payload, []byte("#!/bin/sh\necho exact-release\n"), 0o600))
+			curl := `#!/bin/bash
+			set -euo pipefail
+			destination=
+			while [ "$#" -gt 0 ]; do
+			  if [ "$1" = -o ]; then destination="$2"; shift; fi
+			  url="$1"
+			  shift
+			done
+			case "$url" in
+			  */waza-linux-amd64)
+			    if [ "$CONTROL" = "download error" ]; then exit 22; fi
+			    cp "$PAYLOAD" "$destination"
+			    ;;
+			  */checksums.txt)
+			    hash="$(sha256sum "$PAYLOAD" | cut -d' ' -f1)"
+			    if [ "$CONTROL" = "bad checksum" ]; then hash=0000000000000000000000000000000000000000000000000000000000000000; fi
+			    asset=waza-linux-amd64
+			    if [ "$CONTROL" = "missing checksum" ]; then asset=another-asset; fi
+			    printf '%s  %s\n' "$hash" "$asset" > "$destination"
+			    ;;
+			  *) exit 22 ;;
+			esac
+			`
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "curl"), []byte(curl), 0o700))
+			version := "0.41.0"
+			if control == "invalid version" {
+				version = "latest"
+			}
+			command := exec.Command("bash", script, version)
+			command.Env = append(os.Environ(), "RUNNER_TEMP="+dir, "GITHUB_PATH="+filepath.Join(dir, "github-path"),
+				"CONTROL="+control, "PAYLOAD="+payload, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			output, runErr := command.CombinedOutput()
+			if control != "valid" {
+				require.Error(t, runErr, string(output))
+				_, statErr := os.Stat(filepath.Join(dir, "waza-bin", "waza"))
+				require.True(t, os.IsNotExist(statErr), "failed installation must not publish a binary")
+				return
+			}
+			require.NoError(t, runErr, string(output))
+			installed, readErr := os.ReadFile(filepath.Join(dir, "waza-bin", "waza"))
+			require.NoError(t, readErr)
+			require.Equal(t, "#!/bin/sh\necho exact-release\n", string(installed))
+			path, readErr := os.ReadFile(filepath.Join(dir, "github-path"))
+			require.NoError(t, readErr)
+			require.Equal(t, filepath.Join(dir, "waza-bin")+"\n", string(path))
+		})
+	}
+}
+
+func TestAzureWorkflowNumericGate(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "docs", "CI-CD-GUIDE.md"))
+	require.NoError(t, err)
+	var script string
+	for _, block := range strings.Split(string(source), "```yaml\n")[1:] {
+		block, _, _ = strings.Cut(block, "```")
+		if !strings.Contains(block, "displayName: Check results") {
+			continue
+		}
+		var pipeline struct {
+			Steps []struct {
+				Script      string `yaml:"script"`
+				DisplayName string `yaml:"displayName"`
+			} `yaml:"steps"`
+		}
+		require.NoError(t, yaml.Unmarshal([]byte(block), &pipeline))
+		for _, step := range pipeline.Steps {
+			if step.DisplayName == "Check results" {
+				script = step.Script
+			}
+		}
+	}
+	require.NotEmpty(t, script, "test must execute the copied Azure script")
+	for _, value := range []string{"1", "0", `"invalid"`, "null"} {
+		t.Run(value, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "results.json"),
+				[]byte(`{"summary":{"success_rate":`+value+`}}`), 0o600))
+			command := exec.Command("bash", "-c", script)
+			command.Dir = dir
+			output, runErr := command.CombinedOutput()
+			if value == "1" {
+				require.NoError(t, runErr, string(output))
+			} else {
+				require.Error(t, runErr, string(output))
+			}
+		})
+	}
+}
+
+type evalWorkflowStep struct {
+	Name string            `yaml:"name"`
+	ID   string            `yaml:"id"`
+	Run  string            `yaml:"run"`
+	Env  map[string]string `yaml:"env"`
+	With map[string]string `yaml:"with"`
+}
+
+func readEvalWorkflowSteps(t *testing.T, name, job string) []evalWorkflowStep {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+	require.NoError(t, err)
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []evalWorkflowStep `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	require.NoError(t, yaml.Unmarshal(source, &workflow))
+	steps := workflow.Jobs[job].Steps
+	require.NotEmpty(t, steps)
+	return steps
+}
+
+func evalWorkflowStepNamed(t *testing.T, steps []evalWorkflowStep, name string) evalWorkflowStep {
+	t.Helper()
+	for _, step := range steps {
+		if step.Name == name {
+			return step
+		}
+	}
+	t.Fatalf("missing workflow step %q", name)
+	return evalWorkflowStep{}
+}
+
+func runEvalWorkflowScript(t *testing.T, script, directory string, environment []string) string {
+	t.Helper()
+	command := exec.Command("bash", "-e", "-o", "pipefail", "-c", script)
+	command.Dir = directory
+	command.Env = append(os.Environ(), environment...)
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	return string(output)
+}
+
+func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
+	steps := readEvalWorkflowSteps(t, "waza-eval.yml", "run-evaluation")
+	resolve := evalWorkflowStepNamed(t, steps, "Resolve effective inputs")
+	require.Equal(t, map[string]string{
+		"EVAL_INPUT": "${{ inputs.eval-yaml }}", "CONTEXT_INPUT": "${{ inputs.context-dir }}",
+		"VERBOSE_INPUT": "${{ inputs.verbose }}", "OUTPUT_INPUT": "${{ inputs.output-file }}",
+		"ARTIFACT_INPUT": "${{ inputs.artifact-name }}",
+	}, resolve.Env)
+	run := evalWorkflowStepNamed(t, steps, "Run Evaluation")
+	upload := evalWorkflowStepNamed(t, steps, "Upload Results Artifact")
+	require.Equal(t, "${{ steps.effective.outputs.artifact-name }}", upload.With["name"])
+	require.Contains(t, upload.With["path"], "${{ steps.effective.outputs.output-file }}")
+	require.Equal(t, "${{ steps.effective.outputs.output-file }}", run.Env["OUTPUT_FILE"])
+	for _, event := range []string{"push", "pull_request", "workflow_dispatch", "workflow_call"} {
+		for _, custom := range []bool{false, true} {
+			t.Run(event+strconv.FormatBool(custom), func(t *testing.T) {
+				dir := t.TempDir()
+				outputPath := filepath.Join(dir, "outputs")
+				argvPath := filepath.Join(dir, "argv")
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "waza"), []byte("#!/bin/bash\nprintf '%s\\n' \"$@\" > \"$CAPTURE_ARGS\"\nexit 1\n"), 0o700))
+				env := []string{"GITHUB_EVENT_NAME=" + event, "GITHUB_OUTPUT=" + outputPath,
+					"EVAL_INPUT=", "CONTEXT_INPUT=", "VERBOSE_INPUT=", "OUTPUT_INPUT=", "ARTIFACT_INPUT="}
+				if custom {
+					env = []string{"GITHUB_EVENT_NAME=" + event, "GITHUB_OUTPUT=" + outputPath,
+						"EVAL_INPUT=custom eval.yaml", "CONTEXT_INPUT=missing context", "VERBOSE_INPUT=false",
+						"OUTPUT_INPUT=custom results.json", "ARTIFACT_INPUT=custom evidence"}
+				}
+
+				runEvalWorkflowScript(t, resolve.Run, dir, env)
+				resolved, err := os.ReadFile(outputPath)
+				require.NoError(t, err)
+				values := map[string]string{}
+				for line := range strings.SplitSeq(strings.TrimSpace(string(resolved)), "\n") {
+					key, value, ok := strings.Cut(line, "=")
+					require.True(t, ok)
+					values[key] = value
+				}
+				wantEval, wantOutput, wantArtifact := "examples/code-explainer/eval.yaml", "results.json", "waza-evaluation-results"
+				wantArgs := []string{"run", wantEval, "--verbose", "--output", wantOutput}
+				if custom {
+					wantEval, wantOutput, wantArtifact = "custom eval.yaml", "custom results.json", "custom evidence"
+					wantArgs = []string{"run", wantEval, "--context-dir", "missing context", "--output", wantOutput}
+				}
+				require.Equal(t, wantEval, values["eval-file"])
+				require.Equal(t, wantOutput, values["output-file"])
+				require.Equal(t, wantArtifact, values["artifact-name"])
+				require.NoError(t, os.WriteFile(filepath.Join(dir, wantOutput), []byte("stale"), 0o600))
+				runEvalWorkflowScript(t, run.Run, dir, []string{
+					"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"),
+					"GITHUB_OUTPUT=" + outputPath, "CAPTURE_ARGS=" + argvPath, "EVAL_FILE=" + values["eval-file"],
+					"CONTEXT_DIR=" + values["context-dir"], "VERBOSE=" + values["verbose"], "OUTPUT_FILE=" + values["output-file"],
+				})
+				arguments, err := os.ReadFile(argvPath)
+				require.NoError(t, err)
+				require.Equal(t, wantArgs, strings.Split(strings.TrimSpace(string(arguments)), "\n"))
+				_, err = os.Stat(filepath.Join(dir, wantOutput))
+				require.True(t, os.IsNotExist(err), "execution must remove the selected stale artifact")
+				resolved, err = os.ReadFile(outputPath)
+				require.NoError(t, err)
+				require.Contains(t, string(resolved), "exit_code=1\n")
+			})
+		}
+	}
+	t.Run("multiline input rejected", func(t *testing.T) {
+		command := exec.Command("bash", "-e", "-c", resolve.Run)
+		command.Env = append(os.Environ(), "EVAL_INPUT=bad\npath", "CONTEXT_INPUT=", "VERBOSE_INPUT=", "OUTPUT_INPUT=", "ARTIFACT_INPUT=")
+		require.Error(t, command.Run())
+	})
+}
+func TestReusableWorkflowTrialOverride(t *testing.T) {
+	run := evalWorkflowStepNamed(t, readEvalWorkflowSteps(t, "waza.yaml", "eval"), "Run Evaluation")
+	for _, trials := range []string{"", "0", "2", "1.5", "-1"} {
+		t.Run("trials="+trials, func(t *testing.T) {
+			dir := t.TempDir()
+			argvPath := filepath.Join(dir, "argv")
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "waza"),
+				[]byte("#!/bin/bash\nprintf '%s\\n' \"$@\" > \"$CAPTURE_ARGS\"\n"), 0o700))
+			command := exec.Command("bash", "-e", "-o", "pipefail", "-c", run.Run)
+			command.Dir = dir
+			command.Env = append(os.Environ(), "EVAL_PATH=eval path.yaml", "OUTPUT_FORMAT=default",
+				"TRIALS="+trials, "CAPTURE_ARGS="+argvPath, "GITHUB_OUTPUT="+filepath.Join(dir, "outputs"),
+				"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			output, err := command.CombinedOutput()
+			if trials == "1.5" || trials == "-1" {
+				require.Error(t, err, string(output))
+				_, statErr := os.Stat(argvPath)
+				require.True(t, os.IsNotExist(statErr))
+				return
+			}
+			require.NoError(t, err, string(output))
+			arguments, err := os.ReadFile(argvPath)
+			require.NoError(t, err)
+			want := []string{"run", "eval path.yaml", "--output", "results.json", "--format", "default"}
+			if trials == "2" {
+				want = append(want, "--trials", "2")
+			}
+			require.Equal(t, want, strings.Split(strings.TrimSpace(string(arguments)), "\n"))
+		})
+	}
+}
+
+func jsonObject(t *testing.T, value any) map[string]any {
+	t.Helper()
+	object, ok := value.(map[string]any)
+	require.True(t, ok, "expected JSON object, got %T", value)
+	return object
+}
+
+func jsonItems(t *testing.T, value any) []any {
+	t.Helper()
+	items, ok := value.([]any)
+	require.True(t, ok, "expected JSON array, got %T", value)
+	return items
 }
 
 func cloneJSONMap(t *testing.T, input map[string]any) map[string]any {
@@ -289,4 +683,20 @@ func TestWazaWorkflowDocsDoNotAdvertiseLegacySummaryFields(t *testing.T) {
 		require.False(t, strings.Contains(text, ".summary.pass_rate"), path)
 		require.False(t, strings.Contains(text, "upload-artifact@v3"), path)
 	}
+}
+
+func TestDocumentedWazaResultContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "docs", "CI-CD-GUIDE.md"))
+	require.NoError(t, err)
+	_, section, found := strings.Cut(string(source), "### Result JSON Structure")
+	require.True(t, found)
+	_, section, found = strings.Cut(section, "```json\n")
+	require.True(t, found)
+	example, _, found := strings.Cut(section, "```")
+	require.True(t, found)
+	resultPath := filepath.Join(t.TempDir(), "documented-result.json")
+	require.NoError(t, os.WriteFile(resultPath, []byte(example), 0o600))
+	command := exec.Command("bash", "validate-waza-result.sh", resultPath, "0.8", "0")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
 }

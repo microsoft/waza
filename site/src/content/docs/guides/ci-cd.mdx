@@ -248,8 +248,10 @@ jobs:
       
       - name: Install waza
         run: |
-          curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-          echo "$HOME/bin" >> $GITHUB_PATH
+          curl -fsSL \
+            https://raw.githubusercontent.com/microsoft/waza/v0.41.0/.github/scripts/install-waza-release.sh \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" 0.41.0
       
       - name: Run evaluations (${{ matrix.model }})
         id: run-eval
@@ -265,15 +267,13 @@ jobs:
         id: validate
         if: always()
         run: |
-          test -s "results-${{ matrix.model }}.json"
-          jq -e '
-            .schemaVersion and .eval_id and
-            (.summary.success_rate | type == "number") and
-            (.summary.aggregate_score | type == "number") and
-            (.summary.weighted_score | type == "number") and
-            (.tasks | type == "array") and
-            (.summary.total_tests == (.tasks | length))
-          ' "results-${{ matrix.model }}.json" >/dev/null
+          curl -fsSL \
+            https://raw.githubusercontent.com/microsoft/waza/v0.41.0/.github/scripts/validate-waza-result.sh \
+            -o "$RUNNER_TEMP/validate-waza-result.sh"
+          run_exit=1
+          if [ "${{ steps.run-eval.outcome }}" = success ]; then run_exit=0; fi
+          bash "$RUNNER_TEMP/validate-waza-result.sh" \
+            "results-${{ matrix.model }}.json" 0 "$run_exit"
       
       - name: Upload results
         if: always()
@@ -303,8 +303,9 @@ jobs:
         env:
           RUN_OUTCOME: ${{ steps.run-eval.outcome }}
           VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+          EVALUATION_STATUS: ${{ steps.validate.outputs.status }}
         run: |
-          if [ "$RUN_OUTCOME" != "success" ] || [ "$VALIDATION_OUTCOME" != "success" ]; then
+          if [ "$RUN_OUTCOME" != "success" ] || [ "$VALIDATION_OUTCOME" != "success" ] || [ "$EVALUATION_STATUS" != "success" ]; then
             exit 1
           fi
 ```
@@ -313,6 +314,14 @@ Removing the old result before execution prevents a stale file from satisfying
 the artifact step. Treat a missing or incomplete result as a workflow failure,
 including when the CLI itself fails; upload the fresh artifact with `if: always()`
 before re-emitting the evaluation failure.
+
+The shared validator is shipped with v0.41.0; publish that release before
+using these cross-repository examples. Repository automatic checks build the
+checked-out Go source with real dashboard assets, use the mock code-explainer
+suite and a rejecting Copilot runtime, and do not download a mutable release.
+An omitted context override leaves fixture resolution to the eval spec; an
+explicit override is forwarded unchanged (including nonexistent paths, which
+the CLI must report rather than silently ignore).
 
 ### Recurring Regression Loop (Scheduled)
 

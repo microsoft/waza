@@ -76,6 +76,21 @@ actual Docker build is still required to verify container packaging.
 
 ## Installation in CI
 
+The retained reusable workflows pin standalone Waza v0.41.0 and download
+the release-owned installer and validator from that tag. Publish v0.41.0
+before using them from another repository. Checks in the Waza repository build
+the exact checkout with real dashboard assets instead of installing a mutable
+release. The copied skills workflow keeps `eval/eval.yaml` for consumers; its
+repository check uses `examples/code-explainer/eval.yaml` with the mock executor
+and a verified rejecting Copilot runtime.
+
+Workflow results must contain unique task IDs, valid trial records and the full
+configured trial inventory for passed tasks. Summary counts and success rate
+must agree with task statuses. Failed/skipped/error artifacts remain available
+for diagnostics, but cannot become a successful workflow output. An omitted
+context override leaves fixture resolution to the eval spec; explicit context
+and output paths are forwarded unchanged.
+
 ### GitHub Actions
 
 ```yaml
@@ -264,6 +279,7 @@ steps:
       COPILOT_SDK_TOKEN: $(COPILOT_SDK_TOKEN)
 
   - script: |
+      set -euo pipefail
       SUCCESS_RATE=$(jq -er '.summary.success_rate | numbers' results.json)
       echo "Success rate: $SUCCESS_RATE"
       if ! jq -e '.summary.success_rate >= 0.8' results.json >/dev/null; then
@@ -478,14 +494,14 @@ jobs:
 ### Exit Codes
 
 - **`0`** — Evaluation passed (all tasks met thresholds)
-- **`1`** — Evaluation failed (one or more tasks below threshold)
-- **`2`** — Configuration or runtime error
+- **`1`** — Evaluation failed (grader failures or task/run errors; inspect recorded run statuses)
+- **`2`** — Configuration or startup error before a complete evaluation
 
 ### Result JSON Structure
 
 ```json
 {
-  "schemaVersion": "1.8",
+  "schemaVersion": "1.9",
   "eval_id": "01JEXAMPLE",
   "skill": "my-skill",
   "eval_name": "my-skill-eval",
@@ -516,7 +532,16 @@ jobs:
       "test_id": "task-001",
       "display_name": "Example Task",
       "status": "passed",
-      "runs": []
+      "runs": [
+        {
+          "run_number": 1,
+          "attempts": 1,
+          "status": "passed",
+          "duration_ms": 5000,
+          "validations": {},
+          "final_output": "Example explanation."
+        }
+      ]
     }
   ]
 }
