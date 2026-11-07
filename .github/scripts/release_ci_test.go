@@ -186,6 +186,15 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				})
 			}
 			if file == "squad-insider-release.yml" {
+				t.Run("existing-insider-tag-bypass", func(t *testing.T) {
+					changed := strings.Replace(string(source), `if [ "$tag_status" -ne 2 ] || [ -n "$remote_tag" ]; then`, "if false; then", 1)
+					if changed == string(source) {
+						t.Fatal("mutation did not change production workflow")
+					}
+					if err := validateBranchPublisher([]byte(changed), file); err == nil {
+						t.Fatal("unsafe existing insider tag mutation was admitted")
+					}
+				})
 				t.Run("missing-insider-target", func(t *testing.T) {
 					changed := strings.Replace(string(source), "              --target \"$GITHUB_SHA\" \\\n", "", 1)
 					if changed == string(source) {
@@ -217,11 +226,13 @@ esac
 			if err := os.Chmod(gh, 0o700); err != nil {
 				t.Fatal(err)
 			}
+			writeRejectingTagLookup(t, dir)
 			created := filepath.Join(dir, "created-release")
-			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", strings.ReplaceAll(run, "${{ github.repository }}", "microsoft/waza"))
+			script := strings.ReplaceAll(strings.ReplaceAll(run, "${{ github.repository }}", "microsoft/waza"), "${{ github.server_url }}", "https://github.com")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"RELEASE_STATE="+state, "CREATED_RELEASE="+created, "VERSION=v1.2.3", "GITHUB_SHA=validated-source")
+				"RELEASE_STATE="+state, "REMOTE_TAG_STATE=missing", "CREATED_RELEASE="+created, "VERSION=v1.2.3", "GITHUB_SHA=validated-source")
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != (state == "missing") {
 				t.Fatalf("release state %s: error = %v\n%s", state, err, output)
@@ -240,6 +251,56 @@ esac
 				t.Fatalf("fresh insider tag must target the validated SHA: %q", args)
 			}
 		})
+	}
+	if file == "squad-insider-release.yml" {
+		for _, state := range []string{"matching", "wrong-source", "annotated", "lookup-error"} {
+			t.Run("tag-exists-release-missing-"+state, func(t *testing.T) {
+				dir := t.TempDir()
+				writeRejectingTagLookup(t, dir)
+				gh := filepath.Join(dir, "gh")
+				writeReleaseFile(t, gh, []byte("#!/bin/sh\nif [ \"$2\" = view ]; then exit 1; fi\nprintf '%s\\n' \"$@\" > \"$CREATED_RELEASE\"\n"))
+				if err := os.Chmod(gh, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				created := filepath.Join(dir, "created-release")
+				script := strings.ReplaceAll(strings.ReplaceAll(run, "${{ github.repository }}", "microsoft/waza"), "${{ github.server_url }}", "https://github.com")
+				cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
+				cmd.Dir = dir
+				cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+					"REMOTE_TAG_STATE="+state, "CREATED_RELEASE="+created, "VERSION=v1.2.3-insider", "GITHUB_SHA=validated-source")
+				output, err := cmd.CombinedOutput()
+				if err == nil || !strings.Contains(string(output), "tag exists or remote tag lookup failed") {
+					t.Fatalf("existing tag or lookup failure admitted: %v\n%s", err, output)
+				}
+				if _, err := os.Stat(created); !os.IsNotExist(err) {
+					t.Fatalf("release created despite existing tag or failed lookup: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func writeRejectingTagLookup(t *testing.T, dir string) {
+	t.Helper()
+	path := filepath.Join(dir, "git")
+	writeReleaseFile(t, path, []byte(`#!/bin/sh
+set -eu
+test "$1" = ls-remote
+test "$2" = --exit-code
+test "$3" = https://github.com/microsoft/waza.git
+test "$4" = "refs/tags/$VERSION"
+test "$5" = "refs/tags/$VERSION^{}"
+case "$REMOTE_TAG_STATE" in
+  missing) exit 2 ;;
+  matching) printf 'validated-source\trefs/tags/%s\n' "$VERSION" ;;
+  wrong-source) printf 'other-source\trefs/tags/%s\n' "$VERSION" ;;
+  annotated) printf 'tag-object\trefs/tags/%s\nother-source\trefs/tags/%s^{}\n' "$VERSION" "$VERSION" ;;
+  lookup-error) exit 73 ;;
+  *) exit 99 ;;
+esac
+`))
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -703,7 +764,10 @@ func validateBranchPublisher(source []byte, file string) error {
 		}
 	}
 	if file == "squad-insider-release.yml" &&
-		!strings.Contains(steps[createName].Run, `--target "$GITHUB_SHA"`) {
+		(!strings.Contains(steps[createName].Run, `--target "$GITHUB_SHA"`) ||
+			!strings.Contains(steps[createName].Run, `remote_tag="$(git ls-remote --exit-code`) ||
+			!strings.Contains(steps[createName].Run, `if [ "$tag_status" -ne 2 ] || [ -n "$remote_tag" ]; then`) ||
+			!strings.Contains(steps[createName].Run, "\"refs/tags/$VERSION\" \"refs/tags/$VERSION^{}\")\" || tag_status=$?")) {
 		return fmt.Errorf("insider release tag must target the validated source")
 	}
 	return nil

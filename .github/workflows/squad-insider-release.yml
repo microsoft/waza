@@ -85,6 +85,14 @@ jobs:
             echo "Insider release $VERSION already exists; inspect its source and assets before retrying publication." >&2
             exit 1
           else
+            tag_status=0
+            remote_tag="$(git ls-remote --exit-code \
+              "${{ github.server_url }}/${{ github.repository }}.git" \
+              "refs/tags/$VERSION" "refs/tags/$VERSION^{}")" || tag_status=$?
+            if [ "$tag_status" -ne 2 ] || [ -n "$remote_tag" ]; then
+              echo "Cannot publish $VERSION: its tag exists or remote tag lookup failed; inspect the remote tag before retrying." >&2
+              exit 1
+            fi
             gh release create "$VERSION" ./waza ./waza.sha256 ./source-sha.txt \
               --repo "${{ github.repository }}" \
               --target "$GITHUB_SHA" \

@@ -79,6 +79,10 @@ The branch publishers fail closed on an existing release rather than assuming
 its tag and assets match validation or silently repairing partial publication.
 A maintainer must inspect the existing source and assets before retrying; these
 workflows never turn an existing or partially uploaded release into success.
+Insider publication also rejects any pre-existing synthesized tag, even when
+its GitHub Release is missing, and rejects remote tag lookup failures. Only a
+confirmed absent synthesized tag is created with the validated SHA as target;
+this check is not an atomic reservation against concurrent tag writers.
 
 The version-sync PR remains open until its normal review requirements and real
 CI checks pass. The release workflow does not synthesize successful checks or
