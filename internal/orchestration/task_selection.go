@@ -85,6 +85,9 @@ func loadSelectedTestCases(
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 			}
 		}
+		if err := models.ValidateTaskUserInput(spec.Config, tc); err != nil {
+			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+		}
 		if len(tc.MCPMocks) > 0 {
 			if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)

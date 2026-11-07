@@ -39,7 +39,7 @@ Current native grader bindings do not certify historical grader correspondence.
 
 ## Portable evidence
 
-Tasks retain their legacy format; v0.40.0 writes results `1.8`, while
+Tasks retain their legacy format; current source writes results `1.9` (v0.40.0 writes `1.8`), while
 published `v0.39.1` writes `1.7`. Historical results retain their declared
 `1.x` versions or the missing-version `1.4` reader default.
 Snapshot schema `1.1` adds optional `evidence`
@@ -263,7 +263,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** legacy eval schema version (`1.4`); v0.40.0 result writers independently emit `1.8` (published `v0.39.1` writes `1.7`)
+**Default:** legacy eval schema version (`1.4`); current source result writers independently emit `1.9` (v0.40.0 writes `1.8`; published `v0.39.1` writes `1.7`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
@@ -655,6 +655,25 @@ config:
   trigger_skill_routing: true
 ```
 
+### native_user_input
+
+**Type:** boolean
+**Default:** false
+
+Gives the agent the Copilot SDK `ask_user` tool, so it can ask the host questions
+mid-task (through `OnUserInputRequest`). Each question is answered by the task's
+[`user_input_responses`](#user_input_responses-optional) first, then by the
+task's adaptive responder (`inputs.responder`) if it has one. Anything else fails
+the run. Requires a scenario eval (`schemaVersion: "2.0"`) and
+`executor: copilot-sdk`; older Waza versions reject this field rather than
+ignoring it.
+
+```yaml
+config:
+  executor: copilot-sdk
+  native_user_input: true
+```
+
 ### required_skills
 
 **Type:** list[string]  
@@ -911,6 +930,49 @@ mcp_mocks:
           - match_schema: {}
             return: { answer: Not now, wasFreeform: false }
 ```
+
+### user_input_responses (optional)
+
+Script answers to the agent's native questions (the SDK `ask_user` tool). Requires
+[`config.native_user_input: true`](#native_user_input) in the eval. With the flag
+set, omitting the field (or `[]`) means only the adaptive responder, if any, can
+answer.
+
+Each entry has a required `answer` and an optional `question`, an RE2 pattern that
+must match the whole question. Entries are used in order across the initial prompt,
+follow-up prompts, and responder replies of one trial; every trial and retry starts
+again at the first entry. An entry without `question` answers whatever is asked
+next. An `answer` equal to an offered choice selects it; any other answer is sent
+as typed text and is rejected when the request does not allow typed answers.
+
+```yaml
+user_input_responses:
+  - question: "(?is).*environment.*"
+    answer: staging
+  - answer: Fixes the login timeout.
+```
+
+A question that does not match the next entry, or arrives after the script is used
+up, returns an error to the SDK (never a default answer) and the run ends with
+status `error`. Unused entries also fail the run. Every request is recorded in
+`runs[].user_input_requests` and passed to inline `code` graders as
+`user_input_requests`. With the flag on, a run with no questions records `[]`;
+without it the field is absent and graders receive `null`. This is the SDK-native callback, not an MCP `ask_user` tool
+mock, and structured elicitation forms are not supported.
+
+#### Adaptive responder answers
+
+When `native_user_input` is enabled and the task has an adaptive responder
+(`inputs.responder`), scripted entries are still tried first. A question that the next entry does not match goes to the
+responder model instead, and that entry waits for a later question. The responder
+uses the same session and instructions as its between-turn replies and receives the
+question and offered choices. Its answer follows the same choice-or-typed rule. A
+responder stop, abstain, or error fails the run. Answers given during a turn do not
+count toward `max_followups`. Each in-turn responder call may take up to the task timeout, and its time counts against the agent's turn.
+
+Each record's `source` is `script` or `responder`. Without the flag, a task's
+responder keeps its existing between-turn behavior only. Responder answers call a
+model and can differ between runs.
 
 ## inputs Section
 
