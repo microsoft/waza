@@ -39,7 +39,9 @@ func TestPureReuseAdmissionRetainsPublishedFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	factoryCalls := 0
 	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		factoryCalls++
 		return execution.NewMockEngine(config.ModelID), nil
 	})
 	envelope, binding := service.RunTerminal(ctx, wire)
@@ -135,4 +137,33 @@ func TestPureReuseAdmissionRetainsPublishedFailure(t *testing.T) {
 	if _, err := runnerterminal.Validate(originalTerminal, callerBinding.TerminalBinding()); !errors.Is(err, runnerterminal.ErrInvalid) {
 		t.Fatalf("source terminal incorrectly retagged to caller ordinal: %v", err)
 	}
+	t.Run("actual-owner-completion-and-reuse", func(t *testing.T) {
+		ledger, err := executionledger.New(backend)
+		if err != nil {
+			t.Fatal(err)
+		}
+		creator, err := ledger.Reserve(ctx, attempt.Binding, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reserved, err := ledger.Reservation(creator)
+		if err != nil {
+			t.Fatal(err)
+		}
+		completed, err := ledger.Complete(ctx, creator, digest)
+		if err != nil || completed.Completion.ExecutionID != reserved.Attempt.ExecutionID {
+			t.Fatalf("actual owner completion failed: %+v %v", completed, err)
+		}
+		source := executionattempt.Source{ExecutionID: reserved.Attempt.ExecutionID, ManifestDigest: digest}
+		decision, reused, err := ledger.Reuse(ctx, callerBinding, source)
+		if err != nil || decision.ExecutionID != "" || decision.Source.ExecutionID != source.ExecutionID ||
+			reused.Reservation.Attempt.Binding.Selection.Attempt != attempt.Binding.Selection.Attempt ||
+			factoryCalls != 1 || !bytes.Equal(reused.Publication.ArtifactBytes["terminal.json"], terminalBytes) {
+			t.Fatalf("actual reuse reran/repaired/retagged source: %+v %+v calls=%d %v", decision, reused, factoryCalls, err)
+		}
+		retained, err := runnerterminal.Validate(reused.Publication.ArtifactBytes["terminal.json"], attempt.Binding.TerminalBinding())
+		if err != nil || retained.Outcome != runnerterminal.EvaluationFailure || retained.ExitCode != 1 {
+			t.Fatalf("actual source failure became reuse success: %+v %v", retained, err)
+		}
+	})
 }
