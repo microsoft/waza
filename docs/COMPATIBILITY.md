@@ -115,11 +115,68 @@ observation error text; canonical comparison preserves every other native field,
 verdict, code, ordinal, and counter. The prepared terminal is shared by the
 observer and the original manifest; duplicate matching terminal bytes are not
 republished. Raw `report.json` cannot be reintroduced as an extra artifact.
+`ValidatePublication` receives a fresh snapshot of the independently retained
+original invocation after preparation, before any terminal observer or writes.
+It requires a preparation policy. The fixed `ownedsubmission.CaptureHooks`
+facade regenerates category artifacts from that original typed report and
+compares the complete inventory, media types, and bytes against the prepared
+publication. Consistently mutating a callback report and its projected terminal
+cannot substitute category observations. These are cooperating producer
+comparisons, not SDK/process attestation or disclosure authorization.
+The fixed facade rejects competing preparation/validation and extra-artifact
+callbacks: an unvalidated renamed raw report cannot bypass its category inventory.
+Additional lifecycle artifacts require a separately admitted producer contract;
+arbitrary embedding artifact callbacks remain outside the protected facade.
+
+The facade explicitly withholds conversation, tool, and reliability categories;
+every nonempty native diagnostic/error message becomes `[REDACTED]` before first
+publication, without changing codes, verdicts, counters, or original ordinals.
+Restricted native identifiers fail before reservation. Reuse admits only
+already-protected original terminal text and never sanitizes a finalized source.
 `ReuseAdmission` can deny source disclosure before an actionable decision;
 reuse never runs first-publication projection or rewrites original terminal
 bytes. Public submit registration remains disabled until the actual evidence
 privacy/category policy and protected transport are fully integrated. Public
 integrations remain pending.
+
+Shared operation transport helpers do not register public commands or routes.
+CLI callers use `readRunnerInputLimit` with their profile's explicit byte budget,
+then their strict codec before `emitRunnerOperationJSON`; legacy readers retain
+the 4 MiB limit. Native terminal and operation output retain one write attempt,
+one trailing LF, and a bounded inherited-output delivery phase.
+HTTP callers use `webapi.ReadRunnerOperationInput` for literal-loopback peer,
+Host/same-origin admission, JSON media type, bounded body and joined cancellation.
+`webapi.WriteRunnerOperationJSON` owns the five-second delivery deadline and one
+write/flush without retry. Unsupported write deadlines abort without an implicit
+HTTP success. Strict profile validation and disclosure-approved response
+projection remain the caller's responsibility: neither helper authorizes raw
+reports, rejected checkpoint source bodies, or unauthenticated source metadata.
+
+`executionledger.NewReader(scopedNamespace, storeBackend)` is a read-only
+consumer of the actual `artifactmanifest.Namespace.Reader` capability. It
+exposes canonical reservation/completion lookup and verified `ReadCompleted`
+without Creator, Reserve, Complete, or duplicate-decision APIs. Its shared
+admission functions preserve the native Ledger's original context checks and
+missing/corrupt/I/O distinctions.
+
+Cumulative-budget callers must construct the scoped namespace reader and
+decorated Store backend with the same invocation-owned budget state before
+calling `NewReader`; passing a raw Store backend does not enforce that budget.
+The constructor does no provider I/O and never unwraps a provider or recreates
+a namespace. Both declaration reads and artifact/final-marker reads remain
+inside their supplied decorators. Verified source bytes still confer neither
+runtime attestation nor public disclosure authorization.
+
+The protected capture facade also includes `execution-attempt.json` in the
+same first-publication manifest. Its canonical bytes and digest come from the
+retained original reservation and are included in independently-original
+publication validation. Consumers can read this original execution identifier
+without retagging native ordinals; qualification still requires canonical
+sidecar/context admission and the actual ledger's finalized source verification.
+The capture index does not invent an `ExecutionSource`, and no second capture
+publication is needed to add the sidecar. Legacy/unprotected submission and
+finalized reuse do not retroactively add or rewrite this artifact. Combined
+capture/sidecar bytes remain subject to submission's aggregate publication bound.
 
 The additive `execution-submission-result-1.0.schema.json` and
 `ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,

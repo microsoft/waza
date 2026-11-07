@@ -22,16 +22,23 @@ type runnerInputResult struct {
 }
 
 type runnerOutputResult struct {
-	code int
-	err  error
+	err error
 }
 
 // Inherited descriptors may share their open file description with a parent or
 // peer. Keep their flags untouched; the CLI exits after either result wins.
 func readInheritedRunnerInput(ctx context.Context) ([]byte, error) {
+	return readInheritedRunnerInputLimit(ctx, runnercontract.MaxRequestBytes)
+}
+
+func readInheritedRunnerInputLimit(ctx context.Context, maxBytes int64) ([]byte, error) {
 	result := make(chan runnerInputResult, 1)
 	go func() {
-		data, err := readInheritedRunnerRequest()
+		read := func() ([]byte, error) { return readInheritedRunnerRequestLimit(maxBytes) }
+		if maxBytes == runnercontract.MaxRequestBytes {
+			read = readInheritedRunnerRequest
+		}
+		data, err := read()
 		result <- runnerInputResult{data: data, err: err}
 	}()
 	select {
@@ -52,9 +59,13 @@ func readInheritedRunnerInput(ctx context.Context) ([]byte, error) {
 // scheduled its cancellation. Retrying EINTR lets that cancellation win instead
 // of converting SIGINT/SIGTERM into an infrastructure failure.
 func readInheritedRunnerRequest() ([]byte, error) {
+	return readInheritedRunnerRequestLimit(runnercontract.MaxRequestBytes)
+}
+
+func readInheritedRunnerRequestLimit(maxBytes int64) ([]byte, error) {
 	var data bytes.Buffer
 	buffer := make([]byte, 32<<10)
-	limit := int64(runnercontract.MaxRequestBytes + 1)
+	limit := maxBytes + 1
 	for int64(data.Len()) < limit {
 		remaining := limit - int64(data.Len())
 		readBuffer := buffer
@@ -85,20 +96,35 @@ func readInheritedRunnerRequest() ([]byte, error) {
 // The process exits on timeout, so a blocked inherited descriptor cannot retain
 // a goroutine or cause a later fallback record.
 func emitInheritedRunnerTerminal(envelope runnerterminal.Envelope, binding *runnerterminal.Binding) (int, error) {
+	data, err := runnerterminal.Encode(envelope, binding)
+	if err != nil {
+		return 2, err
+	}
+	if err := emitInheritedRunnerJSON(data); err != nil {
+		return 2, err
+	}
+	return envelope.ExitCode, nil
+}
+
+func emitInheritedRunnerJSON(data []byte) error {
 	fd, err := unix.Dup(int(os.Stdout.Fd()))
 	if err != nil {
-		return 2, fmt.Errorf("duplicating terminal output: %w", err)
+		return fmt.Errorf("duplicating terminal output: %w", err)
 	}
 	output := os.NewFile(uintptr(fd), "runner-terminal-output")
 	result := make(chan runnerOutputResult, 1)
 	go func() {
-		code, emitErr := runnerterminal.NewEmitter(output).Emit(envelope, binding)
-		result <- runnerOutputResult{code: code, err: errors.Join(emitErr, output.Close())}
+		payload := bytes.Clone(data)
+		written, writeErr := output.Write(payload)
+		if writeErr == nil && written != len(payload) {
+			writeErr = io.ErrShortWrite
+		}
+		result <- runnerOutputResult{err: errors.Join(writeErr, output.Close())}
 	}()
 	select {
 	case output := <-result:
-		return output.code, output.err
+		return output.err
 	case <-time.After(5 * time.Second):
-		return 2, fmt.Errorf("writing terminal output: i/o timeout")
+		return fmt.Errorf("writing terminal output: i/o timeout")
 	}
 }

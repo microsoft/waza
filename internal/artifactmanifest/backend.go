@@ -3,10 +3,7 @@ package artifactmanifest
 import (
 	"fmt"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 )
 
 // OpenBackend opens the explicit Azure container when supplied, otherwise the
@@ -28,9 +25,7 @@ func OpenBackend(directory, azureURL string) (Backend, func() error, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating explicit Azure credential chain: %w", err)
 	}
-	backend, err := NewAzure(azureURL, credential, &container.ClientOptions{
-		ClientOptions: azcore.ClientOptions{PerRetryPolicies: []policy.Policy{VersionPolicy{}}},
-	})
+	backend, err := NewAzure(azureURL, credential, nil)
 	if err != nil {
 		return nil, nil, err
 	}

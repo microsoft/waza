@@ -185,7 +185,9 @@ waza artifact inspect "$DIGEST" \
 The container must already exist. Provide usable credentials through the CLI's
 default credential chain, or pass an explicit `azcore.TokenCredential` when
 constructing the backend in Go. `NewAzure` requires that explicit credential
-argument. Construction does not log in. Container URLs must be HTTPS and contain
+argument and installs the pinned Azure service-version policy for every caller,
+preserving caller-owned options and other policies. Construction does not log
+in. Container URLs must be HTTPS and contain
 no embedded credentials, query/SAS token, or fragment. Authorization failures
 are storage errors, not permission to fall back to mutable storage or sign in
 automatically.
@@ -230,6 +232,23 @@ logical pointers with explicit truncation; local scans stop at 10,000 entries.
 These operations do not validate sidecars, establish global ordering or a
 complete logical inventory, grant execution ownership, or attest execution.
 Malformed stored keys and read/close failures are errors, not passing records.
+
+`Namespace.Reader(func(ReadBackend) ReadBackend)` creates a read-only
+`NamespaceReader` from an already admitted provider. Its decorator receives only
+a scoped `Get(ctx, logicalKey, limit)` capability, not the provider or any
+create/list operation. It validates the existing logical key grammar and the
+0..1 MiB read bound before raw I/O. `NamespaceReader.ReadUnverified` returns
+detached raw bytes, not validated sidecars or ownership.
+Nil decorators and nil returned readers are explicit errors. The admitted
+namespace and its create/creator behavior remain unchanged.
+
+A consumer can share cumulative budget state with its artifact `Backend.Get`
+wrapper used by `Store.ReadCompleted`. Reserve the supplied limit plus one
+excess-detection byte **before** each underlying read; refund only observed
+successful bytes. Failed reads can discard consumed bytes, so retain their full
+reservation even when the returned slice is nil. Budget exhaustion must prevent
+I/O and propagate as a failed/incomplete read, not a verified partial aggregate.
+This does not change `NewNamespace` provider admission or creator semantics.
 
 The typed attempt/decision/completion profiles and creator-capability rules
 belong to #764. Only its unambiguous successful creator may obtain the typed
