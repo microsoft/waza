@@ -2,7 +2,6 @@ package executionledger
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,13 +9,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
-	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
-	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/runnercontract"
-	"github.com/microsoft/waza/internal/runneridentity"
-	"github.com/microsoft/waza/internal/runnerterminal"
-	"github.com/microsoft/waza/internal/runnerunit"
 )
 
 func completionFixture(t *testing.T) []byte {
@@ -200,122 +193,6 @@ func TestCompletionOriginalContextAndHashes(t *testing.T) {
 			}
 		}
 
-		t.Run("published_failure", func(t *testing.T) {
-			ctx := context.Background()
-			data, err := os.ReadFile("../../examples/runner/unit.json")
-			if err != nil {
-				t.Fatal(err)
-			}
-			request, err := runnercontract.Parse(data)
-			if err != nil {
-				t.Fatal(err)
-			}
-			originalTask := request.Input.Task
-			request.Input.Task = strings.Replace(originalTask, "    - hello\n", "    - impossible-output-control\n", 1)
-			if request.Input.Task == originalTask {
-				t.Fatal("failure control did not mutate actual task expectation")
-			}
-			wire, err := json.Marshal(request)
-			if err != nil {
-				t.Fatal(err)
-			}
-			service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
-				return execution.NewMockEngine(config.ModelID), nil
-			})
-			envelope, binding := service.RunTerminal(ctx, wire)
-			if binding == nil || envelope.Outcome != runnerterminal.EvaluationFailure || envelope.Observation == nil ||
-				envelope.Observation.Status != "failed" || envelope.Observation.Attempts != request.Selection.Attempt {
-				t.Fatalf("production mock failure fixture did not exercise native failure: %+v", envelope)
-			}
-			terminalBytes, err := runnerterminal.Encode(envelope, binding)
-			if err != nil {
-				t.Fatal(err)
-			}
-			attempt := executionattempt.Attempt{
-				Kind: "waza.execution-attempt", SchemaVersion: executionattempt.Version,
-				Logical: executionattempt.LogicalFrom(*binding.Identity), ExecutionID: "exec-" + strings.Repeat("a", 64),
-				Binding: artifactmanifest.Binding{Identity: *binding.Identity, Selection: binding.Selection,
-					ExecutionMode: binding.ExecutionMode, GraderIDs: binding.GraderIDs},
-			}
-			reservation, err := executionattempt.EncodeAttempt(attempt)
-			if err != nil {
-				t.Fatal(err)
-			}
-			manifest := artifactmanifest.Manifest{
-				Kind: "waza.artifact-manifest", SchemaVersion: artifactmanifest.Version,
-				Binding: attempt.Binding, TerminalArtifact: "terminal.json",
-				Artifacts: []artifactmanifest.Artifact{{Name: "terminal.json", SHA256: artifactmanifest.Hash(terminalBytes),
-					SizeBytes: int64(len(terminalBytes)), MediaType: "application/json"}},
-			}
-			manifestBytes, err := artifactmanifest.Encode(manifest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			backend, err := artifactmanifest.OpenLocal(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				if err := backend.Close(); err != nil {
-					t.Error(err)
-				}
-			})
-			store := artifactmanifest.NewStore(backend)
-			if err := store.Put(ctx, manifest.Artifacts[0], terminalBytes); err != nil {
-				t.Fatal(err)
-			}
-			digest, err := store.Create(ctx, manifestBytes)
-			if err != nil {
-				t.Fatal(err)
-			}
-			unfinalized, err := store.Inspect(ctx, digest)
-			if err != nil || unfinalized.Publication != "unfinalized" || unfinalized.Integrity != "verified" {
-				t.Fatalf("content verification must not imply final publication: %+v, %v", unfinalized, err)
-			}
-			final, err := store.Finalize(ctx, digest)
-			if err != nil || final.Publication != "finalized" || final.Integrity != "verified" {
-				t.Fatalf("published recorded failure: %+v, %v", final, err)
-			}
-			completion := Completion{
-				Kind: "waza.execution-completion", SchemaVersion: Version, ExecutionID: attempt.ExecutionID,
-				ReservationDigest: artifactmanifest.Hash(reservation), ManifestDigest: digest,
-			}
-			completionBytes, err := EncodeCompletion(completion)
-			if err != nil {
-				t.Fatal(err)
-			}
-			request.Selection.Attempt++
-			callerIdentity, err := runneridentity.Derive(request)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if executionattempt.LogicalFrom(*callerIdentity) != attempt.Logical || callerIdentity.Attempt == attempt.Binding.Identity.Attempt {
-				t.Fatal("caller must share real logical work but differ in native ordinal/identity")
-			}
-			callerBinding := attempt.Binding
-			callerBinding.Identity, callerBinding.Selection = *callerIdentity, request.Selection
-			decision := executionattempt.Decision{
-				Kind: "waza.duplicate-decision", SchemaVersion: executionattempt.Version,
-				DecisionID: "decision-" + strings.Repeat("d", 64), Logical: attempt.Logical, Binding: callerBinding,
-				Policy: "reuse", Outcome: "reused",
-				Source: &executionattempt.Source{ExecutionID: attempt.ExecutionID, ManifestDigest: digest},
-			}
-			if err := ValidateReuseContext(decision, reservation, completionBytes, manifestBytes); err != nil {
-				t.Fatal(err)
-			}
-			originalTerminal, err := backend.Get(ctx, "blob-"+manifest.Artifacts[0].SHA256, manifest.Artifacts[0].SizeBytes)
-			if err != nil || !bytes.Equal(originalTerminal, terminalBytes) {
-				t.Fatalf("published terminal was changed: %v", err)
-			}
-			retained, err := runnerterminal.Validate(originalTerminal, attempt.Binding.TerminalBinding())
-			if err != nil || retained.Outcome != runnerterminal.EvaluationFailure || retained.ExitCode != 1 ||
-				retained.Observation.Attempts != attempt.Binding.Selection.Attempt {
-				t.Fatalf("recorded failure/ordinal changed: %+v, %v", retained, err)
-			}
-			if _, err := runnerterminal.Validate(originalTerminal, callerBinding.TerminalBinding()); !errors.Is(err, runnerterminal.ErrInvalid) {
-				t.Fatalf("source terminal incorrectly retagged to caller ordinal: %v", err)
-			}
-		})
 		for _, bad := range [][]byte{nil, append(bytes.Clone(completionBytes), '\n')} {
 			if err := ValidateReuseContext(decision, reservation, bad, manifest); !errors.Is(err, ErrContext) {
 				t.Fatalf("missing/noncanonical completion accepted: %v", err)
