@@ -77,9 +77,10 @@ func TestGoWorkflowsInstallOfflineAssertionOracleRuntimeOnEveryPlatform(t *testi
 }
 
 type ordinaryValidationStep struct {
-	Name string `yaml:"name"`
-	If   string `yaml:"if"`
-	Run  string `yaml:"run"`
+	Name            string `yaml:"name"`
+	If              string `yaml:"if"`
+	Run             string `yaml:"run"`
+	ContinueOnError bool   `yaml:"continue-on-error"`
 }
 
 func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool) error {
@@ -221,6 +222,9 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 			if _, ok := positions[name]; !ok {
 				return fmt.Errorf("%s: missing %s", jobName, name)
 			}
+			if steps[positions[name]].ContinueOnError {
+				return fmt.Errorf("%s: %s must not tolerate failure", jobName, name)
+			}
 			if name != required[1] && conditions[name] != "" {
 				return fmt.Errorf("%s: %s must execute unconditionally", jobName, name)
 			}
@@ -296,6 +300,32 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 			}
 			if err := checkOrdinaryOfflineValidation(t, source, name, packages); err != nil {
 				t.Fatal(err)
+			}
+			for _, step := range []string{
+				"Install and prove rejecting runtime guard",
+				"Verify uncached compatibility inventory",
+				"Execute Tests",
+				"Reject tolerated runtime launches",
+				"Integration Test",
+			} {
+				anchor := "      - name: " + step + "\n"
+				if !strings.Contains(string(source), anchor) {
+					t.Fatalf("required step mutation anchor missing: %s", step)
+				}
+				for offset := 0; ; {
+					position := strings.Index(string(source)[offset:], anchor)
+					if position < 0 {
+						break
+					}
+					offset += position + len(anchor)
+					for _, value := range []string{"false", "true", "${{ always() }}"} { //nolint:misspell // GitHub expression.
+						mutated := string(source[:offset]) + "        continue-on-error: " + value + "\n" + string(source[offset:])
+						err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages)
+						if (err == nil) != (value == "false") {
+							t.Fatalf("%s at offset %d: continue-on-error=%s: validation error = %v", step, offset, value, err)
+						}
+					}
+				}
 			}
 			mutations := [][2]string{
 				{`bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},

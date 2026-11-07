@@ -39,6 +39,9 @@ They require the whole suite (excluding only the separately guarded native shard
 package on Linux), uncached race/atomic coverage, and no narrowing test selectors.
 They also execute each production runtime-marker check with an absent and a
 present marker, requiring success only when no forbidden launch was recorded.
+Required guard, inventory, test, marker, and integration steps cannot tolerate
+failure via `continue-on-error`; mutation controls check every Linux, Windows,
+and preview occurrence, allowing only omission or explicit `false`.
 
 Ordinary and `--runner-compat` benchmark summaries use the command's configured
 output writer and propagate write failures, including short writes, as output
