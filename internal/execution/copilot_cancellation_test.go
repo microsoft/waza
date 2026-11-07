@@ -246,6 +246,7 @@ func TestExecuteJoinsForceStopAfterSessionCompletion(t *testing.T) {
 					captured, err := capture.Seal()
 					require.NoError(t, err)
 					require.Contains(t, runtimeOperations(captured), "cancellation-context-observed")
+					require.Contains(t, runtimeOperations(captured), "force-stop-requested")
 					require.Contains(t, runtimeOperations(captured), "force-stop-invoked")
 					require.Equal(t, "unknown", captured.ProcessExit)
 					require.Equal(t, joinForce, slices.Contains(runtimeOperations(captured), "force-stop-returned"))
