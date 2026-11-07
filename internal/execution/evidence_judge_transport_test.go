@@ -145,6 +145,8 @@ func TestEvidenceJudgeSDKWireAndBoundedDisconnect(t *testing.T) {
 						} else {
 							response["result"] = map[string]any{"messageId": "judge-message"}
 						}
+					case "session.sendAndWait":
+						response["error"] = map[string]any{"code": -32601, "message": "offline fixture uses callback completion"}
 					case "session.options.update":
 						for key, want := range map[string]bool{
 							"skipCustomInstructions": true, "customAgentsLocalOnly": true,
@@ -209,6 +211,8 @@ func TestEvidenceJudgeSDKWireAndBoundedDisconnect(t *testing.T) {
 					switch request.Method {
 					case "session.send":
 						if !test.sendError {
+							messageID := "judge-message"
+							emit(&copilot.UserMessageData{MessageID: &messageID})
 							emit(&copilot.PermissionRequestedData{
 								RequestID: "permission", PermissionRequest: &copilot.PermissionRequestCustomTool{
 									ToolName: "set_waza_grade_pass", ToolCallID: utils.Ptr("grade"),

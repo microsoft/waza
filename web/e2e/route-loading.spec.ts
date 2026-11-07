@@ -1,5 +1,39 @@
 import { test, expect } from "@playwright/test";
+import { gzipSync } from "node:zlib";
 import { mockAllAPIs } from "./helpers/api-mock";
+
+const lazyRoutes = [
+  { path: "/runs/run-001", label: "run details", heading: "code-explainer" },
+  { path: "/compare", label: "run comparison", heading: "Compare Runs" },
+  { path: "/trends", label: "trends", heading: "Trends" },
+  { path: "/live", label: "live view", heading: "Live" },
+  { path: "/assurance", label: "report inspector", heading: "Grader assurance" },
+  { path: "/release", label: "release policies", heading: "Release policies" },
+  { path: "/lab/demo", label: "dashboard lab", heading: "Know where your skills stand." },
+];
+
+test("initial production JavaScript stays within 105 KB gzip", async ({ page }) => {
+  await mockAllAPIs(page);
+  const scripts = new Map<string, Promise<number>>();
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname.match(/^\/assets\/[^/]+\.js$/)) {
+      scripts.set(
+        response.url(),
+        response.body().then((body) => gzipSync(body).byteLength),
+      );
+    }
+  });
+  await page.goto("/");
+  await expect(page.getByText("code-explainer")).toBeVisible();
+  const sizes = await Promise.all(scripts.values());
+  expect(sizes.length, "must measure production JavaScript, including any separate runtime").toBeGreaterThan(0);
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  await test.info().attach("initial-javascript-gzip.json", {
+    body: JSON.stringify({ assets: [...scripts.keys()], gzipBytes: sizes, total }),
+    contentType: "application/json",
+  });
+  expect(total).toBeLessThanOrEqual(105_000);
+});
 
 test("home loads without a route loading state", async ({ page }) => {
   await mockAllAPIs(page);
@@ -38,43 +72,59 @@ test("home loads without a route loading state", async ({ page }) => {
   ).toEqual([]);
 });
 
-test("lazy route loading is announced without moving keyboard focus", async ({
-  page,
-}) => {
-  await mockAllAPIs(page);
-  let blockChunks = false;
-  let releaseLazyChunks: (() => void) | undefined;
-  const lazyChunksReleased = new Promise<void>((resolve) => {
-    releaseLazyChunks = resolve;
+for (const target of lazyRoutes) {
+  test(`${target.path} loads directly`, async ({ page }) => {
+    await mockAllAPIs(page);
+    await page.goto(`/#${target.path}`);
+    await expect(
+      page.getByRole("heading", { name: target.heading, exact: true }),
+    ).toBeVisible();
   });
 
-  await page.route(/\/assets\/[^/]+\.js$/, async (route) => {
-    if (blockChunks) await lazyChunksReleased;
-    await route.continue();
+  test(`${target.path} announces delayed in-app loading`, async ({ page }) => {
+    await mockAllAPIs(page);
+    let blockChunks = false;
+    let releaseLazyChunks!: () => void;
+    const lazyChunksReleased = new Promise<void>((resolve) => {
+      releaseLazyChunks = resolve;
+    });
+
+    await page.route(
+      (url) => /^\/assets\/[^/]+\.js$/.test(url.pathname),
+      async (route) => {
+        if (blockChunks) await lazyChunksReleased;
+        await route.continue();
+      },
+    );
+    await page.goto("/");
+    await expect(page.getByText("code-explainer")).toBeVisible();
+    blockChunks = true;
+
+    const link = page.locator(`a[href="#${target.path}"]`).first();
+    try {
+      if (target.path === "/lab/demo" || target.path === "/runs/run-001") {
+        // These routes have no persistent navigation anchor in the original dashboard.
+        await page.evaluate((path) => { window.location.hash = path; }, target.path);
+      } else {
+        await link.focus();
+        await page.keyboard.press("Enter");
+      }
+
+      await expect(page.getByRole("status")).toHaveText(`Loading ${target.label}...`);
+      if (target.path === "/lab/demo") {
+        await expect(page.getByRole("status")).toHaveClass("p-8 text-zinc-100");
+      } else if (target.path !== "/runs/run-001") {
+        await expect(link).toBeFocused();
+      }
+    } finally {
+      releaseLazyChunks();
+    }
+    await expect(
+      page.getByRole("heading", { name: target.heading, exact: true }),
+    ).toBeVisible();
+    // Run-detail links belong to the home table, which is intentionally unmounted.
+    if (target.path !== "/lab/demo" && target.path !== "/runs/run-001") {
+      await expect(link).toBeFocused();
+    }
   });
-  await page.goto("/");
-  blockChunks = true;
-
-  const compareLink = page.getByRole("link", { name: "Compare" });
-  await compareLink.focus();
-  await page.keyboard.press("Enter");
-
-  await expect(page.getByRole("status")).toHaveText(
-    "Loading run comparison...",
-  );
-  await expect(compareLink).toBeFocused();
-
-  releaseLazyChunks?.();
-  await expect(
-    page.getByRole("heading", { name: "Compare Runs" }),
-  ).toBeVisible();
-  await expect(compareLink).toBeFocused();
-});
-
-test("a non-home deep link loads its route", async ({ page }) => {
-  await mockAllAPIs(page);
-  await page.goto("/#/trends");
-
-  await expect(page.getByRole("heading", { name: "Trends" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Trends" })).toBeVisible();
-});
+}

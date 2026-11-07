@@ -24,6 +24,10 @@ eval_context = {
     "tool_calls": data['tool_calls'],
     "tool_events": data.get('tool_events') or [],
     "command_invocations": data.get('command_invocations') or [],
+    # None means native user input was not enabled, not that nothing was asked.
+    "user_input_requests": data.get('user_input_requests'),
+    # None means host lifecycle evidence is unavailable, not that nothing ran.
+    "host_lifecycle": data.get('host_lifecycle'),
     "errors": [t for t in data['transcript'] if "error" in t.get("type") or "error" in str(t.get("content", ""))],
     "duration_ms": data['duration_ms'],
     "len": len,
@@ -44,14 +48,19 @@ eval_context = {
 # 'fail' if it's just an assertion failure
 # any other string is assumed to be an exception of some kind (ie, bad syntax, using a non-existent field).
 results: list[str] = []
+evaluation_errors: dict[int, str] = {}
 
-for assertion in data['assertions']:
+for index, assertion in enumerate(data['assertions']):
     try:
-        result = eval(assertion, {"__builtins__": {}}, eval_context)
+        # Nested comprehensions resolve names in globals, so use one restricted namespace.
+        result = eval(assertion, {"__builtins__": {}, **eval_context})
         results.append("" if not not result else "fail")
     except Exception as e:
-        results.append(str(e))
+        message = str(e)
+        results.append(message)
+        evaluation_errors[index] = message
 
 print(json.dumps({
     "results": results,
+    "evaluation_errors": evaluation_errors,
 }))

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -30,13 +31,13 @@ import (
 	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
-	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/recommend"
 	"github.com/microsoft/waza/internal/registry"
 	"github.com/microsoft/waza/internal/reporting"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/session"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/storage"
@@ -106,6 +107,8 @@ var (
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return orchestration.NewEvalRunner(cfg, engine, opts...)
 	}
+	shutdownSharedClientForRun     = execution.ShutdownSharedClient
+	runSharedClientShutdownTimeout = 30 * time.Second
 
 	autoIssueLookPathFn   = exec.LookPath
 	autoIssueRunCommandFn = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
@@ -125,8 +128,9 @@ type benchmarkRunner interface {
 
 // modelResult pairs a model identifier with its evaluation outcome.
 type modelResult struct {
-	modelID string
-	outcome *models.EvaluationOutcome
+	modelID     string
+	outcome     *models.EvaluationOutcome
+	partialPath string
 }
 
 func newRunCommand() *cobra.Command {
@@ -187,6 +191,7 @@ config.executor: mock checks only the harness, not agent quality.`,
 	cmd.Flags().BoolVar(&noSkillsFlag, "no-skills", false, "Disable all skill loading for the evaluation")
 	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
 	cmd.Flags().BoolVar(&autoFileIssue, "auto-file-issue", false, "Auto-file or update a GitHub issue for failing runs (requires gh and GITHUB_REPOSITORY)")
+	cmd.Flags().Bool("runner-compat", false, "Route one explicit inline mock/text suite through runner 1.0; reject unsupported mappings")
 
 	// OpenTelemetry trace export (off by default).
 	cmd.Flags().StringVar(&otelExporter, "otel-exporter", "", "Export OpenTelemetry traces using exporter: otlp|stdout|file (default: disabled)")
@@ -206,7 +211,12 @@ config.executor: mock checks only the harness, not agent quality.`,
 	return cmd
 }
 
-func runCommandE(cmd *cobra.Command, args []string) error {
+func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
+	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
+		return err
+	} else if enabled {
+		return runLocalCompatibility(cmd, args, runnerunit.NewService(nil))
+	}
 	if len(snapshotFiles) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-file requires --snapshot")
 	}
@@ -219,14 +229,26 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	if len(snapshotFiles) > 0 && (snapshotMaxFileBytes <= 0 || snapshotMaxTotalBytes <= 0) {
 		return fmt.Errorf("workspace snapshot byte limits must be positive")
 	}
+	parentCtx := cmd.Context()
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	runCtx, stopRunSignals := signal.NotifyContext(parentCtx, os.Interrupt, syscall.SIGTERM)
+	cmd.SetContext(runCtx)
+	defer func() {
+		cmd.SetContext(parentCtx)
+		stopRunSignals()
+	}()
+
 	// Stop the process-wide Copilot SDK client at the end of the run, after
 	// every per-model engine has been Shutdown. Engines built on the shared
 	// client (production path) leave it running so subsequent models and
 	// graders can reuse one SDK process. See
 	// docs/design/135-improve-concurrency.md (R2).
 	defer func() {
-		if err := execution.ShutdownSharedClient(context.Background()); err != nil {
+		if err := shutdownSharedClientAfterRun(cmd.Context()); err != nil {
 			slog.Warn("shared copilot client shutdown failed", "error", err)
+			retErr = errors.Join(retErr, err)
 		}
 	}()
 
@@ -375,6 +397,9 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 			}); wErr != nil {
 				return fmt.Errorf("failed to write output directory: %w", wErr)
 			}
+			if err := removePartialOutcomes(results); err != nil {
+				return err
+			}
 		}
 
 		// Auto-upload after all local writes succeed
@@ -455,6 +480,11 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	if outputDir != "" {
 		if err := writeOutputDir(outputDir, allSkillResults); err != nil {
 			return fmt.Errorf("failed to write output directory: %w", err)
+		}
+		for _, result := range allSkillResults {
+			if err := removePartialOutcomes(result.outcomes); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -655,19 +685,23 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	for _, modelID := range modelsToRun {
 		// Override spec model for this iteration
 		spec.Config.ModelID = modelID
+		partialPath, err := allocatePartialOutcomePath(spec)
+		if err != nil {
+			return nil, err
+		}
 
-		outcome, err := runSingleModel(cmd, spec, specPath, defaultSkills)
+		outcome, err := runSingleModelWithPartialPath(cmd, spec, specPath, defaultSkills, partialPath)
 		if err != nil {
 			var testErr *TestFailureError
 			if errors.As(err, &testErr) {
 				// Test failures are recorded but don't stop a multi-model run
-				allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome})
+				allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome, partialPath: partialPath})
 				lastErr = err
 				continue
 			}
 			return nil, err
 		}
-		allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome})
+		allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome, partialPath: partialPath})
 	}
 
 	// Print comparison table when multiple models were evaluated
@@ -723,9 +757,37 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	return allResults, nil
 }
 
+func shutdownSharedClientAfterRun(parent context.Context) error {
+	if parent == nil {
+		parent = context.Background()
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), runSharedClientShutdownTimeout)
+	stopCancellation := context.AfterFunc(parent, cancel)
+	defer func() {
+		stopCancellation()
+		cancel()
+	}()
+	if parent.Err() != nil {
+		cancel()
+	}
+	err := shutdownSharedClientForRun(shutdownCtx)
+	if err == nil {
+		err = shutdownCtx.Err()
+	}
+	return errors.Join(parent.Err(), err)
+}
+
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
 func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
+	partialPath, err := allocatePartialOutcomePath(spec)
+	if err != nil {
+		return nil, err
+	}
+	return runSingleModelWithPartialPath(cmd, spec, specPath, defaultSkills, partialPath)
+}
+
+func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string, partialPath string) (*models.EvaluationOutcome, error) {
 	// Get spec directory for resolving relative paths
 	specDir := filepath.Dir(specPath)
 	if !filepath.IsAbs(specDir) {
@@ -786,8 +848,38 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 	}
 
-	if err := mcpmock.ValidateEvalMocks(spec.MCPMocks, specDir, spec.SchemaVersion); err != nil {
-		return nil, fmt.Errorf("MCP mock admission: %w", err)
+	// Use signal cancellation so Ctrl+C stops setup hooks and the long-running work.
+	var ctx context.Context
+	var stop context.CancelFunc
+	if cmd != nil {
+		ctx, stop = signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	} else {
+		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	}
+	defer stop()
+	// before_run may generate task inputs, so it runs before tasks are loaded
+	// for MCP admission and before the engine starts. The runner consumes this
+	// setup instead of running before_run again; after_run runs once on every exit.
+	setup, err := orchestration.StartRunSetup(ctx, cfg, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("benchmark failed: %w", err)
+	}
+	defer setup.Teardown(ctx)
+
+	// Admit MCP mocks before the engine starts, against the tasks this run
+	// selects; RunBenchmark repeats the same check. An interrupt during setup or
+	// admission stops here, before any engine is created.
+	triggerSpec, triggerErr := trigger.Discover(specDir)
+	if triggerErr != nil {
+		triggerErr = fmt.Errorf("loading trigger tests: %w", triggerErr)
+	}
+	usesEvalMCP := triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType)
+	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, usesEvalMCP)
+	if err := errors.Join(triggerErr, admissionErr); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("benchmark failed: %w", err)
 	}
 
 	// Create engine based on spec
@@ -801,19 +893,37 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 
 	}
-	if err := engine.Initialize(context.Background()); err != nil {
+	// The signal handler is already installed, so initialization must observe it.
+	if err := engine.Initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
-	defer func() {
-		if err := engine.Shutdown(context.Background()); err != nil {
-			slog.Warn("engine shutdown failed", "error", err)
+	engineShutdown := false
+	var engineShutdownErr error
+	shutdownEngine := func() error {
+		if engineShutdown {
+			return engineShutdownErr
 		}
+		engineShutdown = true
+		engineShutdownErr = shutdownRunEngine(ctx, engine)
+		if engineShutdownErr != nil {
+			slog.Warn("engine shutdown failed", "error", engineShutdownErr)
+		}
+		return engineShutdownErr
+	}
+	defer func() {
+		_ = shutdownEngine()
 	}()
 
 	// Create runner with optional task filters and cache
 	runnerOpts := []orchestration.RunnerOption{
 		orchestration.WithTaskFilters(taskFilters...),
 		orchestration.WithTagFilters(tagFilters...),
+		orchestration.WithSupplementalEvalMCP(usesEvalMCP),
+	}
+	if partialPath != "" {
+		runnerOpts = append(runnerOpts, orchestration.WithPartialOutcomeWriter(func(outcome *models.EvaluationOutcome) error {
+			return savePartialOutcome(outcome, partialPath)
+		}))
 	}
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
@@ -846,6 +956,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 			runnerOpts = append(runnerOpts, orchestration.WithRedactionPolicy(policy))
 		}
 	}
+	runnerOpts = append(runnerOpts, orchestration.WithRunSetup(setup))
 	runner := newBenchmarkRunner(cfg, engine, runnerOpts...)
 
 	// Setup session logger if enabled
@@ -909,16 +1020,6 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		runner.OnProgress(simpleProgressListener)
 	}
 
-	// Run benchmark with signal cancellation so Ctrl+C stops the long-running work.
-	var ctx context.Context
-	var stop context.CancelFunc
-	if cmd != nil {
-		ctx, stop = signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-	} else {
-		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	}
-	defer stop()
-
 	fmt.Printf("Running benchmark: %s\n", spec.Name)
 	if spec.Scenario != "" {
 		fmt.Printf("Scenario: %s\n", spec.Scenario)
@@ -954,7 +1055,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 
 	outcome, err := runner.RunBenchmark(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("benchmark failed: %w", err)
+		return outcome, fmt.Errorf("benchmark failed: %w", err)
 	}
 
 	// Log task completion and session summary from outcome data
@@ -968,10 +1069,8 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	var triggerResults []models.TriggerResult
 	ctx, supplementalUsage := execution.NewUsageScope(ctx)
 
-	// Discover and run trigger tests if present alongside the eval spec
-	if triggerSpec, err := trigger.Discover(specDir); err != nil {
-		return outcome, fmt.Errorf("loading trigger tests: %w", err)
-	} else if triggerSpec != nil {
+	// Run the trigger spec admitted before engine startup, outside task caching.
+	if triggerSpec != nil {
 		var tm *models.TriggerMetrics
 		if spec.Config.EngineType == "mock" {
 			// return perfect results
@@ -1034,8 +1133,11 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 
 	// shut down the engine and update outcome with final usage data
-	if err := engine.Shutdown(context.Background()); err != nil {
-		slog.Warn("engine shutdown failed", "error", err)
+	if err := shutdownEngine(); err != nil {
+		return nil, fmt.Errorf("shutting down engine: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if outcome.EvaluationUsage != nil {
 		outcome.EvaluationUsage.Sessions = append(outcome.EvaluationUsage.Sessions, supplementalUsage.Snapshot().Sessions...)
@@ -1047,7 +1149,13 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	case "github-comment":
 		fmt.Print(FormatGitHubComment(outcome))
 	case "default":
-		printSummary(outcome)
+		var output io.Writer = os.Stdout
+		if cmd != nil {
+			output = cmd.OutOrStdout()
+		}
+		if err := printSummary(output, outcome); err != nil {
+			return nil, fmt.Errorf("printing benchmark summary: %w", err)
+		}
 		printSnapshotUpdateSummary(outcome)
 		if interpret {
 			fmt.Println()
@@ -1335,97 +1443,99 @@ func formatPassHatK(curve []float64) string {
 	return strings.Join(parts, "  ")
 }
 
-func printSummary(outcome *models.EvaluationOutcome) {
-	fmt.Println("=" + strings.Repeat("=", 50))
-	fmt.Println(" BENCHMARK RESULTS")
-	fmt.Println("=" + strings.Repeat("=", 50))
-	fmt.Println()
+func printSummary(output io.Writer, outcome *models.EvaluationOutcome) error {
+	var summary bytes.Buffer
+	w := &summary
+	fmt.Fprintln(w, "="+strings.Repeat("=", 50))
+	fmt.Fprintln(w, " BENCHMARK RESULTS")
+	fmt.Fprintln(w, "="+strings.Repeat("=", 50))
+	fmt.Fprintln(w)
 
 	digest := outcome.Digest
 
-	fmt.Printf("Total Tests:    %d\n", digest.TotalTests)
-	fmt.Printf("Succeeded:      %d\n", digest.Succeeded)
-	fmt.Printf("Failed:         %d\n", digest.Failed)
-	fmt.Printf("Errors:         %d\n", digest.Errors)
-	fmt.Printf("Success Rate:   %.1f%%\n", digest.SuccessRate*100)
-	fmt.Printf("Aggregate Score: %.2f\n", digest.AggregateScore)
-	fmt.Printf("Min Score:      %.2f\n", digest.MinScore)
-	fmt.Printf("Max Score:      %.2f\n", digest.MaxScore)
-	fmt.Printf("Std Dev:        %.4f\n", digest.StdDev)
+	fmt.Fprintf(w, "Total Tests:    %d\n", digest.TotalTests)
+	fmt.Fprintf(w, "Succeeded:      %d\n", digest.Succeeded)
+	fmt.Fprintf(w, "Failed:         %d\n", digest.Failed)
+	fmt.Fprintf(w, "Errors:         %d\n", digest.Errors)
+	fmt.Fprintf(w, "Success Rate:   %.1f%%\n", digest.SuccessRate*100)
+	fmt.Fprintf(w, "Aggregate Score: %.2f\n", digest.AggregateScore)
+	fmt.Fprintf(w, "Min Score:      %.2f\n", digest.MinScore)
+	fmt.Fprintf(w, "Max Score:      %.2f\n", digest.MaxScore)
+	fmt.Fprintf(w, "Std Dev:        %.4f\n", digest.StdDev)
 	if s := digest.Statistics; s != nil {
 		if ci := s.SuccessRateCI; ci != nil {
-			fmt.Printf("Success CI95:   [%.1f%%, %.1f%%]\n", ci.Lower*100, ci.Upper*100)
+			fmt.Fprintf(w, "Success CI95:   [%.1f%%, %.1f%%]\n", ci.Lower*100, ci.Upper*100)
 		}
 		if len(s.PassHatK) > 0 {
-			fmt.Printf("Reliability:    %s\n", formatPassHatK(s.PassHatK))
+			fmt.Fprintf(w, "Reliability:    %s\n", formatPassHatK(s.PassHatK))
 		}
 	}
 
 	duration := time.Duration(digest.DurationMs) * time.Millisecond
-	fmt.Printf("Duration:       %v\n", duration)
-	fmt.Println()
+	fmt.Fprintf(w, "Duration:       %v\n", duration)
+	fmt.Fprintln(w)
 
 	// Grouped results summary
 	if len(digest.Groups) > 0 {
-		fmt.Println("-" + strings.Repeat("-", 50))
-		fmt.Println(" RESULTS BY GROUP")
-		fmt.Println("-" + strings.Repeat("-", 50))
+		fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+		fmt.Fprintln(w, " RESULTS BY GROUP")
+		fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
 		for _, g := range digest.Groups {
 			pct := 0.0
 			if g.Total > 0 {
 				pct = float64(g.Passed) / float64(g.Total) * 100
 			}
-			fmt.Printf("  %-20s %d/%d passed (%.0f%%)  avg: %.2f\n",
+			fmt.Fprintf(w, "  %-20s %d/%d passed (%.0f%%)  avg: %.2f\n",
 				g.Name+":", g.Passed, g.Total, pct, g.AvgScore)
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
 
 	// Per-task breakdown
-	fmt.Println("-" + strings.Repeat("-", 50))
-	fmt.Println(" PER-TASK BREAKDOWN")
-	fmt.Println("-" + strings.Repeat("-", 50))
+	fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+	fmt.Fprintln(w, " PER-TASK BREAKDOWN")
+	fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
 	for _, to := range outcome.TestOutcomes {
 		icon := "✓"
 		if to.Status != models.StatusPassed {
 			icon = "✗"
 		}
-		fmt.Printf("  %s %s [%s]\n", icon, to.DisplayName, to.Status)
+		fmt.Fprintf(w, "  %s %s [%s]\n", icon, to.DisplayName, to.Status)
 		if to.Stats != nil {
 			passRate := fmt.Sprintf("%.1f%%", to.Stats.PassRate*100)
 			if ci := to.Stats.PassRateCI; ci != nil {
 				passRate += fmt.Sprintf(" [CI95 %.0f-%.0f%%]", ci.Lower*100, ci.Upper*100)
 			}
-			fmt.Printf("      pass_rate=%s  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
+			fmt.Fprintf(w, "      pass_rate=%s  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
 				passRate, to.Stats.AvgScore,
 				to.Stats.MinScore, to.Stats.MaxScore,
 				to.Stats.StdDevScore, to.Stats.AvgDurationMs)
 		}
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 
 	// Show failed tests
 	if digest.Failed > 0 || digest.Errors > 0 {
-		fmt.Println("Failed Tests:")
+		fmt.Fprintln(w, "Failed Tests:")
 		for _, to := range outcome.TestOutcomes {
 			if to.Status != models.StatusPassed {
-				fmt.Printf("  - %s (%s)\n", to.DisplayName, to.Status)
+				fmt.Fprintf(w, "  - %s (%s)\n", to.DisplayName, to.Status)
 
 				// Show validation failures
 				if len(to.Runs) > 0 {
 					for _, run := range to.Runs {
 						for _, val := range run.Validations {
 							if !val.Passed {
-								fmt.Printf("    • %s: %s\n", val.Name, val.Feedback)
+								fmt.Fprintf(w, "    • %s: %s\n", val.Name, val.Feedback)
 							}
 						}
 					}
 				}
 			}
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
-	printTriageHighlights(os.Stdout, outcome)
+	printTriageHighlights(w, outcome)
 
 	// Show flaky tasks
 	var flakyTasks []models.TestOutcome
@@ -1435,9 +1545,9 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		}
 	}
 	if len(flakyTasks) > 0 {
-		fmt.Println("\u26a0 Flaky Tasks (inconsistent pass/fail across trials):")
+		fmt.Fprintln(w, "\u26a0 Flaky Tasks (inconsistent pass/fail across trials):")
 		for _, to := range flakyTasks {
-			fmt.Printf("  - %s  pass_rate=%.0f%%  flakiness=%.1f%%  score=%.2f\u00b1%.2f  CI95=[%.2f, %.2f]\n",
+			fmt.Fprintf(w, "  - %s  pass_rate=%.0f%%  flakiness=%.1f%%  score=%.2f\u00b1%.2f  CI95=[%.2f, %.2f]\n",
 				to.DisplayName,
 				to.Stats.PassRate*100,
 				to.Stats.FlakinessPercent,
@@ -1447,26 +1557,28 @@ func printSummary(outcome *models.EvaluationOutcome) {
 				to.Stats.CI95Hi,
 			)
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
 
 	// Show trigger accuracy if trigger tests were run
 	if outcome.TriggerMetrics != nil {
 		m := outcome.TriggerMetrics
-		fmt.Println("-" + strings.Repeat("-", 50))
-		fmt.Println(" TRIGGER ACCURACY")
-		fmt.Println("-" + strings.Repeat("-", 50))
-		fmt.Printf("  Accuracy:  %.1f%%\n", m.Accuracy*100)
+		fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+		fmt.Fprintln(w, " TRIGGER ACCURACY")
+		fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+		fmt.Fprintf(w, "  Accuracy:  %.1f%%\n", m.Accuracy*100)
 		if m.Errors > 0 {
-			fmt.Printf("  Errors:    %d prompt(s) returned errors\n", m.Errors)
+			fmt.Fprintf(w, "  Errors:    %d prompt(s) returned errors\n", m.Errors)
 		}
-		fmt.Printf("  Precision: %.1f%%  Recall: %.1f%%  F1: %.1f%%\n", m.Precision*100, m.Recall*100, m.F1*100)
-		fmt.Printf("  TP: %d  FP: %d  FN: %d  TN: %d\n", m.TP, m.FP, m.FN, m.TN)
-		fmt.Println()
+		fmt.Fprintf(w, "  Precision: %.1f%%  Recall: %.1f%%  F1: %.1f%%\n", m.Precision*100, m.Recall*100, m.F1*100)
+		fmt.Fprintf(w, "  TP: %d  FP: %d  FN: %d  TN: %d\n", m.TP, m.FP, m.FN, m.TN)
+		fmt.Fprintln(w)
 	}
 
 	// Show usage summary if available
-	printUsageSummary(digest.Usage)
+	printUsageSummary(w, digest.Usage)
+	_, err := summary.WriteTo(output)
+	return err
 }
 
 func printTriageHighlights(w io.Writer, outcome *models.EvaluationOutcome) {
@@ -1801,26 +1913,26 @@ func warnAutoIssue(cmd *cobra.Command, format string, args ...any) {
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: auto-file-issue: %s\n", fmt.Sprintf(format, args...))
 }
 
-func printUsageSummary(usage *models.UsageStats) {
+func printUsageSummary(w *bytes.Buffer, usage *models.UsageStats) {
 	if usage == nil || usage.IsZero() {
 		return
 	}
 
 	printer := message.NewPrinter(language.English)
 
-	fmt.Println("-" + strings.Repeat("-", 50))
-	fmt.Println(" USAGE SUMMARY")
-	fmt.Println("-" + strings.Repeat("-", 50))
+	fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+	fmt.Fprintln(w, " USAGE SUMMARY")
+	fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
 
 	switch usage.Provider {
 	case models.UsageProviderCustom:
 		if usage.ProviderHost != "" {
-			fmt.Printf("  Provider:                 custom (%s)\n", usage.ProviderHost)
+			fmt.Fprintf(w, "  Provider:                 custom (%s)\n", usage.ProviderHost)
 		} else {
-			fmt.Println("  Provider:                 custom")
+			fmt.Fprintln(w, "  Provider:                 custom")
 		}
 	case models.UsageProviderMixed:
-		fmt.Println("  Provider:                 mixed")
+		fmt.Fprintln(w, "  Provider:                 mixed")
 	}
 
 	if usage.PremiumRequests > 0 {
@@ -1831,35 +1943,35 @@ func printUsageSummary(usage *models.UsageStats) {
 		case models.UsageProviderMixed:
 			label = "Requests"
 		}
-		fmt.Printf("  %-25s %.0f\n", label+":", usage.PremiumRequests)
+		fmt.Fprintf(w, "  %-25s %.0f\n", label+":", usage.PremiumRequests)
 	}
 	if usage.AICredits != nil {
-		fmt.Printf("  %-25s %.9f\n", "AI Credits:", *usage.AICredits)
+		fmt.Fprintf(w, "  %-25s %.9f\n", "AI Credits:", *usage.AICredits)
 	}
 	if usage.Turns > 0 {
-		fmt.Printf("  Turns:                    %s\n", printer.Sprint(usage.Turns))
+		fmt.Fprintf(w, "  Turns:                    %s\n", printer.Sprint(usage.Turns))
 	}
-	fmt.Printf("  Input Tokens:             %s\n", printer.Sprint(usage.InputTokens))
-	fmt.Printf("  Output Tokens:            %s\n", printer.Sprint(usage.OutputTokens))
+	fmt.Fprintf(w, "  Input Tokens:             %s\n", printer.Sprint(usage.InputTokens))
+	fmt.Fprintf(w, "  Output Tokens:            %s\n", printer.Sprint(usage.OutputTokens))
 	if usage.CacheReadTokens > 0 {
-		fmt.Printf("  Cached Tokens Read:       %s\n", printer.Sprint(usage.CacheReadTokens))
+		fmt.Fprintf(w, "  Cached Tokens Read:       %s\n", printer.Sprint(usage.CacheReadTokens))
 	}
 	if usage.CacheWriteTokens > 0 {
-		fmt.Printf("  Cached Tokens Written:    %s\n", printer.Sprint(usage.CacheWriteTokens))
+		fmt.Fprintf(w, "  Cached Tokens Written:    %s\n", printer.Sprint(usage.CacheWriteTokens))
 	}
-	fmt.Printf("  Total Tokens (in + out):  %s\n", printer.Sprint(usage.InputTokens+usage.OutputTokens))
+	fmt.Fprintf(w, "  Total Tokens (in + out):  %s\n", printer.Sprint(usage.InputTokens+usage.OutputTokens))
 
 	if len(usage.ModelMetrics) > 1 {
-		fmt.Println()
-		fmt.Printf("  %-25s %-12s %-12s %-10s %s\n", "Model", "In", "Out", "Requests", "AI Credits")
-		fmt.Println("  " + strings.Repeat("─", 73))
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  %-25s %-12s %-12s %-10s %s\n", "Model", "In", "Out", "Requests", "AI Credits")
+		fmt.Fprintln(w, "  "+strings.Repeat("─", 73))
 		for _, model := range slices.Sorted(maps.Keys(usage.ModelMetrics)) {
 			mu := usage.ModelMetrics[model]
 			credits := "n/a"
 			if mu.AICredits != nil {
 				credits = fmt.Sprintf("%.9f", *mu.AICredits)
 			}
-			fmt.Printf("  %-25s %-12s %-12s %-10.0f %s\n",
+			fmt.Fprintf(w, "  %-25s %-12s %-12s %-10.0f %s\n",
 				truncate(model, 25),
 				printer.Sprint(mu.InputTokens),
 				printer.Sprint(mu.OutputTokens),
@@ -1868,7 +1980,7 @@ func printUsageSummary(usage *models.UsageStats) {
 			)
 		}
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 }
 
 func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
@@ -1877,7 +1989,126 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	file, publishMode, err := createOutcomeTempFileForSave(path)
+	if err != nil {
+		return err
+	}
+	tempPath := file.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Chmod(publishMode); err != nil {
+		return errors.Join(err, file.Close())
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return replaceOutcomeFileForSave(tempPath, path)
+}
+
+var (
+	createOutcomeTempFileForSave = createOutcomeTempFile
+	replaceOutcomeFileForSave    = replaceOutcomeFile
+)
+
+func createOutcomeTempFile(path string) (*os.File, os.FileMode, error) {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	publishMode := os.FileMode(0)
+	hasPublishMode := false
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return nil, 0, fmt.Errorf("output destination %s is not a regular file", path)
+		}
+		publishMode = info.Mode().Perm()
+		hasPublishMode = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, 0, err
+	}
+
+	if !hasPublishMode {
+		probe, err := createExclusiveOutcomeFile(dir, base+".mode", 0o644)
+		if err != nil {
+			return nil, 0, err
+		}
+		probePath := probe.Name()
+		info, statErr := probe.Stat()
+		closeErr := probe.Close()
+		removeErr := os.Remove(probePath)
+		if statErr != nil {
+			return nil, 0, statErr
+		}
+		if closeErr != nil {
+			return nil, 0, closeErr
+		}
+		if removeErr != nil {
+			return nil, 0, removeErr
+		}
+		publishMode = info.Mode().Perm()
+	}
+
+	file, err := createExclusiveOutcomeFile(dir, base, 0o600)
+	return file, publishMode, err
+}
+
+func createExclusiveOutcomeFile(dir, base string, mode os.FileMode) (*os.File, error) {
+	for range 100 {
+		var suffix [8]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return nil, err
+		}
+		tempPath := filepath.Join(dir, fmt.Sprintf(".%s.tmp-%x", base, suffix))
+		file, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		return file, nil
+	}
+	return nil, fmt.Errorf("allocate temporary outcome file for %s", filepath.Join(dir, base))
+}
+
+func savePartialOutcome(outcome *models.EvaluationOutcome, path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return saveOutcome(outcome, path)
+}
+
+func allocatePartialOutcomePath(spec *models.EvalSpec) (string, error) {
+	if outputDir == "" {
+		return "", nil
+	}
+	name := spec.SkillName
+	if strings.TrimSpace(name) == "" {
+		name = spec.Name
+	}
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", fmt.Errorf("allocate partial results path: %w", err)
+	}
+	return filepath.Join(outputDir, ".partial",
+		fmt.Sprintf("%s_%s_%x.json", sanitizePathSegment(name), sanitizePathSegment(spec.Config.ModelID), suffix)), nil
+}
+
+func removePartialOutcomes(results []modelResult) error {
+	for _, result := range results {
+		if result.partialPath == "" {
+			continue
+		}
+		if err := os.Remove(result.partialPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove partial results %s: %w", result.partialPath, err)
+		}
+	}
+	return nil
 }
 
 // autoUploadOutcomes uploads outcomes to configured remote storage.
@@ -2222,6 +2453,17 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 		printSkillRunSummary(allSkillResults)
 	}
 	fmt.Printf("Results: %d skills evaluated, %d passed, %d failed\n", len(allSkillResults), passed, failed)
+
+	if outputDir != "" {
+		if err := writeOutputDir(outputDir, allSkillResults); err != nil {
+			return fmt.Errorf("failed to write output directory: %w", err)
+		}
+		for _, result := range allSkillResults {
+			if err := removePartialOutcomes(result.outcomes); err != nil {
+				return err
+			}
+		}
+	}
 
 	return lastErr
 }

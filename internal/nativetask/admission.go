@@ -129,7 +129,7 @@ func projectRequest(req *execution.ExecutionRequest) (requestIntent, int, error)
 		req.ToolPolicy.Mode != execution.ToolPolicyDenyAll || req.SessionID != "" || req.WorkspaceDir != "" ||
 		req.Streaming || req.MessageMode != "" || req.CancelOnSkillInvocation || req.TriggerSkillRouting || req.SuppressSkillBody ||
 		req.SkillName != "" || len(req.SkillPaths) != 0 || len(req.GitResources) != 0 ||
-		len(req.MCPServers) != 0 || len(req.CommandMocks) != 0 || req.CommandMocksBaseDir != "" ||
+		len(req.MCPServers) != 0 || len(req.CommandMocks) != 0 || req.CommandMocksBaseDir != "" || req.UserInput != nil ||
 		req.FirstEventTimeout < 0 {
 		return requestIntent{}, 0, fmt.Errorf("native input contains unsupported or unguarded capabilities")
 	}
