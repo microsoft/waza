@@ -17,10 +17,10 @@ not captures from a live account. No production defaults change.
 The additive `execution-attempt-1.0.schema.json` profile and
 `internal/executionattempt` codecs are declarations only. They do not alter
 manifest v1, legacy result readers, CLI execution, lookup, billing, or Lab
-behavior. Full delivery of #764 still requires production submission integration,
-verified reuse and duplicate/concurrent-writer production tests, public surfaces,
-and release/migration guidance. Do not treat these pure tests as storage or
-runtime execution evidence.
+behavior. The separate owned submission library described below has production
+caller coverage; full delivery of #764 still requires public surfaces, broader
+duplicate/concurrent-writer coverage, release/migration guidance, and final
+validation. Do not treat pure codec tests as storage or runtime execution evidence.
 
 The three frozen attempt, decision, and completion JSON fixtures retain their
 recorded bytes without line-ending conversion through path-specific
@@ -59,7 +59,7 @@ The legacy runner and public submission/CLI/API/Lab integration remain separate.
 
 `Ledger.Reserve` applies the shared `execution.ValidateOwnedRuntime` guard before
 any namespace read or creation for new owned work or before-unit recovery.
-Submission must reapply that same guard before executing owned native work.
+Owned submission reapplies that same guard before executing native work.
 The conservative profile rejects effective ambient BYOC providers and nonempty
 `COPILOT_CLI_PATH` overrides; default embedded native execution remains eligible.
 Mock mode ignores native overrides. This does not change legacy runner/SDK
@@ -67,11 +67,36 @@ behavior, hash or store credentials, or treat VCS revision as runtime attestatio
 Finalized source-only restore performs no new engine call and preserves original
 verified evidence; it is not a claim about the current native provider.
 
+`runnerunit.Service.Submit(ctx, wrapperBytes, backend, hooks)` is an additive
+embedding API, not yet a CLI/API/Lab route. Its strict
+`execution-submission-1.0.schema.json` wrapper retains the original native request
+and admits it once. Omitted wrapper policy selects distinct execution; explicit
+null is invalid. Distinct submission reserves before factory construction,
+records the decision, executes the admitted unit once, and publishes its original
+terminal and canonical rich report through the actual Store before completion.
+`completed` means terminal evidence was finalized, not that grading passed.
+Cancellation after reservation can finalize a canceled terminal with zero calls.
+Publication or observer errors are submission errors, not successful completion;
+partial immutable records are retained rather than reclaimed.
+
+Explicit reuse verifies finalized original context and any recorded report
+against the terminal, including status and grader verdicts, before recording an
+actionable decision. It makes no factory/runtime or observer call. The returned
+caller identity is separate from unchanged source identity/ordinal. Outer
+`engine_calls` counts only new calls; source report usage remains historical,
+not new-operation billing. Missing reports/usage remain unavailable. These
+checks establish source content and consistency, not runtime or billing
+attestation. `SubmissionHooks.Reserved` receives the retained creator and a
+detached reservation before the factory; `Terminal` receives a detached original
+envelope after joined lifecycle. Hooks are embedding-host code, never request
+JSON, and do not prove cancellation acknowledgment or process-wait completion.
+The result wire profile and public integrations remain pending.
+
 Logical run is the existing `runneridentity.Identity.Run`; logical work is
 `Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,
 independent of the caller's native `Selection.Attempt`. Allocation uses 256 random
-bits, not a uniqueness or reservation guarantee. The owner must reserve the ID
-conditionally before execution once storage integration exists. Decision IDs use
+bits, not a uniqueness or reservation guarantee. The owner reserves the ID
+conditionally before owned execution. Decision IDs use
 a separate `decision-` namespace. Original bindings use the actual
 `artifactmanifest.Binding`; declared context is not runtime attestation.
 
@@ -82,9 +107,9 @@ incomparable. Multiple independent roots for the same logical work are valid,
 including matching native attempt ordinals. This graph check is not an append
 operation, global ordering, lock, overwrite guard, or exactly-once mechanism.
 
-Duplicate decision declarations require an explicit policy. The eventual default
-is distinct execution to preserve legacy behavior, but the codec never supplies
-an omitted policy. `distinct` policy/outcome requires a new execution ID and no
+Duplicate decision declarations require an explicit policy. The submission
+wrapper defaults to distinct execution to preserve legacy behavior, but the
+decision codec never supplies an omitted policy. `distinct` policy/outcome requires a new execution ID and no
 source. Explicit `reuse` policy requires a source execution ID and original
 manifest digest, with `reused`, `unfinished`, or `conflict` outcome and no new
 execution ID. Even a `reused` declaration is not evidence verification: a provider
