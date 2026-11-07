@@ -37,14 +37,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   observers, bounded process controls and full release gates remain pending.
   See [lifecycle migration and delivery limits](docs/EXECUTION_LIFECYCLE.md).
 
-- **Logical execution sidecar codecs (v0.41 source preview)** - Separate logical
-  `Identity.Run`/`Identity.Trial` from opaque execution IDs in additive strict
-  attempt, duplicate-decision, and completion-reference profiles (#764).
-  Validate canonical original source hashes/context and explicit parent graphs
-  without retagging native ordinals, failures, or billing. These codecs do not
-  confer execution ownership or implement verified submission/reuse; legacy
-  runner/result contracts remain unchanged. See the
-  [compatibility boundary](docs/COMPATIBILITY.md#logical-execution-attempt-sidecars-bounded-foundation).
+- **Logical work and retained execution attempts (v0.41 source preview)** -
+  Separate `Identity.Run`/`Identity.Trial` from owner-reserved opaque execution
+  IDs with additive strict attempt, duplicate-decision and completion-reference
+  profiles (#764). Opt-in `runner submit` and protected loopback submission API
+  default to distinct execution, including repeated native ordinals. Explicit
+  reuse addresses the original execution ID and manifest digest in the same
+  private store and verifies finalized content/context without new engine calls
+  or retagging original terminals, failures, cancellation or billing. Retry and
+  branch links remain append-only; independent roots and sibling branches are
+  incomparable, not a global ordering or exactly-once guarantee. Lab retains
+  bounded page-local historical receipts,
+  separate parent/reuse links and exact-response exports; reaching capacity
+  stops submissions rather than dropping records. These receipts are not reread
+  source availability or runtime attestation. Legacy readers, mutable result
+  lookup and ordinary `runner run` remain unchanged; historical results are not
+  assigned new execution IDs or migrated. Current-head hosted/browser,
+  native-platform and full release gates remain pending; this is unreleased
+  source, not published feature availability. See
+  [submission, identifiers and migration](site/src/content/docs/guides/immutable-artifacts.mdx#execute-distinct-work-or-explicitly-reuse-its-original)
+  and the [codec compatibility boundary](docs/COMPATIBILITY.md#logical-execution-attempt-sidecars-bounded-foundation).
 
 - **Immutable artifact publication (v0.41 source preview)** - Add manifest schema
   `1.0` and `artifact create/upload/finalize/inspect` with conditional local and
