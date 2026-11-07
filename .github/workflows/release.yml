@@ -95,15 +95,16 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Setup Node.js (for web UI build)
-        if: hashFiles('web/package.json') != ''
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
       - name: Build Web UI
-        if: hashFiles('web/package.json') != ''
         working-directory: web
         run: npm ci && npm run build
+
+      - name: Require built dashboard output
+        run: node .github/scripts/release_dashboard_check.mjs
 
       - name: Build Binary
         env:
@@ -235,15 +236,16 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Setup Node.js (for web UI build)
-        if: hashFiles('web/package.json') != ''
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
       - name: Build Web UI
-        if: hashFiles('web/package.json') != ''
         working-directory: web
         run: npm ci && npm run build
+
+      - name: Require built dashboard output
+        run: node .github/scripts/release_dashboard_check.mjs
 
       - name: Install Azure Developer CLI
         uses: Azure/setup-azd@0b7e3a35ab00f2eee7080c845eb39c3f0ebfa553 # v2.4.0

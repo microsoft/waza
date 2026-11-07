@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,16 +17,18 @@ import (
 const releaseSourceCheck = "source_sha=\"$(git rev-parse HEAD)\"\ntest \"$source_sha\" = \"$GITHUB_SHA\"\n"
 const releaseDigestCheck = "recorded_digest=\"$(cat waza.sha256)\"\nactual_digest=\"$(sha256sum waza)\"\ntest \"$recorded_digest\" = \"$actual_digest\"\n"
 const releaseRecordedSourceCheck = "source_sha=\"$(cat source-sha.txt)\"\ntest \"$source_sha\" = \"$GITHUB_SHA\"\n"
+const releaseDashboardCheck = "node .github/scripts/release_dashboard_check.mjs"
 
 type releaseStep struct {
-	ID              string `yaml:"id"`
-	Name            string
-	Run             string
-	Uses            string
-	If              string
-	ContinueOnError bool `yaml:"continue-on-error"`
-	Env             map[string]string
-	With            map[string]string
+	ID               string `yaml:"id"`
+	Name             string
+	Run              string
+	Uses             string
+	If               string
+	ContinueOnError  bool   `yaml:"continue-on-error"`
+	WorkingDirectory string `yaml:"working-directory"`
+	Env              map[string]string
+	With             map[string]string
 }
 
 type releaseJob struct {
@@ -77,6 +81,8 @@ func TestReleaseWorkflowGates(t *testing.T) {
 		testReleaseSourceLookup(t, releaseSteps(workflow.Jobs[job])["Require exact source"].Run)
 	}
 	testReleasePackageSelection(t, buildSteps["Execute Tests"].Run)
+	testReleaseDashboardOutput(t, buildSteps["Require built dashboard output"].Run, buildSteps["Build Release Binary"].Run)
+	testReleaseDashboardMutations(t, source, "build-test", validateReleaseValidation)
 	testReleaseBinaryHandoff(t, buildSteps["Record tested binary digest"].Run, steps["Verify and restore tested binary"].Run)
 	testReleaseCoverageEvidence(t, steps["Verify exhaustive native test selection and coverage"].Run)
 	windowsSteps := releaseSteps(workflow.Jobs["windows-test"])
@@ -95,6 +101,16 @@ func TestReleaseWorkflowGates(t *testing.T) {
 	}
 	for _, mutation := range []struct{ name, old, new string }{
 		{"serialized-build", "  build-test:\n", "  build-test:\n    needs: [native-test-shards]\n"},
+		{"skipped-web-build", "      - name: Build Web UI\n", "      - name: Build Web UI\n        if: 'false'\n"},
+		{"tolerated-web-build", "      - name: Build Web UI\n", "      - name: Build Web UI\n        continue-on-error: true\n"},
+		{"skipped-web-node", "      - name: Setup Node.js (for web UI build)\n", "      - name: Setup Node.js (for web UI build)\n        if: 'false'\n"},
+		{"wrong-web-directory", "        working-directory: web\n", "        working-directory: .\n"},
+		{"missing-web-build", "run: npm ci && npm run build", "run: ':'"},
+		{"missing-dashboard-admission", "      - name: Require built dashboard output\n", "      - name: Removed dashboard admission\n"},
+		{"skipped-dashboard-admission", "      - name: Require built dashboard output\n", "      - name: Require built dashboard output\n        if: 'false'\n"},
+		{"tolerated-dashboard-admission", "      - name: Require built dashboard output\n", "      - name: Require built dashboard output\n        continue-on-error: true\n"},
+		{"missing-dashboard-check", "run: " + releaseDashboardCheck, "run: ':'"},
+		{"ignored-dashboard-error", "run: " + releaseDashboardCheck, "run: " + releaseDashboardCheck + " || true"},
 		{"tolerated-build-job", "  build-test:\n", "  build-test:\n    continue-on-error: true\n"},
 		{"tolerated-completion-job", "  complete:\n", "  complete:\n    continue-on-error: true\n"},
 		{"missing-build-dependency", "needs: [native-test-shards, build-test, windows-test, lint]", "needs: [native-test-shards, windows-test, lint]"},
@@ -148,6 +164,270 @@ func TestReleaseWorkflowGates(t *testing.T) {
 			}
 			if err := validateReleaseValidation([]byte(changed)); err == nil {
 				t.Fatal("unsafe production workflow mutation was admitted")
+			}
+		})
+	}
+}
+
+func testReleaseDashboardOutput(t *testing.T, admission, build string) {
+	t.Helper()
+	checker, err := os.ReadFile("release_dashboard_check.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, favicon := "web/dist/index.html", "web/dist/favicon.svg"
+	js, css := "web/dist/assets/index-a.js", "web/dist/assets/index-b.css"
+	currentIndex, err := os.ReadFile("../../web/dist/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentFiles := []string{index, favicon}
+	currentRefs := regexp.MustCompile(`/assets/[^"']+`).FindAllString(string(currentIndex), -1)
+	if len(currentRefs) < 2 {
+		t.Fatal("current tracked index must provide actual JavaScript/CSS reference controls")
+	}
+	for _, ref := range currentRefs {
+		currentFiles = append(currentFiles, "web/dist"+ref)
+	}
+	for _, fixture := range []struct {
+		name        string
+		files       []string
+		directories []string
+		empty       string
+		admitted    bool
+	}{
+		{"complete", []string{index, favicon, js, css}, nil, "", true},
+		{"current-index", currentFiles, nil, "", true},
+		{"alternative-bundles", []string{index, favicon, "web/dist/assets/app.js", "web/dist/assets/theme.css", "web/dist/assets/chunk.js"}, nil, "", true},
+		{"missing-tree", nil, nil, "", false},
+		{"missing-index", []string{favicon, js, css}, nil, "", false},
+		{"missing-favicon", []string{index, js, css}, nil, "", false},
+		{"missing-assets", []string{index, favicon}, nil, "", false},
+		{"empty-assets", []string{index, favicon}, []string{"web/dist/assets"}, "", false},
+		{"missing-js", []string{index, favicon, css}, nil, "", false},
+		{"missing-css", []string{index, favicon, js}, nil, "", false},
+		{"empty-index", []string{index, favicon, js, css}, nil, index, false},
+		{"empty-favicon", []string{index, favicon, js, css}, nil, favicon, false},
+		{"empty-js", []string{index, favicon, js, css}, nil, js, false},
+		{"empty-css", []string{index, favicon, js, css}, nil, css, false},
+		{"directory-index", []string{favicon, js, css}, []string{index}, "", false},
+		{"directory-favicon", []string{index, js, css}, []string{favicon}, "", false},
+		{"directory-js", []string{index, favicon, css}, []string{js}, "", false},
+		{"directory-css", []string{index, favicon, js}, []string{css}, "", false},
+		{"symlink-index", []string{index, favicon, js, css}, nil, "", false},
+		{"symlink-favicon", []string{index, favicon, js, css}, nil, "", false},
+		{"symlink-js", []string{index, favicon, js, css}, nil, "", false},
+		{"symlink-css", []string{index, favicon, js, css}, nil, "", false},
+		{"symlink-dist", []string{index, favicon, js, css}, nil, "", false},
+		{"symlink-assets", []string{index, favicon, js, css}, nil, "", false},
+		{"missing-referenced-js", []string{index, favicon, js, css}, nil, "", false},
+		{"missing-referenced-css", []string{index, favicon, js, css}, nil, "", false},
+		{"missing-modulepreload", []string{index, favicon, js, css}, nil, "", false},
+		{"empty-referenced-js", []string{index, favicon, js, css}, nil, "", false},
+		{"directory-referenced-js", []string{index, favicon, js, css}, nil, "", false},
+		{"symlink-referenced-js", []string{index, favicon, js, css}, nil, "", false},
+		{"placeholder-index", []string{index, favicon, js, css}, nil, "", false},
+		{"escaping-reference", []string{index, favicon, js, css}, nil, "", false},
+	} {
+		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
+			dir := t.TempDir()
+			scripts := filepath.Join(dir, ".github", "scripts")
+			if err := os.MkdirAll(scripts, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeReleaseFile(t, filepath.Join(scripts, "release_dashboard_check.mjs"), checker)
+			refs := []string{}
+			for _, path := range fixture.directories {
+				if err := os.MkdirAll(filepath.Join(dir, path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, path := range fixture.files {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, path)), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				content := []byte("fixture dashboard output")
+				if strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") {
+					refs = append(refs, strings.TrimPrefix(path, "web/dist"))
+				}
+				if path == fixture.empty {
+					content = nil
+				}
+				writeReleaseFile(t, filepath.Join(dir, path), content)
+			}
+			if slices.Contains(fixture.files, index) && fixture.empty != index {
+				var html strings.Builder
+				for _, ref := range refs {
+					if strings.HasSuffix(ref, ".js") {
+						fmt.Fprintf(&html, "<script src=\"%s\"></script>\n", ref)
+					} else {
+						fmt.Fprintf(&html, "<link href=\"%s\" rel=\"stylesheet\">\n", ref)
+					}
+				}
+				extra := "web/dist/assets/referenced.js"
+				switch fixture.name {
+				case "missing-referenced-js", "empty-referenced-js", "directory-referenced-js", "symlink-referenced-js":
+					html.WriteString("<script src=\"/assets/referenced.js\"></script>\n")
+				case "missing-referenced-css":
+					html.WriteString("<link href=\"/assets/missing.css\" rel=\"stylesheet\">\n")
+				case "missing-modulepreload":
+					html.WriteString("<link rel=\"modulepreload\" href=\"/assets/preload.js\">\n")
+				case "placeholder-index":
+					html.Reset()
+					html.WriteString("<html>placeholder</html>")
+				case "escaping-reference":
+					html.WriteString("<script src=\"/assets/../outside.js\"></script>\n")
+				}
+				switch fixture.name {
+				case "empty-referenced-js":
+					writeReleaseFile(t, filepath.Join(dir, extra), nil)
+				case "directory-referenced-js":
+					if err := os.Mkdir(filepath.Join(dir, extra), 0o700); err != nil {
+						t.Fatal(err)
+					}
+				case "symlink-referenced-js":
+					if err := os.Symlink(filepath.Join(dir, js), filepath.Join(dir, extra)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				writeReleaseFile(t, filepath.Join(dir, index), []byte(html.String()))
+				if fixture.name == "current-index" {
+					writeReleaseFile(t, filepath.Join(dir, index), currentIndex)
+				}
+			}
+			links := map[string]string{
+				"symlink-index": index, "symlink-favicon": favicon,
+				"symlink-js": js, "symlink-css": css,
+				"symlink-dist": "web/dist", "symlink-assets": "web/dist/assets",
+			}
+			if path := links[fixture.name]; path != "" {
+				original, target := filepath.Join(dir, path), filepath.Join(dir, "link-target")
+				if err := os.Rename(original, target); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, original); err != nil {
+					t.Fatal(err)
+				}
+			}
+			bin := filepath.Join(dir, "bin")
+			if err := os.Mkdir(bin, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			mockGo := "#!/bin/bash\nset -euo pipefail\ntest \"$1\" = build\nbinary=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = -o ]; then binary=\"$2\"; shift 2; else shift; fi\ndone\ntest -n \"$binary\"\nprintf '%s' \"$binary\" > build-started\nprintf '#!/bin/bash\\nprintf executed > binary-executed\\n' > \"$binary\"\nchmod +x \"$binary\"\n"
+			writeReleaseFile(t, filepath.Join(bin, "go"), []byte(mockGo))
+			writeReleaseFile(t, filepath.Join(bin, "azd"), []byte("#!/bin/bash\nset -euo pipefail\ntest \"$1\" = x\ntest \"$2\" = build\nprintf extension-binary > build-started\nprintf fixture > extension-binary\n"))
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", admission+"\n"+build)
+			cmd.Dir, cmd.Env = dir, append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != fixture.admitted {
+				t.Fatalf("dashboard admission = %v: %v\n%s", fixture.admitted, err, output)
+			}
+			for _, marker := range []string{"build-started", "binary-executed"} {
+				_, statErr := os.Stat(filepath.Join(dir, marker))
+				expected := fixture.admitted && (marker == "build-started" || strings.Contains(build, "./waza --version"))
+				if expected && statErr != nil || !expected && !os.IsNotExist(statErr) {
+					t.Fatalf("dashboard admission = %v, downstream %s: %v", fixture.admitted, marker, statErr)
+				}
+			}
+			if fixture.admitted {
+				binary, err := os.ReadFile(filepath.Join(dir, "build-started"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if info, err := os.Stat(filepath.Join(dir, string(binary))); err != nil || !info.Mode().IsRegular() {
+					t.Fatalf("admitted producer did not compile captured binary %q: %v", binary, err)
+				}
+			}
+			if !fixture.admitted {
+				for _, path := range []string{index, favicon} {
+					if _, err := os.Stat(filepath.Join(dir, path)); os.IsNotExist(err) {
+						continue
+					} else if err != nil {
+						t.Fatal(err)
+					}
+					if !slices.Contains(fixture.files, path) && !slices.Contains(fixture.directories, path) {
+						t.Fatalf("admission manufactured missing %s", path)
+					}
+				}
+			}
+		})
+	}
+}
+
+func testReleaseDashboardMutations(t *testing.T, source []byte, jobName string, validate func([]byte) error) {
+	t.Helper()
+	for _, mutation := range []struct{ step, field, value string }{
+		{"Setup Node.js (for web UI build)", "if", "false"},
+		{"Setup Node.js (for web UI build)", "uses", ""},
+		{"Build Web UI", "if", "false"},
+		{"Build Web UI", "continue-on-error", "true"},
+		{"Build Web UI", "working-directory", "."},
+		{"Build Web UI", "run", ":"},
+		{"Build Web UI", "run", "mkdir -p web/dist/assets; printf placeholder > web/dist/index.html"},
+		{"Require built dashboard output", "if", "false"},
+		{"Require built dashboard output", "continue-on-error", "true"},
+		{"Require built dashboard output", "name", "Removed dashboard admission"},
+		{"Require built dashboard output", "run", ":"},
+		{"Require built dashboard output", "run", releaseDashboardCheck + " || true"},
+	} {
+		t.Run("dashboard-mutation-"+jobName+"-"+mutation.step+"-"+mutation.field+"-"+mutation.value, func(t *testing.T) {
+			var wire yaml.Node
+			if err := yaml.Unmarshal(source, &wire); err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := yaml.Marshal(&wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validate(baseline); err != nil {
+				t.Fatalf("positive workflow round trip: %v", err)
+			}
+			job := releaseMappingValue(t, releaseMappingValue(t, wire.Content[0], "jobs"), jobName)
+			var target *yaml.Node
+			for _, step := range releaseMappingValue(t, job, "steps").Content {
+				if releaseMappingValue(t, step, "name").Value == mutation.step {
+					target = step
+				}
+			}
+			if target == nil {
+				t.Fatal("production dashboard consumer missing")
+			}
+			var value *yaml.Node
+			for i := 0; i+1 < len(target.Content); i += 2 {
+				if target.Content[i].Value == mutation.field {
+					value = target.Content[i+1]
+				}
+			}
+			if value == nil {
+				value = &yaml.Node{Kind: yaml.ScalarNode}
+				target.Content = append(target.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: mutation.field}, value)
+			}
+			value.Tag, value.Value = "!!str", mutation.value
+			if mutation.field == "continue-on-error" {
+				value.Tag = "!!bool"
+			}
+			changed, err := yaml.Marshal(&wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var actual yaml.Node
+			if err := yaml.Unmarshal(changed, &actual); err != nil {
+				t.Fatalf("mutation must remain valid YAML: %v", err)
+			}
+			actualJob := releaseMappingValue(t, releaseMappingValue(t, actual.Content[0], "jobs"), jobName)
+			found := false
+			for _, step := range releaseMappingValue(t, actualJob, "steps").Content {
+				name := releaseMappingValue(t, step, "name").Value
+				if name == mutation.step || mutation.field == "name" && name == mutation.value {
+					found = releaseMappingValue(t, step, mutation.field).Value == mutation.value
+					break
+				}
+			}
+			if !found || string(changed) == string(baseline) {
+				t.Fatal("mutation did not change intended dashboard consumer field")
+			}
+			if err := validate(changed); err == nil {
+				t.Fatal("unsafe dashboard consumer admitted")
 			}
 		})
 	}
@@ -700,6 +980,25 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 	testTagCLIArtifactVerification(t, releaseSteps(workflow.Jobs["release-cli"])["Generate SHA256 Checksums"].Run)
 	for _, job := range []string{"build-cli", "release-extension"} {
 		testReleaseSourceLookup(t, releaseSteps(workflow.Jobs[job])["Require exact validated source"].Run)
+		testReleaseDashboardMutations(t, source, job, validateTagRelease)
+		if job == "build-cli" {
+			for _, platform := range []string{"linux", "darwin", "windows"} {
+				for _, arch := range []string{"amd64", "arm64"} {
+					t.Run(job+"-dashboard-"+platform+"-"+arch, func(t *testing.T) {
+						t.Setenv("GITHUB_SHA", "fixture-source")
+						build := strings.NewReplacer("${{ needs.setup-version.outputs.version }}", "1.2.3",
+							"${{ matrix.os }}", platform, "${{ matrix.arch }}", arch).
+							Replace(releaseSteps(workflow.Jobs[job])["Build Binary"].Run)
+						testReleaseDashboardOutput(t, releaseSteps(workflow.Jobs[job])["Require built dashboard output"].Run, build)
+					})
+				}
+			}
+		} else {
+			t.Run(job+"-dashboard-output", func(t *testing.T) {
+				testReleaseDashboardOutput(t, releaseSteps(workflow.Jobs[job])["Require built dashboard output"].Run,
+					releaseSteps(workflow.Jobs[job])["Build Extension"].Run)
+			})
+		}
 	}
 	testExtensionProvenance(t, releaseSteps(workflow.Jobs["release-extension"])["Record extension artifact provenance"].Run)
 	testReleaseVersionMutations(t, source, "release-extension", "", validateTagRelease)
@@ -1178,7 +1477,8 @@ func validateReleaseValidation(source []byte) error {
 	if complete.If != "${{ !cancelled() }}" { //nolint:misspell // GitHub's exact status function.
 		return fmt.Errorf("validation completion must be ineligible after workflow cancellation")
 	}
-	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Require exact source", "Install and prove rejecting runtime guard",
+	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Require exact source",
+		"Setup Node.js (for web UI build)", "Build Web UI", "Require built dashboard output", "Install and prove rejecting runtime guard",
 		"Test release gate failure handling", "Run Go Vet", "Execute Tests", "Build Release Binary", "Integration Test",
 		"Record tested binary digest", "Upload tested release binary and remaining coverage"}); err != nil {
 		return err
@@ -1201,6 +1501,9 @@ func validateReleaseValidation(source []byte) error {
 		return err
 	}
 	steps, buildSteps := releaseSteps(complete), releaseSteps(build)
+	if err := validateReleaseDashboard(build); err != nil {
+		return err
+	}
 	if !strings.Contains(buildSteps["Execute Tests"].Run, `go test -v -race -count=1 -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"`) {
 		return fmt.Errorf("release Linux tests must execute freshly under the current runtime guard")
 	}
@@ -1363,6 +1666,17 @@ func validateBranchPublisher(source []byte, file string) error {
 	return nil
 }
 
+func validateReleaseDashboard(job releaseJob) error {
+	steps := releaseSteps(job)
+	if !strings.HasPrefix(steps["Setup Node.js (for web UI build)"].Uses, "actions/setup-node@") ||
+		steps["Setup Node.js (for web UI build)"].With["node-version"] != "22" ||
+		steps["Build Web UI"].WorkingDirectory != "web" || steps["Build Web UI"].Run != "npm ci && npm run build" ||
+		steps["Require built dashboard output"].Run != releaseDashboardCheck {
+		return fmt.Errorf("release binary requires the real same-run dashboard build and complete nonempty regular referenced output")
+	}
+	return nil
+}
+
 func validateTagRelease(source []byte) error {
 	var workflow releaseWorkflow
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
@@ -1403,7 +1717,8 @@ func validateTagRelease(source []byte) error {
 		return fmt.Errorf("tag validation, builders and publishers must retain success-only dependency admission")
 	}
 	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Require exact validated source",
-		"Setup Go Environment", "Build Binary", "Upload Binary Artifact"}); err != nil {
+		"Setup Go Environment", "Setup Node.js (for web UI build)", "Build Web UI", "Require built dashboard output",
+		"Build Binary", "Upload Binary Artifact"}); err != nil {
 		return err
 	}
 	if err := orderedReleaseSteps(release, []string{"Checkout Repository", "Download CLI Artifacts",
@@ -1411,18 +1726,25 @@ func validateTagRelease(source []byte) error {
 		return err
 	}
 	if err := orderedReleaseSteps(extension, []string{"Checkout Repository", "Require exact validated source",
-		"Setup Go Environment", "Sync Version Files", "Build Extension", "Pack Extension",
+		"Setup Go Environment", "Setup Node.js (for web UI build)", "Build Web UI", "Require built dashboard output",
+		"Sync Version Files", "Build Extension", "Pack Extension",
 		"Record extension artifact provenance", "Release Extension", "Publish Extension Provenance",
 		"Publish Extension", "Create Release PR"}); err != nil {
 		return err
 	}
 	buildSteps := releaseSteps(build)
+	for _, producer := range []releaseJob{build, extension} {
+		if err := validateReleaseDashboard(producer); err != nil {
+			return err
+		}
+	}
 	publishSteps := releaseSteps(release)
 	extensionSteps := releaseSteps(extension)
 	if !strings.HasPrefix(buildSteps["Build Binary"].Run, "VERSION=\"${{ needs.setup-version.outputs.version }}\"\n") ||
 		!strings.HasPrefix(releaseSteps(release)["Create or Update GitHub Release"].Run, "TAG=\"${{ needs.setup-version.outputs.tag }}\"\n") {
 		return fmt.Errorf("CLI build and publication must consume detected version and tag")
 	}
+
 	for _, step := range extension.Steps {
 		if _, overrides := step.Env["VERSION"]; overrides {
 			return fmt.Errorf("extension step %q must not override its detected version", step.Name)
