@@ -16,6 +16,20 @@ import (
 )
 
 func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
+	request, candidate, check, _ := repeatedEvidenceVerificationFixture(b, "state: ready\n", true)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		observation := verifyFileCase(context.Background(), request, candidate, check)
+		if observation.State != Observed || observation.Result == nil || !observation.Result.Passed ||
+			observation.Agreement == nil || !*observation.Agreement {
+			b.Fatalf("unexpected observation: %s (%s)", observation.State, observation.Reason)
+		}
+	}
+}
+
+func repeatedEvidenceVerificationFixture(b testing.TB, content string, expected bool) (VerifyRequest, ReferenceCase, ReferenceCheck, string) {
+	b.Helper()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		b.Skip("secure preserved-file restoration is supported on Linux and macOS")
 	}
@@ -29,7 +43,7 @@ func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
 		}}},
 	}}}
 	workspace := b.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "state.txt"), []byte("state: ready\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "state.txt"), []byte(content), 0o600); err != nil {
 		b.Fatal(err)
 	}
 	workspacePaths := make([]string, 64)
@@ -59,7 +73,11 @@ func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.Cleanup(func() { _ = root.Close() })
+	b.Cleanup(func() {
+		if err := root.Close(); err != nil {
+			b.Error(err)
+		}
+	})
 	data, err := json.Marshal(snap)
 	if err != nil {
 		b.Fatal(err)
@@ -75,11 +93,13 @@ func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	expected := true
 	candidate := ReferenceCase{
 		ID: "case", ScenarioID: "benchmark", Domain: "benchmark", Classification: CaseGood,
 		TaskID: task.TestID, TaskDeclarationSHA256: taskDigest.SHA256,
 		Snapshot: "case.json", ManifestSHA256: snap.Evidence.SHA256,
+	}
+	if !expected {
+		candidate.Classification = CaseCriticalBad
 	}
 	check := ReferenceCheck{
 		RequirementID: "state", Check: task.Requirements[0].Checks[0],
@@ -115,12 +135,5 @@ func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
 	candidate = admitted.Cases[0]
 	check = candidate.Checks[0]
 	request := VerifyRequest{Spec: spec, Tasks: map[string]*models.TestCase{"task": task}, SnapshotRoot: root}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		observation := verifyFileCase(context.Background(), request, candidate, check)
-		if observation.State != Observed {
-			b.Fatalf("unexpected observation: %s (%s)", observation.State, observation.Reason)
-		}
-	}
+	return request, candidate, check, rootPath
 }
