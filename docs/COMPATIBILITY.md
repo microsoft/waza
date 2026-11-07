@@ -73,7 +73,7 @@ embedding API, not yet a CLI/API/Lab route. Its strict
 and admits it once. Omitted wrapper policy selects distinct execution; explicit
 null is invalid. Distinct submission reserves before factory construction,
 records the decision, executes the admitted unit once, and publishes its original
-terminal and canonical rich report through the actual Store before completion.
+terminal and category-scoped artifacts through the actual Store before completion.
 `completed` means terminal evidence was finalized, not that grading passed.
 Cancellation after reservation can finalize a canceled terminal with zero calls.
 Publication or observer errors are submission errors, not successful completion;
@@ -103,12 +103,23 @@ transcript/tool arrays, validation maps, and recorded zero usage. The legacy
 raw-report omission behavior is unchanged; deserializing an omitted array never
 proves observed emptiness or hydrates a creator.
 
-The current embedding prototype's raw `report.json` includes potentially
-restricted conversation/tool/path data. Private storage and source integrity do
-not constitute category capture/disclosure approval. Public submit registration
-must remain disabled until the actual evidence-owner privacy guard, category
-producer, and default-withheld behavior are integrated; the raw prototype is not
-a public privacy policy. Public integrations remain pending.
+Raw rich reports contain potentially restricted conversation/tool/path data and
+are no longer persisted or returned by owned submission, including reuse.
+They remain detached in-memory input to the category producer; legacy Run and
+historical report readers are unchanged. Private storage and source integrity
+do not constitute category capture/disclosure approval.
+
+`PreparePublication` runs before the terminal observer and blob writes. Its
+first-publication terminal projection may change only diagnostic messages and
+observation error text; canonical comparison preserves every other native field,
+verdict, code, ordinal, and counter. The prepared terminal is shared by the
+observer and the original manifest; duplicate matching terminal bytes are not
+republished. Raw `report.json` cannot be reintroduced as an extra artifact.
+`ReuseAdmission` can deny source disclosure before an actionable decision;
+reuse never runs first-publication projection or rewrites original terminal
+bytes. Public submit registration remains disabled until the actual evidence
+privacy/category policy and protected transport are fully integrated. Public
+integrations remain pending.
 
 The additive `execution-submission-result-1.0.schema.json` and
 `ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,
