@@ -20,6 +20,9 @@ func TestDockerGoCacheContract(t *testing.T) {
 		for _, command := range []string{
 			"RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \\\n    go mod download\n",
 			"RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \\\n    --mount=type=cache,id=waza-go-build,target=/root/.cache/go-build \\\n    CGO_ENABLED=0 GOOS=linux go build -ldflags '-s -w' -o waza ./cmd/waza\n",
+			`RUN test "$(od -An -tx1 -N4 ./waza | tr -d ' \n')" = 7f454c46`,
+			"ldd /bin/sh && ./waza --version && \\\n    if ldd ./waza >/tmp/waza-ldd.txt 2>&1; then",
+			"grep -Fq './waza: Not a valid dynamic program' /tmp/waza-ldd.txt",
 		} {
 			if !strings.Contains(source, command) {
 				return fmt.Errorf("Dockerfile cache/static-build contract changed: %s", command)
@@ -27,7 +30,7 @@ func TestDockerGoCacheContract(t *testing.T) {
 		}
 		_, runtime, found := strings.Cut(source, "# Runtime stage - minimal alpine image\n")
 		if !found || runtime != dockerCacheRuntimeOracle {
-			return fmt.Errorf("cache optimization must preserve the runtime stage without build caches")
+			return fmt.Errorf("cache optimization must preserve runtime configuration and verify cache absence")
 		}
 		return nil
 	}
@@ -44,6 +47,12 @@ func TestDockerGoCacheContract(t *testing.T) {
 		{"obsolete-install-suffix", "go build -ldflags", "go build -installsuffix cgo -ldflags"},
 		{"dynamic-linking", "CGO_ENABLED=0", "CGO_ENABLED=1"},
 		{"lost-linker-flags", "-ldflags '-s -w'", ""},
+		{"missing-elf-admission", "= 7f454c46", "= 00000000"},
+		{"missing-dynamic-control", "ldd /bin/sh", "true"},
+		{"missing-static-inspection", "if ldd ./waza", "if true"},
+		{"wrong-static-diagnostic", "./waza: Not a valid dynamic program", "cannot open file"},
+		{"missing-runtime-cache-check", "for path in /go/pkg/mod /root/.cache/go-build /build", "for path in /unused"},
+		{"missing-runtime-symlink-check", ` || [ -L "$path" ]`, ""},
 		{"runtime-cache-leak", "COPY --from=builder /build/waza /usr/local/bin/waza",
 			"COPY --from=builder /build/waza /usr/local/bin/waza\nCOPY --from=builder /go/pkg/mod /go/pkg/mod"},
 	} {
@@ -70,7 +79,13 @@ WORKDIR /workspace
 COPY --from=builder /build/waza /usr/local/bin/waza
 
 # Verify installation
-RUN waza --version
+RUN waza --version && \
+    for path in /go/pkg/mod /root/.cache/go-build /build; do \
+        if [ -e "$path" ] || [ -L "$path" ]; then \
+            echo "Build cache or source leaked into runtime image: $path" >&2; \
+            exit 1; \
+        fi; \
+    done
 
 # Default command shows help
 ENTRYPOINT ["waza"]
