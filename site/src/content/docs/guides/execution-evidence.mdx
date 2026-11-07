@@ -56,6 +56,26 @@ old receipt, and is not an atomic cross-object snapshot or execution attestation
 All-category producers and final attempt/ledger integration are unfinished; this
 page is not a claim that #768 is complete.
 
+## Recorded capture index
+
+The [recorded capture index schema](../../schemas/execution-evidence-capture-1.0.schema.json)
+describes the separate metadata-only `execution-evidence-capture.json` artifact.
+Native codecs and the public schema route use the same versioned schema source.
+The index contains the original native binding, all six category declarations
+and explicit conversation/tool `[]` or grader `{}` empty proofs. Missing
+collections do not become empty proofs.
+
+The internal producer prepares the index and independent category payloads from
+one actual report before origin finalization. The index contains no origin or
+sidecar digest; the separately digested sidecar references the finalized origin.
+Recorded source kinds and context are declarations, not execution attestation.
+
+This schema route does **not** enable public submission or disclose raw reports.
+An extra-artifact callback cannot sanitize the containing origin's original
+terminal/report artifacts. Public submission remains blocked until an explicit
+first-publication sanitizer policy is committed and integrated. Existing
+finalized or reused artifacts must not be rewritten.
+
 ## Review and download metadata
 
 The Lab runner's execution-evidence inspector shows declared states, exact
