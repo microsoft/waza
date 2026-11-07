@@ -89,8 +89,12 @@ preparation separate from its offline execution. Ambient cross-compilation
 targets are cleared for the checker, not for the published binary.
 DOM roles require an active executable HTML script and enabled non-alternate
 stylesheet with omitted/empty type or `text/css`. Template/noscript descendants,
-comments, raw text, and foreign
-elements cannot satisfy those roles. Duplicate attributes and unfinished tokens
+comments, raw text, and foreign elements cannot satisfy those roles.
+HTML role tokens and MIME hints use only space, tab, LF, CR and form feed as
+whitespace; entity-decoded Unicode spaces cannot promote inert content to a role.
+Role and MIME case folding also changes only ASCII A-Z; Unicode lookalikes do
+not become supported executable types.
+Duplicate attributes and unfinished tokens
 are rejected before DOM normalization; this is a strict built-index profile, not
 a claim to execute arbitrary HTML. The first active base href must resolve to
 the synthetic `https://dashboard.invalid/` origin and root path; `/`, `./`, and

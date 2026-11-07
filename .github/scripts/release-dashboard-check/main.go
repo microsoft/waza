@@ -14,6 +14,17 @@ import (
 	"golang.org/x/net/html"
 )
 
+const htmlWhitespace = " \t\n\r\f"
+
+func asciiLower(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, value)
+}
+
 func main() {
 	if err := check(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -181,11 +192,13 @@ func checkDocument(root *os.Root, index []byte) error {
 	hasEntry, hasStyle := false, false
 	err = walk(document, func(node *html.Node, attrs map[string]string) error {
 		reference, exists := "", false
+		rels := strings.FieldsFunc(asciiLower(attrs["rel"]), func(r rune) bool {
+			return strings.ContainsRune(htmlWhitespace, r)
+		})
 		switch node.Data {
 		case "script":
 			reference, exists = attrs["src"]
 		case "link":
-			rels := strings.Fields(strings.ToLower(attrs["rel"]))
 			assetLink := slices.Contains(rels, "stylesheet") || slices.Contains(rels, "modulepreload") ||
 				slices.Contains(rels, "preload") ||
 				strings.HasPrefix(strings.TrimPrefix(strings.TrimPrefix(attrs["href"], "./"), "/"), "assets/")
@@ -214,7 +227,7 @@ func checkDocument(root *os.Root, index []byte) error {
 		if !hasType && attrs["language"] != "" {
 			scriptType = "text/" + attrs["language"]
 		}
-		scriptType = strings.ToLower(strings.TrimSpace(scriptType))
+		scriptType = asciiLower(strings.Trim(scriptType, htmlWhitespace))
 		executable := slices.Contains([]string{"", "module", "text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript"},
 			scriptType)
 		_, nomodule := attrs["nomodule"]
@@ -222,8 +235,7 @@ func checkDocument(root *os.Root, index []byte) error {
 		if node.Data == "script" && strings.HasSuffix(resolved.Path, ".js") && executable && (!nomodule || scriptType == "module") {
 			hasEntry = true
 		}
-		rels := strings.Fields(strings.ToLower(attrs["rel"]))
-		styleType := strings.ToLower(strings.TrimSpace(attrs["type"]))
+		styleType := asciiLower(strings.Trim(attrs["type"], htmlWhitespace))
 		if node.Data == "link" && slices.Contains(rels, "stylesheet") && !slices.Contains(rels, "alternate") &&
 			strings.HasSuffix(resolved.Path, ".css") && !disabled && (styleType == "" || styleType == "text/css") {
 			hasStyle = true
@@ -260,12 +272,7 @@ func uniqueAttributes(tag []byte) error {
 		if start == i {
 			return errors.New("unsupported release dashboard attribute name")
 		}
-		key := strings.Map(func(r rune) rune {
-			if r >= 'A' && r <= 'Z' {
-				return r + ('a' - 'A')
-			}
-			return r
-		}, string(tag[start:i]))
+		key := asciiLower(string(tag[start:i]))
 		if seen[key] {
 			return fmt.Errorf("duplicate release dashboard attribute: %s", key)
 		}

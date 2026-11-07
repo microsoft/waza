@@ -283,6 +283,18 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 		{"inert-stylesheet-type", []string{index, favicon, js, css}, nil, "", false},
 		{"css-stylesheet-type", []string{index, favicon, js, css}, nil, "", true},
 		{"empty-stylesheet-type", []string{index, favicon, js, css}, nil, "", true},
+		{"ascii-role-whitespace", []string{index, favicon, js, css}, nil, "", true},
+		{"nbsp-script-type", []string{index, favicon, js, css}, nil, "", false},
+		{"unicode-script-type", []string{index, favicon, js, css}, nil, "", false},
+		{"nonhtml-ascii-script-type", []string{index, favicon, js, css}, nil, "", false},
+		{"nbsp-script-language", []string{index, favicon, js, css}, nil, "", false},
+		{"nbsp-stylesheet-rel", []string{index, favicon, js, css}, nil, "", false},
+		{"unicode-stylesheet-rel", []string{index, favicon, js, css}, nil, "", false},
+		{"nbsp-stylesheet-type", []string{index, favicon, js, css}, nil, "", false},
+		{"unicode-stylesheet-type", []string{index, favicon, js, css}, nil, "", false},
+		{"unicode-script-case", []string{index, favicon, js, css}, nil, "", false},
+		{"ascii-script-case", []string{index, favicon, js, css}, nil, "", true},
+		{"unicode-script-language-case", []string{index, favicon, js, css}, nil, "", false},
 	} {
 		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -428,6 +440,31 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 					styleType := map[string]string{"inert-stylesheet-type": "application/json", "css-stylesheet-type": "Text/CSS", "empty-stylesheet-type": ""}[fixture.name]
 					html.Reset()
 					fmt.Fprintf(&html, "<script src='/assets/index-a.js'></script><link rel=stylesheet type='%s' href='/assets/index-b.css'>", styleType)
+				case "ascii-role-whitespace":
+					html.Reset()
+					html.WriteString("<script type=' &#9;&#10;&#12;&#13;module &#9;&#10;&#12;&#13;' src='/assets/index-a.js'></script><link rel=' &#9;&#10;&#12;&#13;stylesheet &#9;&#10;&#12;&#13;' type=' &#9;&#10;&#12;&#13;text/css &#9;&#10;&#12;&#13;' href='/assets/index-b.css'>")
+				case "nbsp-script-type", "unicode-script-type", "nonhtml-ascii-script-type":
+					scriptType := map[string]string{"nbsp-script-type": "&nbsp;module", "unicode-script-type": "&#x2003;module", "nonhtml-ascii-script-type": "&#11;module"}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<script type='%s' src='/assets/index-a.js'></script><link rel=stylesheet href='/assets/index-b.css'>", scriptType)
+				case "nbsp-script-language":
+					html.Reset()
+					html.WriteString("<script language='javascript&nbsp;' src='/assets/index-a.js'></script><link rel=stylesheet href='/assets/index-b.css'>")
+				case "nbsp-stylesheet-rel", "unicode-stylesheet-rel":
+					rel := map[string]string{"nbsp-stylesheet-rel": "stylesheet&nbsp;", "unicode-stylesheet-rel": "stylesheet&#x2003;preload"}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<script src='/assets/index-a.js'></script><link rel='%s' href='/assets/index-b.css'>", rel)
+				case "nbsp-stylesheet-type", "unicode-stylesheet-type":
+					styleType := map[string]string{"nbsp-stylesheet-type": "&nbsp;text/css", "unicode-stylesheet-type": "text/css&#x2003;"}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<script src='/assets/index-a.js'></script><link rel=stylesheet type='%s' href='/assets/index-b.css'>", styleType)
+				case "unicode-script-case", "ascii-script-case":
+					scriptType := map[string]string{"unicode-script-case": "text/javascr&#x130;pt", "ascii-script-case": "TEXT/JAVASCRIPT"}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<script type='%s' src='/assets/index-a.js'></script><link rel=STYLESHEET type=TEXT/CSS href='/assets/index-b.css'>", scriptType)
+				case "unicode-script-language-case":
+					html.Reset()
+					html.WriteString("<script language='javascr&#x130;pt' src='/assets/index-a.js'></script><link rel=stylesheet href='/assets/index-b.css'>")
 				}
 				switch fixture.name {
 				case "empty-referenced-js":
