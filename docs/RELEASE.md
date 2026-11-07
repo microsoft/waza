@@ -66,6 +66,9 @@ Extension packaging intentionally synchronizes version files before building.
 Source lookups, source-record reads, sidecar reads, and binary hashing must each
 succeed before their captured outputs are compared. Matching output from a
 failed command is not validation evidence.
+Workflow regression controls bind Windows tests to `windows-latest`, Linux
+validation and publishers to `ubuntu-latest`, and native shards to their reusable
+workflow delegation. Changing platform labels cannot substitute for native tests.
 Extension provenance enumerates archive globs directly and requires a nonempty
 regular-file inventory; directory admission and digest failures stop publication
 rather than being hidden by a process-substitution discovery pipeline.

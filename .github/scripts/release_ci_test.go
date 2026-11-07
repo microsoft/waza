@@ -29,6 +29,7 @@ type releaseStep struct {
 
 type releaseJob struct {
 	Name            string
+	RunsOn          string `yaml:"runs-on"`
 	Outputs         map[string]string
 	Env             map[string]string
 	Uses            string
@@ -45,6 +46,10 @@ func TestReleaseWorkflowGates(t *testing.T) {
 	if err := validateReleaseValidation(source); err != nil {
 		t.Fatal(err)
 	}
+	testReleaseRunnerContracts(t, source, map[string]string{
+		"build-test": "ubuntu-latest", "windows-test": "windows-latest",
+		"lint": "ubuntu-latest", "complete": "ubuntu-latest", "native-test-shards": "",
+	}, validateReleaseValidation)
 	var workflow releaseWorkflow
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		t.Fatal(err)
@@ -155,6 +160,9 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 			if err := validateBranchPublisher(source, file); err != nil {
 				t.Fatal(err)
 			}
+			testReleaseRunnerContracts(t, source, map[string]string{
+				"release-candidate": "ubuntu-latest", "release": "ubuntu-latest", "validation": "",
+			}, func(changed []byte) error { return validateBranchPublisher(changed, file) })
 			var workflow releaseWorkflow
 			if err := yaml.Unmarshal(source, &workflow); err != nil {
 				t.Fatal(err)
@@ -500,6 +508,10 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 	if err := validateTagRelease([]byte(normalized)); err != nil {
 		t.Fatal(err)
 	}
+	testReleaseRunnerContracts(t, source, map[string]string{
+		"setup-version": "ubuntu-latest", "build-cli": "ubuntu-latest",
+		"release-cli": "ubuntu-latest", "release-extension": "ubuntu-latest", "validation": "",
+	}, validateTagRelease)
 	var workflow releaseWorkflow
 	if err := yaml.Unmarshal([]byte(normalized), &workflow); err != nil {
 		t.Fatal(err)
@@ -772,6 +784,91 @@ type releaseWorkflow struct {
 	Jobs        map[string]releaseJob
 }
 
+func validateReleaseRunners(workflow releaseWorkflow, expected map[string]string) error {
+	for name, runner := range expected {
+		if workflow.Jobs[name].RunsOn != runner {
+			return fmt.Errorf("%s must retain runner %q", name, runner)
+		}
+	}
+	return nil
+}
+
+func testReleaseRunnerContracts(t *testing.T, source []byte, expected map[string]string, validate func([]byte) error) {
+	t.Helper()
+	var baseline yaml.Node
+	if err := yaml.Unmarshal(source, &baseline); err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := yaml.Marshal(&baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validate(roundTrip); err != nil {
+		t.Fatalf("valid production YAML round trip must remain admitted: %v", err)
+	}
+	for job, runner := range expected {
+		for _, replacement := range []string{"ubuntu-latest", "windows-latest", "macos-latest", ""} {
+			if replacement == runner {
+				continue
+			}
+			t.Run("runner-"+job+"-"+replacement, func(t *testing.T) {
+				var wire yaml.Node
+				if err := yaml.Unmarshal(source, &wire); err != nil {
+					t.Fatal(err)
+				}
+				mappingValue := func(node *yaml.Node, key string) *yaml.Node {
+					for i := 0; i+1 < len(node.Content); i += 2 {
+						if node.Content[i].Value == key {
+							return node.Content[i+1]
+						}
+					}
+					t.Fatalf("missing production mapping %q", key)
+					return nil
+				}
+				jobs := mappingValue(wire.Content[0], "jobs")
+				target := mappingValue(jobs, job)
+				found := false
+				for i := 0; i+1 < len(target.Content); i += 2 {
+					if target.Content[i].Value == "runs-on" {
+						if target.Content[i+1].Value != runner {
+							t.Fatal("production runner differs from fixture contract")
+						}
+						if replacement == "" {
+							target.Content = append(target.Content[:i], target.Content[i+2:]...)
+						} else {
+							target.Content[i+1].Value = replacement
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					if runner != "" {
+						t.Fatal("production runner missing")
+					}
+					target.Content = append(target.Content,
+						&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "runs-on"},
+						&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: replacement})
+				}
+				changed, err := yaml.Marshal(&wire)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var parsed releaseWorkflow
+				if err := yaml.Unmarshal(changed, &parsed); err != nil {
+					t.Fatalf("runner mutation must reach semantic validation: %v", err)
+				}
+				if parsed.Jobs[job].RunsOn != replacement {
+					t.Fatal("mutation did not change selected production runner")
+				}
+				if err := validate(changed); err == nil {
+					t.Fatal("wrong-platform production workflow admitted")
+				}
+			})
+		}
+	}
+}
+
 func releaseSteps(job releaseJob) map[string]releaseStep {
 	steps := make(map[string]releaseStep)
 	for _, step := range job.Steps {
@@ -803,6 +900,12 @@ func orderedReleaseSteps(job releaseJob, names []string) error {
 func validateReleaseValidation(source []byte) error {
 	var workflow releaseWorkflow
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	if err := validateReleaseRunners(workflow, map[string]string{
+		"build-test": "ubuntu-latest", "windows-test": "windows-latest",
+		"lint": "ubuntu-latest", "complete": "ubuntu-latest", "native-test-shards": "",
+	}); err != nil {
 		return err
 	}
 	native := workflow.Jobs["native-test-shards"]
@@ -919,6 +1022,11 @@ func validateBranchPublisher(source []byte, file string) error {
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
+	if err := validateReleaseRunners(workflow, map[string]string{
+		"release-candidate": "ubuntu-latest", "release": "ubuntu-latest", "validation": "",
+	}); err != nil {
+		return err
+	}
 	candidate := workflow.Jobs["release-candidate"]
 	validation := workflow.Jobs["validation"]
 	publish := workflow.Jobs["release"]
@@ -1004,6 +1112,12 @@ func validateBranchPublisher(source []byte, file string) error {
 func validateTagRelease(source []byte) error {
 	var workflow releaseWorkflow
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	if err := validateReleaseRunners(workflow, map[string]string{
+		"setup-version": "ubuntu-latest", "build-cli": "ubuntu-latest",
+		"release-cli": "ubuntu-latest", "release-extension": "ubuntu-latest", "validation": "",
+	}); err != nil {
 		return err
 	}
 	validation := workflow.Jobs["validation"]
