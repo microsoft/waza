@@ -101,3 +101,13 @@ With `--skip-graders`, grader-only preservation requirements are omitted, includ
 If capture fails after a follow-up or responder turn, the error result still retains that turn's output, transcript, tool calls, skill invocations, duration, and usage. Successfully executed responder replies remain counted in `responder.followups_sent` even when their capture fails; replies that fail setup or execution, time out, or are canceled are not counted, including when capture also fails. Previously completed checkpoint results remain recorded, but the failed capture cannot supply workspace evidence or run later checkpoints and final graders. Trigger tests record capture failures as execution errors rather than successful trigger classifications.
 
 A capture-failed response returned alongside an execution error still preserves its observations and rejects workspace evidence from earlier turns. The original execution error remains recorded, and the failed reply does not count as successfully executed.
+
+Newly generated workspace-capture diagnostics never include absolute filesystem
+paths or the raw underlying filesystem error. I/O failures report a bounded
+code (`not_found`, `permission`, `closed`, or `io`), operation, and actionable
+message; only contained logical workspace-relative names may appear, quoted
+and truncated to 160 bytes. Rejected absolute or escaping targets are not echoed.
+Typed filesystem causes remain available internally through `errors.Is` and
+`errors.As`, but are excluded from serialized responses. This boundary applies
+only to generated capture diagnostics: workspace metadata, authored output,
+transcripts, other error producers, and legacy artifacts are not scrubbed.

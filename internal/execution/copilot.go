@@ -1167,6 +1167,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		WorkspaceDir:          workspaceDir,
 		WorkspaceFiles:        workspaceFiles,
 		WorkspaceCaptureError: workspaceCaptureError,
+		WorkspaceCaptureCause: workspaceCaptureErr,
 		JudgeFiles:            judgeFiles,
 		CommandInvocations:    commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
 		UserInputRequests:     req.UserInput.Records(),

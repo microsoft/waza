@@ -3,6 +3,7 @@ package trigger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,19 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTriggerCaptureFailureRetainsRuntimeCause(t *testing.T) {
+	cause := errors.New("safe capture diagnostic")
+	response := &execution.ExecutionResponse{
+		WorkspaceCaptureError: cause.Error(),
+		WorkspaceCaptureCause: cause,
+	}
+	runner := NewRunner(&TestSpec{Skill: "my-skill"}, &responseEngine{response: response},
+		config.NewEvalConfig(&models.EvalSpec{}, config.WithSpecDir(t.TempDir())), nil)
+	_, err := runner.testTrigger(t.Context(), "harmless prompt")
+	require.ErrorIs(t, err, cause)
+	require.EqualError(t, err, "trigger workspace capture failed: safe capture diagnostic")
+}
 
 func TestDiscover(t *testing.T) {
 	t.Run("finds trigger_tests.yaml", func(t *testing.T) {

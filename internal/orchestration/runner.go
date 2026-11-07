@@ -1436,7 +1436,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	if resp.WorkspaceCaptureError != "" {
 		resp.Success = false
-		err = errors.Join(err, errors.New(resp.WorkspaceCaptureError))
+		err = errors.Join(err, resp.CaptureFailure())
 	}
 	if r.verbose {
 		for _, invocation := range commandInvocations {
@@ -2435,6 +2435,7 @@ func mergeCompletedTurnResponse(resp, turn *execution.ExecutionResponse) {
 	if turn.WorkspaceCaptureError != "" {
 		resp.Success = false
 		resp.WorkspaceCaptureError = turn.WorkspaceCaptureError
+		resp.WorkspaceCaptureCause = turn.WorkspaceCaptureCause
 		resp.WorkspaceFiles = nil
 		resp.JudgeFiles = nil
 		return

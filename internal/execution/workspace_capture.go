@@ -1,12 +1,52 @@
 package execution
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// The cause remains available to errors.Is/As, never to public diagnostic text.
+type workspaceCaptureDiagnostic struct {
+	message string
+	cause   error
+}
+
+func (e *workspaceCaptureDiagnostic) Error() string { return e.message }
+func (e *workspaceCaptureDiagnostic) Unwrap() error { return e.cause }
+
+func captureIOError(operation, path string, cause error) error {
+	code := "io"
+	switch {
+	case errors.Is(cause, os.ErrNotExist):
+		code = "not_found"
+	case errors.Is(cause, os.ErrPermission):
+		code = "permission"
+	case errors.Is(cause, os.ErrClosed):
+		code = "closed"
+	}
+	target := ""
+	if path != "" {
+		target = fmt.Sprintf(" %q", captureDiagnosticPath(path))
+	}
+	return &workspaceCaptureDiagnostic{
+		message: fmt.Sprintf("[%s] %s%s failed; check workspace access and file stability", code, operation, target),
+		cause:   cause,
+	}
+}
+
+func captureDiagnosticPath(path string) string {
+	if !filepath.IsLocal(path) {
+		return "<workspace>"
+	}
+	if len(path) > 160 {
+		path = path[:160] + "..."
+	}
+	return filepath.ToSlash(path)
+}
 
 const (
 	maxWorkspaceCaptureFiles      = 10_000
@@ -46,7 +86,7 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 
 	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return nil, fmt.Errorf("workspace capture incomplete: open workspace root: %w", err)
+		return nil, fmt.Errorf("workspace capture incomplete: %w", captureIOError("open workspace root", "", err))
 	}
 	defer func() { _ = root.Close() }()
 
@@ -61,11 +101,11 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("inspect %q: %w", rel, err)
+			return captureIOError("inspect", rel, err)
 		}
 		if !info.Mode().IsRegular() {
 			if required {
-				return fmt.Errorf("preserved path %q is not a regular file", rel)
+				return fmt.Errorf("preserved path %q is not a regular file", captureDiagnosticPath(rel))
 			}
 			return nil
 		}
@@ -75,44 +115,44 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 			if current, statErr := root.Stat(path); !required && statErr == nil && !current.Mode().IsRegular() {
 				return nil
 			}
-			return fmt.Errorf("open %q: %w", rel, err)
+			return captureIOError("open", rel, err)
 		}
 		defer func() {
 			if closeErr := file.Close(); captureErr == nil && closeErr != nil {
-				captureErr = fmt.Errorf("close %q: %w", rel, closeErr)
+				captureErr = captureIOError("close", rel, closeErr)
 			}
 		}()
 
 		info, err = file.Stat()
 		if err != nil {
-			return fmt.Errorf("inspect %q: %w", rel, err)
+			return captureIOError("inspect", rel, err)
 		}
 		if !info.Mode().IsRegular() {
 			if required {
-				return fmt.Errorf("preserved path %q is not a regular file", rel)
+				return fmt.Errorf("preserved path %q is not a regular file", captureDiagnosticPath(rel))
 			}
 			return nil
 		}
 		if len(files) >= limits.maxFiles {
-			return fmt.Errorf("file count exceeds limit of %d before %q", limits.maxFiles, rel)
+			return fmt.Errorf("file count exceeds limit of %d before %q", limits.maxFiles, captureDiagnosticPath(rel))
 		}
 		if info.Size() > limits.maxFileBytes {
-			return fmt.Errorf("file %q is %d bytes and exceeds per-file limit of %d bytes", rel, info.Size(), limits.maxFileBytes)
+			return fmt.Errorf("file %q is %d bytes and exceeds per-file limit of %d bytes", captureDiagnosticPath(rel), info.Size(), limits.maxFileBytes)
 		}
 		if info.Size() > limits.maxTotalBytes-totalBytes {
-			return fmt.Errorf("capturing %q would exceed total limit of %d bytes", rel, limits.maxTotalBytes)
+			return fmt.Errorf("capturing %q would exceed total limit of %d bytes", captureDiagnosticPath(rel), limits.maxTotalBytes)
 		}
 
 		readLimit := min(limits.maxFileBytes, limits.maxTotalBytes-totalBytes)
 		content, exceeded, err := readWorkspaceCaptureFile(file, readLimit)
 		if err != nil {
-			return fmt.Errorf("read %q: %w", rel, err)
+			return captureIOError("read", rel, err)
 		}
 		if exceeded {
 			if readLimit == limits.maxTotalBytes-totalBytes {
-				return fmt.Errorf("capturing %q would exceed total limit of %d bytes", rel, limits.maxTotalBytes)
+				return fmt.Errorf("capturing %q would exceed total limit of %d bytes", captureDiagnosticPath(rel), limits.maxTotalBytes)
 			}
-			return fmt.Errorf("file %q exceeds per-file limit of %d bytes", rel, limits.maxFileBytes)
+			return fmt.Errorf("file %q exceeds per-file limit of %d bytes", captureDiagnosticPath(rel), limits.maxFileBytes)
 		}
 
 		files[rel] = content
@@ -141,12 +181,12 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 
 func resolveWorkspaceCapturePath(root, requested string) (string, string, error) {
 	if filepath.IsAbs(requested) {
-		return "", "", fmt.Errorf("preserved path %q must be relative", requested)
+		return "", "", fmt.Errorf("preserved path must be relative to the workspace")
 	}
 	rel := filepath.Clean(requested)
 	check, err := filepath.Rel(root, filepath.Join(root, rel))
 	if err != nil || check == ".." || strings.HasPrefix(check, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("preserved path %q escapes workspace", requested)
+		return "", "", fmt.Errorf("preserved path escapes workspace; use a contained relative target")
 	}
 	return check, filepath.ToSlash(check), nil
 }
@@ -170,16 +210,16 @@ func walkWorkspaceCapture(root *os.Root, maxEntries int, captureFile func(path, 
 
 		dir, err := openWorkspaceCaptureFile(root, dirPath)
 		if err != nil {
-			return fmt.Errorf("open directory %q: %w", filepath.ToSlash(dirPath), err)
+			return captureIOError("open directory", dirPath, err)
 		}
 		info, err := dir.Stat()
 		if err != nil {
 			_ = dir.Close()
-			return fmt.Errorf("inspect directory %q: %w", filepath.ToSlash(dirPath), err)
+			return captureIOError("inspect directory", dirPath, err)
 		}
 		if !info.IsDir() {
 			_ = dir.Close()
-			return fmt.Errorf("workspace directory %q changed during capture", filepath.ToSlash(dirPath))
+			return fmt.Errorf("workspace directory %q changed during capture", captureDiagnosticPath(dirPath))
 		}
 
 		var walkErr error
@@ -206,7 +246,7 @@ func walkWorkspaceCapture(root *os.Root, maxEntries int, captureFile func(path, 
 				}
 				info, err := entry.Info()
 				if err != nil {
-					walkErr = fmt.Errorf("inspect %q: %w", filepath.ToSlash(path), err)
+					walkErr = captureIOError("inspect", path, err)
 					break
 				}
 				if !info.Mode().IsRegular() {
@@ -221,12 +261,12 @@ func walkWorkspaceCapture(root *os.Root, maxEntries int, captureFile func(path, 
 				break
 			}
 			if readErr != nil {
-				walkErr = fmt.Errorf("read directory %q: %w", filepath.ToSlash(dirPath), readErr)
+				walkErr = captureIOError("read directory", dirPath, readErr)
 				break
 			}
 		}
 		if closeErr := dir.Close(); walkErr == nil && closeErr != nil {
-			walkErr = fmt.Errorf("close directory %q: %w", filepath.ToSlash(dirPath), closeErr)
+			walkErr = captureIOError("close directory", dirPath, closeErr)
 		}
 		if walkErr != nil {
 			return walkErr

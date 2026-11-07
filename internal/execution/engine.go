@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -188,6 +189,9 @@ type ExecutionResponse struct {
 	// WorkspaceCaptureError is set when bounded post-execution capture could
 	// not produce a complete snapshot. Runners must not grade this response.
 	WorkspaceCaptureError string
+	// WorkspaceCaptureCause retains the safe diagnostic's typed cause at
+	// runtime. It is never serialized into response or artifact bytes.
+	WorkspaceCaptureCause error `json:"-"`
 	JudgeFiles            *models.JudgeFileCapture
 	SessionID             string // Copilot session ID
 	Usage                 *models.UsageStats
@@ -210,6 +214,18 @@ type ExecutionResponse struct {
 	// UserInputRequests is the cumulative record of native user-input
 	// requests handled by [ExecutionRequest.UserInput].
 	UserInputRequests []models.UserInputRecord
+}
+
+// CaptureFailure returns the runtime diagnostic, or the recorded string for
+// responses without a runtime cause (including historical/custom engines).
+func (r *ExecutionResponse) CaptureFailure() error {
+	if r.WorkspaceCaptureError == "" {
+		return nil
+	}
+	if r.WorkspaceCaptureCause != nil {
+		return r.WorkspaceCaptureCause
+	}
+	return errors.New(r.WorkspaceCaptureError)
 }
 
 // CommandMockFinalizer collects task-level command records and checks expected

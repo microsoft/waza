@@ -493,6 +493,13 @@ Each `expected_files` entry supports:
   are not counted, including when capture also fails.
   Capture-failed responses returned alongside execution errors also retain their
   observations and reject workspace evidence from earlier turns.
+  Newly generated capture diagnostics omit absolute paths and raw filesystem
+  errors. I/O failures provide a bounded code, operation, actionable message,
+  and only quoted, contained logical workspace-relative names (at most 160
+  bytes before truncation). Invalid targets are not echoed. Typed causes remain
+  available internally but are excluded from serialization. This is not general
+  artifact redaction: authored output, transcripts, workspace metadata, other
+  error producers, and legacy artifacts remain unchanged.
 </Aside>
 
 <Tabs>

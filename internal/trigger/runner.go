@@ -198,7 +198,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		CancelOnSkillInvocation: true,
 	})
 	if err == nil && resp != nil && resp.WorkspaceCaptureError != "" {
-		err = fmt.Errorf("trigger workspace capture failed: %s", resp.WorkspaceCaptureError)
+		err = fmt.Errorf("trigger workspace capture failed: %w", resp.CaptureFailure())
 	}
 	return resp, err
 }
