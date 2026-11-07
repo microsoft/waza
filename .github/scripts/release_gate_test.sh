@@ -34,6 +34,22 @@ test -f "$COPILOT_CLI_PATH.invoked"
 rm "$COPILOT_CLI_PATH.invoked"
 expect_status 1 env RUNNER_TEMP="$scratch/missing" bash "$scripts/go_offline_env.sh"
 
+mkdir "$scratch/windows-runner" "$scratch/windows-bin"
+cat > "$scratch/windows-bin/cygpath" <<'EOF'
+#!/bin/sh
+test "$1" = -m
+printf '%s\n' "$2"
+EOF
+chmod +x "$scratch/windows-bin/cygpath"
+RUNNER_OS=Windows RUNNER_TEMP="$scratch/windows-runner" PATH="$scratch/windows-bin:$PATH" \
+  bash "$scripts/go_offline_env.sh" > "$scratch/windows-environment"
+windows_guard="$(sed -n 's/^COPILOT_CLI_PATH=//p' "$scratch/windows-environment")"
+test "${windows_guard##*.}" = exe
+test -x "$windows_guard"
+expect_status 64 "$windows_guard" --version
+test -f "$windows_guard.invoked"
+rm "$windows_guard.invoked"
+
 cat > "$scratch/waza" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
