@@ -1388,24 +1388,30 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			},
 		})
 	}
-
 	// Build the per-turn checkpoint runner. Nil when the task has no
 	// checkpoints; safe to invoke methods on a nil receiver below.
-	cps := newCheckpointRunner(r, tc)
+	var cps *checkpointRunner
 
 	// Run any checkpoint scheduled after turn 1 before the multi-turn loop.
 	// If it requests stop, skip follow-ups/responder entirely.
-	stop := cps.runForTurn(ctx, 1, resp)
+	stop := false
+	if resp.WorkspaceCaptureError == "" {
+		cps = newCheckpointRunner(r, tc)
+		stop = cps.runForTurn(ctx, 1, resp)
+	}
 
 	// Drive multi-turn: responder loop takes precedence; otherwise static
 	// follow-ups. Validation guarantees these are mutually exclusive.
 	var responderInfo *models.ResponderInfo
-	if !stop && resp.ErrorMsg == "" {
+	if !stop && resp.ErrorMsg == "" && resp.WorkspaceCaptureError == "" {
 		if tc.Stimulus.Responder != nil {
 			responderInfo = r.executeResponderLoop(ctx, tc, req, resp, cps, classifier)
 		} else if len(tc.Stimulus.FollowUps) > 0 {
 			r.executeFollowUps(ctx, tc, req, resp, cps)
 		}
+	}
+	if resp.WorkspaceCaptureError != "" && resp.ErrorMsg == "" {
+		resp.ErrorMsg = resp.WorkspaceCaptureError
 	}
 	if userInput != nil {
 		finishErr := userInput.Finish()
@@ -1420,9 +1426,17 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
 		if err != nil {
 			resp.Success = false
-			resp.ErrorMsg = err.Error()
+			if resp.WorkspaceCaptureError != "" && resp.ErrorMsg != "" {
+				resp.ErrorMsg = fmt.Sprintf("%s; command mock finalization: %v", resp.ErrorMsg, err)
+			} else {
+				resp.ErrorMsg = err.Error()
+			}
 		}
 		resp.CommandInvocations = commandInvocations
+	}
+	if resp.WorkspaceCaptureError != "" {
+		resp.Success = false
+		err = errors.Join(err, resp.CaptureFailure())
 	}
 	if r.verbose {
 		for _, invocation := range commandInvocations {
@@ -1445,7 +1459,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 
 	// Build validation context
 	vCtx := r.buildGraderContext(tc, resp, sdkEvents)
-	if !r.skipGraders && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
+	if resp.WorkspaceCaptureError == "" && !r.skipGraders && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
 		selection, selectionErr := judgeevidence.Selection(r.cfg.Spec().Graders, tc)
 		if selectionErr != nil {
 			return returnWithArtifacts(models.RunResult{RunNumber: runNum, Prompt: req.Message,
@@ -1476,7 +1490,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 
 	var gradersResults map[string]models.GraderResults
-	if r.skipGraders {
+	if r.skipGraders || resp.WorkspaceCaptureError != "" {
 		gradersResults = make(map[string]models.GraderResults)
 	} else {
 		var err error
@@ -1521,7 +1535,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	// Determine status
 	diagnosticCategory = "execution"
 	status := models.StatusPassed
-	if resp.ErrorMsg != "" {
+	if err != nil || resp.ErrorMsg != "" {
 		status = models.StatusError
 	} else if r.skipGraders {
 		status = models.StatusSkipped
@@ -1558,11 +1572,6 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	// Build transcript (reuses the SDK conversion computed above)
 	transcript := transcript.BuildFromSessionEvents(sdkEvents)
 
-	skillInvocations := make([]models.SkillInvocation, len(resp.SkillInvocations))
-	for i, si := range resp.SkillInvocations {
-		skillInvocations[i] = models.SkillInvocation{Name: si.Name, Path: si.Path}
-	}
-
 	run := models.RunResult{
 		RunNumber:          runNum,
 		Prompt:             req.Message,
@@ -1574,7 +1583,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		Transcript:         transcript,
 		FinalOutput:        resp.FinalOutput,
 		ErrorMsg:           resp.ErrorMsg,
-		SkillInvocations:   skillInvocations,
+		SkillInvocations:   buildSkillInvocations(resp.SkillInvocations),
 		WorkspaceDir:       resp.WorkspaceDir,
 		Responder:          responderInfo,
 		Checkpoints:        checkpointOutcomes,
@@ -1902,6 +1911,10 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 	if err != nil {
 		return nil, err
 	}
+	var capturePaths []string
+	if !r.skipGraders {
+		capturePaths = workspaceCapturePaths(spec.Graders, tc)
+	}
 	var captureJudgeFiles func(string) *models.JudgeFileCapture
 	if !r.skipGraders && models.UsesJudgeEvidence(spec.Graders, tc) {
 		selection, err := judgeevidence.Selection(spec.Graders, tc)
@@ -1928,15 +1941,52 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
 			execution.IsSkillAvailable(resolvedSkillPaths, spec.SkillName),
-		MCPServers:          mcpServers,
-		CommandMocks:        effectiveCommandMocks(tc, spec),
-		CommandMocksBaseDir: r.cfg.SpecDir(),
-		FirstEventTimeout:   r.firstEventTimeout(tc),
-		ToolPolicy:          resolveToolPolicy(fm),
-		ModelID:             spec.Config.ModelID,
-		ReasoningEffort:     spec.Config.ReasoningEffort,
-		CaptureJudgeFiles:   captureJudgeFiles,
+		MCPServers:            mcpServers,
+		CommandMocks:          effectiveCommandMocks(tc, spec),
+		CommandMocksBaseDir:   r.cfg.SpecDir(),
+		FirstEventTimeout:     r.firstEventTimeout(tc),
+		ToolPolicy:            resolveToolPolicy(fm),
+		ModelID:               spec.Config.ModelID,
+		ReasoningEffort:       spec.Config.ReasoningEffort,
+		CaptureJudgeFiles:     captureJudgeFiles,
+		WorkspaceCapturePaths: capturePaths,
 	}, nil
+}
+
+func workspaceCapturePaths(configs []models.GraderConfig, tc *models.TestCase) []string {
+	seen := make(map[string]bool)
+	var paths []string
+	add := func(kind models.GraderKind, parameters models.GraderParameters) {
+		if kind != models.GraderKindDiff {
+			return
+		}
+		diff, ok := parameters.(models.DiffGraderParameters)
+		if !ok {
+			return
+		}
+		for _, expected := range diff.ExpectedFiles {
+			path := filepath.ToSlash(expected.Path)
+			if path != "" && !seen[path] {
+				seen[path] = true
+				paths = append(paths, path)
+			}
+		}
+	}
+	for _, config := range configs {
+		add(config.Kind, config.Parameters)
+	}
+	if tc != nil {
+		for _, config := range tc.Validators {
+			add(config.Kind, config.Parameters)
+		}
+		for _, checkpoint := range tc.Checkpoints {
+			for _, config := range checkpoint.Graders {
+				add(config.Kind, config.Parameters)
+			}
+		}
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.CommandMockConfig {
@@ -2194,36 +2244,22 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
 		followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
 		cancelFollow()
+		if mergeLaterTurnResponse(resp, followResp, err) {
+			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+		}
+		turnSpan.End()
 		if err != nil {
-			turnSpan.End()
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d failed: %v", i+1, len(tc.Stimulus.FollowUps), err)
 			break
 		}
-
-		resp.CommandInvocations = followResp.CommandInvocations
-		resp.UserInputRequests = followResp.UserInputRequests
-		markToolPolicyViolation(followResp)
-		if followResp.ErrorMsg != "" {
-			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-			turnSpan.End()
-			mergeToolPolicyResult(resp, followResp)
-			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), followResp.ErrorMsg)
+		message := followResp.ErrorMsg
+		if message == "" {
+			message = followResp.WorkspaceCaptureError
+		}
+		if message != "" {
+			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), message)
 			break
 		}
-
-		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-		turnSpan.End()
-
-		// Aggregate results
-		resp.Events = append(resp.Events, followResp.Events...)
-		resp.ToolCalls = append(resp.ToolCalls, followResp.ToolCalls...)
-		resp.SkillInvocations = append(resp.SkillInvocations, followResp.SkillInvocations...)
-		resp.DurationMs += followResp.DurationMs
-		resp.FinalOutput = followResp.FinalOutput
-		resp.WorkspaceFiles = followResp.WorkspaceFiles
-		resp.JudgeFiles = followResp.JudgeFiles
-		mergeToolPolicyResult(resp, followResp)
-		execution.MergeResponseUsage(resp, followResp)
 
 		// Run any checkpoint scheduled after this turn. Turn number is
 		// i+2 because the initial Execute was turn 1 and follow-ups are
@@ -2280,12 +2316,15 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 			return info
 
 		case responder.DecisionReply:
-			if !r.sendResponderReply(ctx, tc, initial, resp, decision.Answer, info.FollowupsSent+1) {
+			replyOK, completed := r.sendResponderReply(ctx, tc, initial, resp, decision.Answer, info.FollowupsSent+1)
+			if completed {
+				info.FollowupsSent++
+			}
+			if !replyOK {
 				info.Outcome = models.ResponderOutcomeError
 				info.Reason = resp.ErrorMsg
 				return info
 			}
-			info.FollowupsSent++
 			left--
 
 			// Run any checkpoint scheduled after this turn. The reply we
@@ -2311,12 +2350,13 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 
 // sendResponderReply sends one responder answer to the agent session, reusing
 // the session and workspace, and merges the agent's response into resp. It
-// returns false (and sets resp.ErrorMsg) on failure.
-func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, answer string, turn int) bool {
+// returns whether the reply succeeded overall and whether its execution
+// succeeded independently of workspace capture.
+func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, answer string, turn int) (ok, completed bool) {
 	followReq, err := r.buildTurnExecutionRequest(tc, initial)
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d setup failed: %v", turn, err)
-		return false
+		return false, false
 	}
 	followReq.Message = answer
 	followReq.SessionID = resp.SessionID
@@ -2334,7 +2374,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	timeout, err := r.executionTimeout(tc)
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d setup failed: %v", turn, err)
-		return false
+		return false, false
 	}
 	// Wrap the responder reply in its own turn span so its tool_call
 	// and model_call children nest correctly. The initial Execute was
@@ -2351,31 +2391,65 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
 	followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
 	cancelFollow()
+	if mergeLaterTurnResponse(resp, followResp, err) {
+		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+	}
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d failed: %v", turn, err)
-		return false
+		return false, false
 	}
-	resp.CommandInvocations = followResp.CommandInvocations
-	resp.UserInputRequests = followResp.UserInputRequests
-	markToolPolicyViolation(followResp)
-	if followResp.ErrorMsg != "" {
-		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-		mergeToolPolicyResult(resp, followResp)
-		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, followResp.ErrorMsg)
-		return false
+	message := followResp.ErrorMsg
+	if message == "" {
+		message = followResp.WorkspaceCaptureError
 	}
+	if message != "" {
+		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, message)
+		return false, followResp.WorkspaceCaptureError != "" && followResp.ExecutionSucceeded
+	}
+	return true, true
+}
 
-	emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
-	resp.Events = append(resp.Events, followResp.Events...)
-	resp.ToolCalls = append(resp.ToolCalls, followResp.ToolCalls...)
-	resp.SkillInvocations = append(resp.SkillInvocations, followResp.SkillInvocations...)
-	resp.DurationMs += followResp.DurationMs
-	resp.FinalOutput = followResp.FinalOutput
-	resp.WorkspaceFiles = followResp.WorkspaceFiles
-	resp.JudgeFiles = followResp.JudgeFiles
-	mergeToolPolicyResult(resp, followResp)
-	execution.MergeResponseUsage(resp, followResp)
+// Capture-failed partial responses still carry observations and must invalidate
+// prior workspace evidence even when execution also returned a Go error.
+func mergeLaterTurnResponse(resp, turn *execution.ExecutionResponse, executionErr error) bool {
+	if executionErr != nil && (turn == nil || turn.WorkspaceCaptureError == "") {
+		return false
+	}
+	resp.CommandInvocations = turn.CommandInvocations
+	resp.UserInputRequests = turn.UserInputRequests
+	markToolPolicyViolation(turn)
+	mergeToolPolicyResult(resp, turn)
+	if turn.ErrorMsg == "" || turn.WorkspaceCaptureError != "" {
+		mergeCompletedTurnResponse(resp, turn)
+	}
 	return true
+}
+
+func mergeCompletedTurnResponse(resp, turn *execution.ExecutionResponse) {
+	resp.Events = append(resp.Events, turn.Events...)
+	resp.ToolCalls = append(resp.ToolCalls, turn.ToolCalls...)
+	resp.SkillInvocations = append(resp.SkillInvocations, turn.SkillInvocations...)
+	resp.DurationMs += turn.DurationMs
+	resp.FinalOutput = turn.FinalOutput
+	execution.MergeResponseUsage(resp, turn)
+	if turn.WorkspaceCaptureError != "" {
+		resp.Success = false
+		resp.WorkspaceCaptureError = turn.WorkspaceCaptureError
+		resp.WorkspaceCaptureCause = turn.WorkspaceCaptureCause
+		resp.WorkspaceFiles = nil
+		resp.JudgeFiles = nil
+		return
+	}
+	resp.WorkspaceFiles = turn.WorkspaceFiles
+	resp.JudgeFiles = turn.JudgeFiles
+}
+
+func buildSkillInvocations(invocations []execution.SkillInvocation) []models.SkillInvocation {
+	result := make([]models.SkillInvocation, len(invocations))
+	for i, invocation := range invocations {
+		result[i] = models.SkillInvocation{Name: invocation.Name, Path: invocation.Path}
+	}
+	return result
 }
 
 func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile {
