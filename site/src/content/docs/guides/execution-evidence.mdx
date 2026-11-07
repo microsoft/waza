@@ -26,6 +26,24 @@ Source kinds (`authored`, `mock`, `cached`, `live`, `unknown`) and context
 configuration or Copilot mode does not attest that an execution occurred.
 Passing recorded verdicts remain separate from evidence completeness.
 
+### Review examples
+
+Use the separate **Admit recorded categories** result, not only the declaration
+table, to interpret these controls:
+
+| Recorded control | Expected review result |
+|---|---|
+| Native usage has explicitly recorded zero credits and complete model-credit attribution. | `present`; display `0`, not unavailable or an estimated price. This is recorded shape, not proof of new live billing. |
+| The invocation has no recorded usage object. | `unavailable`; no observed count or invented zero-valued usage. |
+| Token usage exists but final credits or model attribution is missing. | `incomplete`; recorded tokens may remain reviewable, but no authoritative billing total. |
+| Conversation/tool/reliability are withheld by the first-publication policy. | `redacted`; no category payload/reference/count. Restricted reliability text is withheld before persistence. |
+| A captured grader count conflicts with the original recorded shape. | `conflicting` with an admission error; reject that count while keeping independently verified facts separate. No implicit pass or winning source. |
+
+An observed empty array requires the actual capture profile's explicit `[]`
+proof. A legacy omitted array or a declaration saying count `0` is not that proof.
+Default privacy withholding remains redacted even when an invocation observed
+no messages/tools; it does not disclose an empty-count observation.
+
 ## Publish and inspect an optional sidecar
 
 Use an existing private immutable store whose origin and lineage manifests have
@@ -150,6 +168,17 @@ evidence into a finalized origin. A legacy source without the capture profile
 remains unqualified. New first-publication capture uses the original typed
 invocation and original owner attempt; derived sidecars and cached reuse never
 create a new execution or rewrite a recorded verdict.
+
+### v0.41 source-preview release notes
+
+The additive evidence/capture profiles and opt-in qualified readers do not
+change historical result versions or default assurance. Missing capture data
+stays unqualified rather than becoming reconstructed empty evidence. Restricted
+first-publication reliability text is fully withheld while native verdicts and
+codes remain unchanged. Qualified exports preserve native precision and
+absent/zero distinctions, and recheck sources instead of exporting an old
+receipt. These are source-preview additions; publication and final acceptance
+require the actual combined release source and current native/browser/site gates.
 
 There is no automatic migration or stronger default assurance. Old results
 without sidecars remain readable with their original defaults. Missing evidence

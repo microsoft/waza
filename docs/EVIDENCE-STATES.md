@@ -121,6 +121,28 @@ execution ownership, aggregation and degraded production controls are integrated
 Pure codec tests are not filesystem, cloud, runtime, end-to-end or native Windows
 execution evidence.
 
+## v0.41 source-preview release notes
+
+- Adds the separately digested `execution-evidence-1.0` sidecar and the
+  `execution-evidence-capture-1.0` first-publication profile. Neither changes
+  historical result versions or writes back into a finalized source.
+- Opt-in category CLI/API/Lab readers distinguish admitted observations from
+  declarations. A legacy absent capture index remains unqualified; declared
+  present-empty never manufactures a transcript, tool completion or usage zero.
+- Restricted first-publication conversation/tool/reliability categories are
+  withheld. All nonempty reliability diagnostic/error text becomes `[REDACTED]`,
+  with original codes, outcomes, counters and native verdicts preserved. Reuse
+  does not sanitize or retag existing artifacts.
+- Qualified JSON/CSV exports recheck sources and retain actual numeric precision
+  and missing/zero distinctions. A successful read is not assurance acceptance,
+  execution attestation, a complete billing total or a new cached execution.
+
+No automatic migration or new default assurance policy is introduced. Retain
+existing source artifacts and their digests; create new capture only through
+the original invocation's first-publication policy. Retry/resume/aggregate
+admission requires the actual corresponding owner/source contracts and current
+integration evidence, not a reconstructed legacy report.
+
 ## Opt-in persistence and read-only review
 
 The integration adds these commands, using an **existing private store** and
@@ -332,8 +354,9 @@ actual candidate byte totals, including the actual reservation object, against
 256 MiB. Unparsed oversize payload counts remain unknown. Recorded degradation
 does not verify discarded bytes or turn incomplete evidence into acceptance.
 
-These are internal producer/read contracts with actual owner-backed mock
-regressions, not completed public submission, retry/resume, aggregation, Lab or
-release integration. Existing CLI/API/Lab surfaces above still display
-declarations; they must consume semantic admission before claiming categories
-qualified. Full #768 remains open.
+The internal producer/owner contracts have actual mock success/failure/canceled
+and immutable-reuse regressions. Opt-in category CLI/API/Lab and qualified
+downloads consume semantic admission separately from declarations. Public
+submission remains owner-disabled; full retry/resume/aggregate and release
+acceptance requires the actual combined source and current native/browser/site
+gates. Earlier-head or helper-only checks do not complete #768.
