@@ -207,6 +207,65 @@ typed diagnostics, not local filesystem paths or provider URLs.
 
 ## Backend guarantees and limitations
 
+### Separate raw execution-ledger namespace
+
+`NewNamespace(backend, ExecutionLedgerNamespaceV1)` accepts only the
+`execution-ledger-v1` namespace on initialized local or Azure providers. Other
+providers fail with `ErrUnsupportedBackend`, not an adapter or local fallback.
+Artifact `Backend.Create/Get` retain their strict digest-bound keys; opaque
+ledger records cannot be disguised as artifact blobs.
+
+Logical keys are `reservation/exec-<64 lowercase hex>`,
+`completion/exec-<64 lowercase hex>`, and
+`decision/decision-<64 lowercase hex>`. They map internally to flat,
+namespace-prefixed physical names, not caller-controlled filesystem paths.
+Each raw object is bounded to 1 MiB. `Namespace.Create` returns true only after
+unambiguous exclusive creation and exact-byte readback. Occupied records return
+`ErrOccupied` even for identical bytes. Failed delivery or readback can leave
+an immutable record without returning successful creation.
+
+`ReadUnverified` returns detached current bytes for the caller's own canonical,
+context and hash validation. `ListUnverified` returns at most 1,000 sorted
+logical pointers with explicit truncation; local scans stop at 10,000 entries.
+These operations do not validate sidecars, establish global ordering or a
+complete logical inventory, grant execution ownership, or attest execution.
+Malformed stored keys and read/close failures are errors, not passing records.
+
+The typed attempt/decision/completion profiles and creator-capability rules
+belong to #764. Only its unambiguous successful creator may obtain the typed
+in-process capability; existence, occupied records and ambiguous failures must
+not recover it. Crash retries use a new attempt, never overwrite or reclaim a
+reservation. This raw namespace has no update, delete, lease or cross-object
+transaction. Its append-only guarantees apply to cooperating API writers,
+not adversarial external replacement or durable ownership attestation.
+
+### Content-addressed artifact providers
+
+`artifactmanifest.OpenBackend(directory, azureURL)` is the shared runtime
+opener used by the CLI and native API. An explicit Azure URL selects Azure,
+never a local fallback; an omitted URL opens only the existing local directory.
+It returns the actual backend and its close operation so bounded consumers can
+wrap reads before constructing a `Store`. It does not sign in.
+
+`Store.ReadCompleted(ctx, digest, artifactNames...)` returns a
+`CompletedPublication` containing the canonical `Manifest`, its exact
+`ManifestBytes`, selected original `ArtifactBytes`, and verification `Receipt`.
+It retains bytes during the same all-artifact hash/size, native terminal binding,
+and final-marker inspection pass; it does not inspect then reopen them.
+Omission selects only the terminal, bounded by the native terminal envelope
+limit. Unknown or duplicate requested names fail. All references are checked
+even when their bytes are not selected. Selected buffers are bounded by the
+256 MiB admitted total; artifact reads allow only that total plus one
+excess-detection byte per object. This is not a claim that all content is
+resident simultaneously or an atomic cross-object snapshot.
+
+Only finalized, current-integrity-verified publications return bytes. A valid
+recorded failure or cancellation remains unchanged; it is not converted to a
+successful execution. Ordinary `Inspect` still reports verified but unfinalized
+declarations. Returned manifest and byte slices are invocation-owned, not cached
+mutable storage pointers. Consumers must validate the captured terminal and
+their own source-binding profiles; the receipt is not execution attestation.
+
 Local storage retains an `os.Root` handle. It stages bytes using exclusive
 creation with mode `0600`, sets the owned descriptor read-only (`0400`), checks
 write, permission-change and close errors, then hard-links the

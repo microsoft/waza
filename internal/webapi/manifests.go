@@ -8,10 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/projectconfig"
 )
@@ -45,10 +41,10 @@ func RegisterManifestRoutesWithInspector(mux *http.ServeMux, inspector ManifestI
 		status := http.StatusOK
 		if err != nil {
 			switch {
-			case errors.Is(err, artifactmanifest.ErrInvalid):
-				status = http.StatusBadRequest
 			case errors.Is(err, artifactmanifest.ErrCorrupt), errors.Is(err, artifactmanifest.ErrConflict):
 				status = http.StatusConflict
+			case errors.Is(err, artifactmanifest.ErrInvalid):
+				status = http.StatusBadRequest
 			case errors.Is(err, artifactmanifest.ErrMissing):
 				status = http.StatusNotFound
 			default:
@@ -67,23 +63,15 @@ type configuredManifestInspector struct {
 }
 
 func (i configuredManifestInspector) open() (*artifactmanifest.Store, func() error, error) {
+	var azureURL string
 	if i.config != nil && i.config.Enabled && i.config.Provider == "azure-blob" {
-		credential, err := azidentity.NewDefaultAzureCredential(nil)
-		if err != nil {
-			return nil, nil, err
-		}
-		backend, err := artifactmanifest.NewAzure("https://"+i.config.AccountName+".blob.core.windows.net/"+i.config.ContainerName,
-			credential, &container.ClientOptions{ClientOptions: azcore.ClientOptions{PerRetryPolicies: []policy.Policy{artifactmanifest.VersionPolicy{}}}})
-		if err != nil {
-			return nil, nil, err
-		}
-		return artifactmanifest.NewStore(backend), func() error { return nil }, nil
+		azureURL = "https://" + i.config.AccountName + ".blob.core.windows.net/" + i.config.ContainerName
 	}
-	backend, err := artifactmanifest.OpenLocal(i.directory)
+	backend, closeBackend, err := artifactmanifest.OpenBackend(i.directory, azureURL)
 	if err != nil {
 		return nil, nil, err
 	}
-	return artifactmanifest.NewStore(backend), backend.Close, nil
+	return artifactmanifest.NewStore(backend), closeBackend, nil
 }
 
 func (i configuredManifestInspector) Catalog(ctx context.Context) (result artifactmanifest.Catalog, resultErr error) {

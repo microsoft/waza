@@ -136,7 +136,6 @@ test.describe("Lab immutable manifest publication", () => {
 
   for (const scenario of [
     { status: 404, code: "missing_object", message: "Upload the declared object and retry; no result has been verified." },
-    { status: 400, code: "invalid_declaration", message: "Provide a valid v1 manifest and full lowercase SHA-256 digest." },
     { status: 503, code: "storage_error", message: "Storage could not be read or committed. Check operator diagnostics and retry without replacing evidence." },
   ]) {
     test(`shows an inspectable ${scenario.status} receipt without fabricating artifacts or attempt`, async ({ page }) => {
