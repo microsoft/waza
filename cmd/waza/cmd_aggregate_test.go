@@ -280,3 +280,48 @@ func TestAggregateExplicitProviderDoesNotFallBackToValidLocalStore(t *testing.T)
 	require.NotContains(t, recorder.Body.String(), `"completion":"complete"`)
 	require.NotContains(t, recorder.Body.String(), "invalid account")
 }
+
+func TestAggregateOfflineAdmissionDoesNotConstructAzureCredentials(t *testing.T) {
+	t.Setenv("AZURE_TOKEN_CREDENTIALS", "reject-constructor-sentinel")
+	azureURL := "https://unused.blob.core.windows.net/container"
+	_, _, err := artifactmanifest.OpenBackend("", azureURL)
+	require.ErrorContains(t, err, "AZURE_TOKEN_CREDENTIALS", "prove the constructor sentinel rejects before token acquisition")
+
+	directory, digest, _, _ := aggregateCLIPublication(t)
+	body := `{"manifests":["` + digest + `"]}`
+	request, err := manifestaggregate.ParseRequest([]byte(body))
+	require.NoError(t, err, "static schema admission must not construct credentials")
+	require.NoError(t, request.Validate())
+	cmd := newAggregateCommand()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"--store", filepath.Join(directory, ".waza-artifacts"), digest})
+	require.NoError(t, cmd.Execute(), "verified local reads must not construct Azure credentials")
+	require.Contains(t, output.String(), `"completion":"complete"`)
+
+	cmd = newAggregateCommand()
+	output.Reset()
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"--azure-container-url", azureURL, "invalid-digest"})
+	require.ErrorIs(t, cmd.Execute(), manifestaggregate.ErrInvalid)
+	require.Empty(t, output.String(), "invalid CLI admission must precede credential construction")
+
+	mux := http.NewServeMux()
+	webapi.RegisterAggregateRoutes(mux, directory, &projectconfig.StorageConfig{
+		Enabled: true, Provider: "azure-blob", AccountName: "unused", ContainerName: "container",
+	})
+	for _, control := range []struct {
+		body   string
+		status int
+	}{
+		{`{"manifests":[]}`, http.StatusBadRequest},
+		{`{"manifests":null}`, http.StatusBadRequest},
+		{body, http.StatusServiceUnavailable},
+	} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", strings.NewReader(control.body)))
+		require.Equal(t, control.status, recorder.Code)
+		require.NotContains(t, recorder.Body.String(), "reject-constructor-sentinel")
+		require.NotContains(t, recorder.Body.String(), `"completion":"complete"`)
+	}
+}

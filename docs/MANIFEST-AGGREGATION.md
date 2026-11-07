@@ -20,6 +20,9 @@ default credential chain, which reads credential configuration and may invoke
 Azure CLI, Developer CLI or PowerShell authentication helpers. Process-free
 provider authentication is not guaranteed by this source preview; local reads
 do not construct that chain.
+Static request/schema admission must not invoke the provider factory or
+credential constructors. Runtime Azure credential failure is explicit
+unavailability, never local fallback or verified empty evidence.
 
 Each requested digest must identify canonical manifest 1.0 bytes with all
 declared artifact bytes, native terminal/binding consistency, and the matching
