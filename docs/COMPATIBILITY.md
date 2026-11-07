@@ -49,6 +49,16 @@ ordinals remain unchanged. These are cooperating-writer API guarantees, not a
 cross-object transaction, lease, tamperproof storage, or execution attestation.
 The legacy runner and public submission/CLI/API/Lab integration remain separate.
 
+`Ledger.Reserve` applies the shared `execution.ValidateOwnedRuntime` guard before
+any namespace read or creation for new owned work or before-unit recovery.
+Submission must reapply that same guard before executing owned native work.
+The conservative profile rejects effective ambient BYOC providers and nonempty
+`COPILOT_CLI_PATH` overrides; default embedded native execution remains eligible.
+Mock mode ignores native overrides. This does not change legacy runner/SDK
+behavior, hash or store credentials, or treat VCS revision as runtime attestation.
+Finalized source-only restore performs no new engine call and preserves original
+verified evidence; it is not a claim about the current native provider.
+
 Logical run is the existing `runneridentity.Identity.Run`; logical work is
 `Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,
 independent of the caller's native `Selection.Attempt`. Allocation uses 256 random

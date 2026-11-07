@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 )
 
@@ -177,6 +178,9 @@ func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, 
 	// Validate the detached encoded input, not caller-owned slices or pointers.
 	frozen, err := reservation(data, id)
 	if err != nil {
+		return Creator{}, err
+	}
+	if err := execution.ValidateOwnedRuntime(frozen.Attempt.Binding.ExecutionMode); err != nil {
 		return Creator{}, err
 	}
 	if err := l.parent(ctx, frozen.Attempt); err != nil {

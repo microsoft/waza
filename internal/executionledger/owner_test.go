@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/runnerterminal"
 )
@@ -550,5 +551,40 @@ func TestReuseRetainsCallerBindingBeforeProviderReads(t *testing.T) {
 	if err != nil || caller.GraderIDs[0] != "mutated-during-provider-read" ||
 		decision.Binding.GraderIDs[0] != "text" || completed.Reservation.Attempt.Binding.GraderIDs[0] != "text" {
 		t.Fatalf("provider read rewrote admitted caller/source binding: %+v %+v %v", decision, completed, err)
+	}
+}
+
+func TestOwnedNativeGuardPrecedesNamespaceAndPreservesMock(t *testing.T) {
+	for _, name := range []string{"COPILOT_CLI_PATH", "COPILOT_BASE_URL", "COPILOT_PROVIDER_BASE_URL"} {
+		t.Run(name, func(t *testing.T) {
+			ledger, _, _, binding := ownerFixture(t)
+			for _, variable := range []string{"COPILOT_CLI_PATH", "COPILOT_BASE_URL", "COPILOT_PROVIDER_BASE_URL"} {
+				t.Setenv(variable, "")
+			}
+			t.Setenv(name, "uncontrolled-native-override")
+			original := ledger.records
+			calls := 0
+			ledger.records = recordFault{
+				records: original,
+				read: func(ctx context.Context, key string) ([]byte, error) {
+					calls++
+					return original.ReadUnverified(ctx, key)
+				},
+				create: func(ctx context.Context, key string, data []byte) (bool, error) {
+					calls++
+					return original.Create(ctx, key, data)
+				},
+			}
+			binding.ExecutionMode = "copilot"
+			if cap, err := ledger.Reserve(context.Background(), binding, nil); cap.state != nil ||
+				!errors.Is(err, execution.ErrOwnedRuntime) || calls != 0 {
+				t.Fatalf("native guard reserved/read namespace: %+v calls=%d %v", cap, calls, err)
+			}
+			binding.ExecutionMode = "mock"
+			capability, err := ledger.Reserve(context.Background(), binding, nil)
+			if err != nil || capability.state == nil || calls == 0 {
+				t.Fatalf("irrelevant native override broke actual mock reservation: %+v calls=%d %v", capability, calls, err)
+			}
+		})
 	}
 }
