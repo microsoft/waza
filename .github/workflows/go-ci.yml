@@ -55,6 +55,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
+      - name: Install and prove rejecting runtime guard
+        run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
+
+      - name: Verify uncached compatibility inventory
+        if: matrix.os == 'ubuntu-latest'
+        run: make test-compat-inventory
+
       # Only build full Web UI on Linux to save time/resources on Windows
       - name: Build Web UI
         if: matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''
@@ -92,9 +99,16 @@ jobs:
                 selected+=("$package")
               fi
             done <<< "$packages"
-            go test -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"
+            go test -count=1 -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"
           else
-            go test -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic ./...
+            go test -count=1 -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic ./...
+          fi
+
+      - name: Reject tolerated runtime launches
+        run: |
+          if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
+            echo "Ordinary Go tests attempted to launch the Copilot runtime." >&2
+            exit 1
           fi
 
       - name: Retain remaining-package coverage
@@ -119,19 +133,12 @@ jobs:
           ./$BINARY_NAME --version
 
       - name: Integration Test
-        if: matrix.os == 'ubuntu-latest'
         run: |
-          # Verify waza can load and execute an eval end-to-end with the
-          # mock executor. Exit code 1 = eval tasks failed (expected with
-          # mock output). Exit code >1 or signal = real crash — fail CI.
-          set +e
-          ./waza run ./examples/code-explainer/eval.yaml --verbose
-          EXIT_CODE=$?
-          if [ $EXIT_CODE -gt 1 ]; then
-            echo "::error::waza crashed with exit code $EXIT_CODE"
-            exit $EXIT_CODE
+          BINARY_NAME=waza
+          if [ "$RUNNER_OS" = Windows ]; then
+            BINARY_NAME=waza.exe
           fi
-          echo "Integration test completed (exit code: $EXIT_CODE)"
+          bash .github/scripts/release_integration_test.sh "./$BINARY_NAME"
 
   build-and-test-windows:
     name: ${{ matrix.os }}
