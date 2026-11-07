@@ -174,6 +174,40 @@ clear old data. The synthetic demo never substitutes lifecycle observations.
 The browser fixture is compared with actual production mock admission and the
 configured native inspection API, not an impossible mocked response.
 
+## Invocation observation and validation (unreleased)
+
+`runnerunit.NewLifecycleObserver` attaches to the actual submission's retained
+creator through `Reserved` and joined `Terminal` callbacks. It validates the
+creator and exact original reservation before writing observations, captures
+the invocation deadline rather than its shorter publication budget, and exposes
+only explicitly retained ordered digests. Reuse invokes neither callback and
+does not invent a new heartbeat, cancellation acknowledgement or engine call.
+Publication or clock/order failures propagate to submission failure without
+creating a completion record or rewriting the original actor's terminal.
+Standalone observation blobs remain declarations, not finalized-source
+authentication; actual same-manifest artifact binding and native runtime
+instrumentation are separate delivery requirements.
+
+The existing validation-only **Site Build** workflow accepts every PR base for
+stacked layers and manual dispatch. Manual validation forces site/browser and
+offline-example execution after successful change detection, even with no
+changed paths; a failed change gate cannot produce a successful required check.
+Main push paths, explicit read permissions, job deadlines and Pages deployment
+remain separate and unchanged. Exercise source filters, dispatch/no-change and
+failure controls with:
+
+```bash
+go test -count=1 ./.github/scripts -run '^TestSiteWorkflow'
+```
+
+Dashboard validation uses the existing **Dashboard Build and Test** workflow.
+Its Node runtime requires JSON import attributes in browser-spec modules; a
+test-discovery failure is not browser execution. Inspect actual test reports
+for the lifecycle cases and downloaded JSON assertions. CI assets may be
+recovered only from the matching source checkout/frontend tree; build success
+alone does not establish screenshots, navigation, worker progress or recovery.
+These workflows never publish releases or deploy Pages.
+
 ## Migration and release notes (unreleased)
 
 Lifecycle observation schema 1.0 is additive and independently versioned.

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import fixture from "./fixtures/lifecycle.json";
-import terminalFixtures from "./fixtures/lifecycle-terminal.json";
+import fixture from "./fixtures/lifecycle.json" with { type: "json" };
+import terminalFixtures from "./fixtures/lifecycle-terminal.json" with { type: "json" };
 
 function panel(page: Page) {
   return page.getByRole("region", { name: "Execution lifecycle declarations" });

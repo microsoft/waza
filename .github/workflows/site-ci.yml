@@ -2,7 +2,7 @@ name: Site Build
 
 # PR-time validation for the Starlight docs site (site/).
 #
-# This workflow always runs on pull requests targeting main so it can be
+# This workflow runs on pull requests targeting every base so it can be
 # used as a required status check without deadlocking non-site PRs. A
 # path-filter step detects whether site files actually changed; if not,
 # the expensive build is skipped and the job reports success. The Pages
@@ -33,7 +33,7 @@ on:
       - '.github/workflows/verify-runner-reference.yml'
       - '.github/workflows/pages.yml'
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -111,7 +111,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node
-        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
@@ -119,30 +119,30 @@ jobs:
           cache-dependency-path: site/package-lock.json
 
       - name: Install dependencies
-        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: cd site && npm ci
 
       - name: Build site
-        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: cd site && npm run build
 
       - name: Typecheck chat and test public metadata
-        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: cd site && npm run test:chat-types && npm run test:chat-metadata && npm run test:chat-contract
 
       - name: Install Chromium for site regression tests
-        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: cd site && npx --no-install playwright install --with-deps chromium
 
       - name: Test site
         id: tests
-        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: cd site && npm run test:e2e -- --project=chromium --retries=0
         env:
           CI: 'true'
 
       - name: Test optional chat with mocked service and bot protection
-        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: cd site && npm run test:private-chat && npm run test:chat -- --project=chromium --retries=0 && npm run test:chat-unavailable -- --project=chromium --retries=0
         env:
           CI: 'true'
@@ -164,7 +164,7 @@ jobs:
   examples:
     name: Offline documentation examples
     needs: [changes]
-    if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.examples == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
