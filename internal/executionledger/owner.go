@@ -90,7 +90,11 @@ func (l *Ledger) ReadReservation(ctx context.Context, id string) (*Reservation, 
 	if l == nil || l.records == nil {
 		return nil, ErrCapability
 	}
-	data, err := l.records.ReadUnverified(ctx, "reservation/"+id)
+	return readReservation(ctx, l.records, id)
+}
+
+func readReservation(ctx context.Context, records recordReader, id string) (*Reservation, error) {
+	data, err := records.ReadUnverified(ctx, "reservation/"+id)
 	if err != nil {
 		return nil, fmt.Errorf("reading execution reservation: %w", err)
 	}
@@ -205,7 +209,11 @@ func (l *Ledger) ReadCompletion(ctx context.Context, id string) (*CompletionReco
 	if l == nil || l.records == nil {
 		return nil, ErrCapability
 	}
-	data, err := l.records.ReadUnverified(ctx, "completion/"+id)
+	return readCompletion(ctx, l.records, id)
+}
+
+func readCompletion(ctx context.Context, records recordReader, id string) (*CompletionRecord, error) {
+	data, err := records.ReadUnverified(ctx, "completion/"+id)
 	if err != nil {
 		return nil, fmt.Errorf("reading execution completion: %w", err)
 	}
@@ -224,11 +232,18 @@ func (l *Ledger) ReadCompletion(ctx context.Context, id string) (*CompletionReco
 }
 
 func (l *Ledger) ReadCompleted(ctx context.Context, source executionattempt.Source, names ...string) (*CompletedExecution, error) {
-	reserved, err := l.ReadReservation(ctx, source.ExecutionID)
+	if l == nil {
+		return nil, ErrCapability
+	}
+	return readCompleted(ctx, l, l.store, source, names...)
+}
+
+func readCompleted(ctx context.Context, reader executionReader, store *artifactmanifest.Store, source executionattempt.Source, names ...string) (*CompletedExecution, error) {
+	reserved, err := reader.ReadReservation(ctx, source.ExecutionID)
 	if err != nil {
 		return nil, err
 	}
-	record, err := l.ReadCompletion(ctx, source.ExecutionID)
+	record, err := reader.ReadCompletion(ctx, source.ExecutionID)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +251,7 @@ func (l *Ledger) ReadCompleted(ctx context.Context, source executionattempt.Sour
 	if completion.ManifestDigest != source.ManifestDigest {
 		return nil, fmt.Errorf("%w: completion contradicts original source", ErrContext)
 	}
-	publication, err := l.store.ReadCompleted(ctx, source.ManifestDigest, names...)
+	publication, err := store.ReadCompleted(ctx, source.ManifestDigest, names...)
 	if err != nil {
 		return nil, fmt.Errorf("verifying completed execution artifacts: %w", err)
 	}

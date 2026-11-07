@@ -152,6 +152,21 @@ HTTP success. Strict profile validation and disclosure-approved response
 projection remain the caller's responsibility: neither helper authorizes raw
 reports, rejected checkpoint source bodies, or unauthenticated source metadata.
 
+`executionledger.NewReader(scopedNamespace, storeBackend)` is a read-only
+consumer of the actual `artifactmanifest.Namespace.Reader` capability. It
+exposes canonical reservation/completion lookup and verified `ReadCompleted`
+without Creator, Reserve, Complete, or duplicate-decision APIs. Its shared
+admission functions preserve the native Ledger's original context checks and
+missing/corrupt/I/O distinctions.
+
+Cumulative-budget callers must construct the scoped namespace reader and
+decorated Store backend with the same invocation-owned budget state before
+calling `NewReader`; passing a raw Store backend does not enforce that budget.
+The constructor does no provider I/O and never unwraps a provider or recreates
+a namespace. Both declaration reads and artifact/final-marker reads remain
+inside their supplied decorators. Verified source bytes still confer neither
+runtime attestation nor public disclosure authorization.
+
 The additive `execution-submission-result-1.0.schema.json` and
 `ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,
 phase requirements, caller/decision logical context, original reservation hash,
