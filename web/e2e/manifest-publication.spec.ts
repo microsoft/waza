@@ -73,6 +73,14 @@ test.describe("Lab immutable manifest publication", () => {
         { name: "empty.txt", sha256: "e".repeat(64), size_bytes: 0, media_type: "text/plain", integrity: "verified" },
       ],
     });
+    await page.route("**/api/v1/manifests/*", (route) => route.fulfill({ json: value }));
+    await inspect(page);
+    await expect(result(page).locator("dd").nth(2)).toHaveText("unfinalized");
+    await expect(result(page).getByRole("row")).toHaveCount(3);
+    await expect(result(page).getByRole("row").nth(2).locator("th, td")).toHaveText([
+      "empty.txt", "verified", "e".repeat(64), "0", "text/plain",
+    ]);
+  });
 
     test("mobile catalog pointers wrap within the panel and retain the complete digest", async ({ page }) => {
       await page.setViewportSize({ width: 360, height: 840 });
@@ -124,14 +132,6 @@ test.describe("Lab immutable manifest publication", () => {
         "terminal.json", "verified", "d".repeat(64), "512", "application/json",
       ]);
     });
-    await page.route("**/api/v1/manifests/*", (route) => route.fulfill({ json: value }));
-    await inspect(page);
-    await expect(result(page).locator("dd").nth(2)).toHaveText("unfinalized");
-    await expect(result(page).getByRole("row")).toHaveCount(3);
-    await expect(result(page).getByRole("row").nth(2).locator("th, td")).toHaveText([
-      "empty.txt", "verified", "e".repeat(64), "0", "text/plain",
-    ]);
-  });
 
   test("rereads damaged content rather than retaining a successful publication receipt", async ({ page }) => {
     let reads = 0;
