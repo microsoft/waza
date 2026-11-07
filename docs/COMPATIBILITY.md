@@ -17,10 +17,37 @@ not captures from a live account. No production defaults change.
 The additive `execution-attempt-1.0.schema.json` profile and
 `internal/executionattempt` codecs are declarations only. They do not alter
 manifest v1, legacy result readers, CLI execution, lookup, billing, or Lab
-behavior. Full delivery of #764 still requires conditional storage integration,
+behavior. Full delivery of #764 still requires production submission integration,
 verified reuse and duplicate/concurrent-writer production tests, public surfaces,
 and release/migration guidance. Do not treat these pure tests as storage or
 runtime execution evidence.
+
+The three frozen attempt, decision, and completion JSON fixtures retain their
+recorded bytes without line-ending conversion through path-specific
+`.gitattributes` rules. Their byte oracles are not normalized to hide checkout
+changes; the codecs separately accept valid CRLF JSON whitespace. These rules
+do not change legacy fixtures or wire decoding.
+
+The source owner API in `internal/executionledger` now wraps the real foundation
+namespace, without adding another persistence provider. `New(backend)` requires
+an initialized supported backend. `Reserve(ctx, binding, parent)` generates a
+fresh execution ID and returns an opaque `Creator` only after exclusive creation
+and complete-byte readback. `Reservation(creator)` returns detached original
+bytes/context; `ValidateCreator(ctx, creator)` compares them with current storage.
+Zero, foreign, occupied, or ambiguous reservation results cannot grant authority.
+IDs, stored records, and checkpoints never hydrate a creator.
+
+`Complete(ctx, creator, manifestDigest, names...)` requires that retained creator
+and actual finalized, verified artifacts; it retains the original binding and
+canonical reservation hash. Identical completion retries require the same
+creator. `ReadCompleted(ctx, source, names...)` verifies the actual reservation,
+completion, manifest, objects, and final marker without granting authority.
+`Distinct(ctx, creator)` records the newly owned target; `Reuse(ctx, binding,
+source, names...)` records only a verified compatible original source, with no
+new execution ID or runtime call. Failed source outcomes and original native
+ordinals remain unchanged. These are cooperating-writer API guarantees, not a
+cross-object transaction, lease, tamperproof storage, or execution attestation.
+The legacy runner and public submission/CLI/API/Lab integration remain separate.
 
 Logical run is the existing `runneridentity.Identity.Run`; logical work is
 `Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,
@@ -55,6 +82,24 @@ empty objects. Explicit empty grader arrays remain valid and distinct from null.
 Canonical encoding preserves original ordinals, sorts grader IDs without mutating
 caller slices, and uses compact Go JSON field order/escaping with no trailing LF.
 The bounded graph accepts at most 1,024 records; each sidecar is at most 1 MiB.
+
+The separate `execution-completion-1.0.schema.json` profile names the original
+execution ID, canonical reservation-byte digest, and manifest digest.
+`internal/executionledger.ValidateContext` admits these references only when
+whole canonical bytes match both digests and the manifest retains the exact
+original native identity, selection/ordinal, execution mode, and grader set.
+This is pure context/hash admission, not source-artifact or final-marker
+verification. The shared provider must independently verify the finalized
+manifest and artifact bytes before a retained creator capability can publish a
+completion or any caller can record verified reuse. No persistence provider,
+capability, reservation, or recovery behavior is supplied by this codec.
+`ValidateReuseContext` additionally compares a reused decision to its original
+source reservation, completion reference, and manifest. The caller may declare a
+different native attempt ordinal and canonical input digest while retaining the
+same logical work, shard/task/trial, execution mode, and grader set. The source
+execution ID identifies the original execution, not a new distinct target, and
+its completion/native binding is never rewritten. Pure context admission still
+requires real provider content/final-marker verification before actionable reuse.
 
 ## Integration commands
 
