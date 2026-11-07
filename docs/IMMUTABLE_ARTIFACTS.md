@@ -185,7 +185,9 @@ waza artifact inspect "$DIGEST" \
 The container must already exist. Provide usable credentials through the CLI's
 default credential chain, or pass an explicit `azcore.TokenCredential` when
 constructing the backend in Go. `NewAzure` requires that explicit credential
-argument. Construction does not log in. Container URLs must be HTTPS and contain
+argument and installs the pinned Azure service-version policy for every caller,
+preserving caller-owned options and other policies. Construction does not log
+in. Container URLs must be HTTPS and contain
 no embedded credentials, query/SAS token, or fragment. Authorization failures
 are storage errors, not permission to fall back to mutable storage or sign in
 automatically.

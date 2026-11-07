@@ -73,6 +73,57 @@ test.describe("Lab immutable manifest publication", () => {
         { name: "empty.txt", sha256: "e".repeat(64), size_bytes: 0, media_type: "text/plain", integrity: "verified" },
       ],
     });
+
+    test("mobile catalog pointers wrap within the panel and retain the complete digest", async ({ page }) => {
+      await page.setViewportSize({ width: 360, height: 840 });
+      await page.route("**/api/v1/manifests", (route) => route.fulfill({
+        json: { manifest_sha256: [digest], verification: "unverified-pointers-only", truncated: false, diagnostics: [] },
+      }));
+      await panel(page).getByRole("button", { name: "Find stored manifests" }).click();
+      const pointer = panel(page).getByRole("button", { name: digest, exact: true });
+      await expect(pointer).toBeVisible();
+      await expect(pointer.locator("code")).toHaveText(digest);
+      const dimensions = await pointer.evaluate((button) => ({
+        client: button.clientWidth, content: button.scrollWidth,
+        wrapping: getComputedStyle(button).whiteSpace,
+        right: button.getBoundingClientRect().right,
+        panelRight: button.closest("section")!.getBoundingClientRect().right,
+      }));
+      expect(dimensions.client).toBeGreaterThan(0);
+      expect(dimensions.content).toBeLessThanOrEqual(dimensions.client + 1);
+      expect(dimensions.wrapping).not.toBe("nowrap");
+      expect(dimensions.right).toBeLessThanOrEqual(dimensions.panelRight);
+      await pointer.click();
+      await expect(panel(page).getByRole("textbox", { name: "Manifest SHA-256 digest" })).toHaveValue(digest);
+    });
+
+    test("mobile inspection scrolls to complete artifact hashes and final columns", async ({ page }) => {
+      await page.setViewportSize({ width: 360, height: 840 });
+      await page.route(`**/api/v1/manifests/${digest}`, (route) => route.fulfill({ json: receipt() }));
+      await inspect(page);
+      const scroll = result(page).getByRole("region", { name: "Artifact inspection details" });
+      await expect(scroll.getByRole("row")).toHaveCount(2);
+      await expect(scroll.locator("tbody code")).toHaveText("d".repeat(64));
+      const before = await scroll.evaluate((element) => ({
+        client: element.clientWidth, content: element.scrollWidth,
+        overflow: getComputedStyle(element).overflowX,
+      }));
+      expect(before.client).toBeGreaterThan(0);
+      expect(before.content).toBeGreaterThan(before.client);
+      expect(before.overflow).toBe("auto");
+      await scroll.focus();
+      await scroll.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+      const after = await scroll.evaluate((element) => ({
+        offset: element.scrollLeft,
+        right: element.getBoundingClientRect().right,
+        cellRight: element.querySelector("tbody td:last-child")!.getBoundingClientRect().right,
+      }));
+      expect(after.offset).toBeGreaterThan(0);
+      expect(after.cellRight).toBeLessThanOrEqual(after.right + 1);
+      await expect(scroll.getByRole("row").nth(1).locator("th, td")).toHaveText([
+        "terminal.json", "verified", "d".repeat(64), "512", "application/json",
+      ]);
+    });
     await page.route("**/api/v1/manifests/*", (route) => route.fulfill({ json: value }));
     await inspect(page);
     await expect(result(page).locator("dd").nth(2)).toHaveText("unfinalized");

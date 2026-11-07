@@ -40,6 +40,8 @@ func RegisterManifestRoutesWithInspector(mux *http.ServeMux, inspector ManifestI
 		receipt, err := inspector.Inspect(ctx, r.PathValue("digest"))
 		status := http.StatusOK
 		if err != nil {
+			// Details stay in operator logs, never in serialized Lab diagnostics.
+			slog.Error("immutable manifest inspection failed", "error", err)
 			switch {
 			case errors.Is(err, artifactmanifest.ErrCorrupt), errors.Is(err, artifactmanifest.ErrConflict):
 				status = http.StatusConflict
@@ -49,8 +51,6 @@ func RegisterManifestRoutesWithInspector(mux *http.ServeMux, inspector ManifestI
 				status = http.StatusNotFound
 			default:
 				status = http.StatusServiceUnavailable
-				// Details stay in operator logs, never in serialized Lab diagnostics.
-				slog.Error("immutable manifest inspection failed", "error", err)
 			}
 		}
 		writeJSON(w, status, receipt)
