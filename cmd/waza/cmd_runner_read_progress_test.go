@@ -30,7 +30,7 @@ import (
 
 const runnerReadProgressSize = (2 << 20) + 1
 const runnerReadProgressPrefix = "WAZA_TEST_STDIN_PROGRESS/"
-const runnerReadProgressOriginalSHA256 = "62934ad12d6e4c4751f4bda278b6c1d0ee2e75e9823dba409aea2584bdd4920b"
+const runnerReadProgressOriginalSHA256 = "1f16f5780bb013a31eed101893d62a6c1c50b76559c9608582c71e75d88a8787"
 
 // Sharing OS-independent process ownership lets portable fixtures run
 // the same sole-Wait/copy/cleanup path as the native Windows controller.
@@ -423,7 +423,7 @@ func runnerReadProgressOverlay(source []byte, nonce string) ([]byte, error) {
 	}
 	var body *ast.BlockStmt
 	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "readInheritedRunnerInput" {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "readInheritedRunnerInputLimit" {
 			if body != nil {
 				return nil, errors.New("duplicate inherited reader")
 			}
@@ -449,7 +449,7 @@ func runnerReadProgressOverlay(source []byte, nonce string) ([]byte, error) {
 		return nil, errors.New("unexpected initial deadline expression")
 	}
 	read, ok := body.List[2].(*ast.AssignStmt)
-	if !ok || len(read.Rhs) != 1 || slice(read.Rhs[0]) != "io.ReadAll(io.LimitReader(os.Stdin, runnercontract.MaxRequestBytes+1))" {
+	if !ok || len(read.Rhs) != 1 || slice(read.Rhs[0]) != "io.ReadAll(io.LimitReader(os.Stdin, maxBytes+1))" {
 		return nil, errors.New("unexpected inherited ReadAll/LimitReader expression")
 	}
 	var encoded bytes.Buffer
@@ -458,14 +458,14 @@ func runnerReadProgressOverlay(source []byte, nonce string) ([]byte, error) {
 	}
 	text := encoded.String()
 	declaration := fmt.Sprintf("\n\tprogress := &runnerObservedStdin{file: os.Stdin, nonce: %q, digest: sha256.New()}", nonce)
-	signature := "func readInheritedRunnerInput(ctx context.Context) (data []byte, resultErr error) {"
+	signature := "func readInheritedRunnerInputLimit(ctx context.Context, maxBytes int64) (data []byte, resultErr error) {"
 	if strings.Count(text, signature) != 1 {
 		return nil, errors.New("unexpected inherited-reader signature")
 	}
 	text = strings.Replace(text, signature, signature+declaration, 1)
 	text = strings.Replace(text, "err := os.Stdin.SetReadDeadline(time.Time{})", "err := progress.deadline(os.Stdin.SetReadDeadline(time.Time{}))", 1)
-	text = strings.Replace(text, "io.ReadAll(io.LimitReader(os.Stdin, runnercontract.MaxRequestBytes+1))",
-		"io.ReadAll(io.LimitReader(progress, runnercontract.MaxRequestBytes+1))", 1)
+	text = strings.Replace(text, "io.ReadAll(io.LimitReader(os.Stdin, maxBytes+1))",
+		"io.ReadAll(io.LimitReader(progress, maxBytes+1))", 1)
 	text = strings.Replace(text, "import (", "import (\n\"crypto/sha256\"\n\"encoding/json\"\n\"hash\"", 1)
 	return goformat.Source([]byte(text + runnerObservedStdinSource))
 }
@@ -497,7 +497,7 @@ func validateRunnerReadProgressOverlay(original, overlay []byte, nonce string) (
 	for _, undo := range []struct{ from, to string }{
 		{fmt.Sprintf("\n\tprogress := &runnerObservedStdin{file: os.Stdin, nonce: %q, digest: sha256.New()}", nonce), ""},
 		{"progress.deadline(os.Stdin.SetReadDeadline(time.Time{}))", "os.Stdin.SetReadDeadline(time.Time{})"},
-		{"io.ReadAll(io.LimitReader(progress, runnercontract.MaxRequestBytes+1))", "io.ReadAll(io.LimitReader(os.Stdin, runnercontract.MaxRequestBytes+1))"},
+		{"io.ReadAll(io.LimitReader(progress, maxBytes+1))", "io.ReadAll(io.LimitReader(os.Stdin, maxBytes+1))"},
 		{"\t\"crypto/sha256\"\n", ""}, {"\t\"encoding/json\"\n", ""}, {"\t\"hash\"\n", ""},
 	} {
 		if strings.Count(restored, undo.from) != 1 {
@@ -652,7 +652,7 @@ func TestRunnerTerminalReadProgressCheckout(t *testing.T) {
 					"go.mod":                              "module github.com/microsoft/waza\n\ngo 1.26\n",
 					"cmd/waza/main.go":                    "package main\nfunc main() {}\n",
 					"internal/runnercontract/contract.go": "package runnercontract\nconst MaxRequestBytes=4<<20\n",
-					"internal/runnerterminal/terminal.go": "package runnerterminal\nimport \"io\"\ntype Envelope struct{}\ntype Binding struct{}\ntype Emitter struct{}\nfunc NewEmitter(io.Writer)*Emitter{return &Emitter{}}\nfunc(*Emitter)Emit(Envelope,*Binding)(int,error){return 0,nil}\n",
+					"internal/runnerterminal/terminal.go": "package runnerterminal\ntype Envelope struct{ExitCode int}\ntype Binding struct{}\nfunc Encode(Envelope,*Binding)([]byte,error){return nil,nil}\n",
 					"cmd/waza/runner_stdin_windows.go":    string(source),
 				} {
 					file := filepath.Join(root, filepath.FromSlash(name))
@@ -699,7 +699,7 @@ func TestRunnerTerminalReadProgressCheckout(t *testing.T) {
 				}
 				require.Equal(t, expected, physical)
 				if autocrlf {
-					require.Equal(t, "0b65da8b09adae5c8a6a8b586c05eb1959512cb8d0287e9426c71f875a2d4272",
+					require.Equal(t, "18849644c640ed3ea803e46bf4b2360abd4452294de65facfce4c041b3e8c2aa",
 						fmt.Sprintf("%x", sha256.Sum256(physical)))
 				}
 				t.Chdir(directory)
@@ -799,7 +799,7 @@ func TestRunnerTerminalReadProgressOverlay(t *testing.T) {
 		{"r.file.Read(p)", "0, io.EOF"},
 		{"r.total == 2097153", "r.total > 0"},
 		{"os.Stdin.Close()", "nil"},
-		{"runnercontract.MaxRequestBytes+1", "runnercontract.MaxRequestBytes"},
+		{"maxBytes+1", "maxBytes"},
 		{"progress.deadline(os.Stdin.SetReadDeadline(time.Time{}))", "os.Stdin.SetReadDeadline(time.Time{})"},
 		{"func (r *runnerObservedStdin) Read", "//go:nosplit\nfunc (r *runnerObservedStdin) Read"},
 	} {
@@ -995,7 +995,7 @@ func TestRunnerTerminalReadProgressActualReader(t *testing.T) {
 		"reader_test.go": runnerProgressReaderTests,
 		"fakeos/os.go":   runnerProgressFakeOS,
 		"contract/go.go": "package contract\nconst MaxRequestBytes=4<<20\n",
-		"terminal/go.go": "package terminal\nimport \"io\"\ntype Envelope struct{}\ntype Binding struct{}\ntype Emitter struct{}\nfunc NewEmitter(io.Writer)*Emitter{return &Emitter{}}\nfunc(*Emitter)Emit(Envelope,*Binding)(int,error){return 0,nil}\n",
+		"terminal/go.go": "package terminal\ntype Envelope struct{ExitCode int}\ntype Binding struct{}\nfunc Encode(Envelope,*Binding)([]byte,error){return nil,nil}\n",
 	} {
 		file := filepath.Join(dir, name)
 		require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o700))

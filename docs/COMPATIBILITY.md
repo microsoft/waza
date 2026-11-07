@@ -139,6 +139,19 @@ bytes. Public submit registration remains disabled until the actual evidence
 privacy/category policy and protected transport are fully integrated. Public
 integrations remain pending.
 
+Shared operation transport helpers do not register public commands or routes.
+CLI callers use `readRunnerInputLimit` with their profile's explicit byte budget,
+then their strict codec before `emitRunnerOperationJSON`; legacy readers retain
+the 4 MiB limit. Native terminal and operation output retain one write attempt,
+one trailing LF, and a bounded inherited-output delivery phase.
+HTTP callers use `webapi.ReadRunnerOperationInput` for literal-loopback peer,
+Host/same-origin admission, JSON media type, bounded body and joined cancellation.
+`webapi.WriteRunnerOperationJSON` owns the five-second delivery deadline and one
+write/flush without retry. Unsupported write deadlines abort without an implicit
+HTTP success. Strict profile validation and disclosure-approved response
+projection remain the caller's responsibility: neither helper authorizes raw
+reports, rejected checkpoint source bodies, or unauthenticated source metadata.
+
 The additive `execution-submission-result-1.0.schema.json` and
 `ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,
 phase requirements, caller/decision logical context, original reservation hash,
