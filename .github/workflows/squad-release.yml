@@ -19,10 +19,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          fetch-tags: true
       - name: Detect exact stable tag
         id: tag
         run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"
           candidates=()
           if [ -n "$tag_output" ]; then

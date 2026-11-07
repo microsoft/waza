@@ -69,6 +69,11 @@ rather than being hidden by a process-substitution discovery pipeline.
 
 ## Retry and Partial-Publication Behavior
 
+Branch candidate checkout pins the event SHA, fetches complete history and tags,
+and verifies HEAD before detection. Job outputs bind the named detector's
+publication decision and tag; missing history or broken bindings are rejected by
+the workflow regression controls rather than silently treated as untagged input.
+
 Validation evidence is scoped to the current workflow run and named with the
 exact `${{ github.sha }}`. Publishers do not search for a same-named check or
 artifact from another run or SHA. Retrying a failed run therefore repeats any

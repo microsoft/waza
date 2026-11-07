@@ -174,6 +174,18 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				})
 			}
 			for _, mutation := range []struct{ name, old, new string }{
+				{"shallow-candidate-checkout", "          fetch-depth: 0", "          fetch-depth: 1"},
+				{"missing-candidate-history", "          fetch-depth: 0\n", ""},
+				{"disabled-candidate-tags", "          fetch-tags: true", "          fetch-tags: false"},
+				{"missing-candidate-tags", "          fetch-tags: true\n", ""},
+				{"wrong-candidate-ref", "          ref: ${{ github.sha }}", "          ref: main"},
+				{"unverified-candidate-source", `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, ":"},
+				{"missing-detector-id", "        id: tag\n", ""},
+				{"wrong-detector-id", "        id: tag", "        id: other"},
+				{"unbound-publish-output", "publish: ${{ steps.tag.outputs.publish }}", "publish: ${{ steps.other.outputs.publish }}"},
+				{"missing-publish-output", "      publish: ${{ steps.tag.outputs.publish }}\n", ""},
+				{"unbound-tag-output", "tag: ${{ steps.tag.outputs.tag }}", "tag: ${{ steps.other.outputs.tag }}"},
+				{"missing-tag-output", "      tag: ${{ steps.tag.outputs.tag }}\n", ""},
 				{"untagged-validation", "if: needs.release-candidate.outputs.publish == 'true'", "if: always()"},
 				{"tolerated-candidate-job", "  release-candidate:\n", "  release-candidate:\n    continue-on-error: true\n"},
 				{"skipped-candidate-job", "  release-candidate:\n", "  release-candidate:\n    if: 'false'\n"},
@@ -181,7 +193,7 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				{"missing-validation-dependency", "needs: [release-candidate, validation]", "needs: [release-candidate]"},
 				{"cancellation-bypass", "&& !cancelled()", "&& always()"}, //nolint:misspell // GitHub expression.
 				{"unbound-validation-result", "${{ needs.validation.result }}", "success"},
-				{"ignored-validation-result", `test "$VALIDATION_RESULT" = success`, ":"},
+				{"ignored-validation-result", `run: test "$VALIDATION_RESULT" = success`, "run: ':'"},
 				{"stale-source", `test "$(cat source-sha.txt)" = "$GITHUB_SHA"`, ":"},
 				{"missing-digest", `test "$(cat waza.sha256)" = "$(sha256sum waza)"`, ":"},
 				{"unchecked-tag-lookup", `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`, `mapfile -t candidates < <(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')`},
@@ -194,6 +206,10 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 					changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
 					if changed == string(source) {
 						t.Fatal("mutation did not change production workflow")
+					}
+					var parsed releaseWorkflow
+					if err := yaml.Unmarshal([]byte(changed), &parsed); err != nil {
+						t.Fatalf("mutation must reach semantic validation: %v", err)
 					}
 					if err := validateBranchPublisher([]byte(changed), file); err == nil {
 						t.Fatal("unsafe branch publisher mutation was admitted")
@@ -325,6 +341,7 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 		name        string
 		tags        []string
 		lookupError bool
+		wrongSource bool
 		wantSuccess bool
 		wantOutput  string
 	}{
@@ -333,6 +350,7 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 		{name: "base-and-insider-tags", tags: []string{"v1.2.3", "v1.2.3-insider"}, wantSuccess: true, wantOutput: "publish=true\ntag=v1.2.3\n"},
 		{name: "multiple-base-tags", tags: []string{"v1.2.3", "v1.2.4"}, wantSuccess: false},
 		{name: "failed-tag-lookup", lookupError: true, wantSuccess: false},
+		{name: "wrong-checkout-source", tags: []string{"v1.2.3"}, wrongSource: true, wantSuccess: false},
 	} {
 		t.Run("candidate-"+tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -344,17 +362,24 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 				runReleaseCommand(t, dir, "git", "tag", tag)
 			}
 			sha := strings.TrimSpace(string(runReleaseCommand(t, dir, "git", "rev-parse", "HEAD")))
+			if tc.wrongSource {
+				sha = strings.Repeat("0", len(sha))
+			}
 			outputPath := filepath.Join(dir, "github-output")
 			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "GITHUB_SHA="+sha, "GITHUB_OUTPUT="+outputPath)
 			if tc.lookupError {
+				realGit, err := exec.LookPath("git")
+				if err != nil {
+					t.Fatal(err)
+				}
 				wrapper := filepath.Join(dir, "git")
-				writeReleaseFile(t, wrapper, []byte("#!/bin/sh\nprintf 'tag lookup failed\\n' >&2\nexit 73\n"))
+				writeReleaseFile(t, wrapper, []byte("#!/bin/sh\nset -eu\nif [ \"$1\" = rev-parse ]; then exec \"$REAL_GIT\" \"$@\"; fi\ntest \"$1\" = tag\nprintf 'tag lookup failed\\n' >&2\nexit 73\n"))
 				if err := os.Chmod(wrapper, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				cmd.Env = append(cmd.Env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+				cmd.Env = append(cmd.Env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "REAL_GIT="+realGit)
 			}
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != tc.wantSuccess {
@@ -365,8 +390,10 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 					if !strings.Contains(string(output), "tag lookup failed") {
 						t.Fatal("failed lookup control did not execute")
 					}
+				}
+				if tc.lookupError || tc.wrongSource {
 					if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
-						t.Fatalf("failed lookup emitted candidate outputs: %v", err)
+						t.Fatalf("failed candidate admission emitted outputs: %v", err)
 					}
 				}
 				return
@@ -812,13 +839,26 @@ func validateBranchPublisher(source []byte, file string) error {
 		return fmt.Errorf("publication must require a tag, validation and non-canceled run")
 	}
 	candidateSteps := releaseSteps(candidate)
+	checkout := candidateSteps["Checkout Repository"]
+	if !strings.HasPrefix(checkout.Uses, "actions/checkout@") ||
+		checkout.With["ref"] != "${{ github.sha }}" ||
+		checkout.With["fetch-depth"] != "0" || checkout.With["fetch-tags"] != "true" {
+		return fmt.Errorf("candidate checkout must bind exact source and fetch complete tag history")
+	}
+	if !reflect.DeepEqual(candidate.Outputs, map[string]string{
+		"publish": "${{ steps.tag.outputs.publish }}",
+		"tag":     "${{ steps.tag.outputs.tag }}",
+	}) {
+		return fmt.Errorf("candidate outputs must bind the production detector")
+	}
 	tagStep := candidateSteps["Detect exact stable tag"]
 	createName := "Create Release"
 	if file == "squad-insider-release.yml" {
 		tagStep = candidateSteps["Detect exact insider tag"]
 		createName = "Create Insider Pre-Release"
 	}
-	if tagStep.Run == "" || !strings.Contains(tagStep.Run, `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`) ||
+	if tagStep.ID != "tag" || !strings.HasPrefix(tagStep.Run, "test \"$(git rev-parse HEAD)\" = \"$GITHUB_SHA\"\n") ||
+		!strings.Contains(tagStep.Run, `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`) ||
 		!strings.Contains(tagStep.Run, `if [[ "$tag" != *-insider ]]; then`) ||
 		!strings.Contains(tagStep.Run, `echo "publish=false" >> "$GITHUB_OUTPUT"`) ||
 		!strings.Contains(tagStep.Run, `if [ "${#tags[@]}" -gt 1 ]`) {
