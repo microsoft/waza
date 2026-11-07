@@ -21,6 +21,11 @@ permissions:
   pull-requests: write
 
 jobs:
+  validation:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-validation.yml
+
   # ──────────────────────────────────────────────
   # Shared: Extract and validate the release version
   # ──────────────────────────────────────────────
@@ -54,7 +59,7 @@ jobs:
 
   build-cli:
     name: CLI ${{ matrix.os }}/${{ matrix.arch }}
-    needs: setup-version
+    needs: [setup-version, validation]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -77,6 +82,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+
+      - name: Require exact validated source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -112,18 +120,21 @@ jobs:
             -o "${BINARY_NAME}" \
             ./cmd/waza
 
+          printf '%s\n' "$GITHUB_SHA" > "${BINARY_NAME}.source-sha.txt"
+          sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
           echo "Built ${BINARY_NAME}"
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cli-waza-${{ matrix.os }}-${{ matrix.arch }}
-          path: waza-${{ matrix.os }}-${{ matrix.arch }}*
+          path: |
+            waza-${{ matrix.os }}-${{ matrix.arch }}*
           if-no-files-found: error
 
   release-cli:
     name: Release CLI
-    needs: [setup-version, build-cli]
+    needs: [setup-version, build-cli, validation]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -142,7 +153,24 @@ jobs:
       - name: Generate SHA256 Checksums
         working-directory: artifacts
         run: |
-          sha256sum * > checksums.txt
+          expected=(
+            waza-linux-amd64
+            waza-linux-arm64
+            waza-darwin-amd64
+            waza-darwin-arm64
+            waza-windows-amd64.exe
+            waza-windows-arm64.exe
+          )
+          for binary in "${expected[@]}"; do
+            source="${binary}.source-sha.txt"
+            digest="${binary}.sha256"
+            test -f "$binary"
+            test -f "$source"
+            test -f "$digest"
+            test "$(cat "$source")" = "$GITHUB_SHA"
+            test "$(cat "$digest")" = "$(sha256sum "$binary")"
+          done
+          sha256sum "${expected[@]}" > checksums.txt
           echo "Generated checksums:"
           cat checksums.txt
 
@@ -177,7 +205,7 @@ jobs:
 
   release-extension:
     name: Release Extension
-    needs: setup-version
+    needs: [setup-version, validation]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -189,6 +217,9 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
+
+      - name: Require exact validated source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -230,6 +261,17 @@ jobs:
       - name: Pack Extension
         run: azd x pack -o ./artifacts
 
+      - name: Record extension artifact provenance
+        run: |
+          mapfile -d '' packages < <(
+            find artifacts -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0 | sort -z
+          )
+          test "${#packages[@]}" -gt 0
+          {
+            printf 'source_sha=%s\n' "$GITHUB_SHA"
+            sha256sum "${packages[@]}"
+          } > artifacts/release-provenance.txt
+
       # ── Release & publish ──
       - name: Release Extension
         run: |
@@ -240,6 +282,13 @@ jobs:
             --notes-file "./CHANGELOG.md" \
             --artifacts "./artifacts/*.zip,./artifacts/*.tar.gz" \
             --confirm
+
+      - name: Publish Extension Provenance
+        run: |
+          gh release upload "azd-ext-microsoft-azd-waza_${VERSION}" \
+            artifacts/release-provenance.txt \
+            --repo "${{ github.repository }}" \
+            --clobber
 
       - name: Publish Extension
         run: |
