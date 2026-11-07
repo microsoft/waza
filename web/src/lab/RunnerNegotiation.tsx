@@ -2,6 +2,7 @@ import { useState } from "react";
 import { negotiateRunner, type RunnerNegotiation as Negotiation } from "../api/runner";
 import RunnerSelection from "./RunnerSelection";
 import ManifestPublication from "./ManifestPublication";
+import ExecutionLifecycle from "./ExecutionLifecycle";
 
 const example = JSON.stringify({
   schema_version: "1.0",
@@ -81,6 +82,7 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
     </section>
     <RunnerSelection demo={demo} />
     <ManifestPublication demo={demo} />
+    <ExecutionLifecycle demo={demo} />
     </>
   );
 }

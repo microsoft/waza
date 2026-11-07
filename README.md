@@ -304,6 +304,28 @@ of `--store`, with existing credentials and no automatic login. Lab can discover
 stored declaration pointers and inspect current integrity. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
 
+The additive [exact-unit checkpoint contract](docs/EXECUTION_CHECKPOINTS.md)
+currently provides schema/codec, compatibility admission and immutable declaration
+blob storage, not an operational resume command. Owned safe-boundary creation,
+restore and checkpoint Lab views remain under development; existing result and
+SDK session readers are unchanged.
+
+### `waza lifecycle` (unreleased v0.41 source preview)
+
+Inspect explicit caller-retained original admission context and ordered
+observation digests without executing, cancelling, retrying or reclaiming work:
+
+```bash
+waza lifecycle inspect inspection.json --store .waza-artifacts
+```
+
+The existing private store must contain the original reservation blob and every
+named observation. This returns **caller-declared, unverified** lifecycle state,
+retry advice and heartbeat diagnostics, not authenticated worker progress or
+ownership. The Lab Runner section includes the same read-only inspector when
+built from this source. Full production lifecycle/recovery remains under
+development. See [inspection context, interpretation and migration](docs/EXECUTION_LIFECYCLE.md).
+
 <span id="waza-interop-source-build-preview"></span>
 
 ### `waza interop` (v0.40.0)

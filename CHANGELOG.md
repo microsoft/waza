@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Lifecycle declaration inspection (v0.41 source preview)** - Add bounded
+  lifecycle observations and immutable blob storage, strict original-context
+  projections, `lifecycle inspect`, read-only API and Lab source presentation
+  (#767). Distinguish cancellation request, concrete handling, force request,
+  observed process wait, deadline observation and original terminal evidence.
+  Retry remains conditional fresh-attempt advice; stale declared heartbeats
+  only suspect orphaning and never authorize reclaim. Inspection is uniformly
+  caller-declared/unverified, not authenticated worker progress. Terminal and
+  legacy exit/result/billing contracts remain unchanged. Production owner
+  observers, bounded process controls and full release gates remain pending.
+  See [lifecycle migration and delivery limits](docs/EXECUTION_LIFECYCLE.md).
+
 - **Logical execution sidecar codecs (v0.41 source preview)** - Separate logical
   `Identity.Run`/`Identity.Trial` from opaque execution IDs in additive strict
   attempt, duplicate-decision, and completion-reference profiles (#764).

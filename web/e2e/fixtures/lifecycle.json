@@ -1,0 +1,49 @@
+{
+  "context": {
+    "kind": "waza.execution-lifecycle-inspection",
+    "schema_version": "1.0",
+    "original_admission": {
+      "identity": {
+        "version": "sha256-waza-c14n-v1",
+        "canonical_digest": "42abfde15b06955a61a9c54e90ac805f15be668b808a842a22f2e5e26e267e28",
+        "run": "run-ebb6b6fa70cc28744bcdcf4531e91bc277c4cf2ea0dee09d8dea3d96bf57a3ea",
+        "shard": "shard-5977abc4fbf7e978742e78fe7584c5396329add1b991029c2e3f5cb49ef926ab",
+        "task": "task-7d683d180854dca4518f343b8ddb9abcc578db4bc9c7f0d2eab3c9b0ec73795d",
+        "trial": "trial-a3360e1f6019858718169d48e64b05d12c33694f4b6849784f009a4817739b3b",
+        "attempt": "attempt-e0a0f3544b8f05849d8c6eecf284e26a2abe4592b0a035b582ae087ee3ec1dc0"
+      },
+      "selection": {"shard": "shard-a", "task": "selected", "trial": 2, "attempt": 2},
+      "execution_mode": "mock",
+      "grader_ids": ["_output_contains"]
+    },
+    "reservation_digest": "9de2bc9f4db3b8db637f9a335d6f2136a8f2eb4f252ee95debbec16ae133472d",
+    "observation_digests": [
+      "b9d582d433249fcb21d1c3071c7f8ce03a3a3e8b58e0f427738225192cb16e08",
+      "f1b9e65428995a18332daf18e6f4c002dcc20e1d5dd0f15f2c8410ab0bc72a3f"
+    ],
+    "as_of": "2026-11-07T17:01:00Z",
+    "stale_after_ms": 60000
+  },
+  "projection": {
+    "kind": "waza.execution-lifecycle",
+    "schema_version": "1.0",
+    "execution_id": "exec-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "reservation_digest": "9de2bc9f4db3b8db637f9a335d6f2136a8f2eb4f252ee95debbec16ae133472d",
+    "evidence": "caller-declared-unverified",
+    "state": "running",
+    "cancellation": "none",
+    "deadline_expired": false,
+    "completed_units": 0,
+    "retry": {"advice": "unknown", "reason": "terminal-unavailable"},
+    "heartbeat": "2026-11-07T17:00:00Z",
+    "as_of": "2026-11-07T17:01:00Z",
+    "heartbeat_age_ms": 60000,
+    "suspected_orphan": true,
+    "actions": ["inspect-original-evidence", "request-cancellation", "investigate-worker-no-reclaim"],
+    "diagnostics": [],
+    "observations": [
+      {"sequence": 1, "observed_at": "2026-11-07T17:00:00Z", "event": "started"},
+      {"sequence": 2, "observed_at": "2026-11-07T17:00:00Z", "event": "heartbeat"}
+    ]
+  }
+}

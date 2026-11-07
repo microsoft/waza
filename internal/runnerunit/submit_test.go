@@ -51,6 +51,7 @@ func TestSubmitReservesBeforeFactoryAndRetainsObservedFailureOnReuse(t *testing.
 	}
 	factoryCalls, reservedCalls, terminalCalls := 0, 0, 0
 	var original executionledger.Reservation
+	var observedReport []byte
 	service := NewService(func(config models.Config) (execution.AgentEngine, error) {
 		factoryCalls++
 		if reservedCalls != 1 {
@@ -59,6 +60,10 @@ func TestSubmitReservesBeforeFactoryAndRetainsObservedFailureOnReuse(t *testing.
 		return execution.NewMockEngine(config.ModelID), nil
 	})
 	hooks := SubmissionHooks{
+		Artifacts: func(_ context.Context, _ *executionledger.Ledger, _ executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+			observedReport = bytes.Clone(snapshot.Report)
+			return nil, nil
+		},
 		Reserved: func(ctx context.Context, ledger *executionledger.Ledger, creator executionledger.Creator, reservation executionledger.Reservation) error {
 			reservedCalls++
 			if err := ledger.ValidateCreator(ctx, creator); err != nil {
@@ -92,13 +97,16 @@ func TestSubmitReservesBeforeFactoryAndRetainsObservedFailureOnReuse(t *testing.
 		t.Fatalf("actual failed submission lost source/ownership/status: %+v factories=%d hooks=%d/%d %v", result, factoryCalls, reservedCalls, terminalCalls, err)
 	}
 	source := executionattempt.Source{ExecutionID: result.Reservation.ExecutionID, ManifestDigest: result.Completion.ManifestDigest}
-	originalReport, originalTerminal := bytes.Clone(result.Report), *result.Terminal
+	originalTerminal := *result.Terminal
+	if len(observedReport) == 0 || len(result.Report) != 0 {
+		t.Fatal("raw report was not retained as private capture input only")
+	}
 	request.Selection.Attempt++
 	reused, err := service.Submit(ctx, submissionWire(t, request, &SubmissionPolicy{Mode: "reuse", Source: &source}), backend, hooks)
 	if err != nil || reused.Status != "reused" || reused.ExitCode != 1 || reused.EngineCalls != 0 ||
 		factoryCalls != 1 || reservedCalls != 1 || terminalCalls != 1 || reused.Decision.ExecutionID != "" ||
 		reused.Decision.Source.ExecutionID != source.ExecutionID || reused.Terminal.Selection.Attempt != originalTerminal.Selection.Attempt ||
-		reused.Caller.Attempt == originalTerminal.Identity.Attempt || !bytes.Equal(reused.Report, originalReport) {
+		reused.Caller.Attempt == originalTerminal.Identity.Attempt || len(reused.Report) != 0 {
 		t.Fatalf("explicit source reuse reran/retagged/rebilled original: %+v %v", reused, err)
 	}
 	another, err := service.Submit(ctx, submissionWire(t, request, &SubmissionPolicy{Mode: "distinct"}), backend, SubmissionHooks{})
@@ -221,12 +229,16 @@ func TestSubmitRejectsFinalizedReportContradictingOriginalVerdicts(t *testing.T)
 		t.Fatal("actual failed-input control was not selected")
 	}
 	service := NewService(nil)
-	original, err := service.Submit(ctx, submissionWire(t, request, nil), backend, SubmissionHooks{})
+	var raw []byte
+	original, err := service.Submit(ctx, submissionWire(t, request, nil), backend, SubmissionHooks{Artifacts: func(_ context.Context, _ *executionledger.Ledger, _ executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+		raw = bytes.Clone(snapshot.Report)
+		return nil, nil
+	}})
 	if err != nil || original.ExitCode != 1 || original.Terminal.Observation == nil {
 		t.Fatalf("actual source did not produce failed observation: %+v %v", original, err)
 	}
 	var report Report
-	if err := json.Unmarshal(original.Report, &report); err != nil {
+	if err := json.Unmarshal(raw, &report); err != nil {
 		t.Fatal(err)
 	}
 	mutated := false
@@ -258,13 +270,18 @@ func TestSubmitRejectsCompletedReportForOriginalCanceledTerminal(t *testing.T) {
 		cancel()
 		return nil
 	}}
+	var raw []byte
+	hooks.Artifacts = func(_ context.Context, _ *executionledger.Ledger, _ executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+		raw = bytes.Clone(snapshot.Report)
+		return nil, nil
+	}
 	request := fixture(t)
 	original, err := service.Submit(ctx, submissionWire(t, request, nil), backend, hooks)
 	if err != nil || original.Terminal.Outcome != runnerterminal.Canceled || original.Terminal.Observation != nil {
 		t.Fatalf("actual cancellation control did not select no-observation terminal: %+v %v", original, err)
 	}
 	var report Report
-	if err := json.Unmarshal(original.Report, &report); err != nil {
+	if err := json.Unmarshal(raw, &report); err != nil {
 		t.Fatal(err)
 	}
 	if report.Status != "execution_error" {
