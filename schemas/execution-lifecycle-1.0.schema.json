@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-lifecycle-1.0.schema.json",
+  "title": "Caller-declared lifecycle projection, not authenticated worker progress",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "execution_id", "reservation_digest", "evidence", "state", "cancellation", "deadline_expired", "retry", "actions", "diagnostics", "observations"],
+  "properties": {
+    "kind": {"const": "waza.execution-lifecycle"},
+    "schema_version": {"const": "1.0"},
+    "execution_id": {"type": "string", "minLength": 69, "maxLength": 69, "pattern": "^exec-[0-9a-f]{64}$"},
+    "reservation_digest": {"$ref": "#/$defs/digest"},
+    "evidence": {"const": "caller-declared-unverified"},
+    "state": {"enum": ["admitted", "running", "stopped-without-terminal", "terminal-recorded"]},
+    "cancellation": {"enum": ["none", "requested", "handling_acknowledged", "force_requested", "stop_observed"]},
+    "deadline": {"$ref": "#/$defs/time"},
+    "deadline_expired": {"type": "boolean"},
+    "completed_units": {"type": "integer", "minimum": 0, "maximum": 1},
+    "terminal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["digest", "outcome", "exit_code", "failure_boundary", "execution_verdict"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "outcome": {"$ref": "runner-terminal-1.0.schema.json#/properties/outcome"},
+        "exit_code": {"type": "integer", "minimum": 0, "maximum": 6},
+        "failure_boundary": {"$ref": "runner-terminal-1.0.schema.json#/properties/failure_boundary"},
+        "execution_verdict": {"enum": ["unavailable", "passed", "failed", "error"]}
+      },
+      "oneOf": [
+        {"properties": {"outcome": {"const": "success"}, "exit_code": {"const": 0}, "failure_boundary": {"const": "none"}, "execution_verdict": {"const": "passed"}}},
+        {"properties": {"outcome": {"const": "evaluation_failure"}, "exit_code": {"const": 1}, "failure_boundary": {"const": "none"}, "execution_verdict": {"const": "failed"}}},
+        {"properties": {"outcome": {"const": "infrastructure_failure"}, "exit_code": {"const": 2}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown", "output", "terminalization"]}}},
+        {"properties": {"outcome": {"const": "cancelled"}, "exit_code": {"const": 3}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown"]}}},
+        {"properties": {"outcome": {"const": "timeout"}, "exit_code": {"const": 4}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown"]}}},
+        {"properties": {"outcome": {"const": "unsupported_capability"}, "exit_code": {"const": 5}, "failure_boundary": {"enum": ["negotiation", "validation"]}, "execution_verdict": {"const": "unavailable"}}},
+        {"properties": {"outcome": {"const": "invalid_input"}, "exit_code": {"const": 6}, "failure_boundary": {"enum": ["input", "validation"]}, "execution_verdict": {"const": "unavailable"}}}
+      ]
+    },
+    "retry": {
+      "type": "object", "additionalProperties": false, "required": ["advice", "reason"],
+      "properties": {
+        "advice": {"enum": ["unknown", "none", "conditional-fresh-attempt"]},
+        "reason": {"enum": ["terminal-unavailable", "completed-success", "completed-check-failure-not-transient-advice", "change-request-before-independent-admission", "requires-independent-admission-and-side-effect-review"]}
+      }
+    },
+    "heartbeat": {"$ref": "#/$defs/time"},
+    "as_of": {"$ref": "#/$defs/time"},
+    "heartbeat_age_ms": {"type": "integer", "minimum": 0, "maximum": 9223372036854},
+    "suspected_orphan": {"type": "boolean"},
+    "actions": {
+      "type": "array", "maxItems": 4, "uniqueItems": true,
+      "items": {"enum": ["inspect-original-evidence", "request-cancellation", "investigate-worker-no-reclaim", "review-independent-fresh-attempt"]}
+    },
+    "diagnostics": {
+      "type": "array", "maxItems": 1,
+      "items": {"const": "deadline-observation-differs-from-terminal-outcome"}
+    },
+    "observations": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sequence", "observed_at", "event"],
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 1, "maximum": 128},
+          "observed_at": {"$ref": "#/$defs/time"},
+          "event": {"$ref": "execution-lifecycle-observation-1.0.schema.json#/properties/event"},
+          "handling": {"$ref": "execution-lifecycle-observation-1.0.schema.json#/properties/handling"},
+          "stop": {"$ref": "execution-lifecycle-observation-1.0.schema.json#/properties/stop"}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"event": {"const": "cancellation_acknowledged"}}},
+            "then": {"required": ["handling"]},
+            "else": {"not": {"required": ["handling"]}}
+          },
+          {
+            "if": {"properties": {"event": {"const": "stop_observed"}}},
+            "then": {"required": ["stop"]},
+            "else": {"not": {"required": ["stop"]}}
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"},
+    "time": {"type": "string", "maxLength": 30, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"const": "terminal-recorded"}}},
+      "then": {"required": ["terminal"]},
+      "else": {"not": {"required": ["terminal"]}, "properties": {"retry": {"properties": {"advice": {"const": "unknown"}, "reason": {"const": "terminal-unavailable"}}}}}
+    },
+    {
+      "if": {"required": ["heartbeat", "as_of"]},
+      "then": {"required": ["heartbeat_age_ms", "suspected_orphan"]},
+      "else": {"not": {"anyOf": [{"required": ["heartbeat_age_ms"]}, {"required": ["suspected_orphan"]}]}}
+    },
+    {
+      "if": {"properties": {"deadline_expired": {"const": true}}},
+      "then": {"required": ["deadline"]}
+    },
+    {
+      "if": {"required": ["suspected_orphan"], "properties": {"suspected_orphan": {"const": true}}},
+      "then": {"properties": {"state": {"const": "running"}}}
+    },
+    {
+      "if": {"properties": {"state": {"enum": ["admitted", "stopped-without-terminal"]}}},
+      "then": {"not": {"required": ["completed_units"]}}
+    },
+    {
+      "if": {"properties": {"state": {"const": "running"}}},
+      "then": {"required": ["completed_units"], "properties": {"completed_units": {"const": 0}}}
+    },
+    {
+      "if": {"required": ["terminal"]},
+      "then": {
+        "allOf": [
+          {
+            "if": {"properties": {"terminal": {"properties": {"execution_verdict": {"const": "unavailable"}}}}},
+            "then": {"not": {"required": ["completed_units"]}},
+            "else": {
+              "required": ["completed_units"],
+              "if": {"properties": {"terminal": {"properties": {"execution_verdict": {"const": "error"}}}}},
+              "then": {"properties": {"completed_units": {"const": 0}}},
+              "else": {"properties": {"completed_units": {"const": 1}}}
+            }
+          },
+          {
+            "if": {"properties": {"terminal": {"properties": {"outcome": {"const": "success"}}}}},
+            "then": {"properties": {"retry": {"properties": {"advice": {"const": "none"}, "reason": {"const": "completed-success"}}}}}
+          },
+          {
+            "if": {"properties": {"terminal": {"properties": {"outcome": {"const": "evaluation_failure"}}}}},
+            "then": {"properties": {"retry": {"properties": {"advice": {"const": "none"}, "reason": {"const": "completed-check-failure-not-transient-advice"}}}}}
+          },
+          {
+            "if": {"properties": {"terminal": {"properties": {"outcome": {"enum": ["invalid_input", "unsupported_capability"]}}}}},
+            "then": {"properties": {"retry": {"properties": {"advice": {"const": "none"}, "reason": {"const": "change-request-before-independent-admission"}}}}}
+          },
+          {
+            "if": {"properties": {"terminal": {"properties": {"outcome": {"enum": ["infrastructure_failure", "cancelled", "timeout"]}}}}},
+            "then": {"properties": {"retry": {"properties": {"advice": {"const": "conditional-fresh-attempt"}, "reason": {"const": "requires-independent-admission-and-side-effect-review"}}}}}
+          }
+        ]
+      }
+    }
+  ]
+}

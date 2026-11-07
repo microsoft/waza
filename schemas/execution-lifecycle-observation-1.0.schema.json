@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-lifecycle-observation-1.0.schema.json",
+  "title": "Execution lifecycle observation declaration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "execution_id", "reservation_digest", "sequence", "observed_at", "event"],
+  "properties": {
+    "kind": {"const": "waza.execution-lifecycle-observation"},
+    "schema_version": {"const": "1.0"},
+    "execution_id": {"type": "string", "pattern": "^exec-[0-9a-f]{64}$", "minLength": 69, "maxLength": 69},
+    "reservation_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "minLength": 64, "maxLength": 64},
+    "sequence": {"type": "integer", "minimum": 1, "maximum": 128},
+    "observed_at": {"type": "string", "maxLength": 30, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"},
+    "event": {"enum": ["started", "heartbeat", "cancellation_requested", "cancellation_acknowledged", "force_requested", "stop_observed", "deadline_expired", "terminal_recorded"]},
+    "handling": {"enum": ["context-cancellation-observed", "sdk-abort-returned"]},
+    "stop": {"const": "process-wait-returned"},
+    "terminal": {"$ref": "runner-terminal-1.0.schema.json"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"event": {"const": "cancellation_acknowledged"}}},
+      "then": {"required": ["handling"]},
+      "else": {"not": {"required": ["handling"]}}
+    },
+    {
+      "if": {"properties": {"event": {"const": "stop_observed"}}},
+      "then": {"required": ["stop"]},
+      "else": {"not": {"required": ["stop"]}}
+    },
+    {
+      "if": {"properties": {"event": {"const": "terminal_recorded"}}},
+      "then": {"required": ["terminal"]},
+      "else": {"not": {"required": ["terminal"]}}
+    }
+  ]
+}
