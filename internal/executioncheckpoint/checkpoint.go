@@ -1,6 +1,6 @@
-// Package executioncheckpoint admits exact-unit safe-boundary declarations.
-// It does not reserve attempts, access storage, restore runtimes or verify
-// publication. Those guarantees require the owning production caller.
+// Package executioncheckpoint admits exact-unit safe-boundary declarations and
+// verifies immutable checkpoint blobs. It does not reserve attempts, restore
+// runtimes or authenticate boundary ownership and completed execution evidence.
 package executioncheckpoint
 
 import (

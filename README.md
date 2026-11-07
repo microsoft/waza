@@ -305,9 +305,10 @@ stored declaration pointers and inspect current integrity. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
 
 The additive [exact-unit checkpoint contract](docs/EXECUTION_CHECKPOINTS.md)
-is currently a pure schema/codec and compatibility-admission layer, not an
-operational resume command. Durable creation/restore and checkpoint Lab views
-remain under development; existing result and SDK session readers are unchanged.
+currently provides schema/codec, compatibility admission and immutable declaration
+blob storage, not an operational resume command. Owned safe-boundary creation,
+restore and checkpoint Lab views remain under development; existing result and
+SDK session readers are unchanged.
 
 <span id="waza-interop-source-build-preview"></span>
 

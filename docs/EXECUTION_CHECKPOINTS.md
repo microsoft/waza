@@ -3,10 +3,10 @@
 Checkpoint schema **1.0 is an additive declaration contract under development
 for #765**, not an operational resume feature. The current
 `executioncheckpoint` package provides strict codecs, declared compatibility
-comparison and original-source context admission only. It does not reserve
-attempts, create checkpoints in storage, restore work, or provide a checkpoint
-CLI/API/Lab view. Do not treat a passing codec or a declared boundary as evidence
-that interruption recovery works.
+comparison, original-source context admission and ordinary immutable checkpoint
+blob storage. It does not reserve attempts, authorize safe-boundary creation,
+restore work, or provide a checkpoint CLI/API/Lab view. Do not treat stored
+declaration bytes or a passing codec as evidence that interruption recovery works.
 
 ## Safe boundaries
 
@@ -21,9 +21,12 @@ task/trial/attempt. The checkpoint profile names only these boundaries:
 These are **not mid-runtime snapshots**. SDK sessions, active tools, multi-turn
 responder state, grading-in-progress, filesystem workspaces, pending side effects
 and historical result/snapshot files are not resumable under this profile.
-A failed or interrupted runtime is not a completed unit merely because its
-error envelope was published. Completed grader failures must remain failures,
-not be rerun or relabeled as a pass.
+A published error envelope alone does not prove a finalized source attempt.
+When an independently authenticated completion and current finalized manifest
+admit that original terminal, failures and cancellations remain their original
+statuses with no new engine call. Finalizing error evidence is not successful
+logical work; retry eligibility belongs to the separate lifecycle contract.
+Completed grader failures must not be rerun or relabeled as a pass.
 
 ## Compatibility
 
@@ -51,6 +54,14 @@ Unstamped development builds cannot supply a version fallback. A changed
 revision, schema, logical work or policy fails closed with named differing
 fields and instructions to preserve the checkpoint and start a distinct attempt.
 There is no implicit cross-version migration or age-based expiry policy.
+
+`CurrentRunnerRevision` reads the owning CLI's embedded Go build metadata without
+reading ambient files or invoking Git. It requires the Waza CLI main module/path,
+one exact Git revision and an explicit `vcs.modified: false`. Missing, duplicate,
+dirty, foreign-host and non-Git metadata fail closed. A future CLI recovery caller
+must use this actual build value, not accept `runner_revision` as a user flag.
+Admission tests using authored build metadata are not execution evidence for
+a released binary; production-CLI recovery tests remain required.
 
 ## Contents and admission
 
@@ -89,12 +100,36 @@ prove execution, runtime isolation, billing completeness or model quality.
 
 ## Migration and delivery status
 
+Canonical declarations are stored as ordinary `blob-<sha256>` objects through
+the existing `artifactmanifest.Store.Put`, not a checkpoint ledger namespace or
+a disguised reservation/completion/decision record. `Load` consumes a
+caller-known digest through bounded `Backend.Get` and independently verifies
+hash, strict schema and canonical bytes. It does not normalize a noncanonical
+stored record or adopt unrelated correctly hashed blobs. There is no mutable
+pointer, checkpoint catalog or implicit completed-evidence final marker.
+The owning caller must authenticate source ownership separately. Existing
+provider no-overwrite, rooted-handle and partial-staging limitations remain;
+checkpoint storage does not upgrade them into transactions or crash durability.
+Publication errors retain the digest of possibly stored, unverified residue.
+Cancellation after stored bytes is an error, not successful invocation completion,
+and does not delete immutable evidence.
+
+`ReadFinalized` compares current compatibility before provider access, then
+uses the actual `Store.ReadCompleted` API to capture original terminal bytes
+from the full current-content/final-marker verification pass. It admits those
+bytes against the independently authenticated original binding and sidecars.
+It never reconstructs an SDK session or runs an engine, and preserves the exact
+original failure/cancellation status, identity and native ordinal. The helper
+does not authenticate a caller-supplied binding or grant execution ownership;
+the owned public restore caller remains required.
+
 This schema has its own version; it does not change native task YAML, eval
 schema, historical `EvaluationOutcome`, snapshots, terminal 1.0 or SDK session
 resume behavior. No existing artifact is automatically adopted as a checkpoint.
 Keep existing commands/readers for unsupported workflows.
 
-The first contract layer has codec and compatibility tests and context tests
+The source layer has codec and compatibility tests, actual immutable-provider
+blob persistence/concurrency/corruption/failure tests, and context tests
 using actual production mock runner terminal output, including passed and
 failed-check controls. Those tests **do not prove kill-and-resume, persistence
 or exactly-once work**. Durable creation/restore, failed-restore process tests,

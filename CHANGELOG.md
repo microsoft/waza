@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Logical execution sidecar codecs (v0.41 source preview)** - Separate logical
+  `Identity.Run`/`Identity.Trial` from opaque execution IDs in additive strict
+  attempt, duplicate-decision, and completion-reference profiles (#764).
+  Validate canonical original source hashes/context and explicit parent graphs
+  without retagging native ordinals, failures, or billing. These codecs do not
+  confer execution ownership or implement verified submission/reuse; legacy
+  runner/result contracts remain unchanged. See the
+  [compatibility boundary](docs/COMPATIBILITY.md#logical-execution-attempt-sidecars-bounded-foundation).
+
 - **Immutable artifact publication (v0.41 source preview)** - Add manifest schema
   `1.0` and `artifact create/upload/finalize/inspect` with conditional local and
   Azure object creation, canonical content addressing, current-byte verification,
