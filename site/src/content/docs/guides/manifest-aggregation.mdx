@@ -31,7 +31,7 @@ The command never starts agents, original workers, grader subprocesses or an
 update check. It reads only the selected immutable store, not `.waza.yaml`.
 The CLI uses an existing local store by default. Explicit
 `--azure-container-url` selects Azure instead of `--store`, with existing
-credentials and no automatic login or local fallback. The API honors the
+credentials and no interactive Azure login or local fallback. The API honors the
 server's configured immutable provider.
 
 Explicit Azure authentication uses the shared provider's default credential
@@ -97,6 +97,14 @@ Missing, corrupt, mismatched or budget-denied declared context makes the
 aggregate incomplete; omitted source declarations remain unavailable without
 namespace I/O. Native present categories must retain exact observed counts.
 Totals stay withheld even when context and native shapes verify.
+Optional-evidence CSV includes `source_context_json`; manifest-only exports
+are unchanged.
+
+A set can retain `success` for every original terminal yet remain incomplete:
+if an explicitly selected sidecar declares a source whose reservation or
+completion is missing, its context remains `missing`, the API returns 409 and
+the CLI exits 2. Terminal state counts and independently verified category
+shapes do not replace that failed source-context admission.
 
 ## Troubleshoot incomplete aggregates
 
