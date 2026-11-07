@@ -51,6 +51,30 @@ See [Separate grader-assurance reports](../schema/#separate-grader-assurance-rep
 
 ## Policy
 
+### Unreleased v0.41 aggregate profile
+
+`waza.manifest-aggregate` uses independent `schema_version: "1.0"`, not native
+result/eval version negotiation. It derives metadata from public completed
+manifest sets with deterministic digest ordering, duplicate collapse,
+no-winner conflict handling and explicit missing/failure/compatibility states.
+No legacy result/schema defaults, numerical scores or historical usage are
+rewritten. There is no automatic `results.json` conversion; retain the original
+compatible terminal and publish its actual manifest binding. Unsupported
+profiles are withheld rather than implicitly upgraded. See
+[worked examples, trust boundaries and pending release gates](../../guides/manifest-aggregation/).
+
+Optional explicit evidence pairs add separate declaration and native-category
+admission metadata without changing manifest-only bytes or legacy versions.
+Native category/usage qualification requires the canonical capture index,
+original terminal and category-keyed payloads; unindexed flat sidecars
+intentionally remain declaration-only with unavailable counts/usage in this
+unreleased profile. Observed counts are canonical decimal int64 strings.
+Null selection is rejected; empty selection records unselected evidence members.
+Native usage integer counts support int64 and exact JSON/CSV/Lab presentation;
+this does not widen separate assurance profiles' JavaScript-safe integer bounds.
+Missing credits remain absent, recorded zero remains zero, and totals remain
+withheld without budgeted retained-source ownership and billing qualification.
+
 ### Checkpoint declaration 1.0 (unreleased contract layer)
 
 The additive `waza.execution-checkpoint` artifact uses exact

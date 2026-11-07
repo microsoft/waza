@@ -85,6 +85,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newRegistryCommand())
 	cmd.AddCommand(newRunnerCommand())
 	cmd.AddCommand(newArtifactCommand())
+	cmd.AddCommand(newAggregateCommand())
 	cmd.AddCommand(newLifecycleCommand())
 	cmd.AddCommand(newInteropCommand())
 
@@ -102,7 +103,7 @@ func shouldRunUpdateCheck(cmd *cobra.Command, noUpdateCheck bool) bool {
 		return false
 	}
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "update" || c.Name() == "preflight" || c.Name() == "compare-plan" || c.Name() == "compare-assurance-plan" || c.Name() == "compare-collect" || c.Name() == "assure" || c.Name() == "runner" || c.Name() == "interop" || c.Name() == "lifecycle" {
+		if c.Name() == "update" || c.Name() == "preflight" || c.Name() == "compare-plan" || c.Name() == "compare-assurance-plan" || c.Name() == "compare-collect" || c.Name() == "assure" || c.Name() == "runner" || c.Name() == "interop" || c.Name() == "aggregate" || c.Name() == "lifecycle" {
 			return false
 		}
 	}

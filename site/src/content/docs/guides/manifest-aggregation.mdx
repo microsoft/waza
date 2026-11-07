@@ -1,0 +1,158 @@
+---
+title: Aggregate completed manifests
+description: Derive deterministic reports from an explicit expected immutable manifest set without workers or agents.
+---
+
+**Unreleased v0.41 source preview.** This command is not included in published
+v0.40 artifacts. Build the source containing it; check `waza aggregate --help`.
+It produces a separate derived document, not a rewritten historical
+`results.json` or evidence-assurance verdict.
+
+## Worked example
+
+First follow [immutable publication](../immutable-artifacts/) to retain the
+original terminal, build its declaration, upload every declared artifact, and
+finalize it. Save the canonical digest returned by `artifact create`, not the
+raw hash of a pretty-printed manifest. You no longer need the original worker.
+
+For two compatible completed trials, set `FIRST` and `SECOND` to their full
+manifest digests. Keep your expected digest list even when a worker fails:
+
+```bash
+waza aggregate "$SECOND" "$FIRST" "$FIRST" --store .waza-artifacts > aggregate.json
+```
+
+Duplicates count once and members sort by digest. Changing input order does not
+change the report for the same stored set. A completed failing trial retains
+`evaluation_failure` and its failing verdicts. `completion: "complete"` describes
+membership, **not** a passing evaluation or complete evidence.
+
+The command never starts agents, original workers, grader subprocesses or an
+update check. It reads only the selected immutable store, not `.waza.yaml`.
+The CLI uses an existing local store by default. Explicit
+`--azure-container-url` selects Azure instead of `--store`, with existing
+credentials and no interactive Azure login or local fallback. The API honors the
+server's configured immutable provider.
+
+Explicit Azure authentication uses the shared provider's default credential
+chain and can invoke credential helpers. The read-only aggregation core creates
+no runtime or credentials; this preview does not promise process-free Azure
+authentication.
+
+## Inspect in the Lab
+
+Publish under your dashboard results directory's `.waza-artifacts`, then:
+
+```bash
+waza serve --lab --results-dir ./results --no-browser
+```
+
+Open the Runner contract section and **Aggregate completed manifests**.
+Enter your expected digests separated by whitespace. Inspect state counts,
+member outcomes/verdicts, conflicts and compatibility diagnostics. Source
+manifest links reread existing public inspection receipts.
+Optional evidence pairs use `MANIFEST_SHA256=EVIDENCE_SHA256`, separated by
+whitespace. Every origin must be in the expected set. All competing sidecars
+remain visible; declaration and native category state counts are separate.
+Declaration counts are not category-completeness evidence.
+**Download aggregate JSON** preserves original response bytes; **Download
+aggregate CSV** preserves exact integer counts and absent versus recorded-zero
+credits from the same captured response. The synthetic
+demo does not run aggregation, and a failed reload clears previous success.
+
+The equivalent read-only API is:
+
+```bash
+curl --fail-with-body -H 'Content-Type: application/json' \
+  --data "{\"manifests\":[\"$FIRST\",\"$SECOND\"]}" \
+  http://localhost:3000/api/v1/aggregates
+```
+
+Do not submit paths or provider URLs. The API uses the server's selected store.
+
+Select a previously published evidence sidecar explicitly:
+
+```bash
+waza aggregate "$FIRST" --store .waza-artifacts \
+  --evidence "$FIRST=$EVIDENCE" --format csv > aggregate.csv
+```
+
+The API accepts an optional `evidence` array of
+`{"manifest_sha256":DIGEST,"evidence_sha256":SIDECAR}` pairs and supports
+`?format=csv`. Omitted evidence preserves manifest-only output; `[]` explicitly
+selects none, while `null` is invalid. Source bytes and all six native category
+shapes are checked in one sidecar pass against the canonical capture index and
+original terminal; all origin/ancestor reads share the budget. Unindexed flat
+sidecars remain declarations with unavailable native counts and usage. This is
+an intentional stronger admission rule for the unreleased optional profile,
+not a change to manifest-only or historical results. Native observed counts use
+exact decimal text, and optional-evidence CSV keeps native category metadata
+separate from declarations. Recorded credits remain historical
+execution usage, not the cost of this aggregation. `source_context` independently
+compares the explicitly declared source's current reservation/completion and
+manifest attempt bytes, byte for byte, through the same cumulative budget.
+It is content-and-declared-context consistency only, not Creator authority,
+runtime or billing attestation. The additional read pass is not a snapshot.
+Missing, corrupt, mismatched or budget-denied declared context makes the
+aggregate incomplete; omitted source declarations remain unavailable without
+namespace I/O. Native present categories must retain exact observed counts.
+Totals stay withheld even when context and native shapes verify.
+Optional-evidence CSV includes `source_context_json`; manifest-only exports
+are unchanged.
+
+A set can retain `success` for every original terminal yet remain incomplete:
+if an explicitly selected sidecar declares a source whose reservation or
+completion is missing, its context remains `missing`, the API returns 409 and
+the CLI exits 2. Terminal state counts and independently verified category
+shapes do not replace that failed source-context admission.
+
+For canonical attempts with a parent, `source_context.parent_context` is an
+output-only, one-hop observation. Qualified retry links require the current
+parent completion, finalized manifest and exact descriptor bytes, using the
+same read budget. Missing parents stay unavailable; other parent errors retain
+their classifications. Parent failures return 409/CLI 2 while already verified
+child/category facts remain visible. No-parent attempts omit this view; branch
+declarations stay branch/unavailable. Original manifests and sidecar lineage
+are never rewritten, and the existing `source_context_json` CSV column carries
+the nested view. This is not a latest-attempt lookup, a complete graph or runtime
+attestation.
+
+## Troubleshoot incomplete aggregates
+
+| Input state | Action |
+|---|---|
+| `missing` | Keep the expected digest; upload missing original objects. Do not replace the source with an empty passing result. |
+| `unfinalized` | Inspect original uploads and finalize only after every byte and terminal binding verifies. |
+| `corrupt` | Preserve the damaged source and diagnose it; a matching old receipt or final marker does not excuse changed bytes. |
+| `conflicting` | Distinct completed sources name the same logical work. Select the verified desired source upstream; aggregation never chooses the highest attempt. |
+| `incompatible` / incompatible set | Separate different logical runs, modes or unsupported profiles. Task/trial digests and task-specific graders may legitimately differ. |
+| `cancelled`, `timeout`, `infrastructure_failure` | Preserve the original terminal failure. Finalization is not successful execution. |
+| `limit_exceeded`, `unavailable` | Reduce/partition the expected compatible set or repair storage; never silently drop members. |
+
+CLI exits 0 for complete compatible membership without evaluation failure,
+1 for complete membership containing recorded evaluation failure, and 2 for
+incomplete/conflicting/incompatible inputs or I/O errors. None is an assurance
+decision. HTTP 409 keeps incomplete member diagnostics inspectable; 400 rejects
+invalid original-wire requests and 503 reports an unavailable store/report.
+
+Absent usage/category evidence is unavailable, not zero, a cost estimate or a
+pass. The initial report withholds billing and scores: terminal 1.0 does not
+carry them, and a declaration-only evidence sidecar cannot validate them.
+
+## Compatibility and adoption
+
+The new [aggregate schema](../../schemas/manifest-aggregate-1.0.schema.json) is
+independent of result, manifest, terminal and evidence sidecar versions.
+Historical result readers/writers are unchanged; there is no automatic
+`results.json` migration. Do not infer missing source evidence from summary
+scores. Submit 1..128 digests before deduplication; API JSON is bounded to
+32 KiB, cumulative admitted reads to 256 MiB, and report output to 16 MiB.
+At most 128 evidence pairs are accepted before deduplication. The read cap does
+not promise to fit every maximum-sized source. Budget-withheld sidecars are
+explicit `limit_exceeded`, not generic missing/corrupt storage.
+
+Developer ordering, conflict, trust, read-budget and migration rules are
+canonical in [the source contract](https://github.com/microsoft/waza/blob/main/docs/MANIFEST-AGGREGATION.md).
+Full release acceptance still requires public producer and budgeted retained
+source/ledger integration plus final Go, browser and review
+gates. This source preview does not claim those pending steps are complete.
