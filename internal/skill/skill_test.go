@@ -159,6 +159,67 @@ func TestUnmarshalTextWithoutTokenCount_ParseErrors(t *testing.T) {
 	)
 }
 
+func TestUnmarshalTextWithoutTokenCount_FieldParity(t *testing.T) {
+	for _, tc := range []struct {
+		name, content string
+	}{
+		{"no frontmatter", "Hello world"},
+		{"field presence", "---\nname: quoted\ndescription: 'A description'\nextra: null\nempty: ''\nzero: 0\nflag: false\n---\nBody\n"},
+		{"multiline and nested", "---\nname: multiline\ndescription: |\n  First line\n  Second line\nparameters:\n  input: required\n---\n# Body\n"},
+		{"CRLF", "---\r\nname: crlf\r\ndescription: Windows lines\r\n---\r\nBody\r\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			full := Skill{Path: "retained/SKILL.md"}
+			require.NoError(t, full.UnmarshalText([]byte(tc.content)))
+			metadata := full
+			require.NoError(t, metadata.UnmarshalTextWithoutTokenCount([]byte(tc.content)))
+			require.Zero(t, metadata.Tokens, "reusing a full parse must clear the old count")
+			require.Equal(t, "retained/SKILL.md", metadata.Path)
+			require.Equal(t, tc.content, metadata.RawContent)
+			require.Equal(t, len(tc.content), metadata.Characters)
+			if tc.name == "field presence" {
+				require.Contains(t, metadata.FrontmatterRaw, "extra")
+				require.Nil(t, metadata.FrontmatterRaw["extra"])
+				require.Equal(t, "", metadata.FrontmatterRaw["empty"])
+				require.Equal(t, 0, metadata.FrontmatterRaw["zero"])
+				require.Equal(t, false, metadata.FrontmatterRaw["flag"])
+			}
+			full.Tokens = 0
+			require.Equal(t, full, metadata, "all non-token fields, including YAML nodes, must match")
+		})
+	}
+}
+
+func TestUnmarshalText_FrozenTokenCount(t *testing.T) {
+	// o200k_base encodes this historical input as [13225, 2375].
+	var parsed Skill
+	require.NoError(t, parsed.UnmarshalText([]byte("Hello world")))
+	require.Equal(t, 2, parsed.Tokens)
+	require.Equal(t, "Hello world", parsed.Body)
+	require.Nil(t, parsed.FrontmatterRaw)
+	require.Nil(t, parsed.FrontmatterNode)
+	require.Equal(t, 11, parsed.Characters)
+	require.Equal(t, 1, parsed.Lines)
+	require.NoError(t, parsed.UnmarshalTextWithoutTokenCount([]byte("Hello world")))
+	require.Zero(t, parsed.Tokens)
+	require.NoError(t, parsed.UnmarshalText([]byte("Hello world")))
+	require.Equal(t, 2, parsed.Tokens)
+}
+
+func TestUnmarshalTextWithoutTokenCount_ErrorParity(t *testing.T) {
+	for _, content := range []string{"", " \r\n\t", "---\nname: invalid", "---\nname: [invalid\n---\n", "---\nname: []\n---\n"} {
+		t.Run(content, func(t *testing.T) {
+			before := Skill{Path: "retained/SKILL.md", Tokens: 7, Body: "old body"}
+			full, metadata := before, before
+			fullErr := full.UnmarshalText([]byte(content))
+			require.Error(t, fullErr)
+			require.EqualError(t, metadata.UnmarshalTextWithoutTokenCount([]byte(content)), fullErr.Error())
+			require.Equal(t, before, full)
+			require.Equal(t, before, metadata, "failed admission must preserve receiver state")
+		})
+	}
+}
+
 var benchmarkSkillContent = []byte(`---
 name: benchmark-skill
 description: A representative skill used to compare parsing paths

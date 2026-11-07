@@ -112,6 +112,7 @@ func (s *Skill) UnmarshalText(text []byte) error {
 
 // UnmarshalTextWithoutTokenCount parses a skill without initializing the BPE
 // tokenizer. It is intended for callers that only need skill metadata or body.
+// A successful parse clears Tokens, including when the receiver is reused.
 func (s *Skill) UnmarshalTextWithoutTokenCount(text []byte) error {
 	return s.unmarshalText(text, false)
 }
