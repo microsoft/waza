@@ -153,6 +153,8 @@ The configured read-only API exposes:
 |---|---|
 | `GET /api/v1/evidence/{digest}` | Current inspection receipt with admitted declaration metadata. |
 | `GET /api/v1/evidence/{digest}/categories` | Same-pass category shape admission beside declaration metadata; no captured text/tool/grader bodies. |
+| `GET /api/v1/evidence/{digest}/categories/document` | Qualified receipt JSON after a fresh successful source/category read; declarations and admitted results stay separate. |
+| `GET /api/v1/evidence/{digest}/categories/csv` | Qualified category rows with exact native counts/credits, absent fields empty, declared source/context and original source/evidence identifiers. |
 | `GET /api/v1/evidence/{digest}/document` | Canonical sidecar JSON, only after successful current source admission. |
 | `GET /api/v1/evidence/{digest}/csv` | Six category rows with exact decimal counts and empty cells for unavailable counts or unknown totals. |
 
@@ -204,6 +206,24 @@ Independent valid category observations remain visible when another category
 has a semantic conflict: the command exits nonzero and adds a safe category
 admission diagnostic. Such a conflict does not relabel hash-verified bytes as
 corrupt or erase separately verified observations.
+
+Lab exposes category admission as a separate opt-in action below the declaration
+receipt. It clears old observations and qualified links before rereading, on
+digest changes, and after malformed responses. Decimal tokens are retained for
+display; recorded empty counts and zero credits do not collapse into absence.
+Missing-credit/model attribution stays incomplete, never an authoritative total.
+Qualified exports perform their own current source/category admission. Errors
+return diagnostic JSON without attachment headers; a valid read may still contain
+unavailable/redacted/incomplete categories and is not assurance acceptance.
+The original declaration JSON/CSV download formats remain unchanged.
+
+Migration does not reconstruct old transcripts or infer empty tool arrays from
+legacy `omitempty` omissions. Origins without the capture index remain
+unqualified even if a sidecar declares present-empty. Existing immutable sources
+are never sanitized in place: reuse must pass the committed source-disclosure
+gate or be rejected. New capture and its owner attempt belong to one first
+publication; separately derived evidence and exports do not create a new
+execution or reattribute cached billing.
 
 Original JSON field presence and types are validated before native decoding.
 Missing or null required counts, negative values, duplicate fields, invalid

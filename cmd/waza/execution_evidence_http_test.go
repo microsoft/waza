@@ -21,6 +21,9 @@ const receipt = readFileSync("../../web/e2e/fixtures/execution-evidence.json", "
 const csv = readFileSync("../../web/e2e/fixtures/execution-evidence.csv", "utf8");
 const document = receipt.slice(receipt.indexOf('"document":') + '"document":'.length, receipt.indexOf(',"sources":'));
 const digest = JSON.parse(receipt).evidence_sha256;
+const categoryResults = readFileSync("../../web/e2e/fixtures/execution-evidence-category-results.json", "utf8");
+const qualifiedCSV = readFileSync("../../web/e2e/fixtures/execution-evidence-qualified.csv", "utf8");
+const qualifiedReceipt = receipt.trim().slice(0, -1) + ',"categories":' + categoryResults.trim() + "}";
 const frontend = createServer((request, response) => {
   assert.equal(request.url, "/");
   response.writeHead(200, {"Content-Type": "text/html"});
@@ -29,11 +32,12 @@ const frontend = createServer((request, response) => {
 await new Promise(resolve => frontend.listen(0, "127.0.0.1", resolve));
 let fixture;
 try {
-  fixture = await startEvidenceHTTP("http://127.0.0.1:" + frontend.address().port, digest, receipt, document, csv);
+  fixture = await startEvidenceHTTP("http://127.0.0.1:" + frontend.address().port, digest, receipt, document, csv,
+    {receipt: qualifiedReceipt, csv: qualifiedCSV});
   assert.equal(await (await fetch(fixture.base + "/")).text(), "<html>actual bounded frontend fixture</html>");
   assert.equal(await (await fetch(fixture.base + "/api/v1/evidence/" + digest)).text(), receipt);
   for (const [suffix, extension, body, type] of [
-    ["document", "json", document, "application/json"], ["csv", "csv", csv, "text/csv"],
+    ["document", "json", document, "application/json"], ["csv", "csv", csv, "text/csv; charset=utf-8"],
   ]) {
     const response = await fetch(fixture.base + "/api/v1/evidence/" + digest + "/" + suffix);
     assert.equal(response.status, 200);
@@ -43,8 +47,22 @@ try {
     assert.equal(await response.text(), body);
     assert.ok(body.includes("9007199254740993"));
   }
+  assert.equal(await (await fetch(fixture.base + "/api/v1/evidence/" + digest + "/categories")).text(), qualifiedReceipt);
+  for (const [suffix, extension, body, type] of [
+    ["document", "json", qualifiedReceipt, "application/json"], ["csv", "csv", qualifiedCSV, "text/csv; charset=utf-8"],
+  ]) {
+    const response = await fetch(fixture.base + "/api/v1/evidence/" + digest + "/categories/" + suffix);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), type);
+    assert.equal(response.headers.get("content-disposition"), 'attachment; filename="execution-evidence-categories-' + digest + '.' + extension + '"');
+    assert.equal(response.headers.get("content-length"), String(Buffer.byteLength(body)));
+    assert.equal(await response.text(), body);
+  }
   assert.equal((await fetch(fixture.base + "/api/unknown")).status, 404);
-  assert.deepEqual(fixture.requests, ["GET /api/v1/evidence/" + digest + "/document", "GET /api/v1/evidence/" + digest + "/csv"]);
+  assert.deepEqual(fixture.requests, [
+    "GET /api/v1/evidence/" + digest + "/document", "GET /api/v1/evidence/" + digest + "/csv",
+    "GET /api/v1/evidence/" + digest + "/categories/document", "GET /api/v1/evidence/" + digest + "/categories/csv",
+  ]);
   assert.deepEqual(fixture.failures, []);
 } finally {
   try {

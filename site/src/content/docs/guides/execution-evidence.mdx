@@ -95,6 +95,8 @@ The read-only endpoints are:
 ```text
 GET /api/v1/evidence/{digest}
 GET /api/v1/evidence/{digest}/categories
+GET /api/v1/evidence/{digest}/categories/document
+GET /api/v1/evidence/{digest}/categories/csv
 GET /api/v1/evidence/{digest}/document
 GET /api/v1/evidence/{digest}/csv
 ```
@@ -115,6 +117,19 @@ Semantic conflicts return an error status and safe diagnostic while retaining
 independently verified category facts. Source/storage failures withhold counts
 and usage; the endpoint is read-only and exposes no captured payload bodies.
 
+Lab's **Admit recorded categories** action is opt-in and separate from the
+declaration table. It shows admitted state, qualification, observed count and
+actual recorded usage without adding billing estimates or treating present as
+acceptance. A new digest or failed reread clears old observations and qualified
+download links.
+
+**Download qualified category JSON/CSV** rechecks current sources and category
+admission. JSON retains declarations beside admitted results; CSV preserves exact
+counts/credits and source identifiers, leaving unavailable values empty.
+Incomplete credit/model attribution remains incomplete, not an authoritative
+total. Failed exports return diagnostics rather than success-shaped attachments.
+The original declaration JSON/CSV contracts are unchanged.
+
 ## Usage and migration
 
 Recorded usage admission reads explicitly referenced native `UsageStats` JSON,
@@ -129,6 +144,12 @@ admits the actual recorded capture profile. Aggregation additionally needs
 verified source/ownership admission
 and existing complete-credit semantics; it must not turn authored, cached or
 incomplete records into new live billing.
+
+Do not migrate legacy omitted arrays into observed `[]` or retrofit capture
+evidence into a finalized origin. A legacy source without the capture profile
+remains unqualified. New first-publication capture uses the original typed
+invocation and original owner attempt; derived sidecars and cached reuse never
+create a new execution or rewrite a recorded verdict.
 
 There is no automatic migration or stronger default assurance. Old results
 without sidecars remain readable with their original defaults. Missing evidence

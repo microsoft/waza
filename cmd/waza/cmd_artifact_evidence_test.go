@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"io"
@@ -70,6 +71,11 @@ func TestArtifactEvidenceCLIToPersistedAPIAndDownloads(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(categoryOutput, &categoryReceipt))
 	require.Len(t, categoryReceipt.Categories, 6)
+	categoryFixture, err := os.ReadFile("../../web/e2e/fixtures/execution-evidence-category-results.json")
+	require.NoError(t, err)
+	categoryBytes, err := json.Marshal(categoryReceipt.Categories)
+	require.NoError(t, err)
+	require.JSONEq(t, string(categoryFixture), string(categoryBytes), "browser admission fixture must come from the actual CLI source pass")
 	for _, category := range categoryReceipt.Categories {
 		require.Equal(t, evidencestate.Unavailable, category.State, "legacy declarations without the actual capture index cannot qualify a category")
 		require.Equal(t, "declared-state-only", category.Verification)
@@ -98,6 +104,35 @@ func TestArtifactEvidenceCLIToPersistedAPIAndDownloads(t *testing.T) {
 	status, _, categoryAPI := get("/categories")
 	require.Equal(t, http.StatusOK, status)
 	require.JSONEq(t, string(categoryOutput), string(categoryAPI), "CLI and API must share actual one-pass category admission")
+	status, headers, categoryDocument := get("/categories/document")
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "application/json", headers.Get("Content-Type"))
+	require.Equal(t, `attachment; filename="execution-evidence-categories-`+categoryReceipt.EvidenceSHA256+`.json"`, headers.Get("Content-Disposition"))
+	require.Equal(t, strings.TrimSpace(string(categoryOutput)), string(categoryDocument))
+	qualifiedJSON := strings.TrimSpace(string(fixture))
+	qualifiedJSON = qualifiedJSON[:len(qualifiedJSON)-1] + `,"categories":` + strings.TrimSpace(string(categoryFixture)) + "}"
+	require.Equal(t, qualifiedJSON, string(categoryDocument), "qualified browser JSON must preserve exact native producer bytes")
+	status, headers, categoryCSV := get("/categories/csv")
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "text/csv; charset=utf-8", headers.Get("Content-Type"))
+	categoryRows, err := csv.NewReader(bytes.NewReader(categoryCSV)).ReadAll()
+	require.NoError(t, err)
+	require.Len(t, categoryRows, 7)
+	require.Equal(t, []string{"category", "declared_state", "admitted_state", "verification", "reason", "observed_count",
+		"turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "premium_requests", "ai_credits",
+		"declared_source", "declared_context", "origin_manifest", "evidence_sha256", "execution_id"}, categoryRows[0])
+	for _, row := range categoryRows[1:] {
+		require.Equal(t, "unavailable", row[2])
+		for _, absent := range row[5:13] {
+			require.Empty(t, absent, "unqualified counts and usage must never export declaration values")
+		}
+		require.Equal(t, receipt.Document.OriginManifest, row[15])
+		require.Equal(t, receipt.EvidenceSHA256, row[16])
+	}
+	require.NotContains(t, string(categoryCSV), "9007199254740993")
+	qualifiedFixture, err := os.ReadFile("../../web/e2e/fixtures/execution-evidence-qualified.csv")
+	require.NoError(t, err)
+	require.Equal(t, string(qualifiedFixture), string(categoryCSV), "qualified browser download must match the actual production API")
 	status, headers, downloaded := get("/document")
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, "application/json", headers.Get("Content-Type"))
@@ -149,6 +184,30 @@ func TestArtifactEvidenceCLIToPersistedAPIAndDownloads(t *testing.T) {
 	status, _, categoryAPI = get("/categories")
 	require.Equal(t, http.StatusNotFound, status)
 	require.JSONEq(t, string(categoryOutput), string(categoryAPI))
+	parser := exec.Command("node", "--input-type=module", "-e", `
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { parseRecordedCategories } from "../../web/src/api/executionEvidenceCategories.ts";
+const wire = readFileSync(0, "utf8");
+const result = parseRecordedCategories(wire, JSON.parse(wire).evidence_sha256, 404);
+assert.equal(result.sourceVerified, false);
+assert.equal(result.admissionComplete, false);
+assert.equal(result.categories.length, 6);
+for (const category of result.categories) {
+  assert.equal(category.state, "unavailable");
+  assert.equal(category.observed_count, undefined);
+  assert.equal(category.usage, undefined);
+}
+`)
+	parser.Stdin = bytes.NewReader(categoryAPI)
+	parserOutput, err := parser.CombinedOutput()
+	require.NoError(t, err, string(parserOutput))
+	for _, suffix := range []string{"/categories/document", "/categories/csv"} {
+		status, headers, body := get(suffix)
+		require.Equal(t, http.StatusNotFound, status)
+		require.Empty(t, headers.Get("Content-Disposition"), "failed exports must not return success-shaped attachments")
+		require.NotContains(t, string(body), "9007199254740993")
+	}
 }
 
 func TestArtifactEvidenceInvalidInputDoesNotOpenStore(t *testing.T) {
