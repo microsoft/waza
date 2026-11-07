@@ -90,24 +90,33 @@ test.describe("Lab execution evidence states", () => {
     await expect(panel(page).getByRole("link", { name: "Download evidence CSV" })).toHaveCount(0);
   });
 
-  test("downloads exactly the producer-proven JSON and CSV without numeric rounding", async ({ page }) => {
+  test("downloads exactly the producer-proven JSON and CSV without numeric rounding", async ({ page, context }) => {
+    const requests: string[] = [];
     await page.route(`**/api/v1/evidence/${digest}`, (route) => route.fulfill({ contentType: "application/json", body: fixture }));
-    await page.route(`**/api/v1/evidence/${digest}/document`, (route) => route.fulfill({
-      contentType: "application/json", headers: { "Content-Disposition": `attachment; filename="execution-evidence-${digest}.json"` }, body: documentFixture,
-    }));
-    await page.route(`**/api/v1/evidence/${digest}/csv`, (route) => route.fulfill({
-      contentType: "text/csv", headers: { "Content-Disposition": `attachment; filename="execution-evidence-${digest}.csv"` }, body: csvFixture,
-    }));
+    await context.route(`**/api/v1/evidence/${digest}/document`, (route) => {
+      requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+      return route.fulfill({
+        contentType: "application/json", headers: { "Content-Disposition": `attachment; filename="execution-evidence-${digest}.json"` }, body: documentFixture,
+      });
+    });
+    await context.route(`**/api/v1/evidence/${digest}/csv`, (route) => {
+      requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+      return route.fulfill({
+        contentType: "text/csv", headers: { "Content-Disposition": `attachment; filename="execution-evidence-${digest}.csv"` }, body: csvFixture,
+      });
+    });
     await inspect(page);
     for (const [name, content] of [["Download evidence JSON", documentFixture], ["Download evidence CSV", csvFixture]]) {
       const [download] = await Promise.all([
         page.waitForEvent("download"), panel(page).getByRole("link", { name, exact: true }).click(),
       ]);
+      expect(await download.failure()).toBeNull();
       const path = await download.path();
       if (path === null) throw new Error("Downloaded evidence file is unavailable.");
       expect(fs.readFileSync(path, "utf8")).toBe(content);
       expect(content).toContain("9007199254740993");
     }
+    expect(requests).toEqual([`GET /api/v1/evidence/${digest}/document`, `GET /api/v1/evidence/${digest}/csv`]);
   });
 
   test("synthetic demo does not reconstruct recorded evidence", async ({ page }) => {
