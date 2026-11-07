@@ -312,6 +312,22 @@ The source Lab can inspect a caller-known checkpoint blob digest, showing
 declared boundary/time and explicitly unavailable ownership/restore state.
 Existing result and SDK session readers are unchanged.
 
+### `waza lifecycle` (unreleased v0.41 source preview)
+
+Inspect explicit caller-retained original admission context and ordered
+observation digests without executing, cancelling, retrying or reclaiming work:
+
+```bash
+waza lifecycle inspect inspection.json --store .waza-artifacts
+```
+
+The existing private store must contain the original reservation blob and every
+named observation. This returns **caller-declared, unverified** lifecycle state,
+retry advice and heartbeat diagnostics, not authenticated worker progress or
+ownership. The Lab Runner section includes the same read-only inspector when
+built from this source. Full production lifecycle/recovery remains under
+development. See [inspection context, interpretation and migration](docs/EXECUTION_LIFECYCLE.md).
+
 <span id="waza-interop-source-build-preview"></span>
 
 ### `waza interop` (v0.40.0)

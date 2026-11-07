@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { discoverManifests, inspectManifest, ManifestInspectionError, type ManifestCatalog, type ManifestInspection } from "../api/manifests";
+import ExecutionEvidence from "./ExecutionEvidence";
 
 function ManifestInspector() {
   const [digest, setDigest] = useState("");
@@ -147,6 +148,7 @@ export default function ManifestPublication({ demo }: { demo: boolean }) {
         </div>
       </div>
       {demo ? <p>Manifest inspection is unavailable in the synthetic demo. Open the saved-results Lab with a running Waza server.</p> : <ManifestInspector />}
+      <ExecutionEvidence demo={demo} />
     </section>
   );
 }

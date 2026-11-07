@@ -95,6 +95,34 @@ Static profile admission neither verifies the provider nor authorizes rich-repor
 disclosure. Public protected transport, current operational Lab integration and
 real interruption/platform/browser evidence remain delivery requirements.
 
+### Lifecycle declarations and inspection 1.0 (unreleased source preview)
+
+The independent `waza.execution-lifecycle-observation`,
+`waza.execution-lifecycle-inspection` and `waza.execution-lifecycle` profiles use
+exact `schema_version: "1.0"`. The read-only CLI/API/Lab source inspector accepts
+explicit retained original admission and ordered caller-known digests.
+Every projected value is caller-declared/unverified; verified worker progress
+and ownership remain unavailable. This is not a latest pointer, cancellation
+endpoint, worker authenticator or scheduler retry controller.
+
+Cancellation request, concrete handling acknowledgement, force request and
+observed process wait are separate declarations. Deadline expiry does not
+rewrite the original terminal. Missing heartbeat/as-of is unknown, and an
+expired declared heartbeat only suspects an orphan, never permits reclaim.
+Retry is advice requiring independent admission and side-effect review, not
+permission or a prohibition of independently authorized fresh execution.
+
+The [lifecycle observation 1.0 schema](../../schemas/execution-lifecycle-observation-1.0.schema.json),
+[lifecycle inspection 1.0 schema](../../schemas/execution-lifecycle-inspection-1.0.schema.json)
+and [lifecycle projection 1.0 schema](../../schemas/execution-lifecycle-1.0.schema.json)
+are additive and do not change legacy eval/result/snapshot/terminal versions,
+existing exit policy or original billing. Strict admission rejects missing
+versions, null optional values, retagging and out-of-order observations; no
+implicit migration or ambient discovery is performed. Old artifacts do not
+acquire inferred liveness or progress. Production owner observers, bounded
+process controls and complete dashboard/release validation remain pending;
+see [lifecycle interpretation and delivery limits](../../guides/execution-lifecycle/).
+
 ### Native version policy
 
 Schema versions use `MAJOR.MINOR` format with no patch component.

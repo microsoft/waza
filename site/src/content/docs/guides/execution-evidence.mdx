@@ -1,0 +1,98 @@
+---
+title: Review execution evidence states
+description: Distinguish declared availability, recorded usage and current source integrity without inventing assurance success.
+---
+
+Execution evidence is a separate, opt-in `execution-evidence-1.0` sidecar. It
+references an already finalized immutable source manifest and is separately
+digested. It does not rewrite existing results, verdicts, usage or native
+bindings. Its publication is **derived**, not a new execution.
+
+## Read states without inventing evidence
+
+Every document contains exactly one record for each of conversation, tool,
+grader, reliability, usage and provenance.
+
+| State | What it means |
+|---|---|
+| `present` | A producer declares complete observations. Recorded zero and empty references explicitly declare observed empty. |
+| `unavailable` | No observation was recorded; count is absent. |
+| `incomplete` | Capture is partial or exceeded a real manifest limit. A recorded count is not a complete total. |
+| `redacted` | Privacy withholding, without payload references or counts. |
+| `conflicting` | Sources disagree; there is no order-dependent winning source or implicit pass. |
+
+Source kinds (`authored`, `mock`, `cached`, `live`, `unknown`) and context
+(`declared`, `observed`, `unknown`) are producer declarations. A digest, mock
+configuration or Copilot mode does not attest that an execution occurred.
+Passing recorded verdicts remain separate from evidence completeness.
+
+## Publish and inspect an optional sidecar
+
+Use an existing private immutable store whose origin and lineage manifests have
+already been finalized. `EVIDENCE.json` must contain real source digests and
+references, not substituted values from a sample:
+
+```bash
+waza artifact evidence publish EVIDENCE.json --store /path/to/private/store
+waza artifact evidence inspect EVIDENCE_SHA256 --store /path/to/private/store
+```
+
+The existing `--azure-container-url` option selects the explicit Azure provider;
+it does not provision storage or silently substitute a local provider. See
+[immutable artifacts](../immutable-artifacts/) for the underlying manifest
+publication boundary.
+
+The sidecar occupies its own content-addressed blob. It does not create a final
+marker or insert itself into its origin manifest. A failed post-publication read
+may leave that immutable blob; publication is not a whole-operation transaction.
+Its receipt describes the source bytes captured during that publication request;
+it is not a post-write atomic source snapshot. Later inspection and downloads
+perform fresh source admission.
+
+Source admission uses the actual committed completed-reader contract: requested
+bytes are captured in the same full verification pass, with finalized publication
+and current integrity both required. It does not reopen artifacts or reuse an
+old receipt, and is not an atomic cross-object snapshot or execution attestation.
+All-category producers and final attempt/ledger integration are unfinished; this
+page is not a claim that #768 is complete.
+
+## Review and download metadata
+
+The Lab runner's execution-evidence inspector shows declared states, exact
+recorded counts, unknown totals and source-manifest lineage. The synthetic demo
+does not reconstruct recorded evidence. Failed refreshes clear earlier results.
+
+The read-only endpoints are:
+
+```text
+GET /api/v1/evidence/{digest}
+GET /api/v1/evidence/{digest}/document
+GET /api/v1/evidence/{digest}/csv
+```
+
+Downloads require a fresh successful source inspection. Canonical JSON preserves
+native numeric values; CSV contains all six category rows, exact integer counts
+and empty cells for missing values. Browser display recovers original integer
+tokens instead of rounding them through JavaScript numbers.
+
+Current byte integrity is not execution attestation, category completeness,
+privacy authorization or assurance acceptance. Withhold restricted data before
+its original persistence; a sidecar cannot sanitize existing source artifacts.
+
+## Usage and migration
+
+Recorded usage admission reads explicitly referenced native `UsageStats` JSON,
+never terminal data. Required wire fields are validated before decoding.
+Recorded zero credits remain zero; absent/null credits or missing model
+attribution remain incomplete. A declared present-empty usage category does not
+manufacture a zero-valued usage object.
+
+The helper verifies recorded shape only. Other categories currently remain
+declarations. Aggregation additionally needs verified source/ownership admission
+and existing complete-credit semantics; it must not turn authored, cached or
+incomplete records into new live billing.
+
+There is no automatic migration or stronger default assurance. Old results
+without sidecars remain readable with their original defaults. Missing evidence
+stays unavailable, and legacy attempt ordinals do not become unique execution
+identifiers.

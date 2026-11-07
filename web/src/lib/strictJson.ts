@@ -1,5 +1,6 @@
-export function parseStrictJSON(text: string): unknown {
+export function parseStrictJSON(text: string, preserveIntegerTokens = false): unknown {
   let offset = 0;
+  const integers: { start: number; end: number; token: string }[] = [];
   const invalid = () => { throw new Error("Ambiguous or malformed JSON."); };
   if (text.length > 16 * 1024 * 1024) return invalid();
   const space = () => {
@@ -72,6 +73,9 @@ export function parseStrictJSON(text: string): unknown {
     const parts = /^-?(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(token);
     const value = Number(token);
     if (!parts || parts[1] === undefined || !Number.isFinite(value)) return invalid();
+    if (preserveIntegerTokens && /^-?(0|[1-9]\d*)$/.test(token)) {
+      integers.push({ start, end: offset, token });
+    }
     if (!Number.isInteger(value)) return;
     const fraction = parts[2] ?? "";
     const coefficient = parts[1] + fraction;
@@ -84,6 +88,15 @@ export function parseStrictJSON(text: string): unknown {
   read(0);
   space();
   if (offset !== text.length) return invalid();
+  if (preserveIntegerTokens) {
+    let preserved = "";
+    let cursor = 0;
+    for (const integer of integers) {
+      preserved += text.slice(cursor, integer.start) + JSON.stringify(integer.token);
+      cursor = integer.end;
+    }
+    return JSON.parse(preserved + text.slice(cursor));
+  }
   return JSON.parse(text, (_key: string, value: unknown) => {
     if (typeof value === "number" && !Number.isFinite(value)) return invalid();
     return value;

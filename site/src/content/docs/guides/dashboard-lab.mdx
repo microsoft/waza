@@ -53,6 +53,17 @@ does not substitute checkpoint data. No checkpoint catalog or resume command is
 included in this source-preview inspector. See the
 [checkpoint schema and compatibility limits](../../reference/schema-changes/).
 
+The unreleased v0.41 source additionally includes **Inspect execution lifecycle
+declarations** in the Runner section. It accepts explicit retained original
+context and ordered known observation digests, showing declared state, deadline,
+cancellation phase, retry advice, partial completion and heartbeat/orphan
+diagnostics. Verified worker progress remains unavailable; advisory next steps
+are text, never executable retry/cancel/reclaim controls. Failed inspection or
+context edits clear previous data. This read-only preview is not authenticated
+live lifecycle/recovery. It requires rebuilding dashboard assets from this
+source; no claim is made that older screenshots or published binaries include it.
+See [lifecycle interpretation and migration](../execution-lifecycle/).
+
 For a dashboard built from this source tree:
 
 ```bash

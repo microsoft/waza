@@ -1,0 +1,7 @@
+category,state,source,context,observed_count,reason,artifacts,origin_manifest,execution_id,limit_observed,limit_total
+conversation,present,authored,declared,0,,,943df82988b4f73e9a50469ff5319a15c6c2c089082f2686b29523cae26ec3d9,,,
+grader,redacted,mock,observed,,privacy,,943df82988b4f73e9a50469ff5319a15c6c2c089082f2686b29523cae26ec3d9,,,
+provenance,incomplete,authored,declared,9007199254740993,artifact_count_limit,,943df82988b4f73e9a50469ff5319a15c6c2c089082f2686b29523cae26ec3d9,,129,
+reliability,conflicting,authored,declared,,source_conflict,,943df82988b4f73e9a50469ff5319a15c6c2c089082f2686b29523cae26ec3d9,,,
+tool,unavailable,unknown,unknown,,not_recorded,,943df82988b4f73e9a50469ff5319a15c6c2c089082f2686b29523cae26ec3d9,,,
+usage,incomplete,mock,unknown,,partial_capture,,943df82988b4f73e9a50469ff5319a15c6c2c089082f2686b29523cae26ec3d9,,,

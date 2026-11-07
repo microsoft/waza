@@ -6,10 +6,14 @@ import capabilities from '../../../../schemas/runner-capabilities-1.0.schema.jso
 import unit from '../../../../schemas/runner-unit-1.0.schema.json';
 import terminal from '../../../../schemas/runner-terminal-1.0.schema.json';
 import artifacts from '../../../../schemas/artifact-manifest-1.0.schema.json';
+import evidence from '../../../../schemas/execution-evidence-1.0.schema.json';
 import attempts from '../../../../schemas/execution-attempt-1.0.schema.json';
 import completions from '../../../../schemas/execution-completion-1.0.schema.json';
 import checkpoint from '../../../../schemas/execution-checkpoint-1.0.schema.json';
 import checkpointResult from '../../../../schemas/runner-checkpoint-result-1.0.schema.json';
+import lifecycle from '../../../../schemas/execution-lifecycle-1.0.schema.json';
+import lifecycleObservation from '../../../../schemas/execution-lifecycle-observation-1.0.schema.json';
+import lifecycleInspection from '../../../../schemas/execution-lifecycle-inspection-1.0.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -20,10 +24,14 @@ export function getStaticPaths() {
     { params: { schema: 'runner-unit-1.0.schema' }, props: { schema: unit } },
     { params: { schema: 'runner-terminal-1.0.schema' }, props: { schema: terminal } },
     { params: { schema: 'artifact-manifest-1.0.schema' }, props: { schema: artifacts } },
+    { params: { schema: 'execution-evidence-1.0.schema' }, props: { schema: evidence } },
     { params: { schema: 'execution-attempt-1.0.schema' }, props: { schema: attempts } },
     { params: { schema: 'execution-completion-1.0.schema' }, props: { schema: completions } },
     { params: { schema: 'execution-checkpoint-1.0.schema' }, props: { schema: checkpoint } },
     { params: { schema: 'runner-checkpoint-result-1.0.schema' }, props: { schema: checkpointResult } },
+    { params: { schema: 'execution-lifecycle-1.0.schema' }, props: { schema: lifecycle } },
+    { params: { schema: 'execution-lifecycle-observation-1.0.schema' }, props: { schema: lifecycleObservation } },
+    { params: { schema: 'execution-lifecycle-inspection-1.0.schema' }, props: { schema: lifecycleInspection } },
   ];
 }
 
