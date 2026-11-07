@@ -33,6 +33,10 @@ Ordinary Linux, Windows, and preview validation run the broad Go suite with
 `make test-compat-inventory`, which checks the corpus prerequisites and prints
 the exact package inventory subsumed by that broad run; it does not execute the
 same packages a second time.
+Workflow regression controls execute the production test-selection shell with a
+recording Go substitute and compare its arguments with actual package discovery.
+They require the whole suite (excluding only the separately guarded native shard
+package on Linux), uncached race/atomic coverage, and no narrowing test selectors.
 
 Ordinary and `--runner-compat` benchmark summaries use the command's configured
 output writer and propagate write failures, including short writes, as output

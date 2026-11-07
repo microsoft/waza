@@ -3,6 +3,7 @@ package scripts
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -81,7 +82,81 @@ type ordinaryValidationStep struct {
 	Run  string `yaml:"run"`
 }
 
-func checkOrdinaryOfflineValidation(source []byte, workflowName string) error {
+func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool) error {
+	t.Helper()
+	scratch := t.TempDir()
+	inventory := filepath.Join(scratch, "packages")
+	arguments := filepath.Join(scratch, "arguments")
+	if err := os.WriteFile(inventory, []byte(strings.Join(packages, "\n")+"\n"), 0o600); err != nil {
+		return err
+	}
+	// Execute the workflow shell, but record Go invocations instead of rerunning tests.
+	probe := `#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  list)
+    test "$#" -eq 2
+    test "$2" = ./...
+    cat "$WAZA_PACKAGE_INVENTORY"
+    ;;
+  test)
+    test ! -e "$WAZA_TEST_ARGUMENTS"
+    shift
+    printf '%s\n' "$@" > "$WAZA_TEST_ARGUMENTS"
+    ;;
+  *) exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(scratch, "go"), []byte(probe), 0o700); err != nil {
+		return err
+	}
+	cmd := exec.Command("bash", "-e", "-o", "pipefail", "-c", command)
+	cmd.Env = append(os.Environ(),
+		"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"RUNNER_OS="+platform,
+		"WAZA_PACKAGE_INVENTORY="+inventory,
+		"WAZA_TEST_ARGUMENTS="+arguments,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: executing workflow test-selection probe: %w\n%s", platform, err, output)
+	}
+	captured, err := os.ReadFile(arguments)
+	if err != nil {
+		return fmt.Errorf("%s: workflow must execute Go tests: %w", platform, err)
+	}
+	args := strings.Split(strings.TrimSuffix(string(captured), "\n"), "\n")
+	requiredFlags := []string{"-count=1", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
+	var flags, selected []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			flags = append(flags, arg)
+		} else if arg == "./..." {
+			selected = append(selected, packages...)
+		} else {
+			selected = append(selected, arg)
+		}
+	}
+	slices.Sort(flags)
+	slices.Sort(requiredFlags)
+	if !slices.Equal(flags, requiredFlags) {
+		return fmt.Errorf("%s: Go test flags = %q; want %q without narrowing selectors", platform, flags, requiredFlags)
+	}
+	expected := slices.Clone(packages)
+	if sharded {
+		expected = slices.DeleteFunc(expected, func(name string) bool {
+			return name == "github.com/microsoft/waza/internal/controlledcomparison"
+		})
+	}
+	slices.Sort(selected)
+	slices.Sort(expected)
+	if !slices.Equal(selected, expected) {
+		return fmt.Errorf("%s: Go test packages = %q; want exhaustive ordinary inventory %q", platform, selected, expected)
+	}
+	return nil
+}
+
+func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName string, packages []string) error {
+	t.Helper()
 	var workflow struct {
 		Jobs map[string]struct {
 			Steps []ordinaryValidationStep `yaml:"steps"`
@@ -115,6 +190,9 @@ func checkOrdinaryOfflineValidation(source []byte, workflowName string) error {
 			if _, ok := positions[name]; !ok {
 				return fmt.Errorf("%s: missing %s", jobName, name)
 			}
+			if name != required[1] && conditions[name] != "" {
+				return fmt.Errorf("%s: %s must execute unconditionally", jobName, name)
+			}
 		}
 		for i := 1; i < len(required); i++ {
 			if positions[required[i-1]] >= positions[required[i]] {
@@ -131,6 +209,13 @@ func checkOrdinaryOfflineValidation(source []byte, workflowName string) error {
 		if strings.Count(testCommand, "go test ") == 0 ||
 			strings.Count(testCommand, "go test -count=1 ") != strings.Count(testCommand, "go test ") {
 			return fmt.Errorf("%s: broad Go tests must be uncached", jobName)
+		}
+		platform := "Linux"
+		if jobName == "build-and-test-windows" {
+			platform = "Windows"
+		}
+		if err := checkOrdinaryTestSelection(t, testCommand, platform, packages, workflowName == "go-ci.yml" && jobName == "build-and-test"); err != nil {
+			return fmt.Errorf("%s: %w", jobName, err)
 		}
 		if !strings.Contains(commands[required[3]], `"$COPILOT_CLI_PATH.invoked"`) {
 			return fmt.Errorf("%s: tolerated runtime launches must fail validation", jobName)
@@ -158,34 +243,56 @@ func checkOrdinaryOfflineValidation(source []byte, workflowName string) error {
 }
 
 func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
+	list := exec.Command("go", "list", "./...")
+	list.Dir = filepath.Join("..", "..")
+	output, err := list.Output()
+	if err != nil {
+		t.Fatalf("discover ordinary package inventory: %v", err)
+	}
+	packages := strings.Fields(string(output))
+	if !slices.Contains(packages, "github.com/microsoft/waza/cmd/waza") ||
+		!slices.Contains(packages, "github.com/microsoft/waza/internal/controlledcomparison") {
+		t.Fatalf("package discovery omitted required CLI/native packages: %v", packages)
+	}
 	for _, name := range []string{"go-ci.yml", "squad-preview.yml"} {
 		t.Run(name, func(t *testing.T) {
 			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := checkOrdinaryOfflineValidation(source, name); err != nil {
+			if err := checkOrdinaryOfflineValidation(t, source, name, packages); err != nil {
 				t.Fatal(err)
 			}
 			mutations := [][2]string{
 				{`bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
 				{"make test-compat-inventory", ":"},
 				{"go test -count=1 ", "go test "},
+				{"go test -count=1 ", "go test -count=1 -run '^$' "},
+				{"go test -count=1 ", "go test -count=1 -skip '.' "},
+				{"go test -count=1 ", "go test -count=1 -list '.' "},
+				{"      - name: Execute Tests\n        run:", "      - name: Execute Tests\n        if: false\n        run:"},
 				{`"$COPILOT_CLI_PATH.invoked"`, `"$COPILOT_CLI_PATH.unchecked"`},
 				{"bash .github/scripts/release_integration_test.sh", "./waza run"},
 			}
 			if name == "go-ci.yml" {
 				mutations = append(mutations,
+					[2]string{`"${selected[@]}"`, "./internal/models"},
+					[2]string{"go list ./...", "go list ./internal/models"},
+					[2]string{"github.com/microsoft/waza/internal/controlledcomparison", "github.com/microsoft/waza/cmd/waza"},
 					[2]string{"      - name: Integration Test\n        run:", "      - name: Integration Test\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
 					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
 				)
 			}
+			mutations = append(mutations,
+				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./internal/models"},
+				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./cmd/waza"},
+			)
 			for _, mutation := range mutations {
 				mutated := strings.Replace(string(source), mutation[0], mutation[1], 1)
 				if mutated == string(source) {
 					t.Fatalf("mutation did not change workflow: %s", mutation[0])
 				}
-				if err := checkOrdinaryOfflineValidation([]byte(mutated), name); err == nil {
+				if err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages); err == nil {
 					t.Fatalf("mutation was accepted: %s", mutation[0])
 				}
 			}
