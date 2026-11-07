@@ -6,6 +6,7 @@ import capabilities from '../../../../schemas/runner-capabilities-1.0.schema.jso
 import unit from '../../../../schemas/runner-unit-1.0.schema.json';
 import terminal from '../../../../schemas/runner-terminal-1.0.schema.json';
 import artifacts from '../../../../schemas/artifact-manifest-1.0.schema.json';
+import checkpoint from '../../../../schemas/execution-checkpoint-1.0.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -16,6 +17,7 @@ export function getStaticPaths() {
     { params: { schema: 'runner-unit-1.0.schema' }, props: { schema: unit } },
     { params: { schema: 'runner-terminal-1.0.schema' }, props: { schema: terminal } },
     { params: { schema: 'artifact-manifest-1.0.schema' }, props: { schema: artifacts } },
+    { params: { schema: 'execution-checkpoint-1.0.schema' }, props: { schema: checkpoint } },
   ];
 }
 
