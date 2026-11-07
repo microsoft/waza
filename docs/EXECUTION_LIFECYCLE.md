@@ -188,6 +188,27 @@ Standalone observation blobs remain declarations, not finalized-source
 authentication; actual same-manifest artifact binding and native runtime
 instrumentation are separate delivery requirements.
 
+The fresh owned engine factory can select `observer.RuntimeObservations()` in
+`CopilotEngineBuilderOptions.RuntimeObservations` after reservation. A sink binds
+once and cannot select a shared engine, another invocation or a finalized reuse.
+It captures actual client start/stop and force-call boundaries, context
+cancellation seen by the bounded send/disconnect handlers, and typed root-turn
+SDK abort events. These are separate scoped observations: a returned call is
+not model acknowledgement, a force invocation is not a successful kill, and a
+turn-abort event is not an OS process exit. The SDK's actual `Cmd.Wait` and
+`processDone` are private; **process exit remains unknown** in this adapter.
+
+Capture callbacks perform no I/O or user callbacks and never wait for another
+observer lock. Contention/overflow is explicit incomplete evidence, not success.
+The 126 runtime slots leave room for the reservation and terminal observations.
+Joined terminal handling seals detached metadata before publication; pending
+callbacks prevent complete-evidence claims, and late calls affect only a
+retained operator counter, never frozen bytes or a new sink. Sequence is sink
+append order, not sorted timestamps or cross-goroutine causal proof. Native
+metadata publication/public presentation still requires the actual owning
+same-manifest artifact and privacy/default-withheld integration; this capture
+does not introduce an unguarded public publication path.
+
 The existing validation-only **Site Build** workflow accepts every PR base for
 stacked layers and manual dispatch. Manual validation forces site/browser and
 offline-example execution after successful change detection, even with no

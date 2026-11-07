@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/executionlifecycle"
@@ -29,6 +30,8 @@ type LifecycleObserver struct {
 	deadline string
 	digests  []string
 	failure  error
+	runtime  *execution.OwnedRuntimeObservations
+	native   *execution.RuntimeObservationSnapshot
 }
 
 func NewLifecycleObserver(backend artifactmanifest.Backend, now func() time.Time) (*LifecycleObserver, error) {
@@ -80,6 +83,7 @@ func (o *LifecycleObserver) reserved(ctx context.Context, ledger *executionledge
 		return fmt.Errorf("admitting lifecycle observer: %w", err)
 	}
 	o.ledger, o.creator, o.original = ledger, creator, original
+	o.runtime = execution.NewOwnedRuntimeObservations()
 	if present {
 		o.deadline = deadline.UTC().Format(time.RFC3339Nano)
 	}
@@ -112,8 +116,28 @@ func (o *LifecycleObserver) terminal(ctx context.Context, ledger *executionledge
 	if !bytes.Equal(original.Bytes, o.original.Bytes) {
 		return fmt.Errorf("%w: lifecycle terminal changed original reservation", executionlifecycle.ErrContext)
 	}
+	native, err := o.runtime.Seal()
+	o.native = &native
+	if err != nil {
+		o.failure = fmt.Errorf("sealing owned runtime lifecycle evidence: %w", err)
+		return o.failure
+	}
 	o.failure = o.appendEvent(ctx, "terminal_recorded", &terminal)
 	return o.failure
+}
+
+// RuntimeObservations is selected by the fresh owned engine factory only after
+// reservation. No reuse path, persisted creator or second engine can bind it.
+func (o *LifecycleObserver) RuntimeObservations() (*execution.OwnedRuntimeObservations, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.original == nil || o.runtime == nil || o.native != nil {
+		return nil, executionledger.ErrCapability
+	}
+	if o.failure != nil {
+		return nil, o.failure
+	}
+	return o.runtime, nil
 }
 
 func (o *LifecycleObserver) appendEvent(ctx context.Context, kind string, terminal *runnerterminal.Envelope) error {

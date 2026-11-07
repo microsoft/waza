@@ -37,6 +37,9 @@ func TestLifecycleObserverActualSubmissionAndReuse(t *testing.T) {
 			defer cancel()
 			calls := 0
 			service := NewService(func(config models.Config) (execution.AgentEngine, error) {
+				capture, err := observer.RuntimeObservations()
+				require.NoError(t, err, "actual post-reservation factory can select only this invocation's sink")
+				require.NotNil(t, capture)
 				calls++
 				if name == "factory-failure" {
 					return nil, errors.New("controlled lifecycle factory failure")
@@ -77,6 +80,12 @@ func TestLifecycleObserverActualSubmissionAndReuse(t *testing.T) {
 				require.Equal(t, 1, calls)
 			}
 			require.Equal(t, outcome, result.Terminal.Outcome)
+			_, err = observer.RuntimeObservations()
+			require.ErrorIs(t, err, executionledger.ErrCapability, "joined terminal seals the original sink")
+			require.NotNil(t, observer.native)
+			require.False(t, observer.native.OwnedEngineBound, "mock/zero-factory outcomes do not invent native execution")
+			require.Empty(t, observer.native.Observations)
+			require.Equal(t, "unknown", observer.native.ProcessExit)
 			inspection, err := observer.Inspection(t.Context(), "2026-11-07T17:01:00Z", 60000)
 			require.NoError(t, err)
 			require.Equal(t, deadline.UTC().Format(time.RFC3339Nano), inspection.Deadline)
@@ -105,6 +114,8 @@ func TestLifecycleObserverActualSubmissionAndReuse(t *testing.T) {
 
 			reuseObserver, err := NewLifecycleObserver(backend, lifecycleClock())
 			require.NoError(t, err)
+			_, err = reuseObserver.RuntimeObservations()
+			require.ErrorIs(t, err, executionledger.ErrCapability, "no sink is exposed before an actual fresh reservation")
 			request.Selection.Attempt++
 			source := executionattempt.Source{ExecutionID: result.Reservation.ExecutionID,
 				ManifestDigest: result.Completion.ManifestDigest}
