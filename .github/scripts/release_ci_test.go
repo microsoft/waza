@@ -243,6 +243,13 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 		{"missing-preload-as-script", []string{index, favicon, js, css}, nil, "", false},
 		{"duplicate-src", []string{index, favicon, js, css}, nil, "", false},
 		{"preload-as-style", []string{index, favicon, js, css}, nil, "", true},
+		{"preload-without-entry", []string{index, favicon, js, css}, nil, "", false},
+		{"preload-without-stylesheet", []string{index, favicon, js, css}, nil, "", false},
+		{"inert-script-type", []string{index, favicon, js, css}, nil, "", false},
+		{"nomodule-entry", []string{index, favicon, js, css}, nil, "", false},
+		{"inert-script-language", []string{index, favicon, js, css}, nil, "", false},
+		{"disabled-stylesheet", []string{index, favicon, js, css}, nil, "", false},
+		{"executable-script-type", []string{index, favicon, js, css}, nil, "", true},
 	} {
 		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -322,6 +329,27 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 					html.WriteString("<script src=\"/assets/index-a.js\" src=\"/assets/missing.js\"></script>\n")
 				case "preload-as-style":
 					html.WriteString("<link REL=\"PRELOAD\" AS=\"STYLE\" href=\"./assets/index-b.css\">\n")
+				case "preload-without-entry":
+					html.Reset()
+					html.WriteString("<link rel=\"modulepreload\" href=\"/assets/index-a.js\"><link rel=\"stylesheet\" href=\"/assets/index-b.css\">\n")
+				case "preload-without-stylesheet":
+					html.Reset()
+					html.WriteString("<script src=\"/assets/index-a.js\"></script><link rel=\"preload\" as=\"style\" href=\"/assets/index-b.css\">\n")
+				case "inert-script-type":
+					html.Reset()
+					html.WriteString("<script type=\"application/json\" src=\"/assets/index-a.js\"></script><link rel=\"stylesheet\" href=\"/assets/index-b.css\">\n")
+				case "nomodule-entry":
+					html.Reset()
+					html.WriteString("<script nomodule src=\"/assets/index-a.js\"></script><link rel=\"stylesheet\" href=\"/assets/index-b.css\">\n")
+				case "inert-script-language":
+					html.Reset()
+					html.WriteString("<script language=\"vbscript\" src=\"/assets/index-a.js\"></script><link rel=\"stylesheet\" href=\"/assets/index-b.css\">\n")
+				case "disabled-stylesheet":
+					html.Reset()
+					html.WriteString("<script type=\"module\" src=\"/assets/index-a.js\"></script><link rel=\"stylesheet\" disabled href=\"/assets/index-b.css\">\n")
+				case "executable-script-type":
+					html.Reset()
+					html.WriteString("<script type=\"application/javascript\" src=\"/assets/index-a.js\"></script><link rel=\"stylesheet\" href=\"/assets/index-b.css\">\n")
 				}
 				switch fixture.name {
 				case "empty-referenced-js":

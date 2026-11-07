@@ -31,7 +31,8 @@ const html = readFileSync(join(root, 'index.html'), 'utf8').replace(/<!--[\s\S]*
 const tags = [...html.matchAll(/<(script|link)\b([^>]*)>/gi)];
 assert(tags.length === [...html.matchAll(/<(?:script|link)\b/gi)].length,
   'malformed release dashboard script/link tag');
-const refs = [];
+let hasEntryScript = false;
+let hasStylesheet = false;
 for (const tag of tags) {
   const attributes = new Map();
   let remaining = tag[2];
@@ -59,7 +60,13 @@ for (const tag of tags) {
   const relative = decodeURIComponent(reference.split(/[?#]/, 1)[0]).replace(/^(?:\/|\.\/)/, '');
   assert(relative.startsWith('assets/'), `invalid release dashboard reference: ${reference}`);
   file(relative);
-  refs.push(relative);
+  const scriptType = (attributes.get('type') ||
+    (attributes.has('language') ? `text/${attributes.get('language')}` : '')).trim().toLowerCase();
+  const executable = ['', 'module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'].includes(scriptType);
+  if (tag[1].toLowerCase() === 'script' && relative.endsWith('.js') &&
+    executable && !attributes.has('nomodule')) hasEntryScript = true;
+  if (tag[1].toLowerCase() === 'link' && rel.includes('stylesheet') &&
+    relative.endsWith('.css') && !attributes.has('disabled')) hasStylesheet = true;
 }
-assert(refs.some((name) => name.endsWith('.js')), 'release dashboard index must reference JavaScript');
-assert(refs.some((name) => name.endsWith('.css')), 'release dashboard index must reference CSS');
+assert(hasEntryScript, 'release dashboard index must load a JavaScript entry script, not only preload it');
+assert(hasStylesheet, 'release dashboard index must load a CSS stylesheet, not only preload it');

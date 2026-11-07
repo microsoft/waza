@@ -78,6 +78,7 @@ It requires a nonempty regular index/favicon, JavaScript/CSS bundles, and every
 index-referenced asset, rejecting missing, partial, nonregular, or symlink output.
 Root-relative and relative asset URLs are checked locally; malformed or nonlocal
 script/stylesheet/preload references fail without fetching external content.
+The index must load an entry script and stylesheet; preload links alone do not count.
 The Linux suite also runs the embedded asset tests. Compile-only Windows/lint
 stubs are not release assets or proof that those asset tests executed.
 Extension provenance enumerates archive globs directly and requires a nonempty
