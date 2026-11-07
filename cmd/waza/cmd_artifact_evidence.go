@@ -8,6 +8,7 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/evidenceview"
 	"github.com/spf13/cobra"
 )
 
@@ -59,11 +60,13 @@ func newArtifactEvidenceCommand() *cobra.Command {
 				defer cancel()
 				var receipt evidencestate.Inspection
 				var categories []evidencestate.CategoryEvidence
+				var categoryReceipt evidenceview.Categories
 				switch action {
 				case "publish":
 					receipt, err = evidencestate.Publish(ctx, backend, *d)
 				case "categories":
-					receipt, categories, err = evidencestate.InspectCategories(ctx, backend, args[0])
+					categoryReceipt, err = evidenceview.InspectCategories(ctx, backend, args[0])
+					receipt, categories = categoryReceipt.Inspection, categoryReceipt.Categories
 				default:
 					receipt, err = evidencestate.Inspect(ctx, backend, args[0])
 				}
@@ -71,6 +74,7 @@ func newArtifactEvidenceCommand() *cobra.Command {
 					err = errors.Join(err, closeErr)
 					receipt.Document = nil
 					receipt.Integrity = "failed"
+					categoryReceipt.SourceContext = nil
 					receipt.Diagnostics = append(receipt.Diagnostics, artifactmanifest.Diagnostic{
 						Code: "storage_error", Message: "Evidence operation did not close successfully; no acceptance was established.",
 					})
@@ -82,16 +86,18 @@ func newArtifactEvidenceCommand() *cobra.Command {
 					}
 				}
 				if action == "categories" {
-					if err != nil && receipt.Document != nil {
+					if err != nil && receipt.Document != nil && !errors.Is(err, evidenceview.ErrContextAdmission) {
 						receipt.Diagnostics = append(receipt.Diagnostics, artifactmanifest.Diagnostic{
 							Code:    "category_admission_failed",
 							Message: "Some category claims were rejected; inspect their individual states. No assurance acceptance was established.",
 						})
 					}
-					return errors.Join(err, json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
-						evidencestate.Inspection
-						Categories []evidencestate.CategoryEvidence `json:"categories"`
-					}{receipt, categories}))
+					categoryReceipt.Inspection, categoryReceipt.Categories = receipt, categories
+					encodeErr := json.NewEncoder(cmd.OutOrStdout()).Encode(categoryReceipt)
+					if errors.Is(err, evidenceview.ErrContextAdmission) {
+						return &ExitCodeError{Code: 2, Err: errors.Join(err, encodeErr)}
+					}
+					return errors.Join(err, encodeErr)
 				}
 				return errors.Join(err, json.NewEncoder(cmd.OutOrStdout()).Encode(receipt))
 			},

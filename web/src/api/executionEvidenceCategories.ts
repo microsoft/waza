@@ -1,4 +1,5 @@
 import { parseStrictJSON } from "../lib/strictJson.ts";
+import { sourceContextConsistent, type SourceContext } from "../lib/sourceContext.ts";
 import type { EvidenceCategory, EvidenceState } from "./executionEvidence";
 
 export interface RecordedCategory {
@@ -15,6 +16,7 @@ export interface RecordedCategories {
   categories: RecordedCategory[];
   sourceVerified: boolean;
   admissionComplete: boolean;
+  sourceContext?: SourceContext;
 }
 
 const names = ["conversation", "tool", "grader", "reliability", "usage", "provenance"] as const;
@@ -95,7 +97,7 @@ export function parseRecordedCategories(text: string, expectedDigest: string, st
   if (!object(wire) || wire.evidence_sha256 !== expectedDigest || wire.publication !== "derived" ||
       wire.verification !== "content-and-declared-context-only" ||
       !["verified", "unverified", "failed"].includes(String(wire.integrity))) return invalid();
-  keys(wire, ["evidence_sha256", "publication", "integrity", "verification", "document", "sources", "diagnostics", "categories"]);
+  keys(wire, ["evidence_sha256", "publication", "integrity", "verification", "document", "sources", "diagnostics", "categories", "source_context"]);
   const sourceVerified = wire.integrity === "verified";
   if (!Array.isArray(wire.sources) || !Array.isArray(wire.diagnostics) || !Array.isArray(wire.categories) ||
       wire.categories.length !== names.length || (status === 200 && !sourceVerified) ||
@@ -128,6 +130,15 @@ export function parseRecordedCategories(text: string, expectedDigest: string, st
       declared.set(category, state(record.state));
     }
   }
+  const origin = object(wire.document) && typeof wire.document.origin_manifest === "string" ? wire.document.origin_manifest : undefined;
+  if (!sourceContextConsistent(wire.source_context, origin, status !== 200) ||
+      (!sourceVerified && wire.source_context !== undefined)) return invalid();
+  const context = wire.source_context;
+  if (context !== undefined) {
+    if (!object(wire.document) || !object(wire.document.execution_source) ||
+        (context.source && context.source.execution_id !== wire.document.execution_source.execution_id) ||
+        (status === 200 && context.state !== "verified")) return invalid();
+  }
   const seen = new Set<EvidenceCategory>();
   const categories = wire.categories.map((record, index): RecordedCategory => {
     if (!object(record) || !names.some((name) => name === record.category)) return invalid();
@@ -159,7 +170,8 @@ export function parseRecordedCategories(text: string, expectedDigest: string, st
       ...(record.usage === undefined ? {} : { usage: usage(record.usage, originalRecord.usage, categoryState) }),
     };
   });
-  return { categories, sourceVerified, admissionComplete: status === 200 };
+  return { categories, sourceVerified, admissionComplete: status === 200,
+    ...(context === undefined ? {} : { sourceContext: context }) };
 }
 
 export async function inspectRecordedCategories(digest: string, signal: AbortSignal): Promise<RecordedCategories> {
