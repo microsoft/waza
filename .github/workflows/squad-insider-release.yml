@@ -78,7 +78,8 @@ jobs:
           VERSION: ${{ needs.release-candidate.outputs.tag }}
         run: |
           if gh release view "$VERSION" --repo "${{ github.repository }}" > /dev/null 2>&1; then
-            echo "Insider release $VERSION already exists, skipping creation"
+            echo "Insider release $VERSION already exists; inspect its source and assets before retrying publication." >&2
+            exit 1
           else
             gh release create "$VERSION" ./waza ./waza.sha256 ./source-sha.txt \
               --repo "${{ github.repository }}" \

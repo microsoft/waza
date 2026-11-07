@@ -5,6 +5,13 @@ validation contract is `.github/workflows/release-validation.yml`; every retaine
 publisher must complete that workflow successfully for the exact source SHA it
 publishes.
 
+The tag workflow retains GitHub's success-only dependency conditions for each
+builder and publisher. Required validation and evidence-verification steps may
+not be skipped or tolerate failures; workflow regression controls exercise those
+bypasses on both LF and CRLF checkouts.
+Windows tests use the same proven native rejecting runtime guard as ordinary Go
+CI, and fail on its launch marker even if a test tolerates a rejected launch.
+
 ## Cutting a Release
 
 Create and push a semver tag:
@@ -44,6 +51,13 @@ stop there and rely on ordinary push CI instead of repeating the full release
 suite. A tagged branch head calls the same reusable validation workflow and
 publishes only its downloaded, digest-verified tested binary. Stable and insider
 release assets include `waza.sha256` and `source-sha.txt`.
+Generated `-insider` tags are excluded from candidate detection so retries still
+select the single base tag. New insider tags explicitly target the validated SHA.
+
+The six CLI matrix binaries and azd packages are release builds from the
+validated source, with recorded digests; they are not the Linux binary exercised
+by offline integration, nor proof of native execution on all six platforms.
+Extension packaging intentionally synchronizes version files before building.
 
 ## Retry and Partial-Publication Behavior
 
@@ -58,6 +72,10 @@ an earlier external write, rerun the same tag workflow only after inspecting the
 existing release/registry state. The workflow never treats a partially published
 release as proof that remaining publishers succeeded, and the version-sync PR is
 still subject to normal review and CI.
+The branch publishers fail closed on an existing release rather than assuming
+its tag and assets match validation or silently repairing partial publication.
+A maintainer must inspect the existing source and assets before retrying; these
+workflows never turn an existing or partially uploaded release into success.
 
 The version-sync PR remains open until its normal review requirements and real
 CI checks pass. The release workflow does not synthesize successful checks or

@@ -141,8 +141,14 @@ jobs:
       - name: Run Go Vet
         run: go vet ./...
 
+      - name: Install and prove Windows rejecting runtime guard
+        run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
+
       - name: Execute complete Windows tests
         run: go test -v -race -timeout=30m ./...
+
+      - name: Reject forbidden Windows runtime launches
+        run: test ! -e "$COPILOT_CLI_PATH.invoked"
 
   lint:
     name: Release lint
