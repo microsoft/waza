@@ -234,13 +234,19 @@ The public `/waza/schemas/execution-evidence-capture-1.0.schema.json` route
 serves the same source embedded by the native codec. Publishing this schema
 does not enable Submit or authorize source disclosure.
 
-The submission owner must consume the actual detached typed
-`SubmissionSnapshot.ObservedReport` from that one invocation and validate
-prepared content against independently retained originals. A callback's
-mutable report/terminal pair cannot authenticate original observations; raw
-report JSON never hydrates creator authority. Public submission remains blocked
-until that owner's committed first-publication policy is integrated. Extra
-artifact callbacks cannot replace or sanitize original source objects.
+The committed `ownedsubmission.CaptureHooks` consumes the actual detached typed
+`SubmissionSnapshot.ObservedReport` from that one invocation and validates
+prepared content against a fresh independently retained original snapshot.
+It explicitly withholds conversation/tool/reliability, publishes the capture
+index and canonical owner `execution-attempt.json` in that same source manifest,
+and never persists or returns the raw report by default. A callback's mutable
+report/terminal pair cannot authenticate original observations; raw report JSON
+never hydrates creator authority. Reuse admission checks original disclosure
+before deciding and never sanitizes or retags finalized source bytes.
+The separately derived sidecar may then reference that finalized source without
+another execution or source publication. Public Submit selection remains
+blocked; this embedding-only cooperating facade is not runtime attestation.
+Competing arbitrary artifact/publication callbacks are rejected.
 
 `CaptureReport(report, withheld)` consumes one fresh invocation-local
 `runnerunit.Report`. `Report.Terminal()` projects that same report and returns
