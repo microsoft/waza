@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 
 export async function startEvidenceHTTP(preview: string, digest: string, receipt: string, document: string, csv: string,
-  qualified?: { receipt: string; csv: string }) {
+  qualified?: { receipt: string; csv: string; status?: number }) {
   const requests: string[] = [];
   const failures: string[] = [];
   // Chromium attachment requests bypass Playwright interception. Serve actual
@@ -15,7 +15,7 @@ export async function startEvidenceHTTP(preview: string, digest: string, receipt
         return;
       }
       if (qualified && path === `/api/v1/evidence/${digest}/categories`) {
-        response.writeHead(200, { "Content-Type": "application/json" });
+        response.writeHead(qualified.status ?? 200, { "Content-Type": "application/json" });
         response.end(qualified.receipt);
         return;
       }
@@ -30,6 +30,11 @@ export async function startEvidenceHTTP(preview: string, digest: string, receipt
       for (const [suffix, extension, contentType, content, prefix] of attachments) {
         if (path !== `/api/v1/evidence/${digest}/${suffix}`) continue;
         requests.push(`${request.method} ${path}`);
+        if (suffix.startsWith("categories/") && qualified && (qualified.status ?? 200) !== 200) {
+          response.writeHead(qualified.status ?? 200, { "Content-Type": "application/json" });
+          response.end(qualified.receipt);
+          return;
+        }
         response.writeHead(200, {
           "Content-Type": contentType,
           "Content-Disposition": `attachment; filename="${prefix}-${digest}.${extension}"`,

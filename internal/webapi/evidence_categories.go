@@ -13,14 +13,13 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/evidenceview"
+	"github.com/microsoft/waza/internal/manifestaggregate"
 )
 
-type evidenceCategoryReader func(context.Context, string) (evidencestate.Inspection, []evidencestate.CategoryEvidence, error)
+type evidenceCategoryReader func(context.Context, string) (evidenceview.Categories, error)
 
-type evidenceCategoryReceipt struct {
-	evidencestate.Inspection
-	Categories []evidencestate.CategoryEvidence `json:"categories"`
-}
+type evidenceCategoryReceipt = evidenceview.Categories
 
 func registerEvidenceCategoryRoute(mux *http.ServeMux, read evidenceCategoryReader) {
 	for _, format := range []string{"", "document", "csv"} {
@@ -31,7 +30,8 @@ func registerEvidenceCategoryRoute(mux *http.ServeMux, read evidenceCategoryRead
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 			defer cancel()
-			inspection, categories, err := read(ctx, r.PathValue("digest"))
+			receipt, err := read(ctx, r.PathValue("digest"))
+			inspection, categories := receipt.Inspection, receipt.Categories
 			if err == nil && (inspection.Integrity != "verified" || inspection.Document == nil || len(categories) != 6) {
 				err = artifactmanifest.ErrCorrupt
 				inspection.Integrity, inspection.Document = "failed", nil
@@ -45,6 +45,11 @@ func registerEvidenceCategoryRoute(mux *http.ServeMux, read evidenceCategoryRead
 			status := http.StatusOK
 			switch {
 			case err == nil:
+			case errors.Is(err, manifestaggregate.ErrUnavailable):
+				status = http.StatusServiceUnavailable
+				slog.Error("recorded evidence context storage unavailable", "error", err)
+			case errors.Is(err, evidenceview.ErrContextAdmission):
+				status = http.StatusConflict
 			case errors.Is(err, artifactmanifest.ErrCorrupt), errors.Is(err, artifactmanifest.ErrConflict):
 				status = http.StatusConflict
 			case errors.Is(err, evidencestate.ErrInvalid), errors.Is(err, artifactmanifest.ErrInvalid):
@@ -55,13 +60,13 @@ func registerEvidenceCategoryRoute(mux *http.ServeMux, read evidenceCategoryRead
 				status = http.StatusServiceUnavailable
 				slog.Error("recorded evidence category inspection failed", "error", err)
 			}
-			if err != nil && inspection.Document != nil {
+			if err != nil && inspection.Document != nil && !errors.Is(err, evidenceview.ErrContextAdmission) {
 				inspection.Diagnostics = append(inspection.Diagnostics, artifactmanifest.Diagnostic{
 					Code:    "category_admission_failed",
 					Message: "Some category claims were rejected; inspect their individual states. No assurance acceptance was established.",
 				})
 			}
-			receipt := evidenceCategoryReceipt{inspection, categories}
+			receipt.Inspection, receipt.Categories = inspection, categories
 			if err != nil || format == "" {
 				writeJSON(w, status, receipt)
 				return
@@ -94,6 +99,15 @@ func encodeCategoryCSV(receipt evidenceCategoryReceipt) ([]byte, error) {
 	rows := [][]string{{"category", "declared_state", "admitted_state", "verification", "reason", "observed_count",
 		"turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "premium_requests", "ai_credits",
 		"declared_source", "declared_context", "origin_manifest", "evidence_sha256", "execution_id"}}
+	contextJSON := ""
+	if receipt.SourceContext != nil {
+		contextBytes, err := json.Marshal(receipt.SourceContext)
+		if err != nil {
+			return nil, err
+		}
+		contextJSON = string(contextBytes)
+		rows[0] = append(rows[0], "source_context_json")
+	}
 	records := make(map[evidencestate.Category]evidencestate.Record, len(receipt.Document.Categories))
 	for _, record := range receipt.Document.Categories {
 		records[record.Category] = record
@@ -119,6 +133,9 @@ func encodeCategoryCSV(receipt evidenceCategoryReceipt) ([]byte, error) {
 		}
 		record := records[category.Category]
 		row = append(row, string(record.Source), string(record.Context), receipt.Document.OriginManifest, receipt.EvidenceSHA256, executionID)
+		if receipt.SourceContext != nil {
+			row = append(row, contextJSON)
+		}
 		rows = append(rows, row)
 	}
 	err := csv.NewWriter(&data).WriteAll(rows)

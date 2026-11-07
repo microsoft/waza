@@ -14,6 +14,7 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/evidenceview"
 	"github.com/microsoft/waza/internal/projectconfig"
 )
 
@@ -115,8 +116,8 @@ func RegisterEvidenceRoutesWithBackend(mux *http.ServeMux, backend artifactmanif
 	registerEvidenceRoutes(mux, func(ctx context.Context, digest string) (evidencestate.Inspection, error) {
 		return evidencestate.Inspect(ctx, backend, digest)
 	})
-	registerEvidenceCategoryRoute(mux, func(ctx context.Context, digest string) (evidencestate.Inspection, []evidencestate.CategoryEvidence, error) {
-		return evidencestate.InspectCategories(ctx, backend, digest)
+	registerEvidenceCategoryRoute(mux, func(ctx context.Context, digest string) (evidenceview.Categories, error) {
+		return evidenceview.InspectCategories(ctx, backend, digest)
 	})
 }
 
@@ -129,21 +130,21 @@ func evidenceUnavailable(digest string, err error) (evidencestate.Inspection, er
 }
 
 func RegisterEvidenceRoutes(mux *http.ServeMux, resultsDir string, config *projectconfig.StorageConfig) {
-	read := func(ctx context.Context, digest string, allCategories bool) (result evidencestate.Inspection, categories []evidencestate.CategoryEvidence, resultErr error) {
+	read := func(ctx context.Context, digest string, allCategories bool) (result evidenceview.Categories, resultErr error) {
 		if err := evidencestate.ValidateDigest(digest); err != nil {
 			if allCategories {
-				return evidencestate.InspectCategories(ctx, nil, digest)
+				return evidenceview.InspectCategories(ctx, nil, digest)
 			}
 			result, err := evidencestate.Inspect(ctx, nil, digest)
-			return result, nil, err
+			return evidenceview.Categories{Inspection: result}, err
 		}
-		unavailable := func(err error) (evidencestate.Inspection, []evidencestate.CategoryEvidence, error) {
+		unavailable := func(err error) (evidenceview.Categories, error) {
 			result, resultErr := evidenceUnavailable(digest, err)
 			if allCategories {
 				_, missing, missingErr := evidencestate.InspectCategories(ctx, nil, digest)
-				return result, missing, errors.Join(resultErr, missingErr)
+				return evidenceview.Categories{Inspection: result, Categories: missing}, errors.Join(resultErr, missingErr)
 			}
-			return result, nil, resultErr
+			return evidenceview.Categories{Inspection: result}, resultErr
 		}
 		directory, azureURL := filepath.Join(resultsDir, ".waza-artifacts"), ""
 		if config != nil && config.Enabled && config.Provider == "azure-blob" {
@@ -161,25 +162,26 @@ func RegisterEvidenceRoutes(mux *http.ServeMux, resultsDir string, config *proje
 				resultErr = errors.Join(resultErr, err)
 				result.Document = nil
 				result.Integrity = "failed"
+				result.SourceContext = nil
 				result.Diagnostics = append(result.Diagnostics, artifactmanifest.Diagnostic{Code: "storage_error", Message: "Evidence inspection did not close successfully."})
 				if allCategories {
 					_, missing, missingErr := evidencestate.InspectCategories(ctx, nil, digest)
-					categories = missing
+					result.Categories = missing
 					resultErr = errors.Join(resultErr, missingErr)
 				}
 			}
 		}()
 		if allCategories {
-			return evidencestate.InspectCategories(ctx, backend, digest)
+			return evidenceview.InspectCategories(ctx, backend, digest)
 		}
-		result, err = evidencestate.Inspect(ctx, backend, digest)
-		return result, nil, err
+		result.Inspection, err = evidencestate.Inspect(ctx, backend, digest)
+		return result, err
 	}
 	registerEvidenceRoutes(mux, func(ctx context.Context, digest string) (evidencestate.Inspection, error) {
-		result, _, err := read(ctx, digest, false)
-		return result, err
+		result, err := read(ctx, digest, false)
+		return result.Inspection, err
 	})
-	registerEvidenceCategoryRoute(mux, func(ctx context.Context, digest string) (evidencestate.Inspection, []evidencestate.CategoryEvidence, error) {
+	registerEvidenceCategoryRoute(mux, func(ctx context.Context, digest string) (evidenceview.Categories, error) {
 		return read(ctx, digest, true)
 	})
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/evidenceview"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
@@ -145,7 +147,13 @@ func TestExecutionEvidenceRetryParentUsesActualCompletedSourceWithoutRewritingPu
 	require.Equal(t, http.StatusOK, response.Code)
 	require.JSONEq(t, string(output), response.Body.String())
 	require.Contains(t, response.Body.String(), `"lineage":[]`)
-	require.NotContains(t, response.Body.String(), parent.ManifestDigest)
+	var qualified evidenceview.Categories
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &qualified))
+	require.Empty(t, qualified.Document.Lineage, "derived parent context must not change immutable lineage")
+	require.NotNil(t, qualified.SourceContext)
+	require.NotNil(t, qualified.SourceContext.ParentContext)
+	require.Equal(t, "verified", qualified.SourceContext.ParentContext.State)
+	require.Equal(t, &parent, qualified.SourceContext.ParentContext.Source)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	node := exec.CommandContext(ctx, "node", "--input-type=module", "-e", `
@@ -158,6 +166,17 @@ const result = parseRecordedCategories(wire, original.evidence_sha256, 200);
 assert.equal(result.sourceVerified, true);
 assert.equal(result.categories.length, 6);
 assert.equal(original.document.lineage.length, 0);
+assert.equal(result.sourceContext.parent_context.state, "verified");
+assert.equal(result.sourceContext.parent_context.verification, "content-and-declared-context-only");
+for (const mutate of [
+  value => value.source_context.parent_context = null,
+  value => value.source_context.parent_context.source = value.source_context.source,
+  value => value.source_context.parent_context.parent_context = {},
+  value => value.source_context.parent_context.relationship = "branch",
+]) {
+  const bad = JSON.parse(wire); mutate(bad);
+  assert.throws(() => parseRecordedCategories(JSON.stringify(bad), original.evidence_sha256, 200));
+}
 `)
 	node.Stdin = bytes.NewReader(response.Body.Bytes())
 	result, err := node.CombinedOutput()
@@ -169,6 +188,18 @@ assert.equal(original.document.lineage.length, 0);
 		export := fixture.get(t, derived.EvidenceSHA256, suffix)
 		require.Equal(t, http.StatusOK, export.Code)
 		require.NotEmpty(t, export.Header().Get("Content-Disposition"))
+		if suffix == "/csv" {
+			rows, err := csv.NewReader(strings.NewReader(export.Body.String())).ReadAll()
+			require.NoError(t, err)
+			require.Len(t, rows, 7)
+			require.Equal(t, "source_context_json", rows[0][18])
+			for _, row := range rows[1:] {
+				require.Len(t, row, 19)
+				contextBytes, err := json.Marshal(qualified.SourceContext)
+				require.NoError(t, err)
+				require.JSONEq(t, string(contextBytes), row[18])
+			}
+		}
 	}
 }
 

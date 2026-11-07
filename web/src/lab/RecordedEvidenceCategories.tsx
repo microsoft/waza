@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { inspectRecordedCategories, RecordedCategoryError, type RecordedCategories } from "../api/executionEvidenceCategories";
 
-export default function RecordedEvidenceCategories({ digest, onSourceFailure }: { digest: string; onSourceFailure: () => void }) {
+export default function RecordedEvidenceCategories({ digest, onSourceFailure, onAdmissionChange }: {
+  digest: string; onSourceFailure: () => void; onAdmissionChange: (complete: boolean) => void;
+}) {
   const [receipt, setReceipt] = useState<RecordedCategories | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -10,6 +12,7 @@ export default function RecordedEvidenceCategories({ digest, onSourceFailure }: 
   async function inspect() {
     request.current?.abort();
     setReceipt(null);
+    onAdmissionChange(false);
     setError("");
     const controller = new AbortController();
     request.current = controller;
@@ -18,7 +21,10 @@ export default function RecordedEvidenceCategories({ digest, onSourceFailure }: 
       const result = await inspectRecordedCategories(digest, controller.signal);
       if (!controller.signal.aborted) {
         if (!result.sourceVerified) onSourceFailure();
-        else setReceipt(result);
+        else {
+          setReceipt(result);
+          onAdmissionChange(result.admissionComplete);
+        }
       }
     } catch (error) {
       if (!controller.signal.aborted) setError(error instanceof RecordedCategoryError ? error.message : "Recorded category inspection failed.");
@@ -35,7 +41,21 @@ export default function RecordedEvidenceCategories({ digest, onSourceFailure }: 
     {error && <p role="alert">{error} Previous admitted observations have been cleared.</p>}
     {receipt && <>
       {!receipt.sourceVerified && <p role="alert">Current source integrity failed. All recorded observations are withheld.</p>}
-      {receipt.sourceVerified && !receipt.admissionComplete && <p role="alert">Category admission reported a conflict or invalid shape. Independently verified facts remain visible, not acceptance.</p>}
+      {receipt.sourceVerified && !receipt.admissionComplete && <p role="alert">
+        {receipt.sourceContext ? "Current source or immediate parent context did not qualify." : "Category admission reported a conflict or invalid shape."}
+        {" "}Independently verified facts remain visible, not acceptance.
+      </p>}
+      {receipt.sourceContext && <p>Current source context: {receipt.sourceContext.state}; {receipt.sourceContext.verification}.
+        This is content and declared context, not runtime or billing attestation.</p>}
+      {receipt.sourceContext?.parent_context && <p aria-label="Immediate parent context">
+        Immediate declared parent: {receipt.sourceContext.parent_context.relationship}; {receipt.sourceContext.parent_context.state};
+        {" "}{receipt.sourceContext.parent_context.verification}.
+        {receipt.admissionComplete && receipt.sourceContext.parent_context.source && <>
+          {" "}Execution: <code>{receipt.sourceContext.parent_context.source.execution_id}</code>;
+          {" "}<a href={`/api/v1/manifests/${receipt.sourceContext.parent_context.source.manifest_digest}`}>Verified immediate parent manifest</a>.
+        </>}
+        {" "}One hop only. Unavailable ancestry is not a fully verified graph.
+      </p>}
       <div className="lab-table-scroll"><table>
         <caption>Admitted recorded categories, not declaration completeness</caption>
         <thead><tr><th scope="col">Category</th><th scope="col">Declared state</th><th scope="col">Admitted state</th><th scope="col">Observed count</th><th scope="col">Verification</th><th scope="col">Reason</th></tr></thead>
