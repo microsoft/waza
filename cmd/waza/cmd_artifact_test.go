@@ -107,6 +107,67 @@ func TestArtifactStoredInvalidDeclarationIsCorruptionNotInvalidInput(t *testing.
 	require.Equal(t, http.StatusBadRequest, recorder.Code, "invalid caller input must remain a distinct category")
 }
 
+func TestArtifactStoredManifestFailureRetainsFinalMarker(t *testing.T) {
+	for _, content := range []string{"corrupted", "removed"} {
+		for _, marker := range []string{"matching", "conflicting"} {
+			t.Run(content+"/"+marker, func(t *testing.T) {
+				directory, _, m, terminal := artifactCLIFixture(t)
+				backend, err := artifactmanifest.OpenLocal(filepath.Join(directory, ".waza-artifacts"))
+				require.NoError(t, err)
+				defer func() { require.NoError(t, backend.Close()) }()
+				store := artifactmanifest.NewStore(backend)
+				wire, err := artifactmanifest.Encode(m)
+				require.NoError(t, err)
+				digest, err := store.Create(context.Background(), wire)
+				require.NoError(t, err)
+				for _, a := range m.Artifacts {
+					var data []byte
+					if a.Name == m.TerminalArtifact {
+						data = terminal
+					}
+					require.NoError(t, store.Put(context.Background(), a, data))
+				}
+				receipt, err := store.Finalize(context.Background(), digest)
+				require.NoError(t, err)
+				require.Equal(t, "finalized", receipt.Publication)
+				require.Equal(t, "verified", receipt.Integrity)
+				root, err := os.OpenRoot(filepath.Join(directory, ".waza-artifacts"))
+				require.NoError(t, err)
+				defer func() { require.NoError(t, root.Close()) }()
+				require.NoError(t, root.Chmod("manifest-"+digest, 0o600))
+				require.NoError(t, root.Remove("manifest-"+digest))
+				if content == "corrupted" {
+					require.NoError(t, root.WriteFile("manifest-"+digest, []byte(`{"kind":"corrupted"}`), 0o400))
+				}
+				if marker == "conflicting" {
+					require.NoError(t, root.Chmod("final-"+digest, 0o600))
+					require.NoError(t, root.Remove("final-"+digest))
+					require.NoError(t, root.WriteFile("final-"+digest, []byte(strings.Repeat("f", 64)), 0o400))
+				}
+				mux := http.NewServeMux()
+				webapi.RegisterManifestRoutes(mux, directory, nil)
+				recorder := httptest.NewRecorder()
+				mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/manifests/"+digest, nil))
+				wantStatus, wantPublication := http.StatusConflict, "conflict"
+				if marker == "matching" {
+					wantPublication = "finalized"
+					if content == "removed" {
+						wantStatus = http.StatusNotFound
+					}
+				}
+				require.Equal(t, wantStatus, recorder.Code)
+				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &receipt))
+				require.Equal(t, wantPublication, receipt.Publication)
+				require.Equal(t, "failed", receipt.Integrity)
+				require.NotEmpty(t, receipt.Diagnostics)
+				completed, err := store.ReadCompleted(context.Background(), digest)
+				require.Error(t, err)
+				require.Nil(t, completed, "a retained final marker must never grant invalid source bytes")
+			})
+		}
+	}
+}
+
 func artifactCLIFixture(t *testing.T) (string, string, artifactmanifest.Manifest, []byte) {
 	t.Helper()
 	directory := t.TempDir()

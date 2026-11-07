@@ -139,6 +139,13 @@ func (s *Store) inspect(ctx context.Context, digest string, capture bool, names 
 	m, wire, err := s.load(ctx, digest)
 	if err != nil {
 		r.Diagnostics = append(r.Diagnostics, diagnostic(err))
+		if validDigest(digest) && s != nil && s.backend != nil {
+			markerErr := s.inspectMarker(ctx, digest, &r)
+			if markerErr != nil || r.Publication != "unfinalized" {
+				r.Integrity = "failed"
+			}
+			return r, nil, errors.Join(err, markerErr)
+		}
 		return r, nil, err
 	}
 	r.Attempt = m.Binding.Identity.Attempt
@@ -213,25 +220,8 @@ func (s *Store) inspect(ctx context.Context, digest string, capture bool, names 
 			r.Diagnostics = append(r.Diagnostics, Diagnostic{"terminal_mismatch", "Terminal bytes do not match the declared context. No execution attestation is provided."})
 		}
 	}
-	marker, err := s.backend.Get(ctx, "final-"+digest, 64)
-	switch {
-	case errors.Is(err, ErrMissing):
-	case errors.Is(err, ErrConflict):
-		r.Publication = "conflict"
+	if err := s.inspectMarker(ctx, digest, &r); err != nil {
 		failures = append(failures, err)
-		r.Diagnostics = append(r.Diagnostics, diagnostic(err))
-	case err != nil:
-		failures = append(failures, err)
-		r.Diagnostics = append(r.Diagnostics, diagnostic(err))
-	case !validDigest(string(marker)):
-		failures = append(failures, ErrCorrupt)
-		r.Diagnostics = append(r.Diagnostics, diagnostic(ErrCorrupt))
-	case string(marker) != digest:
-		r.Publication = "conflict"
-		failures = append(failures, ErrConflict)
-		r.Diagnostics = append(r.Diagnostics, diagnostic(ErrConflict))
-	default:
-		r.Publication = "finalized"
 	}
 	if len(failures) == 0 {
 		r.Integrity = "verified"
@@ -245,6 +235,28 @@ func (s *Store) inspect(ctx context.Context, digest string, capture bool, names 
 	return r, &CompletedPublication{
 		Manifest: *m, ManifestBytes: bytes.Clone(wire), ArtifactBytes: captured, Receipt: r,
 	}, nil
+}
+
+func (s *Store) inspectMarker(ctx context.Context, digest string, r *Receipt) error {
+	marker, err := s.backend.Get(ctx, "final-"+digest, 64)
+	switch {
+	case errors.Is(err, ErrMissing):
+		return nil
+	case errors.Is(err, ErrConflict):
+		r.Publication = "conflict"
+	case err != nil:
+	case !validDigest(string(marker)):
+		err = ErrCorrupt
+	case string(marker) != digest:
+		r.Publication = "conflict"
+		err = ErrConflict
+	default:
+		r.Publication = "finalized"
+	}
+	if err != nil {
+		r.Diagnostics = append(r.Diagnostics, diagnostic(err))
+	}
+	return err
 }
 
 // Finalize conditionally completes this manifest after content verification.
