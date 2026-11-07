@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 )
 
@@ -43,6 +44,12 @@ type Reservation struct {
 	Attempt executionattempt.Attempt
 	Bytes   []byte
 	Digest  string
+}
+
+type CompletionRecord struct {
+	Completion Completion
+	Bytes      []byte
+	Digest     string
 }
 
 // CompletedExecution retains original source bytes and billing evidence. Its
@@ -179,6 +186,9 @@ func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, 
 	if err != nil {
 		return Creator{}, err
 	}
+	if err := execution.ValidateOwnedRuntime(frozen.Attempt.Binding.ExecutionMode); err != nil {
+		return Creator{}, err
+	}
 	if err := l.parent(ctx, frozen.Attempt); err != nil {
 		return Creator{}, err
 	}
@@ -188,12 +198,14 @@ func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, 
 	return Creator{state: &creator{ledger: l, wire: bytes.Clone(data)}}, nil
 }
 
-func (l *Ledger) ReadCompleted(ctx context.Context, source executionattempt.Source, names ...string) (*CompletedExecution, error) {
-	reserved, err := l.ReadReservation(ctx, source.ExecutionID)
-	if err != nil {
-		return nil, err
+// ReadCompletion admits only the bounded canonical/key-bound declaration.
+// Missing is distinct from corrupt/I/O. It grants neither ownership nor verified
+// publication; use ReadCompleted with its actual manifest reference to verify.
+func (l *Ledger) ReadCompletion(ctx context.Context, id string) (*CompletionRecord, error) {
+	if l == nil || l.records == nil {
+		return nil, ErrCapability
 	}
-	data, err := l.records.ReadUnverified(ctx, "completion/"+source.ExecutionID)
+	data, err := l.records.ReadUnverified(ctx, "completion/"+id)
 	if err != nil {
 		return nil, fmt.Errorf("reading execution completion: %w", err)
 	}
@@ -205,19 +217,34 @@ func (l *Ledger) ReadCompleted(ctx context.Context, source executionattempt.Sour
 	if err != nil {
 		return nil, err
 	}
-	if !bytes.Equal(canonical, data) || completion.ExecutionID != source.ExecutionID ||
-		completion.ManifestDigest != source.ManifestDigest {
+	if !bytes.Equal(canonical, data) || completion.ExecutionID != id {
+		return nil, fmt.Errorf("%w: completion is not canonical or key-bound", ErrContext)
+	}
+	return &CompletionRecord{Completion: *completion, Bytes: bytes.Clone(data), Digest: artifactmanifest.Hash(data)}, nil
+}
+
+func (l *Ledger) ReadCompleted(ctx context.Context, source executionattempt.Source, names ...string) (*CompletedExecution, error) {
+	reserved, err := l.ReadReservation(ctx, source.ExecutionID)
+	if err != nil {
+		return nil, err
+	}
+	record, err := l.ReadCompletion(ctx, source.ExecutionID)
+	if err != nil {
+		return nil, err
+	}
+	completion := record.Completion
+	if completion.ManifestDigest != source.ManifestDigest {
 		return nil, fmt.Errorf("%w: completion contradicts original source", ErrContext)
 	}
 	publication, err := l.store.ReadCompleted(ctx, source.ManifestDigest, names...)
 	if err != nil {
 		return nil, fmt.Errorf("verifying completed execution artifacts: %w", err)
 	}
-	if err := ValidateContext(*completion, reserved.Bytes, publication.ManifestBytes); err != nil {
+	if err := ValidateContext(completion, reserved.Bytes, publication.ManifestBytes); err != nil {
 		return nil, err
 	}
-	return &CompletedExecution{Reservation: *reserved, Completion: *completion,
-		CompletionBytes: bytes.Clone(data), Publication: *publication}, nil
+	return &CompletedExecution{Reservation: *reserved, Completion: completion,
+		CompletionBytes: record.Bytes, Publication: *publication}, nil
 }
 
 // Complete admits only the retained original creator and a finalized, fully
