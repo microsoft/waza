@@ -8,7 +8,7 @@ This walkthrough is **offline harness validation**, not proof of agent quality.
 
 ## 1. Select the right build
 
-Published standalone `v0.39.1` (October 26, 2026) includes the
+Published standalone `v0.40.1` (November 6, 2026) includes the
 scenario/preflight/evidence journey introduced in v0.39.0 and described below,
 plus the `waza dev SKILL.md` file-target fix. Install it from
 [Releases](../reference/releases/) or run `waza update`; no source build is required.
@@ -16,11 +16,11 @@ If you prefer to build from source, use **Go 1.26+, Git LFS, Make,
 Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+**:
 
 ```bash
-git clone https://github.com/microsoft/waza.git
+git clone --branch v0.40.1 https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-make build
+make build VERSION=0.40.0
 ./waza --version
 export PATH="$PWD:$PATH"
 ```
@@ -29,6 +29,8 @@ export PATH="$PWD:$PATH"
 assets before Go compilation; bare `go build`/`go install` in a fresh checkout
 is not this procedure. See [Releases](../reference/releases/) for stable
 installers, native Windows binaries and separate azd extension availability.
+The explicit `VERSION` stamps the local binary; tagged source metadata is
+synchronized separately, as explained in [Releases](../reference/releases/).
 The shell examples use Bash; on Windows use a suitable development shell.
 Selected-file publication and strict durable collection have narrower platform
 support than ordinary execution.

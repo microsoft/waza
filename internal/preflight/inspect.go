@@ -182,19 +182,21 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 				addMixedExternalDiagnostic(r, err, path)
 				r.Complete = false
 				blockedMocks = append(blockedMocks, inspectBlockedTaskMCPMocks(r, spec, data, path, base))
+				inspectBlockedTaskUserInput(r, spec, data, path)
 				continue
 			}
 			if faultErr != nil {
 				r.add("task.version", Invalid, path, task.TestID, "", "Task mock sequences require explicit enclosing scenario schemaVersion 2.0.", "Select schemaVersion 2.0 with a scenario, or use legacy single responses.")
 			}
 			if err := task.ValidateForExecutor(spec.Config.EngineType); err != nil {
-				r.add("task.executor", Invalid, path, task.TestID, "", "Task settings are incompatible with the configured executor.", "Use copilot-sdk for command or MCP mocks and explicit judge reasoning effort.")
+				r.add("task.executor", Invalid, path, task.TestID, "", "Task settings are incompatible with the configured executor.", "Use copilot-sdk for command or MCP mocks, user_input_responses, and explicit judge reasoning effort.")
 			}
 			if task.CommandMocks != nil {
 				if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
 					r.add("task.version", Invalid, path, task.TestID, "", "Task command mocks require a supported enclosing schemaVersion.", "Select schemaVersion 1.3 or newer for legacy command mocks.")
 				}
 			}
+			inspectTaskUserInput(r, spec, task, path)
 			if len(task.MCPMocks) > 0 {
 				if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
 					r.add("task.version", Invalid, path, task.TestID, "", "Task MCP mocks require a supported enclosing schemaVersion.", "Select schemaVersion 1.1 or newer for MCP mocks.")
@@ -221,7 +223,7 @@ func inspectBlockedTaskMCPMocks(r *Report, spec *models.EvalSpec, data []byte, p
 		return nil
 	}
 	if spec.Config.EngineType != "copilot-sdk" {
-		r.add("task.executor", Invalid, path, declared.ID, "", "Task settings are incompatible with the configured executor.", "Use copilot-sdk for command or MCP mocks and explicit judge reasoning effort.")
+		r.add("task.executor", Invalid, path, declared.ID, "", "Task settings are incompatible with the configured executor.", "Use copilot-sdk for command or MCP mocks, user_input_responses, and explicit judge reasoning effort.")
 	}
 	if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
 		r.add("task.version", Invalid, path, declared.ID, "", "Task MCP mocks require a supported enclosing schemaVersion.", "Select schemaVersion 1.1 or newer for MCP mocks.")
@@ -230,6 +232,33 @@ func inspectBlockedTaskMCPMocks(r *Report, spec *models.EvalSpec, data []byte, p
 		inspectMCPMock(r, spec, mock, base, path, declared.ID)
 	}
 	return declared.MCPMocks
+}
+
+func inspectTaskUserInput(r *Report, spec *models.EvalSpec, task *models.TestCase, path string) {
+	if err := models.ValidateTaskUserInput(spec.Config, task); err != nil {
+		if !spec.Config.NativeUserInput {
+			r.add("task.user_input", Invalid, path, task.TestID, "", "Task user_input_responses require config.native_user_input: true in the eval.", "Enable native_user_input in a scenario eval (schemaVersion 2.0) with executor copilot-sdk.")
+			return
+		}
+		r.add("task.user_input", Invalid, path, task.TestID, "", "Task user_input_responses are invalid.", "Give each entry a string answer and, optionally, a valid question regular expression.")
+	}
+}
+
+// inspectBlockedTaskUserInput checks the scripted answers of a task whose full
+// decode failed, so an unresolved prerequisite cannot hide them.
+func inspectBlockedTaskUserInput(r *Report, spec *models.EvalSpec, data []byte, path string) {
+	if err := models.ValidateUserInputResponsesDocument(data); err != nil {
+		r.add("task.user_input", Invalid, path, "", "", "Task user_input_responses must be an array.", "Omit the field or supply an array of scripted answers.")
+		return
+	}
+	var declared struct {
+		ID                 string                            `yaml:"id"`
+		UserInputResponses *[]models.UserInputResponseConfig `yaml:"user_input_responses"`
+	}
+	if err := yaml.Unmarshal(data, &declared); err != nil {
+		return
+	}
+	inspectTaskUserInput(r, spec, &models.TestCase{TestID: declared.ID, UserInputResponses: declared.UserInputResponses}, path)
 }
 
 func inspectCapabilities(r *Report, spec *models.EvalSpec) {

@@ -404,7 +404,7 @@ config:
 | `judge_reasoning_effort` | string | judge default | Copilot SDK default effort for `prompt` graders, including `continue_session` graders; the grader can override it |
 | `executor`          | string    | `copilot-sdk`     | Executor: `mock` (local, echoes task metadata and file content) or `copilot-sdk` (real API)  |
 | `max_attempts`      | int       | 0                 | Maximum retry attempts per task on failure (0 = no retries) |
-| `group_by`          | string    | —                 | Group results by a field (e.g., `tags`, `task_id`)          |
+| `group_by`          | string    | —                 | Group results by `model` or each task's complete ordered `tags` set; commas/backslashes are escaped and an empty tag is shown as `\0` |
 | `fail_fast`         | bool      | false             | Stop the entire run on first task failure                   |
 | `skill_directories` | list[str] | `[]`              | Additional directories to search for skills                 |
 | `instruction_files` | list[str] | `[]`              | Instruction files to apply to every task                    |
@@ -522,7 +522,7 @@ Each `.json` fixture can either contain a single tool definition (tool name from
 
 ### Task-level MCP mocks
 
-**Source-build preview:** Published `v0.39.1` does not apply task-level
+**Added in v0.40.0:** Published `v0.39.1` does not apply task-level
 `mcp_mocks`.
 
 A task can declare `mcp_mocks` when one case needs a different response, for example approving a question that other tasks must decline. Each task entry replaces the eval mock with the same name for that task only, and a new name adds a mock. Other eval mocks still apply, so a task restates only the servers it changes.
@@ -606,6 +606,7 @@ empty-list replacement is unchanged.
 | --- | --- |
 | `command_mocks` | Commands the agent invokes through its shell, with deterministic process output and exit status. |
 | `mcp_mocks` | Structured MCP tool calls and server responses. |
+| `native_user_input` + task `user_input_responses` | Questions the agent asks the host through the Copilot SDK native `ask_user` tool. |
 | Hooks | Setup, teardown, or validation around tasks/evals; hooks do not intercept agent commands. |
 | Live integration tests | Verifying real CLI/service behavior, authentication, or infrastructure. Keep these separate from hermetic evals. |
 
@@ -827,6 +828,40 @@ expected:
 | `instruction_files` | string[] | Instruction files for this task (adds to eval-level files) |
 | `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](../../reference/cli/#waza-gate) (must always pass) |
 | `requirements` | array | Descriptive intent linked to explicitly scoped existing graders; does not add assertions or change pass/fail |
+| `user_input_responses` | array | Ordered scripted answers (`answer`, optional `question` regex) to native Copilot SDK `ask_user` questions; requires eval `config.native_user_input: true`. See [schema reference](/waza/reference/schema/#user_input_responses-optional) |
+
+### Answer native agent questions
+
+When the agent should ask the host questions through the Copilot SDK `ask_user`
+tool, set `config.native_user_input: true` in a scenario eval and script the
+answers in order. Unscripted or mismatched
+questions fail the run instead of receiving a default answer, and unused
+answers also fail it. Each entry has a required `answer` and an optional `question`
+regex; an answer equal to an offered choice selects it:
+
+```yaml
+user_input_responses:
+  - question: "(?is).*environment.*"
+    answer: staging
+  - answer: Fixes the login timeout.
+graders:
+  - name: answered
+    type: code
+    config:
+      language: javascript
+      assertions:
+        - "user_input_requests.length === 2 && user_input_requests.every(r => !r.error)"
+```
+
+Each request is recorded under `runs[].user_input_requests` with its session ID,
+offered choices, answer, `was_freeform`, `source`, and `error` when rejected.
+Omit `user_input_responses` or use `[]` when there are no scripted answers;
+`null` is invalid. Questions arriving after the agent's active send ends are
+rejected, including during session teardown.
+
+If the task also has an adaptive responder (`inputs.responder`), questions that
+the next scripted entry does not match are answered by the responder model
+instead of failing (`source: responder`); see [adaptive responder answers](/waza/reference/schema/#adaptive-responder-answers).
 
 ### Link intent to existing checks
 

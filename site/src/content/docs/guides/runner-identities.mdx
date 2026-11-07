@@ -6,7 +6,7 @@ description: Read input-derived runner lineage, reproduce frozen canonical vecto
 import ZoomImage from '../../../components/ZoomImage.astro';
 import producerVectors from '../../../../../internal/runnerunit/testdata/identities.json';
 
-**Source-build preview for v0.40.0, not a release announcement.** The
+**Available in standalone v0.40.0.** The
 [runner contract](../runner-contract/) admits one captured inline text unit.
 After exact admission, its CLI/API receipt includes `identity`, using algorithm
 version **`sha256-waza-c14n-v1`**. Validation derives identities without creating
@@ -181,7 +181,7 @@ rejection or failed reload clears old success. The synthetic demo invents no IDs
 
 ## Release and migration notes
 
-This unreleased layer adds metadata without changing existing local eval/task
+The v0.40.0 identity layer adds metadata without changing existing local eval/task
 schemas, commands or historical result IDs. Receipts lacking `identity` stay
 readable and show **unavailable**; no implicit backfill or default version applies.
 Compare **both algorithm version and ID**. The unshipped draft
@@ -192,8 +192,10 @@ verified reconstruction.
 
 Any change to canonical fields, type/tag/Unicode semantics, framing, namespaces,
 parent inclusion or hash algorithm needs a new identity version and new vectors.
-The current receipt is not the later terminal envelope. Terminal schema,
-emission, exit classification and persistence belong to the next release layer.
+Offline validation receipts are not execution terminal envelopes.
+[Terminal schema, emission and exit classification](../runner-terminal/)
+are a separate v0.40.0 contract; persistence remains out of scope.
 See the [developer integration contract](https://github.com/microsoft/waza/blob/main/docs/RUNNER_IDENTITIES.md)
 and [runner migration guide](../runner-contract/#compatibility-migration-and-evolution).
-The release article remains deferred until the required roadmap items merge.
+See [release scope and availability](../../reference/releases/) for the standalone
+binary, independent extension and digest-bound container boundaries.

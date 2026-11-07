@@ -5,9 +5,20 @@ test('container quickstart is navigable and distinguishes local IDs from publica
   await page.getByRole('link', { name: 'local runner container reference', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/guides\/runner-container\/$/);
   await expect(page.getByRole('heading', { name: 'Execute and inspect local outputs', exact: true })).toBeVisible();
-  await expect(page.getByText('no published v0.40.0 runner image or registry digest', { exact: false })).toBeVisible();
-  await expect(page.locator('main')).toContainText('manual-only GHCR publisher is defined in source, but has not been dispatched');
-  await expect(page.locator('main')).toContainText('package creation permission and public visibility remain unverified');
+  await expect(page.locator('main')).toContainText('Published native reference from v0.40.0 source; accepted on Linux AMD64.');
+  await expect(page.locator('main')).toContainText('Publication and public-image acceptance are separate gates');
+  await expect(page.locator('main')).toContainText('publisher run alone does not establish public visibility or caller acceptance');
+  await expect(page.locator('main')).toContainText('manual verifier must anonymously pull the exact digest');
+  await expect(page.locator('main')).toContainText('verify its source, platform and signed provenance');
+  await expect(page.locator('main')).toContainText('ghcr.io/microsoft/waza-runner-reference@sha256:ded068a636dc721b8e38dc2a68bcbcbdb0d4b33ce5da8d182d562d189a712a39');
+  await expect(page.locator('main')).toContainText('93e80d7fdcbf9206215366d6ecca7ed08d26b2b3');
+  await expect(page.locator('main')).toContainText('1/1 test, 0 skipped');
+  await expect(page.locator('main')).toContainText('waived for this one publication, not performed');
+  await expect(page.locator('main')).toContainText('Dockerfile does not inject main.version; the source default is dev');
+  await expect(page.locator('pre').filter({ hasText: 'docker pull --platform linux/amd64' }))
+    .toContainText('native_image=');
+  await expect(page.getByRole('link', { name: 'verifier result', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/actions/runs/41826111839');
   await expect(page.locator('pre').filter({ hasText: '--iidfile' })).toContainText('examples/runner/container/Dockerfile');
   const offlineRuns = page.locator('pre').filter({ hasText: '--pull=never' });
   await expect(offlineRuns).toHaveCount(2);

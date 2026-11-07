@@ -76,7 +76,7 @@ func sendAndWaitBounded(
 		select {
 		case <-forceDone:
 			return result.event, false, false, errors.Join(ctx.Err(), result.err)
-		default:
+		case <-timer.C:
 			return result.event, false, true, errors.Join(ctx.Err(), result.err)
 		}
 	case <-timer.C:
@@ -115,7 +115,7 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 		select {
 		case <-forceDone:
 			return false, false, errors.Join(ctx.Err(), err)
-		default:
+		case <-timer.C:
 			return false, true, errors.Join(ctx.Err(), err)
 		}
 	case <-timer.C:
@@ -698,6 +698,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	if preToolUseHook != nil {
 		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
+	userInputRejectionMark := req.UserInput.rejectionCount()
 	var enableAmbientDiscovery *bool
 	var skipAmbientRetrieval *bool
 	var memory *copilot.MemoryConfiguration
@@ -715,6 +716,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			OnUserInputRequest:  req.UserInput.Handler(),
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
@@ -749,6 +751,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			OnUserInputRequest:  req.UserInput.Handler(),
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
@@ -1047,6 +1050,8 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	}
 
 	// Send prompt with updated API
+	userInputCtx, cancelUserInput := context.WithCancel(sendCtx)
+	releaseUserInput := req.UserInput.BindTurn(userInputCtx)
 	var retireClient bool
 	_, sessionAbandoned, retireClient, err = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
@@ -1054,6 +1059,8 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	}, func() {
 		e.forceStopClient(client)
 	})
+	cancelUserInput()
+	releaseUserInput()
 	if retireClient {
 		e.retireClient(client)
 	}
@@ -1147,10 +1154,16 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		WorkspaceFiles:     workspaceFiles,
 		JudgeFiles:         judgeFiles,
 		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
+		UserInputRequests:  req.UserInput.Records(),
 		SessionID:          sessionID,
 		Usage:              usage,
 		UsageIsCumulative:  true,
 		UsageRevision:      usageRevision,
+	}
+
+	if rejected := req.UserInput.rejectionsSince(userInputRejectionMark); rejected != nil && resp.Success {
+		resp.Success = false
+		resp.ErrorMsg = rejected.Error()
 	}
 
 	if req.ToolPolicy != nil {

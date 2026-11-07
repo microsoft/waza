@@ -81,6 +81,12 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 	if err := writeBool(h, spec.Config.TriggerSkillRouting); err != nil {
 		return "", err
 	}
+	// Written only when enabled so existing cache keys stay unchanged.
+	if spec.Config.NativeUserInput {
+		if err := writeString(h, "native_user_input"); err != nil {
+			return "", err
+		}
+	}
 
 	// Include skill paths (critical for baseline A/B: with-skills vs without-skills
 	// must produce different cache keys)

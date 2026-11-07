@@ -278,12 +278,6 @@ func TestTerminalProductionOutcomes(t *testing.T) {
 				})
 			case "timeout":
 				want = runnerterminal.Timeout
-				service = NewService(func(cfg models.Config) (execution.AgentEngine, error) {
-					// Virtual time is advanced below; the real production
-					// constructor returns only after the parent deadline.
-					<-ctx.Done()
-					return execution.NewMockEngine(cfg.ModelID), nil
-				})
 			case "oversize-graders":
 				want = runnerterminal.InfrastructureFailure
 				request.Input.Task += "graders:\n"
@@ -291,7 +285,8 @@ func TestTerminalProductionOutcomes(t *testing.T) {
 					request.Input.Task += fmt.Sprintf("  - name: check%d\n    type: text\n    config:\n      contains: [hello]\n", i)
 				}
 			}
-			run := func(ctx context.Context) {
+			run := func(t *testing.T, ctx context.Context) {
+				t.Helper()
 				envelope, binding := service.RunTerminal(ctx, wire(t, request))
 				require.Equal(t, want, envelope.Outcome, "%+v", envelope)
 				data, err := runnerterminal.Encode(envelope, binding)
@@ -313,6 +308,11 @@ func TestTerminalProductionOutcomes(t *testing.T) {
 					require.Equal(t, binding.Identity, decoded.Identity)
 					require.Equal(t, binding.Selection, *decoded.Selection)
 				}
+				if control == "timeout" {
+					require.Equal(t, "startup", decoded.FailureBoundary)
+					require.Zero(t, decoded.EngineCalls)
+					require.Nil(t, decoded.Observation, "the factory deadline expires before execution starts")
+				}
 				if control == "oversize-graders" {
 					require.Equal(t, "terminalization", envelope.FailureBoundary)
 					require.Equal(t, "unrepresentable_evidence", envelope.Diagnostics[0].Code)
@@ -333,13 +333,26 @@ func TestTerminalProductionOutcomes(t *testing.T) {
 			}
 			if control == "timeout" {
 				synctest.Test(t, func(t *testing.T) {
-					var stop context.CancelFunc
-					ctx, stop = context.WithTimeout(t.Context(), time.Second)
+					ctx, stop := context.WithTimeout(t.Context(), time.Second)
 					defer stop()
-					run(ctx)
+					start := time.Now()
+					factories := 0
+					service = NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+						factories++
+						require.NoError(t, ctx.Err())
+						<-ctx.Done()
+						// Done closes before cancellation reaches child contexts.
+						// Join propagation before returning to the service.
+						synctest.Wait()
+						require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+						require.Equal(t, time.Second, time.Since(start))
+						return execution.NewMockEngine(cfg.ModelID), nil
+					})
+					run(t, ctx)
+					require.Equal(t, 1, factories)
 				})
 			} else {
-				run(ctx)
+				run(t, ctx)
 			}
 		})
 	}
@@ -429,7 +442,8 @@ func TestTerminalLifecycleErrorPrecedence(t *testing.T) {
 			if mode == "canceled" {
 				cancel()
 			}
-			check := func(ctx context.Context) {
+			check := func(t *testing.T, ctx context.Context) {
+				t.Helper()
 				envelope, binding := terminal(execute(ctx, report, input, engine))
 				want := runnerterminal.InfrastructureFailure
 				if mode == "canceled" {
@@ -451,10 +465,10 @@ func TestTerminalLifecycleErrorPrecedence(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 					defer cancel()
-					check(ctx)
+					check(t, ctx)
 				})
 			} else {
-				check(ctx)
+				check(t, ctx)
 			}
 		})
 	}

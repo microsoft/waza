@@ -326,6 +326,48 @@ mcp_mocks:
 	require.NotContains(t, string(data), "invalid.example")
 }
 
+func nativeUserInputEval(version string) string {
+	return strings.Replace(recoveryEval(version), "executor: copilot-sdk", "executor: copilot-sdk\n  native_user_input: true", 1)
+}
+
+func TestInspectUserInputResponsesRequireEvalOptIn(t *testing.T) {
+	task := validTask + "\nuser_input_responses:\n  - question: \"Continue.*\"\n    answer: \"yes\"\n"
+	for _, tc := range []struct {
+		name, eval, code string
+		invalid          bool
+	}{
+		{"no opt-in", recoveryEval("2.0"), "task.user_input", true},
+		{"opt-in", nativeUserInputEval("2.0"), "task.user_input", false},
+		{"mock executor", validEval, "task.executor", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := writeSuite(t, tc.eval, task)
+			r := Inspect(path, Options{})
+			require.Equal(t, tc.invalid, hasDiagnostic(r, tc.code, Invalid), "%+v", r.Diagnostics)
+			if !tc.invalid {
+				require.False(t, r.Failed(false), "%+v", r.Diagnostics)
+			}
+		})
+	}
+	t.Run("opt-in outside scenario eval", func(t *testing.T) {
+		path, _ := writeSuite(t, nativeUserInputEval("1.4"), validTask)
+		r := Inspect(path, Options{})
+		require.True(t, r.Failed(false), "%+v", r.Diagnostics)
+	})
+	for name, entry := range map[string]string{
+		"missing answer": "  - question: Continue?\n",
+		"empty question": "  - question: \"\"\n    answer: a\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path, _ := writeSuite(t, nativeUserInputEval("2.0"), validTask+"\nuser_input_responses:\n"+entry)
+			r := Inspect(path, Options{})
+			require.True(t, hasDiagnostic(r, "task.configuration", Invalid), "%+v", r.Diagnostics)
+			require.True(t, hasDiagnostic(r, "task.schema", Invalid), "%+v", r.Diagnostics)
+			require.False(t, r.Complete)
+		})
+	}
+}
+
 func TestInspectCommandFixtureInvalidIsNotVerified(t *testing.T) {
 	eval := strings.ReplaceAll(validEval, "executor: mock", "executor: copilot-sdk") + `
 command_mocks:
@@ -680,5 +722,39 @@ func TestInspectLockedGraderMergeFailureNames(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestInspectUserInputCheckedWhenTaskDecodeIsBlocked(t *testing.T) {
+	blocked := "id: task\nname: Task\ninputs: {prompt: Inspect.}\n" + pipelineYAML(t, map[string]any{
+		"graders": []any{offlineMatcherDeclaration("external", map[string]any{"json_schema": map[string]any{"$ref": "https://never-contact.invalid/s.json"}})},
+	})
+	for _, tc := range []struct {
+		name, eval, entry, message string
+		invalid                    bool
+	}{
+		{"no opt-in", recoveryEval("2.0"), "  - answer: \"yes\"\n", "require config.native_user_input", true},
+		{"null", recoveryEval("2.0"), "  null\n", "must be an array", true},
+		{"invalid regex", nativeUserInputEval("2.0"), "  - question: \"(\"\n    answer: \"yes\"\n", "user_input_responses are invalid", true},
+		{"valid", nativeUserInputEval("2.0"), "  - question: \"Continue.*\"\n    answer: \"yes\"\n", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := writeSuite(t, tc.eval, blocked+"user_input_responses:\n"+tc.entry)
+			r := Inspect(path, Options{})
+			if tc.name == "null" {
+				require.True(t, hasDiagnostic(r, "schema.external_reference", Unresolved), "%+v", r.Diagnostics)
+				require.True(t, hasDiagnostic(r, "task.configuration", Invalid), "%+v", r.Diagnostics)
+			} else {
+				require.True(t, hasDiagnostic(r, "task.configuration", Unresolved), "the external reference must still block decoding: %+v", r.Diagnostics)
+			}
+			require.False(t, r.Complete)
+			require.Equal(t, tc.invalid, hasDiagnostic(r, "task.user_input", Invalid), "%+v", r.Diagnostics)
+			require.Equal(t, tc.invalid, r.Failed(false), "%+v", r.Diagnostics)
+			for _, d := range r.Diagnostics {
+				if d.Code == "task.user_input" {
+					require.Contains(t, d.Message, tc.message, "the diagnostic must name the actual failure")
+				}
+			}
+		})
 	}
 }

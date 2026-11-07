@@ -19,7 +19,6 @@ import (
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/copilotevents"
-	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/failures"
@@ -111,6 +110,7 @@ type EvalRunner struct {
 	snapshotEvaluatorOnly   []string
 	snapshotWorkspaceLimits snapshot.WorkspaceLimits
 	wazaVersion             string
+	now                     func() time.Time
 	// evalRunID echoes EvaluationOutcome.RunID so per-run snapshots can be
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
@@ -182,6 +182,13 @@ func WithTaskFilters(patterns ...string) RunnerOption {
 func WithTagFilters(patterns ...string) RunnerOption {
 	return func(r *EvalRunner) {
 		r.tagFilters = patterns
+	}
+}
+
+// WithClock sets the clock used for run identity allocation.
+func WithClock(now func() time.Time) RunnerOption {
+	return func(r *EvalRunner) {
+		r.now = now
 	}
 }
 
@@ -279,6 +286,7 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		verbose:        cfg.Verbose(),
 		listeners:      []ProgressListener{},
 		failureHandler: failures.NewHandler(),
+		now:            time.Now,
 	}
 	r.newClassifier = func(cfg models.ResponderConfig, defaultModel string) responderClassifier {
 		return responder.NewWithReasoningEffort(r.engine, cfg, defaultModel, r.cfg.Spec().Config.ReasoningEffort)
@@ -287,6 +295,13 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		o(r)
 	}
 	return r
+}
+
+func (r *EvalRunner) currentTime() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
 }
 
 // OnProgress registers a progress listener
@@ -382,7 +397,7 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	// Compute the run ID once so the same value flows into both the
 	// telemetry root span and per-run snapshots (via r.evalRunID), and so
 	// runNormalBenchmark reuses it when building the EvaluationOutcome.
-	runID := fmt.Sprintf("run-%d", time.Now().Unix())
+	runID := newRunID(r.currentTime())
 	r.evalRunID = runID
 
 	// Open the root telemetry span for the whole eval. The span is a no-op
@@ -511,7 +526,7 @@ func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 	// from test code or alternative code paths that bypass RunBenchmark).
 	outcomeRunID := r.evalRunID
 	if outcomeRunID == "" {
-		outcomeRunID = fmt.Sprintf("run-%d", time.Now().Unix())
+		outcomeRunID = newRunID(r.currentTime())
 	}
 	outcome := &models.EvaluationOutcome{
 		SchemaVersion: models.CurrentResultSchemaVersion,
@@ -768,7 +783,7 @@ func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 // admissionTestCases selects the active tasks a run would execute, after task
 // and tag filters, without starting an engine.
 func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
-	testCases, err := r.loadTestCases()
+	testCases, err := LoadSelectedTestCases(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load test cases: %w", err)
 	}
@@ -781,81 +796,11 @@ func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
 	return testCases, nil
 }
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
-	spec := r.cfg.Spec()
-
-	// CSV dataset path: generate tasks from CSV rows
-	if spec.TasksFrom != "" {
-		return r.loadTestCasesFromCSV()
-	}
-
-	// Fall through to existing Tasks []string behavior
-	return r.loadTestCasesFromFiles()
+	return LoadSelectedTestCasesWithJobID(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime(), r.evalRunID)
 }
 
-// loadTestCasesFromCSV generates in-memory TestCases from CSV rows.
 func (r *EvalRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
-	return dataset.LoadTasks(r.cfg.Spec(), r.cfg.SpecDir(), time.Now())
-}
-
-// loadTestCasesFromFiles loads test cases from YAML files via glob patterns.
-func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
-	spec := r.cfg.Spec()
-
-	// Get base directory for test file resolution (spec directory)
-	baseDir := r.cfg.SpecDir()
-	if baseDir == "" {
-		baseDir = "."
-	}
-
-	// Resolve test file patterns relative to the spec directory
-	testFiles := []string{}
-	for _, pattern := range spec.Tasks {
-		fullPattern := filepath.Join(baseDir, pattern)
-		matches, err := filepath.Glob(fullPattern)
-		if err != nil {
-			return nil, err
-		}
-		testFiles = append(testFiles, matches...)
-	}
-
-	if len(testFiles) == 0 {
-		return nil, fmt.Errorf("no test files matched patterns: %v in directory: %s", spec.Tasks, baseDir)
-	}
-
-	var testCases []*models.TestCase
-	for _, path := range testFiles {
-		tc, err := models.LoadTestCase(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
-		}
-		if err := models.ValidateTaskFaultSources(tc.SourceBytes(), spec.SchemaVersion); err != nil {
-			return nil, fmt.Errorf("invalid test case %s: task fault sources: %w", path, err)
-		}
-		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
-			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-		}
-		if tc.CommandMocks != nil {
-			if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-			}
-		}
-		if len(tc.MCPMocks) > 0 {
-			if err := models.ValidateMCPMocksSchemaVersion(spec); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-			}
-			// Fixtures are admitted only for selected active tasks; see admitEvalMCPMocks.
-			if err := mcpmock.ValidateInlineMockDeclarations(tc.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: MCP mock admission: %w", path, err)
-			}
-		}
-		// Only include active test cases
-		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
-		if tc.Active == nil || *tc.Active {
-			testCases = append(testCases, tc)
-		}
-	}
-
-	return testCases, nil
+	return loadSelectedTestCasesFromCSV(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime(), r.evalRunID)
 }
 
 // validateRequiredSkills performs preflight validation that all required skills are present.
@@ -1100,9 +1045,11 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 						tc.DisplayName, len(cachedOutcome.Runs), spec.Config.TrialsPerTask)
 				} else {
 					// Return cached outcome with cached flag. Stats derive from the
-					// cached runs, so recompute them in case an older waza wrote them.
+					// cached runs and group from current configuration, so recompute
+					// both in case an older waza wrote them.
 					cachedOutcome.Cached = true
 					cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
+					cachedOutcome.Group = r.resolveGroup(tc)
 					r.publishPartialTestOutcome(testNum, *cachedOutcome)
 					return *cachedOutcome, true
 				}
@@ -1203,7 +1150,7 @@ func (r *EvalRunner) buildTestOutcome(tc *models.TestCase, runs []models.RunResu
 	return models.TestOutcome{
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
-		Group:       r.resolveGroup(),
+		Group:       r.resolveGroup(tc),
 		Golden:      tc.Golden,
 		Status:      overallStatus(runs),
 		Runs:        runs,
@@ -1303,6 +1250,13 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			}
 		}
 		run.DependencyModes = configuredDependencyModes(req, models.EffectiveMCPMocks(r.cfg.Spec(), tc))
+		if req != nil && req.UserInput != nil {
+			// The attempt's script is authoritative; drain any question still
+			// waiting on the responder so it ends as an error, not pending.
+			req.UserInput.Drain()
+			records := req.UserInput.Records()
+			run.UserInputRequests = &records
+		}
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
@@ -1318,6 +1272,28 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	req = prepared
 	if req == nil {
 		req, mockAttempt, err = r.buildAttemptExecutionRequest(tc)
+	}
+	var userInput *execution.UserInputScript
+	var classifier responderClassifier
+	if err == nil {
+		userInput, classifier, err = r.newAttemptUserInput(tc)
+	}
+	if classifier != nil {
+		defer func() {
+			// Tear down the persistent responder session with a detached context so
+			// cleanup still runs even if ctx was canceled during the run.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), responderCleanupTimeout)
+			defer cancel()
+			if err := classifier.Close(cleanupCtx); err != nil {
+				slog.WarnContext(ctx, "failed to clean up responder session",
+					"test", tc.DisplayName, "error", err)
+			}
+		}()
+	}
+	if err == nil && userInput != nil {
+		attemptReq := *req
+		attemptReq.UserInput = userInput
+		req = &attemptReq
 	}
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
@@ -1426,9 +1402,17 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var responderInfo *models.ResponderInfo
 	if !stop && resp.ErrorMsg == "" {
 		if tc.Stimulus.Responder != nil {
-			responderInfo = r.executeResponderLoop(ctx, tc, req, resp, cps)
+			responderInfo = r.executeResponderLoop(ctx, tc, req, resp, cps, classifier)
 		} else if len(tc.Stimulus.FollowUps) > 0 {
 			r.executeFollowUps(ctx, tc, req, resp, cps)
+		}
+	}
+	if userInput != nil {
+		finishErr := userInput.Finish()
+		resp.UserInputRequests = userInput.Records()
+		if finishErr != nil && resp.ErrorMsg == "" {
+			resp.Success = false
+			resp.ErrorMsg = finishErr.Error()
 		}
 	}
 	commandInvocations := resp.CommandInvocations
@@ -1962,6 +1946,124 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 	return spec.CommandMocks
 }
 
+// newAttemptUserInput returns a fresh per-attempt native user-input script and
+// the attempt's adaptive responder classifier. The script exists only when the
+// eval sets config.native_user_input; the task's scripted answers are used
+// first and its adaptive responder, if any, answers the rest. Without the flag
+// the SDK callback stays unregistered.
+func (r *EvalRunner) newAttemptUserInput(tc *models.TestCase) (*execution.UserInputScript, responderClassifier, error) {
+	var classifier responderClassifier
+	if cfg := tc.Stimulus.Responder; cfg != nil {
+		classifier = &serializedClassifier{sem: make(chan struct{}, 1), inner: r.newClassifier(*cfg, r.cfg.Spec().Config.ModelID)}
+	}
+	if !r.cfg.Spec().Config.NativeUserInput {
+		return nil, classifier, nil
+	}
+	var responses []models.UserInputResponseConfig
+	if tc.UserInputResponses != nil {
+		responses = *tc.UserInputResponses
+	}
+	script, err := execution.NewUserInputScript(responses)
+	if err != nil {
+		return nil, classifier, err
+	}
+	if classifier != nil {
+		timeout, err := r.executionTimeout(tc)
+		if err != nil {
+			return nil, classifier, err
+		}
+		script.SetFallback(responderUserInputFallback(classifier, timeout))
+	}
+	return script, classifier, nil
+}
+
+// responderUserInputFallback answers a native question with the adaptive
+// responder. Only an explicit reply is an answer; stop and abstain fail closed.
+// ctx is the asking agent turn, so the call ends with that turn. Each call is
+// also bounded by the task timeout; without a deadline the SDK would apply
+// its own 60 second default to the responder turn.
+func responderUserInputFallback(classifier responderClassifier, timeout time.Duration) execution.UserInputFallback {
+	return func(ctx context.Context, request copilot.UserInputRequest) (string, error) {
+		callCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		decision, err := classifier.Classify(callCtx, nativeQuestionMessage(request))
+		if err != nil {
+			return "", err
+		}
+		switch decision.Kind {
+		case responder.DecisionReply:
+			return decision.Answer, nil
+		case responder.DecisionAbstain:
+			return "", fmt.Errorf("responder abstained: %s", decision.Reason)
+		default:
+			return "", fmt.Errorf("responder chose to stop instead of answering")
+		}
+	}
+}
+
+func nativeQuestionMessage(request copilot.UserInputRequest) string {
+	var b strings.Builder
+	b.WriteString("[The agent is asking you this question directly through a question prompt, mid-task.]\n\n")
+	b.WriteString("Question: " + request.Question + "\n")
+	if len(request.Choices) > 0 {
+		b.WriteString("Offered choices (to select one, reply with its exact text):\n")
+		for _, choice := range request.Choices {
+			b.WriteString("- " + choice + "\n")
+		}
+	}
+	if request.AllowFreeform != nil && !*request.AllowFreeform {
+		b.WriteString("You must reply with exactly one of the offered choices.\n")
+	}
+	b.WriteString("\nTo answer, call responder_reply with its required `answer` argument set to your non-empty answer text. " +
+		"Call responder_abstain with a `reason` only if the answer cannot be inferred from your configuration.\n")
+	return b.String()
+}
+
+// responderCleanupTimeout bounds closing the responder session after a run.
+var responderCleanupTimeout = 30 * time.Second
+
+// serializedClassifier keeps native questions and between-turn classification
+// on one responder session without concurrent use. sem is a one-slot lock that
+// waiting callers can abandon when their context ends.
+type serializedClassifier struct {
+	sem   chan struct{}
+	inner responderClassifier
+}
+
+func (c *serializedClassifier) lock(ctx context.Context) error {
+	select {
+	case c.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *serializedClassifier) Classify(ctx context.Context, agentMessage string) (responder.Decision, error) {
+	if err := c.lock(ctx); err != nil {
+		return responder.Decision{}, err
+	}
+	defer func() { <-c.sem }()
+	return c.inner.Classify(ctx, agentMessage)
+}
+
+// Close does not wait past ctx for a call still using the session. In that
+// case the session is closed in the background once that call returns.
+func (c *serializedClassifier) Close(ctx context.Context) error {
+	if err := c.lock(ctx); err != nil {
+		go func() {
+			c.sem <- struct{}{}
+			defer func() { <-c.sem }()
+			closeCtx, cancel := context.WithTimeout(context.Background(), responderCleanupTimeout)
+			defer cancel()
+			_ = c.inner.Close(closeCtx)
+		}()
+		return fmt.Errorf("responder session still in use; closing it when the call returns: %w", err)
+	}
+	defer func() { <-c.sem }()
+	return c.inner.Close(ctx)
+}
+
 func configuredDependencyModes(req *execution.ExecutionRequest, mcpMocks []models.MCPMockConfig) []models.DependencyMode {
 	if req == nil {
 		return nil
@@ -2061,6 +2163,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		}
 		followReq.Message = prompt
 		followReq.SessionID = resp.SessionID
+		followReq.UserInput = initial.UserInput
 		followReq.WorkspaceDir = resp.WorkspaceDir
 
 		if r.verbose {
@@ -2098,6 +2201,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		}
 
 		resp.CommandInvocations = followResp.CommandInvocations
+		resp.UserInputRequests = followResp.UserInputRequests
 		markToolPolicyViolation(followResp)
 		if followResp.ErrorMsg != "" {
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -2138,19 +2242,19 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 // When cps is non-nil, checkpoints scheduled at each turn boundary run after
 // every successful reply, and the loop stops early when a checkpoint with
 // on_failure: stop fails.
-func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, cps *checkpointRunner) *models.ResponderInfo {
+func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, cps *checkpointRunner, classifier responderClassifier) *models.ResponderInfo {
 	cfg := *tc.Stimulus.Responder
-	classifier := r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
-	defer func() {
-		// Tear down the persistent responder session with a detached context so
-		// cleanup still runs even if ctx was canceled during the run.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := classifier.Close(cleanupCtx); err != nil {
-			slog.WarnContext(ctx, "failed to clean up responder session",
-				"test", tc.DisplayName, "error", err)
-		}
-	}()
+	if classifier == nil {
+		classifier = r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), responderCleanupTimeout)
+			defer cancel()
+			if err := classifier.Close(cleanupCtx); err != nil {
+				slog.WarnContext(ctx, "failed to clean up responder session",
+					"test", tc.DisplayName, "error", err)
+			}
+		}()
+	}
 
 	info := &models.ResponderInfo{}
 	left := cfg.MaxFollowups
@@ -2216,6 +2320,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	}
 	followReq.Message = answer
 	followReq.SessionID = resp.SessionID
+	followReq.UserInput = initial.UserInput
 	followReq.WorkspaceDir = resp.WorkspaceDir
 
 	if r.verbose {
@@ -2251,6 +2356,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 		return false
 	}
 	resp.CommandInvocations = followResp.CommandInvocations
+	resp.UserInputRequests = followResp.UserInputRequests
 	markToolPolicyViolation(followResp)
 	if followResp.ErrorMsg != "" {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -2569,6 +2675,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		ToolEvents:         buildToolEvents(sdkEvents),
 		HostLifecycle:      buildHostLifecycle(sdkEvents),
 		CommandInvocations: resp.CommandInvocations,
+		UserInputRequests:  resp.UserInputRequests,
 		Executor:           r.engine,
 		JudgeModelFallback: r.cfg.Spec().Config.ModelID,
 		RecordUsage: func(digest models.SessionDigest) {
@@ -2660,12 +2767,21 @@ func (r *EvalRunner) buildTranscript(resp *execution.ExecutionResponse) []models
 }
 
 // resolveGroup returns the group value for the current benchmark configuration.
-// Currently only "model" is supported; CSV column grouping will be added with #187.
-func (r *EvalRunner) resolveGroup() string {
+func (r *EvalRunner) resolveGroup(tc *models.TestCase) string {
 	spec := r.cfg.Spec()
 	switch spec.Config.GroupBy {
 	case "model":
 		return spec.Config.ModelID
+	case "tags":
+		encoded := make([]string, len(tc.Tags))
+		for i, tag := range tc.Tags {
+			if tag == "" {
+				encoded[i] = `\0`
+				continue
+			}
+			encoded[i] = strings.NewReplacer(`\`, `\\`, ",", `\,`).Replace(tag)
+		}
+		return strings.Join(encoded, ", ")
 	case "":
 		return ""
 	default:

@@ -16,14 +16,14 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 ## Versioned artifacts
 
-This table describes the current source-build preview. Published standalone
+This table describes standalone v0.40.0. Published standalone
 `v0.39.1` writes results `1.7`; see [release availability](/waza/reference/releases/).
 
 | Artifact | Field | Current version |
 |---|---|---|
 | Legacy `eval.yaml` | `schemaVersion` | `1.4` |
 | Scenario `eval.yaml` | `schemaVersion` | Exact `2.0`, explicit opt-in |
-| Newly generated `results.json` | `schemaVersion` | `1.8` |
+| Newly generated `results.json` | `schemaVersion` | `1.9` |
 | Historical `results.json` | `schemaVersion` | Declared `1.x`; missing version defaults to `1.4` |
 | Task YAML | No independent version field | Existing legacy format, unchanged |
 | `snapshot.json` | `schemaVersion` | `1.1` (independent artifact) |
@@ -56,7 +56,7 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.
 - **MAJOR** changes are breaking. Legacy readers refuse artifacts from a different major version and point to `waza migrate <file>`; scenario-aware readers additionally accept explicitly selected scenario eval `2.0`.
 - Missing `schemaVersion` in legacy eval/result inputs continues to default to `1.4`. Declared same-major versions remain accepted and unchanged on read/re-save; unknown fields are warned about. Scenario-bearing evals must explicitly select `2.0` and cannot omit the version. Task YAML has no independent version field.
-- Current source evaluations and regrades write results `1.8`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
+- Current source evaluations and regrades write results `1.9`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
 
 Legacy results and snapshots without consumed evidence retain ordinary JSON
 decoding for opaque tool arguments, grader details and unknown fields, including
@@ -104,6 +104,32 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
   results 1.7 record no dependency modes and cannot be checked; clear the
   cache after removing MCP mocks from such an eval.
 
+### 1.9 (new results only)
+
+- Adds optional eval `config.native_user_input` (scenario `2.0` and `copilot-sdk`
+  only), which registers the Copilot SDK native user-input callback
+  (`OnUserInputRequest`, the `ask_user` tool) on the initial and every resumed
+  session of a run. Older executables reject the unknown config field instead of
+  silently ignoring scripted answers.
+- Adds optional task-level `user_input_responses`, which require the flag. Each entry has a required `answer`
+  and an optional `question` regex; entries are used in order, and an answer equal to
+  an offered choice selects it. A non-matching or unscripted question returns an
+  error to the SDK (never a default answer) and fails the run, as do unused entries.
+- With the flag, an adaptive responder (`inputs.responder`) answers native
+  questions that no pending scripted entry matches,
+  using its existing session and instructions. Scripted entries are tried first;
+  responder stop, abstain, errors, or invalid answers fail the run. Without the
+  flag, responders are unchanged.
+- Adds optional `tasks[].runs[].user_input_requests` (`[]` when the flag is on
+  and no question was asked; absent when it is off): one record per observed
+  request in arrival order with `sequence`, `session_id`, `question`, offered
+  `choices` (`null` when none were sent, `[]` when an empty list was sent),
+  `answer`, `was_freeform`, `source` (`script` or `responder`), and `error` when
+  the request was rejected. Inline `code` graders receive these
+  records as `user_input_requests`, including during offline regrading. They are
+  not copied into `snapshot.json` (still `1.1`). Structured elicitation forms
+  (`AskUserVariantElicitation`) are not supported.
+
 ### Host lifecycle evidence in results 1.8
 
 - Added optional `runs[].host_lifecycle`, projected only from structured native
@@ -146,7 +172,7 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 - Added optional per-run `evidence` and scoped `requirement_explanations` to
   results without changing task semantics or historical result versions.
   This feature originally shipped with writer `1.7`; current source writes
-  results `1.8`. The dashboard exposes every trial via
+  results `1.9`. The dashboard exposes every trial via
   `evidenceRuns` when any task run has evidence or requirement explanations.
   When all runs lack both, the API omits that field to preserve the legacy
   response shape; the dashboard fallback reports unassessed.

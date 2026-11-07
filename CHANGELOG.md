@@ -7,20 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Opt-in exact Copilot/text runner (v0.40.0 preview)** - Add negotiated `inline.copilot-text` execution through the owned production SDK engine for one declared shard/task/trial/attempt (#758). Requires explicit model and paid consent; tools and skills are disabled and general native file/tool/skill workflows remain unsupported. Paid HTTP execution additionally requires a loopback peer, localhost/loopback Host and same-origin browser requests; remote mock and offline routes retain their previous behavior. Admitted eval metrics are identity-bound, uncomputed metadata, not aggregate values or threshold decisions. Cancellation and effective execution/shutdown deadlines interrupt the private transport; lifecycle and incomplete-usage diagnostics cannot become success, and isolated sessions never resume with unrestricted defaults solely to retrieve usage. CLI/API, terminal schema and Lab distinguish `copilot` from `mock`. Existing mock requests, identity algorithm, local adapters and result formats are unchanged; older servers reject the new capability before execution. SDK-fake conformance is not live-provider or native-platform evidence. See [invocation and migration](site/src/content/docs/guides/runner-contract.mdx#opt-in-production-copilot-text-execution). No release or container publication is implied.
+### Added
+
+- **Native question callbacks** - Scenario evals can set `config.native_user_input: true` to give the agent the Copilot SDK `ask_user` tool (#818). Questions are answered by task `user_input_responses` (ordered `answer` entries with an optional `question` regex) and then by the task's adaptive responder; anything unexpected fails the run instead of getting a default answer. Results from current source use schema `1.9` and record each question in `runs[].user_input_requests`. Evals without the flag are unchanged.
+
+### Fixed
+
+- **Cancellation force-stop join** - When a canceled send or disconnect finishes
+  during forced cleanup, join the force-stop callback within the remaining
+  post-force grace instead of prematurely retiring its client. A callback that
+  remains blocked still retires the client at the existing deadline, without
+  labeling a completed session abandoned. This is post-v0.40.0 source behavior,
+  not included in the published v0.40.0 artifacts.
+
+- **Trial timeout recovery and result persistence** - Preserve completed results
+  and partial recovery snapshots after trial timeout, with bounded cancellation
+  and cleanup, shared-client replacement, observed-usage handling and owned-handle
+  output permissions ([#870](https://github.com/microsoft/waza/pull/870)).
+  This is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
+  The documented process-lifetime and trusted-output-directory limitations remain.
+
+## [0.40.1] - 2026-11-06
+
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.1)
+and separately versioned
+[azd extension](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1)
+are published. See the [release article](site/src/content/docs/releases/v0-40-1.mdx)
+and [download reference](site/src/content/docs/reference/releases.mdx).
+
+### Fixed
+
+- **Selected-task coverage** - `waza coverage` counts selected task files or CSV
+  rows through the execution task loader; equivalent glob and explicit selectors
+  agree, and an empty selection reports zero tasks with Partial coverage
+  ([#897](https://github.com/microsoft/waza/pull/897)).
+- **Strict token-budget exit** - `waza tokens check --strict` returns exit 1 for
+  exceeded budgets while advisory exceedance remains exit 0 and invalid input
+  remains exit 2 ([#896](https://github.com/microsoft/waza/pull/896)).
+- **Tag grouping** - `config.group_by: tags` resolves each task's complete
+  ordered tag set into the existing group field; tagged runs produce CLI and
+  JSON group statistics and untagged tasks remain ungrouped
+  ([#891](https://github.com/microsoft/waza/pull/891)).
+- **Lifecycle hook inputs** - Hook commands render top-level eval `inputs`,
+  reject rendered-empty commands and invalidate legacy task caches when hook
+  configuration or inputs change
+  ([#890](https://github.com/microsoft/waza/pull/890)).
+- **Same-second multi-model runs** - Sequential models receive distinct
+  nanosecond-resolution run IDs; historical duplicate IDs now produce a
+  diagnostic naming both artifacts instead of hiding one result
+  ([#886](https://github.com/microsoft/waza/pull/886)).
+- **Adversarial artifact directories** - Bare relative, `./` relative and
+  absolute `--artifacts-dir` paths execute the same selected pack
+  ([#887](https://github.com/microsoft/waza/pull/887)).
+- **First-event watchdog** - A healthy first Copilot event disarms the watchdog
+  without canceling the active request; the no-event timeout still cancels and
+  reports its distinct diagnostic
+  ([#884](https://github.com/microsoft/waza/pull/884)).
+- **JavaScript `code` grader input** - The JavaScript wrapper reads grading
+  context directly from file descriptor 0, avoiding intermittent `EAGAIN`
+  failures for large contexts on Linux and macOS. Assertions, results and the
+  Python wrapper are unchanged
+  ([#882](https://github.com/microsoft/waza/pull/882)).
+
+**Full comparison:** [v0.40.0...v0.40.1](https://github.com/microsoft/waza/compare/v0.40.0...v0.40.1).
+
+## [0.40.0] - 2026-11-04
+
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.0)
+is published. Extension artifacts and registry synchronization are independent;
+see [release availability](site/src/content/docs/reference/releases.mdx).
+The exact-unit runner controls do not fix the broader legacy multi-trial timeout
+issue [#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
+fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
 
 ### Added
 
-- **Selected AgentV assertion interoperability (v0.40.0 preview)** - Add offline, version-pinned `waza interop import/export` for one explicitly selected case-sensitive `contains` assertion and its single-check native grader mapping (#789). Retained upstream fixture/oracle controls verify binary decisions and scores; unsupported selected semantics fail explicitly and excluded task/suite semantics are reported. This is not whole-task/suite support: AgentEvals-spec, Harbor, ASSERT and full evidence/provenance round trips remain unsupported, and #789 remains open. See the [preview guide](site/src/content/docs/guides/external-interoperability.mdx).
+- **Opt-in exact Copilot/text runner** - Add negotiated `inline.copilot-text` execution through the owned production SDK engine for one declared shard/task/trial/attempt (#758). Requires explicit model and paid consent; tools and skills are disabled and general native file/tool/skill workflows remain unsupported. Paid HTTP execution additionally requires a loopback peer, localhost/loopback Host and same-origin browser requests; remote mock and offline routes retain their previous behavior. Admitted eval metrics are identity-bound, uncomputed metadata, not aggregate values or threshold decisions. Cancellation and effective execution/shutdown deadlines interrupt the private transport; lifecycle and incomplete-usage diagnostics cannot become success, and isolated sessions never resume with unrestricted defaults solely to retrieve usage. CLI/API, terminal schema and Lab distinguish `copilot` from `mock`. Existing mock requests, identity algorithm, local adapters and result formats are unchanged; older servers reject the new capability before execution. SDK-fake conformance is not live-provider or native-platform evidence. See [invocation and migration](site/src/content/docs/guides/runner-contract.mdx#opt-in-production-copilot-text-execution).
 
-- **Local runner container references (v0.40.0 preview)** - Keep the default scratch `reference` target mock/text-only and add an explicit digest-pinned Debian/glibc `native-reference` target for the exact-unit native Copilot text profile (#762). The real bundled CLI is exercised against an in-container synthetic provider with runtime networking disabled, alongside positive discovery/hook controls, restriction checks, exact selection, timeout, cancellation and process cleanup. Docker CI requires native Linux AMD64; local ARM64 or emulated runs are not equivalent. Neither target is published, and local image IDs are not registry pins. A separate manual verifier is prepared to anonymously pull the published immutable digest, verify source/platform/provenance, and run mock and bundled-native production-caller controls against that exact image; neither workflow has been dispatched, and public-image acceptance remains outstanding. No scheduler or Lab change is introduced. See the [quickstart](site/src/content/docs/guides/runner-container.mdx) and [maintainer update policy](examples/runner/container/MAINTAINERS.md).
+- **Selected AgentV assertion interoperability** - Add offline, version-pinned `waza interop import/export` for one explicitly selected case-sensitive `contains` assertion and its single-check native grader mapping (#789). Retained upstream fixture/oracle controls verify binary decisions and scores; unsupported selected semantics fail explicitly and excluded task/suite semantics are reported. This is not whole-task/suite support: AgentEvals-spec, Harbor, ASSERT and full evidence/provenance round trips remain unsupported, and #789 remains open. See the [assertion guide](site/src/content/docs/guides/external-interoperability.mdx).
 
-- **Bounded local compatibility (v0.40.0 preview)** - Add offline `runner adapt` and opt-in `run --runner-compat` for one literal mock/text task, trial and attempt (#761). Both use the byte-preserving adapter; local execution uses the shared runner service, current `EvaluationOutcome` writer schema 1.8 and local 0/1/2 exits. Ordinary `run`, historical schemas and artifact commands remain available; none are deprecated. Unsupported mappings, flags, ambient configuration, fixtures and adjacent trigger work fail explicitly. Remove `--runner-compat` to retain native/local behavior, or explicitly choose terminal JSON with `runner run`. No Lab change is required because no new result evidence/status is introduced. See the [compatibility and migration table](site/src/content/docs/guides/runner-compatibility.mdx). This is not a release announcement.
+- **Runner container references** - Keep the default scratch `reference` target mock/text-only and add an explicit digest-pinned Debian/glibc `native-reference` target for the exact-unit native Copilot text profile (#762). The real bundled CLI is exercised against an in-container synthetic provider with runtime networking disabled, alongside positive discovery/hook controls, restriction checks, exact selection, timeout, cancellation and process cleanup. Docker CI requires native Linux AMD64; local ARM64 or emulated runs are not equivalent. Local image IDs are not registry pins. The [published image record](site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence) identifies the immutable image digest, source, platform and successful publisher/verifier: anonymous pull, signed provenance/finalization and mock plus bundled-native synthetic-provider production controls passed (1/1 test, 0 skipped). Infrastructure-owner review was waived for this one publication, not performed. This is not live-provider reliability or model-quality evidence. No scheduler or Lab change is introduced. See the [quickstart](site/src/content/docs/guides/runner-container.mdx) and [maintainer update policy](examples/runner/container/MAINTAINERS.md).
 
-- **Runner negotiation 1.0 (first v0.40.0 layer)** - Add offline JSON stdin/stdout `runner capabilities` and `runner negotiate`, matching HTTP APIs, strict request/response schemas, conformance fixtures and live Lab incompatibility diagnostics (#757). Compatibility alone never starts work.
-- **Exact captured mock/text work units (v0.40.0 preview)** - Add `runner validate` / `runner run` and HTTP equivalents with fail-closed shard/task/trial/attempt admission, one fresh engine call, no task scanning, cache or automatic retries, and live Lab selection validation (#758). Each explicit repeat executes again, not deduplication. Opt-in Copilot/text is described above; general native file/tool/skill workflows remain unavailable. Existing local commands and artifacts are unchanged; no forms are deprecated. See the [contract and migration guide](site/src/content/docs/guides/runner-contract.mdx).
-- **Input-derived runner identities (v0.40.0 preview)** - Admitted validation/execution receipts now carry `identity` with version `sha256-waza-c14n-v1`, canonical input digest and run/shard/task/trial/attempt lineage through CLI JSON, HTTP, Lab and validation export (#759). Independent frozen source and producer vectors define the stability boundary. Invalid/unadmitted work has no identity; later execution failures retain it without implying execution success. Historical local results and receipts without identities are unchanged and are not backfilled. The unshipped `sha256-json-v1` draft is not compatible; compare version and ID together. See [normalization, conformance and migration](site/src/content/docs/guides/runner-identities.mdx).
-- **Runner terminal envelope (v0.40.0 preview)** - `runner run` and HTTP `/runner/run` now emit one schema-validated `waza.runner-terminal` envelope, with success/evaluation/infrastructure/cancellation/timeout/unsupported/invalid exits 0–6, actual admitted identity and bounded observed verdicts (#760). This replaces only the earlier unshipped run receipt, not offline negotiation/validation or local result artifacts. Lab's explicit mock-run action shows and exports the real response; edits and errors clear stale success. Short/failed output never retries, and SIGKILL/host loss cannot guarantee delivery. See [outcomes, failure boundaries and migration](site/src/content/docs/guides/runner-terminal.mdx). No release blog or publication is implied.
+- **Bounded local compatibility** - Add offline `runner adapt` and opt-in `run --runner-compat` for one literal mock/text task, trial and attempt (#761). Both use the byte-preserving adapter; local execution uses the shared runner service, current `EvaluationOutcome` writer schema 1.8 and local 0/1/2 exits. Ordinary `run`, historical schemas and artifact commands remain available; none are deprecated. Unsupported mappings, flags, ambient configuration, fixtures and adjacent trigger work fail explicitly. Remove `--runner-compat` to retain native/local behavior, or explicitly choose terminal JSON with `runner run`. No Lab change is required because no new result evidence/status is introduced. See the [compatibility and migration table](site/src/content/docs/guides/runner-compatibility.mdx).
+
+- **Runner negotiation 1.0** - Add offline JSON stdin/stdout `runner capabilities` and `runner negotiate`, matching HTTP APIs, strict request/response schemas, conformance fixtures and live Lab incompatibility diagnostics (#757). Compatibility alone never starts work.
+- **Exact captured mock/text work units** - Add `runner validate` / `runner run` and HTTP equivalents with fail-closed shard/task/trial/attempt admission, one fresh engine call, no task scanning, cache or automatic retries, and live Lab selection validation (#758). Each explicit repeat executes again, not deduplication. Opt-in Copilot/text is described above; general native file/tool/skill workflows remain unavailable. Existing local commands and artifacts are unchanged; no forms are deprecated. See the [contract and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+- **Input-derived runner identities** - Admitted validation/execution receipts now carry `identity` with version `sha256-waza-c14n-v1`, canonical input digest and run/shard/task/trial/attempt lineage through CLI JSON, HTTP, Lab and validation export (#759). Independent frozen source and producer vectors define the stability boundary. Invalid/unadmitted work has no identity; later execution failures retain it without implying execution success. Historical local results and receipts without identities are unchanged and are not backfilled. The unshipped `sha256-json-v1` draft is not compatible; compare version and ID together. See [normalization, conformance and migration](site/src/content/docs/guides/runner-identities.mdx).
+- **Runner terminal envelope** - `runner run` and HTTP `/runner/run` now emit one schema-validated `waza.runner-terminal` envelope, with success/evaluation/infrastructure/cancellation/timeout/unsupported/invalid exits 0–6, actual admitted identity and bounded observed verdicts (#760). This replaces only the earlier unshipped run receipt, not offline negotiation/validation or local result artifacts. Lab's explicit mock-run action shows and exports the real response; edits and errors clear stale success. Short/failed output never retries, and SIGKILL/host loss cannot guarantee delivery. See [outcomes, failure boundaries and migration](site/src/content/docs/guides/runner-terminal.mdx).
 - **Task-level MCP mocks** - Task YAML accepts `mcp_mocks`. A task entry replaces the same-named eval-level mock for that task only, a new name adds a mock, and other eval-level mocks still apply. Run, preflight, `waza check` and result cache keys use each task's effective mocks. Mock fixtures are read only for enabled tasks selected by the run, and an eval-level mock's fixtures only when one of those tasks or configured trigger tests uses it. A task file that already contained an `mcp_mocks` key, previously ignored with an unknown-field warning, now applies it; an empty task list is rejected. `before_run` hooks now run before tasks are loaded for MCP admission and before the engine starts, still once per run (once per pass with `--baseline`), so they can generate task inputs. Admission retains trigger-only dependencies after initialization and each pass's setup. Ctrl+C during `before_run`, MCP admission or engine initialization now stops the run promptly, and `after_run` still runs once (bounded to one minute after an interrupt).
 - **Lab conversation viewer** - The opt-in Lab inspector shows recorded user and agent messages in saved order without mixing in tool events or inventing message provenance (#753). It displays the first repetition; missing messages remain unavailable.
 - **Program-grader context** - `WAZA_GRADING_CONTEXT` points program graders to a private temporary JSON file containing recorded run evidence, including tool and mocked-command observations (#799). Stdin and `WAZA_WORKSPACE_DIR` are unchanged; unavailable evidence remains null, and write or cleanup failures fail grading. See the [program grader](docs/graders/program.md) for privacy and same-user trust boundaries.
@@ -34,12 +108,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **JavaScript `code` grader input** - The JavaScript wrapper for `code` graders now reads its grading context directly from standard input (file descriptor 0) instead of through `process.stdin`, which made the pipe non-blocking. Large contexts, such as long transcripts, no longer fail intermittently with `EAGAIN` and an `exit status 1` grader error on Linux and macOS when the pipe is momentarily empty. Assertions, results and the Python wrapper are unchanged.
 - **MCP mock sequences across turns** - Finite MCP mock sequences now continue across initial, scripted follow-up, and responder-driven turns in one task attempt, even when the native runtime restarts the mock server. Each task, trial, and retry still starts fresh, and existing first-match and exhaustion behavior is unchanged. Existing eval YAML needs no new field or flag. Cleanup refuses detected replacements and fails the run if attempt-owned state cannot be removed.
 - **MCP mock cache invalidation** - MCP-backed task cache keys now include the resolved mock configuration, so changed inline or fixture responses run again. Tasks without MCP mocks keep their existing cache keys. A cached outcome that records a mocked MCP server the task no longer mocks is re-run instead of reused.
 - **Lab conversations** - Conversation views omit messages without non-whitespace text while retaining the original events in Trajectory (#801).
 - **Responder turns** - Successful responder decisions terminate classification rather than triggering a duplicate decision (#749). Execution errors without a responder decision remain visible instead of becoming successful turns (#796).
 - **ADC SDK and task diagnostics** - Honor configured HTTP retry limits, initialize Apps consistently and interrupt blocked port-forward I/O on cancellation. Unsupported task `inputs.environment` is reported without exposing values instead of silently ignored (#842); per-task environment support is not added.
+
+**Full comparison:** [v0.39.1...v0.40.0](https://github.com/microsoft/waza/compare/v0.39.1...v0.40.0).
 
 ## [0.39.1] - 2026-10-26
 
@@ -696,7 +771,7 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.6...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.40.1...HEAD
 [0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
 [0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5
 [0.38.4]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.3...azd-ext-microsoft-azd-waza_0.38.4
