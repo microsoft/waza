@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -83,11 +84,20 @@ type ordinaryValidationStep struct {
 	ContinueOnError yaml.Node `yaml:"continue-on-error"`
 }
 
-func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool) error {
+func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool, captureSource ...[]byte) error {
 	t.Helper()
 	scratch := t.TempDir()
 	inventory := filepath.Join(scratch, "packages")
 	arguments := filepath.Join(scratch, "arguments")
+	discovery := filepath.Join(scratch, "discovery")
+	listed := filepath.Join(scratch, "listed")
+	scripts := filepath.Join(scratch, ".github", "scripts")
+	copyCICaptureScripts(t, scripts)
+	if len(captureSource) > 0 {
+		if err := os.WriteFile(filepath.Join(scripts, "ci_go_test_capture.sh"), captureSource[0], 0o600); err != nil {
+			return err
+		}
+	}
 	if err := os.WriteFile(inventory, []byte(strings.Join(packages, "\n")+"\n"), 0o600); err != nil {
 		return err
 	}
@@ -95,15 +105,46 @@ func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages
 	probe := `#!/usr/bin/env bash
 set -euo pipefail
 case "$1" in
+  version)
+    test "$#" -eq 1
+    echo 'go version go1.26.4 linux/amd64'
+    ;;
   list)
     test "$#" -eq 2
     test "$2" = ./...
+    test ! -e "$WAZA_PACKAGE_LISTED"
+    : > "$WAZA_PACKAGE_LISTED"
     cat "$WAZA_PACKAGE_INVENTORY"
     ;;
   test)
-    test ! -e "$WAZA_TEST_ARGUMENTS"
     shift
-    printf '%s\n' "$@" > "$WAZA_TEST_ARGUMENTS"
+    phase=execution
+    for arg in "$@"; do
+      if [ "$arg" = -list ]; then phase=discovery; fi
+    done
+    captured="$WAZA_TEST_ARGUMENTS"
+    if [ "$phase" = discovery ]; then captured="$WAZA_DISCOVERY_ARGUMENTS"; fi
+    test ! -e "$captured"
+    printf '%s\n' "$@" > "$captured"
+    while [ "$#" -gt 0 ] && [[ "$1" = -* ]]; do
+      if [ "$1" = -list ]; then shift 2; else shift; fi
+    done
+    if [ "$*" = ./... ]; then
+      selected=()
+      while IFS= read -r package; do selected+=("$package"); done < "$WAZA_PACKAGE_INVENTORY"
+    else
+      selected=("$@")
+    fi
+    for package in "${selected[@]}"; do
+      printf '{"Action":"start","Package":"%s"}\n' "$package"
+      if [ "$phase" = discovery ]; then
+        printf '{"Action":"output","Package":"%s","Output":"TestObserved\\n"}\n' "$package"
+      else
+        printf '{"Action":"run","Package":"%s","Test":"TestObserved"}\n' "$package"
+        printf '{"Action":"pass","Package":"%s","Test":"TestObserved","Elapsed":1}\n' "$package"
+      fi
+      printf '{"Action":"pass","Package":"%s","Elapsed":2}\n' "$package"
+    done
     ;;
   *) exit 1 ;;
 esac
@@ -112,11 +153,14 @@ esac
 		return err
 	}
 	cmd := exec.Command("bash", "-e", "-o", "pipefail", "-c", command)
+	cmd.Dir = scratch
 	cmd.Env = append(os.Environ(),
 		"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"RUNNER_OS="+platform,
 		"WAZA_PACKAGE_INVENTORY="+inventory,
 		"WAZA_TEST_ARGUMENTS="+arguments,
+		"WAZA_DISCOVERY_ARGUMENTS="+discovery,
+		"WAZA_PACKAGE_LISTED="+listed,
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%s: executing workflow test-selection probe: %w\n%s", platform, err, output)
@@ -126,7 +170,7 @@ esac
 		return fmt.Errorf("%s: workflow must execute Go tests: %w", platform, err)
 	}
 	args := strings.Split(strings.TrimSuffix(string(captured), "\n"), "\n")
-	requiredFlags := []string{"-count=1", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
+	requiredFlags := []string{"-count=1", "-json", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
 	var flags, selected []string
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
@@ -152,6 +196,45 @@ esac
 	slices.Sort(expected)
 	if !slices.Equal(selected, expected) {
 		return fmt.Errorf("%s: Go test packages = %q; want exhaustive ordinary inventory %q", platform, selected, expected)
+	}
+	discovered, err := os.ReadFile(discovery)
+	if err != nil {
+		return fmt.Errorf("%s: missing separate discovery invocation: %w", platform, err)
+	}
+	discoveryArgs := strings.Split(strings.TrimSuffix(string(discovered), "\n"), "\n")
+	prefix := []string{"-race", "-covermode=atomic", "-json", "-list", "."}
+	if len(discoveryArgs) < len(prefix) || !slices.Equal(discoveryArgs[:len(prefix)], prefix) {
+		return fmt.Errorf("%s: discovery flags = %q; want nonexecuting %q", platform, discoveryArgs, prefix)
+	}
+	discoveryPackages := discoveryArgs[len(prefix):]
+	if slices.Equal(discoveryPackages, []string{"./..."}) {
+		discoveryPackages = slices.Clone(packages)
+	}
+	slices.Sort(discoveryPackages)
+	if !slices.Equal(discoveryPackages, expected) {
+		return fmt.Errorf("%s: discovery packages = %q; want %q", platform, discoveryPackages, expected)
+	}
+	_, listErr := os.Stat(listed)
+	if sharded && listErr != nil {
+		return fmt.Errorf("%s: remaining selection must use authoritative go list ./...: %w", platform, listErr)
+	}
+	if !sharded && !os.IsNotExist(listErr) {
+		return fmt.Errorf("%s: full execution must preserve root ./... without separate package selection", platform)
+	}
+	reportData, err := os.ReadFile(filepath.Join(scratch, "coverage.txt.evidence.json"))
+	if err != nil {
+		return err
+	}
+	var report struct {
+		Complete      bool
+		DiscoveryExit *int `json:"discovery_exit"`
+		ExecutionExit *int `json:"execution_exit"`
+	}
+	if err := json.Unmarshal(reportData, &report); err != nil {
+		return err
+	}
+	if !report.Complete || report.DiscoveryExit == nil || *report.DiscoveryExit != 0 || report.ExecutionExit == nil || *report.ExecutionExit != 0 {
+		return fmt.Errorf("%s: workflow capture must finalize actual discovery and execution evidence", platform)
 	}
 	return nil
 }
@@ -243,9 +326,8 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 			return fmt.Errorf("%s: compatibility inventory must use the canonical Make target", jobName)
 		}
 		testCommand := commands[required[2]]
-		if strings.Count(testCommand, "go test ") == 0 ||
-			strings.Count(testCommand, "go test -count=1 ") != strings.Count(testCommand, "go test ") {
-			return fmt.Errorf("%s: broad Go tests must be uncached", jobName)
+		if !strings.Contains(testCommand, "bash .github/scripts/ci_go_test_capture.sh ") {
+			return fmt.Errorf("%s: broad Go tests must use the verified uncached capture caller", jobName)
 		}
 		platform := "Linux"
 		if jobName == "build-and-test-windows" {
@@ -332,26 +414,21 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 			mutations := [][2]string{
 				{`bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
 				{"make test-compat-inventory", ":"},
-				{"go test -count=1 ", "go test "},
-				{"go test -count=1 ", "go test -count=1 -run '^$' "},
-				{"go test -count=1 ", "go test -count=1 -skip '.' "},
-				{"go test -count=1 ", "go test -count=1 -list '.' "},
-				{"      - name: Execute Tests\n        run:", "      - name: Execute Tests\n        if: false\n        run:"},
+				{"bash .github/scripts/ci_go_test_capture.sh", ":"},
+				{"      - name: Execute Tests\n", "      - name: Execute Tests\n        if: false\n"},
 				{`"$COPILOT_CLI_PATH.invoked"`, `"$COPILOT_CLI_PATH.unchecked"`},
 				{"bash .github/scripts/release_integration_test.sh", "./waza run"},
 			}
 			if name == "go-ci.yml" {
 				mutations = append(mutations,
-					[2]string{`"${selected[@]}"`, "./internal/models"},
-					[2]string{"go list ./...", "go list ./internal/models"},
-					[2]string{"github.com/microsoft/waza/internal/controlledcomparison", "github.com/microsoft/waza/cmd/waza"},
+					[2]string{"ci_go_test_capture.sh remaining", "ci_go_test_capture.sh all"},
+					[2]string{"ci_go_test_capture.sh all", "ci_go_test_capture.sh remaining"},
 					[2]string{"      - name: Integration Test\n        run:", "      - name: Integration Test\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
 					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
 				)
 			}
 			mutations = append(mutations,
-				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./internal/models"},
-				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./cmd/waza"},
+				[2]string{"ci_go_test_capture.sh all coverage.txt", "ci_go_test_capture.sh all unexpected.txt"},
 				[2]string{`if [ -e "$COPILOT_CLI_PATH.invoked" ]; then`, "if true; then"},
 			)
 			message := "Preview Go tests attempted to launch the Copilot runtime."
@@ -370,6 +447,41 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 				if err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages); err == nil {
 					t.Fatalf("mutation was accepted: %s", mutation[0])
 				}
+			}
+		})
+	}
+}
+
+func TestOrdinaryCICaptureRejectsWeakenedDiscoveryExecutionAndInventory(t *testing.T) {
+	packages := []string{
+		"github.com/microsoft/waza/cmd/waza",
+		"github.com/microsoft/waza/internal/controlledcomparison",
+		"github.com/microsoft/waza/internal/models",
+	}
+	source, err := os.ReadFile("ci_go_test_capture.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range [][2]string{
+		{"-count=1 -json", "-json"},
+		{"-count=1 -json", "-count=2 -json"},
+		{"-count=1 -json", "-count=1"},
+		{"-count=1 -json", "-count=1 -run '^$' -json"},
+		{"-count=1 -json", "-count=1 -skip '.' -json"},
+		{"-count=1 -json", "-count=1 -list '.' -json"},
+		{"-race -covermode=atomic -json -list .", "-json -list ."},
+		{"go list ./...", "go list ./internal/models"},
+		{"github.com/microsoft/waza/internal/controlledcomparison", "github.com/microsoft/waza/cmd/waza"},
+		{`"${selected[@]}"`, "./internal/models"},
+	} {
+		t.Run(mutation[0], func(t *testing.T) {
+			changed := strings.Replace(string(source), mutation[0], mutation[1], 1)
+			if changed == string(source) {
+				t.Fatalf("capture mutation did not change source: %s", mutation[0])
+			}
+			command := "bash .github/scripts/ci_go_test_capture.sh remaining coverage.txt"
+			if err := checkOrdinaryTestSelection(t, command, "Linux", packages, true, []byte(changed)); err == nil {
+				t.Fatalf("weakened capture mutation admitted: %s", mutation[0])
 			}
 		})
 	}

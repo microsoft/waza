@@ -160,6 +160,135 @@ See [Offline Eval Preflight](../preflight/) for diagnostics and limitations.
 
 ## GitHub Actions
 
+### Repository CI performance evidence
+
+Waza's existing native Go shards, ordinary Linux/Windows and preview Go jobs,
+and dashboard Chromium job retain sanitized
+`ci-evidence-*` JSON artifacts for **14 days**, named by run and attempt (and
+native shard or ordinary job). They capture the actual checkout SHA separately from the
+workflow SHA, event, platform, runtime versions, execution policy and observed
+dependency-cache hits. Missing cache outputs stay `null`; configured caching is
+not proof of a hit or miss. No model calls or additional full-suite run are
+added. Native exhaustive inventory and atomic-coverage verification remain
+independent required gates.
+The release remaining-package layer is still pending its separate guard
+dependency; native shards used by release already share the same capture.
+
+Go discovery uses the existing shard `.all`/`.selected` inventories. Top-level
+tests, nested tests and packages have separate observed/executed/pass/fail/skip
+counts. `top_level_seconds` sums only top-level target durations, never their
+overlapping subtests; it is **not** wall-clock latency and parallel top-level
+tests can overlap. Playwright discovery is a separate `--list` operation, not
+another test run. Each browser result retains its retry index, so a final pass
+cannot replace a recorded initial failure. A no-browser producer contract test
+checks the current installed Playwright reporter using tiny pass/fail/skip
+controls before the real suite.
+Go execution and collector process exits are recorded separately from emitted
+test verdicts. A command failure after passing JSON records is not promoted to
+success; late failure without a terminal failing package is explicit incomplete
+evidence. Original command failures still determine the CI exit.
+Go compiler `ImportPath` records retain build diagnostics in the console, not
+the uploaded report; build failures remain explicit incomplete evidence.
+Browser evidence records the actual discovery and execution step outcomes.
+Failed discovery still attempts sanitized retention, including any available
+inventory; missing execution remains unavailable, not zero. A failing browser
+command with no terminal failure evidence is incomplete, while a fully observed
+test failure remains complete failure evidence. Baselines require successful
+recorded discovery and execution outcomes.
+
+The collectors omit stdout, error messages, stack traces and attachment payloads
+from these new artifacts. Raw Playwright discovery and execution JSON remain
+outside the uploaded test-results directory; only their sanitized report is
+added to retained artifacts. Existing console output and ordinary failure artifacts
+are unchanged. Inputs and individual outputs are bounded to 64 MiB, records to
+1 MiB, and target inventories to 100,000. Malformed/truncated input, missing
+durations, unfinished tests, selection mismatches and cancellations are explicit
+diagnostics with `complete: false`, not invented zero timings or success.
+`collector_seconds` records parser wall time (including input wait for streaming
+Go capture), **not** incremental instrumentation overhead.
+Go `collector_cpu_seconds` observes the collector process's own user/system CPU
+through final report preparation. It excludes child-process startup and artifact
+upload, and is not a claim about added full-pipeline latency.
+
+#### Finalize a completed run without rerunning tests
+
+Automatic job capture cannot observe its own final completion or upload.
+After completion, run this read-only command from the instrumented checkout:
+
+```bash
+node .github/scripts/ci-evidence.cjs actions RUN_ID actions-evidence.json
+```
+
+It reads only `microsoft/waza` Actions metadata through the existing `gh`
+identity. Original attempt failures/cancellations remain visible even if the
+final run is green. Retained job IDs are counted once across retries. The
+report separates first-attempt creation-to-start delay, each attempt's new-job
+span and retained-job span, longest observed step, summed elapsed runner-minutes
+by runner OS label, and source-bound artifact bytes. New-job span excludes
+earlier retained jobs. Job span is the observed critical-path
+envelope, not a reconstructed dependency DAG. Retry-request queue time is
+unavailable: the original creation timestamp must not be reused for retries.
+Elapsed runner-minutes and artifact bytes are **not billed cost**.
+
+Collection is capped at 10 attempts and 10 pages of 100 records per
+jobs/artifacts endpoint. An API failure, cap, missing timestamp or unverified
+source produces explicit incomplete evidence; the completed-run collector
+writes the available report and exits nonzero. Expired artifacts can retain
+metadata bytes but their test content is unavailable. Upload steps use
+`always()` where supported; cancellation, timeout, setup failure or runner loss
+can still prevent capture/upload. No cancellation-upload guarantee is made.
+No new workflow, token grant or publication bypass is installed.
+
+#### Non-blocking trends and reviewed timing history
+
+Finalize up to 10 distinct completed run IDs, without downloading ordinary
+logs or transcript artifacts:
+
+```bash
+node .github/scripts/ci-evidence.cjs trends RUN_ID_1,RUN_ID_2,RUN_ID_3 trends.json
+node .github/scripts/ci-evidence.cjs history RUN_ID_1,RUN_ID_2,RUN_ID_3 history-proposal.json
+```
+
+These commands read only the named sanitized artifacts from `microsoft/waza`,
+verify the GitHub artifact SHA-256 digest and exact single JSON member in memory
+(no archive extraction), and bind run/attempt/workflow source before admitting
+any observation. Local JSON declarations cannot establish this binding.
+Missing/expired artifacts, missing server digests and source mismatches are
+unavailable, not eligible samples. The collection is bounded to 100 reports and
+128 MiB aggregate compressed/expanded input; individual expanded files remain
+bounded to 64 MiB.
+Standard pull-request checkout uses GitHub's synthetic merge commit, whereas
+the Actions run API can report the PR source head. These are distinct identities.
+When that binding cannot be established, authenticated artifact observations
+are retained with `checkout_binding: "unavailable-pr-merge"` and the diagnostic
+`pull-request-merge-checkout-binding-unavailable`; they are not invalidated or
+silently assigned the source-head SHA. They cannot supply eligible baseline or
+history samples. This initial collector does not verify historical synthetic
+merge refs.
+Cohorts separate kind, checkout SHA, workflow, event/ref, OS/architecture, exact runtimes, selection,
+execution policy and cache observations. Duplicate run/attempt/job observations
+do not add samples. Eligibility requires complete successful first attempts,
+disabled test-result caching and retries, and observed misses for dependency
+caches. Unknown cache/runtime/source evidence is ineligible. Three **distinct
+comparable runs**, not three retries/tests within one run, are necessary before
+assessing any timing target. The initial summary always reports
+`attainment: "not-assessed"`; it installs no hard-fail timing budget.
+Artifact names alone do not authenticate an upload attempt. Runs whose API
+records more than one attempt retain available observations but cannot supply
+eligible baseline/history samples, even if an artifact claims attempt 1.
+
+`history-proposal.json` retains individual top-level measurements with exact
+run/attempt/checkout provenance, verified report-content SHA-256 and cohort,
+without changing the planner TSV.
+Review the complete source-bound artifacts and final Actions report before
+applying a same-cohort refresh to `.github/scripts/go_test_shard_durations.tsv`
+in a normal reviewed change. The canonical planner still uses authoritative
+discovery, longest-first assignment and the median historical duration for
+unknown targets (1 second only with empty history). History never admits or
+removes tests, and this instrumentation does not establish #825/#822 timing
+attainment. Locally authored reports and unverified/expired artifact content
+must not be promoted to execution evidence.
+
 ### Offline challenge assessment
 
 Use `waza assure eval.yaml --references labels.json` as a separate strict

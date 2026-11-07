@@ -1,0 +1,170 @@
+package scripts
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func copyCICaptureScripts(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{"ci_go_test_capture.sh", "ci-evidence.cjs"} {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, file), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestCIGoCaptureProductionSelectionAndExit(t *testing.T) {
+	const native = "github.com/microsoft/waza/internal/controlledcomparison"
+	packages := []string{"example/first", native, "example/last"}
+	for _, scope := range []string{"all", "remaining"} {
+		for _, failure := range []string{"", "discovery", "execution"} {
+			t.Run(scope+"/"+failure, func(t *testing.T) {
+				dir := t.TempDir()
+				scripts := filepath.Join(dir, "scripts")
+				copyCICaptureScripts(t, scripts)
+				bin := filepath.Join(dir, "bin")
+				if err := os.Mkdir(bin, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				fake := `#!/usr/bin/env bash
+set -euo pipefail
+if [ "$*" = version ]; then echo 'go version go1.26.4 linux/amd64'; exit 0; fi
+if [ "$*" = 'list ./...' ]; then printf '%s\n' example/first github.com/microsoft/waza/internal/controlledcomparison example/last; exit 0; fi
+printf '%s\n' "$@" >> "$CALLS"
+echo --end-- >> "$CALLS"
+if [ "$1" != test ]; then exit 88; fi
+shift
+if [ "$1" = -race ]; then
+  phase=discovery
+  shift 5
+else
+  phase=execution
+  shift 7
+fi
+if [ "$*" = ./... ]; then
+  selected=(example/first github.com/microsoft/waza/internal/controlledcomparison example/last)
+else
+  selected=("$@")
+fi
+if [ "$FAIL_PHASE" = discovery ] && [ "$phase" = discovery ]; then exit 7; fi
+for package in "${selected[@]}"; do
+  printf '{"Action":"start","Package":"%s"}\n' "$package"
+  if [ "$phase" = discovery ]; then
+    printf '{"Action":"output","Package":"%s","Output":"TestObserved\\n"}\n' "$package"
+  else
+    printf '{"Action":"run","Package":"%s","Test":"TestObserved"}\n' "$package"
+    printf '{"Action":"pass","Package":"%s","Test":"TestObserved","Elapsed":1}\n' "$package"
+  fi
+  printf '{"Action":"pass","Package":"%s","Elapsed":2}\n' "$package"
+done
+if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
+`
+				if err := os.WriteFile(filepath.Join(bin, "go"), []byte(fake), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				calls := filepath.Join(dir, "calls")
+				cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(scripts, "ci_go_test_capture.sh"), scope, "coverage.txt")
+				cmd.Dir = dir
+				cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "FAIL_PHASE="+failure)
+				output, err := cmd.CombinedOutput()
+				status := 0
+				if err != nil {
+					exit, ok := err.(*exec.ExitError)
+					if !ok {
+						t.Fatal(err)
+					}
+					status = exit.ExitCode()
+				}
+				wantStatus := map[string]int{"": 0, "discovery": 7, "execution": 9}[failure]
+				if status != wantStatus {
+					t.Fatalf("status=%d want=%d: %s", status, wantStatus, output)
+				}
+				rawCalls, err := os.ReadFile(calls)
+				if err != nil {
+					t.Fatal(err)
+				}
+				commands := strings.Split(strings.TrimSuffix(string(rawCalls), "--end--\n"), "--end--\n")
+				wantPackages := packages
+				if scope == "remaining" {
+					wantPackages = []string{packages[0], packages[2]}
+				}
+				selector := wantPackages
+				if scope == "all" {
+					selector = []string{"./..."}
+				}
+				discovery := append([]string{"test", "-race", "-covermode=atomic", "-json", "-list", "."}, selector...)
+				if !reflect.DeepEqual(strings.Fields(commands[0]), discovery) {
+					t.Fatalf("discovery=%v want=%v", strings.Fields(commands[0]), discovery)
+				}
+				count := 2
+				if failure == "discovery" {
+					count = 1
+				}
+				if len(commands) != count {
+					t.Fatalf("go invocations=%d want=%d", len(commands), count)
+				}
+				if count == 2 {
+					execution := append([]string{"test", "-count=1", "-json", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}, selector...)
+					if !reflect.DeepEqual(strings.Fields(commands[1]), execution) {
+						t.Fatalf("execution=%v want=%v", strings.Fields(commands[1]), execution)
+					}
+				}
+				raw, err := os.ReadFile(filepath.Join(dir, "coverage.txt.evidence.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var report struct {
+					Complete      bool
+					Diagnostics   []string
+					ExecutionExit *int `json:"execution_exit"`
+					Selected      []string
+					Targets       []struct {
+						Package string
+					}
+				}
+				if err := json.Unmarshal(raw, &report); err != nil {
+					t.Fatal(err)
+				}
+				if failure == "discovery" {
+					if report.Complete || len(report.Diagnostics) == 0 {
+						t.Fatal("failed discovery became complete evidence")
+					}
+					return
+				}
+				if failure == "execution" {
+					if report.Complete || report.ExecutionExit == nil || *report.ExecutionExit != 9 {
+						t.Fatalf("late command failure became success: %s", raw)
+					}
+				} else if !report.Complete || report.ExecutionExit == nil || *report.ExecutionExit != 0 {
+					t.Fatalf("successful command status missing: %s", raw)
+				}
+				if len(report.Targets) != len(wantPackages) {
+					t.Fatalf("capture incomplete or wrong target count: %s", raw)
+				}
+				gotPackages := make([]string, 0, len(report.Targets))
+				for _, target := range report.Targets {
+					gotPackages = append(gotPackages, target.Package)
+				}
+				wantSorted := append([]string(nil), wantPackages...)
+				slices.Sort(wantSorted)
+				if !slices.Equal(gotPackages, wantSorted) {
+					t.Fatalf("targets=%v want=%v", gotPackages, wantSorted)
+				}
+			})
+		}
+	}
+}

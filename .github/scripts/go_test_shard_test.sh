@@ -9,6 +9,10 @@ mkdir "$scratch/bin" "$scratch/reports"
 cat > "$scratch/bin/go" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "$*" = version ]; then
+  echo "go version go1.26.4 linux/amd64"
+  exit 0
+fi
 if [[ " $* " == *" -list . "* ]]; then
   if [[ " $* " != *" -race "* ]] || [[ " $* " != *" -covermode=atomic "* ]]; then
     echo "Discovery must use the same race and coverage build." >&2
@@ -52,7 +56,7 @@ expect_status() {
 for shard in 0 1 2 3; do
   profile="$scratch/reports/coverage-native-$shard.txt"
   bash "$scripts/go_test_shard.sh" "$shard" "$profile"
-  for flag in -race -timeout=30m -covermode=atomic "-coverprofile=$profile"; do
+  for flag in -count=1 -json -v -race -timeout=30m -covermode=atomic "-coverprofile=$profile"; do
     grep -Fx -- "$flag" "$CALLS" > /dev/null
   done
   pattern="$(awk 'previous == "-run" { print; exit } { previous = $0 }' "$CALLS")"
