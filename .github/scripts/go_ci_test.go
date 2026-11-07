@@ -3,6 +3,7 @@ package scripts
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -70,6 +71,305 @@ func TestGoWorkflowsInstallOfflineAssertionOracleRuntimeOnEveryPlatform(t *testi
 			mutated := strings.Replace(string(source), "node-version: '22'", "node-version: '20'", 1)
 			if mutated == string(source) || checkOfflineAssertionOracleRuntime([]byte(mutated)) == nil {
 				t.Fatal("mutation failed to reject unsupported TypeScript runtime")
+			}
+		})
+	}
+}
+
+type ordinaryValidationStep struct {
+	Name            string    `yaml:"name"`
+	If              string    `yaml:"if"`
+	Run             string    `yaml:"run"`
+	ContinueOnError yaml.Node `yaml:"continue-on-error"`
+}
+
+func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool) error {
+	t.Helper()
+	scratch := t.TempDir()
+	inventory := filepath.Join(scratch, "packages")
+	arguments := filepath.Join(scratch, "arguments")
+	if err := os.WriteFile(inventory, []byte(strings.Join(packages, "\n")+"\n"), 0o600); err != nil {
+		return err
+	}
+	// Execute the workflow shell, but record Go invocations instead of rerunning tests.
+	probe := `#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  list)
+    test "$#" -eq 2
+    test "$2" = ./...
+    cat "$WAZA_PACKAGE_INVENTORY"
+    ;;
+  test)
+    test ! -e "$WAZA_TEST_ARGUMENTS"
+    shift
+    printf '%s\n' "$@" > "$WAZA_TEST_ARGUMENTS"
+    ;;
+  *) exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(scratch, "go"), []byte(probe), 0o700); err != nil {
+		return err
+	}
+	cmd := exec.Command("bash", "-e", "-o", "pipefail", "-c", command)
+	cmd.Env = append(os.Environ(),
+		"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"RUNNER_OS="+platform,
+		"WAZA_PACKAGE_INVENTORY="+inventory,
+		"WAZA_TEST_ARGUMENTS="+arguments,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: executing workflow test-selection probe: %w\n%s", platform, err, output)
+	}
+	captured, err := os.ReadFile(arguments)
+	if err != nil {
+		return fmt.Errorf("%s: workflow must execute Go tests: %w", platform, err)
+	}
+	args := strings.Split(strings.TrimSuffix(string(captured), "\n"), "\n")
+	requiredFlags := []string{"-count=1", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
+	var flags, selected []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			flags = append(flags, arg)
+		} else if arg == "./..." {
+			selected = append(selected, packages...)
+		} else {
+			selected = append(selected, arg)
+		}
+	}
+	slices.Sort(flags)
+	slices.Sort(requiredFlags)
+	if !slices.Equal(flags, requiredFlags) {
+		return fmt.Errorf("%s: Go test flags = %q; want %q without narrowing selectors", platform, flags, requiredFlags)
+	}
+	expected := slices.Clone(packages)
+	if sharded {
+		expected = slices.DeleteFunc(expected, func(name string) bool {
+			return name == "github.com/microsoft/waza/internal/controlledcomparison"
+		})
+	}
+	slices.Sort(selected)
+	slices.Sort(expected)
+	if !slices.Equal(selected, expected) {
+		return fmt.Errorf("%s: Go test packages = %q; want exhaustive ordinary inventory %q", platform, selected, expected)
+	}
+	return nil
+}
+
+func checkOrdinaryRuntimeMarker(t *testing.T, command string) error {
+	t.Helper()
+	guard := filepath.Join(t.TempDir(), "offline runtime")
+	for _, present := range []bool{false, true} {
+		if present {
+			if err := os.WriteFile(guard+".invoked", nil, 0o600); err != nil {
+				return err
+			}
+		}
+		cmd := exec.Command("bash", "-e", "-o", "pipefail", "-c", command)
+		cmd.Env = append(os.Environ(), "COPILOT_CLI_PATH="+filepath.ToSlash(guard))
+		output, err := cmd.CombinedOutput()
+		status := 0
+		if err != nil {
+			exit, ok := err.(*exec.ExitError)
+			if !ok {
+				return fmt.Errorf("execute runtime marker check: %w", err)
+			}
+			status = exit.ExitCode()
+		}
+		expected := 0
+		if present {
+			expected = 1
+		}
+		if status != expected {
+			return fmt.Errorf("runtime marker present=%t: exit %d; want %d\n%s", present, status, expected, output)
+		}
+	}
+	return nil
+}
+
+func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName string, packages []string) error {
+	t.Helper()
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []ordinaryValidationStep `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	jobs := []string{"validate"}
+	if workflowName == "go-ci.yml" {
+		jobs = []string{"build-and-test", "build-and-test-windows"}
+	}
+	for _, jobName := range jobs {
+		steps := workflow.Jobs[jobName].Steps
+		positions := make(map[string]int, len(steps))
+		commands := make(map[string]string, len(steps))
+		conditions := make(map[string]string, len(steps))
+		for i, step := range steps {
+			positions[step.Name] = i
+			commands[step.Name] = step.Run
+			conditions[step.Name] = step.If
+		}
+		required := []string{
+			"Install and prove rejecting runtime guard",
+			"Verify uncached compatibility inventory",
+			"Execute Tests",
+			"Reject tolerated runtime launches",
+			"Integration Test",
+		}
+		for _, name := range required {
+			if _, ok := positions[name]; !ok {
+				return fmt.Errorf("%s: missing %s", jobName, name)
+			}
+			continueOnError := steps[positions[name]].ContinueOnError
+			if continueOnError.Kind != 0 &&
+				(continueOnError.Tag != "!!bool" || !strings.EqualFold(continueOnError.Value, "false")) {
+				return fmt.Errorf("%s: %s must not tolerate failure", jobName, name)
+			}
+			if name != required[1] && conditions[name] != "" {
+				return fmt.Errorf("%s: %s must execute unconditionally", jobName, name)
+			}
+		}
+		for i := 1; i < len(required); i++ {
+			if positions[required[i-1]] >= positions[required[i]] {
+				return fmt.Errorf("%s: %s must precede %s", jobName, required[i-1], required[i])
+			}
+		}
+		if commands[required[0]] != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` {
+			return fmt.Errorf("%s: rejecting runtime guard must use the proven installer", jobName)
+		}
+		if commands[required[1]] != "make test-compat-inventory" {
+			return fmt.Errorf("%s: compatibility inventory must use the canonical Make target", jobName)
+		}
+		testCommand := commands[required[2]]
+		if strings.Count(testCommand, "go test ") == 0 ||
+			strings.Count(testCommand, "go test -count=1 ") != strings.Count(testCommand, "go test ") {
+			return fmt.Errorf("%s: broad Go tests must be uncached", jobName)
+		}
+		platform := "Linux"
+		if jobName == "build-and-test-windows" {
+			platform = "Windows"
+		}
+		if err := checkOrdinaryTestSelection(t, testCommand, platform, packages, workflowName == "go-ci.yml" && jobName == "build-and-test"); err != nil {
+			return fmt.Errorf("%s: %w", jobName, err)
+		}
+		if !strings.Contains(commands[required[3]], `"$COPILOT_CLI_PATH.invoked"`) {
+			return fmt.Errorf("%s: tolerated runtime launches must fail validation", jobName)
+		}
+		if err := checkOrdinaryRuntimeMarker(t, commands[required[3]]); err != nil {
+			return fmt.Errorf("%s: %w", jobName, err)
+		}
+		integration := commands[required[4]]
+		if !strings.Contains(integration, "bash .github/scripts/release_integration_test.sh") {
+			return fmt.Errorf("%s: integration must use the production artifact gate", jobName)
+		}
+		if conditions[required[4]] != "" {
+			return fmt.Errorf("%s: integration must execute on every job platform", jobName)
+		}
+		if workflowName == "go-ci.yml" {
+			if conditions[required[1]] != "matrix.os == 'ubuntu-latest'" {
+				return fmt.Errorf("%s: compatibility inventory should execute once without duplicating Windows", jobName)
+			}
+			if !strings.Contains(integration, `if [ "$RUNNER_OS" = Windows ]`) ||
+				!strings.Contains(integration, "BINARY_NAME=waza.exe") {
+				return fmt.Errorf("%s: Windows integration must invoke the native executable", jobName)
+			}
+		} else if conditions[required[1]] != "" {
+			return fmt.Errorf("%s: preview compatibility inventory must execute", jobName)
+		}
+	}
+	return nil
+}
+
+func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
+	list := exec.Command("go", "list", "./...")
+	list.Dir = filepath.Join("..", "..")
+	output, err := list.Output()
+	if err != nil {
+		t.Fatalf("discover ordinary package inventory: %v", err)
+	}
+	packages := strings.Fields(string(output))
+	if !slices.Contains(packages, "github.com/microsoft/waza/cmd/waza") ||
+		!slices.Contains(packages, "github.com/microsoft/waza/internal/controlledcomparison") {
+		t.Fatalf("package discovery omitted required CLI/native packages: %v", packages)
+	}
+	for _, name := range []string{"go-ci.yml", "squad-preview.yml"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkOrdinaryOfflineValidation(t, source, name, packages); err != nil {
+				t.Fatal(err)
+			}
+			for _, step := range []string{
+				"Install and prove rejecting runtime guard",
+				"Verify uncached compatibility inventory",
+				"Execute Tests",
+				"Reject tolerated runtime launches",
+				"Integration Test",
+			} {
+				anchor := "      - name: " + step + "\n"
+				if !strings.Contains(string(source), anchor) {
+					t.Fatalf("required step mutation anchor missing: %s", step)
+				}
+				for offset := 0; ; {
+					position := strings.Index(string(source)[offset:], anchor)
+					if position < 0 {
+						break
+					}
+					offset += position + len(anchor)
+					for _, value := range []string{"false", "FALSE", "true", "null", "''", "\"false\"", "[]", "{}", "${{ always() }}"} { //nolint:misspell // GitHub expression.
+						mutated := string(source[:offset]) + "        continue-on-error: " + value + "\n" + string(source[offset:])
+						err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages)
+						if (err == nil) != strings.EqualFold(value, "false") {
+							t.Fatalf("%s at offset %d: continue-on-error=%s: validation error = %v", step, offset, value, err)
+						}
+					}
+				}
+			}
+			mutations := [][2]string{
+				{`bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
+				{"make test-compat-inventory", ":"},
+				{"go test -count=1 ", "go test "},
+				{"go test -count=1 ", "go test -count=1 -run '^$' "},
+				{"go test -count=1 ", "go test -count=1 -skip '.' "},
+				{"go test -count=1 ", "go test -count=1 -list '.' "},
+				{"      - name: Execute Tests\n        run:", "      - name: Execute Tests\n        if: false\n        run:"},
+				{`"$COPILOT_CLI_PATH.invoked"`, `"$COPILOT_CLI_PATH.unchecked"`},
+				{"bash .github/scripts/release_integration_test.sh", "./waza run"},
+			}
+			if name == "go-ci.yml" {
+				mutations = append(mutations,
+					[2]string{`"${selected[@]}"`, "./internal/models"},
+					[2]string{"go list ./...", "go list ./internal/models"},
+					[2]string{"github.com/microsoft/waza/internal/controlledcomparison", "github.com/microsoft/waza/cmd/waza"},
+					[2]string{"      - name: Integration Test\n        run:", "      - name: Integration Test\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
+					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
+				)
+			}
+			mutations = append(mutations,
+				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./internal/models"},
+				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./cmd/waza"},
+				[2]string{`if [ -e "$COPILOT_CLI_PATH.invoked" ]; then`, "if true; then"},
+			)
+			message := "Preview Go tests attempted to launch the Copilot runtime."
+			if name == "go-ci.yml" {
+				message = "Ordinary Go tests attempted to launch the Copilot runtime."
+			}
+			mutations = append(mutations, [2]string{
+				`echo "` + message + "\" >&2\n            exit 1",
+				`echo "` + message + "\" >&2\n            :",
+			})
+			for _, mutation := range mutations {
+				mutated := strings.Replace(string(source), mutation[0], mutation[1], 1)
+				if mutated == string(source) {
+					t.Fatalf("mutation did not change workflow: %s", mutation[0])
+				}
+				if err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages); err == nil {
+					t.Fatalf("mutation was accepted: %s", mutation[0])
+				}
 			}
 		})
 	}
