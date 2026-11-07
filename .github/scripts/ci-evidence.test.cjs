@@ -321,8 +321,8 @@ ${kind === "initialization" ? `func init() { panic("${sentinels[index]}") }` : `
 func TestA(t *testing.T) { t.Fatal("must not run") }
 `);
     }
-    const produced = spawnSync("go", ["test", "-race", "-covermode=atomic", "-json", "-list", ".", "./first", "./second"], {
-      cwd: dir, env: { ...process.env, GOPROXY: "off", GOSUMDB: "off" }, encoding: "utf8", timeout: 30000,
+    const produced = spawnSync("go", ["test", "-p=1", "-race", "-covermode=atomic", "-json", "-list", ".", "./first", "./second"], {
+      cwd: dir, env: { ...process.env, GOFLAGS: "", GOPROXY: "off", GOSUMDB: "off" }, encoding: "utf8", timeout: 30000,
     });
     assert.equal(produced.status, 1, produced.stderr);
     const events = produced.stdout.trim().split("\n").map((line) => JSON.parse(line));
