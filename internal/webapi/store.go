@@ -32,19 +32,22 @@ type RunStore interface {
 type FileStore struct {
 	dir string
 
-	mu      sync.RWMutex
-	runs    map[string]*models.EvaluationOutcome
-	files   map[string]struct{}
-	loaded  bool
-	loadErr error
+	mu        sync.RWMutex
+	runs      map[string]*models.EvaluationOutcome
+	summaries map[string]RunSummary
+	summary   SummaryResponse
+	files     map[string]struct{}
+	loaded    bool
+	loadErr   error
 }
 
 // NewFileStore creates a FileStore that reads results from dir.
 func NewFileStore(dir string) *FileStore {
 	return &FileStore{
-		dir:   dir,
-		runs:  make(map[string]*models.EvaluationOutcome),
-		files: make(map[string]struct{}),
+		dir:       dir,
+		runs:      make(map[string]*models.EvaluationOutcome),
+		summaries: make(map[string]RunSummary),
+		files:     make(map[string]struct{}),
 	}
 }
 
@@ -58,8 +61,11 @@ func (fs *FileStore) load() error {
 		fs.loadErr = err
 		return err
 	}
+	summaries, summary := projectRunSnapshot(replacement)
 
 	fs.runs = replacement
+	fs.summaries = summaries
+	fs.summary = summary
 	fs.files = files
 	fs.loaded = true
 	fs.loadErr = nil
@@ -380,9 +386,9 @@ func (fs *FileStore) ListRuns(sortField, order string) ([]RunSummary, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	runs := make([]RunSummary, 0, len(fs.runs))
-	for _, o := range fs.runs {
-		runs = append(runs, outcomeToSummary(o))
+	runs := make([]RunSummary, 0, len(fs.summaries))
+	for _, summary := range fs.summaries {
+		runs = append(runs, cloneRunSummary(summary))
 	}
 
 	sortRuns(runs, sortField, order)
@@ -415,11 +421,14 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	resp := &SummaryResponse{}
-	if len(fs.runs) == 0 {
-		return resp, nil
-	}
+	resp := fs.summary
+	resp.AvgAICredits = cloneFloat64(resp.AvgAICredits)
+	return &resp, nil
+}
 
+func projectRunSnapshot(runs map[string]*models.EvaluationOutcome) (map[string]RunSummary, SummaryResponse) {
+	summaries := make(map[string]RunSummary, len(runs))
+	resp := SummaryResponse{}
 	totalTokens := 0
 	totalPremium := 0.0
 	credits := aiCreditAccumulator{}
@@ -427,14 +436,15 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	totalDuration := 0.0
 	totalPassed := 0
 	totalTasks := 0
-	costSources := make([]string, 0, len(fs.runs))
+	costSources := make([]string, 0, len(runs))
 
-	for _, o := range fs.runs {
+	for id, o := range runs {
 		resp.TotalRuns++
 		totalTasks += o.Digest.TotalTests
 		totalPassed += o.Digest.Succeeded
 
 		s := outcomeToSummary(o)
+		summaries[id] = s
 		totalTokens += s.Tokens
 		totalPremium += s.PremiumRequests
 		credits.add(s.AICredits)
@@ -456,7 +466,27 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	}
 	resp.CostSource = pricing.CombineSources(costSources)
 
-	return resp, nil
+	return summaries, resp
+}
+
+func cloneRunSummary(summary RunSummary) RunSummary {
+	summary.AICredits = cloneFloat64(summary.AICredits)
+	summary.WeightedScore = cloneFloat64(summary.WeightedScore)
+	if summary.ModelUsage != nil {
+		summary.ModelUsage = append([]ModelUsageResponse(nil), summary.ModelUsage...)
+		for i := range summary.ModelUsage {
+			summary.ModelUsage[i].AICredits = cloneFloat64(summary.ModelUsage[i].AICredits)
+		}
+	}
+	return summary
+}
+
+func cloneFloat64(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventResponse {
