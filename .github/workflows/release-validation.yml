@@ -77,7 +77,7 @@ jobs:
               selected+=("$package")
             fi
           done <<< "$packages"
-          go test -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"
+          go test -v -race -count=1 -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"
 
       - name: Build Release Binary
         run: |
@@ -145,7 +145,7 @@ jobs:
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
 
       - name: Execute complete Windows tests
-        run: go test -v -race -timeout=30m ./...
+        run: go test -v -race -count=1 -timeout=30m ./...
 
       - name: Reject forbidden Windows runtime launches
         run: test ! -e "$COPILOT_CLI_PATH.invoked"

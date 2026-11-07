@@ -100,7 +100,9 @@ func TestReleaseWorkflowGates(t *testing.T) {
 		{"skipped-integration", "      - name: Integration Test\n", "      - name: Integration Test\n        if: 'false'\n"},
 		{"ignored-integration-failure", "      - name: Integration Test\n", "      - name: Integration Test\n        continue-on-error: true\n"},
 		{"missing-guard", `run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, "run: ':'"},
-		{"missing-windows-race", "go test -v -race -timeout=30m ./...", "go test ./..."},
+		{"missing-windows-race", "go test -v -race -count=1 -timeout=30m ./...", "go test ./..."},
+		{"cached-windows-tests", "go test -v -race -count=1 -timeout=30m ./...", "go test -v -race -timeout=30m ./..."},
+		{"cached-linux-tests", `go test -v -race -count=1 -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"`, `go test -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"`},
 		{"skipped-windows-tests", "      - name: Execute complete Windows tests\n", "      - name: Execute complete Windows tests\n        if: 'false'\n"},
 		{"tolerated-windows-tests", "      - name: Execute complete Windows tests\n", "      - name: Execute complete Windows tests\n        continue-on-error: true\n"},
 		{"skipped-windows-job", "  windows-test:\n", "  windows-test:\n    if: 'false'\n"},
@@ -159,9 +161,22 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				createName = "Create Insider Pre-Release"
 			}
 			testBranchReleaseCreation(t, releaseSteps(workflow.Jobs["release"])[createName].Run, file)
+			for _, condition := range []string{"if: 'false'", "continue-on-error: true"} {
+				t.Run("detector-"+condition, func(t *testing.T) {
+					old := "      - name: " + candidateName + "\n"
+					changed := strings.Replace(string(source), old, old+"        "+condition+"\n", 1)
+					if changed == string(source) {
+						t.Fatal("mutation did not change production detector")
+					}
+					if err := validateBranchPublisher([]byte(changed), file); err == nil {
+						t.Fatal("unsafe detector mutation was admitted")
+					}
+				})
+			}
 			for _, mutation := range []struct{ name, old, new string }{
 				{"untagged-validation", "if: needs.release-candidate.outputs.publish == 'true'", "if: always()"},
 				{"tolerated-candidate-job", "  release-candidate:\n", "  release-candidate:\n    continue-on-error: true\n"},
+				{"skipped-candidate-job", "  release-candidate:\n", "  release-candidate:\n    if: 'false'\n"},
 				{"tolerated-publication-job", "  release:\n", "  release:\n    continue-on-error: true\n"},
 				{"missing-validation-dependency", "needs: [release-candidate, validation]", "needs: [release-candidate]"},
 				{"cancellation-bypass", "&& !cancelled()", "&& always()"}, //nolint:misspell // GitHub expression.
@@ -641,6 +656,9 @@ func validateReleaseValidation(source []byte) error {
 		return err
 	}
 	steps, buildSteps := releaseSteps(complete), releaseSteps(build)
+	if !strings.Contains(buildSteps["Execute Tests"].Run, `go test -v -race -count=1 -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"`) {
+		return fmt.Errorf("release Linux tests must execute freshly under the current runtime guard")
+	}
 	if buildSteps["Checkout Repository"].With["lfs"] != "true" || buildSteps["Checkout Repository"].With["fetch-depth"] != "0" ||
 		strings.Count(string(source), `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`) != 4 {
 		return fmt.Errorf("every validation branch must bind checkout to the exact source SHA")
@@ -679,7 +697,7 @@ func validateReleaseValidation(source []byte) error {
 	if windowsSteps["Run Go Vet"].Run != "go vet ./..." ||
 		windowsSteps["Install and prove Windows rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
 		windowsSteps["Reject forbidden Windows runtime launches"].Run != `test ! -e "$COPILOT_CLI_PATH.invoked"` ||
-		windowsSteps["Execute complete Windows tests"].Run != "go test -v -race -timeout=30m ./..." {
+		windowsSteps["Execute complete Windows tests"].Run != "go test -v -race -count=1 -timeout=30m ./..." {
 		return fmt.Errorf("release validation must retain native Windows vet, guarded race execution and launch detection")
 	}
 	lintSteps := releaseSteps(lint)
@@ -711,7 +729,7 @@ func validateBranchPublisher(source []byte, file string) error {
 	validation := workflow.Jobs["validation"]
 	publish := workflow.Jobs["release"]
 	if workflow.Permissions["contents"] != "write" || candidate.TimeoutMinutes != 5 || publish.TimeoutMinutes != 15 ||
-		candidate.ContinueOnError || publish.ContinueOnError {
+		candidate.If != "" || candidate.ContinueOnError || publish.ContinueOnError {
 		return fmt.Errorf("publisher permissions and bounded deadlines must be preserved")
 	}
 	if validation.Uses != "./.github/workflows/release-validation.yml" ||
@@ -736,6 +754,9 @@ func validateBranchPublisher(source []byte, file string) error {
 		!strings.Contains(tagStep.Run, `echo "publish=false" >> "$GITHUB_OUTPUT"`) ||
 		!strings.Contains(tagStep.Run, `if [ "${#tags[@]}" -gt 1 ]`) {
 		return fmt.Errorf("candidate detection must fail closed and skip untagged branch pushes")
+	}
+	if err := orderedReleaseSteps(candidate, []string{"Checkout Repository", tagStep.Name}); err != nil {
+		return err
 	}
 	if err := orderedReleaseSteps(publish, []string{"Require successful complete validation",
 		"Download complete validation evidence", "Require exact validated source and tested binary", createName}); err != nil {
@@ -1111,7 +1132,7 @@ fi
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"test", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic",
+		want := []string{"test", "-v", "-race", "-count=1", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic",
 			"github.com/microsoft/waza/cmd/waza",
 			"github.com/microsoft/waza/internal/nativesnapshot",
 			"github.com/microsoft/waza/internal/nativetask",

@@ -11,6 +11,8 @@ not be skipped or tolerate failures; workflow regression controls exercise those
 bypasses on both LF and CRLF checkouts.
 Windows tests use the same proven native rejecting runtime guard as ordinary Go
 CI, and fail on its launch marker even if a test tolerates a rejected launch.
+Release Linux and Windows suites disable Go's test-result cache with `-count=1`
+so their successes require fresh execution under the current run's guard.
 
 ## Cutting a Release
 
