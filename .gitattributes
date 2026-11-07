@@ -23,3 +23,7 @@ internal/nativesnapshot/testdata/g2-original/nativesnapshot-snapshot.go.original
 internal/nativesnapshot/testdata/g2-original/orchestration-request_files.go.original -text
 internal/nativesnapshot/testdata/g2-original/orchestration-runner.go.original -text
 internal/testutil/readeroracle/testdata/15c/*.original -text
+# Preserve upstream interoperability oracle and fixture checksums on all hosts.
+internal/interop/testdata/agentv/suite.yaml -text
+internal/interop/testdata/agentv/assertions.ts -text
+internal/interop/testdata/agentv/LICENSE -text
