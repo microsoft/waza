@@ -188,6 +188,52 @@ Standalone observation blobs remain declarations, not finalized-source
 authentication; actual same-manifest artifact binding and native runtime
 instrumentation are separate delivery requirements.
 
+The fresh owned engine factory can select `observer.RuntimeObservations()` in
+`CopilotEngineBuilderOptions.RuntimeObservations` after reservation. A sink binds
+once and cannot select a shared engine, another invocation or a finalized reuse.
+It captures actual client start/stop and force-call boundaries, context
+cancellation seen by the bounded send/disconnect handlers, and typed root-turn
+SDK abort events. These are separate scoped observations: a returned call is
+not model acknowledgement, a force invocation is not a successful kill, and a
+turn-abort event is not an OS process exit. The SDK's actual `Cmd.Wait` and
+`processDone` are private; **process exit remains unknown** in this adapter.
+
+Capture callbacks perform no I/O or user callbacks and never wait for another
+observer lock. Contention/overflow is explicit incomplete evidence, not success.
+The 126 runtime slots leave room for the reservation and terminal observations.
+Joined terminal handling seals detached metadata before publication; pending
+callbacks prevent complete-evidence claims, and late calls affect only a
+retained operator counter, never frozen bytes or a new sink. Sequence is sink
+append order, not sorted timestamps or cross-goroutine causal proof. Native
+metadata publication/public presentation still requires the actual owning
+same-manifest artifact and privacy/default-withheld integration; this capture
+does not introduce an unguarded public publication path.
+
+Embedding-only producer controls compose `hooks.Artifacts = observer.Artifacts`
+after an explicit first-publication text policy. The callback
+returns one bounded `lifecycle.json` object for the **same original manifest**:
+exact reservation bytes/binding, ordered observation digests and events,
+invocation deadline when present, and frozen scoped runtime metadata. It
+revalidates the creator/current blobs and requires the recorded terminal bytes
+to equal the protected terminal supplied by the actual artifact callback.
+Neither private `Report` bytes nor `ObservedReport` enter this object.
+Artifact failures prevent completion while retaining the actor's original
+outcome. Finalized reuse makes no capture callback and leaves original bytes
+and ordinals unchanged.
+
+This capture is not an inspection request: a reader must supply its own
+explicit as-of/staleness policy and independently retained source context.
+Request both `lifecycle.json` and the named terminal from the actual
+`Ledger.ReadCompleted` when comparing their bytes; requested-name reads do not
+implicitly populate every manifest object. Same-manifest content verification
+binds the supplied metadata to that publication, not authenticated worker
+ownership, model acknowledgement or verified progress. Public selection,
+source-category admission and actual process/restore/browser acceptance remain
+separate completion gates. The public protected facade rejects arbitrary
+`Artifacts` callbacks; this producer must not be attached to bypass that guard.
+Public delivery requires an admitted sealed fixed-metadata contract in the
+original validated inventory, not renamed private report bytes.
+
 The existing validation-only **Site Build** workflow accepts every PR base for
 stacked layers and manual dispatch. Manual validation forces site/browser and
 offline-example execution after successful change detection, even with no
@@ -207,6 +253,11 @@ for the lifecycle cases and downloaded JSON assertions. CI assets may be
 recovered only from the matching source checkout/frontend tree; build success
 alone does not establish screenshots, navigation, worker progress or recovery.
 These workflows never publish releases or deploy Pages.
+Prerendered schema files are served as `application/json` by the static preview
+and Pages artifact path; a GET handler's development-only
+`application/schema+json` header is not a deployed response guarantee. Browser
+controls still require exact deployed-base paths, schema IDs, draft, kind,
+version and strict object shape.
 
 ## Migration and release notes (unreleased)
 

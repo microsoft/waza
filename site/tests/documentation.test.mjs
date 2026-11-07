@@ -241,12 +241,13 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
 
 function assertSiteDiscovery(workflow, inputs) {
   const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
-  const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
+  const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^  [a-z_]+:|^permissions:)/m)?.[1];
   const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
-  assert.ok(push && pullRequest && site, 'expected workflow event/filter blocks must exist');
+  assert.ok(push && pullRequest !== undefined && site, 'expected workflow event/filter blocks must exist');
   assert.match(push, /branches: \[main\]/);
-  assert.match(pullRequest, /branches: \[main\]/);
+  assert.doesNotMatch(pullRequest, /^\s+branches(?:-ignore)?:/m, 'required PR status must cover every stacked base');
   assert.doesNotMatch(pullRequest, /^\s+paths(?:-ignore)?:/m, 'required PR status must not be path-gated');
+  assert.match(workflow, /^  workflow_dispatch:\s*$/m, 'manual validation trigger must exist');
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
@@ -257,7 +258,8 @@ function assertSiteDiscovery(workflow, inputs) {
   assert.ok(!paths(site).some((pattern) => matches(pattern, 'internal/cache/cache.go')), 'unrelated Go code must not select the PR site build');
   const build = workflow.match(/^      - name: Build site\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   assert.ok(build, 'site build step must exist');
-  assert.match(build, /if: needs\.changes\.outputs\.site == 'true' \|\| github\.event_name == 'push'/);
+  assert.match(build, /^        if: needs\.changes\.outputs\.site == 'true' \|\| github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'$/m,
+    'manual site validation must not skip the build');
   assert.match(build, /run: cd site && npm run build/);
   const scripts = JSON.parse(read('site/package.json')).scripts;
   assert.equal(scripts.prebuild, 'npm run test:docs');
@@ -279,6 +281,19 @@ test('Docker guard discovery rejects removal from either production site selecto
     const mutated = workflow.replace(line, '');
     assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
     assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
+});
+
+test('site discovery rejects main-only stacked PRs and skipped manual builds', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const condition = "needs.changes.outputs.site == 'true' || github.event_name == 'push'";
+  for (const [name, mutated, diagnostic] of [
+    ['stacked base', workflow.replace('  pull_request:\n', '  pull_request:\n    branches: [main]\n'), /every stacked base/],
+    ['manual trigger', workflow.replace('  workflow_dispatch:\n', ''), /manual validation trigger/],
+    ['manual build', workflow.replaceAll(`${condition} || github.event_name == 'workflow_dispatch'`, condition), /manual site validation/],
+  ]) {
+    assert.notEqual(mutated, workflow, `${name} mutation must change the production workflow`);
+    assert.throws(() => assertSiteDiscovery(mutated, []), diagnostic, name);
   }
 });
 
