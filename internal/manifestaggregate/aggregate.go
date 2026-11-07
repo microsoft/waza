@@ -3,7 +3,6 @@
 package manifestaggregate
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -75,20 +74,33 @@ func (r Request) Validate() error {
 
 type boundedBackend struct {
 	artifactmanifest.Backend
-	read        int64
-	hits        int
-	unavailable int
+	read           int64
+	hits           int
+	unavailable    int
+	missingFinal   int
+	missingObjects int
+	nonFinalErrors int
 }
 
 func (b *boundedBackend) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
-	if limit < 0 || limit > MaxReadBytes-b.read {
+	if limit < 0 || limit >= MaxReadBytes-b.read {
 		b.hits++
 		return nil, ErrLimit
 	}
 	// Failed reads can have consumed bytes that a provider did not return.
 	// Reserve their full admitted limit rather than assuming they cost zero.
-	b.read += limit
+	b.read += limit + 1
 	data, err := b.Backend.Get(ctx, key, limit)
+	if err != nil && !strings.HasPrefix(key, "final-") {
+		b.nonFinalErrors++
+	}
+	if errors.Is(err, artifactmanifest.ErrMissing) {
+		if strings.HasPrefix(key, "final-") {
+			b.missingFinal++
+		} else {
+			b.missingObjects++
+		}
+	}
 	if err != nil && !errors.Is(err, artifactmanifest.ErrMissing) &&
 		!errors.Is(err, artifactmanifest.ErrCorrupt) && !errors.Is(err, artifactmanifest.ErrConflict) &&
 		!errors.Is(err, artifactmanifest.ErrInvalid) && !errors.Is(err, context.Canceled) &&
@@ -100,7 +112,7 @@ func (b *boundedBackend) Get(ctx context.Context, key string, limit int64) ([]by
 		return nil, ErrLimit
 	}
 	if err == nil {
-		b.read -= limit - int64(len(data))
+		b.read -= limit + 1 - int64(len(data))
 	}
 	return data, err
 }
@@ -131,7 +143,20 @@ func Aggregate(ctx context.Context, backend artifactmanifest.Backend, request Re
 	for _, digest := range digests {
 		budgetHits := bounded.hits
 		storageFailures := bounded.unavailable
-		member, manifest, err := load(ctx, bounded, store, digest)
+		missingFinal, missingObjects := bounded.missingFinal, bounded.missingObjects
+		nonFinalErrors := bounded.nonFinalErrors
+		member, manifest, err := load(ctx, store, digest)
+		if bounded.unavailable != storageFailures {
+			err = errors.Join(err, ErrUnavailable)
+			member.State = classify(err)
+		}
+		if member.State == "missing" && bounded.missingFinal != missingFinal &&
+			bounded.missingObjects == missingObjects && bounded.nonFinalErrors == nonFinalErrors {
+			member.State = "unfinalized"
+			member.Diagnostics = []artifactmanifest.Diagnostic{{
+				Code: "not_completed", Message: "A verified COMPLETED publication marker is required; declarations and partial uploads are not completed inputs.",
+			}}
+		}
 		if bounded.hits != budgetHits {
 			member.State = "limit_exceeded"
 			member.Logical, member.Verdicts, member.Outcome = nil, nil, ""
@@ -142,9 +167,6 @@ func Aggregate(ctx context.Context, backend artifactmanifest.Backend, request Re
 				Code: "read_budget_exceeded", Message: "The cross-request 256 MiB admitted read budget withheld this member. Its source may be individually valid; no missing/corrupt result is inferred.",
 			})
 			err = errors.Join(err, ErrLimit)
-		}
-		if bounded.unavailable != storageFailures {
-			err = errors.Join(err, ErrUnavailable)
 		}
 		report.Members = append(report.Members, member)
 		if err != nil {
@@ -205,49 +227,14 @@ func Aggregate(ctx context.Context, backend artifactmanifest.Backend, request Re
 	return report, errors.Join(failures...)
 }
 
-func load(ctx context.Context, backend artifactmanifest.Backend, store *artifactmanifest.Store, digest string) (Member, *artifactmanifest.Manifest, error) {
+func load(ctx context.Context, store *artifactmanifest.Store, digest string) (Member, *artifactmanifest.Manifest, error) {
 	member := Member{ManifestSHA256: digest, State: "unavailable", Diagnostics: []artifactmanifest.Diagnostic{}}
-	receipt, err := store.Inspect(ctx, digest)
-	if err != nil {
-		member.State = classify(err)
-		member.Diagnostics = receipt.Diagnostics
-		return member, nil, err
-	}
-	if receipt.Publication != "finalized" || receipt.Integrity != "verified" {
-		member.State = "unfinalized"
-		member.Diagnostics = append(member.Diagnostics, artifactmanifest.Diagnostic{
-			Code: "not_completed", Message: "A verified COMPLETED publication marker is required; declarations and partial uploads are not completed inputs.",
-		})
-		return member, nil, ErrIncomplete
-	}
-	data, err := backend.Get(ctx, "manifest-"+digest, artifactmanifest.MaxManifestBytes)
+	completed, err := store.ReadCompleted(ctx, digest)
 	if err != nil {
 		return failedRead(member, err)
 	}
-	manifest, err := artifactmanifest.Parse(data)
-	if err != nil {
-		return failedRead(member, err)
-	}
-	canonical, err := artifactmanifest.Encode(*manifest)
-	if err != nil {
-		return failedRead(member, err)
-	}
-	if artifactmanifest.Hash(data) != digest || !bytes.Equal(canonical, data) {
-		return failedRead(member, artifactmanifest.ErrCorrupt)
-	}
-	var terminal []byte
-	for _, artifact := range manifest.Artifacts {
-		if artifact.Name != manifest.TerminalArtifact {
-			continue
-		}
-		terminal, err = backend.Get(ctx, "blob-"+artifact.SHA256, artifact.SizeBytes)
-		if err != nil {
-			return failedRead(member, err)
-		}
-		if int64(len(terminal)) != artifact.SizeBytes || artifactmanifest.Hash(terminal) != artifact.SHA256 {
-			return failedRead(member, artifactmanifest.ErrCorrupt)
-		}
-	}
+	manifest := &completed.Manifest
+	terminal := completed.ArtifactBytes[manifest.TerminalArtifact]
 	envelope, err := runnerterminal.Validate(terminal, manifest.Binding.TerminalBinding())
 	if err != nil {
 		return failedRead(member, err)
@@ -274,8 +261,8 @@ func classify(err error) string {
 	switch {
 	case errors.Is(err, ErrLimit):
 		return "limit_exceeded"
-	case errors.Is(err, artifactmanifest.ErrMissing):
-		return "missing"
+	case errors.Is(err, ErrUnavailable):
+		return "unavailable"
 	case errors.Is(err, artifactmanifest.ErrConflict):
 		return "conflicting"
 	case errors.Is(err, artifactmanifest.ErrInvalid), errors.Is(err, runnerterminal.ErrInvalid):
@@ -286,6 +273,8 @@ func classify(err error) string {
 		return "timeout"
 	case errors.Is(err, context.Canceled):
 		return string(runnerterminal.Canceled)
+	case errors.Is(err, artifactmanifest.ErrMissing):
+		return "missing"
 	default:
 		return "unavailable"
 	}

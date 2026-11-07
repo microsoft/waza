@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -17,10 +18,11 @@ import (
 )
 
 type memoryBackend struct {
-	objects map[string][]byte
-	creates int
-	gets    int
-	before  func(string)
+	objects  map[string][]byte
+	creates  int
+	gets     int
+	before   func(string)
+	getError func(string) error
 }
 
 func (b *memoryBackend) Create(_ context.Context, key string, data []byte) (bool, error) {
@@ -39,6 +41,11 @@ func (b *memoryBackend) Get(ctx context.Context, key string, limit int64) ([]byt
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if b.getError != nil {
+		if err := b.getError(key); err != nil {
+			return nil, err
+		}
 	}
 	data, ok := b.objects[key]
 	if !ok {
@@ -203,6 +210,70 @@ func TestAggregateNoWinnerForDistinctAttempts(t *testing.T) {
 	require.Equal(t, runnerterminal.EvaluationFailure, report.Members[slices.Index(expected, d2)].Outcome)
 }
 
+func TestAggregateArtifactFailureIsNotMerelyUnfinalized(t *testing.T) {
+	for _, finalized := range []bool{false, true} {
+		for _, failure := range []string{"none", "unavailable", "corrupt terminal", "corrupt unrequested"} {
+			t.Run(fmt.Sprintf("finalized=%t/%s", finalized, failure), func(t *testing.T) {
+				backend := &memoryBackend{objects: map[string][]byte{}}
+				manifest, terminal := fixture(t, 1, 1, runnerterminal.Success)
+				extra := []byte("unrequested payload")
+				extraArtifact := artifactmanifest.Artifact{
+					Name: "extra", SHA256: artifactmanifest.Hash(extra),
+					SizeBytes: int64(len(extra)), MediaType: "application/octet-stream",
+				}
+				manifest.Artifacts = append(manifest.Artifacts, extraArtifact)
+				digest := publish(t, backend, manifest, terminal, false)
+				store := artifactmanifest.NewStore(backend)
+				require.NoError(t, store.Put(context.Background(), extraArtifact, extra))
+				receipt, err := store.Finalize(context.Background(), digest)
+				require.NoError(t, err)
+				require.Equal(t, "verified", receipt.Integrity)
+				if !finalized {
+					delete(backend.objects, "final-"+digest)
+				}
+				state := "success"
+				if !finalized {
+					state = "unfinalized"
+				}
+				switch failure {
+				case "unavailable":
+					backend.getError = func(key string) error {
+						if key == "blob-"+manifest.Artifacts[0].SHA256 {
+							return errors.New("private provider failure")
+						}
+						return nil
+					}
+					state = "unavailable"
+				case "corrupt terminal":
+					backend.objects["blob-"+manifest.Artifacts[0].SHA256] = []byte("corrupt")
+					state = "corrupt"
+				case "corrupt unrequested":
+					backend.objects["blob-"+extraArtifact.SHA256] = []byte("corrupt")
+					state = "corrupt"
+				}
+				report, err := Aggregate(context.Background(), backend, Request{Manifests: []string{digest}})
+				if state == "success" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, ErrIncomplete)
+				}
+				require.Equal(t, failure == "unavailable", errors.Is(err, ErrUnavailable))
+				require.Len(t, report.Members, 1)
+				require.Equal(t, state, report.Members[0].State)
+				require.Equal(t, map[string]int{state: 1}, report.StateCounts)
+				data, encodeErr := Encode(report)
+				require.NoError(t, encodeErr)
+				require.NotContains(t, string(data), "private provider failure")
+				if failure != "none" {
+					require.Nil(t, report.Members[0].Verdicts)
+					require.Empty(t, report.Members[0].Outcome)
+					require.NotContains(t, string(data), "not_completed")
+				}
+			})
+		}
+	}
+}
+
 func TestAggregateIncompatibleContextsAndMixedVersions(t *testing.T) {
 	backend := &memoryBackend{objects: map[string][]byte{}}
 	m1, t1 := fixture(t, 1, 1, runnerterminal.Success)
@@ -242,6 +313,10 @@ func TestAggregateRereadsAfterSuccessfulReceipt(t *testing.T) {
 			}
 		}
 	}
+	first, err := Aggregate(context.Background(), backend, Request{Manifests: []string{digest}})
+	require.NoError(t, err)
+	require.Equal(t, "complete", first.Completion)
+	require.Equal(t, 1, reads, "actual ReadCompleted captures the terminal in its one verification pass")
 	report, err := Aggregate(context.Background(), backend, Request{Manifests: []string{digest}})
 	require.ErrorIs(t, err, artifactmanifest.ErrCorrupt)
 	require.Equal(t, 2, reads)
@@ -267,7 +342,7 @@ func TestAggregateAdmissionAndCancellation(t *testing.T) {
 	require.False(t, errors.Is(err, artifactmanifest.ErrMissing))
 	bounded = &boundedBackend{Backend: backend}
 	for range 4 {
-		_, err = bounded.Get(context.Background(), "blob-"+strings.Repeat("a", 64), 64<<20)
+		_, err = bounded.Get(context.Background(), "blob-"+strings.Repeat("a", 64), (MaxReadBytes/4)-1)
 		require.ErrorIs(t, err, artifactmanifest.ErrMissing)
 	}
 	gets := backend.gets

@@ -29,8 +29,15 @@ membership, **not** a passing evaluation or complete evidence.
 
 The command never starts agents, original workers, grader subprocesses or an
 update check. It reads only the selected immutable store, not `.waza.yaml`.
-The initial CLI/API supports an existing local store; no configured Azure
-fallback is performed.
+The CLI uses an existing local store by default. Explicit
+`--azure-container-url` selects Azure instead of `--store`, with existing
+credentials and no automatic login or local fallback. The API honors the
+server's configured immutable provider.
+
+Explicit Azure authentication uses the shared provider's default credential
+chain and can invoke credential helpers. The read-only aggregation core creates
+no runtime or credentials; this preview does not promise process-free Azure
+authentication.
 
 ## Inspect in the Lab
 
@@ -91,5 +98,5 @@ scores. Submit 1..128 digests before deduplication; API JSON is bounded to
 Developer ordering, conflict, trust, read-budget and migration rules are
 canonical in [the source contract](https://github.com/microsoft/waza/blob/main/docs/MANIFEST-AGGREGATION.md).
 Full release acceptance still requires the actual committed category producer/
-admission and shared provider integration plus final Go, browser and review
+admission plus final Go, browser and review
 gates. This source preview does not claim those pending steps are complete.

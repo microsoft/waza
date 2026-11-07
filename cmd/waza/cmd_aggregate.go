@@ -13,7 +13,7 @@ import (
 )
 
 func newAggregateCommand() *cobra.Command {
-	var directory string
+	var directory, azureURL string
 	cmd := &cobra.Command{
 		Use:          "aggregate DIGEST [DIGEST...]",
 		SilenceUsage: true,
@@ -25,14 +25,14 @@ func newAggregateCommand() *cobra.Command {
 			if err := request.Validate(); err != nil {
 				return err
 			}
-			backend, err := artifactmanifest.OpenLocal(directory)
+			backend, closeBackend, err := artifactmanifest.OpenBackend(directory, azureURL)
 			if err != nil {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 			defer cancel()
 			report, aggregateErr := manifestaggregate.Aggregate(ctx, backend, request)
-			closeErr := backend.Close()
+			closeErr := closeBackend()
 			if closeErr != nil {
 				report.Completion = "incomplete"
 				report.Diagnostics = append(report.Diagnostics, artifactmanifest.Diagnostic{
@@ -59,5 +59,7 @@ func newAggregateCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&directory, "store", ".waza-artifacts", "Existing local immutable store; no ambient configuration or provider fallback")
+	cmd.Flags().StringVar(&azureURL, "azure-container-url", "", "Explicit HTTPS Azure container URL; existing credentials, no automatic login or local fallback")
+	cmd.MarkFlagsMutuallyExclusive("store", "azure-container-url")
 	return cmd
 }

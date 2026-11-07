@@ -18,6 +18,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/manifestaggregate"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
@@ -253,4 +254,29 @@ func TestAggregateAPIReadUnavailableIs503NotMembershipConflict(t *testing.T) {
 	require.Equal(t, "unavailable", report.Members[0].State)
 	require.Equal(t, map[string]int{"unavailable": 1}, report.StateCounts)
 	require.NotContains(t, recorder.Body.String(), "private operator")
+}
+
+func TestAggregateExplicitProviderDoesNotFallBackToValidLocalStore(t *testing.T) {
+	directory, digest, _, _ := aggregateCLIPublication(t)
+	cmd := newAggregateCommand()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"--store", filepath.Join(directory, ".waza-artifacts"), "--azure-container-url", "http://invalid/container", digest})
+	require.Error(t, cmd.Execute(), "explicit store and Azure flags are mutually exclusive")
+	require.Empty(t, output.String())
+	cmd = newAggregateCommand()
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"--azure-container-url", "http://invalid/container", digest})
+	require.Error(t, cmd.Execute(), "invalid explicit Azure URL must fail before reading local defaults")
+	require.Empty(t, output.String())
+	mux := http.NewServeMux()
+	webapi.RegisterAggregateRoutes(mux, directory, &projectconfig.StorageConfig{
+		Enabled: true, Provider: "azure-blob", AccountName: "invalid account", ContainerName: "container",
+	})
+	recorder := httptest.NewRecorder()
+	body := `{"manifests":["` + digest + `"]}`
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", strings.NewReader(body)))
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), `"completion":"complete"`)
+	require.NotContains(t, recorder.Body.String(), "invalid account")
 }

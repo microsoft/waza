@@ -8,9 +8,18 @@ is the scope of the report, not a discovered fleet inventory.
 ## Admission and deterministic policy
 
 `waza aggregate DIGEST [DIGEST...] --store EXISTING_DIRECTORY` reads public
-immutable publications without starting workers, models, subprocesses, loading
+immutable publications without starting workers, models, grader subprocesses, loading
 project configuration, or performing an update check. The selected local store
-must already exist. There is no provider fallback or implicit login.
+must already exist. Explicit `--azure-container-url` selects Azure instead of
+`--store`, using the shared immutable provider factory and existing credentials.
+There is no provider fallback or implicit login.
+
+The aggregation core receives an already selected backend and constructs no
+runtime or credentials. Explicit Azure CLI/API reads use the shared provider's
+default credential chain, which reads credential configuration and may invoke
+Azure CLI, Developer CLI or PowerShell authentication helpers. Process-free
+provider authentication is not guaranteed by this source preview; local reads
+do not construct that chain.
 
 Each requested digest must identify canonical manifest 1.0 bytes with all
 declared artifact bytes, native terminal/binding consistency, and the matching
@@ -89,8 +98,11 @@ rules; aggregation cannot retroactively redact an already published source.
 
 There are at most 128 submitted digests **before deduplication** and 16 KiB of
 API request JSON. The cumulative read budget is 256 MiB, covering manifest,
-artifact and marker verification plus any selected rereads. Failed reads consume
-their full requested limit because actual discarded bytes may be unknown.
+artifact and marker verification. The actual `Store.ReadCompleted` retains
+selected original terminal bytes in the same all-artifact verification pass;
+there is no separate check/reopen shortcut. Failed reads consume
+their full requested limit plus its excess-detection byte because actual
+discarded bytes may be unknown.
 Successful reads refund unused reservations. This is an admitted read budget,
 not a resident-memory, whole-store snapshot or provider-bandwidth guarantee.
 Report emission is capped at 16 MiB. Per-manifest/object native bounds still
@@ -107,9 +119,9 @@ selects `.waza-artifacts` below its results directory, never a request-supplied
 path/URL. Original-wire validation precedes reads and provider construction.
 HTTP 200 carries complete membership (including recorded evaluation failure),
 409 carries an incomplete/conflicting set, and 400 rejects invalid input.
-Unavailable stores/report emission return 503. The initial API supports the
-explicit local immutable store; configured Azure aggregate reads are rejected
-without substituting local results.
+Unavailable stores/report emission return 503. The API honors the server's
+explicitly configured Azure store through the same
+provider factory, without substituting local results on a provider error.
 
 The Lab's Runner contract section displays member state counts, composition,
 conflicts, omissions, compatibility diagnostics and original manifest links.
@@ -131,7 +143,11 @@ continues to use the existing compatibility corpus.
 
 Full #766 remains open until actual committed #768 category persistence and
 producer admission are integrated, all category/source/usage controls pass,
-shared provider reads are integrated, and the required Go/compatibility,
+and the required Go/compatibility,
 dashboard/site browser, screenshot and independent review gates complete.
 Pure codecs, authored controls, mock producer integration and build success
 alone do not prove live agent quality, native Windows behavior or publication.
+
+The shared `ReadCompleted` and `OpenBackend` integration uses the actual #763
+commit `fbb1a33fd543a51bad505fc1af4423825a6a04d3`. Focused local controls do not
+replace final current-head provider, native-platform or release validation.

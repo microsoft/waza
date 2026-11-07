@@ -66,15 +66,16 @@ func (i configuredAggregateReader) Aggregate(ctx context.Context, request manife
 	if err := request.Validate(); err != nil {
 		return manifestaggregate.Report{}, err
 	}
+	var azureURL string
 	if i.config != nil && i.config.Enabled && i.config.Provider == "azure-blob" {
-		return manifestaggregate.Report{}, errors.New("aggregate API requires the explicit local immutable store; configured Azure aggregate reads are not supported")
+		azureURL = "https://" + i.config.AccountName + ".blob.core.windows.net/" + i.config.ContainerName
 	}
-	backend, err := artifactmanifest.OpenLocal(i.directory)
+	backend, closeBackend, err := artifactmanifest.OpenBackend(i.directory, azureURL)
 	if err != nil {
 		return manifestaggregate.Report{}, err
 	}
 	report, aggregateErr := manifestaggregate.Aggregate(ctx, backend, request)
-	closeErr := backend.Close()
+	closeErr := closeBackend()
 	if closeErr != nil {
 		report.Completion = "incomplete"
 		report.Diagnostics = append(report.Diagnostics, artifactmanifest.Diagnostic{

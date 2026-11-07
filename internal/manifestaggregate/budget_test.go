@@ -122,7 +122,7 @@ func TestAggregateFailedReadsReserveUnknownConsumption(t *testing.T) {
 	backend := &partialFailureBackend{}
 	bounded := &boundedBackend{Backend: backend}
 	for range 4 {
-		_, err := bounded.Get(context.Background(), "blob", 64<<20)
+		_, err := bounded.Get(context.Background(), "blob", (MaxReadBytes/4)-1)
 		require.Error(t, err)
 	}
 	require.EqualValues(t, MaxReadBytes, bounded.read)

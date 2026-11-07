@@ -37,7 +37,7 @@ reports over an explicit expected immutable manifest set, without worker,
 agent or ambient-configuration dependencies. It retains deterministic member
 ordering, conflicts, omissions, compatibility and terminal failures in CLI/API/
 Lab. Membership completeness is not evidence completeness or release authority.
-Category-admitted evidence/usage, shared provider integration and final release
+Category-admitted evidence/usage and final release
 gates remain required before full acceptance; see the canonical
 [aggregation contract](MANIFEST-AGGREGATION.md).
 
