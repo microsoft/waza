@@ -23,7 +23,13 @@ jobs:
       - name: Detect exact insider tag
         id: tag
         run: |
-          mapfile -t tags < <(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')
+          mapfile -t candidates < <(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')
+          tags=()
+          for tag in "${candidates[@]}"; do
+            if [[ "$tag" != *-insider ]]; then
+              tags+=("$tag")
+            fi
+          done
           if [ "${#tags[@]}" -gt 1 ]; then
             echo "Multiple release tags point at $GITHUB_SHA" >&2
             exit 1

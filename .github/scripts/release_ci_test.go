@@ -111,6 +111,15 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 			if err := validateBranchPublisher(source, file); err != nil {
 				t.Fatal(err)
 			}
+			var workflow releaseWorkflow
+			if err := yaml.Unmarshal(source, &workflow); err != nil {
+				t.Fatal(err)
+			}
+			candidateName := "Detect exact stable tag"
+			if file == "squad-insider-release.yml" {
+				candidateName = "Detect exact insider tag"
+			}
+			testReleaseCandidateDetection(t, releaseSteps(workflow.Jobs["release-candidate"])[candidateName].Run, file)
 			for _, mutation := range []struct{ name, old, new string }{
 				{"untagged-validation", "if: needs.release-candidate.outputs.publish == 'true'", "if: always()"},
 				{"missing-validation-dependency", "needs: [release-candidate, validation]", "needs: [release-candidate]"},
@@ -121,6 +130,7 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				{"missing-digest", "sha256sum --check waza.sha256", ":"},
 				{"different-evidence", "name: release-validation-${{ github.sha }}", "name: release-validation-other"},
 				{"rebuild-before-publication", "run: |\n          if gh release view", "run: |\n          go build -o waza ./cmd/waza\n          if gh release view"},
+				{"included-generated-insider-tag", `if [[ "$tag" != *-insider ]]; then`, "if true; then"},
 			} {
 				t.Run(mutation.name, func(t *testing.T) {
 					changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
@@ -145,6 +155,66 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testReleaseCandidateDetection(t *testing.T, run, file string) {
+	t.Helper()
+	for _, tc := range []struct {
+		name        string
+		tags        []string
+		wantSuccess bool
+		wantOutput  string
+	}{
+		{name: "untagged", wantSuccess: true, wantOutput: "publish=false\n"},
+		{name: "base-tag", tags: []string{"v1.2.3"}, wantSuccess: true, wantOutput: "publish=true\ntag=v1.2.3\n"},
+		{name: "base-and-insider-tags", tags: []string{"v1.2.3", "v1.2.3-insider"}, wantSuccess: true, wantOutput: "publish=true\ntag=v1.2.3\n"},
+		{name: "multiple-base-tags", tags: []string{"v1.2.3", "v1.2.4"}, wantSuccess: false},
+	} {
+		t.Run("candidate-"+tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			runReleaseCommand(t, dir, "git", "init", "-q")
+			runReleaseCommand(t, dir, "git", "config", "user.name", "Waza Test")
+			runReleaseCommand(t, dir, "git", "config", "user.email", "waza-test@example.com")
+			runReleaseCommand(t, dir, "git", "commit", "--allow-empty", "-q", "-m", "test")
+			for _, tag := range tc.tags {
+				runReleaseCommand(t, dir, "git", "tag", tag)
+			}
+			sha := strings.TrimSpace(string(runReleaseCommand(t, dir, "git", "rev-parse", "HEAD")))
+			outputPath := filepath.Join(dir, "github-output")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA="+sha, "GITHUB_OUTPUT="+outputPath)
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != tc.wantSuccess {
+				t.Fatalf("%s candidate error = %v\n%s", file, err, output)
+			}
+			if !tc.wantSuccess {
+				return
+			}
+			got, err := os.ReadFile(outputPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := tc.wantOutput
+			if file == "squad-insider-release.yml" {
+				want = strings.Replace(want, "tag=v1.2.3\n", "tag=v1.2.3-insider\n", 1)
+			}
+			if string(got) != want {
+				t.Fatalf("candidate output = %q; want %q", got, want)
+			}
+		})
+	}
+}
+
+func runReleaseCommand(t *testing.T, dir, name string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), name, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s %v: %v\n%s", name, args, err, output)
+	}
+	return output
 }
 
 func TestTagReleaseRequiresValidation(t *testing.T) {
@@ -418,6 +488,7 @@ func validateBranchPublisher(source []byte, file string) error {
 		createName = "Create Insider Pre-Release"
 	}
 	if tagStep.Run == "" || !strings.Contains(tagStep.Run, `git tag --points-at "$GITHUB_SHA" --list 'v*.*.*'`) ||
+		!strings.Contains(tagStep.Run, `if [[ "$tag" != *-insider ]]; then`) ||
 		!strings.Contains(tagStep.Run, `echo "publish=false" >> "$GITHUB_OUTPUT"`) ||
 		!strings.Contains(tagStep.Run, `if [ "${#tags[@]}" -gt 1 ]`) {
 		return fmt.Errorf("candidate detection must fail closed and skip untagged branch pushes")
