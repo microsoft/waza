@@ -196,18 +196,7 @@ type Service struct {
 
 func NewService(factory EngineFactory) *Service {
 	if factory == nil {
-		factory = func(cfg models.Config) (execution.AgentEngine, error) {
-			if cfg.EngineType == "copilot-sdk" {
-				return execution.NewCopilotEngineBuilder(cfg.ModelID, &execution.CopilotEngineBuilderOptions{
-					OwnClient: true, DisableCommandMocks: true,
-					DisableAmbientDiscovery: true,
-					// Diagnostic mode propagates lifecycle failures to the
-					// terminal envelope, without a second logging sink.
-					DiagnosticObserver: func(execution.ExecutionDiagnostic) error { return nil },
-				}).Build(), nil
-			}
-			return execution.NewMockEngine(cfg.ModelID), nil
-		}
+		factory = NewEngineFactory(nil)
 	}
 	return &Service{factory: factory}
 }

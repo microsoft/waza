@@ -143,7 +143,16 @@ callbacks: later callbacks cannot supply missing inventory or persist a second
 authoritative lifecycle publication. This is a trusted host contract, not a
 sandbox against host code with backend access. The legacy writing
 `LifecycleObserver.Hooks` adapter is unchanged and is not the selected public
-producer. Public lifecycle adapter integration remains pending. Typed admission
+producer. The committed `PreparedLifecycleObserver` supplies non-writing
+reservation/selection and verify-only terminal hooks. The shared
+`ownedsubmission.NewLifecycleCaptureHooks` composer creates that actual observer
+with an explicit clock, adds conservative category capture and a fresh per-call
+factory, and supplies no unrestricted artifact/report callback. Its native getter
+runs only after reservation for the copilot profile; mock execution retains the
+real unbound empty sink. A configured getter returning nil is an error, not
+missing capture silently presented as success. Shared `NewEngineFactory(nil)`
+preserves legacy default builder options. Public registration remains pending.
+Typed admission
 does not prove SDK/process observation provenance or process exit; process
 evidence remains `unknown`. Native observations preserve sink sequence, not
 timestamp sorting or cross-goroutine causality.
