@@ -3,6 +3,7 @@ package trigger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,19 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTriggerCaptureFailureRetainsRuntimeCause(t *testing.T) {
+	cause := errors.New("safe capture diagnostic")
+	response := &execution.ExecutionResponse{
+		WorkspaceCaptureError: cause.Error(),
+		WorkspaceCaptureCause: cause,
+	}
+	runner := NewRunner(&TestSpec{Skill: "my-skill"}, &responseEngine{response: response},
+		config.NewEvalConfig(&models.EvalSpec{}, config.WithSpecDir(t.TempDir())), nil)
+	_, err := runner.testTrigger(t.Context(), "harmless prompt")
+	require.ErrorIs(t, err, cause)
+	require.EqualError(t, err, "trigger workspace capture failed: safe capture diagnostic")
+}
 
 func TestDiscover(t *testing.T) {
 	t.Run("finds trigger_tests.yaml", func(t *testing.T) {
@@ -343,6 +357,83 @@ func TestEvalRunnerAllErrors(t *testing.T) {
 	}
 	if m.Errors != 1 {
 		t.Errorf("Errors = %d, want 1", m.Errors)
+	}
+}
+
+type responseEngine struct {
+	response *execution.ExecutionResponse
+	err      error
+}
+
+func (e *responseEngine) Initialize(context.Context) error       { return nil }
+func (e *responseEngine) Shutdown(context.Context) error         { return nil }
+func (e *responseEngine) SessionUsage(string) *models.UsageStats { return nil }
+func (e *responseEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	return e.response, e.err
+}
+
+func TestRunDetailedCaptureFailureIsExecutionError(t *testing.T) {
+	captureError := "workspace capture incomplete: file exceeds per-file limit"
+	executionError := fmt.Errorf("synthetic execution error")
+	for _, test := range []struct {
+		name          string
+		shouldTrigger bool
+		invoked       bool
+		success       bool
+		captureError  string
+		responseError string
+		executionErr  error
+		wantError     string
+	}{
+		{name: "negative_control", success: true},
+		{name: "positive_control", shouldTrigger: true, invoked: true, success: true},
+		{name: "capture_failure", captureError: captureError, responseError: captureError, wantError: captureError},
+		{name: "capture_failure_without_error_message", captureError: captureError, wantError: captureError},
+		{name: "capture_failure_after_invocation", shouldTrigger: true, invoked: true, captureError: captureError, wantError: captureError},
+		{name: "capture_failure_despite_success_flag", success: true, captureError: captureError, wantError: captureError},
+		{name: "execution_error_preserved", captureError: captureError, executionErr: executionError, wantError: executionError.Error()},
+		{name: "unrelated_response_error_unchanged", responseError: "legacy response diagnostic"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resp := &execution.ExecutionResponse{
+				Success: test.success, ErrorMsg: test.responseError, WorkspaceCaptureError: test.captureError,
+			}
+			if test.invoked {
+				resp.SkillInvocations = []execution.SkillInvocation{{Name: "my-skill"}}
+			}
+			spec := &TestSpec{Skill: "my-skill"}
+			if test.shouldTrigger {
+				spec.ShouldTriggerPrompts = []TestPrompt{{Prompt: "synthetic positive"}}
+			} else {
+				spec.ShouldNotTriggerPrompts = []TestPrompt{{Prompt: "synthetic negative"}}
+			}
+			runner := NewRunner(spec, &responseEngine{response: resp, err: test.executionErr},
+				config.NewEvalConfig(&models.EvalSpec{}, config.WithSpecDir(t.TempDir())), nil)
+			results, metrics, err := runner.RunDetailed(t.Context())
+			require.NoError(t, err)
+			raw, err := json.Marshal(results)
+			require.NoError(t, err)
+			var saved []models.TriggerResult
+			require.NoError(t, json.Unmarshal(raw, &saved))
+			require.Len(t, saved, 1)
+			if test.wantError != "" {
+				require.Equal(t, 1, metrics.Errors)
+				require.Zero(t, metrics.TN)
+				require.Zero(t, metrics.TP)
+				require.Zero(t, metrics.Accuracy)
+				require.Contains(t, saved[0].ErrorMsg, test.wantError)
+				require.NotEqual(t, saved[0].ShouldTrigger, saved[0].DidTrigger)
+				if test.executionErr != nil {
+					_, err := runner.testTrigger(t.Context(), "synthetic negative")
+					require.ErrorIs(t, err, test.executionErr)
+				}
+			} else {
+				require.Zero(t, metrics.Errors)
+				require.Equal(t, float64(1), metrics.Accuracy)
+				require.Empty(t, saved[0].ErrorMsg)
+				require.Equal(t, saved[0].ShouldTrigger, saved[0].DidTrigger)
+			}
+		})
 	}
 }
 
