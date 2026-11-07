@@ -76,6 +76,16 @@ The recorded-category producer and reader do not complete retry, resume,
 aggregation or public submission integration; this page is not a claim that
 #768 is complete.
 
+For retry review, a parent execution ID alone is not a finalized source-manifest
+link. The internal output-only retry context path requires the exact parent's
+canonical completion and current finalized source bytes under the caller's
+shared read budget. An abandoned before-unit parent can have no completion;
+that parent remains unavailable, not a successful or observed-empty history.
+Missing, corrupt or conflicting parent evidence cannot produce a qualified
+parent link or rewrite immutable lineage. Restoring a finalized execution reuses the same source, not a new
+child or synthetic resume edge. This is declared-context qualification, not
+runtime attestation or automatic whole-history discovery in the Lab.
+
 The opt-in `categories` command returns separate admitted states and verification
 qualifiers using one source capture pass. Missing producer indexes leave all
 six categories unavailable with their declarations retained separately; no

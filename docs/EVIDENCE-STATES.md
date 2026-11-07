@@ -81,6 +81,29 @@ no execution ID is inferred from a legacy ordinal. This is source-reference
 integration only, not a reservation, ownership ledger, duplicate decision,
 retry graph verification, or finalization guarantee.
 
+`InspectRetryParent` admits one immediate `retry` edge through an actual
+caller-composed `executionledger.Reader`. Namespace and Store reads must share
+the caller's cumulative invocation budget; the helper creates no counter,
+provider or writer. It checks the child and parent descriptor bytes against
+their canonical namespace reservations and finalized manifests, deriving a
+parent digest only from `ReadCompletion` for the exact declared parent ID.
+These additional reads are nonsnapshot declared-context qualification, not
+runtime attestation or a complete graph walk. A `branch` is not a retry/resume.
+
+No parent declaration remains unavailable, not an observed-empty history.
+An abandoned before-unit parent may have a reservation but no completion;
+missing, corrupt, mismatched or budget-denied parent evidence yields no link.
+The qualified edge belongs in an output-only declared-parent context view,
+not an edit to an attempt or immutable `Document.Lineage`. Ordinary `Publish`,
+original artifacts, native verdicts and caller-owned metadata remain unchanged.
+A finalized restore reuses the same execution source; it must not manufacture
+a child or resume edge.
+
+These library paths do not automatically enable transport, aggregate parent
+fields or Lab parent discovery. Those consumers must wire the actual
+budget-decorated Reader and preserve prior source/category failures; they must
+not substitute a raw provider or a second per-edge budget.
+
 Successful source verification establishes **byte integrity only**. It does not
 verify counts/category semantics, lineage relationships, finalized publication,
 execution attestation, privacy authorization, or assurance acceptance. Parsing
