@@ -120,9 +120,21 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				{"stale-source", `test "$(cat source-sha.txt)" = "$GITHUB_SHA"`, ":"},
 				{"missing-digest", "sha256sum --check waza.sha256", ":"},
 				{"different-evidence", "name: release-validation-${{ github.sha }}", "name: release-validation-other"},
+				{"rebuild-before-publication", "run: |\n          if gh release view", "run: |\n          go build -o waza ./cmd/waza\n          if gh release view"},
 			} {
 				t.Run(mutation.name, func(t *testing.T) {
 					changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
+					if changed == string(source) {
+						t.Fatal("mutation did not change production workflow")
+					}
+					if err := validateBranchPublisher([]byte(changed), file); err == nil {
+						t.Fatal("unsafe branch publisher mutation was admitted")
+					}
+				})
+			}
+			if file == "squad-insider-release.yml" {
+				t.Run("missing-insider-target", func(t *testing.T) {
+					changed := strings.Replace(string(source), "              --target \"$GITHUB_SHA\" \\\n", "", 1)
 					if changed == string(source) {
 						t.Fatal("mutation did not change production workflow")
 					}
@@ -191,7 +203,7 @@ func testTagCLIArtifactVerification(t *testing.T, run string) {
 		"waza-windows-amd64.exe",
 		"waza-windows-arm64.exe",
 	}
-	for _, mutation := range []string{"none", "missing-binary", "missing-source", "missing-digest", "stale-source", "digest-mismatch"} {
+	for _, mutation := range []string{"none", "missing-binary", "missing-source", "missing-digest", "stale-source", "digest-mismatch", "foreign-digest"} {
 		t.Run("cli-artifacts-"+mutation, func(t *testing.T) {
 			dir := t.TempDir()
 			for _, binary := range binaries {
@@ -223,6 +235,12 @@ func testTagCLIArtifactVerification(t *testing.T, run string) {
 				writeReleaseFile(t, filepath.Join(dir, target+".source-sha.txt"), []byte("stale-source\n"))
 			case "digest-mismatch":
 				writeReleaseFile(t, filepath.Join(dir, target), []byte("altered binary"))
+			case "foreign-digest":
+				foreign, err := os.ReadFile(filepath.Join(dir, binaries[0]+".sha256"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeReleaseFile(t, filepath.Join(dir, target+".sha256"), foreign)
 			}
 			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
 			cmd.Dir = dir
@@ -422,6 +440,15 @@ func validateBranchPublisher(source []byte, file string) error {
 	if !strings.Contains(steps[createName].Run, "./waza ./waza.sha256 ./source-sha.txt") {
 		return fmt.Errorf("publisher must publish source and digest evidence with the tested binary")
 	}
+	for _, step := range publish.Steps {
+		if strings.Contains(step.Run, "go build") {
+			return fmt.Errorf("publisher must not rebuild its validated binary")
+		}
+	}
+	if file == "squad-insider-release.yml" &&
+		!strings.Contains(steps[createName].Run, `--target "$GITHUB_SHA"`) {
+		return fmt.Errorf("insider release tag must target the validated source")
+	}
 	return nil
 }
 
@@ -470,7 +497,7 @@ func validateTagRelease(source []byte) error {
 		!strings.Contains(checks, `test -f "$source"`) ||
 		!strings.Contains(checks, `test -f "$digest"`) ||
 		!strings.Contains(checks, `test "$(cat "$source")" = "$GITHUB_SHA"`) ||
-		!strings.Contains(checks, `sha256sum --check "$digest"`) ||
+		!strings.Contains(checks, `test "$(cat "$digest")" = "$(sha256sum "$binary")"`) ||
 		!strings.Contains(checks, `sha256sum "${expected[@]}" > checksums.txt`) {
 		return fmt.Errorf("CLI publication must reject stale or incomplete artifact evidence")
 	}

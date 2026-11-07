@@ -76,6 +76,7 @@ jobs:
           else
             gh release create "$VERSION" ./waza ./waza.sha256 ./source-sha.txt \
               --repo "${{ github.repository }}" \
+              --target "$GITHUB_SHA" \
               --title "Insider Release $VERSION" \
               --notes "Pre-release build of waza CLI for insider testing" \
               --prerelease

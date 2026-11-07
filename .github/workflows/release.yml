@@ -168,7 +168,7 @@ jobs:
             test -f "$source"
             test -f "$digest"
             test "$(cat "$source")" = "$GITHUB_SHA"
-            sha256sum --check "$digest"
+            test "$(cat "$digest")" = "$(sha256sum "$binary")"
           done
           sha256sum "${expected[@]}" > checksums.txt
           echo "Generated checksums:"
