@@ -12,6 +12,50 @@ the issue's earlier reference is `774df00a4f04fb5d193548a2cf3f45470fe285bb`.
 Fixtures are synthetic, sanitized representations of historical wire formats,
 not captures from a live account. No production defaults change.
 
+## Logical execution attempt sidecars (bounded foundation)
+
+The additive `execution-attempt-1.0.schema.json` profile and
+`internal/executionattempt` codecs are declarations only. They do not alter
+manifest v1, legacy result readers, CLI execution, lookup, billing, or Lab
+behavior. Full delivery of #764 still requires conditional storage integration,
+verified reuse and duplicate/concurrent-writer production tests, public surfaces,
+and release/migration guidance. Do not treat these pure tests as storage or
+runtime execution evidence.
+
+Logical run is the existing `runneridentity.Identity.Run`; logical work is
+`Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,
+independent of the caller's native `Selection.Attempt`. Allocation uses 256 random
+bits, not a uniqueness or reservation guarantee. The owner must reserve the ID
+conditionally before execution once storage integration exists. Decision IDs use
+a separate `decision-` namespace. Original bindings use the actual
+`artifactmanifest.Binding`; declared context is not runtime attestation.
+
+Attempt records retain their original bindings and optional `retry` or `branch`
+parent links. Complete lineage validation rejects missing/cross-work parents,
+cycles, and repeated execution IDs; input order is irrelevant and siblings are
+incomparable. Multiple independent roots for the same logical work are valid,
+including matching native attempt ordinals. This graph check is not an append
+operation, global ordering, lock, overwrite guard, or exactly-once mechanism.
+
+Duplicate decision declarations require an explicit policy. The eventual default
+is distinct execution to preserve legacy behavior, but the codec never supplies
+an omitted policy. `distinct` policy/outcome requires a new execution ID and no
+source. Explicit `reuse` policy requires a source execution ID and original
+manifest digest, with `reused`, `unfinished`, or `conflict` outcome and no new
+execution ID. Even a `reused` declaration is not evidence verification: a provider
+must check immutable finalized source bytes and context before recording that
+decision. Unfinished and digest-only sources must never become verified success.
+Reusing failures must retain the original failure, native ordinal, terminal bytes,
+and historical billing attribution; it must not invent a new execution or billing.
+
+The strict offline codecs reject missing required fields, explicit null, invalid
+wire types, duplicate/aliased keys, malformed Unicode, and invalid numeric tokens.
+Optional parent/source members may be omitted where allowed but never null or
+empty objects. Explicit empty grader arrays remain valid and distinct from null.
+Canonical encoding preserves original ordinals, sorts grader IDs without mutating
+caller slices, and uses compact Go JSON field order/escaping with no trailing LF.
+The bounded graph accepts at most 1,024 records; each sidecar is at most 1 MiB.
+
 ## Integration commands
 
 From the repository root, after the normal embedded dashboard assets exist:
