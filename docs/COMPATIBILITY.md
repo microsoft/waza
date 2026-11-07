@@ -17,10 +17,47 @@ not captures from a live account. No production defaults change.
 The additive `execution-attempt-1.0.schema.json` profile and
 `internal/executionattempt` codecs are declarations only. They do not alter
 manifest v1, legacy result readers, CLI execution, lookup, billing, or Lab
-behavior. Full delivery of #764 still requires conditional storage integration,
+behavior. Full delivery of #764 still requires production submission integration,
 verified reuse and duplicate/concurrent-writer production tests, public surfaces,
 and release/migration guidance. Do not treat these pure tests as storage or
 runtime execution evidence.
+
+The three frozen attempt, decision, and completion JSON fixtures retain their
+recorded bytes without line-ending conversion through path-specific
+`.gitattributes` rules. Their byte oracles are not normalized to hide checkout
+changes; the codecs separately accept valid CRLF JSON whitespace. These rules
+do not change legacy fixtures or wire decoding.
+
+The source owner API in `internal/executionledger` now wraps the real foundation
+namespace, without adding another persistence provider. `New(backend)` requires
+an initialized supported backend. `Reserve(ctx, binding, parent)` generates a
+fresh execution ID and returns an opaque `Creator` only after exclusive creation
+and complete-byte readback. `Reservation(creator)` returns detached original
+bytes/context; `ValidateCreator(ctx, creator)` compares them with current storage.
+Zero, foreign, occupied, or ambiguous reservation results cannot grant authority.
+IDs, stored records, and checkpoints never hydrate a creator.
+
+`Complete(ctx, creator, manifestDigest, names...)` requires that retained creator
+and actual finalized, verified artifacts; it retains the original binding and
+canonical reservation hash. Identical completion retries require the same
+creator. `ReadCompleted(ctx, source, names...)` verifies the actual reservation,
+completion, manifest, objects, and final marker without granting authority.
+`Distinct(ctx, creator)` records the newly owned target; `Reuse(ctx, binding,
+source, names...)` records only a verified compatible original source, with no
+new execution ID or runtime call. Failed source outcomes and original native
+ordinals remain unchanged. These are cooperating-writer API guarantees, not a
+cross-object transaction, lease, tamperproof storage, or execution attestation.
+The legacy runner and public submission/CLI/API/Lab integration remain separate.
+
+`Ledger.Reserve` applies the shared `execution.ValidateOwnedRuntime` guard before
+any namespace read or creation for new owned work or before-unit recovery.
+Submission must reapply that same guard before executing owned native work.
+The conservative profile rejects effective ambient BYOC providers and nonempty
+`COPILOT_CLI_PATH` overrides; default embedded native execution remains eligible.
+Mock mode ignores native overrides. This does not change legacy runner/SDK
+behavior, hash or store credentials, or treat VCS revision as runtime attestation.
+Finalized source-only restore performs no new engine call and preserves original
+verified evidence; it is not a claim about the current native provider.
 
 Logical run is the existing `runneridentity.Identity.Run`; logical work is
 `Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,
