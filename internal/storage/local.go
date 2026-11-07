@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -24,6 +25,8 @@ type LocalStore struct {
 	cache  map[string]*models.EvaluationOutcome
 	files  map[string]struct{}
 	loaded bool
+
+	dashboardCache *DashboardResultCache
 }
 
 // NewLocalStore creates a LocalStore that reads/writes results in dir.
@@ -33,6 +36,14 @@ func NewLocalStore(dir string) *LocalStore {
 		cache: make(map[string]*models.EvaluationOutcome),
 		files: make(map[string]struct{}),
 	}
+}
+
+// NewDashboardLocalStore creates a LocalStore whose refreshes reuse parsed
+// artifacts when their content digest is unchanged.
+func NewDashboardLocalStore(dir string) *LocalStore {
+	store := NewLocalStore(dir)
+	store.dashboardCache = NewDashboardResultCache()
+	return store
 }
 
 // Upload writes an evaluation outcome as a JSON file to the local results directory.
@@ -141,7 +152,16 @@ func (ls *LocalStore) load() error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	cache, files, err := ReadLocalResults(ls.dir, ls.files)
+	var (
+		cache map[string]*models.EvaluationOutcome
+		files map[string]struct{}
+		err   error
+	)
+	if ls.dashboardCache != nil {
+		cache, files, err = ReadLocalResultsForDashboard(ls.dir, ls.files, ls.dashboardCache)
+	} else {
+		cache, files, err = ReadLocalResults(ls.dir, ls.files)
+	}
 	if err != nil {
 		return err
 	}
@@ -164,6 +184,63 @@ func ReadLocalResults(dir string, previousFiles map[string]struct{}) (map[string
 }
 
 func readLocalResults(dir string, previousFiles map[string]struct{}, walk func(string, fs.WalkDirFunc) error) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
+	return readLocalResultsWithLoader(dir, previousFiles, walk, readLocalResult)
+}
+
+type dashboardResultCacheEntry struct {
+	digest  [sha256.Size]byte
+	outcome *models.EvaluationOutcome
+}
+
+// DashboardResultCache retains parsed local result artifacts for dashboard
+// refreshes. Content digests, rather than timestamps and sizes, determine reuse.
+type DashboardResultCache struct {
+	entries map[string]dashboardResultCacheEntry
+}
+
+// NewDashboardResultCache creates an empty dashboard refresh cache.
+func NewDashboardResultCache() *DashboardResultCache {
+	return &DashboardResultCache{entries: make(map[string]dashboardResultCacheEntry)}
+}
+
+// ReadLocalResultsForDashboard refreshes a dashboard snapshot while reusing
+// parsed outcomes whose file content is unchanged. Cache replacement is
+// transactional with the result snapshot.
+func ReadLocalResultsForDashboard(dir string, previousFiles map[string]struct{}, cache *DashboardResultCache) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
+	if cache == nil {
+		return ReadLocalResults(dir, previousFiles)
+	}
+	next := make(map[string]dashboardResultCacheEntry)
+	results, files, err := readLocalResultsWithLoader(dir, previousFiles, filepath.WalkDir, func(path string, known bool) (*models.EvaluationOutcome, error) {
+		data, err := readLocalResultData(path, known)
+		if err != nil || data == nil {
+			return nil, err
+		}
+		digest := sha256.Sum256(data)
+		if entry, ok := cache.entries[path]; ok && entry.digest == digest {
+			next[path] = entry
+			return entry.outcome, nil
+		}
+		outcome, err := parseLocalResult(path, data, known)
+		if err != nil || outcome == nil {
+			return outcome, err
+		}
+		next[path] = dashboardResultCacheEntry{digest: digest, outcome: outcome}
+		return outcome, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	cache.entries = next
+	return results, files, nil
+}
+
+func readLocalResultsWithLoader(
+	dir string,
+	previousFiles map[string]struct{},
+	walk func(string, fs.WalkDirFunc) error,
+	load func(string, bool) (*models.EvaluationOutcome, error),
+) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
 	results := make(map[string]*models.EvaluationOutcome)
 	resultPaths := make(map[string]string)
 	files := make(map[string]struct{})
@@ -210,7 +287,7 @@ func readLocalResults(dir string, previousFiles map[string]struct{}, walk func(s
 			return nil
 		}
 
-		outcome, err := readLocalResult(path, known)
+		outcome, err := load(path, known)
 		if err != nil {
 			return err
 		}
@@ -244,6 +321,14 @@ func readLocalResults(dir string, previousFiles map[string]struct{}, walk func(s
 }
 
 func readLocalResult(path string, known bool) (*models.EvaluationOutcome, error) {
+	data, err := readLocalResultData(path, known)
+	if err != nil || data == nil {
+		return nil, err
+	}
+	return parseLocalResult(path, data, known)
+}
+
+func readLocalResultData(path string, known bool) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if known {
@@ -251,6 +336,10 @@ func readLocalResult(path string, known bool) (*models.EvaluationOutcome, error)
 		}
 		return nil, nil
 	}
+	return data, nil
+}
+
+func parseLocalResult(path string, data []byte, known bool) (*models.EvaluationOutcome, error) {
 	_, ok, err := models.ProbeEvaluationOutcomeSchemaVersion(data)
 	if err != nil {
 		if known {

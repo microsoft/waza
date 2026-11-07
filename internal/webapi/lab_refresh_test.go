@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/storage"
 	"github.com/stretchr/testify/require"
 )
@@ -22,13 +21,10 @@ func labRefreshMux(t *testing.T, dir string, configured bool) *http.ServeMux {
 	t.Helper()
 	mux := http.NewServeMux()
 	if configured {
-		cfg := &projectconfig.StorageConfig{Enabled: true}
-		backend, err := storage.NewStore(cfg, dir)
-		require.NoError(t, err)
-		require.IsType(t, &storage.LocalStore{}, backend)
+		backend := storage.NewDashboardLocalStore(dir)
 		RegisterRoutesWithStorage(mux, NewStorageAdapter(backend, "local"), &StorageConfig{Configured: true})
 	} else {
-		RegisterRoutes(mux, NewFileStore(dir))
+		RegisterRoutes(mux, NewDashboardFileStore(dir))
 	}
 	return mux
 }

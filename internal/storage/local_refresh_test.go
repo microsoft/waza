@@ -1,11 +1,14 @@
 package storage
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -109,4 +112,92 @@ func TestLocalStoreReloadDirectoryFailurePreservesCache(t *testing.T) {
 	after, err := store.Download(t.Context(), "cached")
 	require.NoError(t, err)
 	require.Equal(t, before, after)
+}
+
+func TestDashboardLocalStoreDetectsSameSizeChangeWithRestoredMtime(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cached.json")
+	before := makeOutcome("cached", "alpha", "mock-model", 1, 1)
+	after := makeOutcome("cached", "bravo", "mock-model", 1, 1)
+	beforeData, err := json.Marshal(before)
+	require.NoError(t, err)
+	afterData, err := json.Marshal(after)
+	require.NoError(t, err)
+	require.Len(t, afterData, len(beforeData))
+
+	mtime := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, os.WriteFile(path, beforeData, 0o600))
+	require.NoError(t, os.Chtimes(path, mtime, mtime))
+
+	store := NewDashboardLocalStore(dir)
+	loadedBefore, err := store.Download(t.Context(), "cached")
+	require.NoError(t, err)
+	require.Equal(t, "alpha", loadedBefore.SkillTested)
+	require.NoError(t, store.Reload())
+	unchanged, err := store.Download(t.Context(), "cached")
+	require.NoError(t, err)
+	require.Same(t, loadedBefore, unchanged, "unchanged content should reuse the parsed outcome")
+
+	require.NoError(t, os.WriteFile(path, afterData, 0o600))
+	require.NoError(t, os.Chtimes(path, mtime, mtime))
+	require.NoError(t, store.Reload())
+	loadedAfter, err := store.Download(t.Context(), "cached")
+	require.NoError(t, err)
+	require.Equal(t, "bravo", loadedAfter.SkillTested)
+	require.NotSame(t, loadedBefore, loadedAfter)
+}
+
+func TestDashboardLocalStoreRejectsSameSizeInvalidChangeWithRestoredMtime(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cached.json")
+	outcome := makeOutcome("cached", "alpha", "mock-model", 1, 1)
+	data, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	mtime := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+	require.NoError(t, os.Chtimes(path, mtime, mtime))
+
+	store := NewDashboardLocalStore(dir)
+	before, err := store.Download(t.Context(), "cached")
+	require.NoError(t, err)
+
+	invalid := bytes.Repeat([]byte{' '}, len(data))
+	invalid[0] = '{'
+	require.NoError(t, os.WriteFile(path, invalid, 0o600))
+	require.NoError(t, os.Chtimes(path, mtime, mtime))
+	require.ErrorContains(t, store.Reload(), strconv.Quote(path))
+
+	after, err := store.Download(t.Context(), "cached")
+	require.NoError(t, err)
+	require.Same(t, before, after, "failed refresh should preserve the prior snapshot")
+}
+
+func BenchmarkLocalResultRefresh300(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 300 {
+		outcome := makeOutcome("run-"+strconv.Itoa(i), "skill", "mock-model", 5, 10)
+		data, err := json.Marshal(outcome)
+		require.NoError(b, err)
+		require.NoError(b, os.WriteFile(filepath.Join(dir, outcome.RunID+".json"), data, 0o600))
+	}
+
+	b.Run("uncached", func(b *testing.B) {
+		_, files, err := ReadLocalResults(dir, nil)
+		require.NoError(b, err)
+		b.ResetTimer()
+		for range b.N {
+			_, files, err = ReadLocalResults(dir, files)
+			require.NoError(b, err)
+		}
+	})
+	b.Run("dashboard-cache", func(b *testing.B) {
+		cache := NewDashboardResultCache()
+		_, files, err := ReadLocalResultsForDashboard(dir, nil, cache)
+		require.NoError(b, err)
+		b.ResetTimer()
+		for range b.N {
+			_, files, err = ReadLocalResultsForDashboard(dir, files, cache)
+			require.NoError(b, err)
+		}
+	})
 }
