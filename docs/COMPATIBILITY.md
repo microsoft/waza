@@ -33,6 +33,14 @@ Ordinary Linux, Windows, and preview validation run the broad Go suite with
 `make test-compat-inventory`, which checks the corpus prerequisites and prints
 the exact package inventory subsumed by that broad run; it does not execute the
 same packages a second time.
+
+The isolated `internal/embedded` `TestPath` protocol smoke test is the explicit
+exception: it starts the actual bundled native CLI outside the rejecting guard
+and its invocation marker. It clears credentials, disables logged-in-user use,
+and checks a local test provider receives zero requests without sending an
+inference prompt, within bounded contexts. This is native protocol evidence,
+not zero-CLI-launch, live-inference, or general network-egress isolation evidence.
+
 Workflow regression controls execute the production test-selection shell with a
 recording Go substitute and compare its arguments with actual package discovery.
 They require the whole suite (excluding only the separately guarded native shard
