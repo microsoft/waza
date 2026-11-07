@@ -98,7 +98,7 @@ func (isg *InlineScriptGrader) Grade(ctx context.Context, gradingContext *Contex
 			}, nil
 		}
 
-		failures, passed, err := isg.runScript(ctx, gradingContext)
+		failures, passed, evaluationErrors, err := isg.runScript(ctx, gradingContext)
 
 		if err != nil {
 			return nil, err
@@ -112,6 +112,14 @@ func (isg *InlineScriptGrader) Grade(ctx context.Context, gradingContext *Contex
 			feedback = strings.Join(failures, "; ")
 		}
 
+		details := map[string]any{
+			"total_assertions":  len(isg.assertions),
+			"passed_assertions": passed,
+			"failures":          failures,
+		}
+		if len(evaluationErrors) > 0 {
+			details["evaluation_errors"] = evaluationErrors
+		}
 		return &models.GraderResults{
 			Name:     isg.name,
 			Type:     models.GraderKindInlineScript,
@@ -119,27 +127,23 @@ func (isg *InlineScriptGrader) Grade(ctx context.Context, gradingContext *Contex
 			Passed:   allPassed,
 			Feedback: feedback,
 			// TODO: can we mapstructure.encode or something similar - this is a contract, like any other.
-			Details: map[string]any{
-				"total_assertions":  len(isg.assertions),
-				"passed_assertions": passed,
-				"failures":          failures,
-			},
+			Details: details,
 		}, nil
 	})
 }
 
-func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Context) (failures []string, passed int, err error) {
+func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Context) (failures []string, passed int, evaluationErrors []string, err error) {
 	stdinText, err := getStdinTextForScript(gradingContext, isg.assertions)
 
 	if err != nil {
 		// let's not quit the entire thing, but we can mark this failure.
-		return nil, 0, fmt.Errorf("failed: script conversion failed for assertions: %w", err)
+		return nil, 0, nil, fmt.Errorf("failed: script conversion failed for assertions: %w", err)
 	}
 
 	tempScriptFile, err := os.CreateTemp("", "waza-inline-script-*."+isg.scriptExt)
 
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	defer func() {
@@ -147,11 +151,11 @@ func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Co
 	}()
 
 	if _, err := tempScriptFile.Write([]byte(isg.scriptContents)); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	if err := tempScriptFile.Close(); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	cmd := exec.CommandContext(ctx, isg.scriptBin, tempScriptFile.Name())
@@ -162,15 +166,16 @@ func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Co
 	outputBytes, err := cmd.Output()
 
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to execute inline script for assertions (%s): %w", string(outputBytes), err)
+		return nil, 0, nil, fmt.Errorf("failed to execute inline script for assertions (%s): %w", string(outputBytes), err)
 	}
 
 	var snippetOutput *struct {
-		Results []string
+		Results          []string
+		EvaluationErrors map[int]string `json:"evaluation_errors"`
 	}
 
 	if err := json.Unmarshal(outputBytes, &snippetOutput); err != nil {
-		return nil, 0, fmt.Errorf("failed to deserialize output (%s) from assertions: %w", string(outputBytes), err)
+		return nil, 0, nil, fmt.Errorf("failed to deserialize output (%s) from assertions: %w", string(outputBytes), err)
 	}
 
 	// TODO: it might be nice to get more rich results here. Currently the script returns
@@ -179,18 +184,37 @@ func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Co
 	//   "fail" => assertion failed with no additional message
 	//   other  => assertion failed and the value is an error message.
 	for i, errMsg := range snippetOutput.Results {
-		if errMsg == "fail" {
+		if evaluationErr, ok := snippetOutput.EvaluationErrors[i]; ok {
+			failures = append(failures, fmt.Sprintf("Failed: %s: %s", isg.assertions[i], evaluationErr))
+			evaluationErrors = append(evaluationErrors, evaluationErr)
+		} else if errMsg == "fail" {
 			failures = append(failures, fmt.Sprintf("Failed: %s", isg.assertions[i]))
 		} else if errMsg != "" {
 			failures = append(failures, fmt.Sprintf("Failed: %s: %s", isg.assertions[i], errMsg))
+			evaluationErrors = append(evaluationErrors, errMsg)
 		} else {
 			passed++
 		}
 	}
-	return failures, passed, nil
+	return failures, passed, evaluationErrors, nil
 }
 
-func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte, error) {
+// gradingContextPayload is the run evidence shared by inline script graders
+// (on stdin) and program graders (via WAZA_GRADING_CONTEXT). Nil tool_events
+// and command_invocations serialize as null: no evidence was recorded.
+type gradingContextPayload struct {
+	Output             string                     `json:"output"`
+	Outcome            map[string]any             `json:"outcome"`
+	Transcript         []models.TranscriptEvent   `json:"transcript"`
+	ToolCalls          []models.ToolCall          `json:"tool_calls"`
+	ToolEvents         []models.ToolEvent         `json:"tool_events"`
+	HostLifecycle      *models.HostLifecycle      `json:"host_lifecycle"`
+	CommandInvocations []models.CommandInvocation `json:"command_invocations"`
+	UserInputRequests  []models.UserInputRecord   `json:"user_input_requests"`
+	DurationMS         int64                      `json:"duration_ms"`
+}
+
+func newGradingContextPayload(gradingContext *Context) gradingContextPayload {
 	var sessionEvents []copilot.SessionEvent
 
 	for _, te := range gradingContext.Transcript {
@@ -215,28 +239,30 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		toolCalls = []models.ToolCall{}
 	}
 
-	scriptStdin := struct {
-		Output             string                     `json:"output"`
-		Outcome            map[string]any             `json:"outcome"`
-		Transcript         []models.TranscriptEvent   `json:"transcript"`
-		ToolCalls          []models.ToolCall          `json:"tool_calls"`
-		ToolEvents         []models.ToolEvent         `json:"tool_events"`
-		CommandInvocations []models.CommandInvocation `json:"command_invocations"`
-		DurationMS         int64                      `json:"duration_ms"`
-		Assertions         []string                   `json:"assertions"`
-
-		// Debug causes the underlying scripts to print, to stderr, their stdin contents.
-		Debug bool `json:"debug"`
-	}{
+	return gradingContextPayload{
 		Output:             gradingContext.Output,
 		Outcome:            outcome,
 		Transcript:         transcriptEvents,
 		ToolCalls:          toolCalls,
 		ToolEvents:         gradingContext.ToolEvents,
+		HostLifecycle:      gradingContext.HostLifecycle,
 		CommandInvocations: gradingContext.CommandInvocations,
+		UserInputRequests:  gradingContext.UserInputRequests,
 		DurationMS:         gradingContext.DurationMS,
-		Assertions:         assertions,
-		Debug:              slog.Default().Enabled(context.Background(), slog.LevelDebug),
+	}
+}
+
+func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte, error) {
+	scriptStdin := struct {
+		gradingContextPayload
+		Assertions []string `json:"assertions"`
+
+		// Debug causes the underlying scripts to print, to stderr, their stdin contents.
+		Debug bool `json:"debug"`
+	}{
+		gradingContextPayload: newGradingContextPayload(gradingContext),
+		Assertions:            assertions,
+		Debug:                 slog.Default().Enabled(context.Background(), slog.LevelDebug),
 	}
 
 	scriptJSON, err := json.MarshalIndent(scriptStdin, "  ", "  ")

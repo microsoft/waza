@@ -99,6 +99,10 @@ func (w *copilotClientWrapper) Stop() error {
 	return w.inner.Stop()
 }
 
+func (w *copilotClientWrapper) ForceStop() {
+	w.inner.ForceStop()
+}
+
 func (w *copilotClientWrapper) GetAuthStatus(ctx context.Context) (*copilot.GetAuthStatusResponse, error) {
 	return w.inner.GetAuthStatus(ctx)
 }
@@ -142,14 +146,14 @@ func (w *copilotSessionWrapper) UsageMetrics(ctx context.Context) (*rpc.UsageGet
 }
 
 func (w *copilotSessionWrapper) ShutdownUsage(ctx context.Context) (*copilot.SessionShutdownData, error) {
-	return w.shutdownUsage(ctx, nil)
+	return w.shutdownUsage(ctx, nil, true)
 }
 
-func (w *copilotSessionWrapper) shutdownUsageDiagnostic(ctx context.Context, report func(DiagnosticCode)) (*copilot.SessionShutdownData, error) {
-	return w.shutdownUsage(ctx, report)
+func (w *copilotSessionWrapper) shutdownUsageDiagnostic(ctx context.Context, report func(DiagnosticCode), allowResume bool) (*copilot.SessionShutdownData, error) {
+	return w.shutdownUsage(ctx, report, allowResume)
 }
 
-func (w *copilotSessionWrapper) shutdownUsage(ctx context.Context, report func(DiagnosticCode)) (data *copilot.SessionShutdownData, resultErr error) {
+func (w *copilotSessionWrapper) shutdownUsage(ctx context.Context, report func(DiagnosticCode), allowResume bool) (data *copilot.SessionShutdownData, resultErr error) {
 	fail := func(code DiagnosticCode, err error) error {
 		if report == nil {
 			return err
@@ -159,6 +163,9 @@ func (w *copilotSessionWrapper) shutdownUsage(ctx context.Context, report func(D
 	}
 	session := w.inner
 	if w.disconnected {
+		if !allowResume {
+			return nil, fail(CodeUsageMissingOrPartial, fmt.Errorf("shutdown usage unavailable: isolated sessions cannot resume for usage fallback"))
+		}
 		resumed, err := w.client.ResumeSessionWithOptions(ctx, session.SessionID, &copilot.ResumeSessionConfig{})
 		if err != nil {
 			return nil, fail(CodeResume, err)
