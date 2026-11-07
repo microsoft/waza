@@ -101,7 +101,7 @@ flowchart TD
   - `TestBenchmarkCorpusReferenceAdmission`: Verified JSON Schema validation against `schemas/grader-reference-1.0.schema.json`, plus parse, admission, and cryptographic integrity of `ReferenceDocument` via `ParseReferences`.
   - `TestBenchmarkCorpusDeclaredMechanical`: Verified `ObserveDeclaredMechanical` against declared `TestCase` and `EvalSpec`.
   - `TestBenchmarkCorpusFixturePersistence`: Verified static fixture round-trip serialization, committed reference JSON schema validation, and presence of all 48 reference snapshots.
-  - `TestBenchmarkCorpusObservePreservedMechanical`: Verified mechanical evaluation against serialized snapshot bytes.
+  - `TestBenchmarkCorpusObservePreservedMechanical`: Verified mechanical evaluation against serialized snapshot bytes (enforcing all 48 preserved boundary checks across all platforms, with outcome file checks where workspace materialization is supported).
   - `TestBenchmarkCorpusVerifyPreserved`: Verified `VerifyPreserved` preserved assessment against committed reference testdata and snapshots.
   - `TestBenchmarkCorpusCRLFAndContradictionRegressions`: Verified 60 mechanical evaluations covering valid CRLF endings, mixed-ending contradictions, and pure CRLF contradictions across all 12 scenarios.
 

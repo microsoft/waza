@@ -232,14 +232,17 @@ func TestBenchmarkCorpusDeclaredMechanical(t *testing.T) {
 }
 
 func TestBenchmarkCorpusObservePreservedMechanical(t *testing.T) {
-	if !preservedWorkspaceSupported() {
-		t.Skip("preserved mechanical grading requires supported secure workspace materialization (Linux/macOS)")
-	}
 	pkg, err := BuildBenchmarkCorpus()
 	require.NoError(t, err)
 
+	canGradeFiles := preservedWorkspaceSupported()
+	if !canGradeFiles {
+		t.Log("skipping preserved file outcome checks: requires supported secure workspace materialization (Linux/macOS)")
+	}
+
 	validCasesTested := 0
 	badCasesTested := 0
+	boundariesTested := 0
 
 	for _, c := range pkg.Document.Cases {
 		snapshotBytes, ok := pkg.Snapshots[c.Snapshot]
@@ -248,21 +251,7 @@ func TestBenchmarkCorpusObservePreservedMechanical(t *testing.T) {
 		task, ok := pkg.Tasks[c.TaskID]
 		require.True(t, ok, "task must exist for case %s", c.ID)
 
-		// 1. Grade outcome check directly from serialized snapshot
-		outcomeObs := ObservePreservedMechanical(t.Context(), PreservedMechanicalInput{
-			Task:           task,
-			Spec:           pkg.CombinedSpec,
-			Check:          c.Checks[0].Check,
-			SnapshotBytes:  snapshotBytes,
-			ManifestSHA256: c.ManifestSHA256,
-			Evidence:       c.Checks[0].Evidence,
-		})
-		require.Equal(t, Observed, outcomeObs.State)
-		require.NoError(t, outcomeObs.Err)
-		require.NotNil(t, outcomeObs.Result)
-		require.Equal(t, *c.Checks[0].ExpectedPassed, outcomeObs.Result.Passed)
-
-		// 2. Grade boundary check directly from serialized snapshot
+		// 1. Grade boundary check directly from serialized snapshot (supported on all platforms)
 		boundaryObs := ObservePreservedMechanical(t.Context(), PreservedMechanicalInput{
 			Task:           task,
 			Spec:           pkg.CombinedSpec,
@@ -275,19 +264,39 @@ func TestBenchmarkCorpusObservePreservedMechanical(t *testing.T) {
 		require.NoError(t, boundaryObs.Err)
 		require.NotNil(t, boundaryObs.Result)
 		require.Equal(t, *c.Checks[1].ExpectedPassed, boundaryObs.Result.Passed)
+		boundariesTested++
 
-		overallPassed := outcomeObs.Result.Passed && boundaryObs.Result.Passed
-		if c.Classification == CaseGood || c.Classification == CaseAlternative {
-			require.True(t, overallPassed, "valid case %s must pass", c.ID)
-			validCasesTested++
-		} else {
-			require.False(t, overallPassed, "critical bad case %s must fail", c.ID)
-			badCasesTested++
+		// 2. Grade outcome check directly from serialized snapshot if secure workspace materialization is supported
+		if canGradeFiles {
+			outcomeObs := ObservePreservedMechanical(t.Context(), PreservedMechanicalInput{
+				Task:           task,
+				Spec:           pkg.CombinedSpec,
+				Check:          c.Checks[0].Check,
+				SnapshotBytes:  snapshotBytes,
+				ManifestSHA256: c.ManifestSHA256,
+				Evidence:       c.Checks[0].Evidence,
+			})
+			require.Equal(t, Observed, outcomeObs.State)
+			require.NoError(t, outcomeObs.Err)
+			require.NotNil(t, outcomeObs.Result)
+			require.Equal(t, *c.Checks[0].ExpectedPassed, outcomeObs.Result.Passed)
+
+			overallPassed := outcomeObs.Result.Passed && boundaryObs.Result.Passed
+			if c.Classification == CaseGood || c.Classification == CaseAlternative {
+				require.True(t, overallPassed, "valid case %s must pass", c.ID)
+				validCasesTested++
+			} else {
+				require.False(t, overallPassed, "critical bad case %s must fail", c.ID)
+				badCasesTested++
+			}
 		}
 	}
 
-	require.Equal(t, 24, validCasesTested, "24 valid cases must pass in preserved mechanical mode")
-	require.Equal(t, 24, badCasesTested, "24 critical bad cases must fail in preserved mechanical mode")
+	require.Equal(t, 48, boundariesTested, "all 48 preserved boundary checks must be evaluated across all platforms")
+	if canGradeFiles {
+		require.Equal(t, 24, validCasesTested, "24 valid cases must pass in preserved mechanical mode")
+		require.Equal(t, 24, badCasesTested, "24 critical bad cases must fail in preserved mechanical mode")
+	}
 }
 
 func TestBenchmarkCorpusFixturePersistence(t *testing.T) {
