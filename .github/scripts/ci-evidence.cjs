@@ -224,6 +224,7 @@ async function discoverGo(output) {
     if (event.Action === "output" && text(event.Package) && typeof event.Output === "string") {
       const name = event.Output.trim();
       if (/^(Test|Fuzz|Example)\S*$/.test(name) && text(name)) targets.add(`${event.Package}::${name}`);
+      else await writer.write(event.Output);
     }
     if (event.Action === "fail" || event.Action === "build-fail") throw new Error("discovery-failed");
     if (targets.size > LIMITS.targets) throw new Error("discovery-target-cap");
@@ -602,12 +603,17 @@ function collectObservations(runID, api, download = (id) => {
         report.diagnostics.every((code) => text(code) !== null);
       const selectedValid = Array.isArray(report.selected) || (partial && report.selected == null);
       const policyValid = (report.policy && typeof report.policy === "object" && !Array.isArray(report.policy)) || (partial && report.policy == null);
+      const targetsValid = report.kind !== "go" || report.complete !== true ||
+        (Array.isArray(report.targets) && report.targets.length <= LIMITS.targets && report.targets.every((target) =>
+          target && typeof target === "object" && !Array.isArray(target) &&
+          text(target.package) && text(target.name) && typeof target.top_level === "boolean" &&
+          ["pass", "fail", "skip"].includes(target.status) && number(target.seconds) !== null));
       if (report.schema !== 1 || report.kind !== (match[1] === "browser" ? "playwright" : "go") ||
           report.identity?.repository !== "microsoft/waza" || report.identity?.run_id !== String(runID) ||
           report.identity?.event !== metadata.event || report.identity?.workflow !== metadata.workflow ||
           report.identity?.attempt !== match[3] ||
           Number(match[3]) > metadata.run_attempt || metadata.run_attempt === null ||
-          !selectedValid || !policyValid || !report.cache || typeof report.cache !== "object" || Array.isArray(report.cache) ||
+          !selectedValid || !policyValid || !targetsValid || !report.cache || typeof report.cache !== "object" || Array.isArray(report.cache) ||
           (match[1] === "go-run" && report.identity.job !== match[4])) throw new Error("artifact-report-binding");
       const checkoutVerified = /^[0-9a-f]{40}$/.test(metadata.source_sha || "") && report.identity.source_sha === metadata.source_sha && report.identity.workflow_sha === metadata.source_sha;
       if (!checkoutVerified && metadata.event !== "pull_request") throw new Error("artifact-checkout-binding");

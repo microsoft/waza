@@ -289,6 +289,23 @@ test("actual Go ImportPath build events preserve compiler diagnostics without up
   assert.ok(discovery.stdout.includes("SECRETBuildFailureSentinel"));
   assert.equal(fs.existsSync(path.join(dir, "all")), false);
 });
+test("actual Go initialization failure diagnostics survive nonexecuting discovery", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-discovery-failure-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  fs.writeFileSync(path.join(dir, "go.mod"), "module example/p\n\ngo 1.26\n");
+  fs.writeFileSync(path.join(dir, "example_test.go"), 'package p\nimport "testing"\nfunc init() { panic("SECRETDiscoveryFailureSentinel") }\nfunc TestA(t *testing.T) { t.Fatal("must not run") }\n');
+  const produced = spawnSync("go", ["test", "-race", "-covermode=atomic", "-json", "-list", ".", "."], {
+    cwd: dir, env: { ...process.env, GOPROXY: "off", GOSUMDB: "off" }, encoding: "utf8", timeout: 30000,
+  });
+  assert.equal(produced.status, 1, produced.stderr);
+  const events = produced.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  assert.ok(events.some((item) => item.Action === "output" && item.Package === "example/p" && item.Output.includes("SECRETDiscoveryFailureSentinel")));
+  assert.ok(!events.some((item) => item.Action === "run"), "Go discovery did not execute a test");
+  const captured = spawnSync(process.execPath, [path.join(__dirname, "ci-evidence.cjs"), "discover", "all"], { cwd: dir, input: produced.stdout, encoding: "utf8" });
+  assert.equal(captured.status, 1, captured.stderr);
+  assert.ok(captured.stdout.includes("SECRETDiscoveryFailureSentinel"), "preserve actual package/output diagnostic records");
+  assert.equal(fs.existsSync(path.join(dir, "all")), false);
+});
 test("production collector cancellation saves available unfinished evidence", { timeout: 30000 }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cancel-"));
   t.after(() => fs.rmSync(dir, { recursive: true }));
@@ -548,6 +565,45 @@ test("native Go capture validates probe output while historical unknown runtimes
     assert.equal(trends(observed.reports).cohorts[0].eligible.length, 0);
     assert.deepEqual(historyProposal(observed.reports).targets, []);
   }
+});
+test("production history rejects malformed complete target records without losing neighboring observations", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-history-malformed-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  const good = parseGo(successful);
+  good.selected = ["example/p::TestA"]; good.discovered = good.selected;
+  good.identity.source_sha = run.head_sha;
+  const neighbor = { ...good, identity: { ...good.identity, run_id: "11" } };
+  const oldExit = process.exitCode;
+  try {
+    const target = good.targets.find((item) => item.top_level);
+    const invalidRows = [
+      [], { ...target, package: null }, { ...target, package: "" }, { ...target, name: null },
+      { ...target, top_level: null }, { ...target, status: "unknown" }, { ...target, seconds: null },
+      { ...target, seconds: -1 },
+    ];
+    for (const targets of [null, undefined, {}, [null], ["invalid"], ...invalidRows.map((row) => [row]), Array(LIMITS.targets + 1).fill(target)]) {
+      const bad = { ...good, targets };
+      const first = artifactFixture(bad), second = artifactFixture(neighbor);
+      const api = (endpoint) => endpoint.includes("/runs/11") ? second.api(endpoint) : first.api(endpoint);
+      const download = (id) => id === first.artifactID ? first.zip : second.zip;
+      process.exitCode = undefined;
+      await main(["history", "10,11", path.join(dir, "history.json")], api, download);
+      const proposal = JSON.parse(fs.readFileSync(path.join(dir, "history.json")));
+      assert.equal(proposal.targets.length, 1);
+      assert.deepEqual(proposal.targets[0].observations.map((item) => item.run_id), ["11"]);
+      assert.ok(proposal.diagnostics.includes("evidence-artifact-invalid-or-unverified"));
+      assert.equal(process.exitCode, 1, "retain valid output but report the malformed input");
+    }
+    const partial = { ...good, complete: false, diagnostics: ["execution-unavailable"], targets: null };
+    const admitted = verified(partial);
+    assert.equal(admitted.reports.length, 1, "retain legacy unavailable schema-1 observations");
+    assert.equal(admitted.reports[0].targets, null, "do not fabricate an empty target array");
+    assert.equal(trends(admitted.reports).cohorts[0].eligible.length, 0);
+    assert.deepEqual(historyProposal(admitted.reports).targets, []);
+    const alternative = verified({ ...good, targets: good.targets.map((item) => ({ ...item, future_field: "retained" })) });
+    assert.equal(alternative.reports.length, 1, "unknown extra fields do not tighten the schema-1 reader");
+    assert.equal(historyProposal(alternative.reports).targets.length, 1);
+  } finally { process.exitCode = oldExit; }
 });
 test("first-attempt timestamp omissions or invalid pairs withhold complete metadata and baseline admission", () => {
   const report = parseGo(successful);

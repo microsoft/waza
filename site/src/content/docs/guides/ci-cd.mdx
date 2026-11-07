@@ -215,6 +215,8 @@ Capture and discovery forward one bounded console record at a time, waiting for
 write acknowledgment and backpressure drain before reading another record.
 Output errors or premature closure fail the collector; capture saves available
 evidence with explicit diagnostics and `complete: false`.
+Discovery also forwards ordinary package-output diagnostics, not only compiler
+build-output events; discovered test names remain in the inventory.
 `collector_seconds` records parser wall time (including input wait for streaming
 Go capture and console backpressure), **not** incremental instrumentation overhead.
 Go `collector_cpu_seconds` observes the collector process's own user/system CPU
@@ -272,6 +274,10 @@ bounded to 64 MiB. Expanded size is reserved before decompression or JSON parsin
 and remains charged when either fails. Deflate output is limited to its declared
 expanded size; dishonest size declarations are rejected, not decoded against the
 larger per-file cap.
+Complete Go artifacts must supply bounded, typed target rows consumed by history.
+Malformed reports are rejected individually without discarding other available
+observations. Unavailable schema 1 partial targets remain unavailable, not
+fabricated empty arrays.
 Standard pull-request checkout uses GitHub's synthetic merge commit, whereas
 the Actions run API can report the PR source head. These are distinct identities.
 When that binding cannot be established, authenticated artifact observations
