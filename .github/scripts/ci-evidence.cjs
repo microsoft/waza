@@ -38,9 +38,12 @@ function writeJSON(file, report) {
   fs.writeFileSync(file, data);
 }
 
+function checkoutSHA() {
+  try { return text(command("git", ["rev-parse", "HEAD"])); }
+  catch { return null; } // Identity remains explicitly unavailable.
+}
 function identity(env = process.env, runtime = {}) {
-  let checkout = null;
-  try { checkout = text(command("git", ["rev-parse", "HEAD"])); } catch { /* Report unavailable checkout identity below. */ }
+  const checkout = Object.hasOwn(runtime, "source_sha") ? runtime.source_sha : checkoutSHA();
   return {
     repository: text(env.GITHUB_REPOSITORY), source_sha: checkout,
     workflow_sha: text(env.GITHUB_SHA), workflow: text(env.GITHUB_WORKFLOW),
@@ -198,10 +201,13 @@ async function discoverGo(output) {
   if (!targets.size) throw new Error("discovery-empty");
   fs.writeFileSync(output, sorted(targets).join("\n") + "\n");
 }
+function goVersion() {
+  try { return text(command("go", ["version"])); }
+  catch { return null; } // Callers retain an explicit unavailable-runtime diagnostic.
+}
 async function captureGo(output, discovered, selected, env = process.env) {
   const cpu = process.cpuUsage();
-  let go = null;
-  try { go = text(command("go", ["version"])); } catch { /* Explicit diagnostic below. */ }
+  const go = goVersion();
   const report = goReport(env, { go });
   if (fs.existsSync(output)) {
     try {
@@ -265,8 +271,13 @@ function browserOutcomes(report, env) {
   if (["cancelled", "skipped"].includes(report.execution_outcome)) diagnostic(report, "browser-execution-not-completed");
   if (report.execution_outcome === "failure" && report.counts?.fail === 0 && report.counts?.flaky === 0) diagnostic(report, "browser-execution-failed-without-terminal-evidence");
 }
-function browserReport(data, env = process.env, discovery = null) {
-  const report = base("playwright", env, {});
+function knownGoVersion(version) {
+  return text(version) !== null && /^go version (?:go\d+\.\d+(?:\.\d+)?(?:beta\d+|rc\d+)?|devel go\d+\.\d+(?:-[^\r\n]+)?)(?: X:\S+)? [a-z0-9_]+\/[a-z0-9_]+$/.test(version);
+}
+function browserReport(data, env = process.env, discovery = null, runtime = {}) {
+  const report = base("playwright", env, { go: knownGoVersion(runtime.go) ? runtime.go : null, source_sha: text(runtime.source_sha) });
+  if (runtime.go == null) diagnostic(report, "go-runtime-unavailable");
+  else if (!knownGoVersion(runtime.go)) diagnostic(report, "go-runtime-invalid");
   report.targets = [];
   const config = data?.config;
   report.policy = { workers: number(config?.workers), projects: [], retries: null };
@@ -573,7 +584,8 @@ function knownIdentity(report) {
   const required = ["repository", "source_sha", "workflow", "event", "os", "arch", "os_release", "os_version", "node", "run_id", "attempt", "job"];
   required.push(report.kind === "go" ? "go" : "playwright");
   return required.every((field) => text(report.identity[field]) !== null && report.identity[field].length > 0) &&
-    /^[0-9a-f]{40}$/.test(report.identity.source_sha);
+    /^[0-9a-f]{40}$/.test(report.identity.source_sha) &&
+    (report.kind !== "playwright" || knownGoVersion(report.identity.go));
 }
 function eligibleSample(report) {
   if (!verifiedReports.get(report)?.sample_eligible || !knownIdentity(report) ||
@@ -586,23 +598,40 @@ function eligibleSample(report) {
   return report.kind === "go" ? report.discovery_exit === 0 && report.discovery_collector_exit === 0 && report.execution_exit === 0 && report.collector_exit === 0 && report.policy.count === 1 && report.counts?.packages?.fail === 0 && counts.unfinished === 0 : report.discovery_outcome === "success" && report.execution_outcome === "success" && counts.flaky === 0 && counts.first_attempt_failures === 0;
 }
 function historyProposal(reports) {
-  const samples = new Map();
+  const samples = new Map(), cohorts = {};
   for (const report of reports) {
     const binding = verifiedReports.get(report);
     if (report.kind !== "go" || !eligibleSample(report)) continue;
+    const cohortKey = cohort(report), cohortID = createHash("sha256").update(cohortKey).digest("hex");
     for (const target of report.targets) {
       if (!target.top_level || target.status !== "pass" || number(target.seconds) === null) continue;
       const key = `${target.package}::${target.name}`;
       if (!samples.has(key)) samples.set(key, []);
       const observations = samples.get(key);
-      const cohortKey = cohort(report);
-      const source = { run_id: report.identity.run_id, attempt: report.identity.attempt, job: report.identity.job, source_sha: report.identity.source_sha, report_content_sha256: binding.content_sha256, seconds: target.seconds, cohort: JSON.parse(cohortKey), provenance: binding };
-      if (!observations.some((item) => item.run_id === source.run_id && item.attempt === source.attempt && item.job === source.job && JSON.stringify(item.cohort) === cohortKey)) observations.push(source);
+      if (!Object.hasOwn(cohorts, cohortID)) cohorts[cohortID] = JSON.parse(cohortKey);
+      const source = { run_id: report.identity.run_id, attempt: report.identity.attempt, job: report.identity.job, source_sha: report.identity.source_sha, report_content_sha256: binding.content_sha256, seconds: target.seconds, cohort_id: cohortID, provenance: binding };
+      if (!observations.some((item) => item.run_id === source.run_id && item.attempt === source.attempt && item.job === source.job && item.cohort_id === cohortID)) observations.push(source);
     }
   }
-  return { schema: 1, kind: "history-proposal", application: "review-only; canonical TSV is never rewritten", targets: [...samples].sort(([a], [b]) => a.localeCompare(b)).map(([target, observations]) => ({ target, observations })) };
+  return { schema: 2, kind: "history-proposal", application: "review-only; canonical TSV is never rewritten", cohorts, targets: [...samples].sort(([a], [b]) => a.localeCompare(b)).map(([target, observations]) => ({ target, observations })) };
 }
-async function main(args) {
+function writeHistoryProposal(output, proposal) {
+  if (!proposal || proposal.schema !== 2 || proposal.kind !== "history-proposal") throw new Error("history-schema-unsupported");
+  if (!proposal.cohorts || typeof proposal.cohorts !== "object" || Array.isArray(proposal.cohorts) || !Array.isArray(proposal.targets)) throw new Error("history-cohort-table-invalid");
+  for (const [id, descriptor] of Object.entries(proposal.cohorts)) {
+    if (!descriptor || typeof descriptor !== "object" || Array.isArray(descriptor) || descriptor.kind !== "go" ||
+        text(descriptor.source_sha) === null || !/^[0-9a-f]{40}$/.test(descriptor.source_sha) ||
+        createHash("sha256").update(JSON.stringify(descriptor)).digest("hex") !== id) throw new Error("history-cohort-content-invalid");
+  }
+  for (const target of proposal.targets) {
+    if (!target || !Array.isArray(target.observations)) throw new Error("history-cohort-reference-invalid");
+    for (const observation of target.observations) {
+      if (!observation || !Object.hasOwn(proposal.cohorts, observation.cohort_id) || proposal.cohorts[observation.cohort_id]?.source_sha !== observation.source_sha) throw new Error("history-cohort-reference-invalid");
+    }
+  }
+  writeJSON(output, proposal);
+}
+async function main(args, api, download) {
   const [mode, input, output, ...extra] = args;
   if (mode === "finish-discovery" && input && /^[0-9]+$/.test(output || "") && /^[0-9]+$/.test(extra[0] || "")) {
     const report = readJSON(input);
@@ -634,13 +663,16 @@ async function main(args) {
   if (mode === "browser" && input && output) {
     let report, discovery = null, discoveryInvalid = false;
     const started = performance.now();
+    const runtime = { go: goVersion(), source_sha: checkoutSHA() };
     if (extra[0]) {
       try { discovery = browserInventory(readJSON(extra[0])); }
       catch { discoveryInvalid = true; }
     }
-    try { report = browserReport(readJSON(input), process.env, discovery); }
+    try { report = browserReport(readJSON(input), process.env, discovery, runtime); }
     catch {
-      report = base("playwright", process.env, {});
+      report = base("playwright", process.env, { ...runtime, go: knownGoVersion(runtime.go) ? runtime.go : null });
+      if (!runtime.go) diagnostic(report, "go-runtime-unavailable");
+      else if (!knownGoVersion(runtime.go)) diagnostic(report, "go-runtime-invalid");
       report.discovered = discovery;
       browserOutcomes(report, process.env);
       diagnostic(report, "browser-input-invalid-or-missing");
@@ -652,7 +684,7 @@ async function main(args) {
     return;
   }
   if (mode === "actions" && input && output) {
-    const report = collectActions(input);
+    const report = collectActions(input, api);
     writeJSON(output, report);
     if (!report.complete) process.exitCode = 1;
     return;
@@ -661,16 +693,17 @@ async function main(args) {
     const ids = input.split(",");
     if (ids.length > LIMITS.attempts || new Set(ids).size !== ids.length) throw new Error("run-count-cap-or-duplicate");
     const budget = { compressed: 0, expanded: 0, reports: 0 };
-    const collections = ids.map((id) => collectObservations(id, undefined, undefined, budget));
+    const collections = ids.map((id) => collectObservations(id, api, download, budget));
     const reports = collections.flatMap((collection) => collection.reports);
     const report = mode === "trends" ? trends(reports) : historyProposal(reports);
     report.diagnostics = collections.flatMap((collection) => collection.diagnostics);
     report.metadata = collections.map((collection) => collection.metadata);
-    writeJSON(output, report);
+    if (mode === "history") writeHistoryProposal(output, report);
+    else writeJSON(output, report);
     if (report.diagnostics.length) process.exitCode = 1;
     return;
   }
   throw new Error("usage: ci-evidence.cjs init-go OUT | discover OUT | go OUT DISCOVERED SELECTED | browser IN OUT DISCOVERY | actions RUN OUT | trends|history RUN[,RUN...] OUT");
 }
-module.exports = { LIMITS, goReport, goParser, browserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, cohort };
+module.exports = { LIMITS, goReport, goParser, browserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, writeHistoryProposal, cohort, main };
 if (require.main === module) main(process.argv.slice(2)).catch((error) => { console.error(`CI evidence: ${error.message}`); process.exitCode = 1; });

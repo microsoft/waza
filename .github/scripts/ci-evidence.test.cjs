@@ -6,9 +6,10 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync, spawn } = require("node:child_process");
 const { createHash } = require("node:crypto");
-const { LIMITS, goReport, goParser, browserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal } = require("./ci-evidence.cjs");
+const { LIMITS, goReport, goParser, browserReport: parseBrowserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, writeHistoryProposal, main } = require("./ci-evidence.cjs");
 
 const env = { GITHUB_REPOSITORY: "microsoft/waza", GITHUB_WORKFLOW: "Go Build and Test", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40), GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", GITHUB_JOB: "native", RUNNER_OS: "Linux", RUNNER_ARCH: "X64", GO_CACHE_HIT: "false", NODE_CACHE_HIT: "false" };
+const browserReport = (data, env, discovery, runtime = { go: "go version go1.26.4 linux/amd64" }) => parseBrowserReport(data, env, discovery, runtime);
 const parseGo = (events) => {
   const report = goReport(env, { go: "go version go1.26.4 linux/amd64" }), parser = goParser(report);
   for (const event of events) parser.accept(typeof event === "string" ? event : JSON.stringify(event));
@@ -362,18 +363,22 @@ function archive(report, name = "coverage-native-0.txt.evidence.json") {
   end.writeUInt32LE(central.length + filename.length, 12); end.writeUInt32LE(local.length + filename.length + data.length, 16);
   return Buffer.concat([local, filename, data, central, filename, end]);
 }
-function verified(report, overrides = {}, family = report.kind === "playwright" ? "browser" : "go-native") {
+function artifactFixture(report, overrides = {}, family = report.kind === "playwright" ? "browser" : "go-native") {
   const filename = family === "browser" ? "ci-evidence-browser.json" : family === "go-run" ? "coverage.txt.evidence.json" : "coverage-native-0.txt.evidence.json";
   const zip = archive(report, filename), id = Number(report.identity.run_id);
   const name = `ci-evidence-${family}-${id}-${report.identity.attempt}` + (family === "go-native" ? "-0" : family === "go-run" ? `-${report.identity.job}` : "");
   const fixtureRun = { ...run, id, run_attempt: 1, run_started_at: "2026-11-07T10:01:00Z", ...overrides };
   const api = (endpoint) => {
     if (endpoint.includes("/jobs")) return { total_count: 1, jobs: [{ ...job(1, "01", "02"), run_id: id }] };
-    if (endpoint.includes("/artifacts")) return { total_count: 1, artifacts: [{ id: 100, name, size_in_bytes: zip.length, expired: false, digest: `sha256:${createHash("sha256").update(zip).digest("hex")}`, workflow_run: { id, head_sha: fixtureRun.head_sha } }] };
+    if (endpoint.includes("/artifacts")) return { total_count: 1, artifacts: [{ id: id * 10, name, size_in_bytes: zip.length, expired: false, digest: `sha256:${createHash("sha256").update(zip).digest("hex")}`, workflow_run: { id, head_sha: fixtureRun.head_sha } }] };
     if (endpoint.includes("/attempts/")) return { run_started_at: fixtureRun.run_started_at };
     return fixtureRun;
   };
-  return collectObservations(String(id), api, () => zip);
+  return { id: String(id), artifactID: id * 10, api, zip };
+}
+function verified(report, overrides = {}, family = report.kind === "playwright" ? "browser" : "go-native") {
+  const fixture = artifactFixture(report, overrides, family);
+  return collectObservations(fixture.id, fixture.api, () => fixture.zip);
 }
 test("first-attempt timestamp omissions or invalid pairs withhold complete metadata and baseline admission", () => {
   const report = parseGo(successful);
@@ -422,8 +427,97 @@ test("history preserves same-run platform and job observations while deduplicati
   const observations = proposal.targets[0].observations;
   assert.equal(observations.length, 3);
   assert.deepEqual(observations.map((item) => item.job), ["native", "windows", "another-linux-job"]);
-  assert.deepEqual(observations.map((item) => item.cohort.os), ["Linux", "Windows", "Linux"]);
+  assert.equal(proposal.schema, 2);
+  assert.equal(Object.keys(proposal.cohorts).length, 2);
+  assert.deepEqual(observations.map((item) => proposal.cohorts[item.cohort_id].os), ["Linux", "Windows", "Linux"]);
+  assert.equal(observations[0].cohort_id, observations[2].cohort_id);
+  assert.notEqual(observations[0].cohort_id, observations[1].cohort_id);
   assert.ok(observations.every((item) => item.run_id === "10" && item.attempt === "1" && item.seconds === 2));
+});
+test("production history output interns authenticated cohorts and scales with targets and cohorts", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-history-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  const produce = async (count, versions) => {
+    const events = [event("start")];
+    for (let index = 0; index < count; index++) {
+      const name = `TestRepresentativeInventory${String(index).padStart(5, "0")}`;
+      events.push(event("run", name), event("pass", name, 1));
+    }
+    events.push(event("pass", null, count));
+    const report = parseGo(events);
+    report.selected = report.targets.map((target) => `${target.package}::${target.name}`);
+    report.discovered = [...report.selected];
+    report.identity.source_sha = run.head_sha;
+    const fixtures = versions.map((go, index) => artifactFixture({
+      ...report, identity: { ...report.identity, run_id: String(index + 10), go },
+    }, {}, "go-run"));
+    const output = path.join(dir, `${count}-${versions.length}.json`);
+    await main(["history", fixtures.map((fixture) => fixture.id).join(","), output], (endpoint) => {
+      const fixture = fixtures.find((fixture) => endpoint.includes(`/runs/${fixture.id}`));
+      assert.ok(fixture, endpoint);
+      return fixture.api(endpoint);
+    }, (artifactID) => {
+      const fixture = fixtures.find((fixture) => fixture.artifactID === artifactID);
+      assert.ok(fixture, `download ${artifactID}`);
+      return fixture.zip;
+    });
+    const saved = fs.readFileSync(output), proposal = JSON.parse(saved);
+    assert.equal(proposal.schema, 2);
+    assert.deepEqual(proposal.diagnostics, []);
+    assert.equal(proposal.metadata.length, versions.length);
+    assert.ok(proposal.metadata.every((metadata) => metadata.complete));
+    assert.equal(proposal.targets.length, count);
+    assert.equal(Object.keys(proposal.cohorts).length, new Set(versions).size);
+    for (const descriptor of Object.values(proposal.cohorts)) assert.deepEqual(descriptor.selected, report.selected);
+    for (const target of proposal.targets) {
+      assert.equal(target.observations.length, versions.length);
+      for (const observation of target.observations) {
+        const descriptor = proposal.cohorts[observation.cohort_id];
+        assert.ok(descriptor, "every emitted reference must join to a retained cohort");
+        assert.equal(descriptor.go, versions[Number(observation.run_id) - 10]);
+        assert.equal(observation.seconds, 1);
+        assert.equal(observation.provenance.artifact_id, Number(observation.run_id) * 10);
+        assert.match(observation.report_content_sha256, /^[0-9a-f]{64}$/);
+        assert.equal(Object.hasOwn(observation, "cohort"), false, "inventory must not be embedded per measurement");
+      }
+    }
+    assert.ok(saved.length < LIMITS.bytes, `${saved.length} bytes must remain below the production writer cap`);
+    return { bytes: saved.length, proposal, output };
+  };
+  const versions = ["go version go1.26.4 linux/amd64", "go version go1.26.4 linux/amd64", "go version go1.26.5 linux/amd64"];
+  const smaller = await produce(2000, versions);
+  const larger = await produce(4000, versions);
+  assert.ok(larger.bytes <= smaller.bytes * 2, "doubling targets must at most double output");
+  const first = larger.proposal.targets[0].observations[0];
+  const legacyObservation = { ...first, cohort: larger.proposal.cohorts[first.cohort_id] };
+  delete legacyObservation.cohort_id;
+  assert.ok(Buffer.byteLength(JSON.stringify(legacyObservation)) * 4000 * versions.length > LIMITS.bytes, "the same retained inventory would exceed the old quadratic writer cap");
+  const twoCohorts = await produce(1000, versions.filter((_, index) => index !== 1));
+  const fourCohorts = await produce(1000, ["go version go1.26.4 linux/amd64", "go version go1.26.5 linux/amd64", "go version go1.26.6 linux/amd64", "go version go1.26.7 linux/amd64"]);
+  assert.ok(fourCohorts.bytes <= twoCohorts.bytes * 2, "doubling cohorts must at most double output");
+  t.diagnostic(`production bytes: targets 2000/4000 with 3 reports and 2 cohorts=${smaller.bytes}/${larger.bytes}; 1000 targets with 2/4 reports and cohorts=${twoCohorts.bytes}/${fourCohorts.bytes}; cap=${LIMITS.bytes}`);
+  const original = fs.readFileSync(larger.output);
+  for (const mutation of [
+    (proposal) => { proposal.schema = 1; },
+    (proposal) => { proposal.kind = "go"; },
+    (proposal) => { proposal.cohorts = null; },
+    (proposal) => { proposal.cohorts = []; },
+    (proposal) => { proposal.targets = null; },
+    (proposal) => { proposal.targets[0] = null; },
+    (proposal) => { proposal.targets[0].observations = null; },
+    (proposal) => { proposal.targets[0].observations[0] = null; },
+    (proposal) => { proposal.targets[0].observations[0].cohort_id = "f".repeat(64); },
+    (proposal) => { delete proposal.targets[0].observations[0].cohort_id; },
+    (proposal) => { proposal.targets[0].observations[0].source_sha = "b".repeat(40); },
+    (proposal) => { proposal.cohorts[first.cohort_id].go = "different"; },
+    (proposal) => { proposal.cohorts[first.cohort_id] = null; },
+  ]) {
+    const invalid = structuredClone(larger.proposal);
+    mutation(invalid);
+    assert.throws(() => writeHistoryProposal(larger.output, invalid), /history-(schema-unsupported|cohort-table-invalid|cohort-reference-invalid|cohort-content-invalid)/);
+    assert.deepEqual(fs.readFileSync(larger.output), original, "invalid references/schema must not overwrite valid evidence");
+  }
+  assert.throws(() => writeHistoryProposal(larger.output, null), /history-schema-unsupported/);
 });
 test("ordinary job artifacts and authenticated incomplete observations retain source binding without invented selection or eligibility", () => {
   const report = parseGo(successful);
@@ -459,6 +553,45 @@ test("verified browser baselines require successful recorded discovery and execu
       assert.equal(withheld.reports.length, 1, "retain authenticated observations while withholding eligibility");
       assert.equal(trends(withheld.reports).cohorts[0].eligible.length, 0, `${field}=${value}`);
     }
+  }
+});
+test("browser runtime identity stays offline and missing or invalid Go versions cannot become eligible", () => {
+  const outcomes = { ...env, BROWSER_DISCOVERY_OUTCOME: "success", BROWSER_EXECUTION_OUTCOME: "success" };
+  const report = browserReport(browser(), outcomes, ["chromium::test-id"]);
+  report.identity.source_sha = run.head_sha;
+  for (const go of ["go version go1.26 linux/amd64", "go version go1.26.4 linux/amd64", "go version go1.27rc1 linux/amd64", "go version devel go1.27-abcd 2026-11-07 linux/amd64", "go version go1.26.4 X:loopvar linux/amd64"]) {
+    const observed = verified({ ...report, identity: { ...report.identity, go } }).reports;
+    assert.equal(observed.length, 1);
+    assert.equal(trends(observed).cohorts[0].eligible.length, 1, go);
+    assert.equal(historyProposal(observed).targets.length, 0, "browser timings never enter the Go planner proposal");
+  }
+  const newer = { ...report, identity: { ...report.identity, run_id: "11", go: "go version go1.26.5 linux/amd64" } };
+  const grouped = trends([...verified(report).reports, ...verified(newer).reports]);
+  assert.equal(grouped.cohorts.length, 2, "different Go runtimes must not share a browser cohort");
+  assert.ok(grouped.cohorts.every((group) => group.eligible.length === 1));
+  for (const go of [undefined, null, "", 1, "unknown", "go version go1.26.4", "go version go1.26.bad linux/amd64", "go version go1.26.4 linux/amd64\n"]) {
+    const legacy = { ...report, identity: { ...report.identity, go } };
+    if (go === undefined) delete legacy.identity.go;
+    const observed = verified(legacy);
+    assert.equal(observed.reports.length, 1, "schema-1 artifact readers retain authenticated historical observations without repair");
+    assert.equal(trends(observed.reports).cohorts[0].eligible.length, 0, String(go));
+    const parsed = browserReport(browser(), outcomes, ["chromium::test-id"], { go });
+    assert.equal(parsed.identity.go, null, "producer drops malformed runtime content rather than publishing it");
+    assert.ok(parsed.diagnostics.includes(go == null ? "go-runtime-unavailable" : "go-runtime-invalid"));
+    assert.equal(parsed.complete, false);
+  }
+  const offline = spawnSync(process.execPath, ["-e", `
+    require("node:child_process").spawnSync = () => { throw new Error("unexpected parser subprocess"); };
+    const { browserReport } = require(${JSON.stringify(path.join(__dirname, "ci-evidence.cjs"))});
+    const report = browserReport(${JSON.stringify(browser())}, ${JSON.stringify(outcomes)}, ["chromium::test-id"], {go:"go version go1.26.4 linux/amd64"});
+    if (!report.complete || report.identity.source_sha !== null) throw new Error(JSON.stringify(report.diagnostics));
+  `], { encoding: "utf8" });
+  assert.equal(offline.status, 0, offline.stderr);
+  for (const schema of [0, 2, null]) {
+    assert.equal(verified({ ...report, schema }).reports.length, 0, `unsupported artifact schema ${schema} is not silently reinterpreted`);
+  }
+  for (const schema of [1, 2]) {
+    assert.equal(verified({ ...report, schema, kind: "history-proposal" }).reports.length, 0, `history writer schema ${schema} is not a schema-1 test artifact`);
   }
 });
 test("trend eligibility requires verified distinct comparable first-run samples; authored JSON cannot be promoted", () => {

@@ -285,9 +285,18 @@ Artifact names alone do not authenticate an upload attempt. Runs whose API
 records more than one attempt retain available observations but cannot supply
 eligible baseline/history samples, even if an artifact claims attempt 1.
 
-`history-proposal.json` retains individual top-level measurements with exact
-run/attempt/checkout provenance, verified report-content SHA-256 and cohort,
-without changing the planner TSV.
+`history-proposal.json` writer schema 2 retains individual Go top-level
+measurements with exact run/attempt/checkout provenance and verified report-content
+SHA-256. Each observation's `cohort_id` joins to one content-addressed entry in
+`cohorts`; the complete selection is stored once per cohort, not once per target.
+The writer rejects unsupported proposal versions, changed cohort content and
+missing or source-mismatched references before writing. There is no proposal
+import or automatic planner TSV update. Go and browser artifact readers remain
+schema 1; unsupported artifact versions are rejected, not reinterpreted.
+Browser capture observes `go version` and the checkout at the CLI boundary,
+without invoking subprocesses in the browser JSON parser. Browser baselines
+require both observed Go and Playwright versions; missing or invalid Go versions
+remain explicitly ineligible, including in retained schema-1 artifacts.
 Review the complete source-bound artifacts and final Actions report before
 applying a same-cohort refresh to `.github/scripts/go_test_shard_durations.tsv`
 in a normal reviewed change. The canonical planner still uses authoritative
