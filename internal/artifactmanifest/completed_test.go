@@ -166,6 +166,9 @@ func TestReadCompletedRejectsCurrentReplacementAndMarkerConflict(t *testing.T) {
 					key, replacement, expected = "final-"+digest, []byte(strings.Repeat("f", 64)), ErrConflict
 				}
 				if local, ok := backend.(*Local); ok {
+					if err := local.root.Chmod(key, 0o600); err != nil {
+						t.Fatal(err)
+					}
 					if err := local.root.Remove(key); err != nil {
 						t.Fatal(err)
 					}

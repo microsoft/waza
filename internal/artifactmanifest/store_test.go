@@ -18,36 +18,30 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
-	"github.com/microsoft/waza/internal/execution"
-	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnerterminal"
-	"github.com/microsoft/waza/internal/runnerunit"
 )
 
 func publicationFixture(t *testing.T) (Manifest, []byte) {
 	t.Helper()
-	request, err := os.ReadFile("../../examples/runner/unit.json")
+	wire, err := os.ReadFile("testdata/publication-manifest.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := runnerunit.NewService(func(c models.Config) (execution.AgentEngine, error) {
-		return execution.NewMockEngine(c.ModelID), nil
-	})
-	envelope, binding := service.RunTerminal(context.Background(), request)
-	if binding == nil || envelope.Outcome != runnerterminal.Success {
-		t.Fatalf("mock production fixture did not execute: %+v", envelope)
-	}
-	data, err := runnerterminal.Encode(envelope, binding)
+	m, err := Parse(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := Manifest{Kind: "waza.artifact-manifest", SchemaVersion: Version,
-		Binding: Binding{Identity: *binding.Identity, Selection: binding.Selection,
-			ExecutionMode: binding.ExecutionMode, GraderIDs: binding.GraderIDs},
-		TerminalArtifact: "terminal.json",
-		Artifacts:        []Artifact{{Name: "terminal.json", SHA256: Hash(data), SizeBytes: int64(len(data)), MediaType: "application/json"}},
+	data, err := os.ReadFile("testdata/publication-terminal.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-	return m, data
+	if err := verifyBytes(data, m.Artifacts[0].SHA256, m.Artifacts[0].SizeBytes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runnerterminal.Validate(data, m.Binding.TerminalBinding()); err != nil {
+		t.Fatal(err)
+	}
+	return *m, data
 }
 
 type fakeAzure struct {

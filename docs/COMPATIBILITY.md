@@ -42,6 +42,14 @@ and actual finalized, verified artifacts; it retains the original binding and
 canonical reservation hash. Identical completion retries require the same
 creator. `ReadCompleted(ctx, source, names...)` verifies the actual reservation,
 completion, manifest, objects, and final marker without granting authority.
+`ReadCompletion(ctx, executionID)` separately returns the bounded canonical
+completion declaration and its bytes/digest, not verified publication. Only a
+missing completion record is absence; malformed records and storage failures are
+errors. If a record exists, missing referenced manifests, artifacts, or final
+markers do not erase its presence or authorize stale before-unit recovery.
+Before-unit restore must reject an existing completion, verifying its actual
+referenced source or failing closed. Concurrent completion after a read is not
+excluded by a lease or cross-object transaction.
 `Distinct(ctx, creator)` records the newly owned target; `Reuse(ctx, binding,
 source, names...)` records only a verified compatible original source, with no
 new execution ID or runtime call. Failed source outcomes and original native
