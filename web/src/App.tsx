@@ -1,13 +1,21 @@
-import { lazy, Suspense, useState, useEffect } from "react";
+import {
+  Component,
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  type ErrorInfo,
+  type ReactNode,
+} from "react";
 import Layout from "./components/Layout";
 import Dashboard from "./components/Dashboard";
-import RunDetail from "./components/RunDetail";
-import CompareView from "./components/CompareView";
-import TrendsPage from "./components/TrendsPage";
-import LiveView from "./components/LiveView";
-import ReleaseView from "./components/ReleaseView";
 
+const RunDetail = lazy(() => import("./components/RunDetail"));
+const CompareView = lazy(() => import("./components/CompareView"));
+const TrendsPage = lazy(() => import("./components/TrendsPage"));
+const LiveView = lazy(() => import("./components/LiveView"));
 const AssurancePage = lazy(() => import("./components/AssurancePage"));
+const ReleaseView = lazy(() => import("./components/ReleaseView"));
 const DashboardLab = lazy(() => import("./lab/DashboardLab"));
 
 type Route =
@@ -38,6 +46,56 @@ function parseHash(): Route {
   return { page: "home" };
 }
 
+function LoadingRoute({
+  label,
+  className = "text-zinc-400",
+}: {
+  label: string;
+  className?: string;
+}) {
+  return (
+    <p role="status" className={className}>
+      Loading {label}...
+    </p>
+  );
+}
+
+class RouteErrorBoundary extends Component<
+  { children: ReactNode; className?: string },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Unable to load dashboard view:", error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div role="alert" className={this.props.className ?? "text-zinc-100"}>
+        <p>This dashboard view could not be loaded. Reload to try again, or return to runs.</p>
+        <div className="mt-3 flex gap-4">
+          <button
+            type="button"
+            className="rounded bg-zinc-800 px-3 py-2 text-sm"
+            onClick={() => window.location.reload()}
+          >
+            Reload view
+          </button>
+          <a href="#/" className="rounded px-3 py-2 text-sm text-blue-400">
+            Return to runs
+          </a>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>(parseHash);
 
@@ -49,27 +107,56 @@ export default function App() {
 
   if (route.page === "lab") {
     return (
-      <Suspense
-        fallback={<p className="p-8 text-zinc-100">Loading dashboard lab...</p>}
+      <RouteErrorBoundary
+        key={route.demo ? "lab-demo" : "lab"}
+        className="p-8 text-zinc-100"
       >
-        <DashboardLab key={route.demo ? "demo" : "results"} demo={route.demo} />
-      </Suspense>
+        <Suspense
+          fallback={
+            <LoadingRoute
+              label="dashboard lab"
+              className="p-8 text-zinc-100"
+            />
+          }
+        >
+          <DashboardLab key={route.demo ? "demo" : "results"} demo={route.demo} />
+        </Suspense>
+      </RouteErrorBoundary>
     );
   }
 
   return (
     <Layout>
       {route.page === "home" && <Dashboard />}
-      {route.page === "run" && <RunDetail id={route.id} />}
-      {route.page === "compare" && <CompareView />}
-      {route.page === "trends" && <TrendsPage />}
-      {route.page === "live" && <LiveView />}
-      {route.page === "assurance" && (
-        <Suspense fallback={<p role="status">Loading report inspector...</p>}>
-          <AssurancePage />
-        </Suspense>
+      {route.page !== "home" && (
+        <RouteErrorBoundary
+          key={route.page === "run" ? `run/${route.id}` : route.page}
+        >
+          <Suspense
+            fallback={
+              <LoadingRoute
+                label={
+                  {
+                    run: "run details",
+                    compare: "run comparison",
+                    trends: "trends",
+                    live: "live view",
+                    assurance: "report inspector",
+                    release: "release policies",
+                  }[route.page]
+                }
+              />
+            }
+          >
+            {route.page === "run" && <RunDetail id={route.id} />}
+            {route.page === "compare" && <CompareView />}
+            {route.page === "trends" && <TrendsPage />}
+            {route.page === "live" && <LiveView />}
+            {route.page === "assurance" && <AssurancePage />}
+            {route.page === "release" && <ReleaseView />}
+          </Suspense>
+        </RouteErrorBoundary>
       )}
-      {route.page === "release" && <ReleaseView />}
     </Layout>
   );
 }
