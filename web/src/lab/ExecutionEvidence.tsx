@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ExecutionEvidenceError, inspectExecutionEvidence, type EvidenceReceipt } from "../api/executionEvidence";
+import RecordedEvidenceCategories from "./RecordedEvidenceCategories";
 
 function EvidenceInspector() {
   const [digest, setDigest] = useState("");
@@ -48,7 +49,7 @@ function EvidenceInspector() {
       </button>
       {error && <p role="alert">{error} Previous evidence has been cleared.</p>}
       {receipt && <div aria-label="Execution evidence receipt">
-        <p>Current content integrity: {receipt.integrity}. Publication: derived.</p>
+        <p>Content integrity at this declaration read: {receipt.integrity}. Publication: derived.</p>
         {receipt.diagnostics.map((diagnostic, index) => <p key={`${diagnostic.code}-${index}`}>{diagnostic.code}: {diagnostic.message}</p>)}
         {!receipt.document ? <p>Category evidence is withheld because source verification did not complete.</p> : <>
           <p>Source manifest: <a href={`/api/v1/manifests/${receipt.document.origin_manifest}`}><code>{receipt.document.origin_manifest}</code></a></p>
@@ -72,6 +73,10 @@ function EvidenceInspector() {
           <p><a href={`/api/v1/evidence/${receipt.evidence_sha256}/document`} download>Download evidence JSON</a>{" "}
             <a href={`/api/v1/evidence/${receipt.evidence_sha256}/csv`} download>Download evidence CSV</a></p>
           <p>Downloads recheck current sources; damaged or unfinalized sources are withheld.</p>
+          <RecordedEvidenceCategories key={receipt.evidence_sha256} digest={receipt.evidence_sha256} onSourceFailure={() => {
+            setReceipt(null);
+            setError("Current recorded category source verification failed; prior declaration metadata has been cleared.");
+          }} />
         </>}
       </div>}
     </>

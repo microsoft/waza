@@ -304,6 +304,14 @@ of `--store`, with existing credentials and no automatic login. Lab can discover
 stored declaration pointers and inspect current integrity. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
 
+Optional evidence sidecars reference an already finalized source without changing
+its digest. `waza artifact evidence publish EVIDENCE.json` and `inspect DIGEST`
+retain declarations; `waza artifact evidence categories DIGEST` additionally
+admits all six recorded category shapes in one source pass, without exporting
+message/tool/grader payloads. Missing capture indexes remain unqualified, not
+empty or passing evidence. All three accept the artifact store flags above.
+See [evidence states and privacy boundaries](docs/EVIDENCE-STATES.md).
+
 The unreleased v0.41 source adds `waza runner checkpoint create` and
 `waza runner checkpoint resume CHECKPOINT_SHA256` for captured exact-unit
 submissions. Before-unit recovery reserves a fresh retry child; finalized-unit
@@ -337,7 +345,6 @@ and native-admitted category views;
 Usage totals and new-operation billing remain withheld.
 See [operational examples](site/src/content/docs/guides/manifest-aggregation.mdx)
 and [developer/migration rules and pending release gates](docs/MANIFEST-AGGREGATION.md).
-
 
 ### `waza lifecycle` (unreleased v0.41 source preview)
 
