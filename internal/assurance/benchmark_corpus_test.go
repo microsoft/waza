@@ -159,6 +159,12 @@ func TestBenchmarkCorpusReferenceAdmission(t *testing.T) {
 	data, err := json.Marshal(pkg.Document)
 	require.NoError(t, err)
 
+	// Validate generated reference document against JSON schema
+	var object map[string]any
+	require.NoError(t, json.Unmarshal(data, &object))
+	require.NoError(t, assuranceSchema(t, "grader-reference-1.0.schema.json").Validate(object),
+		"generated benchmark reference document must pass grader-reference-1.0.schema.json validation")
+
 	refSet, err := ParseReferences(data)
 	require.NoError(t, err, "generated benchmark reference document must pass ParseReferences admission")
 
@@ -316,7 +322,12 @@ func TestBenchmarkCorpusFixturePersistence(t *testing.T) {
 		require.Equal(t, expectedData, committedSnapshot, "committed snapshot %s must match generated payload", relPath)
 	}
 
-	// Verify the committed JSON parses and validates through ParseReferences
+	// Verify the committed JSON validates against grader-reference-1.0.schema.json and parses through ParseReferences
+	var committedObject map[string]any
+	require.NoError(t, json.Unmarshal(committedData, &committedObject))
+	require.NoError(t, assuranceSchema(t, "grader-reference-1.0.schema.json").Validate(committedObject),
+		"committed reference fixture must pass grader-reference-1.0.schema.json validation")
+
 	refSet, err := ParseReferences(committedData)
 	require.NoError(t, err)
 	subject, err := refSet.Subject()

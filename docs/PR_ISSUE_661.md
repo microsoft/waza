@@ -90,16 +90,17 @@ flowchart TD
   - **12/12 bad-forbidden-action cases** failed boundary requirements (score `0.0`) with explicit feedback (`"forbidden tool <name> was called"`).
   - **24/24 critical-bad cases** cleanly rejected with 100% agreement.
 - [x] **Reference Admission & Schema Checks**:
-  - Validated `internal/assurance/testdata/benchmark_corpus.json` against `schemas/grader-reference-1.0.schema.json` via `ParseReferences()`.
+  - Validated generated and committed `internal/assurance/testdata/benchmark_corpus.json` against `schemas/grader-reference-1.0.schema.json` via JSON Schema compilation (`assuranceSchema` / `jsonschema.NewCompiler`).
+  - Validated Go `ReferenceDocument` decoding, admission rules, and cryptographic integrity via `ParseReferences()`.
   - Verified 48 globally unique case IDs, 48 unique manifest SHA-256 digests, and valid domain requirements (16 minimum cases per domain, 1.0 agreement).
 - [x] **Git Diff Whitespace Check**:
   - `git diff --check origin/main..HEAD` passed with zero errors or trailing whitespace issues.
 - [x] **Automated Test Coverage**:
   - `TestBenchmarkCorpusStructure`: Verified 12 scenarios, 48 cases, 3 domains, correct case classification counts.
   - `TestBenchmarkCorpusObserveMechanical`: Verified 96 mechanical observations through `ObserveMechanical`.
-  - `TestBenchmarkCorpusReferenceAdmission`: Verified parse, admission, and cryptographic integrity of `ReferenceDocument`.
+  - `TestBenchmarkCorpusReferenceAdmission`: Verified JSON Schema validation against `schemas/grader-reference-1.0.schema.json`, plus parse, admission, and cryptographic integrity of `ReferenceDocument` via `ParseReferences`.
   - `TestBenchmarkCorpusDeclaredMechanical`: Verified `ObserveDeclaredMechanical` against declared `TestCase` and `EvalSpec`.
-  - `TestBenchmarkCorpusFixturePersistence`: Verified static fixture round-trip serialization and presence of all 48 reference snapshots.
+  - `TestBenchmarkCorpusFixturePersistence`: Verified static fixture round-trip serialization, committed reference JSON schema validation, and presence of all 48 reference snapshots.
   - `TestBenchmarkCorpusObservePreservedMechanical`: Verified mechanical evaluation against serialized snapshot bytes.
   - `TestBenchmarkCorpusVerifyPreserved`: Verified `VerifyPreserved` preserved assessment against committed reference testdata and snapshots.
   - `TestBenchmarkCorpusCRLFAndContradictionRegressions`: Verified 60 mechanical evaluations covering valid CRLF endings, mixed-ending contradictions, and pure CRLF contradictions across all 12 scenarios.
