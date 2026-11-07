@@ -8,17 +8,29 @@ on:
       - 'cmd/waza/**'
       - 'internal/runnercontract/**'
       - 'internal/runnerunit/**'
+      - 'internal/runnercheckpoint/**'
+      - 'internal/ownedsubmission/**'
       - 'internal/runneridentity/**'
       - 'internal/runnerterminal/**'
+      - 'internal/executioncheckpoint/**'
+      - 'internal/executionattempt/**'
+      - 'internal/executionledger/**'
+      - 'internal/artifactmanifest/**'
       - 'internal/manifestaggregate/**'
       - 'internal/webapi/aggregates.go'
       - 'schemas/manifest-aggregate-*.json'
       - 'examples/runner/**'
       - 'internal/webapi/runner*.go'
+      - 'internal/webapi/checkpoints*.go'
+      - 'internal/webapi/checkpoint_operations*.go'
+      - 'internal/webapi/manifests.go'
       - 'internal/webapi/lifecycle.go'
       - 'internal/executionlifecycle/**'
       - 'internal/webserver/**'
       - 'schemas/runner*.json'
+      - 'schemas/execution-*.json'
+      - 'schemas/artifact-manifest-*.json'
+      - 'schemas/execution_checkpoint.go'
       - 'schemas/execution-lifecycle*.json'
       - 'schemas/execution_lifecycle.go'
       - 'schemas/embed.go'
@@ -28,6 +40,13 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      delivery_phase:
+        description: Preview produces current UI artifacts; final requires their committed index.
+        type: choice
+        options: [preview, final]
+        default: preview
+        required: true
 
 permissions:
   contents: read
@@ -41,11 +60,12 @@ jobs:
   build:
     name: Validate dashboard
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       CI: 'true'
       ENABLE_COPILOT_TESTS: 'false'
       ENABLE_LIVE_COPILOT_TESTS: 'false'
+      WAZA_CHECKPOINT_DELIVERY: ${{ inputs.delivery_phase || 'preview' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,17 +81,29 @@ jobs:
               - 'cmd/waza/**'
               - 'internal/runnercontract/**'
               - 'internal/runnerunit/**'
+              - 'internal/runnercheckpoint/**'
+              - 'internal/ownedsubmission/**'
               - 'internal/runneridentity/**'
               - 'internal/runnerterminal/**'
+              - 'internal/executioncheckpoint/**'
+              - 'internal/executionattempt/**'
+              - 'internal/executionledger/**'
+              - 'internal/artifactmanifest/**'
               - 'internal/manifestaggregate/**'
               - 'internal/webapi/aggregates.go'
               - 'schemas/manifest-aggregate-*.json'
               - 'examples/runner/**'
               - 'internal/webapi/runner*.go'
+              - 'internal/webapi/checkpoints*.go'
+              - 'internal/webapi/checkpoint_operations*.go'
+              - 'internal/webapi/manifests.go'
               - 'internal/webapi/lifecycle.go'
               - 'internal/executionlifecycle/**'
               - 'internal/webserver/**'
               - 'schemas/runner*.json'
+              - 'schemas/execution-*.json'
+              - 'schemas/artifact-manifest-*.json'
+              - 'schemas/execution_checkpoint.go'
               - 'schemas/execution-lifecycle*.json'
               - 'schemas/execution_lifecycle.go'
               - 'schemas/embed.go'
@@ -104,10 +136,42 @@ jobs:
         working-directory: web
         run: npm run lint
 
+      - name: Build clean-stamped CLI for checkpoint API browser coverage
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        run: |
+          go build -o "${RUNNER_TEMP}/waza-checkpoint-e2e" ./cmd/waza
+          metadata="$(go version -m "${RUNNER_TEMP}/waza-checkpoint-e2e")"
+          printf '%s\n' "$metadata"
+          printf '%s\n' "$metadata" | grep -Fx "$(printf '\tbuild\tvcs.revision=%s' "$(git rev-parse HEAD)")"
+          printf '%s\n' "$metadata" | grep -Fx "$(printf '\tbuild\tvcs.modified=false')"
+
+      - name: Test compiled checkpoint interruption and failed restore
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        env:
+          WAZA_E2E_CLI: ${{ runner.temp }}/waza-checkpoint-e2e
+        run: node --test web/e2e/checkpoint-cli-process.test.mjs
+
       - name: Build dashboard
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         working-directory: web
         run: npm run build
+
+      - name: Build matched embedded checkpoint CLI
+        id: embedded
+        if: inputs.delivery_phase == 'final'
+        run: |
+          git diff --exit-code -- web/dist/index.html web/dist/favicon.svg
+          go build -o "${RUNNER_TEMP}/waza-checkpoint-embedded-e2e" ./cmd/waza
+          metadata="$(go version -m "${RUNNER_TEMP}/waza-checkpoint-embedded-e2e")"
+          printf '%s\n' "$metadata" | tee "${RUNNER_TEMP}/checkpoint-embedded-cli-metadata.txt"
+          printf '%s\n' "$metadata" | grep -Fx "$(printf '\tbuild\tvcs.revision=%s' "$(git rev-parse HEAD)")"
+          printf '%s\n' "$metadata" | grep -Fx "$(printf '\tbuild\tvcs.modified=false')"
+
+      - name: Test matched embedded checkpoint interruption and failed restore
+        if: inputs.delivery_phase == 'final'
+        env:
+          WAZA_E2E_CLI: ${{ runner.temp }}/waza-checkpoint-embedded-e2e
+        run: node --test web/e2e/checkpoint-cli-process.test.mjs
 
       - name: Install Chromium
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
@@ -120,10 +184,36 @@ jobs:
         working-directory: web
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json
+          WAZA_E2E_CLI: ${{ inputs.delivery_phase == 'final' && format('{0}/waza-checkpoint-embedded-e2e', runner.temp) || format('{0}/waza-checkpoint-e2e', runner.temp) }}
         run: npx --no-install playwright test --project=chromium --retries=0 --reporter=github,line,json
 
+      - name: Require executed embedded checkpoint browser control
+        if: ${{ !cancelled() && inputs.delivery_phase == 'final' }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const report = JSON.parse(readFileSync("web/test-results/report.json", "utf8"));
+          const selected = [];
+          function visit(suites) {
+            for (const suite of suites) {
+              for (const spec of suite.specs ?? []) {
+                if ((spec.file ?? suite.file ?? "").endsWith("checkpoint-embedded.spec.ts")) selected.push(spec);
+              }
+              visit(suite.suites ?? []);
+            }
+          }
+          visit(report.suites);
+          if (selected.length !== 1 || selected[0].tests.length !== 1 ||
+              selected[0].tests[0].status !== "expected" ||
+              selected[0].tests[0].results.length !== 1 ||
+              selected[0].tests[0].results[0].status !== "passed") {
+            throw new Error("Final embedded checkpoint control was missing, skipped, retried, or failed.");
+          }
+          console.log("Executed exactly one passing current embedded checkpoint control.");
+          NODE
+
       - name: Upload dashboard test evidence
-        if: always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
+        if: always() && ((steps.tests.outcome != 'skipped' && steps.tests.outcome != '') || (steps.embedded.outcome != 'skipped' && steps.embedded.outcome != ''))
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dashboard-chromium-${{ github.run_id }}
@@ -132,6 +222,7 @@ jobs:
             web/dist/
             docs/images/
             site/public/images/explore/
+            ${{ runner.temp }}/checkpoint-embedded-cli-metadata.txt
           if-no-files-found: error
 
       - name: Skip (no dashboard changes)

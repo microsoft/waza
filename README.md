@@ -312,6 +312,19 @@ message/tool/grader payloads. Missing capture indexes remain unqualified, not
 empty or passing evidence. All three accept the artifact store flags above.
 See [evidence states and privacy boundaries](docs/EVIDENCE-STATES.md).
 
+The unreleased v0.41 source adds `waza runner checkpoint create` and
+`waza runner checkpoint resume CHECKPOINT_SHA256` for captured exact-unit
+submissions. Before-unit recovery reserves a fresh retry child; finalized-unit
+recovery preserves the original terminal, including failed/canceled grading,
+without new engine calls. Use a clean versioned build and the original private
+immutable store. See [checkpoint recovery and troubleshooting](site/src/content/docs/guides/runner-checkpoints.mdx)
+and the [developer contract](docs/EXECUTION_CHECKPOINTS.md).
+The Lab separates read-only declaration inspection from explicit creation/recovery,
+showing null-aware progress, current creation metadata and protected failure
+diagnostics. Existing result and SDK session readers are unchanged. This source
+implementation is not a claim that v0.41.0 has shipped or that all platform gates
+have completed.
+
 ### `waza aggregate` (unreleased v0.41 source preview)
 
 Derive a deterministic report from an explicit expected set of completed
@@ -332,12 +345,6 @@ and native-admitted category views;
 Usage totals and new-operation billing remain withheld.
 See [operational examples](site/src/content/docs/guides/manifest-aggregation.mdx)
 and [developer/migration rules and pending release gates](docs/MANIFEST-AGGREGATION.md).
-
-The additive [exact-unit checkpoint contract](docs/EXECUTION_CHECKPOINTS.md)
-currently provides schema/codec, compatibility admission and immutable declaration
-blob storage, not an operational resume command. Owned safe-boundary creation,
-restore and checkpoint Lab views remain under development; existing result and
-SDK session readers are unchanged.
 
 ### `waza lifecycle` (unreleased v0.41 source preview)
 
@@ -434,6 +441,14 @@ are hard errors; remove `--runner-compat` to retain ordinary local workflows.
 The task entry must be eval-relative, and successful adaptation passes shared
 offline admission within the complete 4 MiB emitted-byte limit.
 See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
+
+The unreleased v0.41 source adds opt-in `waza runner submit --store .waza-artifacts`
+for one captured submission wrapper. Default distinct execution reserves a fresh
+opaque execution ID; explicit verified reuse preserves original terminal bytes
+and native ordinals with zero new calls. Failed originals remain failed.
+The protected loopback `POST /api/v1/runner/submit` uses server-configured storage,
+never a request-selected path. Neither surface exposes raw reports or migrates
+legacy results. See [submission, retry, reuse and migration](site/src/content/docs/guides/immutable-artifacts.mdx#execute-distinct-work-or-explicitly-reuse-its-original).
 
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
 keeps the default scratch image mock-only and provides an explicit

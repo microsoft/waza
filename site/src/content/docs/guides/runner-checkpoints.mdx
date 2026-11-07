@@ -1,0 +1,125 @@
+---
+title: Exact-unit checkpoint recovery
+description: Create and restore protected exact-unit checkpoints without reusing incompatible or unauthenticated state.
+---
+
+**Unreleased v0.41 source preview.** These commands are implemented in the current
+source, not promised by published v0.40 releases. Current-head browser,
+compiled-CLI interruption and native-platform release gates remain required.
+
+## Create checkpoints
+
+Use a clean Git-stamped Waza build. The owning CLI supplies its actual revision;
+there is no user override or version-shaped fallback. Create a private store once
+and keep it for recovery:
+
+```bash
+mkdir -m 700 .waza-artifacts
+jq '{kind:"waza.execution-submission",schema_version:"1.0",request:.}' \
+  examples/runner/unit.json |
+  waza runner checkpoint create --store .waza-artifacts
+```
+
+The retained example uses the mock exact-unit profile, not live agent-quality
+evidence. Creation runs one captured unit. Stderr announces
+`checkpoint before-unit SHA256` before engine construction and
+`checkpoint finalized-unit SHA256` only after verified original completion.
+Stdout is one protected `waza.runner-checkpoint-result` JSON value. Save the
+locators and original captured input; a digest alone is not ownership.
+Use `--azure-container-url` instead of `--store` only for the original configured
+Azure immutable container, with existing credentials.
+
+## Recover before-unit work
+
+If creation was interrupted before original completion, use its retained
+**before-unit** digest and the original captured wrapper:
+
+```bash
+jq '{kind:"waza.execution-submission",schema_version:"1.0",request:.}' \
+  examples/runner/unit.json |
+  waza runner checkpoint resume BEFORE_SHA256 --store .waza-artifacts
+```
+
+Replace `BEFORE_SHA256` with the real lowercase 64-character locator. This
+reserves a **fresh retry child** of the immutable original reservation. It never
+rehydrates its old creator capability, overwrites its reservation or restores a
+model session. Only the absence of the original completion key permits this
+boundary; corrupt, unfinalized or unavailable completion content blocks it.
+An original that has since completed makes its old before checkpoint stale.
+
+## Reuse finalized-unit work
+
+Use a retained **finalized-unit** digest with the original input/store:
+
+```bash
+jq '{kind:"waza.execution-submission",schema_version:"1.0",request:.}' \
+  examples/runner/unit.json |
+  waza runner checkpoint resume FINALIZED_SHA256 --store .waza-artifacts
+```
+
+Replace `FINALIZED_SHA256` with its actual locator. Recovery verifies the original
+reservation, completion, manifest/content/final marker and independent original
+binding, then returns the original terminal with **zero new engine calls**.
+Recorded failed checks, cancellation, timeout, exit status and native ordinal
+are preserved. One restored unit and zero remaining work do not mean successful
+grading or zero historical calls/billing.
+
+## Compatibility and troubleshooting
+
+| Diagnostic | Action |
+|---|---|
+| Build missing, dirty or unstamped | Build the owning CLI from clean versioned source with VCS stamping enabled; preserve existing records. |
+| Incompatible runner/schema/model/tool/policy/input | Inspect field-name differences. Preserve the original checkpoint and start an explicitly distinct attempt; no automatic migration exists. |
+| Stale before-unit checkpoint | Use the original finalized checkpoint instead. Do not reclaim or rerun the completed original. |
+| Missing/corrupt/unfinalized source or store unavailable | Select the original private immutable store. Preserve residue and check operator diagnostics; do not normalize or overwrite evidence. |
+| Source metadata withheld | Capture/disclosure admission did not succeed. `source_withheld: true` is not a redacted source, approval, or creator capability. |
+| Publication/delivery failure | Preserve available locators and partial records. A write, flush or locator is not proof that a consumer received a valid result. |
+
+Inspect the actual binary with `go version -m /path/to/waza`. Clean source is not
+enough when the compiler omits VCS metadata; observed Go 1.26.4 worktree builds
+with a `.git` file can be unstamped. Use an ordinary versioned-checkout/CI build
+that records the real revision and clean flag. Do not inject a revision or waive
+admission. A pre-frontend API binary does not prove current embedded UI delivery.
+
+Only destination native attempt ordinal may differ; original source identity and
+selection must not be retagged. Owned native execution rejects effective external
+provider/runtime overrides through the shared guard. Finalized source inspection
+and reuse without a new runtime are distinct from runtime attestation.
+Original-completion checks and fresh-child reservation are nontransactional:
+completion after the last check or a completed child without original completion
+does not provide global exactly-once execution.
+
+## API and Lab
+
+The literal-loopback, same-origin JSON API accepts the same wrapper at
+`POST /api/v1/checkpoints` and
+`POST /api/v1/checkpoints/{digest}/resume`. The server selects its original
+configured immutable store; request JSON cannot choose a host path, provider or
+build revision. The wrapper limit is 4 MiB plus 8192 bytes. A response carries the
+actual exit header and protected result, not unrestricted rich reports.
+The response is not a discovery stream: if interrupted before delivery, the
+caller may never receive a created digest.
+
+In [Dashboard Lab](../dashboard-lab/), use **Runner contract → Create or resume an
+exact-unit checkpoint**. Read-only source inspection remains separate from owned
+operations. The result shows compatibility, withholding, original outcome/ordinal,
+null-aware progress and new-versus-original calls. Current created boundary/time
+comes from a separately labeled declaration-only blob read. JSON downloads
+preserve the protected response bytes; demo mode never executes recovery.
+
+## Schema and migration
+
+Checkpoint declaration and operation-result profiles use independent `1.0`
+versions. The result's optional output-only `source_withheld: true` is mutually
+exclusive with `source`, cannot mark successful/compatible results, and is never
+accepted as operation input or authority. Omitted/null/false/wrong-type values do
+not mean approved capture. Incompatible results retain field-name-only
+differences when metadata is withheld.
+
+Existing eval/task/result/snapshot versions, SDK continuation and ordinary
+`waza run --resume` behavior remain unchanged. No historical result, reservation,
+grader checkpoint or saved session is automatically adopted. Mid-runtime turns,
+grader batches, arbitrary tool/skill/file workflows, changed build revisions and
+incompatible profiles cannot be resumed by this exact-unit feature.
+See the [public schemas](../../reference/schema-changes/) and
+[developer contents/safety contract](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_CHECKPOINTS.md).

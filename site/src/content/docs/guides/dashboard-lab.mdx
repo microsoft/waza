@@ -45,6 +45,34 @@ This is separate from saved run evidence and is
 unavailable in the synthetic demo. See [Runner contract and API](../runner-contract/)
 and [logical identity normalization and migration](../runner-identities/).
 
+**Unreleased source preview:** the Runner contract section also offers
+**Inspect a stored checkpoint declaration**. Enter a caller-known lowercase
+SHA-256 checkpoint blob digest in the configured immutable store. The read-only
+`GET /api/v1/checkpoints/{digest}` route rereads current hash/schema/canonical
+bytes, showing the declared boundary, UTC creation time, source execution
+reference and runner revision. This is **declaration-only blob admission**, not
+checkpoint ownership, finalized work or operational recovery. Current input
+compatibility, restored units and remaining work stay **Unavailable**; a
+`before-unit` or `finalized-unit` declaration must not invent zero/one progress.
+Missing, corrupt and unavailable-store diagnostics are shown without private
+provider details. Edits and failed reloads clear old metadata; the synthetic demo
+does not substitute checkpoint data. No checkpoint catalog or resume command is
+included in this source-preview inspector. See the
+[checkpoint schema and compatibility limits](../../reference/schema-changes/).
+
+The separate **Create or resume an exact-unit checkpoint** panel accepts captured
+submission JSON and explicit creation/recovery actions. It uses the configured
+original immutable store and the owning CLI's clean VCS-stamped build, never a
+revision typed into the browser. Operation results report current compatibility,
+field-name-only differences, explicit null/zero progress, original failed/canceled
+outcome/native ordinal, and new versus original engine calls.
+`source_withheld: true` is displayed as withheld metadata, not invented redacted
+source values or ownership. A separate current blob read shows the newly published
+boundary and UTC creation time as declaration-only metadata. Input edits, failed
+requests and cancellation clear old results; the synthetic demo has no operation
+controls. **Download checkpoint result JSON** saves the actual protected response
+bytes. See [safe-boundary examples and recovery troubleshooting](../runner-checkpoints/).
+
 The unreleased v0.41 source additionally includes **Inspect execution lifecycle
 declarations** in the Runner section. It accepts explicit retained original
 context and ordered known observation digests, showing declared state, deadline,

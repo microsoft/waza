@@ -68,7 +68,9 @@ Finalized source-only restore performs no new engine call and preserves original
 verified evidence; it is not a claim about the current native provider.
 
 `runnerunit.Service.Submit(ctx, wrapperBytes, backend, hooks)` is an additive
-embedding API, not yet a CLI/API/Lab route. Its strict
+embedding API. The opt-in `waza runner submit` and loopback
+`POST /api/v1/runner/submit` select the protected owned capture composer, not
+arbitrary embedding callbacks. Its strict
 `execution-submission-1.0.schema.json` wrapper retains the original native request
 and admits it once. Omitted wrapper policy selects distinct execution; explicit
 null is invalid. Distinct submission reserves before factory construction,
@@ -78,6 +80,18 @@ terminal and category-scoped artifacts through the actual Store before completio
 Cancellation after reservation can finalize a canceled terminal with zero calls.
 Publication or observer errors are submission errors, not successful completion;
 partial immutable records are retained rather than reclaimed.
+
+Public submission performs offline wrapper/native admission before opening the
+explicit existing private store. Category admission precedes reservation;
+original publication/source admission precedes terminal disclosure. Responses
+contain no raw report and replace operator diagnostic text with fixed messages.
+An unadmitted binding does not disclose caller or reservation metadata. A store
+close failure retains admitted original actor facts and the actual new-call
+count, but returns `submission_error`/exit 2 without a completion claim.
+Transport failure is never retried with another record. HTTP uses the shared
+bounded literal-loopback/Host/same-origin input and one-write output helpers;
+requests cannot select filesystem/provider locations. Source corruption/context
+conflicts return HTTP 409 with an operation error, not successful reuse.
 
 Explicit reuse verifies finalized original context and any recorded report
 against the terminal, including status and grader verdicts, before recording an
@@ -125,8 +139,50 @@ cannot substitute category observations. These are cooperating producer
 comparisons, not SDK/process attestation or disclosure authorization.
 The fixed facade rejects competing preparation/validation and extra-artifact
 callbacks: an unvalidated renamed raw report cannot bypass its category inventory.
-Additional lifecycle artifacts require a separately admitted producer contract;
-arbitrary embedding artifact callbacks remain outside the protected facade.
+Additional lifecycle artifacts use the fixed `SubmissionHooks.SelectLifecycle`
+contract, never arbitrary embedding artifact callbacks. `LifecycleSelection`
+contains only the independently retained reservation, admitted protected terminal,
+and original invocation deadline (empty when absent), not report aliases or the
+detached publication deadline. A trusted embedding producer stages non-writing
+metadata before independently-original publication validation. Core checks
+canonical original binding/bytes/digests, bounded ordered lifecycle events, exact
+protected terminal equality, and closed runtime observation fields; it detaches
+canonical event bytes and `lifecycle.json` before later callbacks. These fixed
+objects join the same first manifest and aggregate byte bound, with no manifest
+digest in their input and no second publication. Their event bound is 128,
+separate from the 16 generic extra-artifact bound.
+
+The selected producer must use stage-only reservation and verify-only terminal
+callbacks: later callbacks cannot supply missing inventory or persist a second
+authoritative lifecycle publication. This is a trusted host contract, not a
+sandbox against host code with backend access. The legacy writing
+`LifecycleObserver.Hooks` adapter is unchanged and is not the selected public
+producer. The committed `PreparedLifecycleObserver` supplies non-writing
+reservation/selection and verify-only terminal hooks. The shared
+`ownedsubmission.NewLifecycleCaptureHooks` composer creates that actual observer
+with an explicit clock, adds conservative category capture and a fresh per-call
+factory, and supplies no unrestricted artifact/report callback. Its native getter
+runs only after reservation for the copilot profile; mock execution retains the
+real unbound empty sink. A configured getter returning nil is an error, not
+missing capture silently presented as success. Shared `NewEngineFactory(nil)`
+preserves legacy default builder options. Protected public submission selects
+the same observer and category policy, with the native-only Service resolver.
+`Service.NativeEngineFactory(runtimeGetter)` selects that shared native builder
+only for `copilot-sdk`; all other configurations retain the Service's original
+factory, including injected cancellation and error behavior. Creating the
+resolver does not invoke either factory or getter. Mock submission/reuse
+controls exercise the retained factory through the actual Submit caller;
+native builder-only binding is not SDK launch or process evidence.
+Typed admission
+does not prove SDK/process observation provenance or process exit; process
+evidence remains `unknown`. Native observations preserve sink sequence, not
+timestamp sorting or cross-goroutine causality.
+
+`SubmissionHooks.Factory` optionally overrides engine construction for that
+invocation only; a shared Service never changes its retained factory. Nil retains
+the existing factory/default behavior. Immutable reuse calls neither factory,
+lifecycle selector, nor reservation/terminal callbacks and preserves original
+native ordinal and terminal bytes.
 
 The facade explicitly withholds conversation, tool, and reliability categories;
 every nonempty native diagnostic/error message becomes `[REDACTED]` before first
@@ -151,6 +207,19 @@ write/flush without retry. Unsupported write deadlines abort without an implicit
 HTTP success. Strict profile validation and disclosure-approved response
 projection remain the caller's responsibility: neither helper authorizes raw
 reports, rejected checkpoint source bodies, or unauthenticated source metadata.
+
+Checkpoint locator delivery uses `newRunnerCheckpointLocatorEmitter`, retaining
+the existing exiting-process diagnostic writer and its cumulative 100 ms budget,
+sticky failures, and no-retry/unchanged-inherited-handle policy. Standalone CLI
+commands with supplied diagnostic writers receive the same bounded wrapper.
+Only `checkpoint before-unit SHA256` or `checkpoint finalized-unit SHA256` plus
+one LF is accepted; actual checkpoint boundary constants and canonical digest
+validation are reused. The emitter does not approve arbitrary progress or
+authenticate the referenced content. A before-unit delivery error stops engine
+admission; a finalized-unit delivery error makes the checkpoint operation fail
+without rewriting the completed original execution or removing its locators.
+It is process-only: a blocked write may finish late, and the caller must propagate
+failure and exit rather than use it in a long-lived embedding service.
 
 `executionledger.NewReader(scopedNamespace, storeBackend)` is a read-only
 consumer of the actual `artifactmanifest.Namespace.Reader` capability. It
@@ -177,6 +246,19 @@ The capture index does not invent an `ExecutionSource`, and no second capture
 publication is needed to add the sidecar. Legacy/unprotected submission and
 finalized reuse do not retroactively add or rewrite this artifact. Combined
 capture/sidecar bytes remain subject to submission's aggregate publication bound.
+
+Checkpoint locator delivery uses `newRunnerCheckpointLocatorEmitter`, retaining
+the existing exiting-process diagnostic writer and its cumulative 100 ms budget,
+sticky failures, and no-retry/unchanged-inherited-handle policy. Standalone CLI
+commands with supplied diagnostic writers receive the same bounded wrapper.
+Only `checkpoint before-unit SHA256` or `checkpoint finalized-unit SHA256` plus
+one LF is accepted; actual checkpoint boundary constants and canonical digest
+validation are reused. The emitter does not approve arbitrary progress or
+authenticate the referenced content. A before-unit delivery error stops engine
+admission; a finalized-unit delivery error makes the checkpoint operation fail
+without rewriting the completed original execution or removing its locators.
+It is process-only: a blocked write may finish late, and the caller must propagate
+failure and exit rather than use it in a long-lived embedding service.
 
 The additive `execution-submission-result-1.0.schema.json` and
 `ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,
