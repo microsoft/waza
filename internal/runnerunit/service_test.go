@@ -123,6 +123,33 @@ func TestAdmittedAttemptInstrumentationAndRepeatedDispatch(t *testing.T) {
 	require.NotEqual(t, engines[0].workspace, engines[1].workspace)
 }
 
+func TestRunTerminalRetainsAdmittedInputThroughFactory(t *testing.T) {
+	request := fixture(t)
+	data := wire(t, request)
+	original := string(data)
+	identity, err := runneridentity.DeriveJSON(data)
+	require.NoError(t, err)
+	calls := 0
+	service := NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+		calls++
+		for index := range data {
+			data[index] = '!'
+		}
+		return execution.NewMockEngine(cfg.ModelID), nil
+	})
+	envelope, binding := service.RunTerminal(t.Context(), data)
+	require.NotEqual(t, original, string(data), "factory mutation must exercise the original input buffer")
+	require.Equal(t, 1, calls)
+	require.NotNil(t, binding)
+	require.Equal(t, identity, binding.Identity)
+	require.Equal(t, request.Selection, binding.Selection)
+	require.Equal(t, identity, envelope.Identity)
+	require.NotNil(t, envelope.Observation)
+	require.Equal(t, request.Selection.Attempt, envelope.Observation.Attempts)
+	require.Equal(t, 1, envelope.EngineCalls)
+	require.Equal(t, "success", string(envelope.Outcome))
+}
+
 func TestExactUnitProductionAttemptAndRepeatedDispatch(t *testing.T) {
 	request := fixture(t)
 	var engines []*execution.MockEngine

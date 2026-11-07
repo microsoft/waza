@@ -257,6 +257,10 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 	if input == nil {
 		return report
 	}
+	return s.executeAdmitted(ctx, report, input, local)
+}
+
+func (s *Service) executeAdmitted(ctx context.Context, report Report, input *admitted, local bool) Report {
 	if local && input.spec.Config.EngineType != "mock" {
 		report.executionError("startup", fmt.Errorf("local compatibility execution supports only inline.mock-text"))
 		return report
