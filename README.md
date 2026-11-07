@@ -317,7 +317,11 @@ Duplicates count once. Missing, conflicting, cancelled, failed and incompatible
 sources remain explicit; no latest-attempt winner, score or billing is invented.
 Membership completeness is not an evidence-assurance pass. The Lab's Runner
 contract section shows composition, state counts, conflicts, omissions,
-compatibility and source links. See [operational examples](site/src/content/docs/guides/manifest-aggregation.mdx)
+compatibility and source links. Optional repeatable
+`--evidence "$FIRST=$EVIDENCE"` selects declaration-only sidecars;
+`--format csv` preserves native integer counts and recorded-credit presence.
+Usage totals and new-operation billing remain withheld.
+See [operational examples](site/src/content/docs/guides/manifest-aggregation.mdx)
 and [developer/migration rules and pending release gates](docs/MANIFEST-AGGREGATION.md).
 
 <span id="waza-interop-source-build-preview"></span>

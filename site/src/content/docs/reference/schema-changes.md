@@ -63,6 +63,14 @@ compatible terminal and publish its actual manifest binding. Unsupported
 profiles are withheld rather than implicitly upgraded. See
 [worked examples, trust boundaries and pending release gates](../../guides/manifest-aggregation/).
 
+Optional explicit evidence pairs add declaration-only metadata and structurally
+admitted recorded usage without changing manifest-only bytes or legacy versions.
+Null selection is rejected; empty selection records unselected evidence members.
+Native usage integer counts support int64 and exact JSON/CSV/Lab presentation;
+this does not widen separate assurance profiles' JavaScript-safe integer bounds.
+Missing credits remain absent, recorded zero remains zero, and totals remain
+withheld without actual producer/category qualification.
+
 Schema versions use `MAJOR.MINOR` format with no patch component.
 
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.

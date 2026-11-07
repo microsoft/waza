@@ -86,14 +86,27 @@ and referenced bytes, not category-specific semantics. Aggregation must use the
 actual committed producer/admission contract before asserting category counts,
 source provenance or complete usage.
 
-Until that integration is admitted, usage, credits, numeric scores and evidence
-assurance are unavailable; zero or computed estimates are not substituted.
+Optional `--evidence MANIFEST_SHA256=EVIDENCE_SHA256` selects explicit derived
+sidecars; repeat it up to 128 times before deduplication. Declared origins must
+belong to the expected set before any provider is opened. Sorted, distinct pairs
+each use one actual #768 `InspectWithUsage` pass. The stored origin must match;
+all distinct competing sidecars are reported, with no declaration/usage winner.
+Every lineage/current-source read shares the original cumulative budget.
+Origin and sidecar verification are separate current passes, not a snapshot.
+Observed failures remain withheld even when another pass verified the origin.
+
+The six category counts remain **declarations**. Explicit native `UsageStats`
+shape admission may retain original recorded usage, including incomplete credits,
+for review. Present-empty declarations never create zero usage. This verifies
+source content and recorded shape, not producer, privacy, ownership or billing
+attestation. Scores, assurance and usage totals remain withheld.
 Future usage integration must reuse `models.AggregateUsageStats`, preserve
 recorded zero/precision and original source usage, and exclude reused/cached
 historical execution usage from new-operation billing. A historical observed
 credit value and the cost of this read-only aggregation are distinct scopes.
 
-The aggregate is metadata only. Source links point to existing manifest
+The aggregate exposes safe declarations and admitted recorded usage, not arbitrary
+payload text or artifact names. Source links point to existing manifest/sidecar
 inspection, not unrestricted payload downloads. Keep original source privacy
 rules; aggregation cannot retroactively redact an already published source.
 
@@ -103,9 +116,13 @@ Recorded grader identifiers use UTF-8 byte ordering, not locale-dependent or
 JavaScript UTF-16 ordering. Native emission and Lab admission preserve the same
 ordering and reject duplicate verdict identifiers or contradictory outcomes.
 
-There are at most 128 submitted digests **before deduplication** and 16 KiB of
-API request JSON. The cumulative read budget is 256 MiB, covering manifest,
-artifact and marker verification. The actual `Store.ReadCompleted` retains
+There are at most 128 submitted digests and 128 submitted evidence pairs
+**before deduplication**, independently of the 32 KiB API JSON ceiling.
+The maximum compact 128+128 selection fits that ceiling; padding and overlong
+wire input still count toward it. The cumulative read budget is 256 MiB, covering
+manifest, artifact, marker, sidecar and lineage verification. It deliberately
+does not promise to fit 128 individually maximum-sized publications.
+The actual `Store.ReadCompleted` retains
 selected original terminal bytes in the same all-artifact verification pass;
 there is no separate check/reopen shortcut. Failed reads consume
 their full requested limit plus its excess-detection byte because actual
@@ -121,7 +138,11 @@ result directory, scheduler, or exactly-once claim.
 
 ## API and Lab
 
-`POST /api/v1/aggregates` accepts only `{"manifests":[DIGEST,...]}`. The server
+`POST /api/v1/aggregates` accepts `{"manifests":[DIGEST,...]}` with an optional
+`"evidence":[{"manifest_sha256":DIGEST,"evidence_sha256":SIDECAR},...]`.
+Omission preserves manifest-only output; `[]` explicitly selects no sidecars
+and emits unavailable evidence membership. `null`, nonarrays and unknown fields
+are rejected. The server
 selects `.waza-artifacts` below its results directory, never a request-supplied
 path/URL. Original-wire validation precedes reads and provider construction.
 HTTP 200 carries complete membership (including recorded evaluation failure),
@@ -132,7 +153,15 @@ provider factory, without substituting local results on a provider error.
 
 The Lab's Runner contract section displays member state counts, composition,
 conflicts, omissions, compatibility diagnostics and original manifest links.
-Downloads preserve that report. Input edits and failed reloads clear prior
+JSON downloads preserve the original response bytes. CSV (`--format csv`,
+API `?format=csv`, or Lab download) retains exact native integer counts, absent
+credits as blank cells, and recorded zero as zero. Lab rendering and CSV use
+preserved integer tokens rather than rounded JavaScript numbers, including
+9007199254740993 and MaxInt64. Lab CSV derives from its captured response without
+rereading sources; separate CLI/API invocations are separate observations.
+The aggregate's native usage fragment intentionally supports int64 counts;
+it does not change assurance profiles' separate JavaScript-safe integer bounds.
+Input edits and failed reloads clear prior
 success; the synthetic demo cannot claim live aggregation.
 
 ## Migration and remaining release gates

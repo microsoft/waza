@@ -69,6 +69,14 @@ verdict presence is retained, including recorded empty arrays. No legacy
 summary is used to reconstruct absent source evidence. See
 [ordering, conflicts and migration](MANIFEST-AGGREGATION.md).
 
+Optional explicit evidence pairs do not rewrite manifest-only output or bump
+legacy writer versions. Omitted, null and empty selection are distinct: omitted
+has no evidence field, null is invalid, and empty emits explicit unselected
+evidence membership. Recorded usage uses native int64 counts, independently of
+assurance profiles' JavaScript-safe limits. Original source bytes and historical
+usage remain unchanged; derived category declarations and structural admission
+do not qualify producer ownership, category completeness or new billing.
+
 From the repository root, after the normal embedded dashboard assets exist:
 
 ```bash

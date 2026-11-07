@@ -1,6 +1,39 @@
 import Ajv2020 from "ajv/dist/2020";
 import schema from "../../../schemas/manifest-aggregate-1.0.schema.json";
+import evidenceSchema from "../../../schemas/execution-evidence-1.0.schema.json";
+import attemptSchema from "../../../schemas/execution-attempt-1.0.schema.json";
+import manifestSchema from "../../../schemas/artifact-manifest-1.0.schema.json";
+import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
 import { parseStrictJSON } from "../lib/strictJson";
+import type { EvidenceCategory, EvidenceState } from "./executionEvidence";
+
+export interface EvidenceInput { manifest_sha256: string; evidence_sha256: string }
+interface RecordedUsage {
+  state: EvidenceState;
+  declared_state?: EvidenceState;
+  verification: string;
+  reason?: string;
+  recorded?: {
+    turns: number; input_tokens: number; output_tokens: number;
+    cache_read_tokens: number; cache_write_tokens: number; premium_requests: number;
+    ai_credits?: number; model_metrics?: Record<string, { ai_credits?: number }>;
+  };
+}
+export interface EvidenceCandidate {
+  evidence_sha256: string; state: string; origin_manifest?: string; source_manifests: string[];
+  declared_categories: {
+    category: EvidenceCategory; declared_state: EvidenceState; declared_source: string;
+    declared_context: string; declared_observed_count?: string; declared_reason?: string;
+    declared_limit?: { observed: string; total?: string };
+  }[];
+  usage?: RecordedUsage;
+  diagnostics: { code: string; message: string }[];
+}
+export interface LoadedAggregate {
+  report: ManifestAggregate;
+  rawJSON: string;
+  exactUsage: Record<string, Record<string, string>>;
+}
 
 export interface ManifestAggregate {
   kind: "waza.manifest-aggregate";
@@ -20,11 +53,55 @@ export interface ManifestAggregate {
   state_counts: Record<string, number>;
   conflicts: { logical: { run: string; work: string }; manifests: string[] }[];
   diagnostics: { code: string; message: string }[];
+  evidence?: {
+    completion: "incomplete"; verification: "content-and-declared-context-only";
+    qualification: "producer-and-category-qualification-unavailable"; usage_totals: "withheld";
+    members: { manifest_sha256: string; state: string; candidates: EvidenceCandidate[] }[];
+    declaration_state_counts: Partial<Record<EvidenceCategory, Partial<Record<EvidenceState, number>>>>;
+    diagnostics: { code: string; message: string }[];
+  };
 }
 
 export class AggregateError extends Error {}
 
-const validate = new Ajv2020({ strict: false }).compile<ManifestAggregate>(schema);
+const ajv = new Ajv2020({ strict: false });
+for (const resource of [evidenceSchema, attemptSchema, manifestSchema, terminalSchema]) ajv.addSchema(resource);
+const validate = ajv.compile<ManifestAggregate>(schema);
+
+function object(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function integer(value: unknown): string {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value) || BigInt(value) > 9223372036854775807n) {
+    throw new AggregateError("Aggregate API returned invalid integer evidence.");
+  }
+  return value;
+}
+
+function exactUsageFields(value: unknown): Record<string, string> {
+  if (!object(value)) throw new AggregateError("Aggregate API returned malformed recorded usage.");
+  const fields: Record<string, string> = {};
+  for (const name of ["turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"]) {
+    fields[name] = integer(value[name]);
+  }
+  for (const name of ["premium_requests", "ai_credits"]) {
+    if (value[name] !== undefined) fields[name] = String(value[name]);
+  }
+  if (value.model_metrics !== undefined) {
+    if (!object(value.model_metrics)) throw new AggregateError("Aggregate API returned malformed model usage.");
+    const models = Object.entries(value.model_metrics).sort(([a], [b]) => compareUTF8(a, b)).map(([name, model]) => {
+      if (!object(model)) throw new AggregateError("Aggregate API returned malformed model usage.");
+      const values = Object.entries(model).sort(([a], [b]) => compareUTF8(a, b)).map(([key, entry]) => {
+        if (["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"].includes(key)) integer(entry);
+        return `${JSON.stringify(key)}:${String(entry)}`;
+      });
+      return `${JSON.stringify(name)}:{${values.join(",")}}`;
+    });
+    fields.model_metrics_json = `{${models.join(",")}}`;
+  }
+  return fields;
+}
 
 function compareUTF8(left: string, right: string): number {
   const encoder = new TextEncoder();
@@ -37,14 +114,14 @@ function compareUTF8(left: string, right: string): number {
   return a.length - b.length;
 }
 
-export async function aggregateManifests(manifests: string[], signal: AbortSignal): Promise<ManifestAggregate> {
+export async function aggregateManifests(manifests: string[], signal: AbortSignal, evidence?: EvidenceInput[]): Promise<LoadedAggregate> {
   const expected = [...new Set(manifests)].sort();
   let response: Response;
   let text: string;
   try {
     response = await fetch("/api/v1/aggregates", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ manifests }),
+      body: JSON.stringify({ manifests, ...(evidence === undefined ? {} : { evidence }) }),
       signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
     });
     text = await response.text();
@@ -100,5 +177,101 @@ export async function aggregateManifests(manifests: string[], signal: AbortSigna
       throw new AggregateError("Aggregate API returned inconsistent conflict membership.");
     }
   }
-  return value;
+  if ((evidence !== undefined) !== (value.evidence !== undefined)) {
+    throw new AggregateError("Aggregate API returned inconsistent evidence selection.");
+  }
+  const exactUsage: LoadedAggregate["exactUsage"] = {};
+  if (value.evidence) {
+    const preserved: unknown = parseStrictJSON(text, true);
+    if (!object(preserved) || !object(preserved.evidence) || !Array.isArray(preserved.evidence.members) ||
+        value.evidence.members.length !== expected.length) {
+      throw new AggregateError("Aggregate API returned inconsistent evidence membership.");
+    }
+    const originals = preserved.evidence.members;
+    const counts: Record<string, Record<string, number>> = {};
+    let candidateCount = 0;
+    for (const [index, member] of value.evidence.members.entries()) {
+      const requested = [...new Set((evidence ?? []).filter((pair) => pair.manifest_sha256 === member.manifest_sha256)
+        .map((pair) => pair.evidence_sha256))].sort();
+      const state = requested.length === 0 ? "not_selected" : requested.length > 1 ? "conflicting" : member.candidates[0]?.state;
+      const original = originals[index];
+      if (member.manifest_sha256 !== expected[index] || member.state !== state ||
+          member.candidates.length !== requested.length || !object(original) || !Array.isArray(original.candidates)) {
+        throw new AggregateError("Aggregate API returned inconsistent evidence selection.");
+      }
+      const originalCandidates = original.candidates;
+      for (const [candidateIndex, candidate] of member.candidates.entries()) {
+        candidateCount++;
+        if (candidate.evidence_sha256 !== requested[candidateIndex]) {
+          throw new AggregateError("Aggregate API returned unsorted or unrequested sidecars.");
+        }
+        if (candidate.state !== "verified") continue;
+        if (candidate.origin_manifest !== member.manifest_sha256 ||
+            !candidate.source_manifests.includes(member.manifest_sha256) ||
+            candidate.source_manifests.some((digest, i) => i > 0 && digest <= candidate.source_manifests[i - 1]!)) {
+          throw new AggregateError("Aggregate API returned inconsistent evidence origins.");
+        }
+        let previous = "";
+        for (const declaration of candidate.declared_categories) {
+          if (declaration.category <= previous) throw new AggregateError("Aggregate API returned duplicate or unsorted categories.");
+          previous = declaration.category;
+          if (declaration.declared_observed_count !== undefined) integer(declaration.declared_observed_count);
+          if (declaration.declared_limit) {
+            integer(declaration.declared_limit.observed);
+            if (declaration.declared_limit.total !== undefined) integer(declaration.declared_limit.total);
+          }
+          if (member.state === "verified") {
+            const states = counts[declaration.category] ??= {};
+            states[declaration.declared_state] = (states[declaration.declared_state] ?? 0) + 1;
+          }
+        }
+        const usage = candidate.usage;
+        if (!usage) throw new AggregateError("Aggregate API omitted recorded usage availability.");
+        if (usage.recorded) {
+          if (usage.verification !== "source-content-and-recorded-usage-shape-only" || usage.declared_state !== "present" ||
+              !["present", "incomplete"].includes(usage.state) ||
+              (usage.state === "present" && (usage.recorded.ai_credits === undefined ||
+                !usage.recorded.model_metrics || Object.keys(usage.recorded.model_metrics).length === 0 ||
+                Object.values(usage.recorded.model_metrics).some((model) => model.ai_credits === undefined)))) {
+            throw new AggregateError("Aggregate API returned unqualified recorded usage.");
+          }
+          const rawCandidate = originalCandidates[candidateIndex];
+          if (!object(rawCandidate) || !object(rawCandidate.usage)) throw new AggregateError("Aggregate API returned malformed usage.");
+          exactUsage[candidate.evidence_sha256] = exactUsageFields(rawCandidate.usage.recorded);
+        } else if (usage.state === "present" &&
+            (usage.reason !== "declared_present_empty" || usage.verification !== "declared-state-only")) {
+          throw new AggregateError("Aggregate API fabricated present usage.");
+        }
+      }
+    }
+    const reportedCounts = value.evidence.declaration_state_counts;
+    if (candidateCount > 128 || Object.keys(counts).length !== Object.keys(reportedCounts).length ||
+        Object.entries(counts).some(([category, states]) => {
+          const reported = reportedCounts[category as EvidenceCategory];
+          return !reported || Object.keys(states).length !== Object.keys(reported).length ||
+            Object.entries(states).some(([state, count]) => reported[state as EvidenceState] !== count);
+        })) throw new AggregateError("Aggregate API returned inconsistent declaration counts.");
+  }
+  return { report: value, rawJSON: text, exactUsage };
+}
+
+export function aggregateCSV(loaded: LoadedAggregate): string {
+  const rows = [["manifest_sha256", "input_state", "recorded_outcome", "evidence_sha256", "evidence_state",
+    "usage_state", "usage_verification", "declared_usage_source", "turns", "input_tokens", "output_tokens",
+    "cache_read_tokens", "cache_write_tokens", "premium_requests", "ai_credits", "model_metrics_json",
+    "usage_totals", "new_operation_billing", "verified_source_manifests_json"]];
+  loaded.report.members.forEach((member, index) => {
+    const candidates = loaded.report.evidence?.members[index]?.candidates;
+    for (const candidate of candidates?.length ? candidates : [undefined]) {
+      const exact = candidate ? loaded.exactUsage[candidate.evidence_sha256] : undefined;
+      rows.push([member.manifest_sha256, member.state, member.outcome ?? "", candidate?.evidence_sha256 ?? "",
+        candidate?.state ?? "not_selected", candidate?.usage?.state ?? "unavailable",
+        candidate?.usage?.verification ?? "unverified",
+        candidate?.declared_categories.find((declaration) => declaration.category === "usage")?.declared_source ?? "",
+        ...["turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "premium_requests",
+          "ai_credits", "model_metrics_json"].map((name) => exact?.[name] ?? ""), "withheld", "unavailable",
+        candidate?.source_manifests.length ? JSON.stringify(candidate.source_manifests) : ""]);
+    }
+  });
+  return rows.map((row) => row.map((cell) => /[",\r\n]/.test(cell) ? `"${cell.replaceAll('"', '""')}"` : cell).join(",")).join("\n") + "\n";
 }

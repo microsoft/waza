@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/microsoft/waza/internal/evidencestate"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
@@ -21,6 +24,22 @@ type compiledProfiles struct {
 var profiles = sync.OnceValues(func() (compiledProfiles, error) {
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(schemaloader.Offline{})
+	for name, text := range map[string]string{
+		"execution-evidence-1.0.schema.json": schemas.ExecutionEvidenceSchemaJSON,
+		"execution-attempt-1.0.schema.json":  schemas.ExecutionAttemptSchemaJSON,
+		"artifact-manifest-1.0.schema.json":  schemas.ArtifactManifestSchemaJSON,
+		"runner-terminal-1.0.schema.json":    schemas.RunnerTerminalSchemaJSON,
+	} {
+		document, err := jsonschema.UnmarshalJSON(strings.NewReader(text))
+		if err != nil {
+			return compiledProfiles{}, err
+		}
+		for _, root := range []string{"https://microsoft.github.io/waza/schemas/", "https://raw.githubusercontent.com/microsoft/waza/main/schemas/"} {
+			if err := compiler.AddResource(root+name, document); err != nil {
+				return compiledProfiles{}, err
+			}
+		}
+	}
 	document, err := jsonschema.UnmarshalJSON(strings.NewReader(schemas.ManifestAggregateSchemaJSON))
 	if err != nil {
 		return compiledProfiles{}, err
@@ -39,8 +58,8 @@ var profiles = sync.OnceValues(func() (compiledProfiles, error) {
 
 func ParseRequest(data []byte) (Request, error) {
 	var request Request
-	if len(data) > 16384 {
-		return request, fmt.Errorf("%w: request exceeds 16 KiB", ErrInvalid)
+	if len(data) > MaxRequestBytes {
+		return request, fmt.Errorf("%w: request exceeds 32 KiB", ErrInvalid)
 	}
 	value, err := jsonutil.Parse(data)
 	if err != nil {
@@ -115,6 +134,111 @@ func validateReport(data []byte) error {
 				return fmt.Errorf("%w: conflict membership is inconsistent", ErrInvalid)
 			}
 			lastDigest = digest
+		}
+	}
+	if report.Evidence != nil {
+		if err := validateEvidenceReport(report); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateEvidenceReport(report Report) error {
+	evidence := report.Evidence
+	if len(evidence.Members) != len(report.Members) {
+		return fmt.Errorf("%w: evidence membership differs from the expected manifest set", ErrInvalid)
+	}
+	counts := map[evidencestate.Category]map[evidencestate.State]int{}
+	candidates := 0
+	for index, member := range evidence.Members {
+		if member.ManifestSHA256 != report.Members[index].ManifestSHA256 {
+			return fmt.Errorf("%w: evidence origins must match sorted expected membership", ErrInvalid)
+		}
+		expectedState := "not_selected"
+		if len(member.Candidates) == 1 {
+			expectedState = member.Candidates[0].State
+		} else if len(member.Candidates) > 1 {
+			expectedState = "conflicting"
+		}
+		if member.State != expectedState {
+			return fmt.Errorf("%w: evidence state contradicts its candidates", ErrInvalid)
+		}
+		previous := ""
+		for _, candidate := range member.Candidates {
+			candidates++
+			if candidate.EvidenceSHA256 <= previous {
+				return fmt.Errorf("%w: evidence candidates must be sorted and unique", ErrInvalid)
+			}
+			previous = candidate.EvidenceSHA256
+			if candidate.State != "verified" {
+				continue
+			}
+			if candidate.OriginManifest != member.ManifestSHA256 || !slices.Contains(candidate.Sources, member.ManifestSHA256) {
+				return fmt.Errorf("%w: verified evidence origin/source membership conflicts", ErrInvalid)
+			}
+			for sourceIndex, source := range candidate.Sources {
+				if sourceIndex > 0 && source <= candidate.Sources[sourceIndex-1] {
+					return fmt.Errorf("%w: evidence source manifests must be sorted and unique", ErrInvalid)
+				}
+			}
+			previousCategory := ""
+			for _, declaration := range candidate.Declarations {
+				if string(declaration.Category) <= previousCategory {
+					return fmt.Errorf("%w: evidence categories must be sorted and unique", ErrInvalid)
+				}
+				previousCategory = string(declaration.Category)
+				values := []*string{declaration.ObservedCount}
+				if declaration.Limit != nil {
+					values = append(values, &declaration.Limit.Observed, declaration.Limit.Total)
+				}
+				for _, value := range values {
+					if value != nil {
+						n, err := strconv.ParseInt(*value, 10, 64)
+						if err != nil || n < 0 || strconv.FormatInt(n, 10) != *value {
+							return fmt.Errorf("%w: declared integer metadata must be canonical nonnegative int64 text", ErrInvalid)
+						}
+					}
+				}
+				if member.State == "verified" {
+					if counts[declaration.Category] == nil {
+						counts[declaration.Category] = map[evidencestate.State]int{}
+					}
+					counts[declaration.Category][declaration.DeclaredState]++
+				}
+			}
+			if candidate.Usage == nil {
+				return fmt.Errorf("%w: verified evidence must retain explicit usage availability", ErrInvalid)
+			}
+			usage := candidate.Usage
+			if usage.Recorded != nil {
+				if usage.Verification != "source-content-and-recorded-usage-shape-only" ||
+					usage.DeclaredState != evidencestate.Present ||
+					(usage.State != evidencestate.Present && usage.State != evidencestate.Incomplete) {
+					return fmt.Errorf("%w: recorded usage requires explicit native shape admission", ErrInvalid)
+				}
+				if usage.State == evidencestate.Present {
+					if usage.Recorded.AICredits == nil || len(usage.Recorded.ModelMetrics) == 0 {
+						return fmt.Errorf("%w: present recorded usage requires complete credit attribution", ErrInvalid)
+					}
+					for _, model := range usage.Recorded.ModelMetrics {
+						if model.AICredits == nil {
+							return fmt.Errorf("%w: present recorded usage requires per-model credits", ErrInvalid)
+						}
+					}
+				}
+			} else if usage.State == evidencestate.Present &&
+				(usage.Reason != "declared_present_empty" || usage.Verification != "declared-state-only") {
+				return fmt.Errorf("%w: present usage without native content must remain declared present-empty", ErrInvalid)
+			}
+		}
+	}
+	if candidates > MaxInputs || len(counts) != len(evidence.DeclarationStateCounts) {
+		return fmt.Errorf("%w: evidence candidate/count bounds are inconsistent", ErrInvalid)
+	}
+	for category, states := range counts {
+		if !maps.Equal(states, evidence.DeclarationStateCounts[category]) {
+			return fmt.Errorf("%w: declaration counts contradict admitted metadata", ErrInvalid)
 		}
 	}
 	return nil

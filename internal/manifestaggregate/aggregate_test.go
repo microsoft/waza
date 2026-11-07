@@ -358,7 +358,7 @@ func TestAggregateRequestOriginalWire(t *testing.T) {
 	for _, data := range []string{`{}`, `null`, `{"manifests":null}`, `{"manifests":[]}`,
 		`{"manifests":["` + digest + `"],"extra":true}`,
 		`{"manifests":["` + digest + `"],"manifests":["` + digest + `"]}`,
-		`{"manifests":["\ud800"]}`, strings.Repeat(" ", 16385)} {
+		`{"manifests":["\ud800"]}`, strings.Repeat(" ", MaxRequestBytes+1)} {
 		_, err := ParseRequest([]byte(data))
 		require.ErrorIs(t, err, ErrInvalid, data)
 	}

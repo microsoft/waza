@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -218,13 +219,70 @@ func TestAggregateAPIRejectsOriginalWireBeforeReads(t *testing.T) {
 	for _, body := range []string{`{}`, `{"manifests":null}`, `{"manifests":[]}`, `{"manifests":123}`,
 		`{"manifests":["` + strings.Repeat("a", 64) + `"],"store":"../secret"}`,
 		`{"manifests":["` + strings.Repeat("a", 64) + `"],"manifests":["` + strings.Repeat("b", 64) + `"]}`,
-		strings.Repeat(" ", 16385)} {
+		`{"manifests":["` + strings.Repeat("a", 64) + `"],"evidence":null}`,
+		`{"manifests":["` + strings.Repeat("a", 64) + `"],"evidence":[{"manifest_sha256":"` + strings.Repeat("b", 64) + `","evidence_sha256":"` + strings.Repeat("c", 64) + `"}]}`,
+		strings.Repeat(" ", manifestaggregate.MaxRequestBytes+1)} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", strings.NewReader(body)))
 		require.Equal(t, http.StatusBadRequest, recorder.Code, body)
 		require.NotContains(t, recorder.Body.String(), "../secret")
 	}
 	require.Zero(t, reader.calls)
+}
+
+type capturedAggregateReader struct {
+	requests []manifestaggregate.Request
+}
+
+func (r *capturedAggregateReader) Aggregate(ctx context.Context, request manifestaggregate.Request) (manifestaggregate.Report, error) {
+	r.requests = append(r.requests, request)
+	return manifestaggregate.Aggregate(ctx, unavailableAggregateBackend{}, request)
+}
+
+func TestAggregateAPI128PairsExactWireBoundary(t *testing.T) {
+	request := manifestaggregate.Request{}
+	references := []manifestaggregate.EvidenceInput{}
+	for index := range manifestaggregate.MaxInputs {
+		digest := fmt.Sprintf("%064x", index+1)
+		request.Manifests = append(request.Manifests, digest)
+		references = append(references, manifestaggregate.EvidenceInput{ManifestSHA256: digest, EvidenceSHA256: strings.Repeat("b", 64)})
+	}
+	request.Evidence = &references
+	wire, err := json.Marshal(request)
+	require.NoError(t, err)
+	require.Equal(t, 30620, len(wire), "exact maximum compact 128+128 selection")
+	wire = append(wire, bytes.Repeat([]byte(" "), manifestaggregate.MaxRequestBytes-len(wire))...)
+	reader := &capturedAggregateReader{}
+	mux := http.NewServeMux()
+	webapi.RegisterAggregateRoutesWithReader(mux, reader)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(wire)))
+	require.Equal(t, http.StatusServiceUnavailable, response.Code, "valid boundary reaches explicit unavailable storage, not input rejection")
+	require.Len(t, reader.requests, 1)
+	require.Len(t, reader.requests[0].Manifests, manifestaggregate.MaxInputs)
+	require.Len(t, *reader.requests[0].Evidence, manifestaggregate.MaxInputs)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(append(wire, ' '))))
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Len(t, reader.requests, 1, "boundary+1 rejected before reader/provider")
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates?format=invalid", bytes.NewReader(wire)))
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Len(t, reader.requests, 1)
+}
+
+func TestAggregateCLIRejectsEvidenceAndFormatBeforeProvider(t *testing.T) {
+	origin := strings.Repeat("a", 64)
+	for _, flags := range [][]string{
+		{"--format", "invalid"},
+		{"--evidence", "not-a-pair"},
+		{"--evidence", strings.Repeat("b", 64) + "=" + origin},
+		{"--evidence", origin + "=invalid"},
+	} {
+		command := newAggregateCommand()
+		command.SetArgs(append([]string{"--store", filepath.Join(t.TempDir(), "must-not-exist"), origin}, flags...))
+		require.ErrorIs(t, command.Execute(), manifestaggregate.ErrInvalid)
+	}
 }
 
 type unavailableAggregateBackend struct{}

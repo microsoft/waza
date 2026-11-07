@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	Version        = "1.0"
-	MaxInputs      = 128
-	MaxReadBytes   = 256 << 20
-	MaxReportBytes = 16 << 20
+	Version         = "1.0"
+	MaxInputs       = 128
+	MaxReadBytes    = 256 << 20
+	MaxReportBytes  = 16 << 20
+	MaxRequestBytes = 32 << 10
 )
 
 var (
@@ -30,7 +31,8 @@ var (
 )
 
 type Request struct {
-	Manifests []string `json:"manifests"`
+	Manifests []string         `json:"manifests"`
+	Evidence  *[]EvidenceInput `json:"evidence,omitempty"`
 }
 
 type Member struct {
@@ -58,6 +60,7 @@ type Report struct {
 	StateCounts   map[string]int                `json:"state_counts"`
 	Conflicts     []Conflict                    `json:"conflicts"`
 	Diagnostics   []artifactmanifest.Diagnostic `json:"diagnostics"`
+	Evidence      *EvidenceReport               `json:"evidence,omitempty"`
 }
 
 func (r Request) Validate() error {
@@ -67,6 +70,19 @@ func (r Request) Validate() error {
 	for _, digest := range r.Manifests {
 		if len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
 			return fmt.Errorf("%w: provide full lowercase SHA-256 manifest digests", ErrInvalid)
+		}
+	}
+	if r.Evidence != nil {
+		if *r.Evidence == nil || len(*r.Evidence) > MaxInputs {
+			return fmt.Errorf("%w: evidence must be an array containing at most %d references", ErrInvalid, MaxInputs)
+		}
+		for _, reference := range *r.Evidence {
+			if !slices.Contains(r.Manifests, reference.ManifestSHA256) {
+				return fmt.Errorf("%w: every evidence origin must be in the expected manifest set", ErrInvalid)
+			}
+			if len(reference.EvidenceSHA256) != 64 || strings.Trim(reference.EvidenceSHA256, "0123456789abcdef") != "" {
+				return fmt.Errorf("%w: provide full lowercase evidence digests", ErrInvalid)
+			}
 		}
 	}
 	return nil
@@ -135,6 +151,12 @@ func Aggregate(ctx context.Context, backend artifactmanifest.Backend, request Re
 	digests := slices.Clone(request.Manifests)
 	slices.Sort(digests)
 	digests = slices.Compact(digests)
+	var evidence []EvidenceInput
+	if request.Evidence != nil {
+		evidence = slices.Clone(*request.Evidence)
+		slices.SortFunc(evidence, compareEvidence)
+		evidence = slices.Compact(evidence)
+	}
 	bounded := &boundedBackend{Backend: backend}
 	store := artifactmanifest.NewStore(bounded)
 	logicals := map[executionattempt.Logical][]int{}
@@ -213,6 +235,14 @@ func Aggregate(ctx context.Context, backend artifactmanifest.Backend, request Re
 	}
 	for _, member := range report.Members {
 		report.StateCounts[member.State]++
+	}
+	if request.Evidence != nil {
+		evidenceReport, err := aggregateEvidence(ctx, bounded, report.Members, evidence)
+		report.Evidence = &evidenceReport
+		if err != nil {
+			failures = append(failures, err)
+			report.Completion = "incomplete"
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		report.Completion = "incomplete"

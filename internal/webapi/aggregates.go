@@ -20,14 +20,19 @@ type AggregateReader interface {
 
 func RegisterAggregateRoutesWithReader(mux *http.ServeMux, reader AggregateReader) {
 	mux.HandleFunc("POST /api/v1/aggregates", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16384))
+		format := r.URL.Query().Get("format")
+		if format != "" && format != "json" && format != "csv" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Aggregate format must be json or csv."})
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, manifestaggregate.MaxRequestBytes))
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Aggregate request exceeds 16 KiB or could not be read."})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Aggregate request exceeds 32 KiB or could not be read."})
 			return
 		}
 		request, err := manifestaggregate.ParseRequest(body)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Provide an explicit manifests array containing 1..128 lowercase SHA-256 digests."})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Provide 1..128 lowercase manifest digests and, optionally, at most 128 evidence pairs whose origins belong to that set."})
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
@@ -41,13 +46,18 @@ func RegisterAggregateRoutesWithReader(mux *http.ServeMux, reader AggregateReade
 			}
 			slog.Error("completed manifest aggregation failed", "error", err)
 		}
-		data, encodeErr := manifestaggregate.Encode(report)
+		encode := manifestaggregate.Encode
+		contentType := "application/json"
+		if format == "csv" {
+			encode, contentType = manifestaggregate.EncodeCSV, "text/csv; charset=utf-8"
+		}
+		data, encodeErr := encode(report)
 		if encodeErr != nil {
 			slog.Error("manifest aggregate encoding failed", "error", encodeErr)
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Aggregate report could not be emitted; no previous result was substituted."})
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", contentType)
 		w.WriteHeader(status)
 		if _, err := w.Write(data); err != nil {
 			slog.Error("manifest aggregate response failed", "error", err)

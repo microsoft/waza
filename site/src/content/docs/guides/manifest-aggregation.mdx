@@ -51,7 +51,12 @@ Open the Runner contract section and **Aggregate completed manifests**.
 Enter your expected digests separated by whitespace. Inspect state counts,
 member outcomes/verdicts, conflicts and compatibility diagnostics. Source
 manifest links reread existing public inspection receipts.
-**Download aggregate JSON** preserves the same membership report. The synthetic
+Optional evidence pairs use `MANIFEST_SHA256=EVIDENCE_SHA256`, separated by
+whitespace. Every origin must be in the expected set. All competing sidecars
+remain visible; declaration counts are not category-completeness evidence.
+**Download aggregate JSON** preserves original response bytes; **Download
+aggregate CSV** preserves exact integer counts and absent versus recorded-zero
+credits from the same captured response. The synthetic
 demo does not run aggregation, and a failed reload clears previous success.
 
 The equivalent read-only API is:
@@ -63,6 +68,21 @@ curl --fail-with-body -H 'Content-Type: application/json' \
 ```
 
 Do not submit paths or provider URLs. The API uses the server's selected store.
+
+Select a previously published evidence sidecar explicitly:
+
+```bash
+waza aggregate "$FIRST" --store .waza-artifacts \
+  --evidence "$FIRST=$EVIDENCE" --format csv > aggregate.csv
+```
+
+The API accepts an optional `evidence` array of
+`{"manifest_sha256":DIGEST,"evidence_sha256":SIDECAR}` pairs and supports
+`?format=csv`. Omitted evidence preserves manifest-only output; `[]` explicitly
+selects none, while `null` is invalid. Source bytes and recorded native usage
+shape are checked in one sidecar pass; all origin/ancestor reads share the budget.
+Declared category states remain metadata. Recorded credits remain historical
+source usage, not new-operation billing, and totals stay withheld.
 
 ## Troubleshoot incomplete aggregates
 
@@ -93,7 +113,10 @@ independent of result, manifest, terminal and evidence sidecar versions.
 Historical result readers/writers are unchanged; there is no automatic
 `results.json` migration. Do not infer missing source evidence from summary
 scores. Submit 1..128 digests before deduplication; API JSON is bounded to
-16 KiB, cumulative admitted reads to 256 MiB, and report output to 16 MiB.
+32 KiB, cumulative admitted reads to 256 MiB, and report output to 16 MiB.
+At most 128 evidence pairs are accepted before deduplication. The read cap does
+not promise to fit every maximum-sized source. Budget-withheld sidecars are
+explicit `limit_exceeded`, not generic missing/corrupt storage.
 
 Developer ordering, conflict, trust, read-budget and migration rules are
 canonical in [the source contract](https://github.com/microsoft/waza/blob/main/docs/MANIFEST-AGGREGATION.md).
