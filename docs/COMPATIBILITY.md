@@ -125,8 +125,34 @@ cannot substitute category observations. These are cooperating producer
 comparisons, not SDK/process attestation or disclosure authorization.
 The fixed facade rejects competing preparation/validation and extra-artifact
 callbacks: an unvalidated renamed raw report cannot bypass its category inventory.
-Additional lifecycle artifacts require a separately admitted producer contract;
-arbitrary embedding artifact callbacks remain outside the protected facade.
+Additional lifecycle artifacts use the fixed `SubmissionHooks.SelectLifecycle`
+contract, never arbitrary embedding artifact callbacks. `LifecycleSelection`
+contains only the independently retained reservation, admitted protected terminal,
+and original invocation deadline (empty when absent), not report aliases or the
+detached publication deadline. A trusted embedding producer stages non-writing
+metadata before independently-original publication validation. Core checks
+canonical original binding/bytes/digests, bounded ordered lifecycle events, exact
+protected terminal equality, and closed runtime observation fields; it detaches
+canonical event bytes and `lifecycle.json` before later callbacks. These fixed
+objects join the same first manifest and aggregate byte bound, with no manifest
+digest in their input and no second publication. Their event bound is 128,
+separate from the 16 generic extra-artifact bound.
+
+The selected producer must use stage-only reservation and verify-only terminal
+callbacks: later callbacks cannot supply missing inventory or persist a second
+authoritative lifecycle publication. This is a trusted host contract, not a
+sandbox against host code with backend access. The legacy writing
+`LifecycleObserver.Hooks` adapter is unchanged and is not the selected public
+producer. Public lifecycle adapter integration remains pending. Typed admission
+does not prove SDK/process observation provenance or process exit; process
+evidence remains `unknown`. Native observations preserve sink sequence, not
+timestamp sorting or cross-goroutine causality.
+
+`SubmissionHooks.Factory` optionally overrides engine construction for that
+invocation only; a shared Service never changes its retained factory. Nil retains
+the existing factory/default behavior. Immutable reuse calls neither factory,
+lifecycle selector, nor reservation/terminal callbacks and preserves original
+native ordinal and terminal bytes.
 
 The facade explicitly withholds conversation, tool, and reliability categories;
 every nonempty native diagnostic/error message becomes `[REDACTED]` before first
