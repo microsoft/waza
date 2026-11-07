@@ -35,6 +35,7 @@ references, not substituted values from a sample:
 ```bash
 waza artifact evidence publish EVIDENCE.json --store /path/to/private/store
 waza artifact evidence inspect EVIDENCE_SHA256 --store /path/to/private/store
+waza artifact evidence categories EVIDENCE_SHA256 --store /path/to/private/store
 ```
 
 The existing `--azure-container-url` option selects the explicit Azure provider;
@@ -53,8 +54,15 @@ Source admission uses the actual committed completed-reader contract: requested
 bytes are captured in the same full verification pass, with finalized publication
 and current integrity both required. It does not reopen artifacts or reuse an
 old receipt, and is not an atomic cross-object snapshot or execution attestation.
-All-category producers and final attempt/ledger integration are unfinished; this
-page is not a claim that #768 is complete.
+The recorded-category producer and reader do not complete retry, resume,
+aggregation or public submission integration; this page is not a claim that
+#768 is complete.
+
+The opt-in `categories` command returns separate admitted states and verification
+qualifiers using one source capture pass. Missing producer indexes leave all
+six categories unavailable with their declarations retained separately; no
+empty proofs, usage zero or assurance success are invented. It exposes no raw
+message/tool/grader payloads. Exit 0 establishes a completed read, not acceptance.
 
 ## Recorded capture index
 
@@ -86,6 +94,7 @@ The read-only endpoints are:
 
 ```text
 GET /api/v1/evidence/{digest}
+GET /api/v1/evidence/{digest}/categories
 GET /api/v1/evidence/{digest}/document
 GET /api/v1/evidence/{digest}/csv
 ```
@@ -99,6 +108,13 @@ Current byte integrity is not execution attestation, category completeness,
 privacy authorization or assurance acceptance. Withhold restricted data before
 its original persistence; a sidecar cannot sanitize existing source artifacts.
 
+The opt-in `/categories` endpoint shares native admission with the CLI
+`categories` command and captures sources once. Its category results distinguish
+declared states from admitted states and preserve actual native usage or absence.
+Semantic conflicts return an error status and safe diagnostic while retaining
+independently verified category facts. Source/storage failures withhold counts
+and usage; the endpoint is read-only and exposes no captured payload bodies.
+
 ## Usage and migration
 
 Recorded usage admission reads explicitly referenced native `UsageStats` JSON,
@@ -107,8 +123,10 @@ Recorded zero credits remain zero; absent/null credits or missing model
 attribution remain incomplete. A declared present-empty usage category does not
 manufacture a zero-valued usage object.
 
-The helper verifies recorded shape only. Other categories currently remain
-declarations. Aggregation additionally needs verified source/ownership admission
+The usage helper verifies recorded shape only. Legacy declarations without the
+capture index leave other categories unqualified; the opt-in category reader
+admits the actual recorded capture profile. Aggregation additionally needs
+verified source/ownership admission
 and existing complete-credit semantics; it must not turn authored, cached or
 incomplete records into new live billing.
 

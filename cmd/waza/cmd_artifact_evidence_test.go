@@ -14,6 +14,8 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/executionledger"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
 )
@@ -60,6 +62,20 @@ func TestArtifactEvidenceCLIToPersistedAPIAndDownloads(t *testing.T) {
 	require.Equal(t, artifactmanifest.Hash(data), receipt.EvidenceSHA256)
 	require.NotContains(t, string(output), `"passed"`)
 	require.NotContains(t, string(output), `"ai_credits"`)
+	categoryOutput, err := runArtifactCLI(t, directory, "evidence", "categories", receipt.EvidenceSHA256)
+	require.NoError(t, err)
+	var categoryReceipt struct {
+		evidencestate.Inspection
+		Categories []evidencestate.CategoryEvidence `json:"categories"`
+	}
+	require.NoError(t, json.Unmarshal(categoryOutput, &categoryReceipt))
+	require.Len(t, categoryReceipt.Categories, 6)
+	for _, category := range categoryReceipt.Categories {
+		require.Equal(t, evidencestate.Unavailable, category.State, "legacy declarations without the actual capture index cannot qualify a category")
+		require.Equal(t, "declared-state-only", category.Verification)
+		require.Nil(t, category.ObservedCount)
+		require.Nil(t, category.Usage)
+	}
 	mux := http.NewServeMux()
 	webapi.RegisterEvidenceRoutes(mux, directory, nil)
 	server := httptest.NewServer(mux)
@@ -79,6 +95,9 @@ func TestArtifactEvidenceCLIToPersistedAPIAndDownloads(t *testing.T) {
 	fixture, err := os.ReadFile("../../web/e2e/fixtures/execution-evidence.json")
 	require.NoError(t, err)
 	require.Equal(t, strings.TrimSpace(string(fixture)), strings.TrimSpace(string(inspected)), "browser fixture must be emitted by the actual persisted CLI-to-API path")
+	status, _, categoryAPI := get("/categories")
+	require.Equal(t, http.StatusOK, status)
+	require.JSONEq(t, string(categoryOutput), string(categoryAPI), "CLI and API must share actual one-pass category admission")
 	status, headers, downloaded := get("/document")
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, "application/json", headers.Get("Content-Type"))
@@ -115,6 +134,21 @@ func TestArtifactEvidenceCLIToPersistedAPIAndDownloads(t *testing.T) {
 	require.NoError(t, json.Unmarshal(output, &receipt))
 	require.Equal(t, "failed", receipt.Integrity)
 	require.Nil(t, receipt.Document)
+	categoryOutput, err = runArtifactCLI(t, directory, "evidence", "categories", categoryReceipt.EvidenceSHA256)
+	require.Error(t, err)
+	categoryReceipt.Categories = nil
+	categoryReceipt.Inspection = evidencestate.Inspection{}
+	require.NoError(t, json.Unmarshal(categoryOutput, &categoryReceipt))
+	require.Len(t, categoryReceipt.Categories, 6)
+	for _, category := range categoryReceipt.Categories {
+		require.Equal(t, evidencestate.Unavailable, category.State)
+		require.Empty(t, category.DeclaredState)
+		require.Nil(t, category.ObservedCount)
+		require.Nil(t, category.Usage)
+	}
+	status, _, categoryAPI = get("/categories")
+	require.Equal(t, http.StatusNotFound, status)
+	require.JSONEq(t, string(categoryOutput), string(categoryAPI))
 }
 
 func TestArtifactEvidenceInvalidInputDoesNotOpenStore(t *testing.T) {
@@ -130,6 +164,131 @@ func TestArtifactEvidenceInvalidInputDoesNotOpenStore(t *testing.T) {
 	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/evidence/invalid", nil))
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.NotContains(t, w.Body.String(), directory, "private paths must not leak through API errors")
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/evidence/invalid/categories", nil))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.NotContains(t, w.Body.String(), directory)
+	require.NotContains(t, w.Body.String(), `"usage":`)
+}
+
+func TestArtifactEvidenceCategoriesReadsActualOwnedCapture(t *testing.T) {
+	wire, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	report := runnerunit.NewService(nil).Run(t.Context(), wire)
+	require.Equal(t, 1, report.Calls)
+	require.NotNil(t, report.Observation)
+	prepared, err := evidencestate.CaptureReport(report, nil)
+	require.NoError(t, err)
+	directory := t.TempDir()
+	storeDirectory := filepath.Join(directory, ".waza-artifacts")
+	require.NoError(t, os.Mkdir(storeDirectory, 0o700))
+	backend, err := artifactmanifest.OpenLocal(storeDirectory)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, backend.Close()) })
+	terminal, binding := report.Terminal()
+	require.NotNil(t, binding)
+	ledger, err := executionledger.New(backend)
+	require.NoError(t, err)
+	creator, err := ledger.Reserve(t.Context(), artifactmanifest.Binding{
+		Identity: *binding.Identity, Selection: binding.Selection,
+		ExecutionMode: binding.ExecutionMode, GraderIDs: binding.GraderIDs,
+	}, nil)
+	require.NoError(t, err)
+	published, err := evidencestate.PersistOwnedCapture(t.Context(), backend, prepared, ledger, creator)
+	require.NoError(t, err)
+	output, err := runArtifactCLI(t, directory, "evidence", "categories", published.EvidenceSHA256)
+	require.NoError(t, err)
+	var response struct {
+		Categories []evidencestate.CategoryEvidence `json:"categories"`
+	}
+	require.NoError(t, json.Unmarshal(output, &response))
+	require.Len(t, response.Categories, 6)
+	found := map[evidencestate.Category]evidencestate.CategoryEvidence{}
+	for _, category := range response.Categories {
+		found[category.Category] = category
+	}
+	require.Equal(t, evidencestate.Redacted, found[evidencestate.Conversation].State)
+	require.Equal(t, evidencestate.Redacted, found[evidencestate.Tool].State)
+	require.Equal(t, evidencestate.Unavailable, found[evidencestate.Usage].State)
+	require.Nil(t, found[evidencestate.Usage].Usage)
+	require.Equal(t, evidencestate.Present, found[evidencestate.Reliability].State)
+	require.Equal(t, int64(1), *found[evidencestate.Reliability].ObservedCount)
+	require.Equal(t, evidencestate.Present, found[evidencestate.Grader].State)
+	require.Contains(t, found[evidencestate.Grader].Verification, "recorded-category-shape")
+	require.Equal(t, 1, terminal.EngineCalls, "inspection must not execute the report again")
+	require.NotContains(t, string(output), `"tool_events"`)
+	require.NotContains(t, string(output), `"transcript"`)
+	require.NotContains(t, string(output), `"final_output"`)
+	mux := http.NewServeMux()
+	webapi.RegisterEvidenceRoutesWithBackend(mux, backend)
+	readAPI := func(digest string) (int, []byte) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/evidence/"+digest+"/categories", nil))
+		return w.Code, w.Body.Bytes()
+	}
+	status, apiOutput := readAPI(published.EvidenceSHA256)
+	require.Equal(t, http.StatusOK, status)
+	require.JSONEq(t, string(output), string(apiOutput))
+
+	// A separately authored, byte-valid declaration falsely claims empty
+	// grader evidence. It must not erase independently verified reliability.
+	store := artifactmanifest.NewStore(backend)
+	source, err := store.ReadCompleted(t.Context(), published.Document.OriginManifest, evidencestate.CaptureArtifactName)
+	require.NoError(t, err)
+	index, err := evidencestate.ParseCapture(source.ArtifactBytes[evidencestate.CaptureArtifactName])
+	require.NoError(t, err)
+	for i := range index.Categories {
+		if index.Categories[i].Category == evidencestate.Grader {
+			zero := int64(0)
+			index.Categories[i].State = evidencestate.Present
+			index.Categories[i].ObservedCount = &zero
+			index.Categories[i].Artifacts = []string{}
+		}
+	}
+	index.EmptyPayloads[evidencestate.Grader] = json.RawMessage(`{}`)
+	indexBytes, err := evidencestate.EncodeCapture(*index)
+	require.NoError(t, err)
+	manifest := source.Manifest
+	for i, artifact := range manifest.Artifacts {
+		if artifact.Name == evidencestate.CaptureArtifactName {
+			artifact.SHA256, artifact.SizeBytes = artifactmanifest.Hash(indexBytes), int64(len(indexBytes))
+			manifest.Artifacts[i] = artifact
+			require.NoError(t, store.Put(t.Context(), artifact, indexBytes))
+		}
+	}
+	manifestBytes, err := artifactmanifest.Encode(manifest)
+	require.NoError(t, err)
+	origin, err := store.Create(t.Context(), manifestBytes)
+	require.NoError(t, err)
+	_, err = store.Finalize(t.Context(), origin)
+	require.NoError(t, err)
+	documentBytes, err := evidencestate.Encode(*published.Document)
+	require.NoError(t, err)
+	document, err := evidencestate.Parse(documentBytes)
+	require.NoError(t, err)
+	document.OriginManifest, document.ExecutionSource, document.Categories = origin, nil, index.Categories
+	document.AttemptArtifact = ""
+	conflicting, err := evidencestate.Publish(t.Context(), backend, *document)
+	require.NoError(t, err, "byte/context publication is separate from category semantics")
+	output, err = runArtifactCLI(t, directory, "evidence", "categories", conflicting.EvidenceSHA256)
+	require.ErrorIs(t, err, artifactmanifest.ErrConflict)
+	response.Categories = nil
+	require.NoError(t, json.Unmarshal(output, &response))
+	require.Contains(t, string(output), `"category_admission_failed"`)
+	for _, category := range response.Categories {
+		switch category.Category {
+		case evidencestate.Grader:
+			require.Equal(t, evidencestate.Conflicting, category.State)
+			require.Nil(t, category.ObservedCount)
+		case evidencestate.Reliability:
+			require.Equal(t, evidencestate.Present, category.State)
+			require.Equal(t, int64(1), *category.ObservedCount)
+		}
+	}
+	status, apiOutput = readAPI(conflicting.EvidenceSHA256)
+	require.Equal(t, http.StatusConflict, status)
+	require.JSONEq(t, string(output), string(apiOutput), "independent verified facts survive semantic conflict in both public readers")
 }
 
 func TestExecutionEvidenceIntegerTokensPreserveWirePrecision(t *testing.T) {

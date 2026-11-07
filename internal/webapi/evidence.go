@@ -115,6 +115,9 @@ func RegisterEvidenceRoutesWithBackend(mux *http.ServeMux, backend artifactmanif
 	registerEvidenceRoutes(mux, func(ctx context.Context, digest string) (evidencestate.Inspection, error) {
 		return evidencestate.Inspect(ctx, backend, digest)
 	})
+	registerEvidenceCategoryRoute(mux, func(ctx context.Context, digest string) (evidencestate.Inspection, []evidencestate.CategoryEvidence, error) {
+		return evidencestate.InspectCategories(ctx, backend, digest)
+	})
 }
 
 func evidenceUnavailable(digest string, err error) (evidencestate.Inspection, error) {
@@ -126,20 +129,32 @@ func evidenceUnavailable(digest string, err error) (evidencestate.Inspection, er
 }
 
 func RegisterEvidenceRoutes(mux *http.ServeMux, resultsDir string, config *projectconfig.StorageConfig) {
-	registerEvidenceRoutes(mux, func(ctx context.Context, digest string) (result evidencestate.Inspection, resultErr error) {
+	read := func(ctx context.Context, digest string, allCategories bool) (result evidencestate.Inspection, categories []evidencestate.CategoryEvidence, resultErr error) {
 		if err := evidencestate.ValidateDigest(digest); err != nil {
-			return evidencestate.Inspect(ctx, nil, digest)
+			if allCategories {
+				return evidencestate.InspectCategories(ctx, nil, digest)
+			}
+			result, err := evidencestate.Inspect(ctx, nil, digest)
+			return result, nil, err
+		}
+		unavailable := func(err error) (evidencestate.Inspection, []evidencestate.CategoryEvidence, error) {
+			result, resultErr := evidenceUnavailable(digest, err)
+			if allCategories {
+				_, missing, missingErr := evidencestate.InspectCategories(ctx, nil, digest)
+				return result, missing, errors.Join(resultErr, missingErr)
+			}
+			return result, nil, resultErr
 		}
 		directory, azureURL := filepath.Join(resultsDir, ".waza-artifacts"), ""
 		if config != nil && config.Enabled && config.Provider == "azure-blob" {
 			directory = ""
 			azureURL = "https://" + config.AccountName + ".blob.core.windows.net/" + config.ContainerName
 		} else if config != nil && config.Enabled && config.Provider != "" && config.Provider != "local" {
-			return evidenceUnavailable(digest, errors.New("unsupported configured evidence storage provider"))
+			return unavailable(errors.New("unsupported configured evidence storage provider"))
 		}
 		backend, closeStore, err := artifactmanifest.OpenBackend(directory, azureURL)
 		if err != nil {
-			return evidenceUnavailable(digest, err)
+			return unavailable(err)
 		}
 		defer func() {
 			if err := closeStore(); err != nil {
@@ -147,8 +162,24 @@ func RegisterEvidenceRoutes(mux *http.ServeMux, resultsDir string, config *proje
 				result.Document = nil
 				result.Integrity = "failed"
 				result.Diagnostics = append(result.Diagnostics, artifactmanifest.Diagnostic{Code: "storage_error", Message: "Evidence inspection did not close successfully."})
+				if allCategories {
+					_, missing, missingErr := evidencestate.InspectCategories(ctx, nil, digest)
+					categories = missing
+					resultErr = errors.Join(resultErr, missingErr)
+				}
 			}
 		}()
-		return evidencestate.Inspect(ctx, backend, digest)
+		if allCategories {
+			return evidencestate.InspectCategories(ctx, backend, digest)
+		}
+		result, err = evidencestate.Inspect(ctx, backend, digest)
+		return result, nil, err
+	}
+	registerEvidenceRoutes(mux, func(ctx context.Context, digest string) (evidencestate.Inspection, error) {
+		result, _, err := read(ctx, digest, false)
+		return result, err
+	})
+	registerEvidenceCategoryRoute(mux, func(ctx context.Context, digest string) (evidencestate.Inspection, []evidencestate.CategoryEvidence, error) {
+		return read(ctx, digest, true)
 	})
 }

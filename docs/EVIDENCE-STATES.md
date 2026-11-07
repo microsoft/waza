@@ -152,6 +152,7 @@ The configured read-only API exposes:
 | Endpoint | Result |
 |---|---|
 | `GET /api/v1/evidence/{digest}` | Current inspection receipt with admitted declaration metadata. |
+| `GET /api/v1/evidence/{digest}/categories` | Same-pass category shape admission beside declaration metadata; no captured text/tool/grader bodies. |
 | `GET /api/v1/evidence/{digest}/document` | Canonical sidecar JSON, only after successful current source admission. |
 | `GET /api/v1/evidence/{digest}/csv` | Six category rows with exact decimal counts and empty cells for unavailable counts or unknown totals. |
 
@@ -193,6 +194,17 @@ the same cumulative backend budget. A usage-shape error does not relabel valid
 source bytes as corrupt or change the recorded declaration; the separate usage
 result stays unavailable and contains no admitted `UsageStats`.
 
+The opt-in `waza artifact evidence categories DIGEST` command exposes
+`InspectCategories` results beside the declaration receipt using one source
+pass. Missing capture indexes remain unqualified unavailable even when a
+declaration says present-empty. It never emits captured message/tool/grader
+payloads, and storage-close failures withdraw counts and usage. A successful
+read exit is not category completeness or assurance acceptance.
+Independent valid category observations remain visible when another category
+has a semantic conflict: the command exits nonzero and adds a safe category
+admission diagnostic. Such a conflict does not relabel hash-verified bytes as
+corrupt or erase separately verified observations.
+
 Original JSON field presence and types are validated before native decoding.
 Missing or null required counts, negative values, duplicate fields, invalid
 numeric types, overflow and unknown fields are rejected. Absent or null credits,
@@ -218,6 +230,18 @@ manifest digest or sidecar digest, and no nonempty message/tool/grader payload.
 The separately digested derived document still references only the finalized
 origin; neither artifact creates a digest cycle.
 
+The public `/waza/schemas/execution-evidence-capture-1.0.schema.json` route
+serves the same source embedded by the native codec. Publishing this schema
+does not enable Submit or authorize source disclosure.
+
+The submission owner must consume the actual detached typed
+`SubmissionSnapshot.ObservedReport` from that one invocation and validate
+prepared content against independently retained originals. A callback's
+mutable report/terminal pair cannot authenticate original observations; raw
+report JSON never hydrates creator authority. Public submission remains blocked
+until that owner's committed first-publication policy is integrated. Extra
+artifact callbacks cannot replace or sanitize original source objects.
+
 `CaptureReport(report, withheld)` consumes one fresh invocation-local
 `runnerunit.Report`. `Report.Terminal()` projects that same report and returns
 detached comparison binding values without another execution or creator
@@ -235,6 +259,12 @@ name is reserved by admission; other payload names remain aliases and never
 qualify a category by themselves.
 
 Nil withholding uses the conservative conversation/tool-withheld default.
+Explicit reliability withholding, or a secret-triggered reliability redaction,
+replaces **all nonempty** native diagnostic messages and observation error text
+with `[REDACTED]` before first publication, not only regex-matched substrings.
+Codes, context, outcome, verdicts, counters and empty error text are unchanged.
+Restricted public facades must explicitly withhold reliability; the nil policy
+does not itself authorize arbitrary SDK text disclosure.
 Explicit `[]` opts into captured content subject to the shipped snapshot
 secret policy. A matching restricted value withholds the **entire category**:
 no payload bytes, count or reference enter immutable storage. Fixed native
