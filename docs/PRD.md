@@ -104,7 +104,7 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
-Portable evaluation evidence (#663): independently versioned manifest `1.0` in ordinary snapshot `1.1`, retaining legacy task semantics and historical result versions while current source writes results `1.8` (published `v0.39.1` writes `1.7`), records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
+Portable evaluation evidence (#663): independently versioned manifest `1.0` in ordinary snapshot `1.1`, retaining legacy task semantics and historical result versions while current source writes results `1.9` (published `v0.39.1` writes `1.7`), records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
 
 Capture sanitizes typed JSON and structural sensitive keys before serialization, preserves numeric lexical tokens, rejects opaque bytes/unsafe identifiers/keys/duplicate or trailing JSON/excessive nesting, and isolates rule-match counters (including selected files). Pattern matching is not a confidentiality proof. Reviewed agent-visible UTF-8 regular-file capture is explicitly allow-listed, excludes evaluator-only files/credentials, bounded (1 MiB/file, 10 MiB total by default), private, non-overwriting, and supported only on Linux/macOS. Allow-listing is not authorization proof. Partial capture and publication failure have safe unavailable states; there is no automatic export/upload/path fetch.
 
@@ -129,6 +129,14 @@ fail closed. Task-level CLI mock lists preserve replacement semantics, including
 transcript/checkpoint evidence. Results schema `1.7` records per-run configured
 dependency modes (`live` or `mocked`); this describes configuration, not proof
 of invocation. There is no recorded-replay mode.
+
+Scenario evals can opt in with `config.native_user_input` to answer native Copilot
+SDK user-input requests, using task `user_input_responses`. Waza registers `OnUserInputRequest` on the initial and
+every resumed session of a trial, uses entries (an `answer` plus an optional
+`question` regex) strictly in order, and fails closed on unexpected or unused entries. Results
+schema `1.9` records each request in `runs[].user_input_requests`. A task's
+adaptive responder answers questions the script does not match. This is
+distinct from MCP `ask_user` mocks and does not support structured elicitation.
 
 The private `internal/faultsequence` groundwork provides cross-process step
 reservation and cancellable, overflow-checked delays for the CLI shim. State

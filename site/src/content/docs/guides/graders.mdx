@@ -269,10 +269,11 @@ Evaluates Python or JavaScript assertion expressions against the execution conte
 | `tool_events` | `list` | Canonical per-call evidence including arbitrary tool arguments, success, error, and result |
 | `command_invocations` | `list` | Sanitized mocked CLI attempts; omitted `exit_code` means no completed result was captured |
 | `host_lifecycle` | `dict` or `None` | Model turns and host shell calls/exits from native session events; `None` when unavailable |
+| `user_input_requests` | `list` or `None` | Native SDK user-input requests answered or rejected in arrival order; `source` is `script` or `responder`. `None` when `native_user_input` is off; `[]` when it is on and nothing was asked |
 | `errors`      | `list` | Errors from transcript               |
 | `duration_ms` | `int`  | Execution wall-clock time            |
 
-The evidence arrays default to empty when unavailable; absence is not proof that
+The other evidence arrays default to empty when unavailable; absence is not proof that
 a dependency succeeded. Use `tool_events` for MCP operation arguments rather than
 the legacy typed `tool_calls` view. `command_invocations` preserves completed
 exit zero distinctly from an interrupted attempt with no `exit_code`.
@@ -1164,9 +1165,10 @@ Trust model: the grader program and other processes running as the same user are
 | `tool_events`         | `list \| null` | Normalized per-call tool records                                              |
 | `host_lifecycle`      | `object \| null` | Model turns and host shell calls/exits; `null` when unavailable (see [background shell lifecycle](#background-shell-lifecycle)) |
 | `command_invocations` | `list \| null` | Sanitized `command_mocks` calls: `command`, `response_index`, optional `args` and `exit_code` |
+| `user_input_requests` | `list \| null` | Native SDK user-input requests: `sequence`, `session_id`, `question`, `choices`, `source`, and `answer`/`was_freeform` or `error` |
 | `duration_ms`         | `int`          | Run duration in milliseconds                                                  |
 
-`null` for `tool_events` or `command_invocations` means no evidence was recorded or preserved for the run (for example, no `command_mocks` were configured). It does not prove that zero calls happened; an empty list does. `waza grade --results` builds the file offline from the saved run.
+`null` for `tool_events`, `command_invocations`, or `user_input_requests` means no evidence was recorded or preserved for the run (for example, no `command_mocks` were configured). It does not prove that zero calls happened; an empty list does. `waza grade --results` builds the file offline from the saved run.
 
 ### Example: shell script grader
 

@@ -210,6 +210,7 @@ type gradingContextPayload struct {
 	ToolEvents         []models.ToolEvent         `json:"tool_events"`
 	HostLifecycle      *models.HostLifecycle      `json:"host_lifecycle"`
 	CommandInvocations []models.CommandInvocation `json:"command_invocations"`
+	UserInputRequests  []models.UserInputRecord   `json:"user_input_requests"`
 	DurationMS         int64                      `json:"duration_ms"`
 }
 
@@ -246,6 +247,7 @@ func newGradingContextPayload(gradingContext *Context) gradingContextPayload {
 		ToolEvents:         gradingContext.ToolEvents,
 		HostLifecycle:      gradingContext.HostLifecycle,
 		CommandInvocations: gradingContext.CommandInvocations,
+		UserInputRequests:  gradingContext.UserInputRequests,
 		DurationMS:         gradingContext.DurationMS,
 	}
 }
