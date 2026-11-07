@@ -75,6 +75,63 @@ this does not widen separate assurance profiles' JavaScript-safe integer bounds.
 Missing credits remain absent, recorded zero remains zero, and totals remain
 withheld without budgeted retained-source ownership and billing qualification.
 
+### Checkpoint declaration 1.0 (unreleased contract layer)
+
+The additive `waza.execution-checkpoint` artifact uses exact
+`schema_version: "1.0"` independently of evals, native results, snapshots and
+runner terminal envelopes. Its declaration names only `before-unit` and
+`finalized-unit` for the bounded exact-unit runner. It records canonical UTC
+creation time, original reservation identity/digest and compatibility metadata;
+the finalized boundary additionally requires original completion and manifest
+digests. It is not a runtime snapshot or an existing-results migration.
+
+The current source layer provides schema/codec, pure compatibility/context
+admission and immutable declaration blob storage. **It does not yet provide durable checkpoint creation, a resume
+command or a checkpoint Lab view.** Keep existing commands and artifact readers
+for historical and unsupported workflows. Matching declarations do not confer
+attempt ownership or prove completed evidence. Checkpoint restore must
+independently verify source ownership and finalized content before skipping work.
+
+Runner build revision, independently versioned schemas, logical work (including
+captured model/config/tool/policy declarations) and request negotiation/consent
+must match. Only destination attempt ordinal may differ; original source
+identity/selection must not be retagged. Unstamped or dirty builds have no
+version fallback, and incompatible declarations have no implicit migration.
+The [checkpoint declaration 1.0 schema](../../schemas/execution-checkpoint-1.0.schema.json)
+and [developer checkpoint contract](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_CHECKPOINTS.md)
+describe the source layer and remaining delivery requirements. These are source
+contracts, not a claim that v0.41.0 recovery has shipped.
+
+### Lifecycle declarations and inspection 1.0 (unreleased source preview)
+
+The independent `waza.execution-lifecycle-observation`,
+`waza.execution-lifecycle-inspection` and `waza.execution-lifecycle` profiles use
+exact `schema_version: "1.0"`. The read-only CLI/API/Lab source inspector accepts
+explicit retained original admission and ordered caller-known digests.
+Every projected value is caller-declared/unverified; verified worker progress
+and ownership remain unavailable. This is not a latest pointer, cancellation
+endpoint, worker authenticator or scheduler retry controller.
+
+Cancellation request, concrete handling acknowledgement, force request and
+observed process wait are separate declarations. Deadline expiry does not
+rewrite the original terminal. Missing heartbeat/as-of is unknown, and an
+expired declared heartbeat only suspects an orphan, never permits reclaim.
+Retry is advice requiring independent admission and side-effect review, not
+permission or a prohibition of independently authorized fresh execution.
+
+The [lifecycle observation 1.0 schema](../../schemas/execution-lifecycle-observation-1.0.schema.json),
+[lifecycle inspection 1.0 schema](../../schemas/execution-lifecycle-inspection-1.0.schema.json)
+and [lifecycle projection 1.0 schema](../../schemas/execution-lifecycle-1.0.schema.json)
+are additive and do not change legacy eval/result/snapshot/terminal versions,
+existing exit policy or original billing. Strict admission rejects missing
+versions, null optional values, retagging and out-of-order observations; no
+implicit migration or ambient discovery is performed. Old artifacts do not
+acquire inferred liveness or progress. Production owner observers, bounded
+process controls and complete dashboard/release validation remain pending;
+see [lifecycle interpretation and delivery limits](../../guides/execution-lifecycle/).
+
+### Native version policy
+
 Schema versions use `MAJOR.MINOR` format with no patch component.
 
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.

@@ -318,11 +318,34 @@ sources remain explicit; no latest-attempt winner, score or billing is invented.
 Membership completeness is not an evidence-assurance pass. The Lab's Runner
 contract section shows composition, state counts, conflicts, omissions,
 compatibility and source links. Optional repeatable
-`--evidence "$FIRST=$EVIDENCE"` selects declaration-only sidecars;
+`--evidence "$FIRST=$EVIDENCE"` selects explicit sidecars with separate declared
+and native-admitted category views;
 `--format csv` preserves native integer counts and recorded-credit presence.
 Usage totals and new-operation billing remain withheld.
 See [operational examples](site/src/content/docs/guides/manifest-aggregation.mdx)
 and [developer/migration rules and pending release gates](docs/MANIFEST-AGGREGATION.md).
+
+The additive [exact-unit checkpoint contract](docs/EXECUTION_CHECKPOINTS.md)
+currently provides schema/codec, compatibility admission and immutable declaration
+blob storage, not an operational resume command. Owned safe-boundary creation,
+restore and checkpoint Lab views remain under development; existing result and
+SDK session readers are unchanged.
+
+### `waza lifecycle` (unreleased v0.41 source preview)
+
+Inspect explicit caller-retained original admission context and ordered
+observation digests without executing, cancelling, retrying or reclaiming work:
+
+```bash
+waza lifecycle inspect inspection.json --store .waza-artifacts
+```
+
+The existing private store must contain the original reservation blob and every
+named observation. This returns **caller-declared, unverified** lifecycle state,
+retry advice and heartbeat diagnostics, not authenticated worker progress or
+ownership. The Lab Runner section includes the same read-only inspector when
+built from this source. Full production lifecycle/recovery remains under
+development. See [inspection context, interpretation and migration](docs/EXECUTION_LIFECYCLE.md).
 
 <span id="waza-interop-source-build-preview"></span>
 

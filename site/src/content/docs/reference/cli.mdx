@@ -1654,6 +1654,26 @@ Neither flag changes legacy mutable result storage. Verification is content and
 declared context only, not admission or execution attestation.
 See [manifest examples, recovery and migration](../../guides/immutable-artifacts/).
 
+## waza lifecycle
+
+**Unreleased v0.41 source preview.** Read-only inspection of explicit
+caller-retained lifecycle context and ordered immutable observation digests:
+
+```bash
+waza lifecycle inspect inspection.json --store .waza-artifacts
+```
+
+`--store` defaults to the existing private `.waza-artifacts` directory.
+Use `--azure-container-url` instead for an explicit HTTPS Azure container with
+existing credentials and no automatic sign-in. The two flags are mutually
+exclusive. No runtime, update check, retry, cancellation or reclaim is started.
+
+Exit 0 means inspection succeeded, not execution success. Validation, missing
+or corrupt evidence, context/order mismatch, provider and output failures exit
+2. The projection is uniformly caller-declared/unverified; recorded terminal
+outcome/exit is separate, and verified worker progress/ownership is unavailable.
+See [descriptor schemas, API, lifecycle interpretation and migration](../../guides/execution-lifecycle/).
+
 ## waza runner
 
 `runner adapt --eval <file> --task <file> --run-key <key> --shard <key>

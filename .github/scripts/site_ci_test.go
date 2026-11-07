@@ -54,10 +54,12 @@ func validateSiteWorkflow(source []byte) error {
 		workflow.Concurrency.Group != "site-ci-${{ github.ref }}" || !workflow.Concurrency.CancelInProgress {
 		return fmt.Errorf("site workflow must retain permissions and cancellation policy")
 	}
-	if len(workflow.On) != 2 || !reflect.DeepEqual(workflow.On["push"].Branches, []string{"main"}) ||
+	_, manual := workflow.On["workflow_dispatch"]
+	_, pullRequest := workflow.On["pull_request"]
+	if len(workflow.On) != 3 || !manual || !pullRequest || !reflect.DeepEqual(workflow.On["push"].Branches, []string{"main"}) ||
 		!reflect.DeepEqual(workflow.On["push"].Paths, sitePushPaths) ||
-		!reflect.DeepEqual(workflow.On["pull_request"].Branches, []string{"main"}) || len(workflow.On["pull_request"].Paths) != 0 {
-		return fmt.Errorf("site push filters and unconditional main PR checks must remain unchanged")
+		len(workflow.On["pull_request"].Branches) != 0 || len(workflow.On["pull_request"].Paths) != 0 {
+		return fmt.Errorf("site validation requires preserved push paths, all PR bases and manual dispatch")
 	}
 	changes, build, examples := workflow.Jobs["changes"], workflow.Jobs["build"], workflow.Jobs["examples"]
 	if len(workflow.Jobs) != 3 || len(changes.Needs) != 0 || changes.If != "" || changes.TimeoutMinutes != 5 ||
@@ -79,7 +81,7 @@ func validateSiteWorkflow(source []byte) error {
 	}
 	if build.Name != "Build site" || examples.Name != "Offline documentation examples" ||
 		!reflect.DeepEqual(build.Needs, []string{"changes"}) || !reflect.DeepEqual(examples.Needs, []string{"changes"}) ||
-		build.If != "${{ !cancelled() }}" || examples.If != "needs.changes.outputs.examples == 'true' || github.event_name == 'push'" || //nolint:misspell // GitHub's exact status function.
+		build.If != "${{ !cancelled() }}" || examples.If != "needs.changes.outputs.examples == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'" || //nolint:misspell // GitHub's exact status function.
 		build.TimeoutMinutes != 15 || examples.TimeoutMinutes != 20 {
 		return fmt.Errorf("stable site and example checks must run independently after successful filters")
 	}
@@ -89,7 +91,7 @@ func validateSiteWorkflow(source []byte) error {
 		gate.Env["CHANGES_RESULT"] != "${{ needs.changes.result }}" || gate.Run != `test "$CHANGES_RESULT" = success` {
 		return fmt.Errorf("required Build site check must fail, not skip or succeed, when change detection fails")
 	}
-	condition := "needs.changes.outputs.site == 'true' || github.event_name == 'push'"
+	condition := "needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'"
 	for _, name := range []string{"Setup Node", "Install dependencies", "Build site", "Typecheck chat and test public metadata",
 		"Install Chromium for site regression tests", "Test site", "Test optional chat with mocked service and bot protection"} {
 		step, ok := steps[name]
@@ -153,6 +155,10 @@ func TestSiteWorkflowParallelChecks(t *testing.T) {
 		{"site-filter-regression", "              - 'internal/models/outcome.go'\n", ""},
 		{"missing-push-build", "needs.changes.outputs.site == 'true' || github.event_name == 'push'", "needs.changes.outputs.site == 'true'"},
 		{"missing-push-examples", "needs.changes.outputs.examples == 'true' || github.event_name == 'push'", "needs.changes.outputs.examples == 'true'"},
+		{"missing-manual-trigger", "  workflow_dispatch:\n", ""},
+		{"stacked-pr-skipped", "  pull_request:\n", "  pull_request:\n    branches: [main]\n"},
+		{"manual-build-skipped", "needs.changes.outputs.site == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'", "needs.changes.outputs.site == 'true' || github.event_name == 'push'"},
+		{"manual-examples-skipped", "needs.changes.outputs.examples == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'", "needs.changes.outputs.examples == 'true' || github.event_name == 'push'"},
 		{"unstable-check-name", "name: Build site\n    needs:", "name: Browser build\n    needs:"},
 		{"missing-browser-test", "npm run test:e2e -- --project=chromium --retries=0", "true"},
 		{"ignored-browser-failure", "      - name: Test site\n", "      - name: Test site\n        continue-on-error: true\n"},
@@ -212,7 +218,7 @@ func testSiteFilterSelection(t *testing.T, source []byte) {
 		{"AGENTS.md", false, false},
 		{"site-near-miss/file", false, false},
 	} {
-		for _, event := range []string{"pull_request", "push"} {
+		for _, event := range []string{"pull_request", "push", "workflow_dispatch"} {
 			for _, kind := range []string{"site", "examples"} {
 				selected := false
 				for _, pattern := range filters[kind] {
@@ -234,7 +240,7 @@ func testSiteFilterSelection(t *testing.T, source []byte) {
 				expression = strings.ReplaceAll(expression, "github.event_name", `"$EVENT"`)
 				cmd := exec.CommandContext(t.Context(), "bash", "-c", "[[ "+expression+" ]]")
 				cmd.Env = append(os.Environ(), fmt.Sprintf("SELECTED=%t", selected), "EVENT="+event)
-				if err := cmd.Run(); (err == nil) != (expected || event == "push") {
+				if err := cmd.Run(); (err == nil) != (expected || event == "push" || event == "workflow_dispatch") {
 					t.Fatalf("%s %s path=%q: selection error=%v", event, kind, tc.path, err)
 				}
 			}

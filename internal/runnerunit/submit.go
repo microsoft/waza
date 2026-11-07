@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
@@ -22,9 +23,36 @@ import (
 // runs before factory construction; Terminal runs after joined lifecycle.
 // Neither callback implies cancellation acknowledgment or process-wait evidence.
 type SubmissionHooks struct {
-	Reserved func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error
-	Terminal func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation, runnerterminal.Envelope) error
+	Admission           func(context.Context, artifactmanifest.Binding) error
+	ReuseAdmission      func(context.Context, *executionledger.CompletedExecution) error
+	PreparePublication  func(context.Context, *executionledger.Ledger, executionledger.Creator, SubmissionSnapshot) (SubmissionPublication, error)
+	ValidatePublication func(context.Context, SubmissionSnapshot, SubmissionPublication) error
+	Reserved            func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error
+	Terminal            func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation, runnerterminal.Envelope) error
+	Artifacts           func(context.Context, *executionledger.Ledger, executionledger.Creator, SubmissionSnapshot) ([]SubmissionArtifact, error)
 }
+
+// SubmissionSnapshot carries detached original evidence after lifecycle return.
+// Added artifact bytes share its finalized manifest, not an attestation claim.
+type SubmissionSnapshot struct {
+	Reservation    executionledger.Reservation
+	Terminal       runnerterminal.Envelope
+	Report         json.RawMessage
+	ObservedReport Report
+}
+
+type SubmissionArtifact struct {
+	Name      string
+	MediaType string
+	Data      []byte
+}
+
+type SubmissionPublication struct {
+	Terminal  runnerterminal.Envelope
+	Artifacts []SubmissionArtifact
+}
+
+const MaxSubmissionExtraArtifacts = 16
 
 type Submission struct {
 	Kind          string                      `json:"kind"`
@@ -110,9 +138,16 @@ func validateSourceReport(data []byte, source *executionledger.CompletedExecutio
 func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanifest.Backend, hooks SubmissionHooks) (result Submission, failure error) {
 	result = Submission{Kind: "waza.execution-submission-result", SchemaVersion: "1.0",
 		Status: "rejected", ExitCode: 6, Diagnostics: []runnercontract.Diagnostic{}}
+	if hooks.ValidatePublication != nil && hooks.PreparePublication == nil {
+		err := fmt.Errorf("publication content validation requires a preparation policy")
+		result.fail("publication_policy_invalid", err)
+		return result, err
+	}
 	request, err := ParseSubmission(data)
 	if err != nil {
-		result.Diagnostics = runnercontract.Rejected(err.Error()).Diagnostics
+		result.Diagnostics = []runnercontract.Diagnostic{{
+			Code: "invalid_submission", Message: "Submission wrapper is invalid; compare the original input with the execution-submission schema.",
+		}}
 		return result, err
 	}
 	report, input := admit(request.Request)
@@ -126,6 +161,14 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	defer stop()
 	binding := artifactmanifest.Binding{Identity: *report.binding.Identity, Selection: report.binding.Selection,
 		ExecutionMode: report.binding.ExecutionMode, GraderIDs: report.binding.GraderIDs}
+	if hooks.Admission != nil {
+		callbackBinding := binding
+		callbackBinding.GraderIDs = slices.Clone(binding.GraderIDs)
+		if err := hooks.Admission(ctx, callbackBinding); err != nil {
+			result.fail("capture_admission_failed", err)
+			return result, err
+		}
+	}
 	ledger, err := executionledger.New(backend)
 	if err != nil {
 		result.fail("ledger_unavailable", err)
@@ -167,6 +210,12 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 				return result, err
 			}
 		}
+		if hooks.ReuseAdmission != nil {
+			if err := hooks.ReuseAdmission(ctx, source); err != nil {
+				result.fail("source_disclosure_denied", err)
+				return result, err
+			}
+		}
 		decision, verified, err := ledger.Reuse(ctx, binding, *policy.Source, names...)
 		if err != nil {
 			result.fail("reuse_not_admitted", err)
@@ -182,9 +231,6 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		result.Status, result.ExitCode = "reused", envelope.ExitCode
 		result.Decision, result.Completion, result.Terminal = decision, &verified.Completion, envelope
 		result.Reservation = &verified.Reservation.Attempt
-		if verified.Publication.Manifest.TerminalArtifact != "report.json" {
-			result.Report = verified.Publication.ArtifactBytes["report.json"]
-		}
 		return result, nil
 	}
 	creator, err := ledger.Reserve(ctx, binding, policy.Parent)
@@ -239,6 +285,54 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		result.fail("terminal_encoding_failed", err)
 		return result, err
 	}
+	fullReport, err := reportBytes(report)
+	if err != nil {
+		result.fail("report_encoding_failed", err)
+		return result, err
+	}
+	preparedArtifacts := []SubmissionArtifact{}
+	if hooks.PreparePublication != nil {
+		snapshot, err := submissionSnapshot(ledger, creator, report, fullReport, terminalData, terminalBinding)
+		if err != nil {
+			result.Terminal = nil
+			result.fail("report_snapshot_failed", err)
+			return result, err
+		}
+		prepared, err := hooks.PreparePublication(publicationContext, ledger, creator, snapshot)
+		if err != nil {
+			result.Terminal = nil
+			result.fail("publication_policy_failed", err)
+			return result, err
+		}
+		if hooks.ValidatePublication != nil {
+			originalSnapshot, err := submissionSnapshot(ledger, creator, report, fullReport, terminalData, terminalBinding)
+			if err != nil {
+				result.Terminal = nil
+				result.fail("report_snapshot_failed", err)
+				return result, err
+			}
+			if err := hooks.ValidatePublication(publicationContext, originalSnapshot, prepared); err != nil {
+				result.Terminal = nil
+				result.fail("publication_content_invalid", err)
+				return result, err
+			}
+		}
+		projected, err := validatePublicationTerminal(envelope, prepared.Terminal, terminalBinding)
+		if err != nil {
+			result.Terminal = nil
+			result.fail("publication_terminal_invalid", err)
+			return result, err
+		}
+		envelope = *projected
+		result.Terminal = &envelope
+		terminalData, err = runnerterminal.Encode(envelope, terminalBinding)
+		if err != nil {
+			result.Terminal = nil
+			result.fail("terminal_encoding_failed", err)
+			return result, err
+		}
+		preparedArtifacts = prepared.Artifacts
+	}
 	if hooks.Terminal != nil {
 		callbackReservation, err := ledger.Reservation(creator)
 		if err != nil {
@@ -255,31 +349,85 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 			return result, err
 		}
 	}
-	fullReport, err := reportBytes(report)
-	if err != nil {
-		result.fail("report_encoding_failed", err)
-		return result, err
+	objects := []SubmissionArtifact{
+		{Name: "terminal.json", MediaType: "application/json", Data: terminalData},
 	}
-	result.Report = fullReport
+	extra := preparedArtifacts
+	if hooks.Artifacts != nil {
+		callbackReservation, err := ledger.Reservation(creator)
+		if err != nil {
+			result.fail("creator_invalid", err)
+			return result, err
+		}
+		callbackTerminal, err := runnerterminal.Validate(terminalData, terminalBinding)
+		if err != nil {
+			result.fail("terminal_encoding_failed", err)
+			return result, err
+		}
+		observedReport, err := cloneSubmissionReport(report, fullReport)
+		if err != nil {
+			result.fail("report_snapshot_failed", err)
+			return result, err
+		}
+		additional, err := hooks.Artifacts(publicationContext, ledger, creator, SubmissionSnapshot{
+			Reservation: *callbackReservation, Terminal: *callbackTerminal, Report: bytes.Clone(fullReport),
+			ObservedReport: observedReport,
+		})
+		if err != nil {
+			result.fail("artifact_observer_failed", err)
+			return result, err
+		}
+		extra = append(extra, additional...)
+	}
+	{
+		if len(extra) > MaxSubmissionExtraArtifacts {
+			err := fmt.Errorf("submission artifact observer exceeds %d extra artifacts", MaxSubmissionExtraArtifacts)
+			result.fail("artifact_observer_invalid", err)
+			return result, err
+		}
+		totalBytes := int64(len(terminalData))
+		for _, artifact := range extra {
+			if artifact.Name == "terminal.json" {
+				if artifact.MediaType == "application/json" && bytes.Equal(artifact.Data, terminalData) {
+					continue
+				}
+				err := fmt.Errorf("publication artifacts contradict protected original terminal")
+				result.fail("artifact_observer_invalid", err)
+				return result, err
+			}
+			if artifact.Name == "report.json" {
+				err := fmt.Errorf("raw report publication requires category-scoped capture instead")
+				result.fail("artifact_observer_invalid", err)
+				return result, err
+			}
+			totalBytes += int64(len(artifact.Data))
+			if len(artifact.Data) > artifactmanifest.MaxArtifactBytes || totalBytes > artifactmanifest.MaxTotalBytes {
+				err := fmt.Errorf("submission artifact observer exceeds artifact byte bounds")
+				result.fail("artifact_observer_invalid", err)
+				return result, err
+			}
+			artifact.Data = bytes.Clone(artifact.Data)
+			objects = append(objects, artifact)
+		}
+	}
 	manifest := artifactmanifest.Manifest{Kind: "waza.artifact-manifest", SchemaVersion: artifactmanifest.Version,
 		Binding: binding, TerminalArtifact: "terminal.json", Artifacts: []artifactmanifest.Artifact{}}
 	store := artifactmanifest.NewStore(backend)
-	for _, object := range []struct {
-		name string
-		data []byte
-	}{{"terminal.json", terminalData}, {"report.json", fullReport}} {
-		artifact := artifactmanifest.Artifact{Name: object.name, SHA256: artifactmanifest.Hash(object.data),
-			SizeBytes: int64(len(object.data)), MediaType: "application/json"}
-		if err := store.Put(publicationContext, artifact, object.data); err != nil {
-			result.fail("artifact_publication_failed", err)
-			return result, err
-		}
+	for _, object := range objects {
+		artifact := artifactmanifest.Artifact{Name: object.Name, SHA256: artifactmanifest.Hash(object.Data),
+			SizeBytes: int64(len(object.Data)), MediaType: object.MediaType}
 		manifest.Artifacts = append(manifest.Artifacts, artifact)
 	}
 	manifestData, err := artifactmanifest.Encode(manifest)
 	if err != nil {
 		result.fail("manifest_encoding_failed", err)
 		return result, err
+	}
+	for i, object := range objects {
+		if err := store.Put(publicationContext, manifest.Artifacts[i], object.Data); err != nil {
+			result.fail("artifact_publication_failed", err)
+			return result, err
+		}
 	}
 	digest, err := store.Create(publicationContext, manifestData)
 	if err != nil {
@@ -290,7 +438,7 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		result.fail("manifest_finalization_failed", err)
 		return result, err
 	}
-	completed, err := ledger.Complete(publicationContext, creator, digest, "terminal.json", "report.json")
+	completed, err := ledger.Complete(publicationContext, creator, digest, "terminal.json")
 	if err != nil {
 		result.fail("completion_failed", err)
 		return result, err

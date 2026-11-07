@@ -86,17 +86,24 @@ func CaptureReport(report runnerunit.Report, withheld []Category) (*PreparedCapt
 		}
 		blocked[category] = true
 	}
-	// Native outcome/counters remain unchanged. Only free-text diagnostics are
-	// sanitized before the original terminal becomes immutable.
-	for i := range envelope.Diagnostics {
-		before := envelope.Diagnostics[i].Message
-		envelope.Diagnostics[i].Message = policy.RedactString(before)
-		blocked[Reliability] = blocked[Reliability] || before != envelope.Diagnostics[i].Message
+	for _, diagnostic := range envelope.Diagnostics {
+		blocked[Reliability] = blocked[Reliability] || policy.RedactString(diagnostic.Message) != diagnostic.Message
 	}
 	if envelope.Observation != nil {
-		before := envelope.Observation.ErrorMsg
-		envelope.Observation.ErrorMsg = policy.RedactString(before)
-		blocked[Reliability] = blocked[Reliability] || before != envelope.Observation.ErrorMsg
+		message := envelope.Observation.ErrorMsg
+		blocked[Reliability] = blocked[Reliability] || policy.RedactString(message) != message
+	}
+	// Withholding a category must remove all its free text, not just recognized
+	// secrets. Native codes, context, outcome and counters remain unchanged.
+	if blocked[Reliability] {
+		for i := range envelope.Diagnostics {
+			if envelope.Diagnostics[i].Message != "" {
+				envelope.Diagnostics[i].Message = "[REDACTED]"
+			}
+		}
+		if envelope.Observation != nil && envelope.Observation.ErrorMsg != "" {
+			envelope.Observation.ErrorMsg = "[REDACTED]"
+		}
 	}
 	terminal, err := runnerterminal.Encode(envelope, binding)
 	if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,10 @@ import (
 )
 
 func readInheritedRunnerInput(ctx context.Context) (data []byte, resultErr error) {
+	return readInheritedRunnerInputLimit(ctx, runnercontract.MaxRequestBytes)
+}
+
+func readInheritedRunnerInputLimit(ctx context.Context, maxBytes int64) (data []byte, resultErr error) {
 	if err := os.Stdin.SetReadDeadline(time.Time{}); err == nil {
 		finished := make(chan struct{})
 		var interruptErr error
@@ -50,7 +55,7 @@ func readInheritedRunnerInput(ctx context.Context) (data []byte, resultErr error
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("runner input interrupted: %w", err)
 	}
-	data, err := io.ReadAll(io.LimitReader(os.Stdin, runnercontract.MaxRequestBytes+1))
+	data, err := io.ReadAll(io.LimitReader(os.Stdin, maxBytes+1))
 	if cause := ctx.Err(); cause != nil {
 		return nil, fmt.Errorf("runner input interrupted: %w", cause)
 	}
@@ -61,9 +66,19 @@ func readInheritedRunnerInput(ctx context.Context) (data []byte, resultErr error
 }
 
 func emitInheritedRunnerTerminal(envelope runnerterminal.Envelope, binding *runnerterminal.Binding) (int, error) {
+	data, err := runnerterminal.Encode(envelope, binding)
+	if err != nil {
+		return 2, err
+	}
+	if err := emitInheritedRunnerJSON(data); err != nil {
+		return 2, err
+	}
+	return envelope.ExitCode, nil
+}
+
+func emitInheritedRunnerJSON(data []byte) error {
 	type result struct {
-		code int
-		err  error
+		err error
 	}
 	output := os.Stdout
 	done := make(chan result, 1)
@@ -73,13 +88,17 @@ func emitInheritedRunnerTerminal(envelope runnerterminal.Envelope, binding *runn
 	// the exiting CLI process: do not close stdout or change shared handle
 	// state, and do not join a blocked write before os.Exit.
 	go func() {
-		code, err := runnerterminal.NewEmitter(output).Emit(envelope, binding)
-		done <- result{code: code, err: err}
+		payload := bytes.Clone(data)
+		written, err := output.Write(payload)
+		if err == nil && written != len(payload) {
+			err = io.ErrShortWrite
+		}
+		done <- result{err: err}
 	}()
 	select {
 	case written := <-done:
-		return written.code, written.err
+		return written.err
 	case <-timer.C:
-		return 2, fmt.Errorf("writing terminal output: %w", os.ErrDeadlineExceeded)
+		return fmt.Errorf("writing terminal output: %w", os.ErrDeadlineExceeded)
 	}
 }

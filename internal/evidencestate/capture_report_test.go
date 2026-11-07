@@ -13,6 +13,7 @@ import (
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 )
 
@@ -27,6 +28,76 @@ func capturedMockReport(t *testing.T) runnerunit.Report {
 		t.Fatalf("production mock runner did not execute exactly once: %+v", report)
 	}
 	return report
+}
+
+func TestCaptureWithheldReliabilityRemovesUnmatchedFreeTextBeforePersistence(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		withheld []Category
+		trigger  string
+		redacted bool
+	}{
+		{"explicit restricted reliability", []Category{Reliability}, "ordinary undisclosed SDK detail", true},
+		{"secret match withholds whole category", []Category{}, "ghp_" + strings.Repeat("a", 40), true},
+		{"explicit unrestricted alternative", []Category{}, "ordinary undisclosed SDK detail", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := capturedMockReport(t)
+			// Authored failure controls on the real report preserve a valid
+			// native error observation; success plus error text is invalid.
+			report.Status = "execution_error"
+			report.Observation.Status = models.StatusError
+			report.Observation.ErrorMsg = tc.trigger
+			before, binding := report.Terminal()
+			if before.Observation == nil || len(before.Diagnostics) == 0 {
+				t.Fatal("failure control did not produce native diagnostic/error evidence")
+			}
+			p, err := CaptureReport(report, tc.withheld)
+			if err != nil {
+				t.Fatal(err)
+			}
+			backend, publication := persistCaptureFixture(t, p)
+			_, categories, err := InspectCategories(t.Context(), backend, publication.EvidenceSHA256)
+			if err != nil {
+				t.Fatal(err)
+			}
+			terminal, err := runnerterminal.Validate(p.objects["terminal.json"], binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.redacted {
+				for _, diagnostic := range terminal.Diagnostics {
+					if diagnostic.Message != "[REDACTED]" {
+						t.Fatal("withheld reliability retained unmatched free text")
+					}
+				}
+				if terminal.Observation.ErrorMsg != "[REDACTED]" {
+					t.Fatal("withheld reliability retained observation free text")
+				}
+			} else if terminal.Diagnostics[0].Message != before.Diagnostics[0].Message ||
+				terminal.Observation.ErrorMsg != before.Observation.ErrorMsg {
+				t.Fatal("unrestricted alternative lost its recorded text")
+			}
+			terminal.Diagnostics = before.Diagnostics
+			terminal.Observation.ErrorMsg = before.Observation.ErrorMsg
+			restored, err := runnerterminal.Encode(*terminal, binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, err := runnerterminal.Encode(before, binding)
+			if err != nil || !bytes.Equal(restored, original) {
+				t.Fatal("sanitization changed fields other than diagnostic/error text")
+			}
+			for _, category := range categories {
+				if category.Category == Reliability && ((category.State == Redacted) != tc.redacted) {
+					t.Fatal("reliability state contradicts actual source withholding")
+				}
+			}
+			if report.Observation.ErrorMsg != tc.trigger {
+				t.Fatal("capture mutated the invocation's private original report")
+			}
+		})
+	}
 }
 
 func persistCaptureFixture(t *testing.T, p *PreparedCapture) (artifactmanifest.Backend, Inspection) {

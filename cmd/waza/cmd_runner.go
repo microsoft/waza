@@ -118,8 +118,15 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 // Supplied readers remain caller-owned. Inherited stdin needs a separate path
 // because it can be a blocking pipe without deadline support.
 func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultErr error) {
+	return readRunnerInputLimit(ctx, input, runnercontract.MaxRequestBytes)
+}
+
+func readRunnerInputLimit(ctx context.Context, input io.Reader, maxBytes int64) (data []byte, resultErr error) {
 	if input == os.Stdin {
-		return readInheritedRunnerInput(ctx)
+		if maxBytes == runnercontract.MaxRequestBytes {
+			return readInheritedRunnerInput(ctx)
+		}
+		return readInheritedRunnerInputLimit(ctx, maxBytes)
 	}
 	if file, ok := input.(*os.File); ok {
 		if err := file.SetReadDeadline(time.Time{}); err == nil {
@@ -146,7 +153,7 @@ func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultE
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("runner input interrupted: %w", err)
 	}
-	data, err := io.ReadAll(io.LimitReader(input, runnercontract.MaxRequestBytes+1))
+	data, err := io.ReadAll(io.LimitReader(input, maxBytes+1))
 	if cause := ctx.Err(); cause != nil {
 		return nil, fmt.Errorf("runner input interrupted: %w", cause)
 	}

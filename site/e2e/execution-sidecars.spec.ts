@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 test('codec-preview guidance links to actual versioned sidecar schemas', async ({ page, request }) => {
   await page.goto('/waza/guides/immutable-artifacts/');
@@ -18,8 +19,11 @@ test('codec-preview guidance links to actual versioned sidecar schemas', async (
     await expect(page).toHaveURL(new RegExp(`/waza/schemas/${filename.replaceAll('.', '\\.')}$`));
     const response = await request.get(page.url());
     expect(response.ok()).toBe(true);
-    expect(response.headers()['content-type']).toContain('application/schema+json');
+    expect(response.headers()['content-type']?.split(';')[0]).toBe('application/json');
     const schema = await response.json();
+    const original = JSON.parse(readFileSync(new URL(`../../schemas/${filename}`, import.meta.url), 'utf8'));
+    expect(schema).toEqual(original);
+    expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(schema.$id).toBe(`https://microsoft.github.io/waza/schemas/${filename}`);
     expect(JSON.stringify(schema)).toContain(kind);
     await page.goBack();

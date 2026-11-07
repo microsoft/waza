@@ -94,6 +94,15 @@ and an explicit manifest; no billing, evidence or execution attestation is
 invented. Attempt ownership remains the separate #764 contract. See
 [publication and migration](IMMUTABLE_ARTIFACTS.md).
 
+The unreleased lifecycle layer (#767) adds bounded declared transitions,
+immutable observations and read-only CLI/API/Lab source inspection from explicit
+retained original admission and ordered digests. Verified worker state,
+progress and ownership remain unavailable in this preview. Retry is advice,
+stale heartbeats only suspect orphaning, and cancellation handling is separate
+from force request and observed stop. No retry/cancel/reclaim controller is
+added. Full owner-observed lifecycle and production process/recovery controls
+remain required; see [the lifecycle delivery boundary](EXECUTION_LIFECYCLE.md).
+
 External-schema interoperability (#789) remains partial. The v0.40.0
 adapter projects one explicitly selected, commit-pinned AgentV case-sensitive
 `contains` assertion to a single native text grader and exports the same
