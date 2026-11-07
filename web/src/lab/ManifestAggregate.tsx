@@ -124,6 +124,17 @@ function AggregateInspector() {
               verification: {candidate.source_context?.verification ?? "unverified"}.
               {candidate.source_context?.source && <> Execution: <code>{candidate.source_context.source.execution_id}</code>.</>}
               {" "}This is current content and declared context, not creator authority, runtime or billing attestation.</p>
+            {candidate.source_context?.parent_context && <p>
+              Immediate parent context: {candidate.source_context.parent_context.state};
+              relationship: {candidate.source_context.parent_context.relationship};
+              verification: {candidate.source_context.parent_context.verification}.
+              {candidate.source_context.parent_context.source && <>
+                {" "}Execution: <code>{candidate.source_context.parent_context.source.execution_id}</code>;
+                {" "}<a href={`/api/v1/manifests/${candidate.source_context.parent_context.source.manifest_digest}`}
+                  target="_blank" rel="noreferrer">Verified parent manifest</a>.
+              </>}
+              {" "}One declared hop only; no latest attempt, complete graph or runtime assurance is inferred.
+            </p>}
             <dl>{candidate.categories.map((category) => <div key={category.category}>
               <dt>{category.category}</dt><dd>{category.state}; verification: {category.verification};
                 observed count: {category.observed_count ?? "Unavailable"}

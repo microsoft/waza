@@ -132,6 +132,26 @@ native shape observations remain separately labeled. Without a source
 declaration, context remains unavailable and no namespace is opened.
 Even verified context establishes only content and declared-context consistency:
 it does not hydrate Creator authority, prove live execution or authorize billing.
+When the verified canonical attempt declares a parent, optional
+`source_context.parent_context` reports only that immediate edge. A retry source
+link requires current canonical parent completion, finalized manifest and exact
+descriptor/reservation agreement for the same logical work. This extra lookup
+is nonsnapshot and shares the existing 256 MiB budget. Missing abandoned parents
+remain unavailable; corruption, conflict, limits and cancellation retain their
+diagnostics and make the operation incomplete (API 409, CLI 2) without erasing
+already verified child or category facts. Bad parent links are withheld.
+Branch declarations remain `branch`/`unavailable`; no latest attempt or
+transitive execution graph is inferred. No-parent attempts omit the new view.
+Original manifest bytes, sidecar `lineage`, source lists and billing are unchanged.
+The nested view is preserved inside the existing `source_context_json` CSV
+column, not a new column or a rewrite of manifest-only exports.
+
+Read-only consumers use `manifestaggregate.NewEvidenceReader` once per response,
+then its `InspectCategories` and `InspectSourceContext` methods. They share one
+private counter and expose no writer, raw namespace, undecorated backend or
+counter accessor. A failed primary category admission prevents optional parent
+reads. Consumers must preserve both returned errors and independently valid
+facts; verified child context alone is not whole-response success.
 Future usage integration must reuse `models.AggregateUsageStats`, preserve
 recorded zero/precision and original source usage, and exclude reused/cached
 historical execution usage from new-operation billing. A historical observed

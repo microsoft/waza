@@ -106,6 +106,17 @@ completion is missing, its context remains `missing`, the API returns 409 and
 the CLI exits 2. Terminal state counts and independently verified category
 shapes do not replace that failed source-context admission.
 
+For canonical attempts with a parent, `source_context.parent_context` is an
+output-only, one-hop observation. Qualified retry links require the current
+parent completion, finalized manifest and exact descriptor bytes, using the
+same read budget. Missing parents stay unavailable; other parent errors retain
+their classifications. Parent failures return 409/CLI 2 while already verified
+child/category facts remain visible. No-parent attempts omit this view; branch
+declarations stay branch/unavailable. Original manifests and sidecar lineage
+are never rewritten, and the existing `source_context_json` CSV column carries
+the nested view. This is not a latest-attempt lookup, a complete graph or runtime
+attestation.
+
 ## Troubleshoot incomplete aggregates
 
 | Input state | Action |

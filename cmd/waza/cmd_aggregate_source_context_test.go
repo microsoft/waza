@@ -154,6 +154,18 @@ func TestAggregateProtectedSubmitOriginalContextPublicPaths(t *testing.T) {
 			candidate := aggregate.Evidence.Members[0].Candidates[0]
 			require.Equal(t, expectedState, candidate.SourceContext.State)
 			require.Equal(t, source, *candidate.SourceContext.Source)
+			reader, err := manifestaggregate.NewEvidenceReader(backend)
+			require.NoError(t, err)
+			inspection, _, categoryErr := reader.InspectCategories(t.Context(), published.EvidenceSHA256)
+			require.NotNil(t, inspection.Document, "the actual owned sidecar supplies source context, not a hand-authored response")
+			require.NoError(t, categoryErr)
+			contextView, contextErr := reader.InspectSourceContext(t.Context(), *inspection.Document)
+			require.Equal(t, candidate.SourceContext, contextView, "public read-only consumer and Aggregate retain the same source policy")
+			if expectedState == "verified" {
+				require.NoError(t, contextErr)
+			} else {
+				require.Error(t, contextErr)
+			}
 			require.Equal(t, submitted.Terminal.Outcome, aggregate.Members[0].Outcome)
 			require.Equal(t, "withheld", aggregate.Evidence.UsageTotals)
 			require.Equal(t, originalOrdinal, submitted.Terminal.Selection.Attempt)

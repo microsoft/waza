@@ -176,17 +176,35 @@
         }
       }
     },
+    "parent_context": {
+      "type": "object", "additionalProperties": false, "required": ["state", "verification", "relationship"],
+      "properties": {
+        "state": {"enum": ["verified", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable", "timeout", "cancelled"]},
+        "verification": {"enum": ["unverified", "content-and-declared-context-only"]},
+        "relationship": {"enum": ["retry", "branch"]},
+        "source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"}
+      },
+      "allOf": [{
+        "if": {"properties": {"state": {"const": "verified"}}},
+        "then": {"required": ["source"], "properties": {"relationship": {"const": "retry"}, "verification": {"const": "content-and-declared-context-only"}}},
+        "else": {"not": {"required": ["source"]}, "properties": {"verification": {"const": "unverified"}}}
+      }, {
+        "if": {"properties": {"relationship": {"const": "branch"}}},
+        "then": {"properties": {"state": {"const": "unavailable"}}}
+      }]
+    },
     "source_context": {
       "type": "object", "additionalProperties": false, "required": ["state", "verification"],
       "properties": {
         "state": {"enum": ["verified", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable", "timeout", "cancelled"]},
         "verification": {"enum": ["unverified", "content-and-declared-context-only"]},
-        "source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"}
+        "source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"},
+        "parent_context": {"$ref": "#/$defs/parent_context"}
       },
       "allOf": [{
         "if": {"properties": {"state": {"const": "verified"}}},
         "then": {"required": ["source"], "properties": {"verification": {"const": "content-and-declared-context-only"}}},
-        "else": {"properties": {"verification": {"const": "unverified"}}}
+        "else": {"not": {"required": ["parent_context"]}, "properties": {"verification": {"const": "unverified"}}}
       }]
     },
     "evidence_candidate": {
