@@ -14,6 +14,7 @@ test.describe("Completed manifest aggregation through real publication and API",
   let base: string;
   let server: ChildProcess;
   let digests: string[];
+  let unicodeDigest: string;
   let actual: ManifestAggregate;
   const missing = "f".repeat(64);
   const env = { ...process.env, COPILOT_CLI_PATH: "/usr/bin/false", ENABLE_COPILOT_TESTS: "false",
@@ -30,15 +31,10 @@ test.describe("Completed manifest aggregation through real publication and API",
     mkdirSync(store, { recursive: true, mode: 0o700 });
     const captured = JSON.parse(readFileSync(new URL("../../examples/runner/unit.json", import.meta.url), "utf8"));
     digests = [];
-    for (const trial of [1, 2]) {
-      const terminal = execFileSync(binary, ["runner", "run"], {
-        cwd: directory, env, input: JSON.stringify({ ...captured, selection: { ...captured.selection, trial } }),
-      });
+    const publishTerminal = (terminal: Buffer, label: string) => {
       const result = JSON.parse(terminal.toString());
-      expect(result.outcome).toBe("success");
-      expect(result.observation.validations).toHaveLength(1);
-      const terminalPath = join(directory, `terminal-${trial}.json`);
-      const manifestPath = join(directory, `manifest-${trial}.json`);
+      const terminalPath = join(directory, `terminal-${label}.json`);
+      const manifestPath = join(directory, `manifest-${label}.json`);
       writeFileSync(terminalPath, terminal, { flag: "wx", mode: 0o600 });
       writeFileSync(manifestPath, JSON.stringify({
         kind: "waza.artifact-manifest", schema_version: "1.0",
@@ -48,10 +44,27 @@ test.describe("Completed manifest aggregation through real publication and API",
         artifacts: [{ name: "terminal", sha256: createHash("sha256").update(terminal).digest("hex"),
           size_bytes: terminal.length, media_type: "application/json" }],
       }), { flag: "wx", mode: 0o600 });
-      const create = JSON.parse(execFileSync(binary, ["artifact", "create", manifestPath, "--store", store], { cwd: directory, env }).toString());
-      digests.push(create.manifest_sha256);
+      const create: { manifest_sha256: string } = JSON.parse(execFileSync(binary, ["artifact", "create", manifestPath, "--store", store], { cwd: directory, env }).toString());
+      expect(create.manifest_sha256).toMatch(/^[0-9a-f]{64}$/);
       execFileSync(binary, ["artifact", "upload", manifestPath, "terminal", terminalPath, "--store", store], { cwd: directory, env });
       execFileSync(binary, ["artifact", "finalize", create.manifest_sha256, "--store", store], { cwd: directory, env });
+      return create.manifest_sha256;
+    };
+    for (const trial of [1, 2]) {
+      const terminal = execFileSync(binary, ["runner", "run"], {
+        cwd: directory, env, input: JSON.stringify({ ...captured, selection: { ...captured.selection, trial } }),
+      });
+      const result = JSON.parse(terminal.toString());
+      expect(result.outcome).toBe("success");
+      expect(result.observation.validations).toHaveLength(1);
+      digests.push(publishTerminal(terminal, String(trial)));
+      if (trial === 2) {
+        // Authored identifier control; publication verifies bytes/binding, not live grading.
+        result.observation.validations = [
+          { identifier: "\u{1f600}", passed: true }, { identifier: "\ue000", passed: true },
+        ];
+        unicodeDigest = publishTerminal(Buffer.from(JSON.stringify(result)), "unicode");
+      }
     }
     const listener = createServer();
     await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
@@ -123,5 +136,52 @@ test.describe("Completed manifest aggregation through real publication and API",
     await expect(result).toHaveCount(0);
     await expect(panel.getByRole("alert")).toContainText("invalid or inconsistent report");
     await expect(panel).not.toContainText("private.example");
+  });
+
+  test("rejects contradictory outcomes and duplicate verdicts without retaining success", async ({ page }) => {
+    expect(actual.members[0]!.outcome).toBe("success");
+    expect(actual.members[0]!.verdicts).toHaveLength(1);
+    const contradictory = structuredClone(actual);
+    contradictory.members[0]!.state = "evaluation_failure";
+    contradictory.state_counts = { success: 1, evaluation_failure: 1 };
+    const duplicate = structuredClone(actual);
+    duplicate.members[0]!.verdicts!.push({ ...duplicate.members[0]!.verdicts![0]! });
+    for (const control of [
+      { report: contradictory, message: "contradictory recorded outcome" },
+      { report: duplicate, message: "duplicate grader verdicts" },
+    ]) {
+      await page.goto(`${base}/#/lab/runner`);
+      const panel = page.getByRole("region", { name: "Completed manifest aggregation" });
+      await panel.getByRole("textbox", { name: "Expected manifest digests" }).fill(digests.join("\n"));
+      await panel.getByRole("button", { name: "Aggregate manifests", exact: true }).click();
+      await expect(panel.getByRole("status", { name: "Aggregate composition" })).toContainText("Membership: complete");
+      await page.route("**/api/v1/aggregates", (route) => route.fulfill({ json: control.report }));
+      await panel.getByRole("button", { name: "Aggregate manifests", exact: true }).click();
+      await expect(panel.getByRole("status", { name: "Aggregate composition" })).toHaveCount(0);
+      await expect(panel.getByRole("alert")).toContainText(control.message);
+      await page.unroute("**/api/v1/aggregates");
+    }
+  });
+
+  test("accepts native UTF-8 grader ordering without treating it as UTF-16 ordering", async ({ page, request }) => {
+    const response = await request.post(`${base}/api/v1/aggregates`, { data: { manifests: [unicodeDigest] } });
+    expect(response.status()).toBe(200);
+    const unicode: ManifestAggregate = await response.json();
+    expect(unicode.members).toHaveLength(1);
+    expect(unicode.members[0]!.verdicts).toEqual([
+      { identifier: "\ue000", passed: true }, { identifier: "\u{1f600}", passed: true },
+    ]);
+    await page.goto(`${base}/#/lab/runner`);
+    const panel = page.getByRole("region", { name: "Completed manifest aggregation" });
+    await panel.getByRole("textbox", { name: "Expected manifest digests" }).fill(unicodeDigest);
+    await panel.getByRole("button", { name: "Aggregate manifests", exact: true }).click();
+    const composition = panel.getByRole("status", { name: "Aggregate composition" });
+    await expect(composition).toContainText("Membership: complete");
+    await expect(composition.locator("td").nth(3).locator("p")).toHaveText(["\ue000: passed", "\u{1f600}: passed"]);
+    unicode.members[0]!.verdicts!.reverse();
+    await page.route("**/api/v1/aggregates", (route) => route.fulfill({ json: unicode }));
+    await panel.getByRole("button", { name: "Aggregate manifests", exact: true }).click();
+    await expect(composition).toHaveCount(0);
+    await expect(panel.getByRole("alert")).toContainText("unsorted or duplicate grader verdicts");
   });
 });

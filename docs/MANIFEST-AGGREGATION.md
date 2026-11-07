@@ -99,6 +99,10 @@ rules; aggregation cannot retroactively redact an already published source.
 
 ## Bounds and storage guarantees
 
+Recorded grader identifiers use UTF-8 byte ordering, not locale-dependent or
+JavaScript UTF-16 ordering. Native emission and Lab admission preserve the same
+ordering and reject duplicate verdict identifiers or contradictory outcomes.
+
 There are at most 128 submitted digests **before deduplication** and 16 KiB of
 API request JSON. The cumulative read budget is 256 MiB, covering manifest,
 artifact and marker verification. The actual `Store.ReadCompleted` retains

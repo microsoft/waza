@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -323,5 +324,112 @@ func TestAggregateOfflineAdmissionDoesNotConstructAzureCredentials(t *testing.T)
 		require.Equal(t, control.status, recorder.Code)
 		require.NotContains(t, recorder.Body.String(), "reject-constructor-sentinel")
 		require.NotContains(t, recorder.Body.String(), `"completion":"complete"`)
+	}
+}
+
+func TestAggregateCLIExplicitDegradedManifestStates(t *testing.T) {
+	binary := buildRecoveryCLI(t)
+	for _, control := range []string{"missing", "corrupt unrequested", "mixed version", string(runnerterminal.Canceled), "infrastructure_failure", "conflicting"} {
+		t.Run(control, func(t *testing.T) {
+			directory, original, manifest, terminal := aggregateCLIPublication(t)
+			storeDirectory := filepath.Join(directory, ".waza-artifacts")
+			expected := []string{original}
+			state := control
+			switch control {
+			case "missing":
+				expected = append(expected, strings.Repeat("f", 64))
+			case "corrupt unrequested":
+				require.Len(t, manifest.Artifacts, 2)
+				require.Equal(t, "empty.txt", manifest.Artifacts[1].Name)
+				corruptPath := filepath.Join(storeDirectory, "blob-"+manifest.Artifacts[1].SHA256)
+				originalBytes, err := os.ReadFile(corruptPath)
+				require.NoError(t, err)
+				require.Empty(t, originalBytes)
+				require.NoError(t, os.Chmod(corruptPath, 0o600), "inject corruption only into this test-owned immutable object")
+				require.NoError(t, os.WriteFile(corruptPath, []byte("corrupt control"), 0o600))
+				state = "corrupt"
+			case "mixed version":
+				data, err := os.ReadFile(filepath.Join(storeDirectory, "manifest-"+original))
+				require.NoError(t, err)
+				future := bytes.Replace(data, []byte(`"schema_version":"1.0"`), []byte(`"schema_version":"2.0"`), 1)
+				require.NotEqual(t, data, future)
+				digest := artifactmanifest.Hash(future)
+				require.NoError(t, os.WriteFile(filepath.Join(storeDirectory, "manifest-"+digest), future, 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(storeDirectory, "final-"+digest), []byte(digest), 0o600))
+				expected = append(expected, digest)
+				state = "incompatible"
+			case string(runnerterminal.Canceled), "infrastructure_failure", "conflicting":
+				if control == "conflicting" {
+					manifest.Artifacts = manifest.Artifacts[:1]
+				} else {
+					envelope, err := runnerterminal.Validate(terminal, manifest.Binding.TerminalBinding())
+					require.NoError(t, err)
+					envelope.Outcome = runnerterminal.Outcome(control)
+					exitCode, known := envelope.Outcome.ExitCode()
+					require.True(t, known)
+					envelope.ExitCode = exitCode
+					envelope.Observation = nil
+					envelope.EngineCalls = 0
+					envelope.FailureBoundary = "startup"
+					envelope.Diagnostics = []runnerterminal.Diagnostic{{Code: "authored_control", Message: "Recorded failure control, not live execution evidence."}}
+					terminal, err = runnerterminal.Encode(*envelope, manifest.Binding.TerminalBinding())
+					require.NoError(t, err)
+					manifest.Artifacts[0].SHA256 = artifactmanifest.Hash(terminal)
+					manifest.Artifacts[0].SizeBytes = int64(len(terminal))
+					manifest.Artifacts = manifest.Artifacts[:1]
+				}
+				backend, err := artifactmanifest.OpenLocal(storeDirectory)
+				require.NoError(t, err)
+				store := artifactmanifest.NewStore(backend)
+				data, err := artifactmanifest.Encode(manifest)
+				require.NoError(t, err)
+				digest, err := store.Create(t.Context(), data)
+				require.NoError(t, err)
+				require.NotEqual(t, original, digest)
+				require.NoError(t, store.Put(t.Context(), manifest.Artifacts[0], terminal))
+				receipt, err := store.Finalize(t.Context(), digest)
+				require.NoError(t, err)
+				require.Equal(t, "finalized", receipt.Publication)
+				require.NoError(t, backend.Close())
+				if control == "conflicting" {
+					expected = append(expected, digest)
+				} else {
+					expected = []string{digest}
+				}
+			}
+			run := func(digests []string) []byte {
+				command := exec.CommandContext(t.Context(), binary, append([]string{"aggregate", "--store", storeDirectory}, digests...)...)
+				command.Dir = directory
+				command.Env = append(os.Environ(), "COPILOT_CLI_PATH="+filepath.Join(directory, "forbidden-runtime"), "NO_COLOR=1")
+				var output bytes.Buffer
+				command.Stdout = &output
+				var exit *exec.ExitError
+				require.ErrorAs(t, command.Run(), &exit)
+				require.Equal(t, ExitError, exit.ExitCode())
+				return output.Bytes()
+			}
+			first := run(expected)
+			reordered := slices.Clone(expected)
+			slices.Reverse(reordered)
+			reordered = append(reordered, expected...)
+			require.Equal(t, first, run(reordered), "same public set must remain byte-identical after reordering/duplicates")
+			var report manifestaggregate.Report
+			require.NoError(t, json.Unmarshal(first, &report))
+			require.Equal(t, "incomplete", report.Completion)
+			require.Len(t, report.Members, len(expected))
+			require.Greater(t, report.StateCounts[state], 0)
+			if control == "conflicting" {
+				require.Len(t, report.Conflicts, 1)
+				require.Equal(t, 2, report.StateCounts[state])
+			}
+			mux := http.NewServeMux()
+			webapi.RegisterAggregateRoutes(mux, directory, nil)
+			body, err := json.Marshal(manifestaggregate.Request{Manifests: reordered})
+			require.NoError(t, err)
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(body)))
+			require.Equal(t, http.StatusConflict, response.Code)
+			require.Equal(t, strings.TrimSpace(string(first)), response.Body.String())
+		})
 	}
 }

@@ -26,6 +26,17 @@ export class AggregateError extends Error {}
 
 const validate = new Ajv2020({ strict: false }).compile<ManifestAggregate>(schema);
 
+function compareUTF8(left: string, right: string): number {
+  const encoder = new TextEncoder();
+  const a = encoder.encode(left);
+  const b = encoder.encode(right);
+  for (let index = 0; index < Math.min(a.length, b.length); index++) {
+    const difference = a[index]! - b[index]!;
+    if (difference !== 0) return difference;
+  }
+  return a.length - b.length;
+}
+
 export async function aggregateManifests(manifests: string[], signal: AbortSignal): Promise<ManifestAggregate> {
   const expected = [...new Set(manifests)].sort();
   let response: Response;
@@ -56,12 +67,30 @@ export async function aggregateManifests(manifests: string[], signal: AbortSigna
     throw new AggregateError("Aggregate API returned an invalid or inconsistent report.");
   }
   const counts: Record<string, number> = {};
-  for (const member of value.members) counts[member.state] = (counts[member.state] ?? 0) + 1;
+  for (const member of value.members) {
+    counts[member.state] = (counts[member.state] ?? 0) + 1;
+    if (member.outcome !== undefined && member.state !== "conflicting" && member.state !== member.outcome) {
+      throw new AggregateError("Aggregate API returned a contradictory recorded outcome.");
+    }
+    let previousIdentifier = "";
+    for (const verdict of member.verdicts ?? []) {
+      if (compareUTF8(verdict.identifier, previousIdentifier) <= 0) {
+        throw new AggregateError("Aggregate API returned unsorted or duplicate grader verdicts.");
+      }
+      previousIdentifier = verdict.identifier;
+    }
+  }
   if (Object.keys(counts).length !== Object.keys(value.state_counts).length ||
       Object.entries(counts).some(([state, count]) => value.state_counts[state] !== count)) {
     throw new AggregateError("Aggregate API returned inconsistent member counts.");
   }
+  let previousConflict = "";
   for (const conflict of value.conflicts) {
+    const key = `${conflict.logical.run}\0${conflict.logical.work}`;
+    if (key <= previousConflict) {
+      throw new AggregateError("Aggregate API returned unsorted or duplicate conflicts.");
+    }
+    previousConflict = key;
     if (conflict.manifests.some((digest, index) => {
       const member = value.members.find((item) => item.manifest_sha256 === digest);
       return !member || member.state !== "conflicting" ||

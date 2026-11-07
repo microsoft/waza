@@ -3,6 +3,7 @@ package manifestaggregate
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
@@ -379,4 +381,57 @@ func TestAggregateReportRejectsInconsistentCountsAndMembership(t *testing.T) {
 	report.StateCounts["success"] = 2
 	_, err = Encode(report)
 	require.ErrorIs(t, err, ErrInvalid)
+}
+
+func TestAggregateReportRejectsContradictoryOutcomesAndDuplicateVerdicts(t *testing.T) {
+	for _, control := range []string{"outcome", "verdicts"} {
+		t.Run(control, func(t *testing.T) {
+			backend := &memoryBackend{objects: map[string][]byte{}}
+			manifest, terminal := fixture(t, 1, 1, runnerterminal.Success)
+			digest := publish(t, backend, manifest, terminal, true)
+			report, err := Aggregate(context.Background(), backend, Request{Manifests: []string{digest}})
+			require.NoError(t, err)
+			require.Len(t, report.Members, 1)
+			require.Len(t, *report.Members[0].Verdicts, 1)
+			if control == "outcome" {
+				report.Members[0].State = "evaluation_failure"
+				report.StateCounts = map[string]int{"evaluation_failure": 1}
+			} else {
+				*report.Members[0].Verdicts = append(*report.Members[0].Verdicts, (*report.Members[0].Verdicts)[0])
+			}
+
+			data, err := json.Marshal(report)
+			require.NoError(t, err)
+			profile, err := profiles()
+			require.NoError(t, err)
+			wire, err := jsonutil.Parse(data)
+			require.NoError(t, err)
+			require.NoError(t, profile.report.Validate(wire), "control must pass structure but violate native consistency")
+			_, err = Encode(report)
+			require.ErrorIs(t, err, ErrInvalid)
+		})
+	}
+}
+
+func TestAggregateVerdictOrderingUsesUTF8NotUTF16(t *testing.T) {
+	backend := &memoryBackend{objects: map[string][]byte{}}
+	manifest, terminal := fixture(t, 1, 1, runnerterminal.Success)
+	envelope, err := runnerterminal.Validate(terminal, manifest.Binding.TerminalBinding())
+	require.NoError(t, err)
+	manifest.Binding.GraderIDs = []string{"\ue000", "\U0001f600"}
+	envelope.Observation.Validations = []runnerterminal.Verdict{
+		{Identifier: "\U0001f600", Passed: true}, {Identifier: "\ue000", Passed: true},
+	}
+	terminal, err = runnerterminal.Encode(*envelope, manifest.Binding.TerminalBinding())
+	require.NoError(t, err)
+	manifest.Artifacts[0].SHA256 = artifactmanifest.Hash(terminal)
+	manifest.Artifacts[0].SizeBytes = int64(len(terminal))
+	digest := publish(t, backend, manifest, terminal, true)
+	report, err := Aggregate(context.Background(), backend, Request{Manifests: []string{digest}})
+	require.NoError(t, err)
+	require.Equal(t, []runnerterminal.Verdict{
+		{Identifier: "\ue000", Passed: true}, {Identifier: "\U0001f600", Passed: true},
+	}, *report.Members[0].Verdicts)
+	_, err = Encode(report)
+	require.NoError(t, err)
 }
