@@ -15,8 +15,20 @@ import (
 // LoadTasks preserves the runner's CSV selection, IDs, and template semantics.
 // Callers supply the clock so offline plans can be deterministic.
 func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.TestCase, error) {
+	return loadTasks(spec, baseDir, now, "")
+}
+
+// LoadTasksWithJobID renders runtime CSV prompts with the allocated evaluation ID.
+func LoadTasksWithJobID(spec *models.EvalSpec, baseDir string, now time.Time, jobID string) ([]*models.TestCase, error) {
+	return loadTasks(spec, baseDir, now, jobID)
+}
+
+func loadTasks(spec *models.EvalSpec, baseDir string, now time.Time, jobID string) ([]*models.TestCase, error) {
 	if baseDir == "" {
 		baseDir = "."
+	}
+	if jobID == "" {
+		jobID = fmt.Sprintf("run-%d", now.Unix())
 	}
 	csvPath := spec.TasksFrom
 	if !filepath.IsAbs(csvPath) {
@@ -69,7 +81,7 @@ func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.
 			name = row["name"]
 		}
 		ctx := &template.Context{
-			JobID: fmt.Sprintf("run-%d", now.Unix()), TaskName: name,
+			JobID: jobID, TaskName: name,
 			Timestamp: now.Format(time.RFC3339), Vars: make(map[string]string),
 		}
 		for k, v := range spec.Inputs {

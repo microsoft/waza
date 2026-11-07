@@ -315,7 +315,8 @@
         },
         "group_by": {
           "type": "string",
-          "description": "Field name to group results by in the output."
+          "enum": ["", "model", "tags"],
+          "description": "Group results by model or by each task's complete ordered tag set."
         },
         "judge_model": {
           "type": "string",

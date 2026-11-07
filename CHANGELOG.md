@@ -20,14 +20,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   labeling a completed session abandoned. This is post-v0.40.0 source behavior,
   not included in the published v0.40.0 artifacts.
 
-- **JavaScript `code` grader input** - The JavaScript wrapper for `code` graders now reads its grading context directly from standard input (file descriptor 0) instead of through `process.stdin`, which made the pipe non-blocking. Large contexts, such as long transcripts, no longer fail intermittently with `EAGAIN` and an `exit status 1` grader error on Linux and macOS when the pipe is momentarily empty. Assertions, results and the Python wrapper are unchanged. This fix ([#882](https://github.com/microsoft/waza/pull/882)) is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
-
 - **Trial timeout recovery and result persistence** - Preserve completed results
   and partial recovery snapshots after trial timeout, with bounded cancellation
   and cleanup, shared-client replacement, observed-usage handling and owned-handle
   output permissions ([#870](https://github.com/microsoft/waza/pull/870)).
   This is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
   The documented process-lifetime and trusted-output-directory limitations remain.
+
+## [0.40.1] - 2026-11-06
+
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.1)
+and separately versioned
+[azd extension](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1)
+are published. See the [release article](site/src/content/docs/releases/v0-40-1.mdx)
+and [download reference](site/src/content/docs/reference/releases.mdx).
+
+### Fixed
+
+- **Selected-task coverage** - `waza coverage` counts selected task files or CSV
+  rows through the execution task loader; equivalent glob and explicit selectors
+  agree, and an empty selection reports zero tasks with Partial coverage
+  ([#897](https://github.com/microsoft/waza/pull/897)).
+- **Strict token-budget exit** - `waza tokens check --strict` returns exit 1 for
+  exceeded budgets while advisory exceedance remains exit 0 and invalid input
+  remains exit 2 ([#896](https://github.com/microsoft/waza/pull/896)).
+- **Tag grouping** - `config.group_by: tags` resolves each task's complete
+  ordered tag set into the existing group field; tagged runs produce CLI and
+  JSON group statistics and untagged tasks remain ungrouped
+  ([#891](https://github.com/microsoft/waza/pull/891)).
+- **Lifecycle hook inputs** - Hook commands render top-level eval `inputs`,
+  reject rendered-empty commands and invalidate legacy task caches when hook
+  configuration or inputs change
+  ([#890](https://github.com/microsoft/waza/pull/890)).
+- **Same-second multi-model runs** - Sequential models receive distinct
+  nanosecond-resolution run IDs; historical duplicate IDs now produce a
+  diagnostic naming both artifacts instead of hiding one result
+  ([#886](https://github.com/microsoft/waza/pull/886)).
+- **Adversarial artifact directories** - Bare relative, `./` relative and
+  absolute `--artifacts-dir` paths execute the same selected pack
+  ([#887](https://github.com/microsoft/waza/pull/887)).
+- **First-event watchdog** - A healthy first Copilot event disarms the watchdog
+  without canceling the active request; the no-event timeout still cancels and
+  reports its distinct diagnostic
+  ([#884](https://github.com/microsoft/waza/pull/884)).
+- **JavaScript `code` grader input** - The JavaScript wrapper reads grading
+  context directly from file descriptor 0, avoiding intermittent `EAGAIN`
+  failures for large contexts on Linux and macOS. Assertions, results and the
+  Python wrapper are unchanged
+  ([#882](https://github.com/microsoft/waza/pull/882)).
+
+**Full comparison:** [v0.40.0...v0.40.1](https://github.com/microsoft/waza/compare/v0.40.0...v0.40.1).
 
 ## [0.40.0] - 2026-11-04
 
@@ -729,7 +771,7 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.40.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.40.1...HEAD
 [0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
 [0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5
 [0.38.4]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.3...azd-ext-microsoft-azd-waza_0.38.4
