@@ -5,8 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,9 +22,64 @@ func TestCompileSchemaOnceDefersAndCachesCompilation(t *testing.T) {
 	require.Panics(t, func() {
 		invalid()
 	})
+	require.Panics(t, func() {
+		invalid()
+	})
 
 	compiled := compileSchemaOnce(`{"type":"object"}`, "test.json")
 	require.Same(t, compiled(), compiled())
+}
+
+func TestLazySchemasIndependentConcurrentValidation(t *testing.T) {
+	originalEval, originalTask := evalSchema, taskSchema
+	t.Cleanup(func() { evalSchema, taskSchema = originalEval, originalTask })
+
+	for _, kind := range []string{"eval", "task"} {
+		t.Run(kind, func(t *testing.T) {
+			raw, valid, validate := schemas.EvalSchemaJSON, validEvalYAML, ValidateEvalBytes
+			if kind == "task" {
+				raw, valid, validate = schemas.TaskSchemaJSON, validTaskYAML, ValidateTaskBytes
+			}
+			compiled := compileSchemaOnce(raw, kind+".schema.json")
+			const callers = 16
+			seen := make(chan *jsonschema.Schema, callers)
+			get := func() *jsonschema.Schema {
+				schema := compiled()
+				seen <- schema
+				return schema
+			}
+			unused := compileSchemaOnce("{", "unused.schema.json")
+			evalSchema, taskSchema = get, unused
+			if kind == "task" {
+				evalSchema, taskSchema = unused, get
+			}
+
+			start := make(chan struct{})
+			results := make(chan []string, callers)
+			var workers sync.WaitGroup
+			for range callers {
+				workers.Go(func() {
+					<-start
+					results <- validate([]byte(valid))
+				})
+			}
+			close(start)
+			workers.Wait()
+			first := <-seen
+			require.NotNil(t, first)
+			for range callers {
+				require.Empty(t, <-results)
+			}
+			for range callers - 1 {
+				require.Same(t, first, <-seen)
+			}
+			require.Same(t, first, compiled())
+			require.Empty(t, validate([]byte(valid)))
+			require.Same(t, first, <-seen)
+			require.Equal(t, []string{"/: got null, want object"}, validate([]byte("null\n")))
+			require.Same(t, first, <-seen)
+		})
+	}
 }
 
 func TestTaskReasoningEffortSchemaAndExecutor(t *testing.T) {
