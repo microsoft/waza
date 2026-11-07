@@ -9,7 +9,7 @@ test('capture guide links to the actual versioned evidence index schema', async 
   await link.click();
   const response = await request.get(page.url());
   expect(response.ok()).toBe(true);
-  expect(response.headers()['content-type']).toContain('application/schema+json');
+  expect(response.headers()['content-type']).toContain('application/json');
   const schema = await response.json();
   expect(schema.$id).toBe('https://microsoft.github.io/waza/schemas/execution-evidence-capture-1.0.schema.json');
   expect(schema.properties.kind.const).toBe('waza.execution-evidence-capture');
