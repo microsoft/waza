@@ -20,17 +20,9 @@ func inspectSourceContext(ctx context.Context, backend *boundedBackend, document
 	result.Source = &source
 	// Only the originally supplied concrete provider admits a namespace.
 	// Both read paths are decorated before I/O; no writer is passed to Reader.
-	namespace, err := artifactmanifest.NewNamespace(backend.Backend, artifactmanifest.ExecutionLedgerNamespaceV1)
+	reader, err := newEvidenceSourceReader(backend)
 	if err != nil {
-		return result, errors.Join(ErrUnavailable, err)
-	}
-	namespaceReader, err := namespace.Reader(backend.decorate)
-	if err != nil {
-		return result, errors.Join(ErrUnavailable, err)
-	}
-	reader, err := executionledger.NewReader(namespaceReader, backend)
-	if err != nil {
-		return result, errors.Join(ErrUnavailable, err)
+		return result, err
 	}
 	hits, unavailable := backend.hits, backend.unavailable
 	completed, err := reader.ReadCompleted(ctx, source, document.AttemptArtifact)
@@ -53,6 +45,22 @@ func inspectSourceContext(ctx context.Context, backend *boundedBackend, document
 	result.State, result.Verification = "verified", "content-and-declared-context-only"
 	result.ParentContext, err = inspectParentContext(ctx, backend, reader, completed, source, document.AttemptArtifact, inspectParent)
 	return result, err
+}
+
+func newEvidenceSourceReader(backend *boundedBackend) (*executionledger.Reader, error) {
+	namespace, err := artifactmanifest.NewNamespace(backend.Backend, artifactmanifest.ExecutionLedgerNamespaceV1)
+	if err != nil {
+		return nil, errors.Join(ErrUnavailable, err)
+	}
+	namespaceReader, err := namespace.Reader(backend.decorate)
+	if err != nil {
+		return nil, errors.Join(ErrUnavailable, err)
+	}
+	reader, err := executionledger.NewReader(namespaceReader, backend)
+	if err != nil {
+		return nil, errors.Join(ErrUnavailable, err)
+	}
+	return reader, nil
 }
 
 func sourceContextError(err error) error {
