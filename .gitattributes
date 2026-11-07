@@ -13,9 +13,9 @@ testdata/frozen-assurance-readers/** -text
 schemas/grader-assurance-1.0.schema.json text eol=lf
 schemas/grader-reference-1.0.schema.json text eol=lf
 schemas/evidence-manifest-1.0.schema.json text eol=lf
-internal/executionattempt/testdata/attempt.json text eol=lf
-internal/executionattempt/testdata/decision.json text eol=lf
-internal/executionledger/testdata/completion.json text eol=lf
+internal/executionattempt/testdata/attempt.json -text
+internal/executionattempt/testdata/decision.json -text
+internal/executionledger/testdata/completion.json -text
 examples/grader-challenges/authored-output/eval.yaml text eol=lf
 *.zst filter=lfs diff=lfs merge=lfs -text
 internal/embedded/zcopilotruntimeassets_*.tgz filter=lfs diff=lfs merge=lfs -text
