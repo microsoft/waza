@@ -199,6 +199,124 @@ graders:
 			}
 		})
 	}
+	for _, mode := range []string{"workspace", "discover"} {
+		t.Run("mixed skills "+mode, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, skill := range []struct {
+				name, grader string
+			}{
+				{"alpha-error", "type: file\n    config: {must_exist: [../outside-workspace]}"},
+				{"beta-failed", "type: text\n    config: {contains: [IMPOSSIBLE_OUTPUT_CANARY]}"},
+			} {
+				skillDir := filepath.Join(dir, "skills", skill.name)
+				require.NoError(t, os.MkdirAll(skillDir, 0700))
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+					[]byte("---\nname: "+skill.name+"\ndescription: Synthetic classification fixture.\n---\n"), 0600))
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, "task.yaml"),
+					[]byte("id: task\nname: Classification task\ninputs: {prompt: CAPTURED_OUTPUT_CANARY}\n"), 0600))
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, "eval.yaml"),
+					[]byte("name: "+skill.name+"\nskill: "+skill.name+"\nconfig: {executor: mock, model: mock-model, trials_per_task: 1, timeout_seconds: 30}\ntasks: [task.yaml]\ngraders:\n  - name: verdict\n    "+skill.grader+"\n"), 0600))
+			}
+			outputDir := t.TempDir()
+			args := []string{"--no-update-check", "run", "--output-dir", outputDir}
+			if mode == "discover" {
+				args = append(args, "--discover", dir)
+			}
+			cmd := exec.CommandContext(t.Context(), binary, args...)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "NO_COLOR=1", "ENABLE_COPILOT_TESTS=false",
+				"COPILOT_BASE_URL=", "COPILOT_PROVIDER_BASE_URL=", "COPILOT_CLI_PATH="+guard,
+				"HOME="+dir, "USERPROFILE="+dir, "XDG_CACHE_HOME="+dir, "LOCALAPPDATA="+dir)
+			log, err := cmd.CombinedOutput()
+			var exit *exec.ExitError
+			require.ErrorAs(t, err, &exit, "%s", log)
+			require.Equal(t, 2, exit.ExitCode(), "%s", log)
+			final, partial := outcomeJSONFiles(t, outputDir)
+			require.Empty(t, partial)
+			require.Len(t, final, 2, "both skills must finish and publish")
+			seen := make(map[string]bool)
+			for _, path := range final {
+				outcome, err := models.LoadEvaluationOutcome(path)
+				require.NoError(t, err)
+				require.Len(t, outcome.TestOutcomes, 1)
+				require.False(t, seen[outcome.SkillTested])
+				seen[outcome.SkillTested] = true
+				if outcome.SkillTested == "alpha-error" {
+					require.Equal(t, models.StatusError, outcome.TestOutcomes[0].Status)
+					require.Equal(t, 1, outcome.Digest.Errors)
+					require.Zero(t, outcome.Digest.Failed)
+				} else {
+					require.Equal(t, "beta-failed", outcome.SkillTested)
+					require.Equal(t, models.StatusFailed, outcome.TestOutcomes[0].Status)
+					require.Zero(t, outcome.Digest.Errors)
+					require.Equal(t, 1, outcome.Digest.Failed)
+				}
+			}
+			require.NoFileExists(t, guard+".invoked")
+		})
+	}
+}
+
+func TestBenchmarkBaselineOnlyOperationalErrorClassification(t *testing.T) {
+	resetRunGlobals()
+	oldFactory := newRunEngine
+	t.Cleanup(func() {
+		newRunEngine = oldFactory
+		resetRunGlobals()
+	})
+	withSkills, withoutSkills := 0, 0
+	var sessionSkills [][]string
+	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+		client := &copilotfake.Client{Send: func(cfg *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			sessionSkills = append(sessionSkills, append([]string(nil), cfg.SkillDirectories...))
+			if len(cfg.SkillDirectories) == 1 {
+				withoutSkills++
+				return nil, errors.New("baseline operational failure")
+			}
+			withSkills++
+			return []copilot.SessionEvent{
+				{Data: &copilot.UserMessageData{Content: options.Prompt}},
+				{Data: &copilot.AssistantMessageData{Content: "CAPTURED_OUTPUT_CANARY"}},
+			}, nil
+		}}
+		return client.Engine(), nil
+	}
+	spec := createTestSpec(t, "copilot-sdk")
+	dir := filepath.Dir(spec)
+	t.Chdir(dir)
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "synthetic"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "synthetic", "SKILL.md"),
+		[]byte("---\nname: synthetic\ndescription: Synthetic classification fixture.\n---\n"), 0600))
+	data, err := os.ReadFile(spec)
+	require.NoError(t, err)
+	data = bytes.Replace(data, []byte("  executor: copilot-sdk"),
+		[]byte("  skill_directories: [synthetic]\n  executor: copilot-sdk"), 1)
+	require.Contains(t, string(data), "skill_directories: [synthetic]")
+	data = append(data, []byte("\ngraders: [{name: check, type: text, config: {contains: [CAPTURED_OUTPUT_CANARY]}}]\n")...)
+	require.NoError(t, os.WriteFile(spec, data, 0600))
+	output := filepath.Join(dir, "results.json")
+	command := newRunCommand()
+	command.SetArgs([]string{spec, "--baseline", "--output", output})
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	err = command.Execute()
+	var operational *BenchmarkError
+	require.ErrorAs(t, err, &operational)
+	require.ErrorContains(t, err, "baseline benchmark completed: 0 failed and 1 error(s)")
+	require.Equal(t, 1, withSkills)
+	require.Equal(t, 1, withoutSkills)
+	require.Equal(t, [][]string{{dir, filepath.Join(dir, "synthetic")}, {dir}}, sessionSkills)
+	outcome, err := models.LoadEvaluationOutcome(output)
+	require.NoError(t, err)
+	require.True(t, outcome.IsBaseline)
+	require.Equal(t, 1, outcome.Digest.Succeeded)
+	require.Zero(t, outcome.Digest.Errors)
+	require.NotNil(t, outcome.BaselineOutcome)
+	require.Equal(t, 1, outcome.BaselineOutcome.Digest.Errors)
+	require.Zero(t, outcome.BaselineOutcome.Digest.Failed)
+	require.Len(t, outcome.BaselineOutcome.TestOutcomes, 1)
+	require.Equal(t, models.StatusError, outcome.BaselineOutcome.TestOutcomes[0].Status)
+	require.Contains(t, outcome.BaselineOutcome.TestOutcomes[0].Runs[0].ErrorMsg, "baseline operational failure")
 }
 
 func TestFrozenJudgeSetupErrorCLIClassification(t *testing.T) {
