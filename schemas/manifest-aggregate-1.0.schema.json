@@ -126,7 +126,24 @@
         "verification": {"enum": ["unverified", "declared-state-only", "source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only", "recorded-degradation-only"]},
         "reason": {"type": "string", "maxLength": 64},
         "observed_count": {"$ref": "#/$defs/integer_text"}
-      }
+      },
+      "allOf": [{
+        "if": {"properties": {
+          "state": {"const": "present"},
+          "verification": {"enum": ["source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only"]}
+        }},
+        "then": {"required": ["observed_count"]}
+      }, {
+        "if": {"properties": {"verification": {"const": "recorded-degradation-only"}}},
+        "then": {"properties": {"state": {"const": "incomplete"}}, "not": {"required": ["observed_count"]}}
+      }, {
+        "if": {"properties": {"state": {"const": "present"}}},
+        "then": {"anyOf": [
+          {"properties": {"verification": {"enum": ["source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only"]}}, "required": ["observed_count"]},
+          {"properties": {"category": {"const": "usage"}, "verification": {"const": "declared-state-only"}, "reason": {"const": "declared_present_empty"}},
+            "required": ["reason"], "not": {"required": ["observed_count"]}}
+        ]}
+      }]
     },
     "native_count": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
     "native_number": {"type": "number", "minimum": 0},
@@ -159,6 +176,19 @@
         }
       }
     },
+    "source_context": {
+      "type": "object", "additionalProperties": false, "required": ["state", "verification"],
+      "properties": {
+        "state": {"enum": ["verified", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable", "timeout", "cancelled"]},
+        "verification": {"enum": ["unverified", "content-and-declared-context-only"]},
+        "source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"}
+      },
+      "allOf": [{
+        "if": {"properties": {"state": {"const": "verified"}}},
+        "then": {"required": ["source"], "properties": {"verification": {"const": "content-and-declared-context-only"}}},
+        "else": {"properties": {"verification": {"const": "unverified"}}}
+      }]
+    },
     "evidence_candidate": {
       "type": "object", "additionalProperties": false,
       "required": ["evidence_sha256", "state", "source_manifests", "declared_categories", "categories", "diagnostics"],
@@ -170,6 +200,7 @@
         "declared_categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/declaration"}},
         "categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/admitted_category"}},
         "usage": {"$ref": "#/$defs/recorded_usage"},
+        "source_context": {"$ref": "#/$defs/source_context"},
         "diagnostics": {"$ref": "#/$defs/diagnostics"}
       },
       "allOf": [{

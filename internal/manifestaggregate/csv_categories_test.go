@@ -24,9 +24,11 @@ func TestAggregateCSVMissingSelectedSidecarRetainsEmptyCategoryArrays(t *testing
 	rows, err := csv.NewReader(bytes.NewReader(data)).ReadAll()
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
-	require.Len(t, rows[1], 21)
+	require.Len(t, rows[1], 22)
 	require.Equal(t, "category_evidence_json", rows[0][19])
 	require.Equal(t, "declared_categories_json", rows[0][20])
 	require.Equal(t, "[]", rows[1][19], "selected but unavailable is an empty category array, not an unselected blank")
 	require.Equal(t, "[]", rows[1][20])
+	require.Equal(t, "source_context_json", rows[0][21])
+	require.Empty(t, rows[1][21], "unread sidecars cannot claim original source context")
 }

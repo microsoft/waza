@@ -16,6 +16,8 @@ test.describe("Completed manifest aggregation through real publication and API",
   let digests: string[];
   let unicodeDigest: string;
   let actual: ManifestAggregate;
+  let protectedSource: { manifest_sha256: string; evidence_sha256: string; execution_id: string };
+  let native: ManifestAggregate;
   const missing = "f".repeat(64);
   const env = { ...process.env, COPILOT_CLI_PATH: "/usr/bin/false", ENABLE_COPILOT_TESTS: "false",
     ENABLE_LIVE_COPILOT_TESTS: "false", WAZA_NO_UPDATE_CHECK: "1", NO_COLOR: "1" };
@@ -66,6 +68,10 @@ test.describe("Completed manifest aggregation through real publication and API",
         unicodeDigest = publishTerminal(Buffer.from(JSON.stringify(result)), "unicode");
       }
     }
+    protectedSource = JSON.parse(execFileSync("go", ["run",
+      "./internal/manifestaggregate/testdata/protected-producer", store,
+      resolve("../examples/runner/unit.json")], { cwd: resolve(".."), env, timeout: 150_000 }).toString());
+    expect(protectedSource.execution_id).toMatch(/^exec-[0-9a-f]{64}$/);
     const listener = createServer();
     await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
     const address = listener.address();
@@ -87,6 +93,18 @@ test.describe("Completed manifest aggregation through real publication and API",
     expect(actual.state_counts).toEqual({ success: 2 });
     const cli = execFileSync(binary, ["aggregate", "--store", store, ...digests], { cwd: directory, env }).toString().trim();
     expect(JSON.parse(cli)).toEqual(actual);
+    const nativeResponse = await request.post(`${base}/api/v1/aggregates`, { data: {
+      manifests: [protectedSource.manifest_sha256],
+      evidence: [{ manifest_sha256: protectedSource.manifest_sha256, evidence_sha256: protectedSource.evidence_sha256 }],
+    } });
+    expect(nativeResponse.status()).toBe(200);
+    native = await nativeResponse.json();
+    const candidate = native.evidence!.members[0]!.candidates[0]!;
+    expect(candidate.categories).toHaveLength(6);
+    expect(candidate.source_context).toEqual({
+      state: "verified", verification: "content-and-declared-context-only",
+      source: { execution_id: protectedSource.execution_id, manifest_digest: protectedSource.manifest_sha256 },
+    });
   });
 
   test.afterAll(async () => {
@@ -116,6 +134,42 @@ test.describe("Completed manifest aggregation through real publication and API",
     const artifact = await download;
     expect(artifact.suggestedFilename()).toBe("manifest-aggregate.json");
     expect(JSON.parse(readFileSync((await artifact.path())!, "utf8"))).toEqual(actual);
+  });
+
+  test("renders actual protected source context and native counts without billing attestation", async ({ page, request }) => {
+    await page.goto(`${base}/#/lab/runner`);
+    const panel = page.getByRole("region", { name: "Completed manifest aggregation" });
+    await panel.getByRole("textbox", { name: "Expected manifest digests" }).fill(protectedSource.manifest_sha256);
+    await panel.getByRole("textbox", { name: "Optional explicit evidence pairs" }).fill(
+      `${protectedSource.manifest_sha256}=${protectedSource.evidence_sha256}`);
+    await panel.getByRole("button", { name: "Aggregate manifests", exact: true }).click();
+    const result = panel.getByRole("status", { name: "Aggregate composition" });
+    await expect(result).toContainText("Original source context: verified");
+    await expect(result).toContainText(protectedSource.execution_id);
+    await expect(result).toContainText("not creator authority, runtime or billing attestation");
+    await expect(result).toContainText("Usage totals are withheld");
+    for (const category of native.evidence!.members[0]!.candidates[0]!.categories) {
+      const row = result.getByRole("heading", { name: "Native category admission", exact: true })
+        .locator("xpath=following-sibling::dl[1]").locator("div")
+        .filter({ has: page.locator(`dt:text-is("${category.category}")`) });
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText(`observed count: ${category.observed_count ?? "Unavailable"}`);
+    }
+    const csvResponse = await request.post(`${base}/api/v1/aggregates?format=csv`, { data: {
+      manifests: [protectedSource.manifest_sha256],
+      evidence: [{ manifest_sha256: protectedSource.manifest_sha256, evidence_sha256: protectedSource.evidence_sha256 }],
+    } });
+    expect(csvResponse.status()).toBe(200);
+    const download = page.waitForEvent("download");
+    await result.getByRole("button", { name: "Download aggregate CSV" }).click();
+    expect(readFileSync((await (await download).path())!, "utf8")).toBe(await csvResponse.text());
+    const contradictory = structuredClone(native);
+    contradictory.evidence!.members[0]!.candidates[0]!.source_context!.state = "missing";
+    contradictory.evidence!.members[0]!.candidates[0]!.source_context!.verification = "unverified";
+    await page.route("**/api/v1/aggregates", (route) => route.fulfill({ json: contradictory }));
+    await panel.getByRole("button", { name: "Aggregate manifests", exact: true }).click();
+    await expect(result).toHaveCount(0);
+    await expect(panel.getByRole("alert")).toContainText("contradictory original source context");
   });
 
   test("preserves a missing expected source and clears success after an invalid reload", async ({ page }) => {

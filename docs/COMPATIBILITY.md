@@ -256,7 +256,14 @@ summary is used to reconstruct absent source evidence. See
 Optional explicit evidence pairs do not rewrite manifest-only output or bump
 legacy writer versions. Omitted, null and empty selection are distinct: omitted
 has no evidence field, null is invalid, and empty emits explicit unselected
-evidence membership. Recorded usage uses native int64 counts, independently of
+evidence membership. The unreleased optional profile also exposes separate
+`source_context` admission through the sealed budgeted namespace reader and
+current Store; exact original attempt bytes must match the reservation.
+Missing/failed declared context makes the operation incomplete, without
+retroactively requiring a source descriptor on historical publications.
+Native `present` categories require observed counts. Optional-evidence CSV adds
+`source_context_json`; manifest-only JSON/CSV bytes remain unchanged.
+Recorded usage uses native int64 counts, independently of
 assurance profiles' JavaScript-safe limits. Original source bytes and historical
 usage remain unchanged. Optional evidence now requires the canonical native
 capture index for category/usage admission: unindexed flat sidecars intentionally

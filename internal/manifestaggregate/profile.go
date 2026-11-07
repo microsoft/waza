@@ -172,6 +172,15 @@ func validateEvidenceReport(report Report) error {
 				return fmt.Errorf("%w: evidence candidates must be sorted and unique", ErrInvalid)
 			}
 			previous = candidate.EvidenceSHA256
+			if source := candidate.SourceContext; source != nil {
+				if candidate.State != "verified" ||
+					(source.Source != nil && source.Source.ManifestDigest != candidate.OriginManifest) ||
+					(source.Source != nil && source.State != "verified" && report.Completion != "incomplete") ||
+					(source.State == "verified" && (source.Source == nil || source.Verification != "content-and-declared-context-only")) ||
+					(source.State != "verified" && source.Verification != "unverified") {
+					return fmt.Errorf("%w: original source context contradicts admitted evidence", ErrInvalid)
+				}
+			}
 			if candidate.State != "verified" {
 				continue
 			}
@@ -217,6 +226,21 @@ func validateEvidenceReport(report Report) error {
 					category.Category != candidate.Declarations[categoryIndex].Category ||
 					category.DeclaredState != candidate.Declarations[categoryIndex].DeclaredState {
 					return fmt.Errorf("%w: admitted categories contradict original declarations", ErrInvalid)
+				}
+				if category.State == evidencestate.Present && category.ObservedCount == nil &&
+					(category.Verification == "source-content-and-recorded-category-shape-only" ||
+						category.Verification == "source-content-and-recorded-usage-shape-only") {
+					return fmt.Errorf("%w: present native categories require observed counts", ErrInvalid)
+				}
+				if category.Verification == "recorded-degradation-only" &&
+					(category.State != evidencestate.Incomplete || category.ObservedCount != nil) {
+					return fmt.Errorf("%w: recorded degradation must remain incomplete without an admitted count", ErrInvalid)
+				}
+				if category.State == evidencestate.Present && category.Verification != "source-content-and-recorded-category-shape-only" &&
+					category.Verification != "source-content-and-recorded-usage-shape-only" &&
+					(category.Category != evidencestate.Usage || category.Verification != "declared-state-only" ||
+						category.Reason != "declared_present_empty" || category.ObservedCount != nil) {
+					return fmt.Errorf("%w: present categories require native counts or declared present-empty usage", ErrInvalid)
 				}
 				if category.ObservedCount != nil {
 					n, err := strconv.ParseInt(*category.ObservedCount, 10, 64)

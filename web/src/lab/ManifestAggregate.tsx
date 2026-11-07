@@ -68,7 +68,7 @@ function AggregateInspector() {
     {report && <div role="status" aria-label="Aggregate composition">
       <h3>Membership: {report.completion}</h3>
       <p>Compatibility: {report.compatibility}. Evidence assurance and aggregate scores are not inferred.</p>
-      <p>Usage and billing: unavailable without category-admitted source usage. Missing evidence is not zero or a pass.</p>
+      <p>Usage and billing: unavailable as aggregate or new-operation totals. Original recorded usage is separate; missing evidence is not zero or a pass.</p>
       <button className="lab-button" onClick={() => loaded && downloadText(loaded.rawJSON, "manifest-aggregate.json", "application/json")}>Download aggregate JSON</button>
       <button className="lab-button" onClick={() => loaded && downloadText(aggregateCSV(loaded), "manifest-aggregate.csv", "text/csv")}>Download aggregate CSV</button>
       <h3>Input state counts</h3>
@@ -120,6 +120,10 @@ function AggregateInspector() {
               </dd>
             </div>)}</dl>
             <h5>Native category admission</h5>
+            <p>Original source context: {candidate.source_context?.state ?? "Unavailable"};
+              verification: {candidate.source_context?.verification ?? "unverified"}.
+              {candidate.source_context?.source && <> Execution: <code>{candidate.source_context.source.execution_id}</code>.</>}
+              {" "}This is current content and declared context, not creator authority, runtime or billing attestation.</p>
             <dl>{candidate.categories.map((category) => <div key={category.category}>
               <dt>{category.category}</dt><dd>{category.state}; verification: {category.verification};
                 observed count: {category.observed_count ?? "Unavailable"}

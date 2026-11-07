@@ -88,7 +88,15 @@ an intentional stronger admission rule for the unreleased optional profile,
 not a change to manifest-only or historical results. Native observed counts use
 exact decimal text, and optional-evidence CSV keeps native category metadata
 separate from declarations. Recorded credits remain historical
-source usage, not new-operation billing, and totals stay withheld.
+execution usage, not the cost of this aggregation. `source_context` independently
+compares the explicitly declared source's current reservation/completion and
+manifest attempt bytes, byte for byte, through the same cumulative budget.
+It is content-and-declared-context consistency only, not Creator authority,
+runtime or billing attestation. The additional read pass is not a snapshot.
+Missing, corrupt, mismatched or budget-denied declared context makes the
+aggregate incomplete; omitted source declarations remain unavailable without
+namespace I/O. Native present categories must retain exact observed counts.
+Totals stay withheld even when context and native shapes verify.
 
 ## Troubleshoot incomplete aggregates
 

@@ -32,6 +32,10 @@ export interface EvidenceCandidate {
   }[];
   categories: AdmittedCategory[];
   usage?: RecordedUsage;
+  source_context?: {
+    state: string; verification: "unverified" | "content-and-declared-context-only";
+    source?: { execution_id: string; manifest_digest: string };
+  };
   diagnostics: { code: string; message: string }[];
 }
 export interface LoadedAggregate {
@@ -220,6 +224,14 @@ export async function aggregateManifests(manifests: string[], signal: AbortSigna
         if (candidate.evidence_sha256 !== requested[candidateIndex]) {
           throw new AggregateError("Aggregate API returned unsorted or unrequested sidecars.");
         }
+        const source = candidate.source_context;
+        if (source && (candidate.state !== "verified" ||
+            (source.source !== undefined && source.source.manifest_digest !== candidate.origin_manifest) ||
+            (source.source !== undefined && source.state !== "verified" && value.completion !== "incomplete") ||
+            (source.state === "verified" && (!source.source || source.verification !== "content-and-declared-context-only")) ||
+            (source.state !== "verified" && source.verification !== "unverified"))) {
+          throw new AggregateError("Aggregate API returned contradictory original source context.");
+        }
         if (candidate.state !== "verified") continue;
         if (candidate.origin_manifest !== member.manifest_sha256 ||
             !candidate.source_manifests.includes(member.manifest_sha256) ||
@@ -246,6 +258,20 @@ export async function aggregateManifests(manifests: string[], signal: AbortSigna
           const declared = candidate.declared_categories[categoryIndex];
           if (!declared || category.category !== declared.category || category.declared_state !== declared.declared_state) {
             throw new AggregateError("Aggregate API returned contradictory category declarations.");
+          }
+          if (category.state === "present" && category.observed_count === undefined &&
+              ["source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only"].includes(category.verification)) {
+            throw new AggregateError("Aggregate API omitted a native present category count.");
+          }
+          if (category.verification === "recorded-degradation-only" &&
+              (category.state !== "incomplete" || category.observed_count !== undefined)) {
+            throw new AggregateError("Aggregate API returned contradictory recorded degradation.");
+          }
+          if (category.state === "present" &&
+              !["source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only"].includes(category.verification) &&
+              (category.category !== "usage" || category.verification !== "declared-state-only" ||
+                category.reason !== "declared_present_empty" || category.observed_count !== undefined)) {
+            throw new AggregateError("Aggregate API returned unqualified present categories.");
           }
           if (category.observed_count !== undefined) {
             integer(category.observed_count);
@@ -301,7 +327,7 @@ export function aggregateCSV(loaded: LoadedAggregate): string {
     "usage_state", "usage_verification", "declared_usage_source", "turns", "input_tokens", "output_tokens",
     "cache_read_tokens", "cache_write_tokens", "premium_requests", "ai_credits", "model_metrics_json",
     "usage_totals", "new_operation_billing", "verified_source_manifests_json"]];
-  if (loaded.report.evidence) rows[0]!.push("category_evidence_json", "declared_categories_json");
+  if (loaded.report.evidence) rows[0]!.push("category_evidence_json", "declared_categories_json", "source_context_json");
   loaded.report.members.forEach((member, index) => {
     const candidates = loaded.report.evidence?.members[index]?.candidates;
     for (const candidate of candidates?.length ? candidates : [undefined]) {
@@ -316,6 +342,7 @@ export function aggregateCSV(loaded: LoadedAggregate): string {
         ...(loaded.report.evidence ? [
           candidate ? JSON.stringify(candidate.categories) : "",
           candidate ? JSON.stringify(candidate.declared_categories) : "",
+          candidate?.source_context ? JSON.stringify(candidate.source_context) : "",
         ] : [])]);
     }
   });

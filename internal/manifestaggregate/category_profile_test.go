@@ -66,3 +66,34 @@ func TestAggregateLaterSidecarVerificationCannotReplaceFailedOriginPass(t *testi
 	_, err = Encode(report)
 	require.NoError(t, err)
 }
+
+func TestAggregateProfileRetainsActualDeclaredEmptyUsageAlternative(t *testing.T) {
+	backend := &memoryBackend{objects: map[string][]byte{}}
+	origin, sidecar, _ := evidenceFixture(t, backend, 1, evidencestate.Present, nil)
+	report, err := Aggregate(t.Context(), backend, evidenceRequest(origin, sidecar))
+	require.NoError(t, err)
+	_, legacy, err := evidencestate.InspectWithUsage(t.Context(), backend, sidecar)
+	require.NoError(t, err)
+	require.Equal(t, evidencestate.Present, legacy.State)
+	require.Equal(t, "declared-state-only", legacy.Verification)
+	require.Equal(t, "declared_present_empty", legacy.Reason)
+	require.Nil(t, legacy.Usage)
+	// Admit the actual legacy declaration-only view as an alternative wire
+	// control, not as a current native category observation.
+	candidate := &report.Evidence.Members[0].Candidates[0]
+	candidate.Usage = &RecordedUsage{
+		State: legacy.State, DeclaredState: legacy.DeclaredState,
+		Verification: legacy.Verification, Reason: legacy.Reason,
+	}
+	for index := range candidate.Categories {
+		if candidate.Categories[index].Category == evidencestate.Usage {
+			candidate.Categories[index].State = legacy.State
+			candidate.Categories[index].Verification = legacy.Verification
+			candidate.Categories[index].Reason = legacy.Reason
+			require.Nil(t, candidate.Categories[index].ObservedCount)
+		}
+	}
+	require.Empty(t, report.Evidence.CategoryStateCounts)
+	_, err = Encode(report)
+	require.NoError(t, err, "declared present-empty is not native counted evidence or synthetic zero usage")
+}

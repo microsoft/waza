@@ -99,6 +99,8 @@ Observed failures remain withheld even when another pass verified the origin.
 The separate `categories` and `category_state_counts` report native category
 admission against the original terminal, canonical capture index and
 category-keyed payloads. Observed counts use exact decimal int64 text.
+Native `present` states require an observed count; removing a count is invalid,
+not an alternative representation of empty or unavailable evidence.
 Unindexed flat sidecars remain byte-verified declarations but have unavailable
 native categories, no admitted counts and no recorded usage. This intentionally
 strengthens the **unreleased** optional-evidence admission; manifest-only output
@@ -111,6 +113,18 @@ including incomplete credits, for review. Present-empty declarations never
 create zero usage. This verifies source content and recorded shape, not privacy
 authorization, retained ownership, live execution or billing attestation.
 Scores, assurance and usage totals remain withheld.
+The separate `source_context` view verifies an explicitly supplied execution
+source against current reservation/completion records and the original manifest
+attempt bytes. The descriptor must equal the namespace reservation **byte for
+byte**, not merely name the same execution ID or binding. Both the sealed
+namespace reader and Store use the same admitted-read counter before I/O.
+This additional current-source pass is explicitly **not a snapshot** of the
+earlier category pass. A missing, corrupt, mismatched or budget-denied declared
+source makes the aggregate incomplete through CLI/API exit/status handling;
+native shape observations remain separately labeled. Without a source
+declaration, context remains unavailable and no namespace is opened.
+Even verified context establishes only content and declared-context consistency:
+it does not hydrate Creator authority, prove live execution or authorize billing.
 Future usage integration must reuse `models.AggregateUsageStats`, preserve
 recorded zero/precision and original source usage, and exclude reused/cached
 historical execution usage from new-operation billing. A historical observed
@@ -131,7 +145,8 @@ There are at most 128 submitted digests and 128 submitted evidence pairs
 **before deduplication**, independently of the 32 KiB API JSON ceiling.
 The maximum compact 128+128 selection fits that ceiling; padding and overlong
 wire input still count toward it. The cumulative read budget is 256 MiB, covering
-manifest, artifact, marker, sidecar and lineage verification. It deliberately
+manifest, artifact, marker, sidecar, lineage and namespace reservation/completion
+verification. It deliberately
 does not promise to fit 128 individually maximum-sized publications.
 The actual `Store.ReadCompleted` retains
 selected original terminal bytes in the same all-artifact verification pass;

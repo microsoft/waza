@@ -9,6 +9,7 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -57,7 +58,14 @@ type EvidenceCandidate struct {
 	Declarations   []CategoryDeclaration         `json:"declared_categories"`
 	Categories     []AdmittedCategory            `json:"categories"`
 	Usage          *RecordedUsage                `json:"usage,omitempty"`
+	SourceContext  *SourceContext                `json:"source_context,omitempty"`
 	Diagnostics    []artifactmanifest.Diagnostic `json:"diagnostics"`
+}
+
+type SourceContext struct {
+	State        string                   `json:"state"`
+	Verification string                   `json:"verification"`
+	Source       *executionattempt.Source `json:"source,omitempty"`
 }
 
 type EvidenceMember struct {
@@ -106,6 +114,7 @@ func aggregateEvidence(ctx context.Context, backend *boundedBackend, members []M
 				candidate.Declarations = []CategoryDeclaration{}
 				candidate.Categories = []AdmittedCategory{}
 				candidate.Usage = nil
+				candidate.SourceContext = nil
 				candidate.Diagnostics = append(candidate.Diagnostics, artifactmanifest.Diagnostic{
 					Code: "origin_admission_withheld", Message: "The origin was not admitted in the manifest pass. A later sidecar read cannot replace that observed failure; category counts and usage are withheld.",
 				})
@@ -235,12 +244,19 @@ func inspectEvidenceCandidate(ctx context.Context, backend *boundedBackend, refe
 		}
 	}
 	slices.SortFunc(result.Categories, func(a, b AdmittedCategory) int { return strings.Compare(string(a.Category), string(b.Category)) })
+	sourceContext, sourceErr := inspectSourceContext(ctx, backend, *inspection.Document)
+	result.SourceContext = sourceContext
+	if sourceErr != nil {
+		result.Diagnostics = append(result.Diagnostics, artifactmanifest.Diagnostic{
+			Code: "original_source_context_withheld", Message: "Current reservation, completion and original attempt bytes were not admitted together. Native shapes remain a separate observation; no retained-source or billing claim is made.",
+		})
+	}
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, artifactmanifest.Diagnostic{
 			Code: "category_admission_failed", Message: "Source bytes were verified, but captured category admission failed. Unqualified counts and usage remain withheld; no score or billing total was substituted.",
 		})
 	}
-	return result, err
+	return result, errors.Join(err, sourceErr)
 }
 
 func categoryAdmitted(category AdmittedCategory) bool {

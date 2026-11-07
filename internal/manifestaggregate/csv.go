@@ -32,7 +32,7 @@ func EncodeCSV(report Report) ([]byte, error) {
 		"premium_requests", "ai_credits", "model_metrics_json", "usage_totals", "new_operation_billing", "verified_source_manifests_json",
 	}
 	if report.Evidence != nil {
-		header = append(header, "category_evidence_json", "declared_categories_json")
+		header = append(header, "category_evidence_json", "declared_categories_json", "source_context_json")
 	}
 	if err := writer.Write(header); err != nil {
 		return nil, fmt.Errorf("encoding aggregate CSV header: %w", err)
@@ -66,6 +66,13 @@ func EncodeCSV(report Report) ([]byte, error) {
 						return nil, fmt.Errorf("encoding aggregate CSV category metadata: %w", err)
 					}
 					row[19+offset] = string(data)
+				}
+				if candidate.SourceContext != nil {
+					data, err := json.Marshal(candidate.SourceContext)
+					if err != nil {
+						return nil, fmt.Errorf("encoding aggregate CSV original source context: %w", err)
+					}
+					row[21] = string(data)
 				}
 			}
 			if candidate.Usage != nil {
