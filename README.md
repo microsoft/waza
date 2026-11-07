@@ -813,7 +813,7 @@ New captures set each artifact's `redacted` flag from changes to its own materia
 
 The manifest fingerprints the captured environment allow-list/configuration (`environment`, snapshot pointer `/env`) and engine configuration (`engine-config`, `/engine`), not the full host environment. Optional `--interpret` output reports per-trial scoped check observations and evidence metadata without changing legacy no-metadata text; malformed evidence is withheld.
 
-Portable evidence uses independent manifest version **1.0** and ordinary snapshot schema **1.1**, retaining legacy task semantics and historical result readers; newly generated results from current source use **1.8**. Published v0.39.1 writes results **1.7**. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
+Portable evidence uses independent manifest version **1.0** and ordinary snapshot schema **1.1**, retaining legacy task semantics and historical result readers; newly generated results from current source use **1.9**. Published v0.39.1 writes results **1.7**. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
 
 Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. Capture adds no export, upload, or local-path fetch. Existing explicitly configured result storage still uploads results, including evidence metadata, but does not fetch or upload the separate snapshot files. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
 
@@ -896,9 +896,9 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while current source result writers independently emit `1.8` (published v0.39.1 writes `1.7`). Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
+Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while current source result writers independently emit `1.9` (published v0.39.1 writes `1.7`). Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
 Compatibility reports use the executing binary's current version for the artifact type: legacy eval
-`1.4` or, for current source, result writer `1.8`. Unversioned/`1.4` results explicitly distinguish
+`1.4` or, for current source, result writer `1.9`. Unversioned/`1.4` results explicitly distinguish
 their legacy reader default from the current writer version without upgrading them.
 
 ```bash
@@ -1694,7 +1694,7 @@ Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, 
 
 With explicit effort, choose a concrete model from `waza models`. Waza checks the runtime's supported-effort metadata before creating or resuming hosted Copilot sessions; unknown models, unavailable metadata, and unsupported efforts produce actionable errors instead of silently using a different effort. Custom-provider efforts are forwarded directly because the hosted catalog does not describe those models. Result setup metadata and cache keys include both eval-level effort settings; regrading replaces the judge effort, including clearing a previously pinned value when omitted.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. Evaluations and regrades from current source emit results `1.8`, separately from their input version; published v0.39.1 writes `1.7`. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. Evaluations and regrades from current source emit results `1.9`, separately from their input version; published v0.39.1 writes `1.7`. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
 Standalone v0.40.0 writes results `1.8`; this does not change legacy eval/result
 reader defaults, task YAML, or the independent runner request/terminal version `1.0`.
@@ -1793,7 +1793,7 @@ checks reject group/world-writable cache parents and private children with
 group/other mode bits. These retained-root checks do not certify Windows ACLs,
 cache confidentiality or whole-filesystem ancestry.
 
-A source build currently emits `results.json` at `schemaVersion` `1.8`; published `v0.39.1` writes `1.7`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` adds optional frozen `runs[].judge_evidence`, metadata-only `runs[].prompt_judging` observations and separate current-regrade `regrade_usage.sessions` for evidence-enabled prompt graders, plus configured live/mocked `runs[].dependency_modes`. Version `1.8` adds optional `runs[].host_lifecycle` model-turn and host shell evidence projected from structured native session events (omitted when unavailable). The saved bundle contains sanitized evidence, whereas API/report metadata does not copy its bodies. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+A source build currently emits `results.json` at `schemaVersion` `1.9`; published `v0.39.1` writes `1.7`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` adds optional frozen `runs[].judge_evidence`, metadata-only `runs[].prompt_judging` observations and separate current-regrade `regrade_usage.sessions` for evidence-enabled prompt graders, plus configured live/mocked `runs[].dependency_modes`. Version `1.8` adds optional `runs[].host_lifecycle` model-turn and host shell evidence projected from structured native session events (omitted when unavailable). Version `1.9` adds optional `runs[].user_input_requests` records for native SDK question callbacks (`config.native_user_input`). The saved bundle contains sanitized evidence, whereas API/report metadata does not copy its bodies. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 The dashboard displays these recorded Wilson intervals and pass^k estimates separately from bootstrap weighted-score intervals, with available trial counts. Missing historical statistics show **Not assessed**; readers never infer them from scores or successful outcomes. None of these intervals is a significance test between runs.
 
@@ -1908,6 +1908,27 @@ Choose the mechanism that matches the dependency boundary:
 | `mcp_mocks` | The skill calls structured tools from an MCP server rather than a shell executable. |
 | Hooks | Setup, teardown, or validation should run around a task/eval; hooks do not intercept commands started by the agent. |
 | Live integration tests | Real CLI/service behavior, authentication, or infrastructure interaction is what the test must verify. Keep these separate from hermetic evals. |
+
+### Native Question Callbacks
+
+Set `config.native_user_input: true` to give the agent the Copilot SDK's native `ask_user` tool. Waza then answers each question from the task's ordered `user_input_responses` first, and from the task's adaptive responder (`inputs.responder`) for anything the script does not match. The flag requires `executor: copilot-sdk` and a scenario eval (`schemaVersion: "2.0"`); older Waza versions reject it instead of silently ignoring the answers.
+
+```yaml
+# eval.yaml
+config:
+  executor: copilot-sdk
+  native_user_input: true
+
+# task.yaml
+user_input_responses:
+  - question: "(?is).*environment.*"   # optional regex for the whole question
+    answer: staging                     # equals an offered choice, so it selects it
+  - answer: Fixes the login timeout.    # no question: answers the next one, as typed text
+```
+
+Each entry has a required `answer` and an optional `question` regex. Questions that do not match the next entry, or arrive after the script is used up, return an error to the SDK instead of a default answer and fail the run; unused entries also fail it. Each request is recorded in order under `runs[].user_input_requests` (session ID, question, offered choices, answer, `was_freeform`, `source`, and `error` when rejected) and exposed to inline `code` graders as `user_input_requests`. This is separate from `mcp_mocks`, which can mock an MCP-provided `ask_user` tool. See [examples/scenarios/native-questions](examples/scenarios/native-questions).
+
+With an adaptive responder, any question the next scripted entry does not match is answered by the responder model from its instructions (recorded with `source: responder`). Responder stop, abstain, errors, or invalid answers fail the run. Without the flag, responders keep their existing between-turn behavior only. See the [schema reference](site/src/content/docs/reference/schema.mdx#adaptive-responder-answers).
 
 ### Adversarial Packs
 

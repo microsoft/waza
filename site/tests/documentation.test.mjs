@@ -574,11 +574,17 @@ test('release entry points agree on published versions and the current runner re
   const compatibilityRow = read('site/src/content/docs/guides/runner-compatibility.mdx')
     .match(/^\| Local results \| ([^|]+)\|/m)?.[1];
   assert.match(compatibilityRow ?? '', new RegExp(`\\bschema ${escapedWriter}\\b`));
+  // Released v0.40.0 entries keep the writer that release shipped, which can
+  // trail the current source writer.
+  const releaseWriter = read('site/src/content/docs/reference/releases.mdx')
+    .match(/v0\.40\.0 result writers emit \*\*(\d+\.\d+)\*\*/)?.[1];
+  assert.match(releaseWriter ?? '', /^\d+\.\d+$/);
+  const escapedReleaseWriter = releaseWriter.replace('.', '\\.');
   const preview = read('docs/PRD.md').split('The v0.40.0 runner')[1]?.split('### The Problem')[0];
-  assert.match(preview ?? '', new RegExp(`result schema ${escapedWriter}\\b`));
+  assert.match(preview ?? '', new RegExp(`result schema ${escapedReleaseWriter}\\b`));
   const changelogEntry = read('CHANGELOG.md').split('\n')
     .find((line) => line.startsWith('- **Bounded local compatibility'));
-  assert.match(changelogEntry ?? '', new RegExp(`writer schema ${escapedWriter}\\b`));
+  assert.match(changelogEntry ?? '', new RegExp(`writer schema ${escapedReleaseWriter}\\b`));
 
   const sdk = read('go.mod').match(/github\.com\/github\/copilot-sdk\/go v(\S+)/)?.[1];
   const bundledCLI = read('internal/embedded/zcopilot_darwin_arm64.go').match(/Version:\s+"([^"]+)"/)?.[1];

@@ -969,11 +969,11 @@ the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
 their artifact shape, including custom `.json` filenames.
 
 This legacy input/reader policy is separate from new result emission: evaluations
-and regrades in v0.40.0 write results `1.8`; published `v0.39.1` writes
-`1.7`. Historical result versions and missing reliability metadata are preserved
+and regrades from current source write results `1.9` (v0.40.0 writes `1.8`; published `v0.39.1` writes
+`1.7`). Historical result versions and missing reliability metadata are preserved
 when reading/re-saving; migration does not upgrade them.
 Compatibility reports select the executing binary's current version by artifact
-type: eval `1.4` or, for current source, result writer `1.8`. Missing/`1.4` result versions are explicitly labeled as
+type: eval `1.4` or, for current source, result writer `1.9`. Missing/`1.4` result versions are explicitly labeled as
 the legacy reader default alongside the current writer version, not rewritten.
 
 A present `scenario` header requires a nonblank native string and exact schema

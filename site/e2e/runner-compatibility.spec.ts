@@ -6,7 +6,7 @@ test('local compatibility navigation, profiles and executable examples retain /w
   await expect(page).toHaveURL(/\/waza\/guides\/runner-compatibility\/$/);
   const table = page.getByRole('table').first();
   await expect(table).toContainText('run --runner-compat');
-  await expect(table.getByRole('row').filter({ hasText: 'Local results' })).toContainText('schema 1.8');
+  await expect(table.getByRole('row').filter({ hasText: 'Local results' })).toContainText('schema 1.9');
   await expect(table).toContainText('Unknown', { ignoreCase: true });
   const evalExample = page.getByRole('figure', { name: 'custom-suite.yaml', exact: true });
   await expect(evalExample.locator('code')).toContainText('tasks: ["tasks/selected.case.yaml"]');

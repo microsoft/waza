@@ -181,7 +181,7 @@ test('local runner compatibility examples execute the actual CLI and retain loca
     run(['run', 'custom-suite.yaml', '--runner-compat', '--output', 'after.json', '--no-summary'], cwd);
     for (const path of ['before.json', 'after.json']) {
       const result = JSON.parse(readFileSync(join(cwd, path), 'utf8'));
-      assert.equal(result.schemaVersion, '1.8');
+      assert.equal(result.schemaVersion, '1.9');
       assert.equal(result.schemaVersion, documentedWriter, `${path} must match the documented writer version`);
       assert.equal(result.eval_name, 'compatible-local');
       assert.equal(result.tasks.length, 1);
