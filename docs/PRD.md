@@ -72,6 +72,19 @@ availability and acceptance of a public image digest are separate gates.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
+The unreleased v0.41 immutable publication profile (#763) is an additive
+source-preview contract, not a completed release announcement. A separate local
+or Azure store conditionally creates content-addressed blobs and manifests,
+verifies current content plus declared terminal context, and finalizes by
+manifest digest. Neither repeated publication nor shared logical identities
+overwrite evidence. Native API/Lab discovery lists persisted unverified pointers
+and separately inspects integrity; legacy mutable results are not relabeled as
+verified publications. Explicitly missing, corrupt and conflicting content
+cannot become a verified result. Adoption requires retained original artifacts
+and an explicit manifest; no billing, evidence or execution attestation is
+invented. Attempt ownership remains the separate #764 contract. See
+[publication and migration](IMMUTABLE_ARTIFACTS.md).
+
 External-schema interoperability (#789) remains partial. The v0.40.0
 adapter projects one explicitly selected, commit-pinned AgentV case-sensitive
 `contains` assertion to a single native text grader and exports the same
