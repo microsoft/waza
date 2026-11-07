@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -179,7 +178,7 @@ func TestLocalConfinedReadsRetainRootAndRejectSpecialObjects(t *testing.T) {
 	}
 	relocated := filepath.Join(base, "moved")
 	if err := os.Rename(directory, relocated); err != nil {
-		if runtime.GOOS != "windows" || !errors.Is(err, os.ErrPermission) {
+		if !retainedRootRenameBlocked(err) {
 			t.Fatal(err)
 		}
 		if _, statErr := os.Stat(relocated); !errors.Is(statErr, os.ErrNotExist) {

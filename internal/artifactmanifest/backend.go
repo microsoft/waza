@@ -10,8 +10,9 @@ import (
 )
 
 // OpenBackend opens the explicit Azure container when supplied, otherwise the
-// existing local directory. It never signs in, creates directories, or falls
-// back to local storage after an Azure configuration or credential error.
+// existing local directory. It never initiates interactive login, creates
+// directories, or falls back after an Azure error. Token acquisition may invoke
+// installed Azure credential helpers; provider authentication is not process-free.
 func OpenBackend(directory, azureURL string) (Backend, func() error, error) {
 	if azureURL == "" {
 		backend, err := OpenLocal(directory)
