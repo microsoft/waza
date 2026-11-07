@@ -17,7 +17,7 @@ import (
 const releaseSourceCheck = "source_sha=\"$(git rev-parse HEAD)\"\ntest \"$source_sha\" = \"$GITHUB_SHA\"\n"
 const releaseDigestCheck = "recorded_digest=\"$(cat waza.sha256)\"\nactual_digest=\"$(sha256sum waza)\"\ntest \"$recorded_digest\" = \"$actual_digest\"\n"
 const releaseRecordedSourceCheck = "source_sha=\"$(cat source-sha.txt)\"\ntest \"$source_sha\" = \"$GITHUB_SHA\"\n"
-const releaseDashboardCheck = "node .github/scripts/release_dashboard_check.mjs"
+const releaseDashboardCheck = "GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check"
 
 type releaseStep struct {
 	ID               string `yaml:"id"`
@@ -171,7 +171,13 @@ func TestReleaseWorkflowGates(t *testing.T) {
 
 func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 	t.Helper()
-	checker, err := os.ReadFile("release_dashboard_check.mjs")
+	checker := filepath.Join(t.TempDir(), "dashboard-check")
+	compile := exec.CommandContext(t.Context(), "go", "build", "-o", checker, "./release-dashboard-check")
+	compile.Env = append(os.Environ(), "GOOS=", "GOARCH=", "GOPROXY=off", "GOSUMDB=off")
+	if output, err := compile.CombinedOutput(); err != nil {
+		t.Fatalf("building host-native offline dashboard checker: %v\n%s", err, output)
+	}
+	binaryCheck, err := os.ReadFile("release_binary_check.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,14 +256,29 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 		{"inert-script-language", []string{index, favicon, js, css}, nil, "", false},
 		{"disabled-stylesheet", []string{index, favicon, js, css}, nil, "", false},
 		{"executable-script-type", []string{index, favicon, js, css}, nil, "", true},
+		{"template-only", []string{index, favicon, js, css}, nil, "", false},
+		{"noscript-only", []string{index, favicon, js, css}, nil, "", false},
+		{"rawtext-only", []string{index, favicon, js, css}, nil, "", false},
+		{"alternate-style-only", []string{index, favicon, js, css}, nil, "", false},
+		{"inert-missing-refs", []string{index, favicon, js, css}, nil, "", true},
+		{"root-base", []string{index, favicon, js, css}, nil, "", true},
+		{"relative-root-base", []string{index, favicon, js, css}, nil, "", true},
+		{"empty-root-base", []string{index, favicon, js, css}, nil, "", true},
+		{"nested-base", []string{index, favicon, js, css}, nil, "", false},
+		{"nonlocal-base", []string{index, favicon, js, css}, nil, "", false},
+		{"host-base", []string{index, favicon, js, css}, nil, "", false},
+		{"first-base", []string{index, favicon, js, css}, nil, "", true},
+		{"decoded-refs", []string{index, favicon, js, css}, nil, "", true},
+		{"decoded-escape", []string{index, favicon, js, css}, nil, "", false},
+		{"case-preserved", []string{index, favicon, js, css, "web/dist/assets/Entry.js"}, nil, "", true},
+		{"foreign-script", []string{index, favicon, js, css}, nil, "", false},
+		{"foreign-html-missing", []string{index, favicon, js, css}, nil, "", false},
+		{"quoted-greater-query", []string{index, favicon, js, css}, nil, "", true},
+		{"empty-type-overrides-language", []string{index, favicon, js, css}, nil, "", true},
+		{"module-with-nomodule", []string{index, favicon, js, css}, nil, "", true},
 	} {
 		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
 			dir := t.TempDir()
-			scripts := filepath.Join(dir, ".github", "scripts")
-			if err := os.MkdirAll(scripts, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			writeReleaseFile(t, filepath.Join(scripts, "release_dashboard_check.mjs"), checker)
 			refs := []string{}
 			for _, path := range fixture.directories {
 				if err := os.MkdirAll(filepath.Join(dir, path), 0o700); err != nil {
@@ -350,6 +371,46 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 				case "executable-script-type":
 					html.Reset()
 					html.WriteString("<script type=\"application/javascript\" src=\"/assets/index-a.js\"></script><link rel=\"stylesheet\" href=\"/assets/index-b.css\">\n")
+				case "template-only", "noscript-only", "rawtext-only":
+					element := map[string]string{"template-only": "template", "noscript-only": "noscript", "rawtext-only": "textarea"}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<%s><script src='/assets/index-a.js'></script><link rel='stylesheet' href='/assets/index-b.css'></%s>", element, element)
+				case "alternate-style-only":
+					html.Reset()
+					html.WriteString("<script src='/assets/index-a.js'></script><link rel='alternate stylesheet' title='alternative' href='/assets/index-b.css'>")
+				case "inert-missing-refs":
+					html.WriteString("<template><base href='/wrong/'><script src='/assets/missing.js'></script></template><noscript><link rel='stylesheet' href='/assets/missing.css'></noscript><textarea><script src='/assets/missing.js'></script></textarea><script>const pseudo = \"<link rel='stylesheet' href='/assets/missing.css'>\";</script>")
+				case "root-base":
+					html.WriteString("<base href='/'>")
+				case "relative-root-base":
+					html.WriteString("<base href='./'>")
+				case "empty-root-base":
+					html.WriteString("<base href=''>")
+				case "nested-base":
+					html.WriteString("<base href='/nested/'>")
+				case "nonlocal-base":
+					html.WriteString("<base href='https://dashboard.invalid/'>")
+				case "host-base":
+					html.WriteString("<base href='//dashboard.invalid/'>")
+				case "first-base":
+					html.WriteString("<base href='./'><base href='https://elsewhere.invalid/'>")
+				case "decoded-refs":
+					html.Reset()
+					html.WriteString("<base href='./'><script src='assets/index-%61.js?cache=1#entry'></script><link rel='stylesheet' href='assets/index-%62.css?cache=1'>")
+				case "decoded-escape":
+					html.WriteString("<script src='/assets/%2e%2e/outside.js'></script>")
+				case "foreign-script":
+					html.WriteString("<svg><script href='https://elsewhere.invalid/remote.js'></script></svg>")
+				case "foreign-html-missing":
+					html.WriteString("<svg><foreignObject><script src='/assets/missing.js'></script></foreignObject></svg>")
+				case "quoted-greater-query":
+					html.WriteString("<script src='assets/index-a.js?quoted=>true' defer></script>")
+				case "empty-type-overrides-language":
+					html.Reset()
+					html.WriteString("<script type='' language=vbscript src='/assets/index-a.js'></script><link rel=stylesheet href='/assets/index-b.css'>")
+				case "module-with-nomodule":
+					html.Reset()
+					html.WriteString("<script type=module nomodule src='/assets/index-a.js'></script><link rel=stylesheet href='/assets/index-b.css'>")
 				}
 				switch fixture.name {
 				case "empty-referenced-js":
@@ -386,11 +447,18 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 			if err := os.Mkdir(bin, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			mockGo := "#!/bin/bash\nset -euo pipefail\ntest \"$1\" = build\nbinary=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = -o ]; then binary=\"$2\"; shift 2; else shift; fi\ndone\ntest -n \"$binary\"\nprintf '%s' \"$binary\" > build-started\nprintf '#!/bin/bash\\nprintf executed > binary-executed\\n' > \"$binary\"\nchmod +x \"$binary\"\n"
+			scripts := filepath.Join(dir, ".github", "scripts")
+			if err := os.MkdirAll(scripts, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeReleaseFile(t, filepath.Join(scripts, "release_binary_check.sh"), binaryCheck)
+			mockGo := "#!/bin/bash\nset -euo pipefail\nif [ \"$1\" = run ]; then\n  test \"$2\" = ./.github/scripts/release-dashboard-check\n  test -z \"$GOOS\"\n  test -z \"$GOARCH\"\n  test \"$GOPROXY\" = off\n  test \"$GOSUMDB\" = off\n  exec \"$DASHBOARD_CHECKER\"\nfi\ntest \"$1\" = build\nbinary=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = -o ]; then binary=\"$2\"; shift 2; else shift; fi\ndone\ntest -n \"$binary\"\nprintf '%s' \"$binary\" > build-started\nprintf '#!/bin/bash\\nprintf executed > binary-executed\\n' > \"$binary\"\nchmod +x \"$binary\"\n"
+			mockGo = strings.Replace(mockGo, "test \"$1\" = build\n", "if [ \"$1\" = version ]; then\n  test \"$2\" = -m\n  printf 'build vcs.revision=%s\\nbuild vcs.modified=false\\n' \"$GITHUB_SHA\"\n  exit 0\nfi\ntest \"$1\" = build\n", 1)
 			writeReleaseFile(t, filepath.Join(bin, "go"), []byte(mockGo))
 			writeReleaseFile(t, filepath.Join(bin, "azd"), []byte("#!/bin/bash\nset -euo pipefail\ntest \"$1\" = x\ntest \"$2\" = build\nprintf extension-binary > build-started\nprintf fixture > extension-binary\n"))
 			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", admission+"\n"+build)
-			cmd.Dir, cmd.Env = dir, append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			cmd.Dir, cmd.Env = dir, append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"DASHBOARD_CHECKER="+checker, "GOOS=windows", "GOARCH=arm64", "GITHUB_SHA=fixture-source")
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != fixture.admitted {
 				t.Fatalf("dashboard admission = %v: %v\n%s", fixture.admitted, err, output)
@@ -430,6 +498,9 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 func testReleaseDashboardMutations(t *testing.T, source []byte, jobName string, validate func([]byte) error) {
 	t.Helper()
 	for _, mutation := range []struct{ step, field, value string }{
+		{"Download dashboard checker dependency", "if", "false"},
+		{"Download dashboard checker dependency", "continue-on-error", "true"},
+		{"Download dashboard checker dependency", "run", ":"},
 		{"Setup Node.js (for web UI build)", "if", "false"},
 		{"Setup Node.js (for web UI build)", "uses", ""},
 		{"Build Web UI", "if", "false"},
@@ -442,6 +513,10 @@ func testReleaseDashboardMutations(t *testing.T, source []byte, jobName string, 
 		{"Require built dashboard output", "name", "Removed dashboard admission"},
 		{"Require built dashboard output", "run", ":"},
 		{"Require built dashboard output", "run", releaseDashboardCheck + " || true"},
+		{"Require built dashboard output", "run", "go run ./.github/scripts/release-dashboard-check"},
+		{"Require clean packaged source", "if", "false"},
+		{"Require clean packaged source", "continue-on-error", "true"},
+		{"Require clean packaged source", "run", ":"},
 	} {
 		t.Run("dashboard-mutation-"+jobName+"-"+mutation.step+"-"+mutation.field+"-"+mutation.value, func(t *testing.T) {
 			var wire yaml.Node
@@ -1145,6 +1220,17 @@ func testTagVersionPropagation(t *testing.T, workflow releaseWorkflow) {
 	} {
 		t.Run("tag-version-propagation-"+tc.tag, func(t *testing.T) {
 			dir := t.TempDir()
+			scripts := filepath.Join(dir, ".github", "scripts")
+			if err := os.MkdirAll(scripts, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"release_binary_check.sh", "release_tag_check.sh"} {
+				content, err := os.ReadFile(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeReleaseFile(t, filepath.Join(scripts, name), content)
+			}
 			outputPath := filepath.Join(dir, "version-output")
 			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", detector.Run)
 			cmd.Dir = dir
@@ -1162,7 +1248,7 @@ func testTagVersionPropagation(t *testing.T, workflow releaseWorkflow) {
 			build := releaseSteps(workflow.Jobs["build-cli"])["Build Binary"].Run
 			build = strings.NewReplacer("${{ needs.setup-version.outputs.version }}", version,
 				"${{ matrix.os }}", "linux", "${{ matrix.arch }}", "amd64").Replace(build)
-			mockBuild := "go() { test \"$1\" = build; printf '%s\\n' \"$@\" > build-args; printf fixture > waza-linux-amd64; }\n"
+			mockBuild := "go() { if [ \"$1\" = version ]; then printf 'build vcs.revision=%s\\nbuild vcs.modified=false\\n' \"$GITHUB_SHA\"; return; fi; test \"$1\" = build; printf '%s\\n' \"$@\" > build-args; printf fixture > waza-linux-amd64; }\nexport -f go\n"
 			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", mockBuild+build)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
@@ -1177,8 +1263,10 @@ func testTagVersionPropagation(t *testing.T, workflow releaseWorkflow) {
 			cli = strings.NewReplacer("${{ needs.setup-version.outputs.tag }}", tag,
 				"${{ github.repository }}", "microsoft/waza").Replace(cli)
 			mockCLI := "gh() { if [ \"$2\" = view ]; then return 1; fi; printf '%s\\n' \"$@\" > cli-args; }\n"
+			mockCLI += "git() { test \"$1\" = ls-remote; printf '%s\\trefs/tags/%s\\n' \"$GITHUB_SHA\" \"$TEST_TAG\"; }\nexport -f git\n"
 			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", mockCLI+cli)
 			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source", "TEST_TAG="+tag)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("detected CLI release tag: %v\n%s", err, output)
 			}
@@ -1551,7 +1639,8 @@ func validateReleaseValidation(source []byte) error {
 		return fmt.Errorf("validation completion must be ineligible after workflow cancellation")
 	}
 	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Require exact source",
-		"Setup Node.js (for web UI build)", "Build Web UI", "Require built dashboard output", "Install and prove rejecting runtime guard",
+		"Setup Go Environment", "Download dashboard checker dependency", "Setup Node.js (for web UI build)",
+		"Build Web UI", "Require built dashboard output", "Require clean packaged source", "Install and prove rejecting runtime guard",
 		"Test release gate failure handling", "Run Go Vet", "Execute Tests", "Build Release Binary", "Integration Test",
 		"Record tested binary digest", "Upload tested release binary and remaining coverage"}); err != nil {
 		return err
@@ -1598,7 +1687,7 @@ func validateReleaseValidation(source []byte) error {
 	if buildSteps["Install and prove rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
 		buildSteps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
 		buildSteps["Run Go Vet"].Run != "go vet ./..." ||
-		buildSteps["Build Release Binary"].Run != "go build -v -o waza ./cmd/waza\n./waza --version\n" ||
+		buildSteps["Build Release Binary"].Run != "go build -v -o waza ./cmd/waza\nbash .github/scripts/release_binary_check.sh waza\n./waza --version\n" ||
 		buildSteps["Integration Test"].Run != "bash .github/scripts/release_integration_test.sh ./waza" {
 		return fmt.Errorf("build branch must retain vet, runtime guard, failure controls and tested binary integration")
 	}
@@ -1747,6 +1836,12 @@ func validateReleaseDashboard(job releaseJob) error {
 		steps["Require built dashboard output"].Run != releaseDashboardCheck {
 		return fmt.Errorf("release binary requires the real same-run dashboard build and complete nonempty regular referenced output")
 	}
+	if steps["Require clean packaged source"].Run != "bash .github/scripts/release_source_check.sh" {
+		return fmt.Errorf("release builds must admit clean committed dashboard and source metadata")
+	}
+	if steps["Download dashboard checker dependency"].Run != "go mod download golang.org/x/net" {
+		return fmt.Errorf("dashboard checker dependency setup must precede offline host execution")
+	}
 	return nil
 }
 
@@ -1790,7 +1885,8 @@ func validateTagRelease(source []byte) error {
 		return fmt.Errorf("tag validation, builders and publishers must retain success-only dependency admission")
 	}
 	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Require exact validated source",
-		"Setup Go Environment", "Setup Node.js (for web UI build)", "Build Web UI", "Require built dashboard output",
+		"Setup Go Environment", "Setup Node.js (for web UI build)", "Download dashboard checker dependency",
+		"Build Web UI", "Require built dashboard output", "Require clean packaged source",
 		"Build Binary", "Upload Binary Artifact"}); err != nil {
 		return err
 	}
@@ -1799,10 +1895,12 @@ func validateTagRelease(source []byte) error {
 		return err
 	}
 	if err := orderedReleaseSteps(extension, []string{"Checkout Repository", "Require exact validated source",
-		"Setup Go Environment", "Setup Node.js (for web UI build)", "Build Web UI", "Require built dashboard output",
+		"Setup Go Environment", "Setup Node.js (for web UI build)", "Download dashboard checker dependency",
+		"Build Web UI", "Require built dashboard output", "Require clean packaged source",
+		"Verify selected Extensions Kit contract",
 		"Sync Version Files", "Build Extension", "Pack Extension",
-		"Record extension artifact provenance", "Release Extension", "Publish Extension Provenance",
-		"Publish Extension", "Create Release PR"}); err != nil {
+		"Record extension artifact provenance", "Create exact extension tag exclusively", "Release Extension",
+		"Require package-only extension release", "Publish Extension", "Publish Extension Provenance", "Create Release PR"}); err != nil {
 		return err
 	}
 	buildSteps := releaseSteps(build)
@@ -1813,6 +1911,14 @@ func validateTagRelease(source []byte) error {
 	}
 	publishSteps := releaseSteps(release)
 	extensionSteps := releaseSteps(extension)
+	if extensionSteps["Build Extension"].Env["REQUIRE_RELEASE_ADMISSION"] != "1" ||
+		extensionSteps["Build Extension"].Run != "azd x build --all --skip-install" ||
+		!strings.Contains(buildSteps["Build Binary"].Run, `bash .github/scripts/release_binary_check.sh "${BINARY_NAME}"`) {
+		return fmt.Errorf("all published binaries must retain clean exact-source build metadata admission")
+	}
+	if err := validateExtensionTail(extensionSteps); err != nil {
+		return err
+	}
 	if !strings.HasPrefix(buildSteps["Build Binary"].Run, "VERSION=\"${{ needs.setup-version.outputs.version }}\"\n") ||
 		!strings.HasPrefix(releaseSteps(release)["Create or Update GitHub Release"].Run, "TAG=\"${{ needs.setup-version.outputs.tag }}\"\n") {
 		return fmt.Errorf("CLI build and publication must consume detected version and tag")

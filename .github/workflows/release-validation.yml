@@ -38,6 +38,9 @@ jobs:
       - name: Download Dependencies
         run: go mod download
 
+      - name: Download dashboard checker dependency
+        run: go mod download golang.org/x/net
+
       - name: Setup Node.js (for web UI build)
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -50,7 +53,10 @@ jobs:
         run: npm ci && npm run build
 
       - name: Require built dashboard output
-        run: node .github/scripts/release_dashboard_check.mjs
+        run: GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check
+
+      - name: Require clean packaged source
+        run: bash .github/scripts/release_source_check.sh
 
       - name: Install and prove rejecting runtime guard
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
@@ -77,6 +83,7 @@ jobs:
       - name: Build Release Binary
         run: |
           go build -v -o waza ./cmd/waza
+          bash .github/scripts/release_binary_check.sh waza
           ./waza --version
 
       - name: Integration Test

@@ -16,7 +16,10 @@ so their successes require fresh execution under the current run's guard.
 
 ## Cutting a Release
 
-Create and push a semver tag:
+Prepare and commit the target `version.txt`, `extension.yaml`, changelog, and
+matching dashboard index/favicon before creating the semver tag. Release builds
+reject a dashboard rebuild that changes tracked source; publication never repairs
+the tagged metadata. Create the tag on the reviewed commit, not a moving default:
 
 ```bash
 git tag vX.Y.Z
@@ -24,7 +27,7 @@ git push origin vX.Y.Z
 ```
 
 This triggers the full pipeline: exact-source validation → CLI build → extension
-build → GitHub Release → extension publish → version sync → GitHub Pages deploy.
+build → GitHub Release → extension publish → registry-sync PR → GitHub Pages deploy.
 
 ## What the Workflow Does
 
@@ -40,11 +43,12 @@ build → GitHub Release → extension publish → version sync → GitHub Pages
    digest and exact source SHA.
 4. **release-cli** — Rejects missing or stale matrix evidence, verifies every
    digest, and creates or updates the **CLI GitHub Release** (`Waza vX.Y.Z`).
-5. **release-extension** — After validation succeeds, syncs `version.txt` and
-   `extension.yaml`, builds and packs the azd extension, records the exact source
+5. **release-extension** — After validation succeeds, verifies already-committed
+   `version.txt` and `extension.yaml`, builds and packs the azd extension, records the exact source
    SHA and package digests in `release-provenance.txt`, creates the **Extension
-   GitHub Release** (`Waza azd Extension vX.Y.Z`), publishes to the azd registry,
-   then opens a PR with updated `registry.json` and synced version files.
+   GitHub Release** (`Waza azd Extension vX.Y.Z`), publishes the package-only
+   release to the azd registry, uploads public provenance, then opens a PR with
+   updated `registry.json`.
 6. **pages.yml** — Deploys the documentation site after the `Release` workflow completes successfully, ensuring release notes and download links published to `site/` are pushed to GitHub Pages.
 
 The retained `Squad Release` (`main`) and `Squad Insider Release` (`insider`)
@@ -62,7 +66,7 @@ before the binary can execute or publish.
 The six CLI matrix binaries and azd packages are release builds from the
 validated source, with recorded digests; they are not the Linux binary exercised
 by offline integration, nor proof of native execution on all six platforms.
-Extension packaging intentionally synchronizes version files before building.
+Extension metadata must already match the detected version before building.
 Source lookups, source-record reads, sidecar reads, and binary hashing must each
 succeed before their captured outputs are compared. Matching output from a
 failed command is not validation evidence.
@@ -78,12 +82,40 @@ It requires a nonempty regular index/favicon, JavaScript/CSS bundles, and every
 index-referenced asset, rejecting missing, partial, nonregular, or symlink output.
 Root-relative and relative asset URLs are checked locally; malformed or nonlocal
 script/stylesheet/preload references fail without fetching external content.
-The index must load an entry script and stylesheet; preload links alone do not count.
+The host-native checker uses the pinned public Go HTML parser, with module
+preparation separate from its offline execution. Ambient cross-compilation
+targets are cleared for the checker, not for the published binary.
+DOM roles require an active executable HTML script and enabled non-alternate
+stylesheet. Template/noscript descendants, comments, raw text, and foreign
+elements cannot satisfy those roles. Duplicate attributes and unfinished tokens
+are rejected before DOM normalization; this is a strict built-index profile, not
+a claim to execute arbitrary HTML. The first active base href must resolve to
+the synthetic `https://dashboard.invalid/` origin and root path; `/`, `./`, and
+an empty local base are supported, while supplied hosts/schemes and nested bases
+are rejected. Local asset paths are percent-decoded without changing case;
+query strings and fragments do not become filesystem names.
+The last dashboard build inside `build.sh` repeats release-only admission before
+extension compilation. Clean tracked and untracked source is checked separately
+from each published binary's actual `vcs.revision` and `vcs.modified=false`
+build metadata. Metadata inspection does not execute cross-platform binaries or
+prove native checkpoint execution.
 The Linux suite also runs the embedded asset tests. Compile-only Windows/lint
 stubs are not release assets or proof that those asset tests executed.
 Extension provenance enumerates archive globs directly and requires a nonempty
 regular-file inventory; directory admission and digest failures stop publication
 rather than being hidden by a process-substitution discovery pipeline.
+The installed Extensions Kit remains an unversioned selection, so its actual
+`azd x version` output and exit are retained and checked against the verified
+0.14.0 contract. Any other or unavailable version stops publication pending
+review; prior installation logs do not establish the next selected version.
+That tagged contract consumes every GitHub release asset when publishing with
+`--repo`. Nonpackage assets therefore stop registry admission, and
+`release-provenance.txt` is uploaded only after successful registry publication.
+The workflow atomically creates the extension tag at the validated SHA through
+GitHub's create-ref endpoint before invoking Kit. Existing or concurrently
+created tags are rejected without replacement. CLI publication verifies its
+existing remote tag (including annotated tags), passes the exact target SHA,
+and forbids default-branch tag creation.
 
 ## Retry and Partial-Publication Behavior
 
@@ -97,11 +129,11 @@ exact `${{ github.sha }}`. Publishers do not search for a same-named check or
 artifact from another run or SHA. Retrying a failed run therefore repeats any
 missing validation/build work and cannot reuse stale evidence.
 
-CLI release upload is retry-safe and replaces assets for the same tag. Extension
+CLI release upload replaces assets only after tag and artifact admission. Extension
 release and registry publication remain sequential; if a later step fails after
 an earlier external write, rerun the same tag workflow only after inspecting the
 existing release/registry state. The workflow never treats a partially published
-release as proof that remaining publishers succeeded, and the version-sync PR is
+release as proof that remaining publishers succeeded, and the registry-sync PR is
 still subject to normal review and CI.
 The branch publishers fail closed on an existing release rather than assuming
 its tag and assets match validation or silently repairing partial publication.
@@ -112,7 +144,20 @@ its GitHub Release is missing, and rejects remote tag lookup failures. Only a
 confirmed absent synthesized tag is created with the validated SHA as target;
 this check is not an atomic reservation against concurrent tag writers.
 
-The version-sync PR remains open until its normal review requirements and real
+An existing extension tag, failed package publication, failed registry update,
+or failed provenance upload remains explicit partial state requiring inspection;
+rerunning cannot overwrite the reserved tag or existing provenance. Ref creation
+and subsequent publication are not a transaction against other remote writers.
+The generated registry-sync branch uses an empty-expected-value ref lease:
+creation only, never force-update or deletion of an existing branch. A collision
+or permission failure leaves the competing ref unchanged and stops the job.
+The checked push receipt must confirm a new ref; an already-up-to-date identical
+competing branch is not accepted as an invocation-owned creation.
+Generated PRs preserve the repository template and Copilot commit trailer.
+PR-creation failure reports the created branch and fails rather than claiming
+the complete release succeeded.
+
+The registry-sync PR remains open until its normal review requirements and real
 CI checks pass. The release workflow does not synthesize successful checks or
 merge this PR itself. If enterprise policy prevents the workflow token from
 creating the PR, a maintainer must open it from the pushed `release/vX.Y.Z` branch
