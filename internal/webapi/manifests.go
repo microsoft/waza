@@ -62,12 +62,16 @@ type configuredManifestInspector struct {
 	config    *projectconfig.StorageConfig
 }
 
-func (i configuredManifestInspector) open() (*artifactmanifest.Store, func() error, error) {
+func (i configuredManifestInspector) openBackend() (artifactmanifest.Backend, func() error, error) {
 	var azureURL string
 	if i.config != nil && i.config.Enabled && i.config.Provider == "azure-blob" {
 		azureURL = "https://" + i.config.AccountName + ".blob.core.windows.net/" + i.config.ContainerName
 	}
-	backend, closeBackend, err := artifactmanifest.OpenBackend(i.directory, azureURL)
+	return artifactmanifest.OpenBackend(i.directory, azureURL)
+}
+
+func (i configuredManifestInspector) open() (*artifactmanifest.Store, func() error, error) {
+	backend, closeBackend, err := i.openBackend()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -128,7 +132,11 @@ func (i configuredManifestInspector) Inspect(ctx context.Context, digest string)
 // The dashboard's configured results directory selects a separate opt-in store.
 // Query input can select only a digest, never a host path or provider URL.
 func RegisterManifestRoutes(mux *http.ServeMux, resultsDir string, config *projectconfig.StorageConfig) {
-	RegisterManifestRoutesWithInspector(mux, configuredManifestInspector{
+	RegisterManifestRoutesWithInspector(mux, manifestInspectorFor(resultsDir, config))
+}
+
+func manifestInspectorFor(resultsDir string, config *projectconfig.StorageConfig) configuredManifestInspector {
+	return configuredManifestInspector{
 		directory: filepath.Join(resultsDir, ".waza-artifacts"), config: config,
-	})
+	}
 }

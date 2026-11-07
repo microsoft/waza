@@ -62,8 +62,10 @@ the finalized boundary additionally requires original completion and manifest
 digests. It is not a runtime snapshot or an existing-results migration.
 
 The current source layer provides schema/codec, pure compatibility/context
-admission and immutable declaration blob storage. **It does not yet provide durable checkpoint creation, a resume
-command or a checkpoint Lab view.** Keep existing commands and artifact readers
+admission and immutable declaration blob storage. The source Lab/API can inspect
+current canonical declaration metadata, with ownership, compatibility and restore
+progress explicitly unavailable. **It does not yet provide owned checkpoint
+creation or a resume command.** Keep existing commands and artifact readers
 for historical and unsupported workflows. Matching declarations do not confer
 attempt ownership or prove completed evidence. Checkpoint restore must
 independently verify source ownership and finalized content before skipping work.

@@ -307,8 +307,10 @@ stored declaration pointers and inspect current integrity. See
 The additive [exact-unit checkpoint contract](docs/EXECUTION_CHECKPOINTS.md)
 currently provides schema/codec, compatibility admission and immutable declaration
 blob storage, not an operational resume command. Owned safe-boundary creation,
-restore and checkpoint Lab views remain under development; existing result and
-SDK session readers are unchanged.
+restore and authenticated Lab compatibility/progress remain under development.
+The source Lab can inspect a caller-known checkpoint blob digest, showing
+declared boundary/time and explicitly unavailable ownership/restore state.
+Existing result and SDK session readers are unchanged.
 
 <span id="waza-interop-source-build-preview"></span>
 

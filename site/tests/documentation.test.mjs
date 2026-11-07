@@ -39,12 +39,25 @@ test('checkpoint source schema registration and migration notes retain contract-
   assert.match(route, /schema: 'execution-checkpoint-1\.0\.schema' \}, props: \{ schema: checkpoint \}/);
   const notes = read('site/src/content/docs/reference/schema-changes.md');
   assert.match(notes, /Checkpoint declaration 1\.0 \(unreleased contract layer\)/);
-  assert.match(notes, /does not yet provide durable checkpoint creation, a resume\s+command or a checkpoint Lab view/);
+  assert.match(notes, /does not yet provide owned checkpoint\s+creation or a resume command/);
+  assert.match(notes, /ownership, compatibility and restore\s+progress explicitly unavailable/);
   assert.match(notes, /\(unreleased contract layer\)/);
   assert.match(notes, /\.\.\/\.\.\/schemas\/execution-checkpoint-1\.0\.schema\.json/);
   assert.match(notes, /Only destination attempt ordinal may differ; original source\s+identity\/selection must not be retagged/);
   assert.ok(existsSync(resolve(root, 'site/e2e/execution-checkpoint.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*checkpoint/);
+  const lab = read('site/src/content/docs/guides/dashboard-lab.mdx');
+  assert.match(lab, /GET \/api\/v1\/checkpoints\/\{digest\}/);
+  assert.match(lab, /restored units and remaining work stay \*\*Unavailable\*\*/);
+  assert.ok(existsSync(resolve(root, 'web/e2e/checkpoint-inspection.spec.ts')));
+  assert.doesNotMatch(read('web/playwright.config.ts'), /testIgnore:.*checkpoint/);
+  const dashboardWorkflow = read('.github/workflows/web-ci.yml');
+  for (const path of ['internal/executioncheckpoint/**', 'internal/executionattempt/**',
+    'internal/executionledger/**', 'internal/artifactmanifest/**', 'internal/webapi/checkpoints*.go',
+    'internal/webapi/manifests.go', 'schemas/execution-*.json', 'schemas/artifact-manifest-*.json',
+    'schemas/execution_checkpoint.go']) {
+    assert.equal(dashboardWorkflow.split(`'${path}'`).length - 1, 2, `${path} must select push and PR dashboard checks`);
+  }
   for (const path of ['site/**', 'schemas/**']) {
     assert.ok(read('.github/workflows/site-ci.yml').includes(`'${path}'`), `${path} must select site checks`);
     assert.ok(read('.github/workflows/pages.yml').includes(`'${path}'`), `${path} must select publication`);

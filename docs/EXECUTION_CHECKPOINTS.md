@@ -5,7 +5,9 @@ for #765**, not an operational resume feature. The current
 `executioncheckpoint` package provides strict codecs, declared compatibility
 comparison, original-source context admission and ordinary immutable checkpoint
 blob storage. It does not reserve attempts, authorize safe-boundary creation,
-restore work, or provide a checkpoint CLI/API/Lab view. Do not treat stored
+restore work, or provide an operational resume command. A separate read-only
+API/Lab inspector admits current blob metadata but does not authorize recovery.
+Do not treat stored
 declaration bytes or a passing codec as evidence that interruption recovery works.
 
 ## Safe boundaries
@@ -62,6 +64,12 @@ dirty, foreign-host and non-Git metadata fail closed. A future CLI recovery call
 must use this actual build value, not accept `runner_revision` as a user flag.
 Admission tests using authored build metadata are not execution evidence for
 a released binary; production-CLI recovery tests remain required.
+
+The native engine also resolves ambient provider settings and `COPILOT_CLI_PATH`.
+Declared configuration hashes do not pin those external runtimes or providers.
+An owned native checkpoint caller must use the shared effective-runtime admission
+guard before reserving or restoring work; matching declarations alone cannot
+authorize native recovery. Ordinary runner and SDK session behavior is unchanged.
 
 ## Contents and admission
 
@@ -123,6 +131,29 @@ original failure/cancellation status, identity and native ordinal. The helper
 does not authenticate a caller-supplied binding or grant execution ownership;
 the owned public restore caller remains required.
 
+### Read-only source inspection
+
+The current-source dashboard registers `GET /api/v1/checkpoints/{digest}` and
+the Lab **Runner contract → Inspect a stored checkpoint declaration** panel.
+They accept a caller-known full lowercase SHA-256 digest, not a host path or
+provider URL. The same configured immutable provider as manifest inspection is
+used; unsupported active providers are rejected rather than replaced by local
+results. No checkpoint catalog or mutable pointer is introduced.
+
+Each request rereads and admits the current bounded blob hash, schema and exact
+canonical bytes. **Blob verified (declaration only)** means only that admission.
+Boundary, creation time, original execution reference and runner revision remain
+declarations. Source ownership, current input compatibility, restored units and
+remaining work are unavailable; null progress must not be replaced with zero
+or derived from a boundary name or completion/manifest digest.
+
+Malformed caller digests return HTTP 400 before opening storage. Missing blobs
+return 404, corrupt/noncanonical stored declarations return 409, and storage or
+close failures return 503 when no earlier source error applies. Provider details
+remain in operator logs. Inspection failures and digest edits clear previous Lab
+metadata; the synthetic demo never substitutes a checkpoint. This view does not
+create checkpoints, write completion records, finalize evidence or resume work.
+
 This schema has its own version; it does not change native task YAML, eval
 schema, historical `EvaluationOutcome`, snapshots, terminal 1.0 or SDK session
 resume behavior. No existing artifact is automatically adopted as a checkpoint.
@@ -133,5 +164,5 @@ blob persistence/concurrency/corruption/failure tests, and context tests
 using actual production mock runner terminal output, including passed and
 failed-check controls. Those tests **do not prove kill-and-resume, persistence
 or exactly-once work**. Durable creation/restore, failed-restore process tests,
-user commands, connected site examples and derived Lab availability/progress
+user commands, connected resume examples and authenticated Lab compatibility/progress
 remain required before #765 is complete or a release can advertise recovery.
