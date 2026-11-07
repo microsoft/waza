@@ -358,14 +358,18 @@ func verifyFileCase(ctx context.Context, request VerifyRequest, candidate Refere
 		return observation
 	}
 	snap, err := snapshot.ParseSnapshot(data, "assurance reference")
-	if err != nil || snap.Evidence == nil || evidence.Validate(snap.Evidence) != nil ||
-		snap.Evidence.SHA256 != candidate.ManifestSHA256 {
+	if err != nil || snap.Evidence == nil || snap.Evidence.SHA256 != candidate.ManifestSHA256 {
+		observation.Reason = "snapshot_binding_invalid"
+		return observation
+	}
+	resolver, err := evidence.NewResolver(snap.Evidence)
+	if err != nil {
 		observation.Reason = "snapshot_binding_invalid"
 		return observation
 	}
 	origin := check.Evidence[0].Origin
 	for _, reference := range check.Evidence {
-		artifact, err := evidence.Resolve(snap.Evidence, reference)
+		artifact, err := resolver.Resolve(reference)
 		if err != nil {
 			observation.Reason = "evidence_reference_invalid"
 			return observation
@@ -384,14 +388,14 @@ func verifyFileCase(ctx context.Context, request VerifyRequest, candidate Refere
 			observation.State, observation.Reason = OperationalError, "evidence_content_unavailable"
 			return observation
 		}
-		if err := evidence.VerifyContent(snap.Evidence, reference, content, true, true); err != nil {
+		if err := resolver.VerifyContent(reference, content, true, true); err != nil {
 			observation.State, observation.Reason = InsufficientEvidence, "evidence_content_not_verified"
 			return observation
 		}
 	}
 	for _, name := range paths {
-		reference, err := evidence.Reference(snap.Evidence, "workspace-file/"+name)
-		if err != nil || !slices.ContainsFunc(check.Evidence, func(selected models.EvidenceReference) bool {
+		reference := models.EvidenceReference{Origin: snap.Evidence.Origin, ArtifactID: "workspace-file/" + name}
+		if _, err := resolver.Resolve(reference); err != nil || !slices.ContainsFunc(check.Evidence, func(selected models.EvidenceReference) bool {
 			return selected.Origin == reference.Origin && selected.ArtifactID == reference.ArtifactID
 		}) {
 			observation.State, observation.Reason = InsufficientEvidence, "required_file_reference_missing"
