@@ -70,6 +70,14 @@ uses this actual build value and does not accept `runner_revision` as a user fla
 Admission tests using authored build metadata are not execution evidence for
 a released binary; production-CLI recovery tests remain required.
 
+Verify the actual owning binary with `go version -m /path/to/waza`. A clean
+working tree alone does not ensure Go recorded VCS metadata: the observed Go
+1.26.4 compiler recognizes a `.git` directory but not the `.git` file in an
+app-managed worktree. Such an unstamped binary is rejected before reservation.
+Use an ordinary versioned-checkout/CI build that records the real revision and
+clean flag; do not inject metadata or waive admission. Pre-frontend API/process
+builds are not evidence of matched embedded-dashboard delivery.
+
 The native engine also resolves ambient provider settings and `COPILOT_CLI_PATH`.
 Declared configuration hashes do not pin those external runtimes or providers.
 An owned native checkpoint caller must use the shared effective-runtime admission
@@ -333,6 +341,10 @@ Full compiled-CLI interruption and failed-restore process evidence, native-platf
 checks, hosted dashboard/site validation and matching generated assets remain
 required before #765 is complete or a release can advertise recovery. Library
 process controls are not public-CLI evidence; no check establishes global
-exactly-once work. CLI checkpoint locator delivery on stderr is currently an
-unbounded write, so a blocked locator consumer can stall before-unit admission.
-Do not treat input/output deadline coverage as proof of bounded locator delivery.
+exactly-once work. Fixed CLI locators reuse the process-only diagnostic writer's
+100 ms cumulative stderr budget through the root command. Standalone CLI commands
+with supplied stderr writers receive the same bounded wrapper. Sticky delivery
+failures stop before-unit engine admission or fail finalized delivery while
+retaining the completed original. A timed-out process diagnostic write may finish
+late until process exit; no locator delivery success or joined write is claimed.
+This process-only emitter must not be used in a long-lived embedding service.

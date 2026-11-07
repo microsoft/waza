@@ -69,10 +69,10 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 				if err != nil {
 					return &ExitCodeError{Code: 2, Err: fmt.Errorf("opening checkpoint store: %w", err)}
 				}
+				locator := newRunnerCheckpointLocatorEmitter(cmd)
 				observers := runnercheckpoint.Hooks{Published: func(_ context.Context, reference runnercheckpoint.Reference) error {
 					// Only locators are emitted here. Stdout remains one result.
-					_, err := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint %s %s\n", reference.Boundary, reference.Digest)
-					return err
+					return locator(reference.Boundary, reference.Digest)
 				}}
 				var result runnercheckpoint.Result
 				if action == "resume" {
@@ -83,7 +83,14 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 				if closeErr := closeBackend(); closeErr != nil {
 					return &ExitCodeError{Code: 2, Err: errors.Join(err, fmt.Errorf("closing checkpoint store: %w", closeErr))}
 				}
-				return emit(cmd, result)
+				emitted := emit(cmd, result)
+				if _, locatorFailure := errors.AsType[*runnerCheckpointLocatorError](err); locatorFailure {
+					if exit, selected := errors.AsType[*ExitCodeError](emitted); selected {
+						return &ExitCodeError{Code: exit.Code, Err: errors.Join(exit.Err, err)}
+					}
+					return &ExitCodeError{Code: 2, Err: errors.Join(emitted, err)}
+				}
+				return emitted
 			},
 		}
 		if action == "resume" {
