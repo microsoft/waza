@@ -23,50 +23,88 @@ import (
 )
 
 func TestArtifactDocumentedNodeBuilderToPublication(t *testing.T) {
-	directory, manifestPath, declared, terminal := artifactCLIFixture(t)
-	doc, err := os.ReadFile("../../site/src/content/docs/guides/immutable-artifacts.mdx")
-	require.NoError(t, err)
-	start := "node --input-type=module <<'JS'\n"
-	require.Equal(t, 1, strings.Count(string(doc), start))
-	_, snippet, found := strings.Cut(string(doc), start)
-	require.True(t, found)
-	snippet, _, found = strings.Cut(snippet, "\nJS\n```")
-	require.True(t, found)
-	require.NoError(t, os.Remove(manifestPath), "remove only this invocation's existing declaration")
-	runBuilder := func() ([]byte, error) {
-		command := exec.Command("node", "--input-type=module", "-e", snippet)
-		command.Dir = directory
-		return command.CombinedOutput()
+	for _, ending := range []struct{ name, value string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(ending.name, func(t *testing.T) {
+			directory, manifestPath, declared, terminal := artifactCLIFixture(t)
+			doc, err := os.ReadFile("../../site/src/content/docs/guides/immutable-artifacts.mdx")
+			require.NoError(t, err)
+			document := strings.ReplaceAll(strings.ReplaceAll(string(doc), "\r\n", "\n"), "\n", ending.value)
+			require.Contains(t, document, ending.value)
+			if ending.name == "CRLF" {
+				require.Contains(t, document, "\r\n", "control must actually change source line endings")
+			} else {
+				require.NotContains(t, document, "\r\n")
+			}
+			start := "node --input-type=module <<'JS'" + ending.value
+			require.Equal(t, 1, strings.Count(document, start))
+			_, snippet, found := strings.Cut(document, start)
+			require.True(t, found)
+			snippet, _, found = strings.Cut(snippet, ending.value+"JS"+ending.value+"```")
+			require.True(t, found)
+			require.NoError(t, os.Remove(manifestPath), "remove only this invocation's existing declaration")
+			runBuilder := func() ([]byte, error) {
+				command := exec.Command("node", "--input-type=module", "-e", snippet)
+				command.Dir = directory
+				return command.CombinedOutput()
+			}
+
+			output, err := runBuilder()
+			require.NoError(t, err, string(output))
+			wire, err := os.ReadFile(manifestPath)
+			require.NoError(t, err)
+			m, err := artifactmanifest.Parse(wire)
+			require.NoError(t, err)
+			require.Equal(t, declared.Binding, m.Binding)
+			require.Len(t, m.Artifacts, 1)
+			require.Equal(t, artifactmanifest.Hash(terminal), m.Artifacts[0].SHA256)
+			require.Equal(t, int64(len(terminal)), m.Artifacts[0].SizeBytes)
+			digest, err := artifactmanifest.Digest(*m)
+			require.NoError(t, err)
+			require.NotEqual(t, artifactmanifest.Hash(wire), digest, "pretty source bytes are not canonical manifest identity")
+			output, err = runArtifactCLI(t, directory, "create", manifestPath)
+			require.NoError(t, err)
+			require.JSONEq(t, `{"manifest_sha256":"`+digest+`","publication":"declared"}`, string(output))
+			_, err = runArtifactCLI(t, directory, "upload", manifestPath, "terminal", filepath.Join(directory, "terminal.json"))
+			require.NoError(t, err)
+			output, err = runArtifactCLI(t, directory, "finalize", digest)
+			require.NoError(t, err)
+			var receipt artifactmanifest.Receipt
+			require.NoError(t, json.Unmarshal(output, &receipt))
+			require.Equal(t, "finalized", receipt.Publication)
+			require.Equal(t, "verified", receipt.Integrity)
+			_, err = runBuilder()
+			require.Error(t, err, "documented builder must not overwrite a competing declaration")
+			preserved, err := os.ReadFile(manifestPath)
+			require.NoError(t, err)
+			require.Equal(t, wire, preserved)
+		})
 	}
-	output, err := runBuilder()
-	require.NoError(t, err, string(output))
-	wire, err := os.ReadFile(manifestPath)
+}
+
+func TestArtifactStoredInvalidDeclarationIsCorruptionNotInvalidInput(t *testing.T) {
+	directory, _, _, _ := artifactCLIFixture(t)
+	backend, err := artifactmanifest.OpenLocal(filepath.Join(directory, ".waza-artifacts"))
 	require.NoError(t, err)
-	m, err := artifactmanifest.Parse(wire)
+	defer func() { require.NoError(t, backend.Close()) }()
+	invalid := []byte(`{"kind":"not-a-manifest"}`)
+	digest := artifactmanifest.Hash(invalid)
+	created, err := backend.Create(context.Background(), "manifest-"+digest, invalid)
 	require.NoError(t, err)
-	require.Equal(t, declared.Binding, m.Binding)
-	require.Len(t, m.Artifacts, 1)
-	require.Equal(t, artifactmanifest.Hash(terminal), m.Artifacts[0].SHA256)
-	require.Equal(t, int64(len(terminal)), m.Artifacts[0].SizeBytes)
-	digest, err := artifactmanifest.Digest(*m)
-	require.NoError(t, err)
-	require.NotEqual(t, artifactmanifest.Hash(wire), digest, "pretty source bytes are not canonical manifest identity")
-	output, err = runArtifactCLI(t, directory, "create", manifestPath)
-	require.NoError(t, err)
-	require.JSONEq(t, `{"manifest_sha256":"`+digest+`","publication":"declared"}`, string(output))
-	_, err = runArtifactCLI(t, directory, "upload", manifestPath, "terminal", filepath.Join(directory, "terminal.json"))
-	require.NoError(t, err)
-	output, err = runArtifactCLI(t, directory, "finalize", digest)
-	require.NoError(t, err)
+	require.True(t, created, "stored malformed control must exist at its actual content hash")
+	mux := http.NewServeMux()
+	webapi.RegisterManifestRoutes(mux, directory, nil)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/manifests/"+digest, nil))
+	require.Equal(t, http.StatusConflict, recorder.Code)
 	var receipt artifactmanifest.Receipt
-	require.NoError(t, json.Unmarshal(output, &receipt))
-	require.Equal(t, "finalized", receipt.Publication)
-	require.Equal(t, "verified", receipt.Integrity)
-	_, err = runBuilder()
-	require.Error(t, err, "documented builder must not overwrite a competing declaration")
-	preserved, err := os.ReadFile(manifestPath)
-	require.NoError(t, err)
-	require.Equal(t, wire, preserved)
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &receipt))
+	require.NotEqual(t, "verified", receipt.Integrity)
+	require.Equal(t, digest, receipt.ManifestSHA256)
+	require.Len(t, receipt.Diagnostics, 1)
+	require.Equal(t, "corrupt_object", receipt.Diagnostics[0].Code)
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/manifests/not-a-digest", nil))
+	require.Equal(t, http.StatusBadRequest, recorder.Code, "invalid caller input must remain a distinct category")
 }
 
 func artifactCLIFixture(t *testing.T) (string, string, artifactmanifest.Manifest, []byte) {
