@@ -91,10 +91,17 @@ type Snapshot struct {
 }
 
 var eventSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileLifecycle("execution-lifecycle-observation-1.0.schema.json")
+})
+
+func compileLifecycle(name string) (*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(schemaloader.Offline{})
 	for name, text := range map[string]string{
 		"execution-lifecycle-observation-1.0.schema.json": schemas.ExecutionLifecycleObservationSchemaJSON,
+		"execution-lifecycle-inspection-1.0.schema.json":  schemas.ExecutionLifecycleInspectionSchemaJSON,
+		"execution-lifecycle-1.0.schema.json":             schemas.ExecutionLifecycleSchemaJSON,
+		"artifact-manifest-1.0.schema.json":               schemas.ArtifactManifestSchemaJSON,
 		"runner-terminal-1.0.schema.json":                 schemas.RunnerTerminalSchemaJSON,
 	} {
 		resource := "https://microsoft.github.io/waza/schemas/" + name
@@ -106,8 +113,8 @@ var eventSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 			return nil, fmt.Errorf("registering lifecycle schema %s: %w", name, err)
 		}
 	}
-	return compiler.Compile("https://microsoft.github.io/waza/schemas/execution-lifecycle-observation-1.0.schema.json")
-})
+	return compiler.Compile("https://microsoft.github.io/waza/schemas/" + name)
+}
 
 func timestamp(text string) (time.Time, error) {
 	value, err := time.Parse(time.RFC3339Nano, text)
@@ -419,5 +426,27 @@ func (p *Projection) Snapshot(asOf string, staleAfter time.Duration) (Snapshot, 
 	if len(data) > MaxBytes {
 		return Snapshot{}, fmt.Errorf("%w: projection exceeds %d bytes", ErrInvalid, MaxBytes)
 	}
+	if err := validateSnapshot(data); err != nil {
+		return Snapshot{}, err
+	}
 	return out, nil
+}
+
+var snapshotSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileLifecycle("execution-lifecycle-1.0.schema.json")
+})
+
+func validateSnapshot(data []byte) error {
+	schema, err := snapshotSchema()
+	if err != nil {
+		return fmt.Errorf("compiling lifecycle projection schema: %w", err)
+	}
+	doc, err := jsonutil.Parse(data)
+	if err != nil {
+		return fmt.Errorf("%w: parsing projection: %w", ErrInvalid, err)
+	}
+	if err := schema.Validate(doc); err != nil {
+		return fmt.Errorf("%w: projection schema: %w", ErrInvalid, err)
+	}
+	return nil
 }

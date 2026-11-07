@@ -2,8 +2,10 @@
 
 **Under development for #767 / v0.41.0; not operational recovery.** The
 `internal/executionlifecycle` package implements a bounded pure projection and
-digest-addressed observation storage. It does not yet have a production owner
-observer, lifecycle CLI/API, or connected Dashboard Lab view. Existing
+digest-addressed observation storage, read-only CLI/API inspection and a connected
+Dashboard Lab source component. It does not yet have a production owner
+observer or authenticated live lifecycle view; dashboard build/browser gates
+remain separate delivery requirements. Existing
 `waza runner run`, HTTP terminal responses and historical local execution retain
 their current behavior. Do not close #767 or advertise recovery from this layer.
 
@@ -132,6 +134,46 @@ publication. Do not delete or overwrite it. Repeated identical content is
 content reuse, not ownership. Local guarantees and staging residue follow the
 existing [immutable artifact provider](../internal/artifactmanifest/local.go).
 
+## Read-only inspection
+
+An explicit retained inspection descriptor uses independent schema 1.0:
+[`execution-lifecycle-inspection-1.0.schema.json`](../schemas/execution-lifecycle-inspection-1.0.schema.json).
+It contains `kind: waza.execution-lifecycle-inspection`, `schema_version: "1.0"`,
+the independently retained `original_admission` binding, `reservation_digest`,
+ordered `observation_digests` (including explicit `[]`), and required positive
+`stale_after_ms` (at most one day). Optional `deadline` and `as_of` are canonical
+UTC timestamps; omit unavailable values, never use null/empty/default current
+time. Do not reconstruct the binding from stored reservations or a destination
+request. The context remains caller-declared, not worker-authenticated.
+
+```bash
+waza lifecycle inspect inspection.json --store .waza-artifacts
+curl --silent --show-error \
+  -H 'Content-Type: application/json' --data-binary @inspection.json \
+  http://127.0.0.1:3000/api/v1/lifecycle/inspect
+```
+
+These commands use an existing private store. API configuration selects the
+store; body input cannot supply a filesystem path, provider URL or latest pointer.
+Each read checks current bytes, original declared context, ordering and bounds.
+An unavailable/corrupt/mismatched observation fails inspection without returning
+a stale or partial success projection. HTTP errors are 400 for invalid input,
+404 for missing blobs, 409 for stored corruption/context/order mismatch, and 503
+for provider failures. Media type and oversize input use 415/413. CLI exit 0 means
+inspection completed, **not** execution success; read, validation, provider and
+output failures exit 2. Recorded terminal outcome/exit remains a separate field.
+No inspection operation mutates evidence or executes/cancels/retries work.
+
+The output
+[`execution-lifecycle-1.0.schema.json`](../schemas/execution-lifecycle-1.0.schema.json)
+is a declared projection. The Lab Runner contract section submits the same
+explicit descriptor, labels every lifecycle value as declared, keeps verified
+worker progress unavailable, renders advisory steps as text (no retry/cancel
+buttons), and downloads the same declared JSON. Context edits/reloads/failures
+clear old data. The synthetic demo never substitutes lifecycle observations.
+The browser fixture is compared with actual production mock admission and the
+configured native inspection API, not an impossible mocked response.
+
 ## Migration and release notes (unreleased)
 
 Lifecycle observation schema 1.0 is additive and independently versioned.
@@ -140,16 +182,16 @@ result/snapshot readers, SDK session resume and existing exit policy are
 unchanged. Old artifacts do not acquire heartbeat/cancellation/progress facts.
 Omitted observations remain unavailable.
 
-This layer provides declaration/transition and actual local-provider persistence
-controls, including projections of production mock-runner terminal output.
+This layer provides declaration/transition, actual local-provider persistence
+and production CLI/API inspection controls, including projections of production
+mock-runner terminal output.
 It is **not** evidence of owner-authenticated events, kill-and-resume,
-bounded process shutdown, checkpoint restoration, live model quality or
-Dashboard Lab delivery.
+bounded process shutdown, checkpoint restoration, live model quality or validated dashboard/browser delivery.
 
 Required before #767 delivery: integrate committed typed-owner observers and
 authenticated original context; wire real cancellation, deadline, shutdown,
-restoration-error and orphan process controls; expose actual CLI/API/Lab
-producers/consumers; verify bounded shutdown and unchanged original artifacts;
+restoration-error and orphan process controls; connect actual owner-produced lifecycle evidence to the CLI/API/Lab inspection
+surfaces; verify bounded shutdown and unchanged original artifacts;
 execute coordinated Go/compatibility/dashboard/site gates and independent final
 code review. Before-unit restoration remains zero completed units with a fresh
 child reservation; finalized-unit restoration retains the original verified

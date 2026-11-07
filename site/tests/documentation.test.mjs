@@ -51,6 +51,43 @@ test('checkpoint source schema registration and migration notes retain contract-
   }
 });
 
+test('lifecycle source schemas, declared inspection guidance and browser discovery stay connected', () => {
+  const route = read('site/src/pages/schemas/[schema].json.ts');
+  for (const [file, kind] of [
+    ['execution-lifecycle-observation-1.0', 'waza.execution-lifecycle-observation'],
+    ['execution-lifecycle-inspection-1.0', 'waza.execution-lifecycle-inspection'],
+    ['execution-lifecycle-1.0', 'waza.execution-lifecycle'],
+  ]) {
+    const schema = JSON.parse(read(`schemas/${file}.schema.json`));
+    assert.equal(schema.$id, `https://microsoft.github.io/waza/schemas/${file}.schema.json`);
+    assert.equal(schema.properties.kind.const, kind);
+    assert.equal(schema.properties.schema_version.const, '1.0');
+    assert.equal(schema.additionalProperties, false);
+    assert.ok(route.includes(`schemas/${file}.schema.json`));
+    assert.ok(route.includes(`schema: '${file}.schema'`));
+  }
+  const guide = read('site/src/content/docs/guides/execution-lifecycle.mdx');
+  assert.match(guide, /waza lifecycle inspect inspection\.json --store \.waza-artifacts/);
+  assert.match(guide, /verified worker progress\s+unavailable/i);
+  assert.match(guide, /Advisory next steps are\s+text, not retry\/cancel\/reclaim controls/);
+  assert.match(guide, /```mermaid/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-lifecycle'/);
+  assert.match(read('site/src/content/docs/reference/cli.mdx'), /## waza lifecycle/);
+  assert.match(read('site/src/content/docs/reference/schema-changes.md'), /Lifecycle declarations and inspection 1\.0/);
+  assert.ok(existsSync(resolve(root, 'site/e2e/execution-lifecycle.spec.ts')));
+  assert.match(read('site/playwright.config.ts'), /testDir: ["']\.\/e2e["']/);
+  assert.match(read('web/playwright.config.ts'), /testDir: ["']\.\/e2e["']/);
+  assert.doesNotMatch(read('web/playwright.config.ts'), /testIgnore|testMatch/);
+  const workflow = read('.github/workflows/web-ci.yml');
+  for (const path of ['internal/webapi/lifecycle.go', 'internal/executionlifecycle/**',
+    'schemas/execution-lifecycle*.json', 'schemas/execution_lifecycle.go']) {
+    assert.equal(workflow.split(`'${path}'`).length - 1, 2, `${path} must select both push and PR paths-filter`);
+  }
+  assert.match(workflow, /^permissions:\n  contents: read/m);
+  assert.match(workflow, /timeout-minutes: 15/);
+  assert.match(workflow, /npx --no-install playwright test --project=chromium --retries=0/);
+});
+
 test('local container conformance is selected by its production build inputs', () => {
   const workflow = read('.github/workflows/docker-ci.yml');
   for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',

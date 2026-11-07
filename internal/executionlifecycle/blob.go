@@ -58,7 +58,7 @@ func (b *Blobs) Load(ctx context.Context, digest string) (*Event, error) {
 	}
 	event, err := Parse(data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: invalid stored lifecycle observation: %w", artifactmanifest.ErrCorrupt, err)
 	}
 	canonical, err := Encode(*event)
 	if err != nil {

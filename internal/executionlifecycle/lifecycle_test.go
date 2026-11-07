@@ -11,12 +11,10 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
-	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
-	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
-	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,12 +24,26 @@ func source(t *testing.T) ([]byte, runnerterminal.Envelope, runnerterminal.Bindi
 	t.Helper()
 	request, err := os.ReadFile("../runnercontract/testdata/request.json")
 	require.NoError(t, err)
-	envelope, binding := runnerunit.NewService(nil).RunTerminal(t.Context(), request)
-	require.NotNil(t, binding)
-	require.Equal(t, runnerterminal.Success, envelope.Outcome)
-	require.Equal(t, 1, envelope.EngineCalls)
-	require.Len(t, envelope.Observation.Validations, 1)
-	return reservationFor(t, *binding), envelope, *binding
+	parsed, err := runnercontract.Parse(request)
+	require.NoError(t, err)
+	identity, err := runneridentity.DeriveJSON(request)
+	require.NoError(t, err)
+	binding := runnerterminal.Binding{
+		Identity: identity, Selection: parsed.Selection, ExecutionMode: "mock", GraderIDs: []string{"_output_contains"},
+	}
+	// Pure transition controls use authored evidence. Actual producer coverage
+	// lives in the external test package, avoiding an inward runner import cycle.
+	envelope := runnerterminal.Envelope{
+		Kind: "waza.runner-terminal", SchemaVersion: runnerterminal.Version, Outcome: runnerterminal.Success,
+		FailureBoundary: "none", Validation: "valid", EngineCalls: 1,
+		Identity: identity, Selection: &parsed.Selection, Diagnostics: []runnerterminal.Diagnostic{},
+		Observation: &runnerterminal.Observation{
+			ExecutionMode: "mock", EngineCalls: 1, Selection: parsed.Selection,
+			RunNumber: parsed.Selection.Trial, Attempts: parsed.Selection.Attempt, Status: "passed",
+			Validations: []runnerterminal.Verdict{{Identifier: "_output_contains", Passed: true}},
+		},
+	}
+	return reservationFor(t, binding), envelope, binding
 }
 
 func reservationFor(t *testing.T, binding runnerterminal.Binding) []byte {
@@ -65,7 +77,7 @@ func view(t *testing.T, p *Projection, at string) Snapshot {
 	return result
 }
 
-func TestActualRunnerTerminalRetained(t *testing.T) {
+func TestCanonicalTerminalRetained(t *testing.T) {
 	reservation, terminal, binding := source(t)
 	original, err := runnerterminal.Encode(terminal, &binding)
 	require.NoError(t, err)
@@ -387,64 +399,4 @@ func TestStoppedWithoutTerminalCanRetainLaterOriginalTerminal(t *testing.T) {
 	result.Terminal.Outcome = runnerterminal.Timeout
 	require.Equal(t, runnerterminal.Success, view(t, p, "").Terminal.Outcome)
 	require.Equal(t, 1, *view(t, p, "").CompletedUnits)
-}
-
-func TestProductionTerminalOutcomesThroughProjection(t *testing.T) {
-	for _, control := range []struct {
-		name    string
-		outcome runnerterminal.Outcome
-		units   *int
-	}{
-		{"failed-check", runnerterminal.EvaluationFailure, new(1)},
-		{"factory-failure", runnerterminal.InfrastructureFailure, nil},
-		{"cancellation", runnerterminal.Canceled, nil},
-		{"deadline", runnerterminal.Timeout, nil},
-	} {
-		t.Run(control.name, func(t *testing.T) {
-			data, err := os.ReadFile("../runnercontract/testdata/request.json")
-			require.NoError(t, err)
-			request, err := runnercontract.Parse(data)
-			require.NoError(t, err)
-			ctx := t.Context()
-			service := runnerunit.NewService(nil)
-			switch control.name {
-			case "failed-check":
-				old := request.Input.Task
-				request.Input.Task = strings.Replace(old, "- hello\n", "- output-never-present\n", 1)
-				require.NotEqual(t, old, request.Input.Task)
-			case "factory-failure":
-				service = runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
-					return nil, errors.New("controlled factory failure")
-				})
-			case "cancellation":
-				canceled, cancel := context.WithCancel(ctx)
-				cancel()
-				ctx = canceled
-			case "deadline":
-				expired, cancel := context.WithDeadline(ctx, time.Unix(0, 0))
-				defer cancel()
-				ctx = expired
-			}
-			data, err = json.Marshal(request)
-			require.NoError(t, err)
-			terminal, binding := service.RunTerminal(ctx, data)
-			require.NotNil(t, binding)
-			require.Equal(t, control.outcome, terminal.Outcome)
-			original, err := runnerterminal.Encode(terminal, binding)
-			require.NoError(t, err)
-			p, err := New(reservationFor(t, *binding), *binding, "")
-			require.NoError(t, err)
-			done := event(p, "terminal_recorded", origin)
-			done.Terminal = &terminal
-			require.NoError(t, p.Apply(done))
-			result := view(t, p, "")
-			require.Equal(t, control.outcome, result.Terminal.Outcome)
-			require.Equal(t, terminal.ExitCode, result.Terminal.ExitCode)
-			require.Equal(t, control.units, result.CompletedUnits)
-			require.Equal(t, artifactmanifest.Hash(original), result.Terminal.Digest)
-			after, err := runnerterminal.Encode(terminal, binding)
-			require.NoError(t, err)
-			require.Equal(t, original, after)
-		})
-	}
 }

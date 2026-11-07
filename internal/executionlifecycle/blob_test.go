@@ -85,6 +85,9 @@ func TestBlobFailuresRemainFailures(t *testing.T) {
 	backend.data = data
 	_, err = blobs.Load(t.Context(), strings.Repeat("b", 64))
 	require.ErrorIs(t, err, artifactmanifest.ErrCorrupt)
+	backend.data = []byte("{}")
+	_, err = blobs.Load(t.Context(), artifactmanifest.Hash(backend.data))
+	require.ErrorIs(t, err, artifactmanifest.ErrCorrupt, "stored malformed data is corruption, not invalid caller input")
 	backend.data = bytes.Repeat([]byte("x"), MaxBytes+1)
 	_, err = blobs.Load(t.Context(), artifactmanifest.Hash(backend.data))
 	require.ErrorIs(t, err, artifactmanifest.ErrCorrupt)

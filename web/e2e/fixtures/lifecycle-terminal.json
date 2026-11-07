@@ -1,0 +1,30 @@
+{
+  "infrastructure_failure": {
+    "observation_digest": "42940ca8400f5b22f6b716491acd8b9568ee7339bcde3e21cfdd960c66a02bca",
+    "terminal": {
+      "digest": "414ff02b82d5beee49e908600f707b700048f2ba789c1316ab2a7bb5ff8b28c0",
+      "outcome": "infrastructure_failure",
+      "exit_code": 2,
+      "failure_boundary": "startup",
+      "execution_verdict": "unavailable"
+    },
+    "retry": {
+      "advice": "conditional-fresh-attempt",
+      "reason": "requires-independent-admission-and-side-effect-review"
+    },
+    "actions": ["inspect-original-evidence", "review-independent-fresh-attempt"]
+  },
+  "success": {
+    "observation_digest": "38896705c7c99ca4e33f08a7254fba036015a566634dd70e9408f7fe4b1eb742",
+    "terminal": {
+      "digest": "6a98556d2d88ea1ede07007c7bde430273f72e2ce15d5c48e3ad9a4846c7e20b",
+      "outcome": "success",
+      "exit_code": 0,
+      "failure_boundary": "none",
+      "execution_verdict": "passed"
+    },
+    "completed_units": 1,
+    "retry": {"advice": "none", "reason": "completed-success"},
+    "actions": ["inspect-original-evidence"]
+  }
+}

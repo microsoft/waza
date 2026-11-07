@@ -9,6 +9,9 @@ import artifacts from '../../../../schemas/artifact-manifest-1.0.schema.json';
 import attempts from '../../../../schemas/execution-attempt-1.0.schema.json';
 import completions from '../../../../schemas/execution-completion-1.0.schema.json';
 import checkpoint from '../../../../schemas/execution-checkpoint-1.0.schema.json';
+import lifecycle from '../../../../schemas/execution-lifecycle-1.0.schema.json';
+import lifecycleObservation from '../../../../schemas/execution-lifecycle-observation-1.0.schema.json';
+import lifecycleInspection from '../../../../schemas/execution-lifecycle-inspection-1.0.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -22,6 +25,9 @@ export function getStaticPaths() {
     { params: { schema: 'execution-attempt-1.0.schema' }, props: { schema: attempts } },
     { params: { schema: 'execution-completion-1.0.schema' }, props: { schema: completions } },
     { params: { schema: 'execution-checkpoint-1.0.schema' }, props: { schema: checkpoint } },
+    { params: { schema: 'execution-lifecycle-1.0.schema' }, props: { schema: lifecycle } },
+    { params: { schema: 'execution-lifecycle-observation-1.0.schema' }, props: { schema: lifecycleObservation } },
+    { params: { schema: 'execution-lifecycle-inspection-1.0.schema' }, props: { schema: lifecycleInspection } },
   ];
 }
 

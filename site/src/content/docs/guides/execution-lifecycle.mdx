@@ -4,11 +4,42 @@ description: Interpret cancellation handling, deadline observations, partial com
 ---
 
 **Under development for v0.41.0 / #767.** A bounded lifecycle projection and
-immutable observation-blob contract exist. Production owner observation hooks,
-lifecycle CLI/API and the connected Dashboard Lab presentation are not yet
-delivered. Use the existing [runner terminal response](../runner-terminal/)
+immutable observation-blob contract, read-only CLI/API inspection and Lab source
+component exist. Production owner observation hooks and authenticated live
+lifecycle presentation are not yet delivered; dashboard build/browser checks
+remain separate requirements. Use the existing [runner terminal response](../runner-terminal/)
 for actual outcome and exit. The following is contract guidance, not a running
 recovery example or a statement that new cancellation endpoints are available.
+
+## Inspect explicit retained context
+
+```bash
+waza lifecycle inspect inspection.json --store .waza-artifacts
+curl --silent --show-error \
+  -H 'Content-Type: application/json' --data-binary @inspection.json \
+  http://127.0.0.1:3000/api/v1/lifecycle/inspect
+```
+
+The [inspection descriptor schema](../../schemas/execution-lifecycle-inspection-1.0.schema.json)
+requires the original retained admission binding, original reservation digest,
+ordered known observation digests and a positive `stale_after_ms` (at most one
+day). Optional `deadline` and `as_of` must be canonical UTC timestamps. Keep
+unavailable values omitted, not null, zero or a guessed current timestamp.
+This descriptor is caller-declared and must not be reconstructed from a stored
+reservation or destination attempt.
+
+The existing store must contain the reservation and every named observation.
+The API selects its configured store, never a path supplied in the body. Reads
+recheck current bytes, canonical profile, context and ordering. CLI exit 0 means
+inspection completed, not that execution succeeded. Validation, missing or
+corrupt evidence, context/order mismatch, provider failure and output failure
+exit 2. No stale or partial success projection is returned.
+
+When rebuilt from this source, the Lab Runner contract section accepts the same
+descriptor, labels values as declarations, keeps verified worker progress
+unavailable and downloads the same JSON projection. Advisory next steps are
+text, not retry/cancel/reclaim controls. Edits and failed reloads clear previous
+data. No synthetic demo observations are substituted.
 
 ## Cancellation is not a single fact
 
@@ -78,5 +109,6 @@ there is no latest pointer, global event inventory or lease expiry.
 The full developer transition table, bounds, source-context rules and remaining
 delivery gates are in
 [the lifecycle contract](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_LIFECYCLE.md).
-The [Dashboard Lab guide](../dashboard-lab/) describes the existing prototype;
-this page does not claim a lifecycle panel is present.
+The [Dashboard Lab guide](../dashboard-lab/) describes the source inspector and
+its rebuild requirement. Existing published dashboards and screenshots do not
+demonstrate this unreleased panel or authenticated worker progress.
