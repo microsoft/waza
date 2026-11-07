@@ -124,6 +124,12 @@ jobs:
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         run: go build -o "${RUNNER_TEMP}/waza-checkpoint-e2e" ./cmd/waza
 
+      - name: Test compiled checkpoint interruption and failed restore
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        env:
+          WAZA_E2E_CLI: ${{ runner.temp }}/waza-checkpoint-e2e
+        run: node --test web/e2e/checkpoint-cli-process.test.mjs
+
       - name: Build dashboard
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         working-directory: web
