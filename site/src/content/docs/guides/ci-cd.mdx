@@ -324,7 +324,10 @@ explicit override is forwarded unchanged (including nonexistent paths, which
 the CLI must report rather than silently ignore).
 
 The repository's `waza-eval.yml` uploads the selected JSON separately, including
-explicit hidden output paths. Optional non-hidden transcripts use the
+explicit hidden output paths. It stages only the exact regular result file in a
+fresh directory, preserving the basename, so custom paths are not upload patterns.
+Missing files, symlink results, or staging failures fail the workflow rather than
+uploading stale paths. Optional non-hidden transcripts use the
 `<artifact-name>-transcripts` artifact, so transcripts cannot substitute for the
 result and hidden transcript files are not newly exposed.
 

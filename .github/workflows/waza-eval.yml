@@ -214,12 +214,26 @@ jobs:
             exit 1
           fi
       
+      - name: Stage exact result artifact
+        id: stage-result
+        if: always() && steps.run-eval.outputs.exit_code != ''
+        env:
+          OUTPUT_FILE: ${{ steps.effective.outputs.output-file }}
+        run: |
+          if [ ! -f "$OUTPUT_FILE" ] || [ -L "$OUTPUT_FILE" ]; then
+            echo "::error::Evaluation did not produce a regular result file at $OUTPUT_FILE"
+            exit 1
+          fi
+          artifact_dir=$(mktemp -d "$RUNNER_TEMP/waza-result.XXXXXX")
+          cp -- "$OUTPUT_FILE" "$artifact_dir/$(basename -- "$OUTPUT_FILE")"
+          echo "artifact-path=$artifact_dir" >> "$GITHUB_OUTPUT"
+
       - name: Upload Results Artifact
-        if: always()
+        if: always() && steps.stage-result.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.effective.outputs.artifact-name }}
-          path: ${{ steps.effective.outputs.output-file }}
+          path: ${{ steps.stage-result.outputs.artifact-path }}
           include-hidden-files: true
           retention-days: 30
           if-no-files-found: error

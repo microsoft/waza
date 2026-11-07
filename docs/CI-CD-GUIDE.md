@@ -92,8 +92,11 @@ context override leaves fixture resolution to the eval spec; explicit context
 and output paths are forwarded unchanged.
 
 The automatic/reusable `waza-eval.yml` result artifact contains only the selected
-JSON file, including explicitly chosen hidden names or directories. Optional
-non-hidden transcripts are uploaded separately under `<artifact-name>-transcripts`;
+JSON file, including explicitly chosen hidden names or directories. It copies
+the exact regular file into a fresh staging directory, preserving its basename;
+custom paths are not interpreted as upload patterns. Missing files, symlink
+results, or staging failures fail the workflow instead of uploading stale paths.
+Optional non-hidden transcripts are uploaded separately under `<artifact-name>-transcripts`;
 transcripts cannot substitute for missing result evidence. The skills example's
 dispatch input is empty by default so its resolver selects the correct repository
 or consumer fixture path.

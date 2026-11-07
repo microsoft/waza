@@ -227,11 +227,17 @@ func TestWorkflowContractAgainstActualCLIArtifacts(t *testing.T) {
 	guardOutput, err := guard.Output()
 	require.NoError(t, err, string(guardOutput))
 	offlineEnv := strings.Split(strings.TrimSpace(string(guardOutput)), "\n")
+	t.Cleanup(func() {
+		entries, err := filepath.Glob(filepath.Join(dir, "*.invoked"))
+		require.NoError(t, err)
+		require.Empty(t, entries, "all production fixtures must avoid launching Copilot")
+	})
 	binary := filepath.Join(dir, "waza")
 	build := exec.Command("go", "build", "-o", binary, "../../cmd/waza")
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
 	runStep := evalWorkflowStepNamed(t, readEvalWorkflowSteps(t, "waza-eval.yml", "run-evaluation"), "Run Evaluation")
+	stageStep := evalWorkflowStepNamed(t, readEvalWorkflowSteps(t, "waza-eval.yml", "run-evaluation"), "Stage exact result artifact")
 
 	tests := []struct {
 		name          string
@@ -268,10 +274,10 @@ config:
   executor: mock
   model: test-model
 graders:
-  - type: regex
+  - type: text
     name: must-fail
     config:
-      must_match:
+      regex_match:
         - "NEVER_MATCH_WORKFLOW_CONTRACT"
 tasks:
   - "tasks/*.yaml"
@@ -346,24 +352,48 @@ tasks:
 			recorded, readErr := os.ReadFile(githubOutput)
 			require.NoError(t, readErr)
 			require.Contains(t, string(recorded), "status="+tt.wantStatus)
-			if tt.name == "task runtime error" {
-				data, readErr := os.ReadFile(resultPath)
-				require.NoError(t, readErr)
-				var produced map[string]any
-				require.NoError(t, json.Unmarshal(data, &produced))
-				runs := jsonItems(t, jsonObject(t, jsonItems(t, produced["tasks"])[0])["runs"])
-				require.Len(t, runs, 1)
-				run := jsonObject(t, runs[0])
-				require.Equal(t, "error", run["status"])
-				require.Contains(t, run["error_msg"], "missing-workflow-instruction.md")
+			data, readErr := os.ReadFile(resultPath)
+			require.NoError(t, readErr)
+			var produced map[string]any
+			require.NoError(t, json.Unmarshal(data, &produced))
+			tasks := jsonItems(t, produced["tasks"])
+			require.Len(t, tasks, 1)
+			task := jsonObject(t, tasks[0])
+			runs := jsonItems(t, task["runs"])
+			require.Len(t, runs, 1, "production fixture must contain a real trial")
+			trial := jsonObject(t, runs[0])
+			if tt.name == "completed failing grading" {
+				require.Equal(t, "failed", task["status"])
+				require.Equal(t, "failed", trial["status"])
+				require.Empty(t, trial["error_msg"])
+				require.NotEmpty(t, trial["final_output"])
+				require.Empty(t, jsonObject(t, trial["session_digest"])["errors"])
+				require.Equal(t, float64(0), jsonObject(t, produced["summary"])["errors"])
+				validations := jsonObject(t, trial["validations"])
+				require.Contains(t, validations, "must-fail")
+				grading := jsonObject(t, validations["must-fail"])
+				require.Equal(t, "text", grading["type"])
+				require.Equal(t, false, grading["passed"])
+				require.Equal(t, float64(0), grading["score"])
+				if details, present := grading["details"]; present {
+					require.Empty(t, jsonObject(t, details)["evaluation_errors"])
+				}
 			}
+			if tt.name == "task runtime error" {
+				require.Equal(t, "error", trial["status"])
+				require.Contains(t, trial["error_msg"], "missing-workflow-instruction.md")
+			}
+			stageOutputs := filepath.Join(workspace, "stage-output")
+			runEvalWorkflowScript(t, stageStep.Run, workspace, []string{
+				"OUTPUT_FILE=" + resultPath, "RUNNER_TEMP=" + dir, "GITHUB_OUTPUT=" + stageOutputs,
+			})
+			staged, readErr := os.ReadFile(stageOutputs)
+			require.NoError(t, readErr)
+			stagedDir := strings.TrimSpace(strings.TrimPrefix(string(staged), "artifact-path="))
+			stagedData, readErr := os.ReadFile(filepath.Join(stagedDir, filepath.Base(resultPath)))
+			require.NoError(t, readErr)
+			require.Equal(t, data, stagedData, "upload must contain the actual production result")
 			if tt.wantRunExit == 0 {
-				data, readErr := os.ReadFile(resultPath)
-				require.NoError(t, readErr)
-				var produced map[string]any
-				require.NoError(t, json.Unmarshal(data, &produced))
-				task := jsonObject(t, jsonItems(t, produced["tasks"])[0])
-				require.Len(t, task["runs"], 1, "production fixture must contain a real trial")
 				for _, mutation := range []struct {
 					name   string
 					change func(map[string]any)
@@ -399,9 +429,6 @@ tasks:
 						require.Error(t, check.Run())
 					})
 				}
-				entries, err := filepath.Glob(filepath.Join(dir, "*.invoked"))
-				require.NoError(t, err)
-				require.Empty(t, entries, "mock fixture must not launch Copilot")
 			}
 		})
 	}
@@ -507,6 +534,7 @@ func TestAzureWorkflowNumericGate(t *testing.T) {
 type evalWorkflowStep struct {
 	Name string            `yaml:"name"`
 	ID   string            `yaml:"id"`
+	If   string            `yaml:"if"`
 	Run  string            `yaml:"run"`
 	Env  map[string]string `yaml:"env"`
 	With map[string]string `yaml:"with"`
@@ -580,7 +608,8 @@ func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
 	run := evalWorkflowStepNamed(t, steps, "Run Evaluation")
 	upload := evalWorkflowStepNamed(t, steps, "Upload Results Artifact")
 	require.Equal(t, "${{ steps.effective.outputs.artifact-name }}", upload.With["name"])
-	require.Equal(t, "${{ steps.effective.outputs.output-file }}", upload.With["path"])
+	require.Equal(t, "${{ steps.stage-result.outputs.artifact-path }}", upload.With["path"])
+	require.Equal(t, "always() && steps.stage-result.outcome == 'success'", upload.If)
 	require.Equal(t, "true", upload.With["include-hidden-files"])
 	transcripts := evalWorkflowStepNamed(t, steps, "Upload optional transcripts")
 	require.Equal(t, "transcripts/", transcripts.With["path"])
@@ -652,6 +681,70 @@ func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
 		require.Error(t, command.Run())
 	})
 }
+
+func TestWorkflowStagesOnlyExactResult(t *testing.T) {
+	stage := evalWorkflowStepNamed(t, readEvalWorkflowSteps(t, "waza-eval.yml", "run-evaluation"), "Stage exact result artifact")
+	require.Equal(t, "always() && steps.run-eval.outputs.exit_code != ''", stage.If)
+	require.Equal(t, "${{ steps.effective.outputs.output-file }}", stage.Env["OUTPUT_FILE"])
+	for _, name := range []string{"results.json", ".results.json", "custom results.json", "*.json", "!results.json", "nested/*/result.json"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, name)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+			require.NoError(t, os.WriteFile(path, []byte("fresh result"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "unrelated.json"), []byte("stale"), 0o600))
+			outputPath := filepath.Join(dir, "stage-output")
+			runEvalWorkflowScript(t, stage.Run, dir, []string{
+				"OUTPUT_FILE=" + name, "RUNNER_TEMP=" + dir, "GITHUB_OUTPUT=" + outputPath,
+			})
+			output, err := os.ReadFile(outputPath)
+			require.NoError(t, err)
+			stagedDir := strings.TrimSpace(strings.TrimPrefix(string(output), "artifact-path="))
+			require.Equal(t, dir, filepath.Dir(stagedDir))
+			entries, err := os.ReadDir(stagedDir)
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "upload directory must exclude unrelated and stale evidence")
+			require.Equal(t, filepath.Base(name), entries[0].Name())
+			staged, err := os.ReadFile(filepath.Join(stagedDir, entries[0].Name()))
+			require.NoError(t, err)
+			require.Equal(t, "fresh result", string(staged))
+		})
+	}
+	for _, control := range []string{"missing", "directory", "symlink", "copy failure", "temporary directory failure"} {
+		t.Run(control, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "result.json")
+			target := filepath.Join(dir, "unrelated.json")
+			require.NoError(t, os.WriteFile(target, []byte("user-owned stale evidence"), 0o600))
+			switch control {
+			case "directory":
+				require.NoError(t, os.Mkdir(path, 0o700))
+			case "symlink":
+				require.NoError(t, os.Symlink(target, path))
+			case "copy failure", "temporary directory failure":
+				require.NoError(t, os.WriteFile(path, []byte("fresh result"), 0o600))
+				command := "cp"
+				if control == "temporary directory failure" {
+					command = "mktemp"
+				}
+				require.NoError(t, os.WriteFile(filepath.Join(dir, command), []byte("#!/bin/bash\necho 'injected staging failure' >&2\nexit 1\n"), 0o700))
+			}
+			outputPath := filepath.Join(dir, "stage-output")
+			command := exec.Command("bash", "-e", "-o", "pipefail", "-c", stage.Run)
+			command.Dir = dir
+			command.Env = append(os.Environ(), "OUTPUT_FILE="+path, "RUNNER_TEMP="+dir,
+				"GITHUB_OUTPUT="+outputPath, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			output, err := command.CombinedOutput()
+			require.Error(t, err, string(output))
+			_, err = os.Stat(outputPath)
+			require.True(t, os.IsNotExist(err), "failed staging must not export an upload path")
+			retained, err := os.ReadFile(target)
+			require.NoError(t, err)
+			require.Equal(t, "user-owned stale evidence", string(retained))
+		})
+	}
+}
+
 func TestSkillsWorkflowDeclaredDispatchDefault(t *testing.T) {
 	step := evalWorkflowStepNamed(t, readEvalWorkflowSteps(t, "skills-ci-example.yml", "evaluate-skill"), "Determine Eval File")
 	defaults := declaredWorkflowDefaults(t, "skills-ci-example.yml", "workflow_dispatch")
