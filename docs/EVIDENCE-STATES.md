@@ -99,10 +99,26 @@ original artifacts, native verdicts and caller-owned metadata remain unchanged.
 A finalized restore reuses the same execution source; it must not manufacture
 a child or resume edge.
 
-These library paths do not automatically enable transport, aggregate parent
-fields or Lab parent discovery. Those consumers must wire the actual
-budget-decorated Reader and preserve prior source/category failures; they must
-not substitute a raw provider or a second per-edge budget.
+The category CLI/API and Lab use the committed
+`manifestaggregate.NewEvidenceReader` facade: one reader per response, native
+categories first, then the exact returned document's source context under the
+same private namespace/Store budget. No backend/reader unwrap or second
+aggregation pass is used. These additional reads remain nonsnapshot.
+
+The output-only optional `source_context.parent_context` follows the shared
+aggregate source-context profile and TypeScript validator. Successful no-parent
+and undeclared-source responses retain their previous bytes. A qualified retry
+names only its exact immediate parent; a branch remains branch/unavailable.
+Missing abandoned, corrupt, conflicting, denied, limited or canceled parent
+reads preserve native child facts but fail context admission (HTTP 409, CLI 2;
+unavailable storage retains HTTP 503), emit safe diagnostics, and withhold
+qualified downloads and unsupported Lab links. No graph-completeness claim is
+made. Original attempts, sidecars, verdicts and billing are not modified.
+
+Qualified category CSV retains its existing 18 columns when no context is
+emitted. Context-bearing output appends `source_context_json`, containing the
+same nested view as JSON. This is distinct from aggregation's own CSV columns
+and never changes immutable evidence document encoding.
 
 Successful source verification establishes **byte integrity only**. It does not
 verify counts/category semantics, lineage relationships, finalized publication,

@@ -7,12 +7,14 @@ function EvidenceInspector() {
   const [receipt, setReceipt] = useState<EvidenceReceipt | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [admissionComplete, setAdmissionComplete] = useState(true);
   const request = useRef<AbortController | null>(null);
   useEffect(() => () => request.current?.abort(), []);
 
   async function inspect() {
     request.current?.abort();
     setReceipt(null);
+    setAdmissionComplete(true);
     setError("");
     if (!/^[0-9a-f]{64}$/.test(digest)) {
       setError("Enter a full lowercase SHA-256 evidence digest.");
@@ -41,6 +43,7 @@ function EvidenceInspector() {
           request.current?.abort();
           setDigest(event.target.value);
           setReceipt(null);
+          setAdmissionComplete(true);
           setError("");
           setPending(false);
         }} />
@@ -52,7 +55,8 @@ function EvidenceInspector() {
         <p>Content integrity at this declaration read: {receipt.integrity}. Publication: derived.</p>
         {receipt.diagnostics.map((diagnostic, index) => <p key={`${diagnostic.code}-${index}`}>{diagnostic.code}: {diagnostic.message}</p>)}
         {!receipt.document ? <p>Category evidence is withheld because source verification did not complete.</p> : <>
-          <p>Source manifest: <a href={`/api/v1/manifests/${receipt.document.origin_manifest}`}><code>{receipt.document.origin_manifest}</code></a></p>
+          <p>Source manifest: {admissionComplete ? <a href={`/api/v1/manifests/${receipt.document.origin_manifest}`}><code>{receipt.document.origin_manifest}</code></a>
+            : <code>{receipt.document.origin_manifest} (context not accepted)</code>}</p>
           <p>Source execution: <code>{receipt.document.execution_source?.execution_id ?? "No verified source-attempt reference recorded"}</code></p>
           <div style={{ overflowX: "auto" }}>
             <table>
@@ -68,12 +72,14 @@ function EvidenceInspector() {
             </table>
           </div>
           {receipt.document.lineage.length === 0 ? <p>No source-manifest lineage recorded.</p> : <ul aria-label="Source-manifest lineage">
-            {receipt.document.lineage.map((link) => <li key={`${link.manifest}-${link.relationship}`}>{link.relationship}: <a href={`/api/v1/manifests/${link.manifest}`}><code>{link.manifest}</code></a></li>)}
+            {receipt.document.lineage.map((link) => <li key={`${link.manifest}-${link.relationship}`}>{link.relationship}: {admissionComplete
+              ? <a href={`/api/v1/manifests/${link.manifest}`}><code>{link.manifest}</code></a> : <code>{link.manifest} (context not accepted)</code>}</li>)}
           </ul>}
-          <p><a href={`/api/v1/evidence/${receipt.evidence_sha256}/document`} download>Download evidence JSON</a>{" "}
+          {admissionComplete && <p><a href={`/api/v1/evidence/${receipt.evidence_sha256}/document`} download>Download evidence JSON</a>{" "}
             <a href={`/api/v1/evidence/${receipt.evidence_sha256}/csv`} download>Download evidence CSV</a></p>
+          }
           <p>Downloads recheck current sources; damaged or unfinalized sources are withheld.</p>
-          <RecordedEvidenceCategories key={receipt.evidence_sha256} digest={receipt.evidence_sha256} onSourceFailure={() => {
+          <RecordedEvidenceCategories key={receipt.evidence_sha256} digest={receipt.evidence_sha256} onAdmissionChange={setAdmissionComplete} onSourceFailure={() => {
             setReceipt(null);
             setError("Current recorded category source verification failed; prior declaration metadata has been cleared.");
           }} />

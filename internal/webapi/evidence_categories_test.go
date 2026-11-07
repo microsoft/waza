@@ -9,14 +9,15 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/evidenceview"
 )
 
 func TestExecutionEvidenceCategoryRouteRejectsSuccessShapedIncompleteReceipt(t *testing.T) {
 	mux := http.NewServeMux()
-	registerEvidenceCategoryRoute(mux, func(context.Context, string) (evidencestate.Inspection, []evidencestate.CategoryEvidence, error) {
+	registerEvidenceCategoryRoute(mux, func(context.Context, string) (evidenceview.Categories, error) {
 		count := int64(1)
-		return evidencestate.Inspection{Integrity: "verified"},
-			[]evidencestate.CategoryEvidence{{Category: evidencestate.Usage, State: evidencestate.Present, ObservedCount: &count}}, nil
+		return evidenceview.Categories{Inspection: evidencestate.Inspection{Integrity: "verified"},
+			Categories: []evidencestate.CategoryEvidence{{Category: evidencestate.Usage, State: evidencestate.Present, ObservedCount: &count}}}, nil
 	})
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/evidence/"+strings.Repeat("a", 64)+"/categories", nil))

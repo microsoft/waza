@@ -72,9 +72,9 @@ Source admission uses the actual committed completed-reader contract: requested
 bytes are captured in the same full verification pass, with finalized publication
 and current integrity both required. It does not reopen artifacts or reuse an
 old receipt, and is not an atomic cross-object snapshot or execution attestation.
-The recorded-category producer and reader do not complete retry, resume,
-aggregation or public submission integration; this page is not a claim that
-#768 is complete.
+Public protected submission, categories and aggregation share actual committed
+capture/attempt contracts. Final combined platform/browser/release gates remain
+separate; this page is not a claim that #768 or those gates are complete.
 
 For retry review, a parent execution ID alone is not a finalized source-manifest
 link. The internal output-only retry context path requires the exact parent's
@@ -84,7 +84,18 @@ that parent remains unavailable, not a successful or observed-empty history.
 Missing, corrupt or conflicting parent evidence cannot produce a qualified
 parent link or rewrite immutable lineage. Restoring a finalized execution reuses the same source, not a new
 child or synthetic resume edge. This is declared-context qualification, not
-runtime attestation or automatic whole-history discovery in the Lab.
+runtime attestation or whole-history discovery in the Lab.
+
+The category CLI/API now returns an optional output-only
+`source_context.parent_context` from one shared read budget: category admission
+first, then exact original-source and immediate-parent reads. No-parent output
+is unchanged. A branch stays branch/unavailable; a verified retry identifies
+only one declared hop. Missing, corrupt or conflicting parent context returns
+HTTP 409 / CLI exit 2 (storage unavailable remains HTTP 503). Independently
+admitted child categories stay visible, but qualified downloads and unsupported
+Lab links are withheld. The immutable sidecar's `lineage` is never rewritten.
+Qualified category CSV appends `source_context_json` only when that context is
+emitted; existing no-parent output retains its 18-column shape.
 
 The opt-in `categories` command returns separate admitted states and verification
 qualifiers using one source capture pass. Missing producer indexes leave all
@@ -106,10 +117,11 @@ one actual report before origin finalization. The index contains no origin or
 sidecar digest; the separately digested sidecar references the finalized origin.
 Recorded source kinds and context are declarations, not execution attestation.
 
-This schema route does **not** enable public submission or disclose raw reports.
-An extra-artifact callback cannot sanitize the containing origin's original
-terminal/report artifacts. Public submission remains blocked until an explicit
-first-publication sanitizer policy is committed and integrated. Existing
+This schema route does **not** itself enable submission or disclose raw reports.
+The actual `waza runner submit` and protected loopback submission route use the
+first-publication capture policy, not an arbitrary extra-artifact callback.
+Original terminal metadata, attempt and category index occupy the same first
+manifest; raw reports and restricted capture text are withheld. Existing
 finalized or reused artifacts must not be rewritten.
 
 ## Review and download metadata
