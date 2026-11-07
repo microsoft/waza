@@ -8,6 +8,7 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnerterminal"
@@ -94,5 +95,60 @@ func TestCheckpointCaptureAdmissionDenialPrecedesActualReservationAndFactory(t *
 	keys, truncated, err := namespace.ListUnverified(context.Background())
 	if err != nil || truncated || len(keys) != 0 {
 		t.Fatalf("capture denial left execution namespace records: %v, %t, %v", keys, truncated, err)
+	}
+}
+
+func TestOriginalCompletionDuringFreshChildReservationBlocksBeforeFactory(t *testing.T) {
+	store := backend(t)
+	factories := 0
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		factories++
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	var originalOwner *executionledger.Ledger
+	var originalCreator executionledger.Creator
+	original, err := service.Submit(context.Background(), fixture(t), store, Hooks{
+		Submission: runnerunit.SubmissionHooks{
+			Reserved: func(_ context.Context, owner *executionledger.Ledger, creator executionledger.Creator,
+				_ executionledger.Reservation,
+			) error {
+				originalOwner, originalCreator = owner, creator
+				return nil
+			},
+		},
+		Published: func(context.Context, Reference) error { return errors.New("pause after original before checkpoint") },
+	})
+	if err == nil || original.BeforeDigest == "" || factories != 0 {
+		t.Fatalf("control did not preserve original live creator before execution: %+v, %v", original, err)
+	}
+	// A separate real producer supplies matching native content; the retained
+	// creator authorizes declared-context completion, not runtime attestation.
+	other, err := service.Submit(context.Background(), fixture(t), store, Hooks{})
+	if err != nil || other.Submission.Completion == nil || factories != 1 {
+		t.Fatalf("independent native content control did not complete: %+v, %v", other, err)
+	}
+	rejected, err := service.Resume(context.Background(), fixture(t), store, original.BeforeDigest, Hooks{
+		Submission: runnerunit.SubmissionHooks{
+			Reserved: func(ctx context.Context, _ *executionledger.Ledger, _ executionledger.Creator,
+				reservation executionledger.Reservation,
+			) error {
+				if reservation.Attempt.Parent == nil || reservation.Attempt.Parent.ExecutionID != original.Submission.Reservation.ExecutionID {
+					t.Fatal("control did not occur in the exact fresh retry child reservation")
+				}
+				completed, err := originalOwner.Complete(ctx, originalCreator, other.Submission.Completion.ManifestDigest)
+				if err != nil {
+					return err
+				}
+				if completed.Reservation.Attempt.ExecutionID != original.Submission.Reservation.ExecutionID {
+					t.Fatal("completion control changed another source rather than original parent")
+				}
+				return nil
+			},
+		},
+	})
+	if !errors.Is(err, executioncheckpoint.ErrStale) || factories != 1 ||
+		rejected.Submission.Reservation == nil || rejected.Submission.Completion != nil ||
+		rejected.BeforeDigest != "" || rejected.RestoredUnits != nil {
+		t.Fatalf("original completion during fresh-child reservation bypassed pre-factory source recheck: %+v, %v", rejected, err)
 	}
 }
