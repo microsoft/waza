@@ -70,6 +70,14 @@ uses this actual build value and does not accept `runner_revision` as a user fla
 Admission tests using authored build metadata are not execution evidence for
 a released binary; production-CLI recovery tests remain required.
 
+Verify the actual owning binary with `go version -m /path/to/waza`. A clean
+working tree alone does not ensure Go recorded VCS metadata: the observed Go
+1.26.4 compiler recognizes a `.git` directory but not the `.git` file in an
+app-managed worktree. Such an unstamped binary is rejected before reservation.
+Use an ordinary versioned-checkout/CI build that records the real revision and
+clean flag; do not inject metadata or waive admission. Pre-frontend API/process
+builds are not evidence of matched embedded-dashboard delivery.
+
 The native engine also resolves ambient provider settings and `COPILOT_CLI_PATH`.
 Declared configuration hashes do not pin those external runtimes or providers.
 An owned native checkpoint caller must use the shared effective-runtime admission

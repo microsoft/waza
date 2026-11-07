@@ -122,7 +122,12 @@ jobs:
 
       - name: Build clean-stamped CLI for checkpoint API browser coverage
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
-        run: go build -o "${RUNNER_TEMP}/waza-checkpoint-e2e" ./cmd/waza
+        run: |
+          go build -o "${RUNNER_TEMP}/waza-checkpoint-e2e" ./cmd/waza
+          metadata="$(go version -m "${RUNNER_TEMP}/waza-checkpoint-e2e")"
+          printf '%s\n' "$metadata"
+          printf '%s\n' "$metadata" | grep -Fx "$(printf '\tbuild\tvcs.revision=%s' "$(git rev-parse HEAD)")"
+          printf '%s\n' "$metadata" | grep -Fx "$(printf '\tbuild\tvcs.modified=false')"
 
       - name: Test compiled checkpoint interruption and failed restore
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'

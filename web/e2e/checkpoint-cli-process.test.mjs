@@ -30,8 +30,17 @@ async function killAt(binary, directory, store, wrapper, boundary, env) {
     child.once("exit", (code, signal) => resolve({ code, signal }));
   });
   let stderr = "";
+  let stdout = "";
   let digest = "";
   let timer;
+  const outputEnded = new Promise((resolve, reject) => {
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+      if (Buffer.byteLength(stdout) > 4 << 20) reject(new Error("Checkpoint output exceeded the test budget."));
+    });
+    child.stdout.once("end", resolve);
+    child.stdout.once("error", reject);
+  });
   const reached = new Promise((resolve, reject) => {
     timer = setTimeout(() => reject(new Error(`CLI did not publish ${boundary}: ${stderr}`)), 60_000);
     child.stderr.on("data", (chunk) => {
@@ -43,9 +52,17 @@ async function killAt(binary, directory, store, wrapper, boundary, env) {
         else resolve(digest);
       }
     });
-    void exited.then(() => {
-      if (!digest) reject(new Error(`CLI exited before ${boundary}: ${stderr}`));
-    }, reject);
+    void exited.then(async () => {
+      if (!digest) {
+        child.stdout.resume();
+        await outputEnded;
+        assert.ok(stdout, `CLI exited before ${boundary} without result bytes: ${stderr}`);
+        const result = JSON.parse(stdout);
+        assert.equal(result.kind, "waza.runner-checkpoint-result");
+        const codes = result.diagnostics.map((diagnostic) => diagnostic.code);
+        reject(new Error(`CLI exited before ${boundary}: ${stderr}; result=${result.status}; diagnostics=${codes.join(",")}`));
+      }
+    }, reject).catch(reject);
     child.stdin.on("error", reject);
   });
   // The escaped real verdict record exceeds the undrained stdout pipe, keeping
@@ -83,8 +100,14 @@ test("compiled checkpoint CLI recovers actual SIGKILL at both stored boundaries 
   assert.ok(process.env.WAZA_E2E_CLI, "An actual clean-stamped owning CLI must be supplied; no test revision override.");
   const binary = resolve(process.env.WAZA_E2E_CLI);
   const directory = await mkdtemp(join(tmpdir(), "waza-checkpoint-cli-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
   const guard = join(directory, "reject-runtime");
+  t.after(async () => {
+    try {
+      assert.equal(existsSync(`${guard}.invoked`), false, "Failed controls must not hide a rejecting-runtime launch.");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   await writeFile(guard, '#!/bin/sh\nprintf invoked > "$0.invoked"\nexit 91\n', { mode: 0o700, flag: "wx" });
   assert.equal(spawnSync(guard, { timeout: 5_000 }).status, 91);
   assert.equal(readFileSync(`${guard}.invoked`, "utf8"), "invoked");

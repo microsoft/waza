@@ -75,6 +75,12 @@ grading or zero historical calls/billing.
 | Source metadata withheld | Capture/disclosure admission did not succeed. `source_withheld: true` is not a redacted source, approval, or creator capability. |
 | Publication/delivery failure | Preserve available locators and partial records. A write, flush or locator is not proof that a consumer received a valid result. |
 
+Inspect the actual binary with `go version -m /path/to/waza`. Clean source is not
+enough when the compiler omits VCS metadata; observed Go 1.26.4 worktree builds
+with a `.git` file can be unstamped. Use an ordinary versioned-checkout/CI build
+that records the real revision and clean flag. Do not inject a revision or waive
+admission. A pre-frontend API binary does not prove current embedded UI delivery.
+
 Only destination native attempt ordinal may differ; original source identity and
 selection must not be retagged. Owned native execution rejects effective external
 provider/runtime overrides through the shared guard. Finalized source inspection
