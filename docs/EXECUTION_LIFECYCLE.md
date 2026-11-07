@@ -14,6 +14,35 @@ The [site guide](../site/src/content/docs/guides/execution-lifecycle.mdx)
 describes operator interpretation. This document defines developer invariants
 and the remaining delivery gates.
 
+## Preview and final embedded delivery
+
+Dashboard validation has two explicitly allocated source phases. The default
+`delivery_phase: preview` preserves the clean prefrontend CLI's API/process
+controls, then builds and tests the current frontend and captures its generated
+index, assets and screenshots. That CLI does not prove the newly built dashboard
+was embedded. The final embedded browser case is explicitly skipped in preview;
+this skip is never final execution evidence.
+
+After reviewing genuine preview artifacts and committing only intended generated
+index/documentation outputs, `delivery_phase: final` builds the frontend once in
+its fresh owning checkout. It requires the generated tracked index/favicon to
+match the committed source, then builds the production CLI from that same
+physical `web/dist`, without another frontend build or restoration. Genuine Go
+metadata must name the actual Git HEAD with `vcs.modified=false`. Its process
+controls and full Chromium suite use that postfrontend binary. The separate
+embedded case compares actual HTTP index/all asset bytes and runs protected
+checkpoint creation and finalized reuse through the same-origin embedded Lab.
+The final report must contain exactly one executed, passing embedded case, not
+a missing, skipped, retried or failed control. No dispatch is implicit.
+
+Current Go app-worktree builds can omit VCS metadata; they are not substitutes
+for the ordinary hosted owning checkout, and no revision/dirty waiver is allowed.
+This gate covers the CLI payload, not the azd extension release path. The latter
+also rewrites `version.txt` and `extension.yaml` before `azd x build`; agreed
+target metadata must already be committed/matching, or a separately reviewed
+real-source publication contract is required. Preview or CLI-only checks do not
+prove extension payload delivery, native Windows support or release publication.
+
 ## Original context and evidence
 
 `New` takes canonical original
