@@ -86,7 +86,7 @@ func (f *fakeAzure) Do(r *http.Request) (*http.Response, error) {
 			return response(http.StatusPreconditionFailed, []byte("<Error><Code>ConditionNotMet</Code></Error>"))
 		}
 		f.objects[key] = append([]byte(nil), data...)
-		if strings.HasPrefix(key, "final-") && f.failCommittedPut != nil {
+		if (strings.HasPrefix(key, "final-") || strings.HasPrefix(key, namespacePrefix)) && f.failCommittedPut != nil {
 			err := f.failCommittedPut
 			f.failCommittedPut = nil
 			return nil, err
@@ -94,11 +94,15 @@ func (f *fakeAzure) Do(r *http.Request) (*http.Response, error) {
 		return response(http.StatusCreated, nil)
 	case http.MethodGet:
 		if r.URL.Query().Get("comp") == "list" {
+			prefix := r.URL.Query().Get("prefix")
+			if prefix == "" {
+				return nil, errors.New("discovery omitted its namespace prefix")
+			}
 			var listing strings.Builder
 			listing.WriteString("<EnumerationResults><Blobs>")
 			names := []string{}
 			for name := range f.objects {
-				if strings.HasPrefix(name, "manifest-") {
+				if strings.HasPrefix(name, prefix) {
 					names = append(names, name)
 				}
 			}

@@ -8,10 +8,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/rootedfile"
 	"github.com/spf13/cobra"
@@ -51,24 +47,11 @@ func newArtifactCommand() *cobra.Command {
 	cmd.MarkFlagsMutuallyExclusive("store", "azure-container-url")
 
 	open := func() (*artifactmanifest.Store, func() error, error) {
-		if azureURL != "" {
-			credential, err := azidentity.NewDefaultAzureCredential(nil)
-			if err != nil {
-				return nil, nil, fmt.Errorf("creating explicit Azure credential chain: %w", err)
-			}
-			backend, err := artifactmanifest.NewAzure(azureURL, credential, &container.ClientOptions{
-				ClientOptions: azcore.ClientOptions{PerRetryPolicies: []policy.Policy{artifactmanifest.VersionPolicy{}}},
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			return artifactmanifest.NewStore(backend), func() error { return nil }, nil
-		}
-		backend, err := artifactmanifest.OpenLocal(directory)
+		backend, closeBackend, err := artifactmanifest.OpenBackend(directory, azureURL)
 		if err != nil {
 			return nil, nil, err
 		}
-		return artifactmanifest.NewStore(backend), backend.Close, nil
+		return artifactmanifest.NewStore(backend), closeBackend, nil
 	}
 	run := func(action string) func(*cobra.Command, []string) error {
 		return func(cmd *cobra.Command, args []string) (resultErr error) {

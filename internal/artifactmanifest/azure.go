@@ -23,9 +23,8 @@ import (
 type Azure struct{ client *container.Client }
 
 func NewAzure(containerURL string, credential azcore.TokenCredential, options *container.ClientOptions) (*Azure, error) {
-	u, err := url.Parse(containerURL)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return nil, errors.New("immutable Azure store requires an HTTPS container URL without credentials or query")
+	if err := validateAzureURL(containerURL); err != nil {
+		return nil, err
 	}
 	if credential == nil {
 		return nil, errors.New("immutable Azure store requires an explicit credential")
@@ -37,8 +36,19 @@ func NewAzure(containerURL string, credential azcore.TokenCredential, options *c
 	return &Azure{client: client}, nil
 }
 
+func validateAzureURL(containerURL string) error {
+	u, err := url.Parse(containerURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("immutable Azure store requires an HTTPS container URL without credentials or query")
+	}
+	return nil
+}
+
 func (a *Azure) ListManifests(ctx context.Context) ([]string, bool, error) {
-	prefix := "manifest-"
+	return a.listObjects(ctx, "manifest-")
+}
+
+func (a *Azure) listObjects(ctx context.Context, prefix string) ([]string, bool, error) {
 	size := int32(MaxCatalogEntries)
 	pager := a.client.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{Prefix: &prefix, MaxResults: &size})
 	if !pager.More() {
@@ -71,6 +81,10 @@ func (a *Azure) Create(ctx context.Context, key string, data []byte) (bool, erro
 	if err := verifyObject(key, data); err != nil {
 		return false, err
 	}
+	return a.createObject(ctx, key, data)
+}
+
+func (a *Azure) createObject(ctx context.Context, key string, data []byte) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -89,8 +103,25 @@ func (a *Azure) Create(ctx context.Context, key string, data []byte) (bool, erro
 }
 
 func (a *Azure) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
-	if !validKey(key) || limit < 0 || limit > MaxArtifactBytes {
+	if !validKey(key) {
 		return nil, ErrInvalid
+	}
+	data, err := a.readObject(ctx, key, limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyObject(key, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (a *Azure) readObject(ctx context.Context, key string, limit int64) ([]byte, error) {
+	if limit < 0 || limit > MaxArtifactBytes {
+		return nil, ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	response, err := a.client.NewBlobClient(key).DownloadStream(ctx, nil)
 	if err != nil {
@@ -111,9 +142,6 @@ func (a *Azure) Get(ctx context.Context, key string, limit int64) ([]byte, error
 		readErr = errors.Join(readErr, ErrCorrupt)
 	}
 	if err := errors.Join(readErr, response.Body.Close(), ctx.Err()); err != nil {
-		return nil, err
-	}
-	if err := verifyObject(key, data); err != nil {
 		return nil, err
 	}
 	return data, nil

@@ -38,6 +38,10 @@ func OpenLocal(directory string) (*Local, error) {
 func (l *Local) Close() error { return l.root.Close() }
 
 func (l *Local) ListManifests(ctx context.Context) ([]string, bool, error) {
+	return l.listObjects(ctx, "manifest-")
+}
+
+func (l *Local) listObjects(ctx context.Context, prefix string) ([]string, bool, error) {
 	directory, err := l.root.Open(".")
 	if err != nil {
 		return nil, false, err
@@ -57,7 +61,7 @@ func (l *Local) ListManifests(ctx context.Context) ([]string, bool, error) {
 				truncated = true
 				break
 			}
-			if strings.HasPrefix(entry.Name(), "manifest-") {
+			if strings.HasPrefix(entry.Name(), prefix) {
 				keys = append(keys, entry.Name())
 			}
 		}
@@ -91,6 +95,10 @@ func (l *Local) Create(ctx context.Context, key string, data []byte) (bool, erro
 	if err := verifyObject(key, data); err != nil {
 		return false, err
 	}
+	return l.createObject(ctx, key, data)
+}
+
+func (l *Local) createObject(ctx context.Context, key string, data []byte) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -132,9 +140,12 @@ func (l *Local) Create(ctx context.Context, key string, data []byte) (bool, erro
 		}
 		return false, fmt.Errorf("no-replace link failed; staging object retained as %s: %w", name, err)
 	}
-	published, err := l.Get(ctx, key, int64(len(data)))
+	published, err := l.readObject(ctx, key, int64(len(data)))
 	if err != nil {
 		return false, fmt.Errorf("verifying linked object; staging object retained as %s: %w", name, err)
+	}
+	if err := verifyBytes(published, Hash(data), int64(len(data))); err != nil {
+		return false, err
 	}
 	if !bytes.Equal(published, data) {
 		return false, ErrConflict
@@ -143,7 +154,21 @@ func (l *Local) Create(ctx context.Context, key string, data []byte) (bool, erro
 }
 
 func (l *Local) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
-	if !validKey(key) || limit < 0 || limit > MaxArtifactBytes {
+	if !validKey(key) {
+		return nil, ErrInvalid
+	}
+	data, err := l.readObject(ctx, key, limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyObject(key, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (l *Local) readObject(ctx context.Context, key string, limit int64) ([]byte, error) {
+	if limit < 0 || limit > MaxArtifactBytes {
 		return nil, ErrInvalid
 	}
 	if err := ctx.Err(); err != nil {
@@ -176,9 +201,6 @@ func (l *Local) Get(ctx context.Context, key string, limit int64) ([]byte, error
 		}
 	}
 	if err := errors.Join(statErr, readErr, file.Close(), ctx.Err()); err != nil {
-		return nil, err
-	}
-	if err := verifyObject(key, data); err != nil {
 		return nil, err
 	}
 	return data, nil

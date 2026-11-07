@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -178,10 +179,19 @@ func TestLocalConfinedReadsRetainRootAndRejectSpecialObjects(t *testing.T) {
 	}
 	relocated := filepath.Join(base, "moved")
 	if err := os.Rename(directory, relocated); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(directory, 0o700); err != nil {
-		t.Fatal(err)
+		if runtime.GOOS != "windows" || !errors.Is(err, os.ErrPermission) {
+			t.Fatal(err)
+		}
+		if _, statErr := os.Stat(relocated); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("blocked parent replacement created a competing destination: %v", statErr)
+		}
+		if _, statErr := os.Stat(directory); statErr != nil {
+			t.Fatalf("blocked parent replacement lost retained root: %v", statErr)
+		}
+	} else {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	got, err := backend.Get(context.Background(), "blob-"+a.SHA256, a.SizeBytes)
 	if err != nil || !bytes.Equal(got, data) {

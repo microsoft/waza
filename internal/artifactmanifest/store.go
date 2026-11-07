@@ -97,18 +97,19 @@ func (s *Store) Create(ctx context.Context, original []byte) (string, error) {
 	return digest, nil
 }
 
-func (s *Store) load(ctx context.Context, digest string) (*Manifest, error) {
+func (s *Store) load(ctx context.Context, digest string) (*Manifest, []byte, error) {
 	if !validDigest(digest) {
-		return nil, ErrInvalid
+		return nil, nil, ErrInvalid
 	}
 	if s == nil || s.backend == nil {
-		return nil, errors.New("immutable store backend is unavailable")
+		return nil, nil, errors.New("immutable store backend is unavailable")
 	}
 	data, err := s.backend.Get(ctx, "manifest-"+digest, MaxManifestBytes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return canonicalStored(data, digest)
+	m, err := canonicalStored(data, digest)
+	return m, data, err
 }
 
 func diagnostic(err error) Diagnostic {
@@ -129,19 +130,64 @@ func diagnostic(err error) Diagnostic {
 // Inspect always rereads current bytes. Error receipts carry only logical names
 // and typed diagnostics; filesystem paths and provider URLs are not serialized.
 func (s *Store) Inspect(ctx context.Context, digest string) (Receipt, error) {
+	r, _, err := s.inspect(ctx, digest, false, nil)
+	return r, err
+}
+
+func (s *Store) inspect(ctx context.Context, digest string, capture bool, names []string) (Receipt, *CompletedPublication, error) {
 	r := emptyReceipt(digest)
-	m, err := s.load(ctx, digest)
+	m, wire, err := s.load(ctx, digest)
 	if err != nil {
 		r.Diagnostics = append(r.Diagnostics, diagnostic(err))
-		return r, err
+		return r, nil, err
 	}
 	r.Attempt = m.Binding.Identity.Attempt
+	selected := make(map[string]bool)
+	var captured map[string][]byte
+	if capture {
+		if len(names) == 0 {
+			names = []string{m.TerminalArtifact}
+		}
+		admitted := make(map[string]bool, len(m.Artifacts))
+		for _, a := range m.Artifacts {
+			admitted[a.Name] = true
+		}
+		for _, name := range names {
+			if !admitted[name] || selected[name] {
+				err := fmt.Errorf("%w: requested artifact is unknown or duplicated", ErrInvalid)
+				r.Diagnostics = append(r.Diagnostics, diagnostic(err))
+				return r, nil, err
+			}
+			selected[name] = true
+		}
+		captured = make(map[string][]byte, len(selected))
+	}
 	var failures []error
 	var terminal []byte
+	var terminalRead bool
+	// Providers may read one extra byte per object to detect excess content.
+	readBudget := int64(MaxTotalBytes) + int64(len(m.Artifacts))
+	selectedBudget := int64(MaxTotalBytes)
 	for _, a := range m.Artifacts {
-		data, err := s.backend.Get(ctx, "blob-"+a.SHA256, a.SizeBytes)
+		var data []byte
+		var err error
+		if a.SizeBytes+1 > readBudget {
+			err = fmt.Errorf("%w: artifact read budget exceeded", ErrCorrupt)
+		} else {
+			readBudget -= a.SizeBytes + 1
+			data, err = s.backend.Get(ctx, "blob-"+a.SHA256, a.SizeBytes)
+		}
 		if err == nil {
 			err = verifyBytes(data, a.SHA256, a.SizeBytes)
+		}
+		if err == nil && selected[a.Name] {
+			if int64(len(data)) > selectedBudget {
+				err = fmt.Errorf("%w: selected artifact byte budget exceeded", ErrCorrupt)
+			} else {
+				selectedBudget -= int64(len(data))
+				data = bytes.Clone(data)
+				captured[a.Name] = data
+			}
 		}
 		state := ArtifactState{Artifact: a, Integrity: "verified"}
 		if err != nil {
@@ -157,10 +203,11 @@ func (s *Store) Inspect(ctx context.Context, digest string) (Receipt, error) {
 			failures = append(failures, err)
 		} else if a.Name == m.TerminalArtifact {
 			terminal = data
+			terminalRead = true
 		}
 		r.Artifacts = append(r.Artifacts, state)
 	}
-	if terminal != nil {
+	if terminalRead {
 		if _, err := runnerterminal.Validate(terminal, m.Binding.TerminalBinding()); err != nil {
 			failures = append(failures, fmt.Errorf("%w: terminal declared-context mismatch: %w", ErrCorrupt, err))
 			r.Diagnostics = append(r.Diagnostics, Diagnostic{"terminal_mismatch", "Terminal bytes do not match the declared context. No execution attestation is provided."})
@@ -191,7 +238,13 @@ func (s *Store) Inspect(ctx context.Context, digest string) (Receipt, error) {
 	} else {
 		r.Integrity = "failed"
 	}
-	return r, errors.Join(failures...)
+	err = errors.Join(failures...)
+	if !capture || err != nil || r.Publication != "finalized" || r.Integrity != "verified" {
+		return r, nil, err
+	}
+	return r, &CompletedPublication{
+		Manifest: *m, ManifestBytes: bytes.Clone(wire), ArtifactBytes: captured, Receipt: r,
+	}, nil
 }
 
 // Finalize conditionally completes this manifest after content verification.
