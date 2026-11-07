@@ -378,9 +378,10 @@ Their publication job explicitly rejects failed, cancelled, or skipped validatio
 branches and verifies all five coverage profiles and exactly-once native selection
 before publishing the tested binary artifact. Test the release wiring with
 `go test -count=1 ./.github/scripts` and the offline runtime/integration controls
-with `bash .github/scripts/release_gate_test.sh`. Release tests and native shards
-install a verified rejecting Copilot runtime. The mock integration requires a
-fresh saved JSON outcome with the four expected tasks and all three trials,
+with `bash .github/scripts/release_gate_test.sh`. Release, ordinary Go, preview,
+and native-shard tests install a verified rejecting Copilot runtime. The ordinary
+and release mock integration requires a fresh saved JSON outcome with the four
+expected tasks and all three trials,
 consistent summary/task/run/grader statuses, and zero errors, skips, or cached
 tasks. Exit 1 is accepted only for completed grader failures, never task/runtime
 errors, cancellation, or missing/incomplete evidence. Any attempted runtime launch
@@ -396,16 +397,16 @@ its own rejecting runtime marker after tests, including tolerated launches.
 Publication uses `!cancelled()` as well as explicit shard-result checks.
 The SIGTERM regression holds the production CLI inside a blocking grader
 subprocess until cancellation, rather than synchronizing on console output.
-Both workflows execute the production-CLI regression controls
+The release workflows execute the production-CLI regression controls
 in `.github/scripts`, including the otherwise indistinguishable task-error exit 1.
-The integration requires `jq` (available on the Ubuntu release runners).
+The shared integration requires `jq` on each runner.
 The fixed release example is hook-free, requires one recorded attempt per run,
 and pins each named grader result to its expected type; retries must not hide
 discarded evaluation exceptions or substitute executable-launch failures.
 Before execution it requires a complete offline preflight report, rejects invalid
 configuration and colliding final grader names (including synthesized expectation
 names), and leaves interpreter/model availability unresolved for the actual guarded
-run to prove. This release-only admission does not change legacy runtime overwrite
+run to prove. This fixed integration admission does not change legacy runtime overwrite
 behavior or preflight's default non-strict exit policy.
 This is offline harness evidence, not live agent-quality evidence.
 
