@@ -82,11 +82,14 @@ It requires a nonempty regular index/favicon, JavaScript/CSS bundles, and every
 index-referenced asset, rejecting missing, partial, nonregular, or symlink output.
 Root-relative and relative asset URLs are checked locally; malformed or nonlocal
 script/stylesheet/preload references fail without fetching external content.
+Every preload destination, including fonts/images and unspecified destinations,
+uses the same local regular-file admission; preloads never satisfy entry/style roles.
 The host-native checker uses the pinned public Go HTML parser, with module
 preparation separate from its offline execution. Ambient cross-compilation
 targets are cleared for the checker, not for the published binary.
 DOM roles require an active executable HTML script and enabled non-alternate
-stylesheet. Template/noscript descendants, comments, raw text, and foreign
+stylesheet with omitted/empty type or `text/css`. Template/noscript descendants,
+comments, raw text, and foreign
 elements cannot satisfy those roles. Duplicate attributes and unfinished tokens
 are rejected before DOM normalization; this is a strict built-index profile, not
 a claim to execute arbitrary HTML. The first active base href must resolve to
@@ -116,6 +119,13 @@ GitHub's create-ref endpoint before invoking Kit. Existing or concurrently
 created tags are rejected without replacement. CLI publication verifies its
 existing remote tag (including annotated tags), passes the exact target SHA,
 and forbids default-branch tag creation.
+The stable branch publisher checks out only the validated source before
+downloading its tested binary and uses the same remote tag guard immediately
+before publication. A moved, missing or failed-to-read candidate tag cannot
+redirect publication or be recreated from the default branch. This checkout
+provides admission scripts; it does not rebuild or replace the tested binary.
+Target metadata admission explicitly selects Bash with pipeline failure
+propagation; matching output from a failed manifest read cannot pass.
 
 ## Retry and Partial-Publication Behavior
 

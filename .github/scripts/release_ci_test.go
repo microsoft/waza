@@ -23,6 +23,7 @@ type releaseStep struct {
 	ID               string `yaml:"id"`
 	Name             string
 	Run              string
+	Shell            string
 	Uses             string
 	If               string
 	ContinueOnError  bool   `yaml:"continue-on-error"`
@@ -276,6 +277,12 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 		{"quoted-greater-query", []string{index, favicon, js, css}, nil, "", true},
 		{"empty-type-overrides-language", []string{index, favicon, js, css}, nil, "", true},
 		{"module-with-nomodule", []string{index, favicon, js, css}, nil, "", true},
+		{"missing-font-preload", []string{index, favicon, js, css}, nil, "", false},
+		{"nonlocal-font-preload", []string{index, favicon, js, css}, nil, "", false},
+		{"valid-font-preload", []string{index, favicon, js, css, "web/dist/assets/font.woff2"}, nil, "", true},
+		{"inert-stylesheet-type", []string{index, favicon, js, css}, nil, "", false},
+		{"css-stylesheet-type", []string{index, favicon, js, css}, nil, "", true},
+		{"empty-stylesheet-type", []string{index, favicon, js, css}, nil, "", true},
 	} {
 		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -411,6 +418,16 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 				case "module-with-nomodule":
 					html.Reset()
 					html.WriteString("<script type=module nomodule src='/assets/index-a.js'></script><link rel=stylesheet href='/assets/index-b.css'>")
+				case "missing-font-preload":
+					html.WriteString("<link rel=preload as=font href='fonts/missing.woff2'>")
+				case "nonlocal-font-preload":
+					html.WriteString("<link rel=preload as=font href='https://example.invalid/font.woff2'>")
+				case "valid-font-preload":
+					html.WriteString("<link rel=preload as=font href='./assets/font.woff2'>")
+				case "inert-stylesheet-type", "css-stylesheet-type", "empty-stylesheet-type":
+					styleType := map[string]string{"inert-stylesheet-type": "application/json", "css-stylesheet-type": "Text/CSS", "empty-stylesheet-type": ""}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<script src='/assets/index-a.js'></script><link rel=stylesheet type='%s' href='/assets/index-b.css'>", styleType)
 				}
 				switch fixture.name {
 				case "empty-referenced-js":
@@ -711,12 +728,17 @@ esac
 				t.Fatal(err)
 			}
 			writeRejectingTagLookup(t, dir)
+			remoteState := "missing"
+			if file == "squad-release.yml" {
+				installReleaseTagCheck(t, dir)
+				remoteState = "matching"
+			}
 			created := filepath.Join(dir, "created-release")
 			script := strings.ReplaceAll(strings.ReplaceAll(run, "${{ github.repository }}", "microsoft/waza"), "${{ github.server_url }}", "https://github.com")
 			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"RELEASE_STATE="+state, "REMOTE_TAG_STATE=missing", "CREATED_RELEASE="+created, "VERSION=v1.2.3", "GITHUB_SHA=validated-source")
+				"RELEASE_STATE="+state, "REMOTE_TAG_STATE="+remoteState, "CREATED_RELEASE="+created, "VERSION=v1.2.3", "GITHUB_SHA=validated-source")
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != (state == "missing") {
 				t.Fatalf("release state %s: error = %v\n%s", state, err, output)
@@ -911,11 +933,16 @@ func testBranchVersionPropagation(t *testing.T, workflow releaseWorkflow, candid
 				t.Fatal(err)
 			}
 			writeRejectingTagLookup(t, dir)
+			remoteState := "missing"
+			if file == "squad-release.yml" {
+				installReleaseTagCheck(t, dir)
+				remoteState = "matching"
+			}
 			run = strings.ReplaceAll(strings.ReplaceAll(create.Run, "${{ github.repository }}", "microsoft/waza"), "${{ github.server_url }}", "https://github.com")
 			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"CREATED_RELEASE="+created, "REMOTE_TAG_STATE=missing", "VERSION="+version, "GITHUB_SHA="+sha)
+				"CREATED_RELEASE="+created, "REMOTE_TAG_STATE="+remoteState, "VERSION="+version, "GITHUB_SHA="+sha)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("publish detected version: %v\n%s", err, output)
 			}
@@ -937,12 +964,12 @@ func writeRejectingTagLookup(t *testing.T, dir string) {
 set -eu
 test "$1" = ls-remote
 test "$2" = --exit-code
-test "$3" = https://github.com/microsoft/waza.git
+test "$3" = origin || test "$3" = https://github.com/microsoft/waza.git
 test "$4" = "refs/tags/$VERSION"
 test "$5" = "refs/tags/$VERSION^{}"
 case "$REMOTE_TAG_STATE" in
   missing) exit 2 ;;
-  matching) printf 'validated-source\trefs/tags/%s\n' "$VERSION" ;;
+  matching) printf '%s\trefs/tags/%s\n' "$GITHUB_SHA" "$VERSION" ;;
   wrong-source) printf 'other-source\trefs/tags/%s\n' "$VERSION" ;;
   annotated) printf 'tag-object\trefs/tags/%s\nother-source\trefs/tags/%s^{}\n' "$VERSION" "$VERSION" ;;
   lookup-error) exit 73 ;;
@@ -1789,8 +1816,17 @@ func validateBranchPublisher(source []byte, file string) error {
 	if err := orderedReleaseSteps(candidate, []string{"Checkout Repository", tagStep.Name}); err != nil {
 		return err
 	}
-	if err := orderedReleaseSteps(publish, []string{"Require successful complete validation",
-		"Download complete validation evidence", "Require exact validated source and tested binary", createName}); err != nil {
+	publicationOrder := []string{"Require successful complete validation",
+		"Download complete validation evidence", "Require exact validated source and tested binary", createName}
+	if file == "squad-release.yml" {
+		publicationOrder = slices.Insert(publicationOrder, 1, "Checkout validated publisher source")
+		publisherCheckout := releaseSteps(publish)["Checkout validated publisher source"]
+		if !strings.HasPrefix(publisherCheckout.Uses, "actions/checkout@") ||
+			publisherCheckout.With["ref"] != "${{ github.sha }}" || publisherCheckout.With["fetch-depth"] != "0" {
+			return fmt.Errorf("stable publisher must checkout exact-source tag admission before downloading tested evidence")
+		}
+	}
+	if err := orderedReleaseSteps(publish, publicationOrder); err != nil {
 		return err
 	}
 	steps := releaseSteps(publish)
@@ -1809,6 +1845,11 @@ func validateBranchPublisher(source []byte, file string) error {
 	}
 	if !strings.Contains(steps[createName].Run, "./waza ./waza.sha256 ./source-sha.txt") {
 		return fmt.Errorf("publisher must publish source and digest evidence with the tested binary")
+	}
+	if file == "squad-release.yml" &&
+		(!strings.Contains(steps[createName].Run, "bash .github/scripts/release_tag_check.sh \"$VERSION\"\n  gh release create") ||
+			!strings.Contains(steps[createName].Run, `--verify-tag --target "$GITHUB_SHA"`)) {
+		return fmt.Errorf("stable publication must verify the current remote candidate and forbid missing-tag creation")
 	}
 	if !strings.Contains(steps[createName].Run, "before retrying publication.\" >&2\n  exit 1\nelse\n") {
 		return fmt.Errorf("publisher must reject unverified existing releases instead of succeeding")

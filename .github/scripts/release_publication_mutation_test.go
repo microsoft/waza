@@ -11,8 +11,12 @@ func TestReleasePublicationMutations(t *testing.T) {
 	source := readReleaseWorkflow(t, "release.yml")
 	for _, stepName := range []string{"Verify selected Extensions Kit contract", "Sync Version Files", "Create exact extension tag exclusively",
 		"Require package-only extension release", "Publish Extension Provenance", "Create Release PR", "Build Extension"} {
-		for _, field := range []string{"if", "continue-on-error", "run", "release-flag", "release-flag-absent", "release-flag-job-only"} {
+		for _, field := range []string{"if", "continue-on-error", "run", "shell", "release-flag", "release-flag-absent", "release-flag-job-only"} {
 			if strings.HasPrefix(field, "release-flag") && stepName != "Build Extension" {
+				continue
+			}
+
+			if field == "shell" && stepName != "Sync Version Files" {
 				continue
 			}
 			t.Run(stepName+"/"+field, func(t *testing.T) {
@@ -40,6 +44,8 @@ func TestReleasePublicationMutations(t *testing.T) {
 					value, tag = "true", "!!bool"
 				case "run":
 					value = ":"
+				case "shell":
+					value = "sh"
 				}
 				found := false
 				if field == "release-flag" {
@@ -89,7 +95,7 @@ func TestReleasePublicationMutations(t *testing.T) {
 				}
 				if string(changed) == string(baseline) || field == "run" && step.Run != ":" ||
 					field == "if" && step.If != "false" || field == "continue-on-error" && !step.ContinueOnError ||
-					field == "release-flag" && step.Env["REQUIRE_RELEASE_ADMISSION"] != "0" {
+					field == "release-flag" && step.Env["REQUIRE_RELEASE_ADMISSION"] != "0" || field == "shell" && step.Shell != "sh" {
 					t.Fatal("mutation did not change the intended production field")
 				}
 				if err := validateTagRelease(changed); err == nil {
@@ -123,5 +129,58 @@ func TestReleasePublicationMutations(t *testing.T) {
 	}
 	if err := validateTagRelease(changed); err == nil {
 		t.Fatal("actual sidecar-before-registry ordering admitted")
+	}
+}
+
+func TestReleaseStableTagGateMutations(t *testing.T) {
+	source := readReleaseWorkflow(t, "squad-release.yml")
+	for _, mutation := range []string{"missing-checkout", "wrong-checkout-source", "skipped-checkout", "tolerated-checkout",
+		"missing-tag-admission", "tolerated-tag-admission", "missing-verify-tag", "wrong-tag-target"} {
+		t.Run(mutation, func(t *testing.T) {
+			var workflow releaseWorkflow
+			if err := yaml.Unmarshal(source, &workflow); err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := yaml.Marshal(workflow)
+			if err != nil || validateBranchPublisher(baseline, "squad-release.yml") != nil {
+				t.Fatalf("positive stable YAML round trip: %v", err)
+			}
+			job := workflow.Jobs["release"]
+			for i := range job.Steps {
+				step := &job.Steps[i]
+				if step.Name == "Checkout validated publisher source" {
+					switch mutation {
+					case "missing-checkout":
+						step.Name = "Removed publisher checkout"
+					case "wrong-checkout-source":
+						step.With["ref"] = "main"
+					case "skipped-checkout":
+						step.If = "false"
+					case "tolerated-checkout":
+						step.ContinueOnError = true
+					}
+				}
+				if step.Name == "Create Release" {
+					switch mutation {
+					case "missing-tag-admission":
+						step.Run = strings.ReplaceAll(step.Run, `bash .github/scripts/release_tag_check.sh "$VERSION"`, ":")
+					case "tolerated-tag-admission":
+						step.Run = strings.ReplaceAll(step.Run, `bash .github/scripts/release_tag_check.sh "$VERSION"`, `bash .github/scripts/release_tag_check.sh "$VERSION" || true`)
+					case "missing-verify-tag":
+						step.Run = strings.ReplaceAll(step.Run, "--verify-tag ", "")
+					case "wrong-tag-target":
+						step.Run = strings.ReplaceAll(step.Run, `--target "$GITHUB_SHA"`, "--target main")
+					}
+				}
+			}
+			workflow.Jobs["release"] = job
+			changed, err := yaml.Marshal(workflow)
+			if err != nil || string(changed) == string(baseline) {
+				t.Fatalf("valid YAML mutation must actually change selected stable gate: %v", err)
+			}
+			if err := validateBranchPublisher(changed, "squad-release.yml"); err == nil {
+				t.Fatal("unsafe stable tag publication admitted")
+			}
+		})
 	}
 }

@@ -12,6 +12,9 @@ import (
 )
 
 func validateExtensionTail(steps map[string]releaseStep) error {
+	if steps["Sync Version Files"].Shell != "bash" {
+		return fmt.Errorf("manifest admission must use explicit Bash pipefail semantics")
+	}
 	contracts := map[string][]string{
 		"Verify selected Extensions Kit contract": {
 			`kit_info="$(azd x version)" || {`,
@@ -74,6 +77,19 @@ func publicationGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(output))
 }
 
+func installReleaseTagCheck(t *testing.T, dir string) {
+	t.Helper()
+	content, err := os.ReadFile("release_tag_check.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, ".github", "scripts", "release_tag_check.sh")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReleaseFile(t, path, content)
+}
+
 func publicationRepository(t *testing.T) (dir, remote, source, other string) {
 	t.Helper()
 	dir, remote = t.TempDir(), t.TempDir()
@@ -130,6 +146,70 @@ git() {
 			}
 			if after := publicationGit(t, dir, "ls-remote", "origin", "refs/tags/v1.2.3", "refs/tags/v1.2.3^{}"); before != after {
 				t.Fatal("remote tag admission changed existing/absent tag")
+			}
+		})
+	}
+}
+
+func TestReleaseStableCandidateTagAdmission(t *testing.T) {
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(readReleaseWorkflow(t, "squad-release.yml"), &workflow); err != nil {
+		t.Fatal(err)
+	}
+	script := strings.ReplaceAll(releaseSteps(workflow.Jobs["release"])["Create Release"].Run, "${{ github.repository }}", "microsoft/waza")
+	for _, state := range []string{"unchanged", "annotated", "moved", "removed", "lookup-output-error"} {
+		t.Run(state, func(t *testing.T) {
+			dir, remote, source, other := publicationRepository(t)
+			publicationGit(t, dir, "tag", "v1.2.3", source)
+			publicationGit(t, dir, "push", "-q", "origin", "refs/tags/v1.2.3")
+			if got := publicationGit(t, dir, "--git-dir="+remote, "rev-parse", "refs/tags/v1.2.3"); got != source {
+				t.Fatal("remote candidate must initially identify the validated source")
+			}
+			switch state {
+			case "annotated":
+				publicationGit(t, dir, "tag", "-a", "-m", "candidate", "annotated-candidate", source)
+				publicationGit(t, dir, "push", "-q", "origin", "refs/tags/annotated-candidate")
+				tagObject := publicationGit(t, dir, "rev-parse", "annotated-candidate")
+				publicationGit(t, dir, "--git-dir="+remote, "update-ref", "refs/tags/v1.2.3", tagObject, source)
+			case "moved":
+				publicationGit(t, dir, "--git-dir="+remote, "update-ref", "refs/tags/v1.2.3", other, source)
+			case "removed":
+				publicationGit(t, dir, "--git-dir="+remote, "update-ref", "-d", "refs/tags/v1.2.3", source)
+			}
+			if got := publicationGit(t, dir, "rev-parse", "v1.2.3"); got != source {
+				t.Fatal("local candidate must remain at validated source despite remote mutation")
+			}
+			before := publicationGit(t, dir, "ls-remote", "origin", "refs/tags/v1.2.3", "refs/tags/v1.2.3^{}")
+			installReleaseTagCheck(t, dir)
+			wrappers := `
+gh() {
+  if [ "$2" = view ]; then return 1; fi
+  test "$1" = release
+  test "$2" = create
+  printf '%s\n' "$@" > published-arguments
+}
+git() {
+  command git "$@" || return
+  if [ "$1" = ls-remote ] && [ "$STATE" = lookup-output-error ]; then return 73; fi
+}
+export -f git
+`
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", wrappers+script)
+			cmd.Dir, cmd.Env = dir, append(os.Environ(), "VERSION=v1.2.3", "GITHUB_SHA="+source, "STATE="+state)
+			output, err := cmd.CombinedOutput()
+			valid := state == "unchanged" || state == "annotated"
+			if (err == nil) != valid {
+				t.Fatalf("actual stable candidate admission %s: %v\n%s", state, err, output)
+			}
+			args, readErr := os.ReadFile(filepath.Join(dir, "published-arguments"))
+			if valid && readErr != nil || !valid && !os.IsNotExist(readErr) {
+				t.Fatalf("stable publication did not honor mutated remote tag: %q, %v", args, readErr)
+			}
+			if valid && !strings.Contains(string(args), "--verify-tag\n--target\n"+source+"\n") {
+				t.Fatalf("stable publication must consume existing exact-source tag: %q", args)
+			}
+			if after := publicationGit(t, dir, "ls-remote", "origin", "refs/tags/v1.2.3", "refs/tags/v1.2.3^{}"); before != after {
+				t.Fatal("admission changed the moved/removed/valid remote tag")
 			}
 		})
 	}

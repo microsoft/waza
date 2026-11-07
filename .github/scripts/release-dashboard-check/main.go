@@ -187,7 +187,7 @@ func checkDocument(root *os.Root, index []byte) error {
 		case "link":
 			rels := strings.Fields(strings.ToLower(attrs["rel"]))
 			assetLink := slices.Contains(rels, "stylesheet") || slices.Contains(rels, "modulepreload") ||
-				slices.Contains(rels, "preload") && slices.Contains([]string{"script", "style"}, strings.ToLower(attrs["as"])) ||
+				slices.Contains(rels, "preload") ||
 				strings.HasPrefix(strings.TrimPrefix(strings.TrimPrefix(attrs["href"], "./"), "/"), "assets/")
 			if assetLink {
 				reference, exists = attrs["href"], true
@@ -223,8 +223,9 @@ func checkDocument(root *os.Root, index []byte) error {
 			hasEntry = true
 		}
 		rels := strings.Fields(strings.ToLower(attrs["rel"]))
+		styleType := strings.ToLower(strings.TrimSpace(attrs["type"]))
 		if node.Data == "link" && slices.Contains(rels, "stylesheet") && !slices.Contains(rels, "alternate") &&
-			strings.HasSuffix(resolved.Path, ".css") && !disabled {
+			strings.HasSuffix(resolved.Path, ".css") && !disabled && (styleType == "" || styleType == "text/css") {
 			hasStyle = true
 		}
 		return nil

@@ -67,6 +67,12 @@ jobs:
           VALIDATION_RESULT: ${{ needs.validation.result }}
         run: test "$VALIDATION_RESULT" = success
 
+      - name: Checkout validated publisher source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
       - name: Download complete validation evidence
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -92,8 +98,10 @@ jobs:
             echo "Release $VERSION already exists; inspect its source and assets before retrying publication." >&2
             exit 1
           else
+            bash .github/scripts/release_tag_check.sh "$VERSION"
             gh release create "$VERSION" ./waza ./waza.sha256 ./source-sha.txt \
               --repo "${{ github.repository }}" \
+              --verify-tag --target "$GITHUB_SHA" \
               --title "Release $VERSION" \
               --notes "Go implementation of waza CLI" \
               --latest

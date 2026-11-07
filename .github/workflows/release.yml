@@ -286,6 +286,7 @@ jobs:
 
       # Target metadata must already belong to the validated commit.
       - name: Sync Version Files
+        shell: bash
         run: |
           file_version="$(cat version.txt)"
           extension_version="$(sed -n -e 's/^version:[[:space:]]*//p' extension.yaml | sed -e 's/[[:space:]]\{1,\}#.*$//' -e 's/[[:space:]]*$//')"
