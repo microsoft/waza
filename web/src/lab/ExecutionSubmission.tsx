@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import unit from "../../../examples/runner/unit.json";
 import { submitExecution, type SubmissionResponse } from "../api/submissions";
 import { downloadText } from "../lib/export";
+import SubmissionReceipts from "./SubmissionReceipts";
+import { getSubmissionReceipts, maxSubmissionReceipts, rememberSubmission, submissionReceiptsFull, subscribeSubmissionReceipts } from "./submissionReceiptStore";
 
 const example = JSON.stringify({
   kind: "waza.execution-submission", schema_version: "1.0", request: unit,
@@ -13,9 +15,15 @@ function Submission() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const active = useRef<AbortController | null>(null);
+  const receipts = useSyncExternalStore(subscribeSubmissionReceipts, getSubmissionReceipts);
+  const full = submissionReceiptsFull();
   useEffect(() => () => active.current?.abort(), []);
 
   async function submit() {
+    if (submissionReceiptsFull()) {
+      setError("Submission receipt capacity is full. Export or explicitly clear the historical view before submitting again.");
+      return;
+    }
     active.current?.abort();
     const controller = new AbortController();
     active.current = controller;
@@ -24,7 +32,10 @@ function Submission() {
     setPending(true);
     try {
       const value = await submitExecution(request, controller.signal);
-      if (!controller.signal.aborted) setResponse(value);
+      if (!controller.signal.aborted) {
+        rememberSubmission(value);
+        setResponse(value);
+      }
     } catch (error) {
       if (!controller.signal.aborted) setError(
         error instanceof Error ? error.message : "Submission could not be loaded.",
@@ -43,9 +54,12 @@ function Submission() {
           active.current?.abort();
           setResponse(null); setError(""); setPending(false); setRequest(event.target.value);
         }} />
-      <button className="lab-button" disabled={pending} onClick={() => void submit()}>
+      <button className="lab-button" disabled={pending || full} onClick={() => void submit()}>
         {pending ? "Submission running..." : "Submit captured execution policy"}
       </button>
+      {full && <p role="status">Historical receipt capacity reached. No records were dropped.
+        Export or explicitly clear this view before another submission. At most {maxSubmissionReceipts} responses
+        are retained; a response that crosses the byte budget also stops new submissions.</p>}
       {error && <p role="alert">{error} No previous submission result is shown.</p>}
       {response && result && <div role={result.status === "submission_error" || result.status === "rejected" ? "alert" : "status"}
         aria-label="Owned execution submission result">
@@ -74,6 +88,7 @@ function Submission() {
           response.json, "waza-execution-submission.json", "application/json",
         )}>Download exact submission JSON</button>
       </div>}
+      <SubmissionReceipts receipts={receipts} pending={pending} />
     </>
   );
 }

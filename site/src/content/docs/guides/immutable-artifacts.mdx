@@ -119,10 +119,28 @@ channel with fallback JSON.
 The saved-results Lab's runner tab offers the same explicit submission and shows
 current caller identity separately from original execution/native ordinal,
 parent declarations, new-call count and original manifest reference. It clears
-old results when input changes or a request fails. The download retains exact
+the current result when input changes or a request fails. The download retains exact
 response JSON rather than a reconstructed summary; the synthetic demo cannot
 submit. These views do not invent absent usage, runtime attestation or a complete
 lineage graph from one parent reference.
+
+The Lab separately retains historical protected responses for this page session,
+including distinct executions, repeated reuse decisions and admitted operation
+failures. Navigation away from the runner panel does not erase these receipts;
+reloading the page does. They are **historical, not reread**: the view does not
+verify current source availability. Original native ordinals, parent/retry
+declarations and reuse-source links remain separate. Receipt order is local
+response receipt order, not global execution order; independent roots and
+concurrent sibling branches remain incomparable. Missing parents may exist in
+the store without appearing in this view.
+
+The view stops new submissions at 32 responses or after a response reaches the
+4 MiB receipt budget; the response crossing that budget is retained, not dropped.
+Input editing and export remain available. Explicitly clearing the historical
+view does not delete stored artifacts or migrate results. The receipt download
+is a browser-only array of receipt numbers and exact response JSON strings, not
+a server sidecar profile. No source calls or historical billing are charged to
+new operations by this comparison.
 
 ### Migration and release boundary
 

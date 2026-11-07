@@ -39,7 +39,7 @@ func TestSubmissionResultCodecChecksActualProducerAndSourceContext(t *testing.T)
 			t.Fatalf("actual source declaration lost on strict read: %+v %v", parsed, err)
 		}
 	}
-	for _, control := range []string{"reuse-new-calls", "retag-terminal", "reservation-hash", "manifest-source", "caller-work", "distinct-id"} {
+	for _, control := range []string{"reuse-new-calls", "retag-terminal", "reservation-hash", "manifest-source", "caller-work", "distinct-id", "original-binding-run", "original-binding-work"} {
 		t.Run(control, func(t *testing.T) {
 			data := reusedBytes
 			if control == "distinct-id" {
@@ -62,13 +62,24 @@ func TestSubmissionResultCodecChecksActualProducerAndSourceContext(t *testing.T)
 				result.Caller.Trial = "trial-" + strings.Repeat("0", 64)
 			case "distinct-id":
 				result.Decision.ExecutionID = "exec-" + strings.Repeat("0", 64)
+			case "original-binding-run":
+				result.Reservation.Binding.Identity.Run = "run-" + strings.Repeat("0", 64)
+				result.Terminal.Identity.Run = result.Reservation.Binding.Identity.Run
+			case "original-binding-work":
+				result.Reservation.Binding.Identity.Trial = "trial-" + strings.Repeat("0", 64)
+				result.Terminal.Identity.Trial = result.Reservation.Binding.Identity.Trial
 			}
 			mutated, err := json.Marshal(result)
 			if err != nil || bytes.Equal(mutated, data) {
 				t.Fatal("invalid output control did not mutate original receipt")
 			}
-			if parsed, err := ParseSubmissionResult(mutated); parsed != nil || err == nil {
+			parsed, err := ParseSubmissionResult(mutated)
+			if parsed != nil || err == nil {
 				t.Fatalf("inconsistent original/source context admitted: %+v %v", parsed, err)
+			}
+			if (control == "original-binding-run" || control == "original-binding-work") &&
+				!strings.Contains(err.Error(), "logical run/work contradicts original binding") {
+				t.Fatalf("original binding control rejected for another reason: %v", err)
 			}
 		})
 	}

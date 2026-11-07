@@ -32,7 +32,8 @@ export interface SubmissionResult {
   };
   completion?: { execution_id: string; manifest_digest: string; reservation_digest: string };
   decision?: {
-    policy: "distinct" | "reuse"; outcome: "distinct" | "reused";
+    decision_id: string;
+    policy: "distinct" | "reuse"; outcome: "distinct" | "reused" | "unfinished" | "conflict";
     execution_id?: string; source?: SourceReference;
     logical: { run: string; work: string };
     binding: { identity: RunnerIdentity; selection: WorkSelection; execution_mode: "mock" | "copilot"; grader_ids: string[] };
@@ -84,6 +85,10 @@ function validateSubmissionContext(value: SubmissionResult): void {
   const terminal = value.terminal;
   if (terminal && (value.status === "rejected" || !value.caller || !reservation || !decision)) {
     throw new Error("Submission terminal has no admitted original ownership context.");
+  }
+  if (reservation && (reservation.logical.run !== reservation.binding.identity.run ||
+      reservation.logical.work !== reservation.binding.identity.trial)) {
+    throw new Error("Submission original binding contradicts its logical work.");
   }
   if (reservation && (!value.caller || value.caller.run !== reservation.logical.run ||
       value.caller.trial !== reservation.logical.work)) {
