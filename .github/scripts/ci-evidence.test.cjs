@@ -306,6 +306,78 @@ test("actual Go initialization failure diagnostics survive nonexecuting discover
   assert.ok(captured.stdout.includes("SECRETDiscoveryFailureSentinel"), "preserve actual package/output diagnostic records");
   assert.equal(fs.existsSync(path.join(dir, "all")), false);
 });
+for (const kind of ["initialization", "compiler"]) {
+  test(`actual multi-package ${kind} failures drain later Go discovery diagnostics`, (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-multiple-discovery-failures-"));
+    t.after(() => fs.rmSync(dir, { recursive: true }));
+    fs.writeFileSync(path.join(dir, "go.mod"), "module example/p\n\ngo 1.26\n");
+    const sentinels = ["SECRETFirstDiscoveryFailure", "SECRETSecondDiscoveryFailure"];
+    for (const [index, name] of ["first", "second"].entries()) {
+      const pkg = path.join(dir, name);
+      fs.mkdirSync(pkg);
+      fs.writeFileSync(path.join(pkg, "example_test.go"), `package p
+import "testing"
+${kind === "initialization" ? `func init() { panic("${sentinels[index]}") }` : `var _ = ${sentinels[index]}`}
+func TestA(t *testing.T) { t.Fatal("must not run") }
+`);
+    }
+    const produced = spawnSync("go", ["test", "-race", "-covermode=atomic", "-json", "-list", ".", "./first", "./second"], {
+      cwd: dir, env: { ...process.env, GOPROXY: "off", GOSUMDB: "off" }, encoding: "utf8", timeout: 30000,
+    });
+    assert.equal(produced.status, 1, produced.stderr);
+    const events = produced.stdout.trim().split("\n").map((line) => JSON.parse(line));
+    const firstFailure = events.findIndex((item) => ["fail", "build-fail"].includes(item.Action));
+    assert.ok(firstFailure >= 0, "actual producer recorded package failure");
+    assert.ok(events.slice(firstFailure + 1).some((item) => typeof item.Output === "string" && sentinels.some((sentinel) => item.Output.includes(sentinel))), "actual later diagnostics follow the first package failure");
+    assert.ok(!events.some((item) => item.Action === "run"), "discovery did not execute tests");
+    const collector = path.join(__dirname, "ci-evidence.cjs");
+    const captured = spawnSync(process.execPath, [collector, "discover", "all"], { cwd: dir, input: produced.stdout, encoding: "utf8", timeout: 10000 });
+    assert.equal(captured.status, 1, captured.stderr);
+    assert.match(captured.stderr, /discovery-failed/);
+    for (const sentinel of sentinels) assert.ok(captured.stdout.includes(sentinel), `forward actual ${sentinel}`);
+    assert.equal(fs.existsSync(path.join(dir, "all")), false, "failed discovery never publishes an inventory");
+    fs.writeFileSync(path.join(dir, "all"), "preexisting inventory\n");
+    const repeated = spawnSync(process.execPath, [collector, "discover", "all"], { cwd: dir, input: produced.stdout, encoding: "utf8", timeout: 10000 });
+    assert.equal(repeated.status, 1, repeated.stderr);
+    assert.equal(fs.readFileSync(path.join(dir, "all"), "utf8"), "preexisting inventory\n", "failure does not overwrite competing inventory");
+  });
+}
+test("failed discovery retains hard stream limits and stdout error/close guards", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-discovery-drain-guards-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  const collector = path.join(__dirname, "ci-evidence.cjs");
+  const failure = JSON.stringify(event("fail")) + "\n";
+  for (const [input, diagnostic] of [
+    [JSON.stringify(event("run", "TestA")) + "\n", "discovery-executed-tests"],
+    ['{"Action":"output"}', "discovery-truncated"],
+    [JSON.stringify({ ...event("output"), Output: "x".repeat(LIMITS.line) }) + "\n", "discovery-input-cap"],
+    ["{bad}\n", "CI evidence:"],
+  ]) {
+    const result = spawnSync(process.execPath, [collector, "discover", "all"], { cwd: dir, input: failure + input, encoding: "utf8", timeout: 10000 });
+    assert.equal(result.status, 1, result.stderr);
+    assert.ok(result.stderr.includes(diagnostic), result.stderr);
+    assert.doesNotMatch(result.stderr, /discovery-failed/, "later hard stream failure remains explicit");
+    assert.equal(fs.existsSync(path.join(dir, "all")), false);
+  }
+  for (const [fault, diagnostic] of [["error", "console-output-failed"], ["close", "console-output-closed"]]) {
+    const script = `
+      const { Writable } = require("node:stream");
+      const stream = new Writable({ write(chunk, encoding, callback) {
+        ${fault === "error" ? 'callback(new Error("SECRET"));' : "queueMicrotask(() => stream.destroy());"}
+      } });
+      Object.defineProperty(process, "stdout", { value: stream });
+      require(${JSON.stringify(collector)}).main(["discover", "all"])
+        .catch(error => { process.stderr.write(error.message); process.exitCode = 1; });
+    `;
+    const result = spawnSync(process.execPath, ["-e", script], {
+      cwd: dir, input: failure + JSON.stringify({ ...event("output"), Output: "later diagnostic\n" }) + "\n",
+      encoding: "utf8", timeout: 10000,
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.ok(result.stderr.includes(diagnostic), result.stderr);
+    assert.equal(fs.existsSync(path.join(dir, "all")), false);
+  }
+});
 test("production collector cancellation saves available unfinished evidence", { timeout: 30000 }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cancel-"));
   t.after(() => fs.rmSync(dir, { recursive: true }));

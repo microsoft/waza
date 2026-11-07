@@ -213,6 +213,7 @@ function goParser(report, output = () => {}) {
 async function discoverGo(output) {
   const targets = new Set();
   let bytes = 0, pending = "";
+  let failed = false;
   const decoder = new StringDecoder("utf8");
   const writer = stdoutWriter();
   async function accept(line) {
@@ -226,7 +227,7 @@ async function discoverGo(output) {
       if (/^(Test|Fuzz|Example)\S*$/.test(name) && text(name)) targets.add(`${event.Package}::${name}`);
       else await writer.write(event.Output);
     }
-    if (event.Action === "fail" || event.Action === "build-fail") throw new Error("discovery-failed");
+    if (event.Action === "fail" || event.Action === "build-fail") failed = true;
     if (targets.size > LIMITS.targets) throw new Error("discovery-target-cap");
   }
   try {
@@ -243,6 +244,7 @@ async function discoverGo(output) {
       if (Buffer.byteLength(pending) > LIMITS.line) throw new Error("discovery-input-cap");
     }
     if (pending || decoder.end()) throw new Error("discovery-truncated");
+    if (failed) throw new Error("discovery-failed");
     if (!targets.size) throw new Error("discovery-empty");
   } finally {
     const error = await writer.close();

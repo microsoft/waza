@@ -216,7 +216,10 @@ write acknowledgment and backpressure drain before reading another record.
 Output errors or premature closure fail the collector; capture saves available
 evidence with explicit diagnostics and `complete: false`.
 Discovery also forwards ordinary package-output diagnostics, not only compiler
-build-output events; discovered test names remain in the inventory.
+build-output events; discovered test names remain in the inventory. Package
+failures are recorded while the bounded JSON stream drains, so later packages'
+diagnostics survive; failed discovery never publishes an inventory. Hard input
+limits, malformed/truncated records and output errors still reject discovery.
 `collector_seconds` records parser wall time (including input wait for streaming
 Go capture and console backpressure), **not** incremental instrumentation overhead.
 Go `collector_cpu_seconds` observes the collector process's own user/system CPU
