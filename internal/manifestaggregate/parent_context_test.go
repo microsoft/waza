@@ -1,19 +1,58 @@
 package manifestaggregate
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/stretchr/testify/require"
 )
+
+func TestParentContextPreservesStopCauses(t *testing.T) {
+	for _, state := range []string{string(runnerterminal.Canceled), "timeout"} {
+		t.Run(state, func(t *testing.T) {
+			local, err := artifactmanifest.OpenLocal(t.TempDir())
+			require.NoError(t, err)
+			defer func() { require.NoError(t, local.Close()) }()
+			parent, _, _ := sourceContextPublication(t, local, nil)
+			source, document, completed := sourceContextPublication(t, local,
+				&executionattempt.Parent{ExecutionID: parent.ExecutionID, Relationship: "retry"})
+			bounded := &boundedBackend{Backend: local, readBudget: &readBudget{}}
+			namespace, err := artifactmanifest.NewNamespace(local, artifactmanifest.ExecutionLedgerNamespaceV1)
+			require.NoError(t, err)
+			nsReader, err := namespace.Reader(bounded.decorate)
+			require.NoError(t, err)
+			reader, err := executionledger.NewReader(nsReader, bounded)
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			expected := context.Canceled
+			if state == "timeout" {
+				cancel()
+				ctx, cancel = context.WithDeadline(t.Context(), time.Unix(0, 0))
+				expected = context.DeadlineExceeded
+			}
+			defer cancel()
+			cancel()
+			view, err := inspectParentContext(ctx, bounded, reader, completed, source, document.AttemptArtifact, true)
+			require.ErrorIs(t, err, expected)
+			require.Equal(t, state, view.State)
+			require.Equal(t, "unverified", view.Verification)
+			require.Nil(t, view.Source)
+			require.EqualValues(t, artifactmanifest.MaxNamespaceObjectBytes+1, bounded.read,
+				"stopped provider attempt retains its full before-I/O reservation rather than becoming a free retry")
+		})
+	}
+}
 
 func TestParentContextBudgetFailureRetainsPrimaryChild(t *testing.T) {
 	local, err := artifactmanifest.OpenLocal(t.TempDir())
