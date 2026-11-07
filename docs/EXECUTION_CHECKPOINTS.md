@@ -212,6 +212,25 @@ remain gated on the shared owner privacy/capture policy; a library submission's
 retained rich report is not automatically a public response.
 The read-only source inspector below does not inherit these owning-caller results.
 
+The additive
+[`runner-checkpoint-result-1.0.schema.json`](../schemas/runner-checkpoint-result-1.0.schema.json)
+and `ParseResult`/`EncodeResult` validate original wire types, explicit null
+progress, actual submission status/exit context and exact original reuse or
+fresh-child lineage declarations. They compose the actual submission-result
+profile, without reading storage, starting a runtime or granting disclosure
+rights. Changed boundary/source references, fabricated progress and coherent
+source substitutions reject. Reader admission is not independently verified
+recovery evidence; public transport must still apply the shared capture/privacy
+policy before serializing any rich report.
+
+Focused Unix process controls run actual `Submit`/adapter in a separate test
+process, observe its stored checkpoint reference, kill that exact process and
+verify `SIGKILL` before opening the store under a fresh owner. Before recovery
+creates a new child; finalized recovery constructs no engine. A removed original
+final marker then blocks restoration without rerunning work. These tests use an
+authored revision in a test binary: they are not public-CLI interruption,
+clean-build revision, Windows or browser evidence.
+
 ### Read-only source inspection
 
 The current-source dashboard registers `GET /api/v1/checkpoints/{digest}` and

@@ -37,6 +37,13 @@ test('checkpoint source schema registration and migration notes retain contract-
   const route = read('site/src/pages/schemas/[schema].json.ts');
   assert.match(route, /import checkpoint from '\.\.\/\.\.\/\.\.\/\.\.\/schemas\/execution-checkpoint-1\.0\.schema\.json'/);
   assert.match(route, /schema: 'execution-checkpoint-1\.0\.schema' \}, props: \{ schema: checkpoint \}/);
+  const resultSchema = JSON.parse(read('schemas/runner-checkpoint-result-1.0.schema.json'));
+  assert.equal(resultSchema.properties.kind.const, 'waza.runner-checkpoint-result');
+  assert.equal(resultSchema.additionalProperties, false);
+  assert.equal(resultSchema.properties.submission.$ref, 'execution-submission-result-1.0.schema.json');
+  assert.ok(resultSchema.required.includes('restored_units'));
+  assert.ok(resultSchema.required.includes('remaining_work'));
+  assert.match(route, /schema: 'runner-checkpoint-result-1\.0\.schema' \}, props: \{ schema: checkpointResult \}/);
   const notes = read('site/src/content/docs/reference/schema-changes.md');
   assert.match(notes, /Checkpoint declaration 1\.0 \(unreleased contract layer\)/);
   assert.match(notes, /does not yet provide owned checkpoint\s+creation or a resume command/);
@@ -45,6 +52,7 @@ test('checkpoint source schema registration and migration notes retain contract-
   assert.match(notes, /\.\.\/\.\.\/schemas\/execution-checkpoint-1\.0\.schema\.json/);
   assert.match(notes, /Only destination attempt ordinal may differ; original source\s+identity\/selection must not be retagged/);
   assert.ok(existsSync(resolve(root, 'site/e2e/execution-checkpoint.spec.ts')));
+  assert.match(read('site/e2e/execution-checkpoint.spec.ts'), /The public CLI\/API does not yet provide owned checkpoint creation or a resume command\./);
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*checkpoint/);
   const lab = read('site/src/content/docs/guides/dashboard-lab.mdx');
   assert.match(lab, /GET \/api\/v1\/checkpoints\/\{digest\}/);

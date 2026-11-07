@@ -64,7 +64,7 @@ digests. It is not a runtime snapshot or an existing-results migration.
 The current source layer provides schema/codec, pure compatibility/context
 admission and immutable declaration blob storage. The source Lab/API can inspect
 current canonical declaration metadata, with ownership, compatibility and restore
-progress explicitly unavailable. **It does not yet provide owned checkpoint
+progress explicitly unavailable. **The public CLI/API does not yet provide owned checkpoint
 creation or a resume command.** Keep existing commands and artifact readers
 for historical and unsupported workflows. Matching declarations do not confer
 attempt ownership or prove completed evidence. Checkpoint restore must
@@ -79,6 +79,21 @@ The [checkpoint declaration 1.0 schema](../../schemas/execution-checkpoint-1.0.s
 and [developer checkpoint contract](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_CHECKPOINTS.md)
 describe the source layer and remaining delivery requirements. These are source
 contracts, not a claim that v0.41.0 recovery has shipped.
+
+The source-level owning caller adapter now uses actual single-admission
+submission: before-unit restoration creates a fresh retry child, while finalized
+restoration preserves the original terminal and native ordinal without new engine
+calls. Present invalid/unfinalized completion state blocks before-unit recovery;
+only a missing original completion key admits that path. Original completion
+checks and fresh-child reservation are nontransactional, not global exactly-once.
+
+The independent
+[checkpoint operation result 1.0 schema](../../schemas/runner-checkpoint-result-1.0.schema.json)
+validates explicit null/known progress, redacted differing compatibility field
+names, actual submission status and original source or fresh-child lineage.
+Static profile admission neither verifies the provider nor authorizes rich-report
+disclosure. Public protected transport, current operational Lab integration and
+real interruption/platform/browser evidence remain delivery requirements.
 
 ### Native version policy
 

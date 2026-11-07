@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('checkpoint schema notes preserve scope, version and deployed base', async ({ page, request }) => {
   await page.goto('/waza/reference/schema-changes/');
   await expect(page.getByRole('heading', { name: 'Checkpoint declaration 1.0 (unreleased contract layer)', exact: true })).toBeVisible();
-  await expect(page.getByText('It does not yet provide durable checkpoint creation, a resume command or a checkpoint Lab view.', { exact: true })).toBeVisible();
+  await expect(page.getByText('The public CLI/API does not yet provide owned checkpoint creation or a resume command.', { exact: true })).toBeVisible();
   const link = page.getByRole('link', { name: 'checkpoint declaration 1.0 schema', exact: true });
   const href = await link.getAttribute('href');
   expect(href).not.toBeNull();
@@ -22,4 +22,17 @@ test('checkpoint schema notes preserve scope, version and deployed base', async 
   expect(schema.required).toContain('compatibility');
   expect(schema.oneOf[0].not.anyOf).toEqual([{ required: ['completion_digest'] }, { required: ['manifest_digest'] }]);
   expect(schema.oneOf[1].required).toEqual(['completion_digest', 'manifest_digest']);
+  const resultLink = page.getByRole('link', { name: 'checkpoint operation result 1.0 schema', exact: true });
+  const resultHref = await resultLink.getAttribute('href');
+  expect(resultHref).not.toBeNull();
+  const resultURL = new URL(resultHref!, page.url());
+  expect(resultURL.pathname).toBe('/waza/schemas/runner-checkpoint-result-1.0.schema.json');
+  const resultResponse = await request.get(resultURL.toString());
+  expect(resultResponse.status()).toBe(200);
+  expect(resultResponse.headers()['content-type']).toContain('application/schema+json');
+  const resultSchema = await resultResponse.json();
+  expect(resultSchema.properties.kind.const).toBe('waza.runner-checkpoint-result');
+  expect(resultSchema.additionalProperties).toBe(false);
+  expect(resultSchema.required).toEqual(expect.arrayContaining(['restored_units', 'remaining_work', 'compatibility_differences']));
+  expect(resultSchema.properties.submission.$ref).toBe('execution-submission-result-1.0.schema.json');
 });
