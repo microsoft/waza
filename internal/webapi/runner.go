@@ -2,7 +2,6 @@ package webapi
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -160,44 +159,14 @@ func runTerminal(w http.ResponseWriter, r *http.Request, service terminalRunner)
 			"invalid_media_type", "runner run requires Content-Type: application/json"), nil)
 		return
 	}
-	interrupted := make(chan struct{})
-	var canceledRead atomic.Bool
-	stop := context.AfterFunc(r.Context(), func() {
-		defer close(interrupted)
-		canceledRead.Store(time.Now().Before(inputDeadline))
-		if err := controller.SetReadDeadline(time.Now()); err != nil {
-			logRunnerError("interrupting runner terminal body admission", "error", err)
-		}
-	})
-	data, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, runnercontract.MaxRequestBytes))
-	if !stop() {
-		<-interrupted
-	}
-	if canceledRead.Load() {
-		fail(http.StatusRequestTimeout, fmt.Errorf("runner input canceled: %w", r.Context().Err()))
-		return
-	}
-	// net/http also cancels the request when its body read deadline expires.
-	// Inspect the observed read error first so that timeout is not relabeled.
-	if timeout, ok := errors.AsType[net.Error](readErr); ok && timeout.Timeout() {
-		fail(http.StatusRequestTimeout, errors.Join(context.DeadlineExceeded, readErr))
-		return
-	}
-	if err := r.Context().Err(); err != nil {
-		fail(http.StatusRequestTimeout, errors.Join(err, readErr))
-		return
-	}
-	if readErr != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](readErr); ok {
+	data, inputErr := readRunnerHTTPBody(w, r, runnercontract.MaxRequestBytes, inputDeadline)
+	if inputErr != nil {
+		if inputErr.Code == "request_too_large" {
 			emit(http.StatusRequestEntityTooLarge, runnerterminal.NewFailure(runnerterminal.InvalidInput, "input", "not_checked",
 				"request_too_large", "runner request exceeds the 4 MiB limit"), nil)
 		} else {
-			fail(http.StatusBadRequest, fmt.Errorf("reading runner request: %w", readErr))
+			fail(inputErr.Status, inputErr.Err)
 		}
-		return
-	}
-	if err := controller.SetReadDeadline(time.Time{}); err != nil {
-		fail(http.StatusInternalServerError, fmt.Errorf("resetting runner read deadline: %w", err))
 		return
 	}
 	inputComplete = true
