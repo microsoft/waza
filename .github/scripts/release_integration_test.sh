@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 1 ] || [[ "${COPILOT_CLI_PATH:-}" != /* ]] || [ ! -x "$COPILOT_CLI_PATH" ]; then
+case "${COPILOT_CLI_PATH:-}" in
+  /* | [A-Za-z]:[\\/]* ) guard_is_absolute=true ;;
+  * ) guard_is_absolute=false ;;
+esac
+if [ "$#" -ne 1 ] || [ "$guard_is_absolute" != true ] || [ ! -x "$COPILOT_CLI_PATH" ]; then
   echo "Usage: COPILOT_CLI_PATH=<absolute rejecting guard> bash release_integration_test.sh <waza binary>" >&2
   exit 2
 fi
