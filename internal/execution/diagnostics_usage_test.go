@@ -260,6 +260,23 @@ func TestSessionEventModelObservationNestedBillingEvidence(t *testing.T) {
 	}
 }
 
+func TestSessionEventModelObservationDeduplicatesLargeModelSets(t *testing.T) {
+	event := copilot.SessionEvent{Data: &copilot.SessionShutdownData{
+		ModelMetrics: map[string]copilot.ShutdownModelMetric{
+			"m00": {}, "m01": {}, "m02": {}, "m03": {}, "m04": {},
+			"m05": {}, "m06": {}, "m07": {}, "m08": {}, "m09": {},
+		},
+		AgentMetrics: map[string]copilot.ShutdownAgentMetric{
+			"child": {ModelMetrics: map[string]copilot.ShutdownModelMetric{"m00": {}, "m09": {}}},
+		},
+	}}
+	require.Equal(t, SessionEventModelObservation{
+		Models:         []string{"m00", "m01", "m02", "m03", "m04", "m05", "m06", "m07", "m08", "m09"},
+		EventsObserved: 1,
+		Complete:       true,
+	}, ObserveSessionEventModels(event))
+}
+
 func TestSessionEventModelObservationConcurrentIngestAndGetter(t *testing.T) {
 	c := NewSessionUsageCollector()
 	e := &CopilotEngine{usageCollectors: map[string]*SessionUsageCollector{"session": c}}
