@@ -60,6 +60,16 @@ supplied-reader checks do not certify writing. See
 
 ---
 
+## Aggregate completed immutable publications
+
+The unreleased `waza aggregate` source command reads an explicit expected set
+without agents or the original worker. Exact duplicates collapse, conflicting
+attempts have no winning source, and missing/failure states stay visible.
+Membership completeness is not a passing assurance verdict. Use the
+[worked publication-to-aggregate example](../site/src/content/docs/guides/manifest-aggregation.mdx)
+and [developer/migration contract](MANIFEST-AGGREGATION.md); historical mutable
+results are not implicitly converted.
+
 ## Dependency recovery scenarios
 
 Scenario evals (`scenario` plus exact `schemaVersion: "2.0"`) support finite

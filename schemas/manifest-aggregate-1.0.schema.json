@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/manifest-aggregate-1.0.schema.json",
+  "title": "Derived completed-manifest aggregate 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "publication", "verification", "completion", "compatibility", "members", "state_counts", "conflicts", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.manifest-aggregate"},
+    "schema_version": {"const": "1.0"},
+    "publication": {"const": "derived"},
+    "verification": {"const": "content-and-declared-context-only"},
+    "completion": {"enum": ["complete", "incomplete"]},
+    "compatibility": {"enum": ["compatible", "incompatible", "unknown"]},
+    "members": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["manifest_sha256", "state", "diagnostics"],
+        "properties": {
+          "manifest_sha256": {"$ref": "#/$defs/digest"},
+          "state": {"$ref": "#/$defs/state"},
+          "logical": {"$ref": "#/$defs/logical"},
+          "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input"]},
+          "verdicts": {
+            "type": "array", "maxItems": 128,
+            "items": {
+              "type": "object", "additionalProperties": false, "required": ["identifier", "passed"],
+              "properties": {"identifier": {"type": "string", "minLength": 1, "maxLength": 256}, "passed": {"type": "boolean"}}
+            }
+          },
+          "diagnostics": {"$ref": "#/$defs/diagnostics"}
+        },
+        "dependentRequired": {"outcome": ["logical"], "verdicts": ["outcome", "logical"]}
+      }
+    },
+    "state_counts": {
+      "type": "object", "propertyNames": {"$ref": "#/$defs/state"},
+      "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 128}
+    },
+    "conflicts": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["logical", "manifests"],
+        "properties": {
+          "logical": {"$ref": "#/$defs/logical"},
+          "manifests": {"type": "array", "minItems": 2, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}}
+        }
+      }
+    },
+    "diagnostics": {"$ref": "#/$defs/diagnostics"},
+    "evidence": {"$ref": "#/$defs/evidence"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"completion": {"const": "complete"}}},
+      "then": {
+        "properties": {
+          "compatibility": {"const": "compatible"},
+          "conflicts": {"maxItems": 0}, "diagnostics": {"maxItems": 0},
+          "members": {"minItems": 1, "items": {"required": ["outcome", "logical"], "properties": {"state": {"enum": ["success", "evaluation_failure"]}}}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "state": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable"]},
+    "logical": {
+      "type": "object", "additionalProperties": false, "required": ["run", "work"],
+      "properties": {"run": {"type": "string", "pattern": "^run-[0-9a-f]{64}$"}, "work": {"type": "string", "pattern": "^trial-[0-9a-f]{64}$"}}
+    },
+    "diagnostics": {
+      "type": "array", "maxItems": 256,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": {"code": {"type": "string", "minLength": 1, "maxLength": 64}, "message": {"type": "string", "minLength": 1, "maxLength": 4096}}
+      }
+    },
+    "request": {
+      "type": "object", "additionalProperties": false, "required": ["manifests"],
+      "properties": {
+        "manifests": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/digest"}},
+        "evidence": {"type": "array", "maxItems": 128, "items": {
+          "type": "object", "additionalProperties": false, "required": ["manifest_sha256", "evidence_sha256"],
+          "properties": {"manifest_sha256": {"$ref": "#/$defs/digest"}, "evidence_sha256": {"$ref": "#/$defs/digest"}}
+        }}
+      }
+    },
+    "category": {"$ref": "execution-evidence-1.0.schema.json#/$defs/record/properties/category"},
+    "evidence_state": {"$ref": "execution-evidence-1.0.schema.json#/$defs/record/properties/state"},
+    "integer_text": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,18})$"},
+    "declaration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["category", "declared_state", "declared_source", "declared_context"],
+      "properties": {
+        "category": {"$ref": "#/$defs/category"},
+        "declared_state": {"$ref": "#/$defs/evidence_state"},
+        "declared_source": {"$ref": "execution-evidence-1.0.schema.json#/$defs/record/properties/source"},
+        "declared_context": {"$ref": "execution-evidence-1.0.schema.json#/$defs/record/properties/context"},
+        "declared_reason": {"$ref": "execution-evidence-1.0.schema.json#/$defs/record/properties/reason"},
+        "declared_observed_count": {"$ref": "#/$defs/integer_text"},
+        "declared_limit": {
+          "type": "object", "additionalProperties": false, "required": ["observed"],
+          "properties": {"observed": {"$ref": "#/$defs/integer_text"}, "total": {"$ref": "#/$defs/integer_text"}}
+        }
+      }
+    },
+    "recorded_usage": {
+      "type": "object", "additionalProperties": false, "required": ["state", "verification"],
+      "properties": {
+        "state": {"$ref": "#/$defs/evidence_state"},
+        "declared_state": {"$ref": "#/$defs/evidence_state"},
+        "verification": {"enum": ["unverified", "declared-state-only", "source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only", "recorded-degradation-only"]},
+        "reason": {"type": "string", "maxLength": 64},
+        "recorded": {"$ref": "#/$defs/native_usage"}
+      }
+    },
+    "admitted_category": {
+      "type": "object", "additionalProperties": false,
+      "required": ["category", "state", "verification"],
+      "properties": {
+        "category": {"$ref": "#/$defs/category"},
+        "state": {"$ref": "#/$defs/evidence_state"},
+        "declared_state": {"$ref": "#/$defs/evidence_state"},
+        "verification": {"enum": ["unverified", "declared-state-only", "source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only", "recorded-degradation-only"]},
+        "reason": {"type": "string", "maxLength": 64},
+        "observed_count": {"$ref": "#/$defs/integer_text"}
+      },
+      "allOf": [{
+        "if": {"properties": {
+          "state": {"const": "present"},
+          "verification": {"enum": ["source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only"]}
+        }},
+        "then": {"required": ["observed_count"]}
+      }, {
+        "if": {"properties": {"verification": {"const": "recorded-degradation-only"}}},
+        "then": {"properties": {"state": {"const": "incomplete"}}, "not": {"required": ["observed_count"]}}
+      }, {
+        "if": {"properties": {"state": {"const": "present"}}},
+        "then": {"anyOf": [
+          {"properties": {"verification": {"enum": ["source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only"]}}, "required": ["observed_count"]},
+          {"properties": {"category": {"const": "usage"}, "verification": {"const": "declared-state-only"}, "reason": {"const": "declared_present_empty"}},
+            "required": ["reason"], "not": {"required": ["observed_count"]}}
+        ]}
+      }]
+    },
+    "native_count": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "native_number": {"type": "number", "minimum": 0},
+    "native_usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "premium_requests"],
+      "properties": {
+        "turns": {"$ref": "#/$defs/native_count"},
+        "input_tokens": {"$ref": "#/$defs/native_count"},
+        "output_tokens": {"$ref": "#/$defs/native_count"},
+        "cache_read_tokens": {"$ref": "#/$defs/native_count"},
+        "cache_write_tokens": {"$ref": "#/$defs/native_count"},
+        "premium_requests": {"$ref": "#/$defs/native_number"},
+        "ai_credits": {"$ref": "#/$defs/native_number"},
+        "provider": {"type": "string"}, "provider_host": {"type": "string"},
+        "model_metrics": {
+          "type": "object", "additionalProperties": {
+            "type": "object", "additionalProperties": false,
+            "required": ["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "request_count", "request_cost"],
+            "properties": {
+              "input_tokens": {"$ref": "#/$defs/native_count"},
+              "output_tokens": {"$ref": "#/$defs/native_count"},
+              "cache_read_tokens": {"$ref": "#/$defs/native_count"},
+              "cache_write_tokens": {"$ref": "#/$defs/native_count"},
+              "request_count": {"$ref": "#/$defs/native_number"},
+              "request_cost": {"$ref": "#/$defs/native_number"},
+              "ai_credits": {"$ref": "#/$defs/native_number"}
+            }
+          }
+        }
+      }
+    },
+    "source_context": {
+      "type": "object", "additionalProperties": false, "required": ["state", "verification"],
+      "properties": {
+        "state": {"enum": ["verified", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable", "timeout", "cancelled"]},
+        "verification": {"enum": ["unverified", "content-and-declared-context-only"]},
+        "source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"}
+      },
+      "allOf": [{
+        "if": {"properties": {"state": {"const": "verified"}}},
+        "then": {"required": ["source"], "properties": {"verification": {"const": "content-and-declared-context-only"}}},
+        "else": {"properties": {"verification": {"const": "unverified"}}}
+      }]
+    },
+    "evidence_candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evidence_sha256", "state", "source_manifests", "declared_categories", "categories", "diagnostics"],
+      "properties": {
+        "evidence_sha256": {"$ref": "#/$defs/digest"},
+        "state": {"enum": ["verified", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable", "timeout", "cancelled"]},
+        "origin_manifest": {"$ref": "#/$defs/digest"},
+        "source_manifests": {"type": "array", "maxItems": 129, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}},
+        "declared_categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/declaration"}},
+        "categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/admitted_category"}},
+        "usage": {"$ref": "#/$defs/recorded_usage"},
+        "source_context": {"$ref": "#/$defs/source_context"},
+        "diagnostics": {"$ref": "#/$defs/diagnostics"}
+      },
+      "allOf": [{
+        "if": {"properties": {"state": {"const": "verified"}}},
+        "then": {"required": ["origin_manifest", "usage"], "properties": {"source_manifests": {"minItems": 1}, "declared_categories": {"minItems": 6}, "categories": {"minItems": 6}}},
+        "else": {"properties": {"declared_categories": {"maxItems": 0}, "categories": {"maxItems": 0}}, "not": {"required": ["usage"]}}
+      }]
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["completion", "verification", "qualification", "usage_totals", "members", "declaration_state_counts", "category_state_counts", "diagnostics"],
+      "properties": {
+        "completion": {"const": "incomplete"},
+        "verification": {"const": "content-and-declared-context-only"},
+        "qualification": {"const": "recorded-category-shape-only"},
+        "usage_totals": {"const": "withheld"},
+        "members": {"type": "array", "minItems": 1, "maxItems": 128, "items": {
+          "type": "object", "additionalProperties": false, "required": ["manifest_sha256", "state", "candidates"],
+          "properties": {
+            "manifest_sha256": {"$ref": "#/$defs/digest"},
+            "state": {"enum": ["not_selected", "verified", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable", "timeout", "cancelled"]},
+            "candidates": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/evidence_candidate"}}
+          }
+        }},
+        "declaration_state_counts": {
+          "type": "object", "propertyNames": {"$ref": "#/$defs/category"},
+          "additionalProperties": {"type": "object", "propertyNames": {"$ref": "#/$defs/evidence_state"}, "minProperties": 1,
+            "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 128}}
+        },
+        "category_state_counts": {
+          "type": "object", "propertyNames": {"$ref": "#/$defs/category"},
+          "additionalProperties": {"type": "object", "propertyNames": {"$ref": "#/$defs/evidence_state"}, "minProperties": 1,
+            "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 128}}
+        },
+        "diagnostics": {"$ref": "#/$defs/diagnostics"}
+      }
+    }
+  }
+}

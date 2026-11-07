@@ -4,6 +4,7 @@ import RunnerSelection from "./RunnerSelection";
 import ManifestPublication from "./ManifestPublication";
 import CheckpointInspection from "./CheckpointInspection";
 import CheckpointOperations from "./CheckpointOperations";
+import ManifestAggregate from "./ManifestAggregate";
 import ExecutionLifecycle from "./ExecutionLifecycle";
 
 const example = JSON.stringify({
@@ -86,6 +87,7 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
     <ManifestPublication demo={demo} />
     <CheckpointInspection demo={demo} />
     <CheckpointOperations demo={demo} />
+    <ManifestAggregate demo={demo} />
     <ExecutionLifecycle demo={demo} />
     </>
   );

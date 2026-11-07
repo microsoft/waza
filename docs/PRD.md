@@ -32,6 +32,15 @@ human-labelled corpus, sandbox enforcement and default paid calibration are
 The historical skill-specific requirements below remain product context, not
 authority to infer current native grader keys or completed feature scope.
 
+The unreleased v0.41 aggregation source preview (#766) derives independent
+reports over an explicit expected immutable manifest set, without worker,
+agent or ambient-configuration dependencies. It retains deterministic member
+ordering, conflicts, omissions, compatibility and terminal failures in CLI/API/
+Lab. Membership completeness is not evidence completeness or release authority.
+Category-admitted evidence/usage and final release
+gates remain required before full acceptance; see the canonical
+[aggregation contract](MANIFEST-AGGREGATION.md).
+
 The v0.40.0 runner adds offline version/capability negotiation (#757)
 and one exact captured inline text task/trial/attempt through CLI and HTTP (#758).
 The additive `inline.copilot-text` profile uses a private production SDK runtime,

@@ -317,6 +317,28 @@ diagnostics. Existing result and SDK session readers are unchanged. This source
 implementation is not a claim that v0.41.0 has shipped or that all platform gates
 have completed.
 
+### `waza aggregate` (unreleased v0.41 source preview)
+
+Derive a deterministic report from an explicit expected set of completed
+immutable manifests, without agents, original workers or ambient configuration:
+
+```bash
+waza aggregate "$FIRST" "$SECOND" "$FIRST" --store .waza-artifacts > aggregate.json
+```
+
+Duplicates count once. Missing, conflicting, cancelled, failed and incompatible
+sources remain explicit; no latest-attempt winner, score or billing is invented.
+Membership completeness is not an evidence-assurance pass. The Lab's Runner
+contract section shows composition, state counts, conflicts, omissions,
+compatibility and source links. Optional repeatable
+`--evidence "$FIRST=$EVIDENCE"` selects explicit sidecars with separate declared
+and native-admitted category views;
+`--format csv` preserves native integer counts and recorded-credit presence.
+Usage totals and new-operation billing remain withheld.
+See [operational examples](site/src/content/docs/guides/manifest-aggregation.mdx)
+and [developer/migration rules and pending release gates](docs/MANIFEST-AGGREGATION.md).
+
+
 ### `waza lifecycle` (unreleased v0.41 source preview)
 
 Inspect explicit caller-retained original admission context and ordered
