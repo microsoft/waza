@@ -144,6 +144,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     expect(produced.submission.terminal.outcome).toBe("evaluation_failure");
     await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toContainText("evaluation_failure");
     request.request.selection = { ...unitExample.selection, attempt: 3 };
+    expect(request.request.selection.attempt).toBe(3);
     await panel.getByRole("textbox", { name: "Captured checkpoint submission (JSON)" }).fill(JSON.stringify(request));
     await panel.getByRole("textbox", { name: "Checkpoint digest to resume" }).fill(produced.finalized_checkpoint_sha256);
     await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toHaveCount(0);
@@ -152,8 +153,18 @@ test.describe("Runner negotiation through the real Go API", () => {
     await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
     const resumed = JSON.parse(await (await resumedResponse).text());
     expect(resumed.status).toBe("reused");
-    expect(resumed.submission.caller.attempt).toBe(3);
-    expect(resumed.submission.reservation.binding.identity.attempt).toBe(2);
+    expect(resumed.submission.caller.attempt).toMatch(/^attempt-[a-f0-9]{64}$/);
+    expect(resumed.submission.caller.attempt).not.toBe(produced.submission.caller.attempt);
+    expect(resumed.submission.caller.canonical_digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(resumed.submission.caller.canonical_digest).not.toBe(produced.submission.caller.canonical_digest);
+    expect(resumed.submission.caller).toEqual({
+      ...produced.submission.caller, attempt: resumed.submission.caller.attempt,
+      canonical_digest: resumed.submission.caller.canonical_digest,
+    });
+    expect(resumed.submission.reservation.binding.identity.attempt).toBe(produced.submission.caller.attempt);
+    expect(resumed.submission.terminal).toEqual(produced.submission.terminal);
+    expect(resumed.submission.terminal.selection.attempt).toBe(2);
+    expect(resumed.submission.engine_calls).toBe(0);
     const restored = panel.getByRole("status", { name: "Checkpoint operation result" });
     await expect(restored).toContainText("reused");
     await expect(restored).toContainText("evaluation_failure");

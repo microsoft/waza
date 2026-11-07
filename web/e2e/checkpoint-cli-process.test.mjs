@@ -5,11 +5,40 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, matchesGlob, resolve } from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
 const example = JSON.parse(readFileSync(new URL("../../examples/runner/unit.json", import.meta.url), "utf8"));
+
+test("Playwright excludes standalone Node controls without excluding browser files", () => {
+  const source = stripTypeScriptTypes(readFileSync(new URL("../playwright.config.ts", import.meta.url), "utf8"));
+  const evaluate = (text) => {
+    const context = { defineConfig: (value) => value, process: { env: { CI: "true" } }, configuration: undefined };
+    runInNewContext(text.replace(/^import .+;\s*$/m, "").replace("export default", "configuration ="), context);
+    return context.configuration;
+  };
+  const browserFiles = readdirSync(new URL("./", import.meta.url)).filter(name => name.endsWith(".spec.ts"));
+  assert.ok(browserFiles.length > 0, "Actual browser files must be examined.");
+  const assertInventory = (configuration) => {
+    assert.equal(configuration.testDir, "./e2e");
+    assert.equal(configuration.testIgnore, "**/checkpoint-cli-process.test.mjs");
+    assert.ok(matchesGlob(resolve("web/e2e/checkpoint-cli-process.test.mjs"), configuration.testIgnore));
+    for (const file of browserFiles) {
+      assert.equal(matchesGlob(resolve("web/e2e", file), configuration.testIgnore), false, file);
+    }
+  };
+  assertInventory(evaluate(source));
+  const removed = source.replace('testIgnore: "**/checkpoint-cli-process.test.mjs",', "");
+  assert.notEqual(removed, source);
+  assert.throws(() => assertInventory(evaluate(removed)), assert.AssertionError);
+  const overbroad = source.replace('testIgnore: "**/checkpoint-cli-process.test.mjs"', 'testIgnore: "**/*.spec.ts"');
+  assert.notEqual(overbroad, source);
+  assert.throws(() => assertInventory(evaluate(overbroad)), assert.AssertionError);
+  const workflow = readFileSync(new URL("../../.github/workflows/web-ci.yml", import.meta.url), "utf8");
+  assert.equal(workflow.match(/run: node --test web\/e2e\/checkpoint-cli-process\.test\.mjs/g)?.length, 2,
+    "Retain the explicit pre-frontend and FINAL matched-binary Node selections.");
+});
 
 for (const fault of ["primary", "guard", "remove"]) {
   test(`embedded cleanup preserves the original failure with ${fault} fault`, async (t) => {
