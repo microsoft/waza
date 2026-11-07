@@ -17,16 +17,86 @@ not captures from a live account. No production defaults change.
 The additive `execution-attempt-1.0.schema.json` profile and
 `internal/executionattempt` codecs are declarations only. They do not alter
 manifest v1, legacy result readers, CLI execution, lookup, billing, or Lab
-behavior. Full delivery of #764 still requires conditional storage integration,
-verified reuse and duplicate/concurrent-writer production tests, public surfaces,
-and release/migration guidance. Do not treat these pure tests as storage or
-runtime execution evidence.
+behavior. The separate owned submission library described below has production
+caller coverage; full delivery of #764 still requires public surfaces, broader
+duplicate/concurrent-writer coverage, release/migration guidance, and final
+validation. Do not treat pure codec tests as storage or runtime execution evidence.
+
+The three frozen attempt, decision, and completion JSON fixtures retain their
+recorded bytes without line-ending conversion through path-specific
+`.gitattributes` rules. Their byte oracles are not normalized to hide checkout
+changes; the codecs separately accept valid CRLF JSON whitespace. These rules
+do not change legacy fixtures or wire decoding.
+
+The source owner API in `internal/executionledger` now wraps the real foundation
+namespace, without adding another persistence provider. `New(backend)` requires
+an initialized supported backend. `Reserve(ctx, binding, parent)` generates a
+fresh execution ID and returns an opaque `Creator` only after exclusive creation
+and complete-byte readback. `Reservation(creator)` returns detached original
+bytes/context; `ValidateCreator(ctx, creator)` compares them with current storage.
+Zero, foreign, occupied, or ambiguous reservation results cannot grant authority.
+IDs, stored records, and checkpoints never hydrate a creator.
+
+`Complete(ctx, creator, manifestDigest, names...)` requires that retained creator
+and actual finalized, verified artifacts; it retains the original binding and
+canonical reservation hash. Identical completion retries require the same
+creator. `ReadCompleted(ctx, source, names...)` verifies the actual reservation,
+completion, manifest, objects, and final marker without granting authority.
+`ReadCompletion(ctx, executionID)` separately returns the bounded canonical
+completion declaration and its bytes/digest, not verified publication. Only a
+missing completion record is absence; malformed records and storage failures are
+errors. If a record exists, missing referenced manifests, artifacts, or final
+markers do not erase its presence or authorize stale before-unit recovery.
+Before-unit restore must reject an existing completion, verifying its actual
+referenced source or failing closed. Concurrent completion after a read is not
+excluded by a lease or cross-object transaction.
+`Distinct(ctx, creator)` records the newly owned target; `Reuse(ctx, binding,
+source, names...)` records only a verified compatible original source, with no
+new execution ID or runtime call. Failed source outcomes and original native
+ordinals remain unchanged. These are cooperating-writer API guarantees, not a
+cross-object transaction, lease, tamperproof storage, or execution attestation.
+The legacy runner and public submission/CLI/API/Lab integration remain separate.
+
+`Ledger.Reserve` applies the shared `execution.ValidateOwnedRuntime` guard before
+any namespace read or creation for new owned work or before-unit recovery.
+Owned submission reapplies that same guard before executing native work.
+The conservative profile rejects effective ambient BYOC providers and nonempty
+`COPILOT_CLI_PATH` overrides; default embedded native execution remains eligible.
+Mock mode ignores native overrides. This does not change legacy runner/SDK
+behavior, hash or store credentials, or treat VCS revision as runtime attestation.
+Finalized source-only restore performs no new engine call and preserves original
+verified evidence; it is not a claim about the current native provider.
+
+`runnerunit.Service.Submit(ctx, wrapperBytes, backend, hooks)` is an additive
+embedding API, not yet a CLI/API/Lab route. Its strict
+`execution-submission-1.0.schema.json` wrapper retains the original native request
+and admits it once. Omitted wrapper policy selects distinct execution; explicit
+null is invalid. Distinct submission reserves before factory construction,
+records the decision, executes the admitted unit once, and publishes its original
+terminal and canonical rich report through the actual Store before completion.
+`completed` means terminal evidence was finalized, not that grading passed.
+Cancellation after reservation can finalize a canceled terminal with zero calls.
+Publication or observer errors are submission errors, not successful completion;
+partial immutable records are retained rather than reclaimed.
+
+Explicit reuse verifies finalized original context and any recorded report
+against the terminal, including status and grader verdicts, before recording an
+actionable decision. It makes no factory/runtime or observer call. The returned
+caller identity is separate from unchanged source identity/ordinal. Outer
+`engine_calls` counts only new calls; source report usage remains historical,
+not new-operation billing. Missing reports/usage remain unavailable. These
+checks establish source content and consistency, not runtime or billing
+attestation. `SubmissionHooks.Reserved` receives the retained creator and a
+detached reservation before the factory; `Terminal` receives a detached original
+envelope after joined lifecycle. Hooks are embedding-host code, never request
+JSON, and do not prove cancellation acknowledgment or process-wait completion.
+The result wire profile and public integrations remain pending.
 
 Logical run is the existing `runneridentity.Identity.Run`; logical work is
 `Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,
 independent of the caller's native `Selection.Attempt`. Allocation uses 256 random
-bits, not a uniqueness or reservation guarantee. The owner must reserve the ID
-conditionally before execution once storage integration exists. Decision IDs use
+bits, not a uniqueness or reservation guarantee. The owner reserves the ID
+conditionally before owned execution. Decision IDs use
 a separate `decision-` namespace. Original bindings use the actual
 `artifactmanifest.Binding`; declared context is not runtime attestation.
 
@@ -37,9 +107,9 @@ incomparable. Multiple independent roots for the same logical work are valid,
 including matching native attempt ordinals. This graph check is not an append
 operation, global ordering, lock, overwrite guard, or exactly-once mechanism.
 
-Duplicate decision declarations require an explicit policy. The eventual default
-is distinct execution to preserve legacy behavior, but the codec never supplies
-an omitted policy. `distinct` policy/outcome requires a new execution ID and no
+Duplicate decision declarations require an explicit policy. The submission
+wrapper defaults to distinct execution to preserve legacy behavior, but the
+decision codec never supplies an omitted policy. `distinct` policy/outcome requires a new execution ID and no
 source. Explicit `reuse` policy requires a source execution ID and original
 manifest digest, with `reused`, `unfinished`, or `conflict` outcome and no new
 execution ID. Even a `reused` declaration is not evidence verification: a provider
@@ -55,6 +125,24 @@ empty objects. Explicit empty grader arrays remain valid and distinct from null.
 Canonical encoding preserves original ordinals, sorts grader IDs without mutating
 caller slices, and uses compact Go JSON field order/escaping with no trailing LF.
 The bounded graph accepts at most 1,024 records; each sidecar is at most 1 MiB.
+
+The separate `execution-completion-1.0.schema.json` profile names the original
+execution ID, canonical reservation-byte digest, and manifest digest.
+`internal/executionledger.ValidateContext` admits these references only when
+whole canonical bytes match both digests and the manifest retains the exact
+original native identity, selection/ordinal, execution mode, and grader set.
+This is pure context/hash admission, not source-artifact or final-marker
+verification. The shared provider must independently verify the finalized
+manifest and artifact bytes before a retained creator capability can publish a
+completion or any caller can record verified reuse. No persistence provider,
+capability, reservation, or recovery behavior is supplied by this codec.
+`ValidateReuseContext` additionally compares a reused decision to its original
+source reservation, completion reference, and manifest. The caller may declare a
+different native attempt ordinal and canonical input digest while retaining the
+same logical work, shard/task/trial, execution mode, and grader set. The source
+execution ID identifies the original execution, not a new distinct target, and
+its completion/native binding is never rewritten. Pure context admission still
+requires real provider content/final-marker verification before actionable reuse.
 
 ## Integration commands
 

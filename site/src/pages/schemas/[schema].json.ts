@@ -9,6 +9,7 @@ import artifacts from '../../../../schemas/artifact-manifest-1.0.schema.json';
 import aggregate from '../../../../schemas/manifest-aggregate-1.0.schema.json';
 import evidence from '../../../../schemas/execution-evidence-1.0.schema.json';
 import attempts from '../../../../schemas/execution-attempt-1.0.schema.json';
+import completions from '../../../../schemas/execution-completion-1.0.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -22,6 +23,7 @@ export function getStaticPaths() {
     { params: { schema: 'manifest-aggregate-1.0.schema' }, props: { schema: aggregate } },
     { params: { schema: 'execution-evidence-1.0.schema' }, props: { schema: evidence } },
     { params: { schema: 'execution-attempt-1.0.schema' }, props: { schema: attempts } },
+    { params: { schema: 'execution-completion-1.0.schema' }, props: { schema: completions } },
   ];
 }
 

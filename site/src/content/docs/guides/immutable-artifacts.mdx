@@ -11,6 +11,56 @@ declared bytes, and finalize only after verification. The store verifies content
 and caller-declared context; it does not run an evaluation or attest that it
 happened.
 
+## Logical work and executions: codec preview
+
+The additive [attempt and duplicate-decision schema](../../schemas/execution-attempt-1.0.schema.json)
+and [completion-reference schema](../../schemas/execution-completion-1.0.schema.json)
+are a **codec-only source preview**. The types and strict offline codecs do not
+reserve an execution, confer ownership, or implement a submission/reuse command.
+Legacy runner requests, terminal envelopes, result lookup, and billing remain
+unchanged. An ordinary repeated `runner run` still executes again.
+
+Logical run uses `Identity.Run`; logical work uses `Identity.Trial`. An execution
+owner allocates a fresh opaque `exec-` identifier, separately from the declared
+native `Selection.Attempt`. Two independent executions can have the same native
+ordinal without sharing an execution ID. Parent links distinguish retries and
+branches, not a global order.
+
+This is an example **model graph**, not evidence of executed reservations. A, B,
+and C are display labels, not serialized identifiers:
+
+```mermaid
+flowchart LR
+    W["One logical work (Identity.Trial)"] --> A["Execution A: native ordinal 2"]
+    W --> B["Execution B: native ordinal 2"]
+    A -->|retry parent| C["Execution C: native ordinal 3"]
+```
+
+Independent roots and sibling branches are incomparable. Complete graph
+validation rejects repeated execution IDs, missing or cross-work parents, and
+cycles. It does not supply exactly-once execution, a lock, or overwrite
+prevention.
+
+Decision declarations separate `distinct` from explicit `reuse`. A distinct
+decision names its execution target; a reused decision names the **original
+source execution and manifest**, not a newly executed target. Source references
+alone are not verified results. Before actionable reuse, the owner layer must
+verify original reservation/completion bytes, finalized manifest content, and
+the matching logical and execution context through the real provider.
+
+The caller may declare a later native ordinal, but original source binding,
+terminal bytes, recorded failures, and historical billing attribution must
+remain unchanged. A referenced failure must not become success; missing billing
+must not become zero or new billed usage. Unfinished, conflicting, or corrupt
+sources must not become successful reuse.
+
+All three profiles have independent versions: manifest `1.0`, attempt/decision
+`1.0`, and completion `1.0`. These additions do not migrate historical results
+or tighten legacy readers. Sidecars reject missing required fields, explicit
+null, invalid wire types, duplicate/aliased keys, and malformed Unicode.
+Explicit empty grader arrays are valid. Each sidecar is limited to 1 MiB and a
+complete lineage graph to 1,024 attempts.
+
 ## Prepare a declaration
 
 Keep the original dedicated [runner terminal envelope](../runner-terminal/) and
@@ -120,8 +170,11 @@ waza artifact inspect "$DIGEST" \
 
 Create the container and provision access separately. The CLI uses available
 default credentials; Go callers supply an explicit credential to the backend.
-This path does not run login. Use an HTTPS container URL without embedded
-credentials, query/SAS tokens, or fragments.
+This path does not initiate interactive login. Token acquisition may invoke
+installed Azure CLI or azd credential helpers; runtime authentication is not
+process-free. Pure manifest/schema validation does not open providers or invoke
+those helpers. Use an HTTPS container URL without embedded credentials,
+query/SAS tokens, or fragments.
 
 Local storage uses a no-replace hard link; Azure uses conditional PUT
 (`If-None-Match: *`). Both verify existing objects before accepting identical
