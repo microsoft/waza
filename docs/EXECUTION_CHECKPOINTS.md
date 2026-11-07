@@ -187,10 +187,17 @@ checkpoint digest and boundary, not a guessed extra-artifact or lifecycle profil
 The actual joined `Terminal` hook remains **before** manifest publication and
 completion. Finalized checkpoint publication occurs only after actual `Submit`
 returns its verified completion with the retained creator still in-process.
-The adapter preserves the actual shared `Admission`, `ReuseAdmission` and
-`PreparePublication` hooks: capture denial precedes reservation; source
-disclosure denial precedes a reuse decision; first-publication policy runs before
-terminal observers and writes. Current owned submission does not publish or
+The adapter preserves the actual shared `Admission`, `ReuseAdmission`,
+`PreparePublication` and `ValidatePublication` hooks: capture denial precedes
+reservation; source disclosure denial precedes a reuse decision; first-publication policy runs before
+terminal observers and writes. The committed `ownedsubmission.CaptureHooks`
+facade composes original-category withholding with those observers and validates
+prepared content against independently retained original observations. It rejects
+competing publication policies and arbitrary additional artifact producers.
+Actual adapter controls cover restricted binding rejection before reservation,
+prepared-category corruption rejection before the terminal observer/completion,
+and protected successful, failed and canceled original reuse with zero new calls.
+Current owned submission does not publish or
 return a raw rich report. Historical optional report admission does not grant
 permission to disclose it or transform a reused original.
 Publication/callback failures preserve available digest locators and partial
