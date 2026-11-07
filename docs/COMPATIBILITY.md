@@ -247,6 +247,19 @@ publication is needed to add the sidecar. Legacy/unprotected submission and
 finalized reuse do not retroactively add or rewrite this artifact. Combined
 capture/sidecar bytes remain subject to submission's aggregate publication bound.
 
+Checkpoint locator delivery uses `newRunnerCheckpointLocatorEmitter`, retaining
+the existing exiting-process diagnostic writer and its cumulative 100 ms budget,
+sticky failures, and no-retry/unchanged-inherited-handle policy. Standalone CLI
+commands with supplied diagnostic writers receive the same bounded wrapper.
+Only `checkpoint before-unit SHA256` or `checkpoint finalized-unit SHA256` plus
+one LF is accepted; actual checkpoint boundary constants and canonical digest
+validation are reused. The emitter does not approve arbitrary progress or
+authenticate the referenced content. A before-unit delivery error stops engine
+admission; a finalized-unit delivery error makes the checkpoint operation fail
+without rewriting the completed original execution or removing its locators.
+It is process-only: a blocked write may finish late, and the caller must propagate
+failure and exit rather than use it in a long-lived embedding service.
+
 The additive `execution-submission-result-1.0.schema.json` and
 `ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,
 phase requirements, caller/decision logical context, original reservation hash,
@@ -310,6 +323,52 @@ its completion/native binding is never rewritten. Pure context admission still
 requires real provider content/final-marker verification before actionable reuse.
 
 ## Integration commands
+
+### Separate completed-manifest aggregate profile
+
+The unreleased `waza.manifest-aggregate` 1.0 profile is independent of legacy
+result, immutable manifest, terminal and evidence versions. It does not rewrite
+historical results or change reader defaults, scores or execution billing.
+Only public finalized/current-verified compatible manifests are admitted;
+missing, unsupported and competing sources remain explicit. Original terminal
+verdict presence is retained, including recorded empty arrays. No legacy
+summary is used to reconstruct absent source evidence. See
+[ordering, conflicts and migration](MANIFEST-AGGREGATION.md).
+
+Optional explicit evidence pairs do not rewrite manifest-only output or bump
+legacy writer versions. Omitted, null and empty selection are distinct: omitted
+has no evidence field, null is invalid, and empty emits explicit unselected
+evidence membership. The unreleased optional profile also exposes separate
+`source_context` admission through the sealed budgeted namespace reader and
+current Store; exact original attempt bytes must match the reservation.
+Missing/failed declared context makes the operation incomplete, without
+retroactively requiring a source descriptor on historical publications.
+Native `present` categories require observed counts. Optional-evidence CSV adds
+`source_context_json`; manifest-only JSON/CSV bytes remain unchanged.
+Recorded usage uses native int64 counts, independently of
+assurance profiles' JavaScript-safe limits. Original source bytes and historical
+usage remain unchanged. Optional evidence now requires the canonical native
+capture index for category/usage admission: unindexed flat sidecars intentionally
+degrade to declaration-only unavailable categories in this unreleased profile.
+Declared and admitted category tallies remain separate; admitted counts use
+exact decimal int64 text and never derive from declarations. Structural admission
+does not qualify retained ownership, live execution or new billing.
+
+`TestAggregateFrozenManifestOnlyCLIAPICompatibility` compares the actual CLI
+and API JSON/CSV outputs to
+`internal/manifestaggregate/testdata/manifest-only-ec565.json`. The fixture
+contains immutable original objects and independently frozen output bytes from
+aggregation implementation `ec565056c693d7a069eca9a66095c060f7187460`, covering
+success plus evaluation failure, recorded-empty verdicts, absent observations
+and missing sources. Current tests do not regenerate expected output, derive
+identities or republish reconstructed terminals. Reordered/duplicated requests
+must retain those bytes and the original CLI exit policy.
+
+The baseline aggregator was executed against the then-current shared
+verification/schema dependencies to freeze this aggregation wire contract.
+This is not an execution-attestation or full historical-runtime oracle and does
+not replace the broader compatibility corpus/gate below. Do not refresh the
+fixture from the current writer merely to make a regression pass.
 
 From the repository root, after the normal embedded dashboard assets exist:
 

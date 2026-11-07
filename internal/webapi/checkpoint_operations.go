@@ -3,9 +3,11 @@ package webapi
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executioncheckpoint"
+	"github.com/microsoft/waza/internal/ownedsubmission"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
 	"github.com/microsoft/waza/internal/runnerunit"
@@ -71,6 +73,12 @@ func registerCheckpointOperationRoutes(mux *http.ServeMux, operations checkpoint
 				emit(http.StatusServiceUnavailable, runnercheckpoint.RejectPublic("checkpoint_runner_unavailable"))
 				return
 			}
+			submissionHooks, err := ownedsubmission.NewLifecycleObserverHooks(time.Now, operations.runner)
+			if err != nil {
+				logRunnerError("checkpoint lifecycle unavailable", "error", err)
+				emit(http.StatusServiceUnavailable, runnercheckpoint.RejectPublic("checkpoint_runner_unavailable"))
+				return
+			}
 			backend, closeBackend, err := operations.open()
 			if err != nil {
 				logRunnerError("checkpoint immutable storage unavailable", "error", err)
@@ -79,9 +87,9 @@ func registerCheckpointOperationRoutes(mux *http.ServeMux, operations checkpoint
 			}
 			var result runnercheckpoint.Result
 			if action == "resume" {
-				result, err = checkpoints.ResumeCaptured(r.Context(), data, backend, r.PathValue("digest"), runnercheckpoint.Hooks{})
+				result, err = checkpoints.ResumeCaptured(r.Context(), data, backend, r.PathValue("digest"), runnercheckpoint.Hooks{Submission: submissionHooks})
 			} else {
-				result, err = checkpoints.SubmitCaptured(r.Context(), data, backend, runnercheckpoint.Hooks{})
+				result, err = checkpoints.SubmitCaptured(r.Context(), data, backend, runnercheckpoint.Hooks{Submission: submissionHooks})
 			}
 			if closeErr := closeBackend(); closeErr != nil {
 				logRunnerError("checkpoint immutable store close failed; result not delivered", "error", errors.Join(err, closeErr))

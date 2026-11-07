@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executioncheckpoint"
+	"github.com/microsoft/waza/internal/ownedsubmission"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/spf13/cobra"
@@ -65,12 +67,16 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 				if err != nil {
 					return &ExitCodeError{Code: 2, Err: err}
 				}
+				submissionHooks, err := ownedsubmission.NewLifecycleObserverHooks(time.Now, service)
+				if err != nil {
+					return &ExitCodeError{Code: 2, Err: fmt.Errorf("preparing checkpoint lifecycle: %w", err)}
+				}
 				backend, closeBackend, err := artifactmanifest.OpenBackend(directory, azureURL)
 				if err != nil {
 					return &ExitCodeError{Code: 2, Err: fmt.Errorf("opening checkpoint store: %w", err)}
 				}
 				locator := newRunnerCheckpointLocatorEmitter(cmd)
-				observers := runnercheckpoint.Hooks{Published: func(_ context.Context, reference runnercheckpoint.Reference) error {
+				observers := runnercheckpoint.Hooks{Submission: submissionHooks, Published: func(_ context.Context, reference runnercheckpoint.Reference) error {
 					// Only locators are emitted here. Stdout remains one result.
 					return locator(reference.Boundary, reference.Digest)
 				}}

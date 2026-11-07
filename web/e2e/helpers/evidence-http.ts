@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 
-export async function startEvidenceHTTP(preview: string, digest: string, receipt: string, document: string, csv: string) {
+export async function startEvidenceHTTP(preview: string, digest: string, receipt: string, document: string, csv: string,
+  qualified?: { receipt: string; csv: string }) {
   const requests: string[] = [];
   const failures: string[] = [];
   // Chromium attachment requests bypass Playwright interception. Serve actual
@@ -13,15 +14,25 @@ export async function startEvidenceHTTP(preview: string, digest: string, receipt
         response.end(receipt);
         return;
       }
-      for (const [suffix, extension, contentType, content] of [
-        ["document", "json", "application/json", document],
-        ["csv", "csv", "text/csv", csv],
-      ]) {
+      if (qualified && path === `/api/v1/evidence/${digest}/categories`) {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(qualified.receipt);
+        return;
+      }
+      const attachments: [string, string, string, string, string][] = [
+        ["document", "json", "application/json", document, "execution-evidence"],
+        ["csv", "csv", "text/csv; charset=utf-8", csv, "execution-evidence"],
+      ];
+      if (qualified) attachments.push(
+          ["categories/document", "json", "application/json", qualified.receipt, "execution-evidence-categories"],
+          ["categories/csv", "csv", "text/csv; charset=utf-8", qualified.csv, "execution-evidence-categories"],
+      );
+      for (const [suffix, extension, contentType, content, prefix] of attachments) {
         if (path !== `/api/v1/evidence/${digest}/${suffix}`) continue;
         requests.push(`${request.method} ${path}`);
         response.writeHead(200, {
           "Content-Type": contentType,
-          "Content-Disposition": `attachment; filename="execution-evidence-${digest}.${extension}"`,
+          "Content-Disposition": `attachment; filename="${prefix}-${digest}.${extension}"`,
           "Content-Length": Buffer.byteLength(content),
         });
         response.end(content);

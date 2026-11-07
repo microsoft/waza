@@ -57,6 +57,7 @@ export default defineConfig({
 						{ label: 'Exact-unit Checkpoint Recovery', slug: 'guides/runner-checkpoints' },
 						{ label: 'Execution Lifecycle (Under Development)', slug: 'guides/execution-lifecycle' },
 						{ label: 'Immutable Artifacts', slug: 'guides/immutable-artifacts' },
+						{ label: 'Completed Manifest Aggregation', slug: 'guides/manifest-aggregation' },
 						{ label: 'Execution Evidence States', slug: 'guides/execution-evidence' },
 						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },
 						{ label: 'Local Runner Container', slug: 'guides/runner-container' },

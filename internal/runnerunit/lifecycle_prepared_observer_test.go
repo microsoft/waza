@@ -18,6 +18,7 @@ import (
 	"github.com/microsoft/waza/internal/executionlifecycle"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/ownedsubmission"
+	"github.com/microsoft/waza/internal/runnercheckpoint"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
@@ -46,6 +47,78 @@ func TestPreparedLifecycleObserverRequiresExplicitClock(t *testing.T) {
 	observer, err := runnerunit.NewPreparedLifecycleObserver(nil)
 	require.Error(t, err)
 	require.Nil(t, observer)
+}
+
+func TestPreparedLifecycleObserverActualCheckpointCancellationAndFinalizedRestore(t *testing.T) {
+	backend, err := artifactmanifest.OpenLocal(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, backend.Close()) })
+	observer, err := runnerunit.NewPreparedLifecycleObserver(time.Now)
+	require.NoError(t, err)
+	next := observer.Hooks()
+	next.Factory = func(models.Config) (execution.AgentEngine, error) {
+		t.Fatal("cancellation after before-unit publication must not construct an engine")
+		return nil, nil
+	}
+	protected, err := ownedsubmission.CaptureHooks(next)
+	require.NoError(t, err)
+	service, err := runnercheckpoint.NewService(runnerunit.NewService(nil), strings.Repeat("c", 40))
+	require.NoError(t, err)
+	wire, err := json.Marshal(runnerunit.SubmissionRequest{
+		Kind: "waza.execution-submission", SchemaVersion: "1.0", Request: lifecycleFixtureBytes(t),
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	published := []runnercheckpoint.Reference{}
+	hooks := runnercheckpoint.Hooks{
+		Submission: protected,
+		Published: func(_ context.Context, reference runnercheckpoint.Reference) error {
+			published = append(published, reference)
+			if reference.Boundary == "before-unit" {
+				cancel()
+			}
+			return nil
+		},
+	}
+	result, err := service.Submit(ctx, wire, backend, hooks)
+	require.NoError(t, err)
+	require.Len(t, published, 2)
+	require.Equal(t, "before-unit", published[0].Boundary)
+	require.Equal(t, "finalized-unit", published[1].Boundary)
+	require.Equal(t, runnerterminal.Canceled, result.Submission.Terminal.Outcome)
+	require.Equal(t, 3, result.ExitCode)
+	require.Zero(t, result.Submission.EngineCalls)
+	ledger, err := executionledger.New(backend)
+	require.NoError(t, err)
+	source := executionattempt.Source{ExecutionID: result.Submission.Reservation.ExecutionID,
+		ManifestDigest: result.Submission.Completion.ManifestDigest}
+	completed, err := ledger.ReadCompleted(t.Context(), source, runnerunit.LifecycleCaptureArtifact, "terminal.json")
+	require.NoError(t, err)
+	var capture runnerunit.LifecycleCapture
+	require.NoError(t, json.Unmarshal(completed.Publication.ArtifactBytes[runnerunit.LifecycleCaptureArtifact], &capture))
+	require.Equal(t, runnerterminal.Canceled, capture.Observations[1].Terminal.Outcome)
+	require.False(t, capture.Runtime.OwnedEngineBound)
+	require.Equal(t, "unknown", capture.Runtime.ProcessExit)
+	before, err := backend.Get(t.Context(), "blob-"+result.BeforeDigest, executionlifecycle.MaxBytes)
+	require.NoError(t, err)
+	finalized, err := backend.Get(t.Context(), "blob-"+result.FinalizedDigest, executionlifecycle.MaxBytes)
+	require.NoError(t, err)
+	restored, err := service.Resume(t.Context(), wire, backend, result.FinalizedDigest, hooks)
+	require.NoError(t, err)
+	require.Equal(t, result.Submission.Terminal, restored.Submission.Terminal)
+	require.Zero(t, restored.Submission.EngineCalls)
+	require.Equal(t, 3, restored.ExitCode)
+	require.Len(t, published, 2)
+	reread, err := ledger.ReadCompleted(t.Context(), source, runnerunit.LifecycleCaptureArtifact, "terminal.json")
+	require.NoError(t, err)
+	require.Equal(t, completed.Publication.ArtifactBytes, reread.Publication.ArtifactBytes)
+	afterBefore, err := backend.Get(t.Context(), "blob-"+result.BeforeDigest, executionlifecycle.MaxBytes)
+	require.NoError(t, err)
+	afterFinalized, err := backend.Get(t.Context(), "blob-"+result.FinalizedDigest, executionlifecycle.MaxBytes)
+	require.NoError(t, err)
+	require.Equal(t, before, afterBefore)
+	require.Equal(t, finalized, afterFinalized)
 }
 
 func TestPreparedLifecycleObserverConcurrentInvocationFactories(t *testing.T) {

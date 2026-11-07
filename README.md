@@ -304,6 +304,14 @@ of `--store`, with existing credentials and no automatic login. Lab can discover
 stored declaration pointers and inspect current integrity. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
 
+Optional evidence sidecars reference an already finalized source without changing
+its digest. `waza artifact evidence publish EVIDENCE.json` and `inspect DIGEST`
+retain declarations; `waza artifact evidence categories DIGEST` additionally
+admits all six recorded category shapes in one source pass, without exporting
+message/tool/grader payloads. Missing capture indexes remain unqualified, not
+empty or passing evidence. All three accept the artifact store flags above.
+See [evidence states and privacy boundaries](docs/EVIDENCE-STATES.md).
+
 The unreleased v0.41 source adds `waza runner checkpoint create` and
 `waza runner checkpoint resume CHECKPOINT_SHA256` for captured exact-unit
 submissions. Before-unit recovery reserves a fresh retry child; finalized-unit
@@ -316,6 +324,27 @@ showing null-aware progress, current creation metadata and protected failure
 diagnostics. Existing result and SDK session readers are unchanged. This source
 implementation is not a claim that v0.41.0 has shipped or that all platform gates
 have completed.
+
+### `waza aggregate` (unreleased v0.41 source preview)
+
+Derive a deterministic report from an explicit expected set of completed
+immutable manifests, without agents, original workers or ambient configuration:
+
+```bash
+waza aggregate "$FIRST" "$SECOND" "$FIRST" --store .waza-artifacts > aggregate.json
+```
+
+Duplicates count once. Missing, conflicting, cancelled, failed and incompatible
+sources remain explicit; no latest-attempt winner, score or billing is invented.
+Membership completeness is not an evidence-assurance pass. The Lab's Runner
+contract section shows composition, state counts, conflicts, omissions,
+compatibility and source links. Optional repeatable
+`--evidence "$FIRST=$EVIDENCE"` selects explicit sidecars with separate declared
+and native-admitted category views;
+`--format csv` preserves native integer counts and recorded-credit presence.
+Usage totals and new-operation billing remain withheld.
+See [operational examples](site/src/content/docs/guides/manifest-aggregation.mdx)
+and [developer/migration rules and pending release gates](docs/MANIFEST-AGGREGATION.md).
 
 ### `waza lifecycle` (unreleased v0.41 source preview)
 

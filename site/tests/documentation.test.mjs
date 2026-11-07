@@ -115,7 +115,8 @@ test('lifecycle source schemas, declared inspection guidance and browser discove
     assert.equal(workflow.split(`'${path}'`).length - 1, 2, `${path} must select both push and PR paths-filter`);
   }
   assert.match(workflow, /^permissions:\n  contents: read/m);
-  assert.match(workflow, /timeout-minutes: 15/);
+  assert.match(workflow, /timeout-minutes: 30/);
+  assert.match(workflow, /delivery_phase:[\s\S]*options: \[preview, final\][\s\S]*default: preview/);
   assert.match(workflow, /npx --no-install playwright test --project=chromium --retries=0/);
 });
 

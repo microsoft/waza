@@ -7,6 +7,9 @@ import { startEvidenceHTTP } from "./helpers/evidence-http";
 const fixture = fs.readFileSync(new URL("./fixtures/execution-evidence.json", import.meta.url), "utf8");
 const csvFixture = fs.readFileSync(new URL("./fixtures/execution-evidence.csv", import.meta.url), "utf8");
 const documentFixture = fixture.slice(fixture.indexOf('"document":') + '"document":'.length, fixture.indexOf(',"sources":'));
+const categoryFixture = fs.readFileSync(new URL("./fixtures/execution-evidence-category-results.json", import.meta.url), "utf8");
+const qualifiedFixture = fixture.trim().slice(0, -1) + ',"categories":' + categoryFixture.trim() + "}";
+const qualifiedCSV = fs.readFileSync(new URL("./fixtures/execution-evidence-qualified.csv", import.meta.url), "utf8");
 const digest = "b0f8e5199f751414edebc1d32bfe28e60cb0d378f6adfacd3260ac5c00d108dd";
 const origin = "943df82988b4f73e9a50469ff5319a15c6c2c089082f2686b29523cae26ec3d9";
 function panel(page: Page) {
@@ -127,5 +130,82 @@ test.describe("Lab execution evidence states", () => {
     await expect(panel(page).getByRole("textbox")).toHaveCount(0);
     await expect(panel(page).getByRole("row")).toHaveCount(0);
     expect(requests).toBe(0);
+  });
+
+  test("keeps declarations separate from unavailable admitted categories and exact qualified exports", async ({ page }) => {
+    const server = await startEvidenceHTTP(new URL(page.url()).origin, digest, fixture, documentFixture, csvFixture,
+      { receipt: qualifiedFixture, csv: qualifiedCSV });
+    try {
+      await page.goto(`${server.base}/#/lab/runner`);
+      await inspect(page);
+      const admitted = page.getByRole("region", { name: "Recorded category admission", exact: true });
+      await expect(admitted.getByRole("row")).toHaveCount(0);
+      await admitted.getByRole("button", { name: "Admit recorded categories", exact: true }).click();
+      await expect(admitted.getByRole("row")).toHaveCount(7);
+      const first = admitted.getByRole("row").nth(1);
+      await expect(first.locator("th, td")).toHaveText([
+        "conversation", "present", "unavailable", "Unavailable", "declared-state-only", "category_not_verified",
+      ]);
+      await expect(admitted).not.toContainText("9007199254740993");
+      await expect(admitted).not.toContainText("observed empty");
+      for (const [name, extension, body] of [
+        ["Download qualified category JSON", "json", qualifiedFixture],
+        ["Download qualified category CSV", "csv", qualifiedCSV],
+      ]) {
+        const [download] = await Promise.all([
+          page.waitForEvent("download"), admitted.getByRole("link", { name, exact: true }).click(),
+        ]);
+        expect(await download.failure()).toBeNull();
+        expect(download.suggestedFilename()).toBe(`execution-evidence-categories-${digest}.${extension}`);
+        const path = await download.path();
+        if (path === null) throw new Error("Qualified category download is unavailable.");
+        expect(fs.readFileSync(path, "utf8")).toBe(body);
+      }
+      expect(server.requests).toEqual([`GET /api/v1/evidence/${digest}/categories/document`, `GET /api/v1/evidence/${digest}/categories/csv`]);
+      expect(server.failures).toEqual([]);
+      await panel(page).getByRole("textbox", { name: "Evidence SHA-256 digest" }).fill("c".repeat(64));
+      await expect(admitted).toHaveCount(0);
+      await expect(panel(page).getByRole("link", { name: "Download qualified category JSON" })).toHaveCount(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("clears admitted results and qualified exports after a malformed current category response", async ({ page }) => {
+    await page.route(`**/api/v1/evidence/${digest}`, (route) => route.fulfill({ contentType: "application/json", body: fixture }));
+    let reads = 0;
+    await page.route(`**/api/v1/evidence/${digest}/categories`, (route) => route.fulfill({
+      contentType: "application/json", body: ++reads === 1 ? qualifiedFixture :
+        qualifiedFixture.replace('"category":"conversation","state":"unavailable"', '"category":"conversation","state":"unavailable","observed_count":"0"'),
+    }));
+    await inspect(page);
+    const admitted = page.getByRole("region", { name: "Recorded category admission", exact: true });
+    await admitted.getByRole("button", { name: "Admit recorded categories", exact: true }).click();
+    await expect(admitted.getByRole("row")).toHaveCount(7);
+    await admitted.getByRole("button", { name: "Admit recorded categories", exact: true }).click();
+    await expect(admitted.getByRole("alert")).toContainText("Previous admitted observations have been cleared");
+    await expect(admitted.getByRole("row")).toHaveCount(0);
+    await expect(admitted.getByRole("link")).toHaveCount(0);
+    expect(reads).toBe(2);
+  });
+
+  test("withdraws the earlier declaration receipt when current category source verification fails", async ({ page }) => {
+    await page.route(`**/api/v1/evidence/${digest}`, (route) => route.fulfill({ contentType: "application/json", body: fixture }));
+    await page.route(`**/api/v1/evidence/${digest}/categories`, (route) => route.fulfill({
+      status: 404, json: {
+        evidence_sha256: digest, publication: "derived", integrity: "failed",
+        verification: "content-and-declared-context-only", sources: [],
+        diagnostics: [{ code: "missing_source", message: "Source bytes are unavailable." }],
+        categories: ["conversation", "tool", "grader", "reliability", "usage", "provenance"].map((category) => ({
+          category, state: "unavailable", verification: "unverified", reason: "source_not_verified",
+        })),
+      },
+    }));
+    await inspect(page);
+    await expect(panel(page).getByRole("row")).toHaveCount(7);
+    await page.getByRole("region", { name: "Recorded category admission" }).getByRole("button", { name: "Admit recorded categories" }).click();
+    await expect(panel(page).getByRole("alert")).toContainText("prior declaration metadata has been cleared");
+    await expect(panel(page).getByRole("row")).toHaveCount(0);
+    await expect(panel(page).getByRole("link")).toHaveCount(0);
   });
 });

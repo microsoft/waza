@@ -47,6 +47,30 @@ waza update --yes
 
 The native Windows update path schedules the final binary replacement after the running `waza.exe` exits, avoiding Windows executable file locks. In WSL, `waza update` uses the Linux Bash installer and updates the WSL installation.
 
+## waza aggregate (unreleased v0.41 source preview)
+
+Derive an independent report over an explicit expected completed-manifest set:
+
+```bash
+waza aggregate "$FIRST" "$SECOND" "$FIRST" --store .waza-artifacts > aggregate.json
+```
+
+`--store` defaults to the existing local `.waza-artifacts` directory; no ambient
+configuration, provider fallback, model, worker, grader process or update check
+is used. `--azure-container-url` selects an explicit HTTPS Azure container
+instead of `--store`, using existing credentials without automatic login or
+local fallback. Supply 1..128 full lowercase SHA-256 digests before deduplication.
+Missing/conflicting/incompatible sources remain explicit. Exit 0 means complete
+compatible membership with no recorded evaluation failure, 1 means complete
+membership containing evaluation failure, and 2 means incomplete input or I/O
+failure. This is not evidence-assurance acceptance.
+Repeat `--evidence MANIFEST_SHA256=EVIDENCE_SHA256` for at most 128 explicitly
+selected sidecars before deduplication. Each origin must belong to the expected
+set. `--format json` is the default; `--format csv` retains exact native integer
+counts and blank unavailable credits. Category counts remain declarations;
+recorded source usage is not new-operation billing, and totals stay withheld.
+See [completed-manifest examples and migration](../../guides/manifest-aggregation/).
+
 ## waza preflight
 
 Inspect an explicit eval file offline, without an agent/model, grader execution,
@@ -1629,6 +1653,26 @@ is launched. `--store` defaults to `.waza-artifacts` and must already exist.
 Neither flag changes legacy mutable result storage. Verification is content and
 declared context only, not admission or execution attestation.
 See [manifest examples, recovery and migration](../../guides/immutable-artifacts/).
+
+### Evidence sidecars
+
+```bash
+waza artifact evidence publish EVIDENCE.json --store .waza-artifacts
+waza artifact evidence inspect EVIDENCE_SHA256 --store .waza-artifacts
+waza artifact evidence categories EVIDENCE_SHA256 --store .waza-artifacts
+```
+
+`publish` requires an already finalized origin and stores the separately digested
+derived document without modifying that origin. `inspect` retains declaration
+metadata. `categories` adds six admitted state/verification results from one
+source pass; it never downloads captured message/tool/grader bodies. Missing
+producer indexes remain unqualified unavailable, not observed empty. Recorded
+credits stay absent or explicitly zero according to native evidence.
+
+Exit 0 means reading completed, not assurance acceptance. Shape conflicts and
+source/storage/output failures return nonzero; recorded incomplete/redacted
+states remain visible without inventing a passing verdict. Existing historical
+readers and defaults are unchanged. See [capture, privacy and migration](../../guides/execution-evidence/).
 
 ## waza lifecycle
 

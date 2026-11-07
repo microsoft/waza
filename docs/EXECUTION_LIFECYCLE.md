@@ -3,9 +3,9 @@
 **Under development for #767 / v0.41.0; not operational recovery.** The
 `internal/executionlifecycle` package implements a bounded pure projection and
 digest-addressed observation storage, read-only CLI/API inspection and a connected
-Dashboard Lab source component, with invocation-local owner observers. It does
-not yet select lifecycle capture through a public submission operation or expose
-an authenticated live lifecycle view; dashboard build/browser gates
+Dashboard Lab source component, with invocation-local owner observers. Protected
+checkpoint CLI/API operations now select fixed same-manifest lifecycle capture;
+this does not expose an authenticated live lifecycle view. Dashboard build/browser gates
 remain separate delivery requirements. Existing
 `waza runner run`, HTTP terminal responses and historical local execution retain
 their current behavior. Do not close #767 or advertise recovery from this layer.
@@ -13,6 +13,35 @@ their current behavior. Do not close #767 or advertise recovery from this layer.
 The [site guide](../site/src/content/docs/guides/execution-lifecycle.mdx)
 describes operator interpretation. This document defines developer invariants
 and the remaining delivery gates.
+
+## Preview and final embedded delivery
+
+Dashboard validation has two explicitly allocated source phases. The default
+`delivery_phase: preview` preserves the clean prefrontend CLI's API/process
+controls, then builds and tests the current frontend and captures its generated
+index, assets and screenshots. That CLI does not prove the newly built dashboard
+was embedded. The final embedded browser case is explicitly skipped in preview;
+this skip is never final execution evidence.
+
+After reviewing genuine preview artifacts and committing only intended generated
+index/documentation outputs, `delivery_phase: final` builds the frontend once in
+its fresh owning checkout. It requires the generated tracked index/favicon to
+match the committed source, then builds the production CLI from that same
+physical `web/dist`, without another frontend build or restoration. Genuine Go
+metadata must name the actual Git HEAD with `vcs.modified=false`. Its process
+controls and full Chromium suite use that postfrontend binary. The separate
+embedded case compares actual HTTP index/favicon/all asset bytes and runs protected
+checkpoint creation and finalized reuse through the same-origin embedded Lab.
+The final report must contain exactly one executed, passing embedded case, not
+a missing, skipped, retried or failed control. No dispatch is implicit.
+
+Current Go app-worktree builds can omit VCS metadata; they are not substitutes
+for the ordinary hosted owning checkout, and no revision/dirty waiver is allowed.
+This gate covers the CLI payload, not the azd extension release path. The latter
+also rewrites `version.txt` and `extension.yaml` before `azd x build`; agreed
+target metadata must already be committed/matching, or a separately reviewed
+real-source publication contract is required. Preview or CLI-only checks do not
+prove extension payload delivery, native Windows support or release publication.
 
 ## Original context and evidence
 
@@ -200,8 +229,16 @@ failures, not permission to rewrite the actor's status, ordinal or terminal.
 Production-caller controls cover success, completed check failure, cancellation,
 timeout, prepublication rejection, owned-root publication failure, returned-byte
 detachment, and concurrent invocation factories through the actual protected
-publisher. This internal adapter does not by itself enable public lifecycle
-capture, authenticate runtime evidence, or complete operational recovery.
+publisher. The checkpoint CLI/API use shared
+`ownedsubmission.NewLifecycleObserverHooks(time.Now, service)` with the existing
+`SubmitCaptured`/`ResumeCaptured` entrypoints. The captured wrapper applies the
+original category policy exactly once and retains its approval-tracked,
+non-mutating source/report/terminal withholding, including incompatible restores
+that return before any hook. `Service.NativeEngineFactory` selects the owned
+native sink while preserving the retained mock factory. Public mock controls
+prove the first manifest is the original protected inventory plus fixed lifecycle
+objects and finalized reuse retains exact bytes with zero new calls; they do not
+prove native execution, authenticated runtime evidence or complete recovery.
 
 `runnerunit.NewLifecycleObserver` attaches to the actual submission's retained
 creator through `Reserved` and joined `Terminal` callbacks. It validates the

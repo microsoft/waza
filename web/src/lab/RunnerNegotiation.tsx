@@ -4,6 +4,7 @@ import RunnerSelection from "./RunnerSelection";
 import ManifestPublication from "./ManifestPublication";
 import CheckpointInspection from "./CheckpointInspection";
 import CheckpointOperations from "./CheckpointOperations";
+import ManifestAggregate from "./ManifestAggregate";
 import ExecutionLifecycle from "./ExecutionLifecycle";
 import ExecutionSubmission from "./ExecutionSubmission";
 
@@ -88,6 +89,7 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
     <CheckpointInspection demo={demo} />
     <CheckpointOperations demo={demo} />
     <ExecutionSubmission demo={demo} />
+    <ManifestAggregate demo={demo} />
     <ExecutionLifecycle demo={demo} />
     </>
   );

@@ -70,6 +70,14 @@ uses this actual build value and does not accept `runner_revision` as a user fla
 Admission tests using authored build metadata are not execution evidence for
 a released binary; production-CLI recovery tests remain required.
 
+Verify the actual owning binary with `go version -m /path/to/waza`. A clean
+working tree alone does not ensure Go recorded VCS metadata: the observed Go
+1.26.4 compiler recognizes a `.git` directory but not the `.git` file in an
+app-managed worktree. Such an unstamped binary is rejected before reservation.
+Use an ordinary versioned-checkout/CI build that records the real revision and
+clean flag; do not inject metadata or waive admission. Pre-frontend API/process
+builds are not evidence of matched embedded-dashboard delivery.
+
 The native engine also resolves ambient provider settings and `COPILOT_CLI_PATH`.
 Declared configuration hashes do not pin those external runtimes or providers.
 An owned native checkpoint caller must use the shared effective-runtime admission
@@ -197,6 +205,12 @@ terminal observers and writes. The committed `ownedsubmission.CaptureHooks`
 facade composes original-category withholding with those observers and validates
 prepared content against independently retained original observations. It rejects
 competing publication policies and arbitrary additional artifact producers.
+The public checkpoint CLI/API select the shared non-writing prepared lifecycle
+observer and native-only per-service factory through this existing captured
+wrapper. Fixed lifecycle objects join the first original manifest; mock execution
+does not bind a native sink, and finalized reuse creates neither an engine nor
+new lifecycle objects. Source approval and non-mutating withholding remain
+required even when compatibility returns before any observer hook.
 Actual adapter controls cover restricted binding rejection before reservation,
 prepared-category corruption rejection before the terminal observer/completion,
 and protected successful, failed and canceled original reuse with zero new calls.
@@ -290,6 +304,19 @@ final marker then blocks restoration without rerunning work. These tests use an
 authored revision in a test binary: they are not public-CLI interruption,
 clean-build revision, Windows or browser evidence.
 
+The separate standard-Node controls in
+`web/e2e/checkpoint-cli-process.test.mjs` require `WAZA_E2E_CLI` to name the
+actual clean-stamped compiled CLI. Dashboard CI selects them explicitly before
+the frontend build and checks the binary's real revision and clean flag.
+At each killed boundary, incompatible captured input must reject with withheld
+metadata and unchanged hashes for every retained store entry before valid
+recovery is attempted. Finalized recovery also rejects a removed final marker.
+Its push and PR change filters include `internal/webapi/checkpoint_operations*.go`;
+the regression in `.github/scripts/web_checkpoint_ci_test.go` removes each
+production filter independently to prove checkpoint caller changes cannot
+bypass dashboard selection. Filter coverage is not browser or recovery evidence,
+and this pre-frontend binary is not matched embedded-dashboard delivery.
+
 ### Read-only source inspection
 
 The current-source dashboard registers `GET /api/v1/checkpoints/{digest}` and
@@ -333,6 +360,10 @@ Full compiled-CLI interruption and failed-restore process evidence, native-platf
 checks, hosted dashboard/site validation and matching generated assets remain
 required before #765 is complete or a release can advertise recovery. Library
 process controls are not public-CLI evidence; no check establishes global
-exactly-once work. CLI checkpoint locator delivery on stderr is currently an
-unbounded write, so a blocked locator consumer can stall before-unit admission.
-Do not treat input/output deadline coverage as proof of bounded locator delivery.
+exactly-once work. Fixed CLI locators reuse the process-only diagnostic writer's
+100 ms cumulative stderr budget through the root command. Standalone CLI commands
+with supplied stderr writers receive the same bounded wrapper. Sticky delivery
+failures stop before-unit engine admission or fail finalized delivery while
+retaining the completed original. A timed-out process diagnostic write may finish
+late until process exit; no locator delivery success or joined write is claimed.
+This process-only emitter must not be used in a long-lived embedding service.
