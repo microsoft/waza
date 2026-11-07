@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/schemaloader"
@@ -118,25 +119,34 @@ type Lineage struct {
 // Document is published separately after its origin manifest is finalized.
 // It must never be added to, or mutate, that already finalized origin.
 type Document struct {
-	Kind           string    `json:"kind"`
-	SchemaVersion  string    `json:"schema_version"`
-	Publication    string    `json:"publication"`
-	OriginManifest string    `json:"origin_manifest"`
-	Categories     []Record  `json:"categories"`
-	Lineage        []Lineage `json:"lineage"`
+	Kind            string                   `json:"kind"`
+	SchemaVersion   string                   `json:"schema_version"`
+	Publication     string                   `json:"publication"`
+	OriginManifest  string                   `json:"origin_manifest"`
+	ExecutionSource *executionattempt.Source `json:"execution_source,omitempty"`
+	AttemptArtifact string                   `json:"attempt_artifact,omitempty"`
+	Categories      []Record                 `json:"categories"`
+	Lineage         []Lineage                `json:"lineage"`
 }
 
 var evidenceSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
 	c.UseLoader(schemaloader.Offline{})
-	doc, err := jsonschema.UnmarshalJSON(strings.NewReader(schemas.ExecutionEvidenceSchemaJSON))
-	if err != nil {
-		return nil, err
+	for name, text := range map[string]string{
+		"execution-evidence-1.0.schema.json": schemas.ExecutionEvidenceSchemaJSON,
+		"execution-attempt-1.0.schema.json":  schemas.ExecutionAttemptSchemaJSON,
+		"artifact-manifest-1.0.schema.json":  schemas.ArtifactManifestSchemaJSON,
+		"runner-terminal-1.0.schema.json":    schemas.RunnerTerminalSchemaJSON,
+	} {
+		doc, err := jsonschema.UnmarshalJSON(strings.NewReader(text))
+		if err != nil {
+			return nil, err
+		}
+		if err := c.AddResource("https://microsoft.github.io/waza/schemas/"+name, doc); err != nil {
+			return nil, err
+		}
 	}
-	if err := c.AddResource("execution-evidence.json", doc); err != nil {
-		return nil, err
-	}
-	return c.Compile("execution-evidence.json")
+	return c.Compile("https://microsoft.github.io/waza/schemas/execution-evidence-1.0.schema.json")
 })
 
 func Parse(data []byte) (*Document, error) {
@@ -157,6 +167,9 @@ func Parse(data []byte) (*Document, error) {
 	var d Document
 	if err := json.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("%w: decoding: %w", ErrInvalid, err)
+	}
+	if d.ExecutionSource != nil && d.ExecutionSource.ManifestDigest != d.OriginManifest {
+		return nil, fmt.Errorf("%w: execution source must reference the origin manifest", ErrInvalid)
 	}
 	seen := make(map[Category]bool, len(d.Categories))
 	for _, r := range d.Categories {
@@ -225,7 +238,10 @@ func encodingBounds(d Document) error {
 	if len(d.Categories) != 6 || len(d.Lineage) > 128 {
 		return fmt.Errorf("%w: category or lineage count exceeds profile bounds", ErrInvalid)
 	}
-	values := []string{d.Kind, d.SchemaVersion, d.Publication, d.OriginManifest}
+	values := []string{d.Kind, d.SchemaVersion, d.Publication, d.OriginManifest, d.AttemptArtifact}
+	if d.ExecutionSource != nil {
+		values = append(values, d.ExecutionSource.ExecutionID, d.ExecutionSource.ManifestDigest)
+	}
 	for _, r := range d.Categories {
 		if len(r.Artifacts) > 128 {
 			return fmt.Errorf("%w: artifact reference count exceeds profile bounds", ErrInvalid)
@@ -271,6 +287,9 @@ func VerifySources(d Document, manifests, artifacts map[string][]byte) error {
 		}
 	}
 	required := map[string]bool{origin.TerminalArtifact: true}
+	if d.ExecutionSource != nil {
+		required[d.AttemptArtifact] = true
+	}
 	for _, r := range d.Categories {
 		for _, name := range r.Artifacts {
 			required[name] = true
@@ -295,6 +314,31 @@ func VerifySources(d Document, manifests, artifacts map[string][]byte) error {
 	}
 	if _, err := runnerterminal.Validate(artifacts[origin.TerminalArtifact], origin.Binding.TerminalBinding()); err != nil {
 		return fmt.Errorf("origin terminal: %w", err)
+	}
+	if d.ExecutionSource != nil {
+		descriptor := declared[d.AttemptArtifact]
+		if descriptor.MediaType != "application/json" || descriptor.SizeBytes > executionattempt.MaxSidecarBytes {
+			return fmt.Errorf("%w: source attempt must be bounded application/json", artifactmanifest.ErrConflict)
+		}
+		data := artifacts[d.AttemptArtifact]
+		attempt, err := executionattempt.ParseAttempt(data)
+		if err != nil {
+			return fmt.Errorf("%w: source attempt: %w", artifactmanifest.ErrCorrupt, err)
+		}
+		canonical, err := executionattempt.EncodeAttempt(*attempt)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(canonical, data) {
+			return fmt.Errorf("%w: noncanonical source attempt", artifactmanifest.ErrCorrupt)
+		}
+		if attempt.ExecutionID != d.ExecutionSource.ExecutionID ||
+			attempt.Binding.Identity != origin.Binding.Identity ||
+			attempt.Binding.Selection != origin.Binding.Selection ||
+			attempt.Binding.ExecutionMode != origin.Binding.ExecutionMode ||
+			!slices.Equal(attempt.Binding.GraderIDs, origin.Binding.GraderIDs) {
+			return fmt.Errorf("%w: source attempt ID or original binding disagrees", artifactmanifest.ErrConflict)
+		}
 	}
 	return nil
 }

@@ -10,6 +10,8 @@
     "schema_version": {"const": "1.0"},
     "publication": {"const": "derived"},
     "origin_manifest": {"$ref": "#/$defs/digest"},
+    "execution_source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"},
+    "attempt_artifact": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"},
     "categories": {
       "type": "array", "minItems": 6, "maxItems": 6,
       "items": {"$ref": "#/$defs/record"},
@@ -33,6 +35,10 @@
         }
       }
     }
+  },
+  "dependentRequired": {
+    "execution_source": ["attempt_artifact"],
+    "attempt_artifact": ["execution_source"]
   },
   "$defs": {
     "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

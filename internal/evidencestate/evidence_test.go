@@ -13,10 +13,14 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
+	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 func intPointer(n int64) *int64 { return &n }
@@ -178,6 +182,64 @@ func TestEmbeddedSchemaEnforcesEveryCategoryAndLimit(t *testing.T) {
 		if err := validate(d); err == nil {
 			t.Fatalf("schema admitted a limit not exceeded: %s", tc.reason)
 		}
+	}
+}
+
+func TestSchemaMissingCategoryRedGreenControl(t *testing.T) {
+	var schemaDoc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(schemas.ExecutionEvidenceSchemaJSON), &schemaDoc); err != nil {
+		t.Fatal(err)
+	}
+	var properties, categories map[string]json.RawMessage
+	if err := json.Unmarshal(schemaDoc["properties"], &properties); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(properties["categories"], &categories); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := categories["allOf"]; !exists {
+		t.Fatal("setup must remove the actual completeness constraints")
+	}
+	delete(categories, "allOf")
+	properties["categories"] = wire(t, categories)
+	schemaDoc["properties"] = wire(t, properties)
+	compiler := jsonschema.NewCompiler()
+	compiler.UseLoader(schemaloader.Offline{})
+	for name, text := range map[string]string{
+		"execution-evidence-1.0.schema.json": string(wire(t, schemaDoc)),
+		"execution-attempt-1.0.schema.json":  schemas.ExecutionAttemptSchemaJSON,
+		"artifact-manifest-1.0.schema.json":  schemas.ArtifactManifestSchemaJSON,
+		"runner-terminal-1.0.schema.json":    schemas.RunnerTerminalSchemaJSON,
+	} {
+		resource, err := jsonschema.UnmarshalJSON(strings.NewReader(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := compiler.AddResource("https://microsoft.github.io/waza/schemas/"+name, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mutated, err := compiler.Compile("https://microsoft.github.io/waza/schemas/execution-evidence-1.0.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := sample()
+	for i := range d.Categories {
+		d.Categories[i].Category = Conversation
+	}
+	value, err := jsonutil.Parse(wire(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mutated.Validate(value); err != nil {
+		t.Fatalf("RED setup must reproduce schema-only missing-category admission: %v", err)
+	}
+	actual, err := evidenceSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := actual.Validate(value); err == nil {
+		t.Fatal("GREEN schema must reject the same six-conversation document")
 	}
 }
 
@@ -605,6 +667,144 @@ func TestManifestCapsCannotBeAdmittedByDegradation(t *testing.T) {
 			}
 			if err := VerifySources(d, manifests, artifacts); !errors.Is(err, artifactmanifest.ErrCorrupt) {
 				t.Fatalf("degradation admitted over-bound manifest: %v", err)
+			}
+		})
+	}
+}
+
+func attemptSourceFixture(t *testing.T) (Document, map[string][]byte, map[string][]byte, artifactmanifest.Manifest) {
+	t.Helper()
+	d, manifests, artifacts, origin := sourceFixture(t)
+	executionID, err := executionattempt.NewExecutionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := executionattempt.Attempt{
+		Kind: "waza.execution-attempt", SchemaVersion: executionattempt.Version,
+		Logical:     executionattempt.LogicalFrom(origin.Binding.Identity),
+		ExecutionID: executionID, Binding: origin.Binding,
+	}
+	data, err := executionattempt.EncodeAttempt(attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.AttemptArtifact = "attempt"
+	d.ExecutionSource = &executionattempt.Source{ExecutionID: executionID}
+	artifacts["attempt"] = data
+	origin.Artifacts = append(origin.Artifacts, artifactmanifest.Artifact{
+		Name: "attempt", SHA256: artifactmanifest.Hash(data), SizeBytes: int64(len(data)), MediaType: "application/json",
+	})
+	refreshAttemptSource(t, &d, manifests, artifacts, &origin)
+	return d, manifests, artifacts, origin
+}
+
+func refreshAttemptSource(t *testing.T, d *Document, manifests, artifacts map[string][]byte, origin *artifactmanifest.Manifest) {
+	t.Helper()
+	for i := range origin.Artifacts {
+		if origin.Artifacts[i].Name == "attempt" {
+			origin.Artifacts[i].SHA256 = artifactmanifest.Hash(artifacts["attempt"])
+			origin.Artifacts[i].SizeBytes = int64(len(artifacts["attempt"]))
+		}
+	}
+	data, err := artifactmanifest.Encode(*origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.OriginManifest = artifactmanifest.Hash(data)
+	d.ExecutionSource.ManifestDigest = d.OriginManifest
+	manifests[d.OriginManifest] = data
+}
+
+func TestActualAttemptSourcePresenceAndVerification(t *testing.T) {
+	d, manifests, artifacts, _ := attemptSourceFixture(t)
+	before := wire(t, d)
+	encoded, err := Encode(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := Parse(encoded)
+	if err != nil || !reflect.DeepEqual(parsed.ExecutionSource, d.ExecutionSource) || parsed.AttemptArtifact != "attempt" {
+		t.Fatalf("actual source contract was not preserved: %+v, %v", parsed, err)
+	}
+	if err := VerifySources(*parsed, manifests, artifacts); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, wire(t, d)) {
+		t.Fatal("Encode/verification mutated source reference")
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &root); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"execution_source", "attempt_artifact"} {
+		original := root[field]
+		for _, replacement := range []json.RawMessage{nil, []byte("null"), []byte("false"), []byte(`""`)} {
+			if replacement == nil {
+				delete(root, field)
+			} else {
+				root[field] = replacement
+			}
+			reject(t, wire(t, root))
+			root[field] = original
+		}
+	}
+	d.ExecutionSource.ManifestDigest = strings.Repeat("f", 64)
+	reject(t, wire(t, d))
+}
+
+func TestActualAttemptSourceRejectsUnverifiedAndRetaggedDescriptors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(*Document, map[string][]byte, map[string][]byte, *artifactmanifest.Manifest)
+		want error
+	}{
+		{"missing descriptor", func(_ *Document, _, a map[string][]byte, _ *artifactmanifest.Manifest) {
+			delete(a, "attempt")
+		}, artifactmanifest.ErrMissing},
+		{"undeclared descriptor", func(d *Document, _, _ map[string][]byte, _ *artifactmanifest.Manifest) {
+			d.AttemptArtifact = "absent"
+		}, artifactmanifest.ErrConflict},
+		{"wrong execution ID", func(d *Document, _, _ map[string][]byte, _ *artifactmanifest.Manifest) {
+			d.ExecutionSource.ExecutionID = "exec-" + strings.Repeat("f", 64)
+		}, artifactmanifest.ErrConflict},
+		{"noncanonical descriptor", func(d *Document, m, a map[string][]byte, origin *artifactmanifest.Manifest) {
+			a["attempt"] = append(a["attempt"], '\n')
+			refreshAttemptSource(t, d, m, a, origin)
+		}, artifactmanifest.ErrCorrupt},
+		{"invalid descriptor", func(d *Document, m, a map[string][]byte, origin *artifactmanifest.Manifest) {
+			a["attempt"] = []byte(`{}`)
+			refreshAttemptSource(t, d, m, a, origin)
+		}, artifactmanifest.ErrCorrupt},
+		{"oversize descriptor", func(d *Document, m, a map[string][]byte, origin *artifactmanifest.Manifest) {
+			a["attempt"] = bytes.Repeat([]byte(" "), executionattempt.MaxSidecarBytes+1)
+			refreshAttemptSource(t, d, m, a, origin)
+		}, artifactmanifest.ErrConflict},
+		{"wrong media type", func(d *Document, m, a map[string][]byte, origin *artifactmanifest.Manifest) {
+			for i := range origin.Artifacts {
+				if origin.Artifacts[i].Name == "attempt" {
+					origin.Artifacts[i].MediaType = "text/plain"
+				}
+			}
+			refreshAttemptSource(t, d, m, a, origin)
+		}, artifactmanifest.ErrConflict},
+		{"retagged binding", func(d *Document, m, a map[string][]byte, origin *artifactmanifest.Manifest) {
+			attempt, err := executionattempt.ParseAttempt(a["attempt"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			attempt.Binding.Selection.Attempt++
+			a["attempt"], err = executionattempt.EncodeAttempt(*attempt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			refreshAttemptSource(t, d, m, a, origin)
+		}, artifactmanifest.ErrConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, manifests, artifacts, origin := attemptSourceFixture(t)
+			tc.edit(&d, manifests, artifacts, &origin)
+			if err := VerifySources(d, manifests, artifacts); !errors.Is(err, tc.want) {
+				t.Fatalf("unverified attempt reference admitted: %v, want %v", err, tc.want)
 			}
 		})
 	}

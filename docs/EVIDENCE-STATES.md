@@ -69,6 +69,17 @@ matching canonical source bytes. Retry, resume, cache, and aggregation links
 identify source manifests; they neither infer unique execution from legacy
 `Identity.Attempt` nor replace #764's execution-attempt ownership.
 
+Optional `execution_source` reuses the actual `executionattempt.Source` contract
+from #764 (`fc60a6d77037c72e2d0a3b9fe9fc101f1820437c`). It must name the
+origin manifest and be paired with `attempt_artifact`, the name of an actual
+attempt descriptor already declared in that manifest. `VerifySources` verifies
+the descriptor's admitted bytes, canonical owner codec, execution ID, and
+unchanged original binding. Missing/invalid/retagged descriptor bytes are not
+verified references. Origins without such a descriptor omit both fields;
+no execution ID is inferred from a legacy ordinal. This is source-reference
+integration only, not a reservation, ownership ledger, duplicate decision,
+retry graph verification, or finalization guarantee.
+
 Successful source verification establishes **byte integrity only**. It does not
 verify counts/category semantics, lineage relationships, finalized publication,
 execution attestation, privacy authorization, or assurance acceptance. Parsing
@@ -101,7 +112,7 @@ controls, actual producer/API/export tests, and documentation updates.
 
 No automatic migration, new default assurance, legacy-result reinterpretation,
 store API, or public command is delivered by this pure slice. Full #768 remains
-open pending committed #763 publisher/provider and #764 attempt contracts,
+open pending committed #763 publisher/provider and final #764 ledger integration,
 producer/retry/resume/aggregation integration, production category-removal,
 redaction/corruption/conflict controls, and API/Lab/download/site/release/migration
 delivery. Pure codec tests are not filesystem, cloud, runtime, end-to-end, or
