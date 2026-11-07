@@ -81,6 +81,29 @@ no execution ID is inferred from a legacy ordinal. This is source-reference
 integration only, not a reservation, ownership ledger, duplicate decision,
 retry graph verification, or finalization guarantee.
 
+`InspectRetryParent` admits one immediate `retry` edge through an actual
+caller-composed `executionledger.Reader`. Namespace and Store reads must share
+the caller's cumulative invocation budget; the helper creates no counter,
+provider or writer. It checks the child and parent descriptor bytes against
+their canonical namespace reservations and finalized manifests, deriving a
+parent digest only from `ReadCompletion` for the exact declared parent ID.
+These additional reads are nonsnapshot declared-context qualification, not
+runtime attestation or a complete graph walk. A `branch` is not a retry/resume.
+
+No parent declaration remains unavailable, not an observed-empty history.
+An abandoned before-unit parent may have a reservation but no completion;
+missing, corrupt, mismatched or budget-denied parent evidence yields no link.
+The qualified edge belongs in an output-only declared-parent context view,
+not an edit to an attempt or immutable `Document.Lineage`. Ordinary `Publish`,
+original artifacts, native verdicts and caller-owned metadata remain unchanged.
+A finalized restore reuses the same execution source; it must not manufacture
+a child or resume edge.
+
+These library paths do not automatically enable transport, aggregate parent
+fields or Lab parent discovery. Those consumers must wire the actual
+budget-decorated Reader and preserve prior source/category failures; they must
+not substitute a raw provider or a second per-edge budget.
+
 Successful source verification establishes **byte integrity only**. It does not
 verify counts/category semantics, lineage relationships, finalized publication,
 execution attestation, privacy authorization, or assurance acceptance. Parsing
@@ -121,6 +144,28 @@ execution ownership, aggregation and degraded production controls are integrated
 Pure codec tests are not filesystem, cloud, runtime, end-to-end or native Windows
 execution evidence.
 
+## v0.41 source-preview release notes
+
+- Adds the separately digested `execution-evidence-1.0` sidecar and the
+  `execution-evidence-capture-1.0` first-publication profile. Neither changes
+  historical result versions or writes back into a finalized source.
+- Opt-in category CLI/API/Lab readers distinguish admitted observations from
+  declarations. A legacy absent capture index remains unqualified; declared
+  present-empty never manufactures a transcript, tool completion or usage zero.
+- Restricted first-publication conversation/tool/reliability categories are
+  withheld. All nonempty reliability diagnostic/error text becomes `[REDACTED]`,
+  with original codes, outcomes, counters and native verdicts preserved. Reuse
+  does not sanitize or retag existing artifacts.
+- Qualified JSON/CSV exports recheck sources and retain actual numeric precision
+  and missing/zero distinctions. A successful read is not assurance acceptance,
+  execution attestation, a complete billing total or a new cached execution.
+
+No automatic migration or new default assurance policy is introduced. Retain
+existing source artifacts and their digests; create new capture only through
+the original invocation's first-publication policy. Retry/resume/aggregate
+admission requires the actual corresponding owner/source contracts and current
+integration evidence, not a reconstructed legacy report.
+
 ## Opt-in persistence and read-only review
 
 The integration adds these commands, using an **existing private store** and
@@ -152,6 +197,9 @@ The configured read-only API exposes:
 | Endpoint | Result |
 |---|---|
 | `GET /api/v1/evidence/{digest}` | Current inspection receipt with admitted declaration metadata. |
+| `GET /api/v1/evidence/{digest}/categories` | Same-pass category shape admission beside declaration metadata; no captured text/tool/grader bodies. |
+| `GET /api/v1/evidence/{digest}/categories/document` | Qualified receipt JSON after a fresh successful source/category read; declarations and admitted results stay separate. |
+| `GET /api/v1/evidence/{digest}/categories/csv` | Qualified category rows with exact native counts/credits, absent fields empty, declared source/context and original source/evidence identifiers. |
 | `GET /api/v1/evidence/{digest}/document` | Canonical sidecar JSON, only after successful current source admission. |
 | `GET /api/v1/evidence/{digest}/csv` | Six category rows with exact decimal counts and empty cells for unavailable counts or unknown totals. |
 
@@ -193,6 +241,35 @@ the same cumulative backend budget. A usage-shape error does not relabel valid
 source bytes as corrupt or change the recorded declaration; the separate usage
 result stays unavailable and contains no admitted `UsageStats`.
 
+The opt-in `waza artifact evidence categories DIGEST` command exposes
+`InspectCategories` results beside the declaration receipt using one source
+pass. Missing capture indexes remain unqualified unavailable even when a
+declaration says present-empty. It never emits captured message/tool/grader
+payloads, and storage-close failures withdraw counts and usage. A successful
+read exit is not category completeness or assurance acceptance.
+Independent valid category observations remain visible when another category
+has a semantic conflict: the command exits nonzero and adds a safe category
+admission diagnostic. Such a conflict does not relabel hash-verified bytes as
+corrupt or erase separately verified observations.
+
+Lab exposes category admission as a separate opt-in action below the declaration
+receipt. It clears old observations and qualified links before rereading, on
+digest changes, and after malformed responses. Decimal tokens are retained for
+display; recorded empty counts and zero credits do not collapse into absence.
+Missing-credit/model attribution stays incomplete, never an authoritative total.
+Qualified exports perform their own current source/category admission. Errors
+return diagnostic JSON without attachment headers; a valid read may still contain
+unavailable/redacted/incomplete categories and is not assurance acceptance.
+The original declaration JSON/CSV download formats remain unchanged.
+
+Migration does not reconstruct old transcripts or infer empty tool arrays from
+legacy `omitempty` omissions. Origins without the capture index remain
+unqualified even if a sidecar declares present-empty. Existing immutable sources
+are never sanitized in place: reuse must pass the committed source-disclosure
+gate or be rejected. New capture and its owner attempt belong to one first
+publication; separately derived evidence and exports do not create a new
+execution or reattribute cached billing.
+
 Original JSON field presence and types are validated before native decoding.
 Missing or null required counts, negative values, duplicate fields, invalid
 numeric types, overflow and unknown fields are rejected. Absent or null credits,
@@ -218,6 +295,24 @@ manifest digest or sidecar digest, and no nonempty message/tool/grader payload.
 The separately digested derived document still references only the finalized
 origin; neither artifact creates a digest cycle.
 
+The public `/waza/schemas/execution-evidence-capture-1.0.schema.json` route
+serves the same source embedded by the native codec. Publishing this schema
+does not enable Submit or authorize source disclosure.
+
+The committed `ownedsubmission.CaptureHooks` consumes the actual detached typed
+`SubmissionSnapshot.ObservedReport` from that one invocation and validates
+prepared content against a fresh independently retained original snapshot.
+It explicitly withholds conversation/tool/reliability, publishes the capture
+index and canonical owner `execution-attempt.json` in that same source manifest,
+and never persists or returns the raw report by default. A callback's mutable
+report/terminal pair cannot authenticate original observations; raw report JSON
+never hydrates creator authority. Reuse admission checks original disclosure
+before deciding and never sanitizes or retags finalized source bytes.
+The separately derived sidecar may then reference that finalized source without
+another execution or source publication. Public Submit selection remains
+blocked; this embedding-only cooperating facade is not runtime attestation.
+Competing arbitrary artifact/publication callbacks are rejected.
+
 `CaptureReport(report, withheld)` consumes one fresh invocation-local
 `runnerunit.Report`. `Report.Terminal()` projects that same report and returns
 detached comparison binding values without another execution or creator
@@ -235,6 +330,12 @@ name is reserved by admission; other payload names remain aliases and never
 qualify a category by themselves.
 
 Nil withholding uses the conservative conversation/tool-withheld default.
+Explicit reliability withholding, or a secret-triggered reliability redaction,
+replaces **all nonempty** native diagnostic messages and observation error text
+with `[REDACTED]` before first publication, not only regex-matched substrings.
+Codes, context, outcome, verdicts, counters and empty error text are unchanged.
+Restricted public facades must explicitly withhold reliability; the nil policy
+does not itself authorize arbitrary SDK text disclosure.
 Explicit `[]` opts into captured content subject to the shipped snapshot
 secret policy. A matching restricted value withholds the **entire category**:
 no payload bytes, count or reference enter immutable storage. Fixed native
@@ -276,8 +377,9 @@ actual candidate byte totals, including the actual reservation object, against
 256 MiB. Unparsed oversize payload counts remain unknown. Recorded degradation
 does not verify discarded bytes or turn incomplete evidence into acceptance.
 
-These are internal producer/read contracts with actual owner-backed mock
-regressions, not completed public submission, retry/resume, aggregation, Lab or
-release integration. Existing CLI/API/Lab surfaces above still display
-declarations; they must consume semantic admission before claiming categories
-qualified. Full #768 remains open.
+The internal producer/owner contracts have actual mock success/failure/canceled
+and immutable-reuse regressions. Opt-in category CLI/API/Lab and qualified
+downloads consume semantic admission separately from declarations. Public
+submission remains owner-disabled; full retry/resume/aggregate and release
+acceptance requires the actual combined source and current native/browser/site
+gates. Earlier-head or helper-only checks do not complete #768.

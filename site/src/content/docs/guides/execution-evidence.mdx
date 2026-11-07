@@ -26,6 +26,24 @@ Source kinds (`authored`, `mock`, `cached`, `live`, `unknown`) and context
 configuration or Copilot mode does not attest that an execution occurred.
 Passing recorded verdicts remain separate from evidence completeness.
 
+### Review examples
+
+Use the separate **Admit recorded categories** result, not only the declaration
+table, to interpret these controls:
+
+| Recorded control | Expected review result |
+|---|---|
+| Native usage has explicitly recorded zero credits and complete model-credit attribution. | `present`; display `0`, not unavailable or an estimated price. This is recorded shape, not proof of new live billing. |
+| The invocation has no recorded usage object. | `unavailable`; no observed count or invented zero-valued usage. |
+| Token usage exists but final credits or model attribution is missing. | `incomplete`; recorded tokens may remain reviewable, but no authoritative billing total. |
+| Conversation/tool/reliability are withheld by the first-publication policy. | `redacted`; no category payload/reference/count. Restricted reliability text is withheld before persistence. |
+| A captured grader count conflicts with the original recorded shape. | `conflicting` with an admission error; reject that count while keeping independently verified facts separate. No implicit pass or winning source. |
+
+An observed empty array requires the actual capture profile's explicit `[]`
+proof. A legacy omitted array or a declaration saying count `0` is not that proof.
+Default privacy withholding remains redacted even when an invocation observed
+no messages/tools; it does not disclose an empty-count observation.
+
 ## Publish and inspect an optional sidecar
 
 Use an existing private immutable store whose origin and lineage manifests have
@@ -35,6 +53,7 @@ references, not substituted values from a sample:
 ```bash
 waza artifact evidence publish EVIDENCE.json --store /path/to/private/store
 waza artifact evidence inspect EVIDENCE_SHA256 --store /path/to/private/store
+waza artifact evidence categories EVIDENCE_SHA256 --store /path/to/private/store
 ```
 
 The existing `--azure-container-url` option selects the explicit Azure provider;
@@ -53,8 +72,25 @@ Source admission uses the actual committed completed-reader contract: requested
 bytes are captured in the same full verification pass, with finalized publication
 and current integrity both required. It does not reopen artifacts or reuse an
 old receipt, and is not an atomic cross-object snapshot or execution attestation.
-All-category producers and final attempt/ledger integration are unfinished; this
-page is not a claim that #768 is complete.
+The recorded-category producer and reader do not complete retry, resume,
+aggregation or public submission integration; this page is not a claim that
+#768 is complete.
+
+For retry review, a parent execution ID alone is not a finalized source-manifest
+link. The internal output-only retry context path requires the exact parent's
+canonical completion and current finalized source bytes under the caller's
+shared read budget. An abandoned before-unit parent can have no completion;
+that parent remains unavailable, not a successful or observed-empty history.
+Missing, corrupt or conflicting parent evidence cannot produce a qualified
+parent link or rewrite immutable lineage. Restoring a finalized execution reuses the same source, not a new
+child or synthetic resume edge. This is declared-context qualification, not
+runtime attestation or automatic whole-history discovery in the Lab.
+
+The opt-in `categories` command returns separate admitted states and verification
+qualifiers using one source capture pass. Missing producer indexes leave all
+six categories unavailable with their declarations retained separately; no
+empty proofs, usage zero or assurance success are invented. It exposes no raw
+message/tool/grader payloads. Exit 0 establishes a completed read, not acceptance.
 
 ## Recorded capture index
 
@@ -86,6 +122,9 @@ The read-only endpoints are:
 
 ```text
 GET /api/v1/evidence/{digest}
+GET /api/v1/evidence/{digest}/categories
+GET /api/v1/evidence/{digest}/categories/document
+GET /api/v1/evidence/{digest}/categories/csv
 GET /api/v1/evidence/{digest}/document
 GET /api/v1/evidence/{digest}/csv
 ```
@@ -99,6 +138,26 @@ Current byte integrity is not execution attestation, category completeness,
 privacy authorization or assurance acceptance. Withhold restricted data before
 its original persistence; a sidecar cannot sanitize existing source artifacts.
 
+The opt-in `/categories` endpoint shares native admission with the CLI
+`categories` command and captures sources once. Its category results distinguish
+declared states from admitted states and preserve actual native usage or absence.
+Semantic conflicts return an error status and safe diagnostic while retaining
+independently verified category facts. Source/storage failures withhold counts
+and usage; the endpoint is read-only and exposes no captured payload bodies.
+
+Lab's **Admit recorded categories** action is opt-in and separate from the
+declaration table. It shows admitted state, qualification, observed count and
+actual recorded usage without adding billing estimates or treating present as
+acceptance. A new digest or failed reread clears old observations and qualified
+download links.
+
+**Download qualified category JSON/CSV** rechecks current sources and category
+admission. JSON retains declarations beside admitted results; CSV preserves exact
+counts/credits and source identifiers, leaving unavailable values empty.
+Incomplete credit/model attribution remains incomplete, not an authoritative
+total. Failed exports return diagnostics rather than success-shaped attachments.
+The original declaration JSON/CSV contracts are unchanged.
+
 ## Usage and migration
 
 Recorded usage admission reads explicitly referenced native `UsageStats` JSON,
@@ -107,10 +166,29 @@ Recorded zero credits remain zero; absent/null credits or missing model
 attribution remain incomplete. A declared present-empty usage category does not
 manufacture a zero-valued usage object.
 
-The helper verifies recorded shape only. Other categories currently remain
-declarations. Aggregation additionally needs verified source/ownership admission
+The usage helper verifies recorded shape only. Legacy declarations without the
+capture index leave other categories unqualified; the opt-in category reader
+admits the actual recorded capture profile. Aggregation additionally needs
+verified source/ownership admission
 and existing complete-credit semantics; it must not turn authored, cached or
 incomplete records into new live billing.
+
+Do not migrate legacy omitted arrays into observed `[]` or retrofit capture
+evidence into a finalized origin. A legacy source without the capture profile
+remains unqualified. New first-publication capture uses the original typed
+invocation and original owner attempt; derived sidecars and cached reuse never
+create a new execution or rewrite a recorded verdict.
+
+### v0.41 source-preview release notes
+
+The additive evidence/capture profiles and opt-in qualified readers do not
+change historical result versions or default assurance. Missing capture data
+stays unqualified rather than becoming reconstructed empty evidence. Restricted
+first-publication reliability text is fully withheld while native verdicts and
+codes remain unchanged. Qualified exports preserve native precision and
+absent/zero distinctions, and recheck sources instead of exporting an old
+receipt. These are source-preview additions; publication and final acceptance
+require the actual combined release source and current native/browser/site gates.
 
 There is no automatic migration or stronger default assurance. Old results
 without sidecars remain readable with their original defaults. Missing evidence

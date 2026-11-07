@@ -1654,6 +1654,26 @@ Neither flag changes legacy mutable result storage. Verification is content and
 declared context only, not admission or execution attestation.
 See [manifest examples, recovery and migration](../../guides/immutable-artifacts/).
 
+### Evidence sidecars
+
+```bash
+waza artifact evidence publish EVIDENCE.json --store .waza-artifacts
+waza artifact evidence inspect EVIDENCE_SHA256 --store .waza-artifacts
+waza artifact evidence categories EVIDENCE_SHA256 --store .waza-artifacts
+```
+
+`publish` requires an already finalized origin and stores the separately digested
+derived document without modifying that origin. `inspect` retains declaration
+metadata. `categories` adds six admitted state/verification results from one
+source pass; it never downloads captured message/tool/grader bodies. Missing
+producer indexes remain unqualified unavailable, not observed empty. Recorded
+credits stay absent or explicitly zero according to native evidence.
+
+Exit 0 means reading completed, not assurance acceptance. Shape conflicts and
+source/storage/output failures return nonzero; recorded incomplete/redacted
+states remain visible without inventing a passing verdict. Existing historical
+readers and defaults are unchanged. See [capture, privacy and migration](../../guides/execution-evidence/).
+
 ## waza lifecycle
 
 **Unreleased v0.41 source preview.** Read-only inspection of explicit

@@ -1,4 +1,4 @@
-export function parseStrictJSON(text: string, preserveIntegerTokens = false): unknown {
+export function parseStrictJSON(text: string, preserveIntegerTokens: boolean | "all" = false): unknown {
   let offset = 0;
   const integers: { start: number; end: number; token: string }[] = [];
   const invalid = () => { throw new Error("Ambiguous or malformed JSON."); };
@@ -73,7 +73,7 @@ export function parseStrictJSON(text: string, preserveIntegerTokens = false): un
     const parts = /^-?(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(token);
     const value = Number(token);
     if (!parts || parts[1] === undefined || !Number.isFinite(value)) return invalid();
-    if (preserveIntegerTokens && /^-?(0|[1-9]\d*)$/.test(token)) {
+    if (preserveIntegerTokens === "all" || (preserveIntegerTokens && /^-?(0|[1-9]\d*)$/.test(token))) {
       integers.push({ start, end: offset, token });
     }
     if (!Number.isInteger(value)) return;
