@@ -295,6 +295,32 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 		{"unicode-script-case", []string{index, favicon, js, css}, nil, "", false},
 		{"ascii-script-case", []string{index, favicon, js, css}, nil, "", true},
 		{"unicode-script-language-case", []string{index, favicon, js, css}, nil, "", false},
+		{"legacy-classic-inert", []string{index, favicon, js, css}, nil, "", false},
+		{"legacy-classic-wrong-event", []string{index, favicon, js, css}, nil, "", false},
+		{"legacy-classic-wrong-for", []string{index, favicon, js, css}, nil, "", false},
+		{"legacy-classic-empty-for", []string{index, favicon, js, css}, nil, "", false},
+		{"legacy-classic-empty-event", []string{index, favicon, js, css}, nil, "", false},
+		{"legacy-classic-empty-both", []string{index, favicon, js, css}, nil, "", false},
+		{"legacy-classic-window", []string{index, favicon, js, css}, nil, "", true},
+		{"legacy-classic-onload", []string{index, favicon, js, css}, nil, "", true},
+		{"legacy-module-attributes", []string{index, favicon, js, css}, nil, "", true},
+		{"legacy-for-only", []string{index, favicon, js, css}, nil, "", true},
+		{"legacy-event-only", []string{index, favicon, js, css}, nil, "", true},
+		{"legacy-inert-missing-reference", []string{index, favicon, js, css}, nil, "", false},
+		{"media-not-all", []string{index, favicon, js, css}, nil, "", false},
+		{"media-all", []string{index, favicon, js, css}, nil, "", true},
+		{"media-empty", []string{index, favicon, js, css}, nil, "", true},
+		{"media-ascii-empty", []string{index, favicon, js, css}, nil, "", true},
+		{"media-ascii-all", []string{index, favicon, js, css}, nil, "", true},
+		{"media-unicode-empty", []string{index, favicon, js, css}, nil, "", false},
+		{"media-unicode-all", []string{index, favicon, js, css}, nil, "", false},
+		{"media-conditional-only", []string{index, favicon, js, css}, nil, "", false},
+		{"media-screen-only", []string{index, favicon, js, css}, nil, "", false},
+		{"media-unknown-only", []string{index, favicon, js, css}, nil, "", false},
+		{"media-list-only", []string{index, favicon, js, css}, nil, "", false},
+		{"media-fallback", []string{index, favicon, js, css}, nil, "", true},
+		{"media-conditional-missing-reference", []string{index, favicon, js, css}, nil, "", false},
+		{"media-inert-missing-reference", []string{index, favicon, js, css}, nil, "", false},
 	} {
 		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -465,6 +491,49 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 				case "unicode-script-language-case":
 					html.Reset()
 					html.WriteString("<script language='javascr&#x130;pt' src='/assets/index-a.js'></script><link rel=stylesheet href='/assets/index-b.css'>")
+				case "legacy-classic-inert", "legacy-classic-wrong-event", "legacy-classic-wrong-for",
+					"legacy-classic-empty-for", "legacy-classic-empty-event", "legacy-classic-empty-both",
+					"legacy-classic-window", "legacy-classic-onload", "legacy-module-attributes", "legacy-for-only", "legacy-event-only":
+					attributes := map[string]string{
+						"legacy-classic-inert":       "for='not-window' event='onclick'",
+						"legacy-classic-wrong-event": "for=window event=onclick",
+						"legacy-classic-wrong-for":   "for=not-window event=onload",
+						"legacy-classic-empty-for":   "for='' event=onload",
+						"legacy-classic-empty-event": "for=window event=''",
+						"legacy-classic-empty-both":  "for event",
+						"legacy-classic-window":      "for=' &#9;WINDOW&#13;' event='&#12;ONLOAD() '",
+						"legacy-classic-onload":      "for=window event=onload",
+						"legacy-module-attributes":   "type=module for='not-window' event='onclick'",
+						"legacy-for-only":            "for='not-window'",
+						"legacy-event-only":          "event='onclick'",
+					}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<script %s src='assets/index-a.js'></script><link rel=stylesheet href='assets/index-b.css'>", attributes)
+				case "legacy-inert-missing-reference":
+					html.WriteString("<script for=not-window event=onclick src='assets/missing.js'></script>")
+				case "media-not-all", "media-all", "media-empty", "media-ascii-empty", "media-ascii-all",
+					"media-unicode-empty", "media-unicode-all", "media-conditional-only",
+					"media-screen-only", "media-unknown-only", "media-list-only":
+					media := map[string]string{
+						"media-not-all":          "not all",
+						"media-all":              "all",
+						"media-empty":            "",
+						"media-ascii-empty":      " &#9;&#10;&#12;&#13;",
+						"media-ascii-all":        " &#9;&#10;&#12;&#13;ALL &#9;&#10;&#12;&#13;",
+						"media-unicode-empty":    "&#x2003;",
+						"media-unicode-all":      "&nbsp;all",
+						"media-conditional-only": "(min-width: 1px)",
+						"media-screen-only":      "screen",
+						"media-unknown-only":     "not-a-medium",
+						"media-list-only":        "not all, all",
+					}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<script src='assets/index-a.js'></script><link rel=stylesheet media='%s' href='assets/index-b.css'>", media)
+				case "media-fallback":
+					html.WriteString("<link rel=stylesheet media='(min-width: 1px)' href='assets/index-b.css'><link rel=stylesheet media='not all' href='assets/index-b.css'>")
+				case "media-conditional-missing-reference", "media-inert-missing-reference":
+					media := map[string]string{"media-conditional-missing-reference": "(min-width: 1px)", "media-inert-missing-reference": "not all"}[fixture.name]
+					fmt.Fprintf(&html, "<link rel=stylesheet media='%s' href='assets/missing.css'>", media)
 				}
 				switch fixture.name {
 				case "empty-referenced-js":

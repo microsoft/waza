@@ -94,6 +94,17 @@ HTML role tokens and MIME hints use only space, tab, LF, CR and form feed as
 whitespace; entity-decoded Unicode spaces cannot promote inert content to a role.
 Role and MIME case folding also changes only ASCII A-Z; Unicode lookalikes do
 not become supported executable types.
+Classic scripts with both legacy `for` and `event` attributes count only when
+their ASCII-trimmed, ASCII-folded values are `window` and `onload` or `onload()`.
+Present empty values do not qualify. Module scripts and scripts with only one
+of these attributes are unaffected; all asset references are still checked.
+Release admission additionally requires at least one unconditional stylesheet:
+its `media` must be omitted, ASCII-empty, or an ASCII-trimmed, ASCII-folded `all`.
+Conditional stylesheets may coexist with that fallback, and their files are
+still checked. Conditional-only stylesheets, including `screen` and query lists,
+do not establish styling under this intentionally tighter static release profile.
+They are not invalid HTML; the checker does not evaluate media queries or claim
+viewport-specific applicability.
 Duplicate attributes and unfinished tokens
 are rejected before DOM normalization; this is a strict built-index profile, not
 a claim to execute arbitrary HTML. The first active base href must resolve to

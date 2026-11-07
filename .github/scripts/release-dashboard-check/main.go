@@ -230,14 +230,23 @@ func checkDocument(root *os.Root, index []byte) error {
 		scriptType = asciiLower(strings.Trim(scriptType, htmlWhitespace))
 		executable := slices.Contains([]string{"", "module", "text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript"},
 			scriptType)
+		forValue, hasFor := attrs["for"]
+		event, hasEvent := attrs["event"]
+		if executable && scriptType != "module" && hasFor && hasEvent {
+			forValue = asciiLower(strings.Trim(forValue, htmlWhitespace))
+			event = asciiLower(strings.Trim(event, htmlWhitespace))
+			executable = forValue == "window" && (event == "onload" || event == "onload()")
+		}
 		_, nomodule := attrs["nomodule"]
 		_, disabled := attrs["disabled"]
 		if node.Data == "script" && strings.HasSuffix(resolved.Path, ".js") && executable && (!nomodule || scriptType == "module") {
 			hasEntry = true
 		}
 		styleType := asciiLower(strings.Trim(attrs["type"], htmlWhitespace))
+		media := asciiLower(strings.Trim(attrs["media"], htmlWhitespace))
 		if node.Data == "link" && slices.Contains(rels, "stylesheet") && !slices.Contains(rels, "alternate") &&
-			strings.HasSuffix(resolved.Path, ".css") && !disabled && (styleType == "" || styleType == "text/css") {
+			strings.HasSuffix(resolved.Path, ".css") && !disabled && (styleType == "" || styleType == "text/css") &&
+			(media == "" || media == "all") {
 			hasStyle = true
 		}
 		return nil
@@ -246,7 +255,7 @@ func checkDocument(root *os.Root, index []byte) error {
 		return err
 	}
 	if !hasEntry || !hasStyle {
-		return errors.New("release dashboard must load an executable entry script and enabled stylesheet, not only preload or inert content")
+		return errors.New("release dashboard must load an executable entry script and enabled unconditional stylesheet, not only preload or inert content")
 	}
 	return nil
 }
