@@ -56,6 +56,17 @@ Canonical encoding preserves original ordinals, sorts grader IDs without mutatin
 caller slices, and uses compact Go JSON field order/escaping with no trailing LF.
 The bounded graph accepts at most 1,024 records; each sidecar is at most 1 MiB.
 
+The separate `execution-completion-1.0.schema.json` profile names the original
+execution ID, canonical reservation-byte digest, and manifest digest.
+`internal/executionledger.ValidateContext` admits these references only when
+whole canonical bytes match both digests and the manifest retains the exact
+original native identity, selection/ordinal, execution mode, and grader set.
+This is pure context/hash admission, not source-artifact or final-marker
+verification. The shared provider must independently verify the finalized
+manifest and artifact bytes before a retained creator capability can publish a
+completion or any caller can record verified reuse. No persistence provider,
+capability, reservation, or recovery behavior is supplied by this codec.
+
 ## Integration commands
 
 From the repository root, after the normal embedded dashboard assets exist:
