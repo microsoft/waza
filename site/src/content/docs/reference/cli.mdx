@@ -1606,6 +1606,30 @@ Render a session timeline from an NDJSON event log.
 waza session view <session-file>
 ```
 
+## waza artifact
+
+**Unreleased v0.41 source preview.** Publish and verify immutable artifacts without
+executing a runner. Create the private local root first:
+
+```bash
+mkdir -m700 .waza-artifacts
+waza artifact create manifest.json --store .waza-artifacts
+waza artifact upload manifest.json terminal terminal.json --store .waza-artifacts
+waza artifact finalize "$DIGEST" --store .waza-artifacts
+waza artifact inspect "$DIGEST" --store .waza-artifacts
+```
+
+`create` returns the canonical manifest digest used as `DIGEST`; `upload` names
+an exact declared artifact. Exit 0 means the selected operation completed;
+invalid input, partial/corrupt/conflicting content, storage and output failures
+exit 2. `inspect` can return a JSON diagnostic receipt and still exit nonzero.
+Use `--azure-container-url https://account.blob.core.windows.net/container`
+instead of `--store` for Azure; existing credentials are required and no login
+is launched. `--store` defaults to `.waza-artifacts` and must already exist.
+Neither flag changes legacy mutable result storage. Verification is content and
+declared context only, not admission or execution attestation.
+See [manifest examples, recovery and migration](../../guides/immutable-artifacts/).
+
 ## waza runner
 
 `runner adapt --eval <file> --task <file> --run-key <key> --shard <key>

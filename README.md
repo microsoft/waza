@@ -284,6 +284,26 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ## Commands
 
+### `waza artifact` (unreleased v0.41 source preview)
+
+Publish immutable artifact manifests without executing agents. The opt-in store
+is separate from legacy mutable result files; content verification is not
+execution attestation.
+
+```bash
+mkdir -m700 .waza-artifacts
+waza artifact create manifest.json --store .waza-artifacts
+waza artifact upload manifest.json terminal terminal.json --store .waza-artifacts
+waza artifact finalize "$DIGEST" --store .waza-artifacts
+waza artifact inspect "$DIGEST" --store .waza-artifacts
+```
+
+`DIGEST` is the canonical manifest digest returned by `create`; `terminal` must
+be its declared logical artifact name. Azure uses `--azure-container-url` instead
+of `--store`, with existing credentials and no automatic login. Lab can discover
+stored declaration pointers and inspect current integrity. See
+[declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
+
 <span id="waza-interop-source-build-preview"></span>
 
 ### `waza interop` (v0.40.0)
