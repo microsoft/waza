@@ -1,0 +1,95 @@
+---
+title: Aggregate completed manifests
+description: Derive deterministic reports from an explicit expected immutable manifest set without workers or agents.
+---
+
+**Unreleased v0.41 source preview.** This command is not included in published
+v0.40 artifacts. Build the source containing it; check `waza aggregate --help`.
+It produces a separate derived document, not a rewritten historical
+`results.json` or evidence-assurance verdict.
+
+## Worked example
+
+First follow [immutable publication](../immutable-artifacts/) to retain the
+original terminal, build its declaration, upload every declared artifact, and
+finalize it. Save the canonical digest returned by `artifact create`, not the
+raw hash of a pretty-printed manifest. You no longer need the original worker.
+
+For two compatible completed trials, set `FIRST` and `SECOND` to their full
+manifest digests. Keep your expected digest list even when a worker fails:
+
+```bash
+waza aggregate "$SECOND" "$FIRST" "$FIRST" --store .waza-artifacts > aggregate.json
+```
+
+Duplicates count once and members sort by digest. Changing input order does not
+change the report for the same stored set. A completed failing trial retains
+`evaluation_failure` and its failing verdicts. `completion: "complete"` describes
+membership, **not** a passing evaluation or complete evidence.
+
+The command never starts agents, original workers, grader subprocesses or an
+update check. It reads only the selected immutable store, not `.waza.yaml`.
+The initial CLI/API supports an existing local store; no configured Azure
+fallback is performed.
+
+## Inspect in the Lab
+
+Publish under your dashboard results directory's `.waza-artifacts`, then:
+
+```bash
+waza serve --lab --results-dir ./results --no-browser
+```
+
+Open the Runner contract section and **Aggregate completed manifests**.
+Enter your expected digests separated by whitespace. Inspect state counts,
+member outcomes/verdicts, conflicts and compatibility diagnostics. Source
+manifest links reread existing public inspection receipts.
+**Download aggregate JSON** preserves the same membership report. The synthetic
+demo does not run aggregation, and a failed reload clears previous success.
+
+The equivalent read-only API is:
+
+```bash
+curl --fail-with-body -H 'Content-Type: application/json' \
+  --data "{\"manifests\":[\"$FIRST\",\"$SECOND\"]}" \
+  http://localhost:3000/api/v1/aggregates
+```
+
+Do not submit paths or provider URLs. The API uses the server's selected store.
+
+## Troubleshoot incomplete aggregates
+
+| Input state | Action |
+|---|---|
+| `missing` | Keep the expected digest; upload missing original objects. Do not replace the source with an empty passing result. |
+| `unfinalized` | Inspect original uploads and finalize only after every byte and terminal binding verifies. |
+| `corrupt` | Preserve the damaged source and diagnose it; a matching old receipt or final marker does not excuse changed bytes. |
+| `conflicting` | Distinct completed sources name the same logical work. Select the verified desired source upstream; aggregation never chooses the highest attempt. |
+| `incompatible` / incompatible set | Separate different logical runs, modes or unsupported profiles. Task/trial digests and task-specific graders may legitimately differ. |
+| `cancelled`, `timeout`, `infrastructure_failure` | Preserve the original terminal failure. Finalization is not successful execution. |
+| `limit_exceeded`, `unavailable` | Reduce/partition the expected compatible set or repair storage; never silently drop members. |
+
+CLI exits 0 for complete compatible membership without evaluation failure,
+1 for complete membership containing recorded evaluation failure, and 2 for
+incomplete/conflicting/incompatible inputs or I/O errors. None is an assurance
+decision. HTTP 409 keeps incomplete member diagnostics inspectable; 400 rejects
+invalid original-wire requests and 503 reports an unavailable store/report.
+
+Absent usage/category evidence is unavailable, not zero, a cost estimate or a
+pass. The initial report withholds billing and scores: terminal 1.0 does not
+carry them, and a declaration-only evidence sidecar cannot validate them.
+
+## Compatibility and adoption
+
+The new [aggregate schema](../../schemas/manifest-aggregate-1.0.schema.json) is
+independent of result, manifest, terminal and evidence sidecar versions.
+Historical result readers/writers are unchanged; there is no automatic
+`results.json` migration. Do not infer missing source evidence from summary
+scores. Submit 1..128 digests before deduplication; API JSON is bounded to
+16 KiB, cumulative admitted reads to 256 MiB, and report output to 16 MiB.
+
+Developer ordering, conflict, trust, read-budget and migration rules are
+canonical in [the source contract](https://github.com/microsoft/waza/blob/main/docs/MANIFEST-AGGREGATION.md).
+Full release acceptance still requires the actual committed category producer/
+admission and shared provider integration plus final Go, browser and review
+gates. This source preview does not claim those pending steps are complete.

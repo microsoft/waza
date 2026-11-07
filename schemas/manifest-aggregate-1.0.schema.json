@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/manifest-aggregate-1.0.schema.json",
+  "title": "Derived completed-manifest aggregate 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "publication", "verification", "completion", "compatibility", "members", "state_counts", "conflicts", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.manifest-aggregate"},
+    "schema_version": {"const": "1.0"},
+    "publication": {"const": "derived"},
+    "verification": {"const": "content-and-declared-context-only"},
+    "completion": {"enum": ["complete", "incomplete"]},
+    "compatibility": {"enum": ["compatible", "incompatible", "unknown"]},
+    "members": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["manifest_sha256", "state", "diagnostics"],
+        "properties": {
+          "manifest_sha256": {"$ref": "#/$defs/digest"},
+          "state": {"$ref": "#/$defs/state"},
+          "logical": {"$ref": "#/$defs/logical"},
+          "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input"]},
+          "verdicts": {
+            "type": "array", "maxItems": 128,
+            "items": {
+              "type": "object", "additionalProperties": false, "required": ["identifier", "passed"],
+              "properties": {"identifier": {"type": "string", "minLength": 1, "maxLength": 256}, "passed": {"type": "boolean"}}
+            }
+          },
+          "diagnostics": {"$ref": "#/$defs/diagnostics"}
+        },
+        "dependentRequired": {"outcome": ["logical"], "verdicts": ["outcome", "logical"]}
+      }
+    },
+    "state_counts": {
+      "type": "object", "propertyNames": {"$ref": "#/$defs/state"},
+      "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 128}
+    },
+    "conflicts": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["logical", "manifests"],
+        "properties": {
+          "logical": {"$ref": "#/$defs/logical"},
+          "manifests": {"type": "array", "minItems": 2, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}}
+        }
+      }
+    },
+    "diagnostics": {"$ref": "#/$defs/diagnostics"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"completion": {"const": "complete"}}},
+      "then": {
+        "properties": {
+          "compatibility": {"const": "compatible"},
+          "conflicts": {"maxItems": 0}, "diagnostics": {"maxItems": 0},
+          "members": {"minItems": 1, "items": {"required": ["outcome", "logical"], "properties": {"state": {"enum": ["success", "evaluation_failure"]}}}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "state": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable"]},
+    "logical": {
+      "type": "object", "additionalProperties": false, "required": ["run", "work"],
+      "properties": {"run": {"type": "string", "pattern": "^run-[0-9a-f]{64}$"}, "work": {"type": "string", "pattern": "^trial-[0-9a-f]{64}$"}}
+    },
+    "diagnostics": {
+      "type": "array", "maxItems": 256,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": {"code": {"type": "string", "minLength": 1, "maxLength": 64}, "message": {"type": "string", "minLength": 1, "maxLength": 4096}}
+      }
+    },
+    "request": {
+      "type": "object", "additionalProperties": false, "required": ["manifests"],
+      "properties": {"manifests": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/digest"}}}
+    }
+  }
+}

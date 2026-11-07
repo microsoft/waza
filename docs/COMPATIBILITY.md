@@ -58,6 +58,17 @@ The bounded graph accepts at most 1,024 records; each sidecar is at most 1 MiB.
 
 ## Integration commands
 
+### Separate completed-manifest aggregate profile
+
+The unreleased `waza.manifest-aggregate` 1.0 profile is independent of legacy
+result, immutable manifest, terminal and evidence versions. It does not rewrite
+historical results or change reader defaults, scores or execution billing.
+Only public finalized/current-verified compatible manifests are admitted;
+missing, unsupported and competing sources remain explicit. Original terminal
+verdict presence is retained, including recorded empty arrays. No legacy
+summary is used to reconstruct absent source evidence. See
+[ordering, conflicts and migration](MANIFEST-AGGREGATION.md).
+
 From the repository root, after the normal embedded dashboard assets exist:
 
 ```bash

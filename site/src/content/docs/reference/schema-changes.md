@@ -51,6 +51,18 @@ See [Separate grader-assurance reports](../schema/#separate-grader-assurance-rep
 
 ## Policy
 
+### Unreleased v0.41 aggregate profile
+
+`waza.manifest-aggregate` uses independent `schema_version: "1.0"`, not native
+result/eval version negotiation. It derives metadata from public completed
+manifest sets with deterministic digest ordering, duplicate collapse,
+no-winner conflict handling and explicit missing/failure/compatibility states.
+No legacy result/schema defaults, numerical scores or historical usage are
+rewritten. There is no automatic `results.json` conversion; retain the original
+compatible terminal and publish its actual manifest binding. Unsupported
+profiles are withheld rather than implicitly upgraded. See
+[worked examples, trust boundaries and pending release gates](../../guides/manifest-aggregation/).
+
 Schema versions use `MAJOR.MINOR` format with no patch component.
 
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.

@@ -304,6 +304,22 @@ of `--store`, with existing credentials and no automatic login. Lab can discover
 stored declaration pointers and inspect current integrity. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
 
+### `waza aggregate` (unreleased v0.41 source preview)
+
+Derive a deterministic report from an explicit expected set of completed
+immutable manifests, without agents, original workers or ambient configuration:
+
+```bash
+waza aggregate "$FIRST" "$SECOND" "$FIRST" --store .waza-artifacts > aggregate.json
+```
+
+Duplicates count once. Missing, conflicting, cancelled, failed and incompatible
+sources remain explicit; no latest-attempt winner, score or billing is invented.
+Membership completeness is not an evidence-assurance pass. The Lab's Runner
+contract section shows composition, state counts, conflicts, omissions,
+compatibility and source links. See [operational examples](site/src/content/docs/guides/manifest-aggregation.mdx)
+and [developer/migration rules and pending release gates](docs/MANIFEST-AGGREGATION.md).
+
 <span id="waza-interop-source-build-preview"></span>
 
 ### `waza interop` (v0.40.0)
