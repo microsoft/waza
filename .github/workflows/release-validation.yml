@@ -22,7 +22,9 @@ jobs:
           lfs: true
 
       - name: Require exact source
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -114,7 +116,9 @@ jobs:
           lfs: true
 
       - name: Require exact source
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -161,7 +165,9 @@ jobs:
           lfs: true
 
       - name: Require exact source
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -212,7 +218,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Require exact source
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
 
       - name: Download tested release binary and remaining coverage
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -234,7 +242,9 @@ jobs:
 
       - name: Verify and restore tested binary
         run: |
-          test "$(cat waza.sha256)" = "$(sha256sum waza)"
+          recorded_digest="$(cat waza.sha256)"
+          actual_digest="$(sha256sum waza)"
+          test "$recorded_digest" = "$actual_digest"
           chmod +x waza
           ./waza --version
 

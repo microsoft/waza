@@ -12,6 +12,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const releaseSourceCheck = "source_sha=\"$(git rev-parse HEAD)\"\ntest \"$source_sha\" = \"$GITHUB_SHA\"\n"
+const releaseDigestCheck = "recorded_digest=\"$(cat waza.sha256)\"\nactual_digest=\"$(sha256sum waza)\"\ntest \"$recorded_digest\" = \"$actual_digest\"\n"
+const releaseRecordedSourceCheck = "source_sha=\"$(cat source-sha.txt)\"\ntest \"$source_sha\" = \"$GITHUB_SHA\"\n"
+
 type releaseStep struct {
 	ID              string `yaml:"id"`
 	Name            string
@@ -64,6 +68,9 @@ func TestReleaseWorkflowGates(t *testing.T) {
 		}
 	}
 	buildSteps := releaseSteps(workflow.Jobs["build-test"])
+	for _, job := range []string{"build-test", "windows-test", "lint", "complete"} {
+		testReleaseSourceLookup(t, releaseSteps(workflow.Jobs[job])["Require exact source"].Run)
+	}
 	testReleasePackageSelection(t, buildSteps["Execute Tests"].Run)
 	testReleaseBinaryHandoff(t, buildSteps["Record tested binary digest"].Run, steps["Verify and restore tested binary"].Run)
 	testReleaseCoverageEvidence(t, steps["Verify exhaustive native test selection and coverage"].Run)
@@ -116,10 +123,13 @@ func TestReleaseWorkflowGates(t *testing.T) {
 		{"tolerated-lint-job", "  lint:\n", "  lint:\n    continue-on-error: true\n"},
 		{"skipped-build-source", "      - name: Require exact source\n", "      - name: Require exact source\n        if: 'false'\n"},
 		{"different-download", "          name: release-tested-${{ github.sha }}\n          path: .", "          name: other-binary\n          path: ."},
-		{"missing-binary-digest", `test "$(cat waza.sha256)" = "$(sha256sum waza)"`, ":"},
+		{"missing-binary-digest", `test "$recorded_digest" = "$actual_digest"`, ":"},
+		{"unchecked-binary-hash", `actual_digest="$(sha256sum waza)"`, `actual_digest="$(sha256sum waza)" || true`},
+		{"unchecked-sidecar-read", `recorded_digest="$(cat waza.sha256)"`, `recorded_digest="$(cat waza.sha256)" || true`},
 		{"missing-executable-mode", "chmod +x waza", ":"},
 		{"missing-coverage-artifact", "            coverage.txt\n", ""},
-		{"stale-source", `run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, "run: ':'"},
+		{"stale-source", `test "$source_sha" = "$GITHUB_SHA"`, ":"},
+		{"unchecked-source-lookup", `source_sha="$(git rev-parse HEAD)"`, `source_sha="$(git rev-parse HEAD)" || true`},
 		{"incomplete-evidence", "            source-sha.txt\n", ""},
 	} {
 		t.Run(mutation.name, func(t *testing.T) {
@@ -179,7 +189,8 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				{"disabled-candidate-tags", "          fetch-tags: true", "          fetch-tags: false"},
 				{"missing-candidate-tags", "          fetch-tags: true\n", ""},
 				{"wrong-candidate-ref", "          ref: ${{ github.sha }}", "          ref: main"},
-				{"unverified-candidate-source", `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, ":"},
+				{"unverified-candidate-source", `test "$source_sha" = "$GITHUB_SHA"`, ":"},
+				{"unchecked-candidate-source", `source_sha="$(git rev-parse HEAD)"`, `source_sha="$(git rev-parse HEAD)" || true`},
 				{"missing-detector-id", "        id: tag\n", ""},
 				{"wrong-detector-id", "        id: tag", "        id: other"},
 				{"unbound-publish-output", "publish: ${{ steps.tag.outputs.publish }}", "publish: ${{ steps.other.outputs.publish }}"},
@@ -194,8 +205,11 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				{"cancellation-bypass", "&& !cancelled()", "&& always()"}, //nolint:misspell // GitHub expression.
 				{"unbound-validation-result", "${{ needs.validation.result }}", "success"},
 				{"ignored-validation-result", `run: test "$VALIDATION_RESULT" = success`, "run: ':'"},
-				{"stale-source", `test "$(cat source-sha.txt)" = "$GITHUB_SHA"`, ":"},
-				{"missing-digest", `test "$(cat waza.sha256)" = "$(sha256sum waza)"`, ":"},
+				{"stale-source", `test "$source_sha" = "$GITHUB_SHA"`, ":"},
+				{"missing-digest", `test "$recorded_digest" = "$actual_digest"`, ":"},
+				{"unchecked-binary-hash", `actual_digest="$(sha256sum waza)"`, `actual_digest="$(sha256sum waza)" || true`},
+				{"unchecked-sidecar-read", `recorded_digest="$(cat waza.sha256)"`, `recorded_digest="$(cat waza.sha256)" || true`},
+				{"unchecked-recorded-source", `source_sha="$(cat source-sha.txt)"`, `source_sha="$(cat source-sha.txt)" || true`},
 				{"unchecked-tag-lookup", `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`, `mapfile -t candidates < <(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')`},
 				{"different-evidence", "name: release-validation-${{ github.sha }}", "name: release-validation-other"},
 				{"rebuild-before-publication", "run: |\n          if gh release view", "run: |\n          go build -o waza ./cmd/waza\n          if gh release view"},
@@ -342,6 +356,7 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 		tags        []string
 		lookupError bool
 		wrongSource bool
+		sourceError bool
 		wantSuccess bool
 		wantOutput  string
 	}{
@@ -351,6 +366,7 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 		{name: "multiple-base-tags", tags: []string{"v1.2.3", "v1.2.4"}, wantSuccess: false},
 		{name: "failed-tag-lookup", lookupError: true, wantSuccess: false},
 		{name: "wrong-checkout-source", tags: []string{"v1.2.3"}, wrongSource: true, wantSuccess: false},
+		{name: "matching-source-lookup-error", tags: []string{"v1.2.3"}, sourceError: true, wantSuccess: false},
 	} {
 		t.Run("candidate-"+tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -366,7 +382,11 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 				sha = strings.Repeat("0", len(sha))
 			}
 			outputPath := filepath.Join(dir, "github-output")
-			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
+			script := run
+			if tc.sourceError {
+				script = failingReleaseCommand("git", "rev-parse") + script
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "GITHUB_SHA="+sha, "GITHUB_OUTPUT="+outputPath)
 			if tc.lookupError {
@@ -391,7 +411,10 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 						t.Fatal("failed lookup control did not execute")
 					}
 				}
-				if tc.lookupError || tc.wrongSource {
+				if tc.sourceError {
+					assertReleaseFailureObserved(t, dir)
+				}
+				if tc.lookupError || tc.wrongSource || tc.sourceError {
 					if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
 						t.Fatalf("failed candidate admission emitted outputs: %v", err)
 					}
@@ -424,6 +447,53 @@ func runReleaseCommand(t *testing.T, dir, name string, args ...string) []byte {
 	return output
 }
 
+func failingReleaseCommand(tool, argument string) string {
+	return fmt.Sprintf("%s() {\n  command %s \"$@\" || return $?\n  if [ \"$1\" = %q ]; then\n    printf invoked > failure-observed\n    return 73\n  fi\n}\n", tool, tool, argument)
+}
+
+func assertReleaseFailureObserved(t *testing.T, dir string) {
+	t.Helper()
+	got, err := os.ReadFile(filepath.Join(dir, "failure-observed"))
+	if err != nil || string(got) != "invoked" {
+		t.Fatalf("matching-output command failure did not execute: %q, %v", got, err)
+	}
+}
+
+func testReleaseSourceLookup(t *testing.T, script string) {
+	t.Helper()
+	for _, state := range []string{"valid", "wrong-source", "matching-output-error"} {
+		t.Run("source-lookup-"+state, func(t *testing.T) {
+			dir := t.TempDir()
+			runReleaseCommand(t, dir, "git", "init", "-q")
+			runReleaseCommand(t, dir, "git", "config", "user.name", "Waza Test")
+			runReleaseCommand(t, dir, "git", "config", "user.email", "waza-test@example.com")
+			runReleaseCommand(t, dir, "git", "commit", "--allow-empty", "-q", "-m", "test")
+			sha := strings.TrimSpace(string(runReleaseCommand(t, dir, "git", "rev-parse", "HEAD")))
+			run := script
+			if state == "wrong-source" {
+				sha = strings.Repeat("0", len(sha))
+			}
+			if state == "matching-output-error" {
+				run = failingReleaseCommand("git", "rev-parse") + run
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run+"printf admitted > source-admitted\n")
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA="+sha)
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != (state == "valid") {
+				t.Fatalf("source check %s: %v\n%s", state, err, output)
+			}
+			if state == "matching-output-error" {
+				assertReleaseFailureObserved(t, dir)
+			}
+			_, err = os.Stat(filepath.Join(dir, "source-admitted"))
+			if state == "valid" && err != nil || state != "valid" && !os.IsNotExist(err) {
+				t.Fatalf("source admission marker %s: %v", state, err)
+			}
+		})
+	}
+}
+
 func TestTagReleaseRequiresValidation(t *testing.T) {
 	source := readReleaseWorkflow(t, "release.yml")
 	normalized := strings.ReplaceAll(string(source), "\r\n", "\n")
@@ -435,6 +505,9 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	testTagCLIArtifactVerification(t, releaseSteps(workflow.Jobs["release-cli"])["Generate SHA256 Checksums"].Run)
+	for _, job := range []string{"build-cli", "release-extension"} {
+		testReleaseSourceLookup(t, releaseSteps(workflow.Jobs[job])["Require exact validated source"].Run)
+	}
 	testExtensionProvenance(t, releaseSteps(workflow.Jobs["release-extension"])["Record extension artifact provenance"].Run)
 	for _, mutation := range []struct{ name, old, new string }{
 		{
@@ -457,14 +530,18 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 		{"tolerated-cli-checksums", "      - name: Generate SHA256 Checksums\n", "      - name: Generate SHA256 Checksums\n        continue-on-error: true\n"},
 		{"skipped-cli-source", "      - name: Require exact validated source\n", "      - name: Require exact validated source\n        if: 'false'\n"},
 		{"skipped-extension-source", "          fetch-depth: 0\n          lfs: true\n\n      - name: Require exact validated source\n", "          fetch-depth: 0\n          lfs: true\n\n      - name: Require exact validated source\n        if: 'false'\n"},
-		{"stale-cli-source", `run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, "run: ':'"},
+		{"stale-cli-source", `test "$source_sha" = "$GITHUB_SHA"`, ":"},
+		{"unchecked-cli-source-lookup", `source_sha="$(git rev-parse HEAD)"`, `source_sha="$(git rev-parse HEAD)" || true`},
 		{"missing-cli-source-record", `printf '%s\n' "$GITHUB_SHA" > "${BINARY_NAME}.source-sha.txt"`, ":"},
 		{"missing-cli-digest", `sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"`, ":"},
 		{"missing-cli-matrix-member", "            waza-windows-arm64.exe\n", ""},
 		{"missing-cli-binary-file", `test -f "$binary"`, ":"},
 		{"missing-cli-source-file", `test -f "$source"`, ":"},
 		{"missing-cli-digest-file", `test -f "$digest"`, ":"},
-		{"missing-cli-source-verification", `test "$(cat "$source")" = "$GITHUB_SHA"`, ":"},
+		{"missing-cli-source-verification", `            test "$source_sha" = "$GITHUB_SHA"`, "            :"},
+		{"unchecked-cli-artifact-source", `source_sha="$(cat "$source")"`, `source_sha="$(cat "$source")" || true`},
+		{"unchecked-cli-artifact-sidecar", `recorded_digest="$(cat "$digest")"`, `recorded_digest="$(cat "$digest")" || true`},
+		{"unchecked-cli-artifact-hash", `actual_digest="$(sha256sum "$binary")"`, `actual_digest="$(sha256sum "$binary")" || true`},
 		{"missing-extension-provenance", `printf 'source_sha=%s\n' "$GITHUB_SHA"`, ":"},
 		{"unchecked-extension-discovery", "packages=(artifacts/*.zip artifacts/*.tar.gz)", "mapfile -d '' packages < <(find artifacts -type f -print0)"},
 		{"missing-extension-inventory", `test "${#packages[@]}" -gt 0`, ":"},
@@ -563,7 +640,8 @@ func testTagCLIArtifactVerification(t *testing.T, run string) {
 		"waza-windows-amd64.exe",
 		"waza-windows-arm64.exe",
 	}
-	for _, mutation := range []string{"none", "missing-binary", "missing-source", "missing-digest", "stale-source", "digest-mismatch", "foreign-digest"} {
+	for _, mutation := range []string{"none", "missing-binary", "missing-source", "missing-digest", "stale-source", "digest-mismatch", "foreign-digest",
+		"matching-source-error", "matching-sidecar-error", "matching-hash-error"} {
 		t.Run("cli-artifacts-"+mutation, func(t *testing.T) {
 			dir := t.TempDir()
 			for _, binary := range binaries {
@@ -602,12 +680,29 @@ func testTagCLIArtifactVerification(t *testing.T, run string) {
 				}
 				writeReleaseFile(t, filepath.Join(dir, target+".sha256"), foreign)
 			}
-			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
+			script := run
+			switch mutation {
+			case "matching-source-error":
+				script = failingReleaseCommand("cat", target+".source-sha.txt") + script
+			case "matching-sidecar-error":
+				script = failingReleaseCommand("cat", target+".sha256") + script
+			case "matching-hash-error":
+				script = failingReleaseCommand("sha256sum", target) + script
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != (mutation == "none") {
 				t.Fatalf("verification error = %v\n%s", err, output)
+			}
+			if strings.HasPrefix(mutation, "matching-") {
+				assertReleaseFailureObserved(t, dir)
+			}
+			if mutation != "none" {
+				if _, err := os.Stat(filepath.Join(dir, "checksums.txt")); !os.IsNotExist(err) {
+					t.Fatalf("invalid artifacts reached publication checksum generation: %v", err)
+				}
 			}
 		})
 	}
@@ -756,7 +851,10 @@ func validateReleaseValidation(source []byte) error {
 		return fmt.Errorf("release Linux tests must execute freshly under the current runtime guard")
 	}
 	if buildSteps["Checkout Repository"].With["lfs"] != "true" || buildSteps["Checkout Repository"].With["fetch-depth"] != "0" ||
-		strings.Count(string(source), `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`) != 4 {
+		buildSteps["Require exact source"].Run != releaseSourceCheck ||
+		steps["Require exact source"].Run != releaseSourceCheck ||
+		releaseSteps(windows)["Require exact source"].Run != releaseSourceCheck ||
+		releaseSteps(lint)["Require exact source"].Run != releaseSourceCheck {
 		return fmt.Errorf("every validation branch must bind checkout to the exact source SHA")
 	}
 	gate := steps["Require every validation branch"]
@@ -779,7 +877,7 @@ func validateReleaseValidation(source []byte) error {
 		upload.With["path"] != "waza\nwaza.sha256\ncoverage.txt\n" || upload.With["if-no-files-found"] != "error" ||
 		!strings.HasPrefix(download.Uses, "actions/download-artifact@") || download.With["name"] != upload.With["name"] || download.With["path"] != "." ||
 		buildSteps["Record tested binary digest"].Run != "sha256sum waza > waza.sha256" ||
-		steps["Verify and restore tested binary"].Run != "test \"$(cat waza.sha256)\" = \"$(sha256sum waza)\"\nchmod +x waza\n./waza --version\n" {
+		steps["Verify and restore tested binary"].Run != releaseDigestCheck+"chmod +x waza\n./waza --version\n" {
 		return fmt.Errorf("publication must retrieve the exact integration-tested binary, digest and remaining coverage")
 	}
 	nativeDownload := steps["Download native coverage and discovery evidence"]
@@ -857,7 +955,7 @@ func validateBranchPublisher(source []byte, file string) error {
 		tagStep = candidateSteps["Detect exact insider tag"]
 		createName = "Create Insider Pre-Release"
 	}
-	if tagStep.ID != "tag" || !strings.HasPrefix(tagStep.Run, "test \"$(git rev-parse HEAD)\" = \"$GITHUB_SHA\"\n") ||
+	if tagStep.ID != "tag" || !strings.HasPrefix(tagStep.Run, releaseSourceCheck) ||
 		!strings.Contains(tagStep.Run, `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`) ||
 		!strings.Contains(tagStep.Run, `if [[ "$tag" != *-insider ]]; then`) ||
 		!strings.Contains(tagStep.Run, `echo "publish=false" >> "$GITHUB_OUTPUT"`) ||
@@ -879,7 +977,7 @@ func validateBranchPublisher(source []byte, file string) error {
 	}
 	download := steps["Download complete validation evidence"]
 	if download.With["name"] != "release-validation-${{ github.sha }}" || download.With["path"] != "." ||
-		steps["Require exact validated source and tested binary"].Run != "test \"$(cat source-sha.txt)\" = \"$GITHUB_SHA\"\ntest \"$(cat waza.sha256)\" = \"$(sha256sum waza)\"\nchmod +x waza\n./waza --version\n" {
+		steps["Require exact validated source and tested binary"].Run != releaseRecordedSourceCheck+releaseDigestCheck+"chmod +x waza\n./waza --version\n" {
 		return fmt.Errorf("publisher must consume complete exact-source tested evidence")
 	}
 	if !strings.Contains(steps[createName].Run, "./waza ./waza.sha256 ./source-sha.txt") {
@@ -942,8 +1040,8 @@ func validateTagRelease(source []byte) error {
 	buildSteps := releaseSteps(build)
 	publishSteps := releaseSteps(release)
 	extensionSteps := releaseSteps(extension)
-	if buildSteps["Require exact validated source"].Run != `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"` ||
-		extensionSteps["Require exact validated source"].Run != `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"` {
+	if buildSteps["Require exact validated source"].Run != releaseSourceCheck ||
+		extensionSteps["Require exact validated source"].Run != releaseSourceCheck {
 		return fmt.Errorf("tag artifacts must be built from the validated SHA")
 	}
 	buildRun := buildSteps["Build Binary"].Run
@@ -965,8 +1063,8 @@ func validateTagRelease(source []byte) error {
 		!strings.Contains(checks, `test -f "$binary"`) ||
 		!strings.Contains(checks, `test -f "$source"`) ||
 		!strings.Contains(checks, `test -f "$digest"`) ||
-		!strings.Contains(checks, `test "$(cat "$source")" = "$GITHUB_SHA"`) ||
-		!strings.Contains(checks, `test "$(cat "$digest")" = "$(sha256sum "$binary")"`) ||
+		!strings.Contains(checks, "source_sha=\"$(cat \"$source\")\"\n  test \"$source_sha\" = \"$GITHUB_SHA\"\n") ||
+		!strings.Contains(checks, "recorded_digest=\"$(cat \"$digest\")\"\n  actual_digest=\"$(sha256sum \"$binary\")\"\n  test \"$recorded_digest\" = \"$actual_digest\"\n") ||
 		!strings.Contains(checks, `sha256sum "${expected[@]}" > checksums.txt`) {
 		return fmt.Errorf("CLI publication must reject stale or incomplete artifact evidence")
 	}
@@ -985,7 +1083,12 @@ func validateTagRelease(source []byte) error {
 
 func testReleaseBinaryHandoff(t *testing.T, record, restore string) {
 	t.Helper()
-	for _, mutation := range []string{"none", "binary", "digest", "foreign-filename", "missing-binary", "missing-digest"} {
+	mutations := []string{"none", "binary", "digest", "foreign-filename", "missing-binary", "missing-digest",
+		"matching-sidecar-error", "matching-hash-error"}
+	if strings.Contains(restore, "source-sha.txt") {
+		mutations = append(mutations, "missing-source", "matching-source-error")
+	}
+	for _, mutation := range mutations {
 		t.Run("binary-handoff-"+mutation, func(t *testing.T) {
 			dir := t.TempDir()
 			binary := filepath.Join(dir, "waza")
@@ -1023,13 +1126,29 @@ func testReleaseBinaryHandoff(t *testing.T, record, restore string) {
 				if err := os.Remove(filepath.Join(dir, "waza.sha256")); err != nil {
 					t.Fatal(err)
 				}
+			case "missing-source":
+				if err := os.Remove(filepath.Join(dir, "source-sha.txt")); err != nil {
+					t.Fatal(err)
+				}
 			}
-			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", restore)
+			script := restore
+			switch mutation {
+			case "matching-source-error":
+				script = failingReleaseCommand("cat", "source-sha.txt") + script
+			case "matching-sidecar-error":
+				script = failingReleaseCommand("cat", "waza.sha256") + script
+			case "matching-hash-error":
+				script = failingReleaseCommand("sha256sum", "waza") + script
+			}
+			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != (mutation == "none") {
 				t.Fatalf("restore mutation %s: %v\n%s", mutation, err, output)
+			}
+			if strings.HasPrefix(mutation, "matching-") {
+				assertReleaseFailureObserved(t, dir)
 			}
 			observed, readErr := os.ReadFile(filepath.Join(dir, "version-observed"))
 			if mutation == "none" {

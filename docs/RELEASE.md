@@ -63,6 +63,9 @@ The six CLI matrix binaries and azd packages are release builds from the
 validated source, with recorded digests; they are not the Linux binary exercised
 by offline integration, nor proof of native execution on all six platforms.
 Extension packaging intentionally synchronizes version files before building.
+Source lookups, source-record reads, sidecar reads, and binary hashing must each
+succeed before their captured outputs are compared. Matching output from a
+failed command is not validation evidence.
 Extension provenance enumerates archive globs directly and requires a nonempty
 regular-file inventory; directory admission and digest failures stop publication
 rather than being hidden by a process-substitution discovery pipeline.

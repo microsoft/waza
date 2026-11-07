@@ -84,7 +84,9 @@ jobs:
           lfs: true
 
       - name: Require exact validated source
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -167,8 +169,11 @@ jobs:
             test -f "$binary"
             test -f "$source"
             test -f "$digest"
-            test "$(cat "$source")" = "$GITHUB_SHA"
-            test "$(cat "$digest")" = "$(sha256sum "$binary")"
+            source_sha="$(cat "$source")"
+            test "$source_sha" = "$GITHUB_SHA"
+            recorded_digest="$(cat "$digest")"
+            actual_digest="$(sha256sum "$binary")"
+            test "$recorded_digest" = "$actual_digest"
           done
           sha256sum "${expected[@]}" > checksums.txt
           echo "Generated checksums:"
@@ -219,7 +224,9 @@ jobs:
           lfs: true
 
       - name: Require exact validated source
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

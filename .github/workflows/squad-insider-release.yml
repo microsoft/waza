@@ -25,7 +25,8 @@ jobs:
       - name: Detect exact insider tag
         id: tag
         run: |
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
           tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"
           candidates=()
           if [ -n "$tag_output" ]; then
@@ -74,8 +75,11 @@ jobs:
 
       - name: Require exact validated source and tested binary
         run: |
-          test "$(cat source-sha.txt)" = "$GITHUB_SHA"
-          test "$(cat waza.sha256)" = "$(sha256sum waza)"
+          source_sha="$(cat source-sha.txt)"
+          test "$source_sha" = "$GITHUB_SHA"
+          recorded_digest="$(cat waza.sha256)"
+          actual_digest="$(sha256sum waza)"
+          test "$recorded_digest" = "$actual_digest"
           chmod +x waza
           ./waza --version
 
