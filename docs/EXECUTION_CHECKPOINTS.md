@@ -298,6 +298,16 @@ final marker then blocks restoration without rerunning work. These tests use an
 authored revision in a test binary: they are not public-CLI interruption,
 clean-build revision, Windows or browser evidence.
 
+The separate standard-Node controls in
+`web/e2e/checkpoint-cli-process.test.mjs` require `WAZA_E2E_CLI` to name the
+actual clean-stamped compiled CLI. Dashboard CI selects them explicitly before
+the frontend build and checks the binary's real revision and clean flag.
+Its push and PR change filters include `internal/webapi/checkpoint_operations*.go`;
+the regression in `.github/scripts/web_checkpoint_ci_test.go` removes each
+production filter independently to prove checkpoint caller changes cannot
+bypass dashboard selection. Filter coverage is not browser or recovery evidence,
+and this pre-frontend binary is not matched embedded-dashboard delivery.
+
 ### Read-only source inspection
 
 The current-source dashboard registers `GET /api/v1/checkpoints/{digest}` and
