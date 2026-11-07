@@ -780,3 +780,40 @@ test('published workflow guides do not require unreleased main for v0.39.0 featu
     assert.match(text, /reference\/releases|releases\/#upcoming-main-only-capabilities/, path);
   }
 });
+
+test('waza serve reference lists only flags the serve command registers', () => {
+  const command = read('cmd/waza/cmd_serve.go');
+  const registered = new Set(
+    [...command.matchAll(/\.Flags\(\)\.(?:String|Bool|Int|StringSlice|Duration)Var\([^,]+,\s*"([^"]+)"/g)]
+      .map((match) => match[1]),
+  );
+  assert.ok(registered.size > 0, 'serve command must register at least one flag');
+  assert.ok(!registered.has('stdio'), 'serve command must not register --stdio');
+
+  const reference = read('site/src/content/docs/reference/cli.mdx');
+  const section = reference.split('## waza serve')[1]?.split('\n## ')[0];
+  assert.ok(section, 'waza serve reference section must exist');
+
+  const tableFlags = [...section.matchAll(/^\| `--([a-z0-9-]+)` \|/gm)]
+    .map((match) => match[1]);
+  assert.ok(tableFlags.length > 0, 'waza serve flags table must list flags');
+  for (const flag of tableFlags) {
+    assert.ok(registered.has(flag), `documented serve flag --${flag} is not registered in cmd_serve.go`);
+  }
+
+  const examples = [...section.matchAll(/```bash\n([\s\S]*?)```/g)]
+    .map((match) => match[1]).join('\n');
+  const exampleFlags = [...examples.matchAll(/--([a-z0-9-]+)/g)]
+    .map((match) => match[1]);
+  assert.ok(exampleFlags.length > 0, 'waza serve examples must use flags');
+  for (const flag of exampleFlags) {
+    assert.ok(registered.has(flag), `serve example flag --${flag} is not registered in cmd_serve.go`);
+  }
+
+  assert.doesNotMatch(section, /--stdio\b/, 'waza serve reference must not reintroduce --stdio');
+  assert.doesNotMatch(
+    read('site/src/content/docs/guides/dashboard.mdx'),
+    /waza serve --stdio\b/,
+    'dashboard guide must not reintroduce waza serve --stdio',
+  );
+});
