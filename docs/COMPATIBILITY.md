@@ -90,7 +90,21 @@ attestation. `SubmissionHooks.Reserved` receives the retained creator and a
 detached reservation before the factory; `Terminal` receives a detached original
 envelope after joined lifecycle. Hooks are embedding-host code, never request
 JSON, and do not prove cancellation acknowledgment or process-wait completion.
-The result wire profile and public integrations remain pending.
+`Admission` receives detached declared binding before reservation, permitting the
+category owner's actual capture policy to reject identifiers before persistence.
+`Artifacts` receives detached reservation, terminal, and rich-report bytes after
+lifecycle return, and can return at most 16 named objects for the same original
+manifest. Names, media types, per-object/total bounds, and duplicate names are
+validated before blob writes; observer/publication failures cannot complete the
+attempt. Content binding does not turn a sidecar declaration into attestation.
+
+The current embedding prototype's raw `report.json` includes potentially
+restricted conversation/tool/path data. Private storage and source integrity do
+not constitute category capture/disclosure approval. Public submit registration
+must remain disabled until the actual evidence-owner privacy guard, category
+producer, and default-withheld behavior are integrated; the raw prototype is not
+a public privacy policy. The result wire profile and public integrations remain
+pending.
 
 Logical run is the existing `runneridentity.Identity.Run`; logical work is
 `Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,
