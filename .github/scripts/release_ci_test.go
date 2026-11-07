@@ -408,6 +408,7 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	testTagCLIArtifactVerification(t, releaseSteps(workflow.Jobs["release-cli"])["Generate SHA256 Checksums"].Run)
+	testExtensionProvenance(t, releaseSteps(workflow.Jobs["release-extension"])["Record extension artifact provenance"].Run)
 	for _, mutation := range []struct{ name, old, new string }{
 		{
 			"missing-cli-validation",
@@ -438,6 +439,8 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 		{"missing-cli-digest-file", `test -f "$digest"`, ":"},
 		{"missing-cli-source-verification", `test "$(cat "$source")" = "$GITHUB_SHA"`, ":"},
 		{"missing-extension-provenance", `printf 'source_sha=%s\n' "$GITHUB_SHA"`, ":"},
+		{"unchecked-extension-discovery", "packages=(artifacts/*.zip artifacts/*.tar.gz)", "mapfile -d '' packages < <(find artifacts -type f -print0)"},
+		{"missing-extension-inventory", `test "${#packages[@]}" -gt 0`, ":"},
 		{"unpublished-extension-provenance", "Publish Extension Provenance", "Do Not Publish Extension Provenance"},
 		{"wrong-extension-provenance-tag", `azd-ext-microsoft-azd-waza_${VERSION}`, "${{ needs.setup-version.outputs.tag }}"},
 	} {
@@ -452,6 +455,72 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 			}
 			if err := validateTagRelease([]byte(changed)); err == nil {
 				t.Fatal("unsafe tag release mutation was admitted")
+			}
+		})
+	}
+}
+
+func testExtensionProvenance(t *testing.T, script string) {
+	t.Helper()
+	for _, state := range []string{"valid", "missing-directory", "empty", "archive-directory", "digest-failure", "discovery-failure"} {
+		t.Run("extension-provenance-"+state, func(t *testing.T) {
+			dir := t.TempDir()
+			artifacts := filepath.Join(dir, "artifacts")
+			if state != "missing-directory" {
+				if err := os.Mkdir(artifacts, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			valid := state == "valid" || state == "discovery-failure"
+			if valid || state == "digest-failure" {
+				writeReleaseFile(t, filepath.Join(artifacts, "with space.zip"), []byte("zip"))
+				writeReleaseFile(t, filepath.Join(artifacts, "bundle.tar.gz"), []byte("tar"))
+			}
+			if state == "archive-directory" {
+				if err := os.Mkdir(filepath.Join(artifacts, "directory.zip"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
+			if state == "digest-failure" {
+				path := filepath.Join(dir, "sha256sum")
+				writeReleaseFile(t, path, []byte("#!/bin/sh\nprintf 'partial digest\\n'\nexit 73\n"))
+				if err := os.Chmod(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				cmd.Env = append(cmd.Env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
+			if state == "discovery-failure" {
+				for _, tool := range []string{"find", "sort"} {
+					path := filepath.Join(dir, tool)
+					writeReleaseFile(t, path, []byte("#!/bin/sh\nprintf invoked > discovery.invoked\nprintf 'artifacts/with space.zip\\000'\nexit 73\n"))
+					if err := os.Chmod(path, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				cmd.Env = append(cmd.Env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != valid {
+				t.Fatalf("provenance state %s: %v\n%s", state, err, output)
+			}
+			if state == "discovery-failure" {
+				if _, err := os.Stat(filepath.Join(dir, "discovery.invoked")); !os.IsNotExist(err) {
+					t.Fatalf("provenance invoked fallible discovery tool: %v", err)
+				}
+			}
+			if valid {
+				got, err := os.ReadFile(filepath.Join(artifacts, "release-provenance.txt"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				digests := runReleaseCommand(t, dir, "sha256sum", "artifacts/with space.zip", "artifacts/bundle.tar.gz")
+				want := "source_sha=validated-source\n" + string(digests)
+				if string(got) != want {
+					t.Fatalf("incomplete provenance = %q; want %q", got, want)
+				}
 			}
 		})
 	}
@@ -862,7 +931,10 @@ func validateTagRelease(source []byte) error {
 		return fmt.Errorf("CLI publication must reject stale or incomplete artifact evidence")
 	}
 	provenance := extensionSteps["Record extension artifact provenance"].Run
-	if !strings.Contains(provenance, `printf 'source_sha=%s\n' "$GITHUB_SHA"`) ||
+	if !strings.Contains(provenance, "test -d artifacts\nshopt -s nullglob\npackages=(artifacts/*.zip artifacts/*.tar.gz)\n") ||
+		!strings.Contains(provenance, `test "${#packages[@]}" -gt 0`) ||
+		!strings.Contains(provenance, "for package in \"${packages[@]}\"; do\n  test -f \"$package\"\ndone\n") ||
+		!strings.Contains(provenance, `printf 'source_sha=%s\n' "$GITHUB_SHA"`) ||
 		!strings.Contains(provenance, `sha256sum "${packages[@]}"`) ||
 		!strings.Contains(extensionSteps["Publish Extension Provenance"].Run, `gh release upload "azd-ext-microsoft-azd-waza_${VERSION}"`) ||
 		!strings.Contains(extensionSteps["Publish Extension Provenance"].Run, "artifacts/release-provenance.txt") {
