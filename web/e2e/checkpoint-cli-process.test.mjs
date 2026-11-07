@@ -99,6 +99,34 @@ function snapshotStore(store) {
   ]);
 }
 
+function verifyFinalizedResult(store, result) {
+  const checkpoint = JSON.parse(readBoundObject(store, "blob", result.finalized_checkpoint_sha256).toString("utf8"));
+  const { reservation, completion, terminal } = result.submission;
+  assert.equal(checkpoint.kind, "waza.execution-checkpoint");
+  assert.equal(checkpoint.boundary, "finalized-unit");
+  assert.equal(checkpoint.execution_id, reservation.execution_id);
+  assert.equal(checkpoint.reservation_digest, completion.reservation_digest);
+  assert.equal(checkpoint.manifest_digest, completion.manifest_digest);
+  assert.equal(checkpoint.completion_digest, createHash("sha256").update(JSON.stringify(completion)).digest("hex"));
+  const manifest = JSON.parse(readBoundObject(store, "manifest", checkpoint.manifest_digest).toString("utf8"));
+  assert.equal(manifest.kind, "waza.artifact-manifest");
+  assert.deepEqual(manifest.binding, reservation.binding);
+  assert.equal(new Set(manifest.artifacts.map((artifact) => artifact.name)).size, manifest.artifacts.length);
+  assert.ok(manifest.artifacts.length > 0);
+  const objects = new Map(manifest.artifacts.map((artifact) => {
+    const bytes = readBoundObject(store, "blob", artifact.sha256);
+    assert.equal(bytes.byteLength, artifact.size_bytes, artifact.name);
+    return [artifact.name, bytes];
+  }));
+  assert.ok(objects.has(manifest.terminal_artifact));
+  assert.deepEqual(JSON.parse(objects.get(manifest.terminal_artifact).toString("utf8")), terminal);
+  assert.ok(objects.has("execution-attempt.json"));
+  const attemptBytes = objects.get("execution-attempt.json");
+  assert.equal(createHash("sha256").update(attemptBytes).digest("hex"), checkpoint.reservation_digest);
+  assert.deepEqual(JSON.parse(attemptBytes.toString("utf8")), reservation);
+  assert.equal(readFileSync(join(store, `final-${checkpoint.manifest_digest}`), "utf8"), checkpoint.manifest_digest);
+}
+
 test("compiled checkpoint CLI recovers actual SIGKILL at both stored boundaries and rejects failed restore", {
   timeout: 180_000,
   skip: process.platform === "win32" ? "Unix SIGKILL is not native Windows recovery evidence." : false,
@@ -187,6 +215,7 @@ test("compiled checkpoint CLI recovers actual SIGKILL at both stored boundaries 
       assert.notEqual(result.submission.reservation.execution_id, source.execution_id);
       assert.deepEqual(result.submission.reservation.parent, { execution_id: source.execution_id, relationship: "retry" });
       assert.equal(result.submission.terminal.selection.attempt, 3);
+      verifyFinalizedResult(store, result);
     } else {
       assert.equal(result.status, "reused");
       assert.equal(result.restored_units, 1);

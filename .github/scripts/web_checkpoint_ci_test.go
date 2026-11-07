@@ -34,6 +34,7 @@ func validateCheckpointDashboardSelection(source []byte) error {
 		}{
 			{"internal/webapi/checkpoint_operations.go", true},
 			{"internal/webapi/checkpoint_operations_test.go", true},
+			{"internal/webapi/checkpoint_operations_lifecycle_test.go", true},
 			{"internal/webapi/checkpoints.go", true},
 			{"internal/webapi/checkpoint_operations.md", false},
 			{"internal/webapi-near-miss/checkpoint_operations.go", false},
@@ -59,7 +60,7 @@ func TestCheckpointOperationsSelectDashboardValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"checkpoint_operations.go", "checkpoint_operations_test.go"} {
+	for _, path := range []string{"checkpoint_operations.go", "checkpoint_operations_test.go", "checkpoint_operations_lifecycle_test.go"} {
 		if _, err := os.Stat(filepath.Join("..", "..", "internal", "webapi", path)); err != nil {
 			t.Fatalf("selection control must name the actual checkpoint caller: %v", err)
 		}

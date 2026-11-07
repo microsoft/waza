@@ -205,6 +205,12 @@ terminal observers and writes. The committed `ownedsubmission.CaptureHooks`
 facade composes original-category withholding with those observers and validates
 prepared content against independently retained original observations. It rejects
 competing publication policies and arbitrary additional artifact producers.
+The public checkpoint CLI/API select the shared non-writing prepared lifecycle
+observer and native-only per-service factory through this existing captured
+wrapper. Fixed lifecycle objects join the first original manifest; mock execution
+does not bind a native sink, and finalized reuse creates neither an engine nor
+new lifecycle objects. Source approval and non-mutating withholding remain
+required even when compatibility returns before any observer hook.
 Actual adapter controls cover restricted binding rejection before reservation,
 prepared-category corruption rejection before the terminal observer/completion,
 and protected successful, failed and canceled original reuse with zero new calls.

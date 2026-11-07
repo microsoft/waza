@@ -105,6 +105,9 @@ func validateCheckpointDeliveryPhases(source, spec []byte) error {
 		`test.skip(process.env.WAZA_CHECKPOINT_DELIVERY !== "final"`,
 		`await page.goto(` + "`${base}/#/lab/runner`",
 		`expect(await index.body()).toEqual(readFileSync(new URL("index.html", dist)))`,
+		`const favicon = await request.get(` + "`${base}/favicon.svg`)",
+		`expect(favicon.status()).toBe(200)`,
+		`expect(await favicon.body()).toEqual(readFileSync(new URL("favicon.svg", dist)))`,
 		`expect(await response.body(), asset).toEqual(readFileSync(physical))`,
 		`expect(resumed.submission.engine_calls).toBe(0)`,
 	} {
@@ -200,6 +203,9 @@ func TestCheckpointPreviewAndFinalDeliverySelectActualControls(t *testing.T) {
 	for _, assertion := range []string{
 		`test.skip(process.env.WAZA_CHECKPOINT_DELIVERY !== "final"`,
 		`expect(await response.body(), asset).toEqual(readFileSync(physical))`,
+		`const favicon = await request.get(` + "`${base}/favicon.svg`)",
+		`expect(favicon.status()).toBe(200)`,
+		`expect(await favicon.body()).toEqual(readFileSync(new URL("favicon.svg", dist)))`,
 	} {
 		changed := strings.Replace(string(spec), assertion, "", 1)
 		if changed == string(spec) {

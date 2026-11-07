@@ -83,6 +83,9 @@ test("matched owning CLI serves every current embedded asset and actual checkpoi
     const index = await request.get(base);
     expect(index.status()).toBe(200);
     expect(await index.body()).toEqual(readFileSync(new URL("index.html", dist)));
+    const favicon = await request.get(`${base}/favicon.svg`);
+    expect(favicon.status()).toBe(200);
+    expect(await favicon.body()).toEqual(readFileSync(new URL("favicon.svg", dist)));
     const assets = (await readdir(new URL("assets/", dist), { recursive: true })).sort();
     let verified = 0;
     for (const asset of assets) {
