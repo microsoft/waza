@@ -206,6 +206,27 @@ configured native inspection API, not an impossible mocked response.
 
 ## Invocation observation and validation (unreleased)
 
+The read-only `ownedsubmission.InspectLifecycle` adapter accepts an already
+composed `executionledger.Reader`, one original finalized source, and explicit
+as-of/heartbeat-threshold inputs. It uses **one** `ReadCompleted` pass requesting
+`lifecycle.json` and `terminal.json`; that pass verifies all manifest artifacts.
+The source validator also requires `execution-attempt.json` to match the retained
+canonical reservation and each `lifecycle-observation-NNN.json` descriptor to
+match the canonical captured event bytes. It reuses original first-publication
+admission and protected terminal-disclosure validation rather than minting an
+owner capability or reading a private report as a fallback.
+
+The narrow result labels content `verified-nonsnapshot-content` and its context
+`original-source-declarations`. Its underlying projection remains explicitly
+`caller-declared-unverified`; fixed native runtime observations retain
+`process_exit: unknown`. A finalized source is not a running-worker snapshot,
+and missing completion does not prove death or permit reclaim. Corrupt, missing,
+restricted, contradictory or budget-denied source reads return no partial
+projection and do not alter original artifacts. The adapter creates no backend,
+namespace, writer or budget. Its opaque shared-budget facade and public
+CLI/API/Lab consumer wiring remain separate pending work; the manual descriptor
+inspection above is unchanged and is not promoted to authenticated evidence.
+
 `runnerunit.NewPreparedLifecycleObserver` is the non-writing adapter for the
 actual fixed `SubmissionHooks.SelectLifecycle` contract. `Reserved` retains the
 owned reservation and original invocation deadline, then stages only the
