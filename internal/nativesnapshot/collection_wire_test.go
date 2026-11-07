@@ -1,18 +1,48 @@
 package nativesnapshot
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/releasepolicy"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCollectionCaptureReadsPreWorkspaceCapturePathsRequests(t *testing.T) {
+	_, locations := fixture(t)
+	captured, err := CaptureCollection(t.Context(), locations)
+	require.NoError(t, err)
+	// Historical requests had no capture-path member. Preserve all other
+	// request bytes, including member order, rather than re-encoding a map.
+	captured.capture.prepared.canonical = bytes.ReplaceAll(
+		captured.capture.prepared.canonical, []byte(`,"WorkspaceCapturePaths":null`), nil)
+	require.NotContains(t, string(captured.capture.prepared.canonical), `"WorkspaceCapturePaths"`)
+	digest, err := evidence.JSONDigest(json.RawMessage(captured.capture.prepared.canonical))
+	require.NoError(t, err)
+	captured.capture.prepared.seal = *digest
+	resealG2(t, captured.capture, func(associations *captureAssociations) {
+		associations.Snapshot = *digest
+	})
+	raw, err := captured.Marshal(t.Context())
+	require.NoError(t, err)
+	retained, err := ReadCollectionCapture(t.Context(), raw)
+	require.NoError(t, err, "pre-change collection captures must reconstruct unchanged native CLIENT bytes")
+	for _, arm := range []releasepolicy.Arm{releasepolicy.Baseline, releasepolicy.Candidate} {
+		request, err := retained.Request(t.Context(), arm, "task")
+		require.NoError(t, err)
+		require.Empty(t, request.WorkspaceCapturePaths)
+		require.Equal(t, []byte(arm), request.Resources[0].Content)
+	}
+}
 
 func TestCollectionCaptureRawWireAdmission(t *testing.T) {
 	for _, test := range []struct {

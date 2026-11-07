@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -29,7 +30,22 @@ func NewAzure(containerURL string, credential azcore.TokenCredential, options *c
 	if credential == nil {
 		return nil, errors.New("immutable Azure store requires an explicit credential")
 	}
-	client, err := container.NewClient(containerURL, credential, options)
+	clientOptions := container.ClientOptions{}
+	if options != nil {
+		clientOptions = *options
+		clientOptions.PerCallPolicies = slices.Clone(options.PerCallPolicies)
+		clientOptions.PerRetryPolicies = slices.Clone(options.PerRetryPolicies)
+	}
+	clientOptions.PerRetryPolicies = slices.DeleteFunc(clientOptions.PerRetryPolicies, func(p policy.Policy) bool {
+		switch p.(type) {
+		case VersionPolicy, *VersionPolicy:
+			return true
+		default:
+			return false
+		}
+	})
+	clientOptions.PerRetryPolicies = append(clientOptions.PerRetryPolicies, VersionPolicy{})
+	client, err := container.NewClient(containerURL, credential, &clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("creating immutable Azure client: %w", err)
 	}

@@ -141,7 +141,7 @@ func (s *Store) inspect(ctx context.Context, digest string, capture bool, names 
 		r.Diagnostics = append(r.Diagnostics, diagnostic(err))
 		if validDigest(digest) && s != nil && s.backend != nil {
 			markerErr := s.inspectMarker(ctx, digest, &r)
-			if markerErr != nil || r.Publication != "unfinalized" {
+			if errors.Is(err, ErrCorrupt) || markerErr != nil || r.Publication != "unfinalized" {
 				r.Integrity = "failed"
 			}
 			return r, nil, errors.Join(err, markerErr)

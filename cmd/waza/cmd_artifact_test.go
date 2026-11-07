@@ -98,7 +98,8 @@ func TestArtifactStoredInvalidDeclarationIsCorruptionNotInvalidInput(t *testing.
 	require.Equal(t, http.StatusConflict, recorder.Code)
 	var receipt artifactmanifest.Receipt
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &receipt))
-	require.NotEqual(t, "verified", receipt.Integrity)
+	require.Equal(t, "failed", receipt.Integrity)
+	require.Equal(t, "unfinalized", receipt.Publication)
 	require.Equal(t, digest, receipt.ManifestSHA256)
 	require.Len(t, receipt.Diagnostics, 1)
 	require.Equal(t, "corrupt_object", receipt.Diagnostics[0].Code)
@@ -109,7 +110,7 @@ func TestArtifactStoredInvalidDeclarationIsCorruptionNotInvalidInput(t *testing.
 
 func TestArtifactStoredManifestFailureRetainsFinalMarker(t *testing.T) {
 	for _, content := range []string{"corrupted", "removed"} {
-		for _, marker := range []string{"matching", "conflicting"} {
+		for _, marker := range []string{"matching", "conflicting", "absent"} {
 			t.Run(content+"/"+marker, func(t *testing.T) {
 				directory, _, m, terminal := artifactCLIFixture(t)
 				backend, err := artifactmanifest.OpenLocal(filepath.Join(directory, ".waza-artifacts"))
@@ -139,26 +140,35 @@ func TestArtifactStoredManifestFailureRetainsFinalMarker(t *testing.T) {
 				if content == "corrupted" {
 					require.NoError(t, root.WriteFile("manifest-"+digest, []byte(`{"kind":"corrupted"}`), 0o400))
 				}
-				if marker == "conflicting" {
+				if marker != "matching" {
 					require.NoError(t, root.Chmod("final-"+digest, 0o600))
 					require.NoError(t, root.Remove("final-"+digest))
-					require.NoError(t, root.WriteFile("final-"+digest, []byte(strings.Repeat("f", 64)), 0o400))
+					if marker == "conflicting" {
+						require.NoError(t, root.WriteFile("final-"+digest, []byte(strings.Repeat("f", 64)), 0o400))
+					}
 				}
 				mux := http.NewServeMux()
 				webapi.RegisterManifestRoutes(mux, directory, nil)
 				recorder := httptest.NewRecorder()
 				mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/manifests/"+digest, nil))
 				wantStatus, wantPublication := http.StatusConflict, "conflict"
-				if marker == "matching" {
+				wantIntegrity := "failed"
+				switch marker {
+				case "matching":
 					wantPublication = "finalized"
+				case "absent":
+					wantPublication = "unfinalized"
 					if content == "removed" {
-						wantStatus = http.StatusNotFound
+						wantIntegrity = "unverified"
 					}
+				}
+				if content == "removed" && marker != "conflicting" {
+					wantStatus = http.StatusNotFound
 				}
 				require.Equal(t, wantStatus, recorder.Code)
 				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &receipt))
 				require.Equal(t, wantPublication, receipt.Publication)
-				require.Equal(t, "failed", receipt.Integrity)
+				require.Equal(t, wantIntegrity, receipt.Integrity)
 				require.NotEmpty(t, receipt.Diagnostics)
 				completed, err := store.ReadCompleted(context.Background(), digest)
 				require.Error(t, err)
