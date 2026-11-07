@@ -448,7 +448,9 @@ opaque execution ID; explicit verified reuse preserves original terminal bytes
 and native ordinals with zero new calls. Failed originals remain failed.
 The protected loopback `POST /api/v1/runner/submit` uses server-configured storage,
 never a request-selected path. Neither surface exposes raw reports or migrates
-legacy results. See [submission, retry, reuse and migration](site/src/content/docs/guides/immutable-artifacts.mdx#execute-distinct-work-or-explicitly-reuse-its-original).
+legacy results. Lab retains a bounded, explicitly historical page-local receipt
+comparison with exact JSON export; reaching capacity stops submissions rather
+than dropping evidence. See [submission, retry, reuse and migration](site/src/content/docs/guides/immutable-artifacts.mdx#execute-distinct-work-or-explicitly-reuse-its-original).
 
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
 keeps the default scratch image mock-only and provides an explicit

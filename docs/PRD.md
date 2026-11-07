@@ -102,7 +102,12 @@ The same first manifest includes protected category, original attempt and fixed
 lifecycle metadata. Raw reports and unadmitted binding/source text are withheld.
 Failures and historical billing attribution remain original, not reclassified
 as success or new charges. Retry/branch parents are append-only with incomparable
-siblings, not a global order or exactly-once claim. Lab consumption and broader
+siblings, not a global order or exactly-once claim. Lab retains separate bounded
+page-local historical receipts, original IDs/ordinals, parents and reuse decisions,
+including operation failures. Capacity stops submission without dropping records;
+exact-response exports and explicit view clearing do not alter stored evidence.
+Receipt order is not execution order or a claim of current source availability.
+Lab consumption and broader
 native, hosted-browser and release acceptance remain separate validation gates.
 See [submission and migration](../site/src/content/docs/guides/immutable-artifacts.mdx#execute-distinct-work-or-explicitly-reuse-its-original).
 
