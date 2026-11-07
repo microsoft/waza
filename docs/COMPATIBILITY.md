@@ -97,14 +97,28 @@ lifecycle return, and can return at most 16 named objects for the same original
 manifest. Names, media types, per-object/total bounds, and duplicate names are
 validated before blob writes; observer/publication failures cannot complete the
 attempt. Content binding does not turn a sidecar declaration into attestation.
+Its typed `ObservedReport` retains a detached original comparison binding and
+actual observation presence, including unavailable versus explicitly empty
+transcript/tool arrays, validation maps, and recorded zero usage. The legacy
+raw-report omission behavior is unchanged; deserializing an omitted array never
+proves observed emptiness or hydrates a creator.
 
 The current embedding prototype's raw `report.json` includes potentially
 restricted conversation/tool/path data. Private storage and source integrity do
 not constitute category capture/disclosure approval. Public submit registration
 must remain disabled until the actual evidence-owner privacy guard, category
 producer, and default-withheld behavior are integrated; the raw prototype is not
-a public privacy policy. The result wire profile and public integrations remain
-pending.
+a public privacy policy. Public integrations remain pending.
+
+The additive `execution-submission-result-1.0.schema.json` and
+`ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,
+phase requirements, caller/decision logical context, original reservation hash,
+completion/source references, native terminal binding and new-call counts.
+Reuse cannot relabel the original ordinal or count historical calls as new.
+An optional historical report must agree with the original native verdicts and
+status, but absence remains unavailable. These offline profile checks access no
+provider, establish no runtime/billing attestation, and grant no capture or
+disclosure rights. They do not modify any legacy reader/default.
 
 Logical run is the existing `runneridentity.Identity.Run`; logical work is
 `Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,

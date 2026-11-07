@@ -32,9 +32,10 @@ type SubmissionHooks struct {
 // SubmissionSnapshot carries detached original evidence after lifecycle return.
 // Added artifact bytes share its finalized manifest, not an attestation claim.
 type SubmissionSnapshot struct {
-	Reservation executionledger.Reservation
-	Terminal    runnerterminal.Envelope
-	Report      json.RawMessage
+	Reservation    executionledger.Reservation
+	Terminal       runnerterminal.Envelope
+	Report         json.RawMessage
+	ObservedReport Report
 }
 
 type SubmissionArtifact struct {
@@ -131,7 +132,9 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		Status: "rejected", ExitCode: 6, Diagnostics: []runnercontract.Diagnostic{}}
 	request, err := ParseSubmission(data)
 	if err != nil {
-		result.Diagnostics = runnercontract.Rejected(err.Error()).Diagnostics
+		result.Diagnostics = []runnercontract.Diagnostic{{
+			Code: "invalid_submission", Message: "Submission wrapper is invalid; compare the original input with the execution-submission schema.",
+		}}
 		return result, err
 	}
 	report, input := admit(request.Request)
@@ -303,8 +306,14 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 			result.fail("terminal_encoding_failed", err)
 			return result, err
 		}
+		observedReport, err := cloneSubmissionReport(report, fullReport)
+		if err != nil {
+			result.fail("report_snapshot_failed", err)
+			return result, err
+		}
 		extra, err := hooks.Artifacts(publicationContext, ledger, creator, SubmissionSnapshot{
 			Reservation: *callbackReservation, Terminal: *callbackTerminal, Report: bytes.Clone(fullReport),
+			ObservedReport: observedReport,
 		})
 		if err != nil {
 			result.fail("artifact_observer_failed", err)

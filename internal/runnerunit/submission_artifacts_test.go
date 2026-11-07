@@ -28,6 +28,9 @@ func TestSubmitBindsDetachedObserverBytesInOriginalFinalizedManifest(t *testing.
 			return nil, err
 		}
 		if report.Calls != 1 || report.Observation == nil || snapshot.Terminal.EngineCalls != 1 ||
+			snapshot.ObservedReport.Calls != report.Calls || snapshot.ObservedReport.Observation == nil ||
+			snapshot.ObservedReport.binding == nil ||
+			*snapshot.ObservedReport.binding.Identity != snapshot.Reservation.Attempt.Binding.Identity ||
 			snapshot.Terminal.Observation.Status != string(report.Observation.Status) ||
 			snapshot.Reservation.Digest != artifactmanifest.Hash(snapshot.Reservation.Bytes) {
 			t.Fatal("artifact observer did not receive original joined report/reservation")
@@ -42,6 +45,8 @@ func TestSubmitBindsDetachedObserverBytesInOriginalFinalizedManifest(t *testing.
 			return nil, err
 		}
 		snapshot.Report[0] = 'X'
+		snapshot.ObservedReport.Identity.Run = "callback-mutated"
+		snapshot.ObservedReport.Observation.Status = "failed"
 		snapshot.Reservation.Bytes[0] = 'Y'
 		snapshot.Terminal.Identity.Run = "callback-mutated"
 		snapshot.Terminal.Observation.Status = "failed"
