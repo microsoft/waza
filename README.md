@@ -701,7 +701,14 @@ The `run` command uses exit codes to enable CI/CD integration:
 |-----------|-----------|-------------|
 | `0` | Success | All tests passed |
 | `1` | Test failure | One or more tests failed validation |
-| `2` | Configuration error | Invalid spec, missing files, or runtime error |
+| `2` | Configuration or runtime error | Invalid spec, missing files, or operational execution/grader error |
+
+An operational trial error makes its task `error` and increments
+`summary.errors`, even if another trial passed or failed. Completed negative
+judgments remain `failed` and use exit `1`. Requested completed result artifacts
+are saved before runtime exit `2`, which also takes precedence in baseline and
+multi-model/multi-skill runs. See the [trial status matrix](docs/COMPATIBILITY.md#operational-trial-errors)
+for skipped trials, retries, cache reuse, and regrading.
 
 Example CI usage:
 

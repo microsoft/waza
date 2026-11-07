@@ -250,7 +250,13 @@ func TestOverallStatus(t *testing.T) {
 		{"mixed passed and skipped", []models.Status{models.StatusPassed, models.StatusSkipped}, models.StatusPassed},
 		{"mixed skipped and passed", []models.Status{models.StatusSkipped, models.StatusPassed}, models.StatusPassed},
 		{"mixed failed and skipped", []models.Status{models.StatusFailed, models.StatusSkipped}, models.StatusFailed},
-		{"error among passed", []models.Status{models.StatusPassed, models.StatusError}, models.StatusFailed},
+		{"all errors", []models.Status{models.StatusError, models.StatusError}, models.StatusError},
+		{"error among passed", []models.Status{models.StatusPassed, models.StatusError}, models.StatusError},
+		{"error before passed", []models.Status{models.StatusError, models.StatusPassed}, models.StatusError},
+		{"error among failed", []models.Status{models.StatusFailed, models.StatusError}, models.StatusError},
+		{"error before failed", []models.Status{models.StatusError, models.StatusFailed}, models.StatusError},
+		{"error and skipped", []models.Status{models.StatusError, models.StatusSkipped}, models.StatusError},
+		{"all statuses", []models.Status{models.StatusPassed, models.StatusError, models.StatusFailed, models.StatusSkipped}, models.StatusError},
 		{"no runs", nil, models.StatusSkipped},
 	}
 	for _, tt := range tests {
@@ -259,7 +265,7 @@ func TestOverallStatus(t *testing.T) {
 			for i, s := range tt.statuses {
 				runs[i] = models.RunResult{RunNumber: i + 1, Status: s}
 			}
-			assert.Equal(t, tt.want, overallStatus(runs))
+			assert.Equal(t, tt.want, OverallStatus(runs))
 		})
 	}
 }
