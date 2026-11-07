@@ -4,11 +4,12 @@ Checkpoint schema **1.0 is an additive declaration contract under development
 for #765**, not an operational resume feature. The current
 `executioncheckpoint` package provides strict codecs, declared compatibility
 comparison, original-source context admission and ordinary immutable checkpoint
-blob storage. It does not reserve attempts, authorize safe-boundary creation,
-restore work, or provide an operational resume command. A separate read-only
+blob storage, retained-creator finalized publication and typed finalized-source
+reads. It does not reserve attempts, provide the single-admission public
+safe-boundary creation/restore flow or expose an operational resume command. A separate read-only
 API/Lab inspector admits current blob metadata but does not authorize recovery.
-Do not treat stored
-declaration bytes or a passing codec as evidence that interruption recovery works.
+Do not treat stored declaration bytes or a passing codec as evidence that
+interruption recovery works.
 
 ## Safe boundaries
 
@@ -131,6 +132,26 @@ original failure/cancellation status, identity and native ordinal. The helper
 does not authenticate a caller-supplied binding or grant execution ownership;
 the owned public restore caller remains required.
 
+`PublishFinalized` accepts only the actual retained `Ledger` creator. It compares
+both the supplied original request's full identity **and its explicit selection**
+with the retained reservation, then uses the typed ledger's current completion
+and verified publication. Matching identity hashes do not repair an inconsistent
+native selection. Original creator bytes are validated before publication and
+again afterward; a late failure returns the stored digest with an error and
+does not delete evidence. The owning runner must supply its original admitted
+request and real build revision and join execution before this helper runs;
+the helper does not independently authenticate caller-supplied negotiation
+metadata or establish the lifecycle boundary.
+
+`ReadStoredFinalized` uses `Ledger.ReadCompleted` to obtain the independently
+stored original binding/reservation/completion rather than a binding inferred
+from checkpoint fields or a destination ordinal. It validates checkpoint context
+against those actual source records and returns their current verified
+publication and original terminal bytes. These reads do not recreate a creator
+capability or upgrade declared-context/content verification into runtime
+attestation. The blob backend and typed ledger must select the same configured
+source store in the public caller.
+
 ### Read-only source inspection
 
 The current-source dashboard registers `GET /api/v1/checkpoints/{digest}` and
@@ -162,7 +183,10 @@ Keep existing commands/readers for unsupported workflows.
 The source layer has codec and compatibility tests, actual immutable-provider
 blob persistence/concurrency/corruption/failure tests, and context tests
 using actual production mock runner terminal output, including passed and
-failed-check controls. Those tests **do not prove kill-and-resume, persistence
-or exactly-once work**. Durable creation/restore, failed-restore process tests,
+failed-check controls. Typed-owner tests also cover foreign/zero creators,
+coherent source selection/identity mismatch, late creator failure and current
+source corruption. Those tests **do not prove single-admission submit ordering,
+kill-and-resume, process-crash durability or exactly-once work**. Complete public
+creation/restore, failed-restore process tests,
 user commands, connected resume examples and authenticated Lab compatibility/progress
 remain required before #765 is complete or a release can advertise recovery.
