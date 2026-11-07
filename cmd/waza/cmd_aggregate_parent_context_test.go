@@ -29,6 +29,75 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAggregateParentBrowserFixtureProductionAPI(t *testing.T) {
+	directory := t.TempDir()
+	store := filepath.Join(directory, ".waza-artifacts")
+	require.NoError(t, os.Mkdir(store, 0o700))
+	var firstParent string
+	var retryBody []byte
+	for _, mode := range []string{"retry", "missing-parent"} {
+		t.Run(mode, func(t *testing.T) {
+			command := exec.CommandContext(t.Context(), "go", "run",
+				"../../internal/manifestaggregate/testdata/protected-producer", store,
+				"../../examples/runner/unit.json", mode)
+			wire, err := command.CombinedOutput()
+			require.NoError(t, err, string(wire))
+			var source struct {
+				ManifestSHA256 string                  `json:"manifest_sha256"`
+				EvidenceSHA256 string                  `json:"evidence_sha256"`
+				ExecutionID    string                  `json:"execution_id"`
+				Parent         executionattempt.Source `json:"parent"`
+			}
+			require.NoError(t, json.Unmarshal(wire, &source))
+			require.NotEqual(t, source.ExecutionID, source.Parent.ExecutionID)
+			if mode == "retry" {
+				firstParent = source.Parent.ExecutionID
+			} else {
+				require.NotEqual(t, firstParent, source.Parent.ExecutionID, "distinct submissions create new actual execution IDs even for the same logical input")
+			}
+			pairs := []manifestaggregate.EvidenceInput{{ManifestSHA256: source.ManifestSHA256, EvidenceSHA256: source.EvidenceSHA256}}
+			body, err := json.Marshal(manifestaggregate.Request{Manifests: []string{source.ManifestSHA256}, Evidence: &pairs})
+			require.NoError(t, err)
+			if mode == "retry" {
+				retryBody = body
+			}
+			mux := http.NewServeMux()
+			webapi.RegisterAggregateRoutes(mux, directory, nil)
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(body)))
+			expectedHTTP, expectedState := http.StatusOK, "verified"
+			if mode == "missing-parent" {
+				expectedHTTP, expectedState = http.StatusConflict, "unavailable"
+			}
+			require.Equal(t, expectedHTTP, response.Code, response.Body.String())
+			var report manifestaggregate.Report
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &report))
+			candidate := report.Evidence.Members[0].Candidates[0]
+			require.Equal(t, "verified", candidate.State)
+			require.Len(t, candidate.Categories, 6)
+			require.Equal(t, "verified", candidate.SourceContext.State)
+			require.Equal(t, expectedState, candidate.SourceContext.ParentContext.State)
+			if mode == "retry" {
+				require.Equal(t, source.Parent, *candidate.SourceContext.ParentContext.Source)
+			} else {
+				require.Nil(t, candidate.SourceContext.ParentContext.Source)
+			}
+		})
+	}
+	require.NotEmpty(t, retryBody)
+	require.NotEmpty(t, firstParent)
+	mux := http.NewServeMux()
+	webapi.RegisterAggregateRoutes(mux, directory, nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(retryBody)))
+	require.Equal(t, http.StatusOK, response.Code, "missing-parent control must not delete the separate retry fixture's parent")
+	var report manifestaggregate.Report
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &report))
+	parent := report.Evidence.Members[0].Candidates[0].SourceContext.ParentContext
+	require.Equal(t, "verified", parent.State)
+	require.Equal(t, firstParent, parent.Source.ExecutionID)
+}
+
 func TestAggregateParentContextActualProducerPublicContracts(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	for _, control := range []string{"verified", "missing", "corrupt", "conflicting", "branch", "failed", "canceled", "no-parent", "primary-missing"} {

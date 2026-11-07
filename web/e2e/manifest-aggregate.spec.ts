@@ -18,9 +18,18 @@ test.describe("Completed manifest aggregation through real publication and API",
   let actual: ManifestAggregate;
   let protectedSource: { manifest_sha256: string; evidence_sha256: string; execution_id: string };
   let native: ManifestAggregate;
+  let retrySources: {
+    source: { manifest_sha256: string; evidence_sha256: string; execution_id: string;
+      parent: { execution_id: string; manifest_digest: string } };
+    report: ManifestAggregate;
+    state: string;
+  }[];
   const missing = "f".repeat(64);
   const env = { ...process.env, COPILOT_CLI_PATH: "/usr/bin/false", ENABLE_COPILOT_TESTS: "false",
-    ENABLE_LIVE_COPILOT_TESTS: "false", WAZA_NO_UPDATE_CHECK: "1", NO_COLOR: "1" };
+    ENABLE_LIVE_COPILOT_TESTS: "false", ENABLE_COPILOT_SDK_TESTS: "false",
+    WAZA_MCP_RUNTIME_TEST: "false", WAZA_EVIDENCE_JUDGE_RUNTIME_TEST: "false",
+    WAZA_RESPONDER_RUNTIME_TEST: "false", WAZA_NATIVE_LIFECYCLE_SMOKE: "false",
+    WAZA_NO_UPDATE_CHECK: "1", NO_COLOR: "1" };
 
   test.beforeAll(async ({ request }) => {
     test.setTimeout(180_000);
@@ -105,6 +114,27 @@ test.describe("Completed manifest aggregation through real publication and API",
       state: "verified", verification: "content-and-declared-context-only",
       source: { execution_id: protectedSource.execution_id, manifest_digest: protectedSource.manifest_sha256 },
     });
+    retrySources = [];
+    for (const mode of ["retry", "missing-parent"]) {
+      const source = JSON.parse(execFileSync("go", ["run",
+        "./internal/manifestaggregate/testdata/protected-producer", store,
+        resolve("../examples/runner/unit.json"), mode], { cwd: resolve(".."), env, timeout: 150_000 }).toString());
+      expect(source.parent.execution_id).not.toBe(source.execution_id);
+      expect(retrySources.map(value => value.source.parent.execution_id)).not.toContain(source.parent.execution_id);
+      const response = await request.post(`${base}/api/v1/aggregates`, { data: {
+        manifests: [source.manifest_sha256],
+        evidence: [{ manifest_sha256: source.manifest_sha256, evidence_sha256: source.evidence_sha256 }],
+      } });
+      expect(response.status()).toBe(mode === "retry" ? 200 : 409);
+      const report: ManifestAggregate = await response.json();
+      const candidate = report.evidence!.members[0]!.candidates[0]!;
+      expect(candidate.categories).toHaveLength(6);
+      expect(candidate.source_context!.state).toBe("verified");
+      const state = mode === "retry" ? "verified" : "unavailable";
+      expect(candidate.source_context!.parent_context!.state).toBe(state);
+      expect(candidate.source_context!.parent_context!.source).toEqual(mode === "retry" ? source.parent : undefined);
+      retrySources.push({ source, report, state });
+    }
   });
 
   test.afterAll(async () => {
@@ -190,6 +220,43 @@ test.describe("Completed manifest aggregation through real publication and API",
     await expect(result).toHaveCount(0);
     await expect(panel.getByRole("alert")).toContainText("invalid or inconsistent report");
     await expect(panel).not.toContainText("private.example");
+  });
+
+  test("renders actual one-hop retry context and withholds unavailable parent links without erasing native facts", async ({ page, request }) => {
+    for (const { source, report, state } of retrySources) {
+      await page.goto(`${base}/#/lab/runner`);
+      const panel = page.getByRole("region", { name: "Completed manifest aggregation" });
+      await panel.getByRole("textbox", { name: "Expected manifest digests" }).fill(source.manifest_sha256);
+      await panel.getByRole("textbox", { name: "Optional explicit evidence pairs" }).fill(
+        `${source.manifest_sha256}=${source.evidence_sha256}`);
+      await panel.getByRole("button", { name: "Aggregate manifests", exact: true }).click();
+      const result = panel.getByRole("status", { name: "Aggregate composition" });
+      await expect(result).toContainText("Original source context: verified");
+      await expect(result).toContainText(`Immediate parent context: ${state}`);
+      await expect(result).toContainText("relationship: retry");
+      await expect(result).toContainText("One declared hop only");
+      const parentLink = result.getByRole("link", { name: "Verified parent manifest", exact: true });
+      if (state === "verified") {
+        await expect(parentLink).toHaveAttribute("href", `/api/v1/manifests/${source.parent.manifest_digest}`);
+      } else {
+        await expect(parentLink).toHaveCount(0);
+        await expect(result).toContainText("Membership: incomplete");
+      }
+      for (const category of report.evidence!.members[0]!.candidates[0]!.categories) {
+        await expect(result.getByRole("heading", { name: "Native category admission", exact: true })
+          .locator("xpath=following-sibling::dl[1]").locator("div")
+          .filter({ has: page.locator(`dt:text-is("${category.category}")`) }))
+          .toContainText(`observed count: ${category.observed_count ?? "Unavailable"}`);
+      }
+      const csvResponse = await request.post(`${base}/api/v1/aggregates?format=csv`, { data: {
+        manifests: [source.manifest_sha256],
+        evidence: [{ manifest_sha256: source.manifest_sha256, evidence_sha256: source.evidence_sha256 }],
+      } });
+      expect(csvResponse.status()).toBe(state === "verified" ? 200 : 409);
+      const download = page.waitForEvent("download");
+      await result.getByRole("button", { name: "Download aggregate CSV" }).click();
+      expect(readFileSync((await (await download).path())!, "utf8")).toBe(await csvResponse.text());
+    }
   });
 
   test("rejects contradictory outcomes and duplicate verdicts without retaining success", async ({ page }) => {
