@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Exact-unit checkpoint recovery (v0.41 source preview)** - Add protected
+  `runner checkpoint create/resume`, loopback API operations and Lab checkpoint
+  inspection/recovery results (#765). Independent checkpoint and operation-result
+  profiles use exact `1.0`; unapproved source metadata is explicitly withheld.
+  Before-unit recovery requires absent original completion and reserves a fresh
+  retry child. Finalized-unit recovery verifies original reservation, completion,
+  manifest/content and final marker, preserving the original terminal/status
+  with zero new engine calls. Runner revision, schema, model, tool, policy and
+  captured-input compatibility fail closed; incompatible state has no implicit
+  migration. Legacy artifact readers and `run --resume` remain unchanged.
+  Historical sessions/results, mid-runtime state and changed runner revisions
+  are not adopted. Compiled-CLI recovery, native-platform, current-head browser,
+  matched embedded-dashboard and full release gates remain pending; this is not
+  shipped recovery or global exactly-once execution. See
+  [checkpoint migration and recovery limits](docs/EXECUTION_CHECKPOINTS.md).
+
 - **Lifecycle declaration inspection (v0.41 source preview)** - Add bounded
   lifecycle observations and immutable blob storage, strict original-context
   projections, `lifecycle inspect`, read-only API and Lab source presentation

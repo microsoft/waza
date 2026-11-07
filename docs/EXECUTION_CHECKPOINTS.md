@@ -302,6 +302,9 @@ The separate standard-Node controls in
 `web/e2e/checkpoint-cli-process.test.mjs` require `WAZA_E2E_CLI` to name the
 actual clean-stamped compiled CLI. Dashboard CI selects them explicitly before
 the frontend build and checks the binary's real revision and clean flag.
+At each killed boundary, incompatible captured input must reject with withheld
+metadata and unchanged hashes for every retained store entry before valid
+recovery is attempted. Finalized recovery also rejects a removed final marker.
 Its push and PR change filters include `internal/webapi/checkpoint_operations*.go`;
 the regression in `.github/scripts/web_checkpoint_ci_test.go` removes each
 production filter independently to prove checkpoint caller changes cannot

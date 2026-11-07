@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -93,6 +93,12 @@ function readBoundObject(store, prefix, digest) {
   return bytes;
 }
 
+function snapshotStore(store) {
+  return readdirSync(store).sort().map((name) => [
+    name, createHash("sha256").update(readFileSync(join(store, name))).digest("hex"),
+  ]);
+}
+
 test("compiled checkpoint CLI recovers actual SIGKILL at both stored boundaries and rejects failed restore", {
   timeout: 180_000,
   skip: process.platform === "win32" ? "Unix SIGKILL is not native Windows recovery evidence." : false,
@@ -127,9 +133,29 @@ test("compiled checkpoint CLI recovers actual SIGKILL at both stored boundaries 
     assert.equal(source.boundary, boundary);
     const originalSelection = { ...wrapper.request.selection };
     wrapper.request.selection.attempt = 3;
-    const run = () => spawnSync(binary, ["runner", "checkpoint", "resume", digest, "--store", store], {
-      cwd: directory, input: JSON.stringify(wrapper), encoding: "utf8", timeout: 90_000, maxBuffer: 4 << 20, env,
+    const run = (input = wrapper) => spawnSync(binary, ["runner", "checkpoint", "resume", digest, "--store", store], {
+      cwd: directory, input: JSON.stringify(input), encoding: "utf8", timeout: 90_000, maxBuffer: 4 << 20, env,
     });
+    const incompatibleInput = structuredClone(wrapper);
+    incompatibleInput.request.input.task = incompatibleInput.request.input.task.replace("prompt: a", "prompt: b");
+    assert.notEqual(incompatibleInput.request.input.task, wrapper.request.input.task);
+    const preserved = snapshotStore(store);
+    const incompatibleRun = run(incompatibleInput);
+    assert.equal(incompatibleRun.error, undefined);
+    assert.equal(incompatibleRun.status, 6, incompatibleRun.stderr);
+    const incompatible = JSON.parse(incompatibleRun.stdout);
+    assert.equal(incompatible.exit_code, incompatibleRun.status);
+    assert.equal(incompatible.status, "rejected");
+    assert.equal(incompatible.diagnostics[0].code, "checkpoint_incompatible");
+    assert.equal(incompatible.compatibility_result, "incompatible");
+    assert.deepEqual(incompatible.compatibility_differences, ["work"]);
+    assert.equal(incompatible.source_withheld, true);
+    assert.equal(incompatible.source, undefined);
+    assert.equal(incompatible.submission, undefined);
+    assert.equal(incompatible.restored_units, null);
+    assert.equal(incompatible.remaining_work, null);
+    assert.deepEqual(snapshotStore(store), preserved, "Incompatible recovery must not reserve, execute or rewrite source.");
+    assert.equal(existsSync(`${guard}.invoked`), false);
     let terminalPath;
     let originalTerminal;
     if (boundary === "finalized-unit") {
