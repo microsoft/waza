@@ -95,7 +95,8 @@ function goParser(report, output = () => {}) {
   let bytes = 0, events = 0;
   function accept(line) {
     bytes += Buffer.byteLength(line) + 1;
-    if (bytes > LIMITS.bytes) { diagnostic(report, "input-byte-cap"); return; }
+    const capped = bytes > LIMITS.bytes;
+    if (capped) diagnostic(report, "input-byte-cap");
     if (Buffer.byteLength(line) > LIMITS.line) { diagnostic(report, "input-line-cap"); return; }
     let event;
     try { event = JSON.parse(line); } catch { diagnostic(report, "malformed-json"); return; }
@@ -116,6 +117,7 @@ function goParser(report, output = () => {}) {
       if (typeof event.Output === "string") output(event.Output);
       return;
     }
+    if (capped) return;
     const map = name ? tests : packages, key = name ? `${pkg}::${name}` : pkg;
     if (!map.has(key)) {
       if (tests.size + packages.size >= LIMITS.targets) { diagnostic(report, "target-cap"); return; }
@@ -217,6 +219,8 @@ async function captureGo(output, discovered, selected, env = process.env) {
   const decoder = new StringDecoder("utf8");
   const save = () => {
     parser.finish();
+    diagnostic(report, "execution-finalization-pending");
+    report.complete = false;
     report.collector_seconds = (performance.now() - started) / 1000;
     const used = process.cpuUsage(cpu);
     report.collector_cpu_seconds = (used.user + used.system) / 1000000;
@@ -350,7 +354,7 @@ function browserInventory(data) {
 }
 
 function summarizeActions(run, attempts, artifacts, diagnostics = []) {
-  const report = { schema: 1, kind: "actions", observed_at: new Date().toISOString(), test_content: "not-loaded; metadata-only", repository: "microsoft/waza", run_id: run.id ?? null, run_attempt: number(run.run_attempt), source_sha: text(run.head_sha), event: text(run.event), workflow_id: run.workflow_id ?? null, final_conclusion: text(run.conclusion), diagnostics: [...diagnostics], attempts: [], jobs: [], artifacts: [] };
+  const report = { schema: 1, kind: "actions", observed_at: new Date().toISOString(), test_content: "not-loaded; metadata-only", repository: "microsoft/waza", run_id: run.id ?? null, run_attempt: number(run.run_attempt), source_sha: text(run.head_sha), event: text(run.event), workflow: text(run.name), workflow_id: run.workflow_id ?? null, final_conclusion: text(run.conclusion), diagnostics: [...diagnostics], attempts: [], jobs: [], artifacts: [] };
   const retained = new Map();
   for (const attempt of attempts) {
     const unique = new Map();
@@ -377,7 +381,10 @@ function summarizeActions(run, attempts, artifacts, diagnostics = []) {
     const durations = jobs.map((job) => seconds(job.started_at, job.completed_at));
     const starts = jobs.map((job) => Date.parse(job.started_at));
     const ends = jobs.map((job) => Date.parse(job.completed_at));
-    const complete = jobs.length > 0 && durations.every((duration) => duration !== null) && jobs.every((job) => job.status === "completed") && attempt.complete;
+    const queueDelay = seconds(attempt.created_at, attempt.started_at);
+    const timestampsComplete = attempt.number !== 1 || queueDelay !== null;
+    if (!timestampsComplete) diagnostic(report, "first-attempt-timestamps-unavailable");
+    const complete = jobs.length > 0 && durations.every((duration) => duration !== null) && jobs.every((job) => job.status === "completed") && attempt.complete && timestampsComplete;
     const fresh = jobs.filter((job) => job.run_attempt === attempt.number);
     const freshComplete = complete && fresh.length > 0 && jobs.every((job) => Number.isSafeInteger(job.run_attempt));
     report.attempts.push({
@@ -387,7 +394,7 @@ function summarizeActions(run, attempts, artifacts, diagnostics = []) {
       observed_job_span_seconds: freshComplete ? (Math.max(...fresh.map((job) => Date.parse(job.completed_at))) - Math.min(...fresh.map((job) => Date.parse(job.started_at)))) / 1000 : null,
       retained_job_span_seconds: complete ? (Math.max(...ends) - Math.min(...starts)) / 1000 : null,
       reused_job_ids: jobs.filter((job) => job.run_attempt !== attempt.number).map((job) => job.id),
-      queue_start_delay_seconds: seconds(attempt.created_at, attempt.started_at),
+      queue_start_delay_seconds: queueDelay,
     });
   }
   report.jobs = [...retained.values()].sort((a, b) => a.id - b.id);
@@ -407,7 +414,7 @@ function summarizeActions(run, attempts, artifacts, diagnostics = []) {
     if (!bound) diagnostic(report, "artifact-source-unverified");
   }
   if (!report.attempts.length || report.attempts.some((attempt) => !attempt.complete)) diagnostic(report, "attempts-incomplete");
-  if (!report.source_sha || !report.event || run.status !== "completed") diagnostic(report, "run-metadata-incomplete");
+  if (!report.source_sha || !report.event || !report.workflow || run.status !== "completed") diagnostic(report, "run-metadata-incomplete");
   if (report.jobs.some((job) => job.elapsed_seconds === null || job.steps === null)) diagnostic(report, "job-metadata-incomplete");
   if (report.jobs.some((job) => job.steps?.some((step) => step.conclusion !== "skipped" && step.seconds === null))) diagnostic(report, "step-duration-unavailable");
   if (report.jobs.some((job) => job.run_attempt === null)) diagnostic(report, "job-attempt-unavailable");
@@ -517,6 +524,7 @@ function collectObservations(runID, api, download = (id) => {
       const policyValid = (report.policy && typeof report.policy === "object" && !Array.isArray(report.policy)) || (partial && report.policy == null);
       if (report.schema !== 1 || report.kind !== (match[1] === "browser" ? "playwright" : "go") ||
           report.identity?.repository !== "microsoft/waza" || report.identity?.run_id !== String(runID) ||
+          report.identity?.event !== metadata.event || report.identity?.workflow !== metadata.workflow ||
           report.identity?.attempt !== match[3] ||
           Number(match[3]) > metadata.run_attempt || metadata.run_attempt === null ||
           !selectedValid || !policyValid || !report.cache || typeof report.cache !== "object" || Array.isArray(report.cache) ||
@@ -556,7 +564,7 @@ function trends(reports) {
   return { schema: 1, kind: "trends", policy: "non-blocking; no target attainment assessed", cohorts: [...groups.values()].map((group) => ({ ...group, minimum_samples_available: group.eligible.length >= 3 })) };
 }
 function knownIdentity(report) {
-  const required = ["repository", "source_sha", "workflow", "event", "os", "arch", "os_release", "os_version", "node", "run_id", "attempt"];
+  const required = ["repository", "source_sha", "workflow", "event", "os", "arch", "os_release", "os_version", "node", "run_id", "attempt", "job"];
   required.push(report.kind === "go" ? "go" : "playwright");
   return required.every((field) => text(report.identity[field]) !== null && report.identity[field].length > 0) &&
     /^[0-9a-f]{40}$/.test(report.identity.source_sha);
@@ -581,8 +589,9 @@ function historyProposal(reports) {
       const key = `${target.package}::${target.name}`;
       if (!samples.has(key)) samples.set(key, []);
       const observations = samples.get(key);
-      const source = { run_id: report.identity.run_id, attempt: report.identity.attempt, source_sha: report.identity.source_sha, report_content_sha256: binding.content_sha256, seconds: target.seconds, cohort: JSON.parse(cohort(report)), provenance: binding };
-      if (!observations.some((item) => item.run_id === source.run_id && item.attempt === source.attempt)) observations.push(source);
+      const cohortKey = cohort(report);
+      const source = { run_id: report.identity.run_id, attempt: report.identity.attempt, job: report.identity.job, source_sha: report.identity.source_sha, report_content_sha256: binding.content_sha256, seconds: target.seconds, cohort: JSON.parse(cohortKey), provenance: binding };
+      if (!observations.some((item) => item.run_id === source.run_id && item.attempt === source.attempt && item.job === source.job && JSON.stringify(item.cohort) === cohortKey)) observations.push(source);
     }
   }
   return { schema: 1, kind: "history-proposal", application: "review-only; canonical TSV is never rewritten", targets: [...samples].sort(([a], [b]) => a.localeCompare(b)).map(([target, observations]) => ({ target, observations })) };
@@ -601,9 +610,10 @@ async function main(args) {
     const report = readJSON(input);
     report.execution_exit = Number(output);
     report.collector_exit = Number(extra[0]);
+    report.diagnostics = report.diagnostics.filter((code) => code !== "execution-finalization-pending");
     if (report.collector_exit !== 0) diagnostic(report, "collector-command-failed");
     if (report.execution_exit !== 0 && report.counts?.packages?.fail === 0) diagnostic(report, "execution-failed-without-terminal-evidence");
-    if (report.diagnostics.length) report.complete = false;
+    report.complete = report.diagnostics.length === 0;
     writeJSON(input, report);
     return;
   }

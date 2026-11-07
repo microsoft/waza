@@ -30,9 +30,27 @@ func copyCICaptureScripts(t *testing.T, dir string) {
 func TestCIGoCaptureProductionSelectionAndExit(t *testing.T) {
 	const native = "github.com/microsoft/waza/internal/controlledcomparison"
 	packages := []string{"example/first", native, "example/last"}
+	realNode, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, scope := range []string{"all", "remaining"} {
-		for _, failure := range []string{"", "discovery", "execution"} {
-			t.Run(scope+"/"+failure, func(t *testing.T) {
+		for _, tc := range []struct {
+			name, phase, collector, finalizer string
+			want                              int
+		}{
+			{"success", "", "", "", 0},
+			{"discovery", "discovery", "", "", 7},
+			{"execution", "execution", "", "", 9},
+			{"collector", "", "go", "", 11},
+			{"finalize-discovery", "", "", "finish-discovery", 13},
+			{"finalize-go", "", "", "finish-go", 13},
+			{"discovery-finalization", "discovery", "", "finish-discovery", 7},
+			{"execution-finalization", "execution", "", "finish-go", 9},
+			{"collector-finalization", "", "go", "finish-go", 11},
+			{"all-execution-failures", "execution", "go", "finish-go", 9},
+		} {
+			t.Run(scope+"/"+tc.name, func(t *testing.T) {
 				dir := t.TempDir()
 				scripts := filepath.Join(dir, "scripts")
 				copyCICaptureScripts(t, scripts)
@@ -76,10 +94,18 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 				if err := os.WriteFile(filepath.Join(bin, "go"), []byte(fake), 0o700); err != nil {
 					t.Fatal(err)
 				}
+				fakeNode, err := os.ReadFile(filepath.Join("testdata", "ci-evidence-node-fault.sh"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(bin, "node"), fakeNode, 0o700); err != nil {
+					t.Fatal(err)
+				}
 				calls := filepath.Join(dir, "calls")
 				cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(scripts, "ci_go_test_capture.sh"), scope, "coverage.txt")
 				cmd.Dir = dir
-				cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "FAIL_PHASE="+failure)
+				cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls,
+					"FAIL_PHASE="+tc.phase, "FAIL_COLLECTOR="+tc.collector, "FAIL_FINALIZER="+tc.finalizer, "REAL_NODE="+realNode)
 				output, err := cmd.CombinedOutput()
 				status := 0
 				if err != nil {
@@ -89,9 +115,8 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 					}
 					status = exit.ExitCode()
 				}
-				wantStatus := map[string]int{"": 0, "discovery": 7, "execution": 9}[failure]
-				if status != wantStatus {
-					t.Fatalf("status=%d want=%d: %s", status, wantStatus, output)
+				if status != tc.want {
+					t.Fatalf("status=%d want=%d: %s", status, tc.want, output)
 				}
 				rawCalls, err := os.ReadFile(calls)
 				if err != nil {
@@ -111,7 +136,7 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 					t.Fatalf("discovery=%v want=%v", strings.Fields(commands[0]), discovery)
 				}
 				count := 2
-				if failure == "discovery" {
+				if tc.phase == "discovery" || tc.finalizer == "finish-discovery" {
 					count = 1
 				}
 				if len(commands) != count {
@@ -139,13 +164,18 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 				if err := json.Unmarshal(raw, &report); err != nil {
 					t.Fatal(err)
 				}
-				if failure == "discovery" {
+				if tc.phase == "discovery" || tc.finalizer != "" || tc.collector != "" {
 					if report.Complete || len(report.Diagnostics) == 0 {
-						t.Fatal("failed discovery became complete evidence")
+						t.Fatalf("failed capture/finalization became complete evidence: %s", raw)
+					}
+					if tc.finalizer == "finish-go" && tc.collector == "" {
+						if report.ExecutionExit != nil || !slices.Contains(report.Diagnostics, "execution-finalization-pending") {
+							t.Fatalf("unfinalized command evidence invented an exit/completion: %s", raw)
+						}
 					}
 					return
 				}
-				if failure == "execution" {
+				if tc.phase == "execution" {
 					if report.Complete || report.ExecutionExit == nil || *report.ExecutionExit != 9 {
 						t.Fatalf("late command failure became success: %s", raw)
 					}

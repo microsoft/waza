@@ -32,9 +32,11 @@ go test -race -covermode=atomic -json -list . "${selected[@]}" |
   node "$scripts/ci-evidence.cjs" discover "$profile.all"
 discovery_status=("${PIPESTATUS[@]}")
 set -e
-node "$scripts/ci-evidence.cjs" finish-discovery "$profile.evidence.json" "${discovery_status[0]}" "${discovery_status[1]}"
+finalization_status=0
+node "$scripts/ci-evidence.cjs" finish-discovery "$profile.evidence.json" "${discovery_status[0]}" "${discovery_status[1]}" || finalization_status=$?
 if [ "${discovery_status[0]}" -ne 0 ]; then exit "${discovery_status[0]}"; fi
 if [ "${discovery_status[1]}" -ne 0 ]; then exit "${discovery_status[1]}"; fi
+if [ "$finalization_status" -ne 0 ]; then exit "$finalization_status"; fi
 cp "$profile.all" "$profile.selected"
 set +e
 go test -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
@@ -42,6 +44,8 @@ go test -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode
   node "$scripts/ci-evidence.cjs" go "$profile.evidence.json" "$profile.all" "$profile.selected"
 status=("${PIPESTATUS[@]}")
 set -e
-node "$scripts/ci-evidence.cjs" finish-go "$profile.evidence.json" "${status[0]}" "${status[1]}"
+finalization_status=0
+node "$scripts/ci-evidence.cjs" finish-go "$profile.evidence.json" "${status[0]}" "${status[1]}" || finalization_status=$?
 if [ "${status[0]}" -ne 0 ]; then exit "${status[0]}"; fi
-exit "${status[1]}"
+if [ "${status[1]}" -ne 0 ]; then exit "${status[1]}"; fi
+exit "$finalization_status"

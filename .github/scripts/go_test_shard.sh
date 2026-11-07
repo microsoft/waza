@@ -41,6 +41,8 @@ go test -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode
     "$profile.evidence.json" "$profile.all" "$profile.selected"
 status=("${PIPESTATUS[@]}")
 set -e
-node "$scripts/ci-evidence.cjs" finish-go "$profile.evidence.json" "${status[0]}" "${status[1]}"
+finalization_status=0
+node "$scripts/ci-evidence.cjs" finish-go "$profile.evidence.json" "${status[0]}" "${status[1]}" || finalization_status=$?
 if [ "${status[0]}" -ne 0 ]; then exit "${status[0]}"; fi
-exit "${status[1]}"
+if [ "${status[1]}" -ne 0 ]; then exit "${status[1]}"; fi
+exit "$finalization_status"

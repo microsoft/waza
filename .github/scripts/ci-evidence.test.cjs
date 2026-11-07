@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync, spawn } = require("node:child_process");
 const { createHash } = require("node:crypto");
-const { goReport, goParser, browserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal } = require("./ci-evidence.cjs");
+const { LIMITS, goReport, goParser, browserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal } = require("./ci-evidence.cjs");
 
 const env = { GITHUB_REPOSITORY: "microsoft/waza", GITHUB_WORKFLOW: "Go Build and Test", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40), GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", GITHUB_JOB: "native", RUNNER_OS: "Linux", RUNNER_ARCH: "X64", GO_CACHE_HIT: "false", NODE_CACHE_HIT: "false" };
 const parseGo = (events) => {
@@ -48,6 +48,57 @@ test("Go output and arbitrary event fields are not retained", () => {
   const report = parseGo([...successful, { ...event("output", "TestA"), Output: "SECRET", Token: "SECRET" }]);
   assert.ok(!JSON.stringify(report).includes("SECRET"));
 });
+test("Go telemetry admission stops at the byte cap but bounded late diagnostics remain on the console", () => {
+  const report = goReport(env);
+  let forwarded = 0, late = "";
+  const parser = goParser(report, (output) => {
+    forwarded++;
+    if (output.includes("SECRET")) late += output;
+  });
+  parser.accept(JSON.stringify(event("start")));
+  parser.accept(JSON.stringify(event("run", "TestA")));
+  const padding = JSON.stringify({ ...event("output", "TestA"), Output: "x".repeat(LIMITS.line - 128) });
+  assert.ok(Buffer.byteLength(padding) < LIMITS.line);
+  const count = Math.ceil(LIMITS.bytes / Buffer.byteLength(padding));
+  for (let index = 0; index < count; index++) parser.accept(padding);
+  parser.accept(JSON.stringify({ ...event("output", "TestA"), Output: "SECRET late failure\n" }));
+  parser.accept(JSON.stringify({ Action: "build-output", ImportPath: "example/p", Output: "SECRET compiler diagnostic\n" }));
+  parser.accept(JSON.stringify(event("fail", "TestA", 4)));
+  parser.finish();
+  assert.equal(forwarded, count + 2);
+  assert.equal(late, "SECRET late failure\nSECRET compiler diagnostic\n");
+  assert.equal(report.complete, false);
+  assert.ok(report.diagnostics.includes("input-byte-cap"));
+  assert.equal(report.targets.length, 1);
+  assert.equal(report.targets[0].status, null, "terminal measurements after the cap are not admitted");
+  assert.ok(!JSON.stringify(report).includes("SECRET"));
+});
+test("production streaming capture forwards late failures beyond its report admission cap", { timeout: 30000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cap-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  fs.writeFileSync(path.join(dir, "all"), "example/p::TestA\n");
+  const child = spawn(process.execPath, [path.join(__dirname, "ci-evidence.cjs"), "go", "report.json", "all", "all"], { cwd: dir, env: { ...process.env, ...env } });
+  t.after(() => { if (child.exitCode === null) child.kill("SIGTERM"); });
+  let tail = "", errors = "";
+  child.stdout.on("data", (data) => { tail = (tail + data.toString()).slice(-1024); });
+  child.stderr.on("data", (data) => { errors = (errors + data.toString()).slice(-4096); });
+  const closed = new Promise((resolve, reject) => { child.once("close", resolve); child.once("error", reject); });
+  const write = (line) => new Promise((resolve, reject) => child.stdin.write(line, (error) => error ? reject(error) : resolve()));
+  await write(JSON.stringify(event("start")) + "\n");
+  await write(JSON.stringify(event("run", "TestA")) + "\n");
+  const padding = JSON.stringify({ ...event("output", "TestA"), Output: "x".repeat(LIMITS.line - 128) }) + "\n";
+  for (let index = 0; index < Math.ceil(LIMITS.bytes / Buffer.byteLength(padding)); index++) await write(padding);
+  await write(JSON.stringify({ ...event("output", "TestA"), Output: "SECRET late failure\n" }) + "\n");
+  await write(JSON.stringify(event("fail", "TestA", 4)) + "\n");
+  child.stdin.end();
+  assert.equal(await closed, 0, errors);
+  assert.ok(tail.includes("SECRET late failure"));
+  const report = JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8"));
+  assert.equal(report.complete, false);
+  assert.ok(report.diagnostics.includes("input-byte-cap"));
+  assert.equal(report.targets[0].status, null);
+  assert.ok(!JSON.stringify(report).includes("SECRET"));
+});
 test("production Go capture executes a real no-provider test and preserves failure exit with pipefail", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-evidence-"));
   t.after(() => fs.rmSync(dir, { recursive: true }));
@@ -55,7 +106,7 @@ test("production Go capture executes a real no-provider test and preserves failu
   fs.writeFileSync(path.join(dir, "example_test.go"), 'package p\nimport "testing"\nfunc TestA(t *testing.T) { t.Run("skip", func(t *testing.T) {t.Skip("SECRET")}) }\nfunc TestFailure(t *testing.T) {t.Fatal("SECRET")}\n');
   fs.writeFileSync(path.join(dir, "all"), "example/p::TestA\nexample/p::TestFailure\n");
   const collector = path.join(__dirname, "ci-evidence.cjs");
-  const result = spawnSync("bash", ["-c", 'set -o pipefail; go test -count=1 -json -v . | node "$1" go report.json all all', "bash", collector], { cwd: dir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 120000 });
+  const result = spawnSync("bash", ["-c", 'set -o pipefail; go test -count=1 -json -v . | node "$1" go report.json all all; status=("${PIPESTATUS[@]}"); node "$1" finish-go report.json "${status[0]}" "${status[1]}"; exit "${status[0]}"', "bash", collector], { cwd: dir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 120000 });
   assert.equal(result.status, 1, result.stderr);
   const report = JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8"));
   assert.equal(report.complete, true, JSON.stringify(report.diagnostics));
@@ -205,7 +256,7 @@ test("production browser collector retains available discovery when execution is
   assert.ok(invalid.diagnostics.includes("browser-discovery-not-successful"));
 });
 
-const run = { id: 10, repository: { full_name: "microsoft/waza" }, head_sha: "a".repeat(40), event: "push", workflow_id: 20, status: "completed", conclusion: "success", run_attempt: 2, created_at: "2026-11-07T10:00:00Z" };
+const run = { id: 10, repository: { full_name: "microsoft/waza" }, head_sha: "a".repeat(40), event: "push", name: env.GITHUB_WORKFLOW, workflow_id: 20, status: "completed", conclusion: "success", run_attempt: 2, created_at: "2026-11-07T10:00:00Z" };
 const job = (id, start, end, conclusion = "success", attempt = 1) => ({ id, run_id: 10, head_sha: run.head_sha, run_attempt: attempt, name: `job-${id}`, labels: ["ubuntu-latest"], status: "completed", conclusion, started_at: `2026-11-07T10:${start}:00Z`, completed_at: end === null ? null : `2026-11-07T10:${end}:00Z`, steps: [{ number: 1, name: "Tests", conclusion, started_at: `2026-11-07T10:${start}:00Z`, completed_at: end === null ? null : `2026-11-07T10:${end}:00Z` }] });
 test("Actions preserves original failures and deduplicates retained jobs across retry attempts", () => {
   const first = job(1, "01", "03", "failure"), retained = job(2, "01", "04"), retry = job(3, "05", "07", "success", 2);
@@ -275,15 +326,65 @@ function verified(report, overrides = {}, family = report.kind === "playwright" 
   const filename = family === "browser" ? "ci-evidence-browser.json" : family === "go-run" ? "coverage.txt.evidence.json" : "coverage-native-0.txt.evidence.json";
   const zip = archive(report, filename), id = Number(report.identity.run_id);
   const name = `ci-evidence-${family}-${id}-${report.identity.attempt}` + (family === "go-native" ? "-0" : family === "go-run" ? `-${report.identity.job}` : "");
-  const fixtureRun = { ...run, id, run_attempt: 1, ...overrides };
+  const fixtureRun = { ...run, id, run_attempt: 1, run_started_at: "2026-11-07T10:01:00Z", ...overrides };
   const api = (endpoint) => {
     if (endpoint.includes("/jobs")) return { total_count: 1, jobs: [{ ...job(1, "01", "02"), run_id: id }] };
     if (endpoint.includes("/artifacts")) return { total_count: 1, artifacts: [{ id: 100, name, size_in_bytes: zip.length, expired: false, digest: `sha256:${createHash("sha256").update(zip).digest("hex")}`, workflow_run: { id, head_sha: fixtureRun.head_sha } }] };
-    if (endpoint.includes("/attempts/")) return { run_started_at: "2026-11-07T10:01:00Z" };
+    if (endpoint.includes("/attempts/")) return { run_started_at: fixtureRun.run_started_at };
     return fixtureRun;
   };
   return collectObservations(String(id), api, () => zip);
 }
+test("first-attempt timestamp omissions or invalid pairs withhold complete metadata and baseline admission", () => {
+  const report = parseGo(successful);
+  report.selected = ["example/p::TestA"]; report.discovered = report.selected;
+  report.identity.source_sha = run.head_sha;
+  for (const overrides of [
+    { created_at: null }, { created_at: "invalid" },
+    { run_started_at: null }, { run_started_at: "invalid" },
+    { created_at: "2026-11-07T10:02:00Z" },
+  ]) {
+    const observed = verified(report, overrides);
+    assert.equal(observed.reports.length, 1, "preserve authenticated observed test content");
+    assert.ok(observed.metadata.jobs.length > 0);
+    assert.equal(observed.metadata.complete, false);
+    assert.equal(observed.metadata.attempts[0].queue_start_delay_seconds, null);
+    assert.ok(observed.diagnostics.includes("first-attempt-timestamps-unavailable"));
+    assert.equal(trends(observed.reports).cohorts[0].eligible.length, 0);
+  }
+  const zero = verified(report, { created_at: "2026-11-07T10:01:00Z" });
+  assert.equal(zero.metadata.complete, true);
+  assert.equal(zero.metadata.attempts[0].queue_start_delay_seconds, 0);
+  assert.equal(trends(zero.reports).cohorts[0].eligible.length, 1);
+});
+test("authenticated event and workflow mismatches reject otherwise source-matching artifacts", () => {
+  const report = parseGo(successful);
+  report.selected = ["example/p::TestA"]; report.discovered = report.selected;
+  report.identity.source_sha = run.head_sha;
+  assert.equal(verified(report).reports.length, 1);
+  for (const identity of [{ event: "workflow_dispatch" }, { workflow: "Different workflow" }]) {
+    const observed = verified({ ...report, identity: { ...report.identity, ...identity } });
+    assert.equal(observed.reports.length, 0);
+    assert.ok(observed.diagnostics.includes("evidence-artifact-invalid-or-unverified"));
+  }
+});
+test("history preserves same-run platform and job observations while deduplicating repeated copies", () => {
+  const report = parseGo(successful);
+  report.selected = ["example/p::TestA"]; report.discovered = report.selected;
+  report.identity.source_sha = run.head_sha;
+  const windows = { ...report, identity: { ...report.identity, job: "windows", os: "Windows", go: "go version go1.26.4 windows/amd64" } };
+  const otherJob = { ...report, identity: { ...report.identity, job: "another-linux-job" } };
+  const linux = verified(report, {}, "go-run").reports[0];
+  const win = verified(windows, {}, "go-run").reports[0];
+  const other = verified(otherJob, {}, "go-run").reports[0];
+  const proposal = historyProposal([linux, win, other, linux, win]);
+  assert.equal(proposal.targets.length, 1);
+  const observations = proposal.targets[0].observations;
+  assert.equal(observations.length, 3);
+  assert.deepEqual(observations.map((item) => item.job), ["native", "windows", "another-linux-job"]);
+  assert.deepEqual(observations.map((item) => item.cohort.os), ["Linux", "Windows", "Linux"]);
+  assert.ok(observations.every((item) => item.run_id === "10" && item.attempt === "1" && item.seconds === 2));
+});
 test("ordinary job artifacts and authenticated incomplete observations retain source binding without invented selection or eligibility", () => {
   const report = parseGo(successful);
   report.selected = ["example/p::TestA"]; report.discovered = report.selected;
@@ -379,7 +480,7 @@ test("latest API retry state and unavailable exact runtimes cannot become first-
   assert.equal(verified({ ...report, identity: { ...report.identity, attempt: "2" } }).reports.length, 0);
   const failed = verified(report, { conclusion: "failure" }).reports[0];
   assert.equal(trends([failed]).cohorts[0].eligible.length, 0);
-  for (const field of ["go", "node", "os_release", "os_version"]) {
+  for (const field of ["go", "node", "os_release", "os_version", "job"]) {
     const missing = verified({ ...report, identity: { ...report.identity, [field]: null } }).reports[0];
     assert.equal(trends([missing]).cohorts[0].eligible.length, 0, field);
     assert.equal(historyProposal([missing]).targets.length, 0, field);
