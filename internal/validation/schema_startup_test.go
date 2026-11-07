@@ -21,11 +21,9 @@ func TestLazySchemasProductionCLIStartup(t *testing.T) {
 	sourcePath := filepath.Join(root, "internal", "validation", "schema.go")
 	source, err := os.ReadFile(sourcePath)
 	require.NoError(t, err)
-	needle := "func mustCompileSchema(raw string, name string) *jsonschema.Schema {\n"
-	require.Equal(t, 1, strings.Count(string(source), needle))
 	// Poison the real compiler boundary: any startup compilation must fail,
 	// while a validation command proves the sentinel is actually reachable.
-	poisoned := strings.Replace(string(source), needle, needle+"\traw = \"{\"\n", 1)
+	poisoned := poisonSchemaCompiler(t, string(source))
 	dir := t.TempDir()
 	overlaySource := filepath.Join(dir, "schema.go")
 	require.NoError(t, os.WriteFile(overlaySource, []byte(poisoned), 0o600))
@@ -123,4 +121,27 @@ func TestLazySchemasProductionCLIStartup(t *testing.T) {
 		})
 	}
 	require.Zero(t, requests.Load(), "static validation must not fetch grader schema references")
+}
+
+func poisonSchemaCompiler(t *testing.T, source string) string {
+	t.Helper()
+	source = strings.ReplaceAll(source, "\r\n", "\n")
+	needle := "func mustCompileSchema(raw string, name string) *jsonschema.Schema {\n"
+	require.Equal(t, 1, strings.Count(source, needle))
+	return strings.Replace(source, needle, needle+"\traw = \"{\"\n", 1)
+}
+
+func TestLazySchemaCompilerOverlayLineEndings(t *testing.T) {
+	source, err := os.ReadFile("schema.go")
+	require.NoError(t, err)
+	lf := strings.ReplaceAll(string(source), "\r\n", "\n")
+	crlf := strings.ReplaceAll(lf, "\n", "\r\n")
+	require.Contains(t, crlf, "\r\n")
+	require.NotContains(t, lf, "\r\n")
+	for _, input := range []string{lf, crlf} {
+		poisoned := poisonSchemaCompiler(t, input)
+		require.NotContains(t, poisoned, "\r\n")
+		require.Equal(t, 1, strings.Count(poisoned, "\traw = \"{\"\n"))
+		require.Equal(t, lf, strings.Replace(poisoned, "\traw = \"{\"\n", "", 1))
+	}
 }
