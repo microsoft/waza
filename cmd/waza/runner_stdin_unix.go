@@ -123,7 +123,10 @@ func emitInheritedRunnerJSON(data []byte) error {
 	}()
 	select {
 	case output := <-result:
-		return output.err
+		if output.err != nil {
+			return fmt.Errorf("writing terminal output: %w", output.err)
+		}
+		return nil
 	case <-time.After(5 * time.Second):
 		return fmt.Errorf("writing terminal output: i/o timeout")
 	}

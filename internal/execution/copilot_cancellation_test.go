@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -187,8 +188,10 @@ func TestExecuteJoinsForceStopAfterSessionCompletion(t *testing.T) {
 							<-releaseForce
 						},
 					}
+					capture := NewOwnedRuntimeObservations()
 					engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
-						NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+						NewCopilotClient:    func(*copilot.ClientOptions) CopilotClient { return client },
+						RuntimeObservations: capture,
 					}).Build()
 					require.NoError(t, engine.Initialize(t.Context()))
 					ctx, cancel := context.WithCancel(t.Context())
@@ -240,8 +243,21 @@ func TestExecuteJoinsForceStopAfterSessionCompletion(t *testing.T) {
 					default:
 						t.Fatal("Execute did not finish within the original force-stop grace")
 					}
+					captured, err := capture.Seal()
+					require.NoError(t, err)
+					require.Contains(t, runtimeOperations(captured), "cancellation-context-observed")
+					require.Contains(t, runtimeOperations(captured), "force-stop-requested")
+					require.Contains(t, runtimeOperations(captured), "force-stop-invoked")
+					require.Equal(t, "unknown", captured.ProcessExit)
+					require.Equal(t, joinForce, slices.Contains(runtimeOperations(captured), "force-stop-returned"))
 					release()
 					synctest.Wait()
+					sealedAgain, err := capture.Seal()
+					require.NoError(t, err)
+					require.Equal(t, captured, sealedAgain, "late force return cannot rewrite sealed evidence")
+					if !joinForce {
+						require.EqualValues(t, 1, capture.LateObservations())
+					}
 					require.NoError(t, engine.Shutdown(context.Background()))
 				})
 			})

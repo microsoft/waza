@@ -37,14 +37,45 @@ test('checkpoint source schema registration and migration notes retain contract-
   const route = read('site/src/pages/schemas/[schema].json.ts');
   assert.match(route, /import checkpoint from '\.\.\/\.\.\/\.\.\/\.\.\/schemas\/execution-checkpoint-1\.0\.schema\.json'/);
   assert.match(route, /schema: 'execution-checkpoint-1\.0\.schema' \}, props: \{ schema: checkpoint \}/);
+  const resultSchema = JSON.parse(read('schemas/runner-checkpoint-result-1.0.schema.json'));
+  assert.equal(resultSchema.properties.kind.const, 'waza.runner-checkpoint-result');
+  assert.equal(resultSchema.additionalProperties, false);
+  assert.equal(resultSchema.properties.submission.$ref, 'execution-submission-result-1.0.schema.json');
+  assert.ok(resultSchema.required.includes('restored_units'));
+  assert.ok(resultSchema.required.includes('remaining_work'));
+  assert.match(route, /schema: 'runner-checkpoint-result-1\.0\.schema' \}, props: \{ schema: checkpointResult \}/);
   const notes = read('site/src/content/docs/reference/schema-changes.md');
   assert.match(notes, /Checkpoint declaration 1\.0 \(unreleased contract layer\)/);
-  assert.match(notes, /does not yet provide durable checkpoint creation, a resume\s+command or a checkpoint Lab view/);
+  assert.match(notes, /unreleased source provides protected checkpoint\s+creation and resume commands for the exact-unit profile/);
+  assert.match(notes, /ownership, compatibility and restore\s+progress explicitly unavailable/);
   assert.match(notes, /\(unreleased contract layer\)/);
   assert.match(notes, /\.\.\/\.\.\/schemas\/execution-checkpoint-1\.0\.schema\.json/);
   assert.match(notes, /Only destination attempt ordinal may differ; original source\s+identity\/selection must not be retagged/);
   assert.ok(existsSync(resolve(root, 'site/e2e/execution-checkpoint.spec.ts')));
+  assert.match(read('site/e2e/execution-checkpoint.spec.ts'), /The unreleased source provides protected checkpoint creation and resume commands for the exact-unit profile\./);
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*checkpoint/);
+  const lab = read('site/src/content/docs/guides/dashboard-lab.mdx');
+  assert.match(lab, /GET \/api\/v1\/checkpoints\/\{digest\}/);
+  assert.match(lab, /restored units and remaining work stay \*\*Unavailable\*\*/);
+  assert.ok(existsSync(resolve(root, 'web/e2e/checkpoint-inspection.spec.ts')));
+  assert.doesNotMatch(read('web/playwright.config.ts'), /testIgnore:.*checkpoint/);
+  assert.equal(resultSchema.properties.source_withheld.const, true);
+  assert.match(notes, /output-only optional `source_withheld: true`/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/runner-checkpoints'/);
+  const guide = read('site/src/content/docs/guides/runner-checkpoints.mdx');
+  assert.match(guide, /checkpoint create --store/);
+  assert.match(guide, /checkpoint resume BEFORE_SHA256/);
+  assert.match(guide, /checkpoint resume FINALIZED_SHA256/);
+  assert.match(guide, /before-unit|fresh retry child/);
+  assert.match(guide, /zero new engine calls/);
+  assert.match(guide, /never\s+accepted as operation input or authority/);
+  const dashboardWorkflow = read('.github/workflows/web-ci.yml');
+  for (const path of ['internal/executioncheckpoint/**', 'internal/executionattempt/**',
+    'internal/executionledger/**', 'internal/artifactmanifest/**', 'internal/webapi/checkpoints*.go',
+    'internal/webapi/manifests.go', 'schemas/execution-*.json', 'schemas/artifact-manifest-*.json',
+    'schemas/execution_checkpoint.go']) {
+    assert.equal(dashboardWorkflow.split(`'${path}'`).length - 1, 2, `${path} must select push and PR dashboard checks`);
+  }
   for (const path of ['site/**', 'schemas/**']) {
     assert.ok(read('.github/workflows/site-ci.yml').includes(`'${path}'`), `${path} must select site checks`);
     assert.ok(read('.github/workflows/pages.yml').includes(`'${path}'`), `${path} must select publication`);
@@ -241,12 +272,13 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
 
 function assertSiteDiscovery(workflow, inputs) {
   const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
-  const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
+  const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^  [a-z_]+:|^permissions:)/m)?.[1];
   const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
-  assert.ok(push && pullRequest && site, 'expected workflow event/filter blocks must exist');
+  assert.ok(push && pullRequest !== undefined && site, 'expected workflow event/filter blocks must exist');
   assert.match(push, /branches: \[main\]/);
-  assert.match(pullRequest, /branches: \[main\]/);
+  assert.doesNotMatch(pullRequest, /^\s+branches(?:-ignore)?:/m, 'required PR status must cover every stacked base');
   assert.doesNotMatch(pullRequest, /^\s+paths(?:-ignore)?:/m, 'required PR status must not be path-gated');
+  assert.match(workflow, /^  workflow_dispatch:\s*$/m, 'manual validation trigger must exist');
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
@@ -257,7 +289,8 @@ function assertSiteDiscovery(workflow, inputs) {
   assert.ok(!paths(site).some((pattern) => matches(pattern, 'internal/cache/cache.go')), 'unrelated Go code must not select the PR site build');
   const build = workflow.match(/^      - name: Build site\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   assert.ok(build, 'site build step must exist');
-  assert.match(build, /if: needs\.changes\.outputs\.site == 'true' \|\| github\.event_name == 'push'/);
+  assert.match(build, /^        if: needs\.changes\.outputs\.site == 'true' \|\| github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'$/m,
+    'manual site validation must not skip the build');
   assert.match(build, /run: cd site && npm run build/);
   const scripts = JSON.parse(read('site/package.json')).scripts;
   assert.equal(scripts.prebuild, 'npm run test:docs');
@@ -279,6 +312,19 @@ test('Docker guard discovery rejects removal from either production site selecto
     const mutated = workflow.replace(line, '');
     assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
     assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
+});
+
+test('site discovery rejects main-only stacked PRs and skipped manual builds', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const condition = "needs.changes.outputs.site == 'true' || github.event_name == 'push'";
+  for (const [name, mutated, diagnostic] of [
+    ['stacked base', workflow.replace('  pull_request:\n', '  pull_request:\n    branches: [main]\n'), /every stacked base/],
+    ['manual trigger', workflow.replace('  workflow_dispatch:\n', ''), /manual validation trigger/],
+    ['manual build', workflow.replaceAll(`${condition} || github.event_name == 'workflow_dispatch'`, condition), /manual site validation/],
+  ]) {
+    assert.notEqual(mutated, workflow, `${name} mutation must change the production workflow`);
+    assert.throws(() => assertSiteDiscovery(mutated, []), diagnostic, name);
   }
 });
 

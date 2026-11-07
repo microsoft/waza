@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/executionlifecycle"
@@ -29,6 +30,22 @@ type LifecycleObserver struct {
 	deadline string
 	digests  []string
 	failure  error
+	runtime  *execution.OwnedRuntimeObservations
+	native   *execution.RuntimeObservationSnapshot
+}
+
+const LifecycleCaptureArtifact = "lifecycle.json"
+
+type LifecycleCapture struct {
+	Kind               string                               `json:"kind"`
+	SchemaVersion      string                               `json:"schema_version"`
+	Reservation        json.RawMessage                      `json:"reservation"`
+	OriginalAdmission  artifactmanifest.Binding             `json:"original_admission"`
+	ReservationDigest  string                               `json:"reservation_digest"`
+	ObservationDigests []string                             `json:"observation_digests"`
+	Deadline           string                               `json:"deadline,omitempty"`
+	Observations       []executionlifecycle.Event           `json:"observations"`
+	Runtime            execution.RuntimeObservationSnapshot `json:"runtime_observations"`
 }
 
 func NewLifecycleObserver(backend artifactmanifest.Backend, now func() time.Time) (*LifecycleObserver, error) {
@@ -80,6 +97,7 @@ func (o *LifecycleObserver) reserved(ctx context.Context, ledger *executionledge
 		return fmt.Errorf("admitting lifecycle observer: %w", err)
 	}
 	o.ledger, o.creator, o.original = ledger, creator, original
+	o.runtime = execution.NewOwnedRuntimeObservations()
 	if present {
 		o.deadline = deadline.UTC().Format(time.RFC3339Nano)
 	}
@@ -112,10 +130,102 @@ func (o *LifecycleObserver) terminal(ctx context.Context, ledger *executionledge
 	if !bytes.Equal(original.Bytes, o.original.Bytes) {
 		return fmt.Errorf("%w: lifecycle terminal changed original reservation", executionlifecycle.ErrContext)
 	}
+	native, err := o.runtime.Seal()
+	o.native = &native
+	if err != nil {
+		o.failure = fmt.Errorf("sealing owned runtime lifecycle evidence: %w", err)
+		return o.failure
+	}
 	o.failure = o.appendEvent(ctx, "terminal_recorded", &terminal)
 	return o.failure
 }
 
+// RuntimeObservations is selected by the fresh owned engine factory only after
+// reservation. No reuse path, persisted creator or second engine can bind it.
+func (o *LifecycleObserver) RuntimeObservations() (*execution.OwnedRuntimeObservations, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.original == nil || o.runtime == nil || o.native != nil {
+		return nil, executionledger.ErrCapability
+	}
+	if o.failure != nil {
+		return nil, o.failure
+	}
+	return o.runtime, nil
+}
+
+// Artifacts is selected by the owning protected-publication facade. It consumes
+// only the protected terminal, never the private report or observed rich report.
+func (o *LifecycleObserver) Artifacts(ctx context.Context, ledger *executionledger.Ledger,
+	creator executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.original == nil || o.native == nil || o.ledger != ledger || o.creator != creator {
+		return nil, executionledger.ErrCapability
+	}
+	if o.failure != nil {
+		return nil, o.failure
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	original, err := originalReservation(ctx, ledger, creator, snapshot.Reservation)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(original.Bytes, o.original.Bytes) {
+		return nil, fmt.Errorf("%w: lifecycle artifact changed original reservation", executionlifecycle.ErrContext)
+	}
+	binding := original.Attempt.Binding
+	binding.GraderIDs = slices.Clone(binding.GraderIDs)
+	capture := LifecycleCapture{
+		Kind: "waza.execution-lifecycle-capture", SchemaVersion: executionlifecycle.Version,
+		Reservation:       slices.Clone(original.Bytes),
+		OriginalAdmission: binding, ReservationDigest: original.Digest,
+		ObservationDigests: slices.Clone(o.digests), Deadline: o.deadline,
+		Observations: []executionlifecycle.Event{}, Runtime: *o.native,
+	}
+	capture.Runtime.Observations = slices.Clone(o.native.Observations)
+	projection, err := executionlifecycle.New(original.Bytes, *binding.TerminalBinding(), o.deadline)
+	if err != nil {
+		return nil, err
+	}
+	for _, digest := range o.digests {
+		event, err := executionlifecycle.NewBlobs(o.backend).Load(ctx, digest)
+		if err != nil {
+			return nil, err
+		}
+		if err := projection.Apply(*event); err != nil {
+			return nil, err
+		}
+		capture.Observations = append(capture.Observations, *event)
+	}
+	if len(capture.Observations) == 0 {
+		return nil, fmt.Errorf("%w: lifecycle artifact has no joined terminal", executionlifecycle.ErrTransition)
+	}
+	last := capture.Observations[len(capture.Observations)-1]
+	if last.Event != "terminal_recorded" || last.Terminal == nil {
+		return nil, fmt.Errorf("%w: lifecycle artifact has no joined terminal", executionlifecycle.ErrTransition)
+	}
+	recorded, err := runnerterminal.Encode(*last.Terminal, binding.TerminalBinding())
+	if err != nil {
+		return nil, err
+	}
+	prepared, err := runnerterminal.Encode(snapshot.Terminal, binding.TerminalBinding())
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(recorded, prepared) {
+		return nil, fmt.Errorf("%w: lifecycle artifact contradicts protected original terminal", executionlifecycle.ErrContext)
+	}
+	data, err := json.Marshal(capture)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > executionlifecycle.MaxBytes {
+		return nil, fmt.Errorf("%w: lifecycle capture exceeds byte bound", executionlifecycle.ErrInvalid)
+	}
+	return []SubmissionArtifact{{Name: LifecycleCaptureArtifact, MediaType: "application/json", Data: data}}, nil
+}
 func (o *LifecycleObserver) appendEvent(ctx context.Context, kind string, terminal *runnerterminal.Envelope) error {
 	projection, err := executionlifecycle.New(o.original.Bytes, *o.original.Attempt.Binding.TerminalBinding(), o.deadline)
 	if err != nil {

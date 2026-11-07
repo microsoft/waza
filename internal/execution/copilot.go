@@ -44,6 +44,7 @@ func sendAndWaitBounded(
 	session CopilotSession,
 	options copilot.MessageOptions,
 	forceStop func(),
+	observations ...*OwnedRuntimeObservations,
 ) (*copilot.SessionEvent, bool, bool, error) {
 	done := make(chan sendAndWaitResult, 1)
 	go func() {
@@ -55,6 +56,9 @@ func sendAndWaitBounded(
 	case result := <-done:
 		return result.event, false, false, errors.Join(ctx.Err(), result.err)
 	case <-ctx.Done():
+	}
+	if len(observations) != 0 {
+		observations[0].observeContext(ctx)
 	}
 
 	timer := time.NewTimer(sendCancellationGrace)
@@ -84,7 +88,7 @@ func sendAndWaitBounded(
 	}
 }
 
-func disconnectBounded(ctx context.Context, session CopilotSession, forceStop func()) (bool, bool, error) {
+func disconnectBounded(ctx context.Context, session CopilotSession, forceStop func(), observations ...*OwnedRuntimeObservations) (bool, bool, error) {
 	done := make(chan error, 1)
 	go func() {
 		done <- session.Disconnect()
@@ -94,6 +98,9 @@ func disconnectBounded(ctx context.Context, session CopilotSession, forceStop fu
 	case err := <-done:
 		return false, false, errors.Join(ctx.Err(), err)
 	case <-ctx.Done():
+	}
+	if len(observations) != 0 {
+		observations[0].observeContext(ctx)
 	}
 
 	timer := time.NewTimer(sendCancellationGrace)
@@ -176,8 +183,9 @@ type CopilotEngine struct {
 
 	retired atomic.Bool // current client generation cannot admit new sessions
 
-	provider    customProviderConfig
-	diagnostics *diagnosticState
+	provider            customProviderConfig
+	diagnostics         *diagnosticState
+	runtimeObservations *OwnedRuntimeObservations
 }
 
 type customProviderConfig struct {
@@ -292,6 +300,9 @@ type CopilotEngineBuilderOptions struct {
 	// Calls are serialized outside engine state locks. Observers must not reenter
 	// engine lifecycle methods (including Execute, Initialize, DeleteSession, Shutdown).
 	DiagnosticObserver func(ExecutionDiagnostic) error
+	// RuntimeObservations requires a fresh owned client and one unused sink.
+	// No callbacks, raw errors, SDK acknowledgement or process-Wait inference.
+	RuntimeObservations *OwnedRuntimeObservations
 }
 
 // NewCopilotEngineBuilder creates a builder for CopilotEngine
@@ -308,6 +319,12 @@ type CopilotEngineBuilderOptions struct {
 // production client. A supplied NewCopilotClient factory also selects ownership.
 // Both owned paths stop their client during Shutdown.
 func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilderOptions) *CopilotEngineBuilder {
+	if options != nil && options.RuntimeObservations != nil &&
+		((!options.OwnClient && options.NewCopilotClient == nil) || !options.RuntimeObservations.bind()) {
+		return &CopilotEngineBuilder{engine: &CopilotEngine{
+			client: &startupErrorClient{err: fmt.Errorf("%w: use one fresh sink with an owned client", ErrRuntimeObservation)},
+		}}
+	}
 	var client CopilotClient
 	var sharedOpts *SharedClientOptions
 	ownsClient := false
@@ -361,6 +378,10 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	}
 
 	if ownsClient {
+		if options != nil && options.RuntimeObservations != nil {
+			builder.engine.runtimeObservations = options.RuntimeObservations
+			client = observeRuntimeClient(client, options.RuntimeObservations)
+		}
 		client = manageStartup(client)
 	}
 	builder.engine.client = client
@@ -853,7 +874,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		e.sessionsMu.Unlock()
 		abandoned, retireClient, err := disconnectBounded(cleanupParent, session, func() {
 			e.forceStopClient(client)
-		})
+		}, e.runtimeObservations)
 		if !abandoned {
 			e.sessionsMu.Lock()
 			e.unfinishedDisconnects[sessionID]--
@@ -941,6 +962,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	// stored in e.collectors so we can read final usage after shutdown.
 	var eventsMu sync.Mutex
 	collectEvent := func(event copilot.SessionEvent) {
+		e.runtimeObservations.observeEvent(event)
 		eventsMu.Lock()
 		defer eventsMu.Unlock()
 		eventsCollector.On(event)
@@ -1061,7 +1083,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		Mode:   string(req.MessageMode),
 	}, func() {
 		e.forceStopClient(client)
-	})
+	}, e.runtimeObservations)
 	cancelUserInput()
 	releaseUserInput()
 	if retireClient {
@@ -1237,6 +1259,7 @@ func (e *CopilotEngine) forceStopClient(client CopilotClient) {
 		return
 	}
 	if force, ok := client.(interface{ ForceStop() }); ok {
+		e.runtimeObservations.record("force-stop-requested", "sdk-client-control", "requested")
 		force.ForceStop()
 	}
 }

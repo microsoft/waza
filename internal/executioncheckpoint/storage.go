@@ -41,12 +41,8 @@ func Load(ctx context.Context, backend artifactmanifest.Backend, digest string) 
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("checkpoint read canceled: %w", err)
 	}
-	schema, err := checkpointSchema()
-	if err != nil {
-		return nil, fmt.Errorf("compiling checkpoint schema: %w", err)
-	}
-	if err := schema.Properties["reservation_digest"].Validate(digest); err != nil {
-		return nil, fmt.Errorf("%w: checkpoint blob digest must be exactly 64 lowercase hexadecimal characters: %w", ErrInvalid, err)
+	if err := ValidateDigest(digest); err != nil {
+		return nil, err
 	}
 	if backend == nil {
 		return nil, errors.New("checkpoint storage backend is unavailable")
@@ -73,4 +69,16 @@ func Load(ctx context.Context, backend artifactmanifest.Backend, digest string) 
 		return nil, fmt.Errorf("checkpoint read canceled: %w", err)
 	}
 	return checkpoint, nil
+}
+
+// ValidateDigest admits caller input before constructing a provider or using credentials.
+func ValidateDigest(digest string) error {
+	schema, err := checkpointSchema()
+	if err != nil {
+		return fmt.Errorf("compiling checkpoint schema: %w", err)
+	}
+	if err := schema.Properties["reservation_digest"].Validate(digest); err != nil {
+		return fmt.Errorf("%w: checkpoint blob digest must be exactly 64 lowercase hexadecimal characters: %w", ErrInvalid, err)
+	}
+	return nil
 }

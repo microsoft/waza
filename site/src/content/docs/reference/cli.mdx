@@ -1689,6 +1689,30 @@ waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
 ```
 
+**Unreleased v0.41 source:** `waza runner submit` accepts one strict
+`waza.execution-submission` wrapper on stdin and emits one protected
+`waza.execution-submission-result`. Omitted `policy` reserves a distinct
+execution; explicit `reuse` verifies and preserves its original finalized source
+without new calls. An unchanged declared native ordinal does not reuse an
+execution implicitly. `--store` selects an existing private local root
+(default `.waza-artifacts`); `--azure-container-url` selects an explicit existing
+HTTPS Azure container instead. The flags are mutually exclusive.
+Publication errors are exit 2; completed/reused results retain the original
+native terminal exit, including failure/cancellation. Raw reports and unadmitted
+metadata are not public output. See
+[submission, retry, reuse and migration](../../guides/immutable-artifacts/#execute-distinct-work-or-explicitly-reuse-its-original).
+
+**Unreleased v0.41 source:** `waza runner checkpoint create` accepts a captured
+`waza.execution-submission` wrapper, executes one exact unit and emits protected
+before/finalized checkpoint references. `waza runner checkpoint resume DIGEST`
+uses the same wrapper and original immutable store: before-unit recovery creates
+a fresh retry child; finalized-unit recovery reuses the original terminal with
+zero new calls. Both accept `--store` or the mutually exclusive
+`--azure-container-url`, require a clean versioned owning CLI build and emit one
+`waza.runner-checkpoint-result`. Stderr boundary locators are not completion
+evidence. There is no build-revision override or implicit incompatible migration.
+See [checkpoint examples and troubleshooting](../../guides/runner-checkpoints/).
+
 The `negotiate` command takes one JSON request on stdin and writes one
 `waza.runner-negotiation` response to stdout. Exit 0 means compatible, 5 means
 unsupported version/capability, 6 means invalid request, and 2 means output
