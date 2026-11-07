@@ -206,6 +206,10 @@ units and, only after actual completed publication, zero remaining work. These
 counts describe this selected exact unit, not global work or successful grading.
 Rejected/unknown restore progress remains null. Digest fields on a failed
 operation can locate unverified residue; their presence is not publication success.
+Compatibility rejections expose only differing field names, never original
+captured values or provider details. Public serialization and operation transport
+remain gated on the shared owner privacy/capture policy; a library submission's
+retained rich report is not automatically a public response.
 The read-only source inspector below does not inherit these owning-caller results.
 
 ### Read-only source inspection

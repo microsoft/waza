@@ -51,6 +51,18 @@ type Compatibility struct {
 	RequestPolicyDigest string `json:"request_policy_digest"`
 }
 
+// CompatibilityError exposes only differing field names, not captured inputs.
+type CompatibilityError struct {
+	Fields []string
+}
+
+func (e *CompatibilityError) Error() string {
+	return fmt.Sprintf("%s: changed %s; preserve the checkpoint and start a distinct attempt",
+		ErrIncompatible, strings.Join(e.Fields, ", "))
+}
+
+func (e *CompatibilityError) Unwrap() error { return ErrIncompatible }
+
 type Checkpoint struct {
 	Kind              string        `json:"kind"`
 	SchemaVersion     string        `json:"schema_version"`
@@ -198,7 +210,7 @@ func ValidateCompatibility(checkpoint Checkpoint, current Compatibility) error {
 		}
 	}
 	if len(changed) != 0 {
-		return fmt.Errorf("%w: changed %s; preserve the checkpoint and start a distinct attempt", ErrIncompatible, strings.Join(changed, ", "))
+		return &CompatibilityError{Fields: changed}
 	}
 	return nil
 }

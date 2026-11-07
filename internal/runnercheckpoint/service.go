@@ -31,18 +31,19 @@ type Hooks struct {
 }
 
 type Result struct {
-	Kind                string                          `json:"kind"`
-	SchemaVersion       string                          `json:"schema_version"`
-	Status              string                          `json:"status"`
-	ExitCode            int                             `json:"exit_code"`
-	Submission          *runnerunit.Submission          `json:"submission,omitempty"`
-	Source              *executioncheckpoint.Checkpoint `json:"source,omitempty"`
-	BeforeDigest        string                          `json:"before_checkpoint_sha256,omitempty"`
-	FinalizedDigest     string                          `json:"finalized_checkpoint_sha256,omitempty"`
-	CompatibilityResult string                          `json:"compatibility_result"`
-	RestoredUnits       *int                            `json:"restored_units"`
-	RemainingWork       *int                            `json:"remaining_work"`
-	Diagnostics         []runnercontract.Diagnostic     `json:"diagnostics"`
+	Kind                     string                          `json:"kind"`
+	SchemaVersion            string                          `json:"schema_version"`
+	Status                   string                          `json:"status"`
+	ExitCode                 int                             `json:"exit_code"`
+	Submission               *runnerunit.Submission          `json:"submission,omitempty"`
+	Source                   *executioncheckpoint.Checkpoint `json:"source,omitempty"`
+	BeforeDigest             string                          `json:"before_checkpoint_sha256,omitempty"`
+	FinalizedDigest          string                          `json:"finalized_checkpoint_sha256,omitempty"`
+	CompatibilityResult      string                          `json:"compatibility_result"`
+	CompatibilityDifferences []string                        `json:"compatibility_differences"`
+	RestoredUnits            *int                            `json:"restored_units"`
+	RemainingWork            *int                            `json:"remaining_work"`
+	Diagnostics              []runnercontract.Diagnostic     `json:"diagnostics"`
 }
 
 type Service struct {
@@ -63,6 +64,7 @@ func newResult() Result {
 	return Result{
 		Kind: "waza.runner-checkpoint-result", SchemaVersion: "1.0", Status: "rejected", ExitCode: 6,
 		CompatibilityResult: "unavailable", Diagnostics: []runnercontract.Diagnostic{},
+		CompatibilityDifferences: []string{},
 	}
 }
 
@@ -114,6 +116,9 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 	result.Source = checkpoint
 	if err := executioncheckpoint.ValidateCompatibility(*checkpoint, current); err != nil {
 		result.CompatibilityResult = "incompatible"
+		if mismatch, ok := errors.AsType[*executioncheckpoint.CompatibilityError](err); ok {
+			result.CompatibilityDifferences = append(result.CompatibilityDifferences, mismatch.Fields...)
+		}
 		result.fail("checkpoint_incompatible")
 		return result, err
 	}

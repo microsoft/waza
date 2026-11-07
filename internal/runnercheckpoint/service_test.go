@@ -284,6 +284,16 @@ func TestResumeRejectsPresentInvalidSourceAndChangedCompatibilityBeforeSubmissio
 			if control == "missing-publication" && !errors.Is(err, artifactmanifest.ErrMissing) {
 				t.Fatalf("missing-publication control did not reach real source evidence read: %v", err)
 			}
+			if control == "runner-revision" || control == "model" || control == "timeout" {
+				field := "work"
+				if control == "runner-revision" {
+					field = "runner_revision"
+				}
+				if rejected.CompatibilityResult != "incompatible" || len(rejected.CompatibilityDifferences) != 1 ||
+					rejected.CompatibilityDifferences[0] != field {
+					t.Fatalf("actual differing compatibility field was hidden or included captured values: %+v", rejected)
+				}
+			}
 		})
 	}
 }
