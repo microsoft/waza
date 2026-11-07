@@ -118,7 +118,7 @@ func TestExecutionEvidencePublicCLIAndHTTPSubmissionCaptureReuseAndRetry(t *test
 			defer server.Close()
 			client := server.Client()
 			client.Timeout = 10 * time.Second
-			post := func(request runnerunit.SubmissionRequest) runnerunit.Submission {
+			post := func(request runnerunit.SubmissionRequest, status int) runnerunit.Submission {
 				t.Helper()
 				body, err := json.Marshal(request)
 				require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestExecutionEvidencePublicCLIAndHTTPSubmissionCaptureReuseAndRetry(t *test
 				data, err := io.ReadAll(response.Body)
 				require.NoError(t, err)
 				require.NoError(t, response.Body.Close())
-				require.Equal(t, http.StatusOK, response.StatusCode, "%s", data)
+				require.Equal(t, status, response.StatusCode, "%s", data)
 				result, err := runnerunit.ParseSubmissionResult(data)
 				require.NoError(t, err, "%s", data)
 				require.Empty(t, result.Report)
@@ -143,7 +143,7 @@ func TestExecutionEvidencePublicCLIAndHTTPSubmissionCaptureReuseAndRetry(t *test
 			require.NotEqual(t, request.Request, changed)
 			request.Request = changed
 			request.Policy = &runnerunit.SubmissionPolicy{Mode: "reuse", Source: &source}
-			reused := post(*request)
+			reused := post(*request, http.StatusOK)
 			require.Equal(t, "reused", reused.Status)
 			require.Zero(t, reused.EngineCalls)
 			require.Equal(t, original.ExitCode, reused.ExitCode)
@@ -208,7 +208,7 @@ for (const category of result.categories) {
 			request.Policy = &runnerunit.SubmissionPolicy{
 				Mode: "distinct", Parent: &executionattempt.Parent{ExecutionID: source.ExecutionID, Relationship: "retry"},
 			}
-			retry := post(*request)
+			retry := post(*request, http.StatusOK)
 			require.Equal(t, map[bool]int{false: 0, true: 1}[scenario.failed], retry.ExitCode)
 			require.NotEqual(t, source.ExecutionID, retry.Reservation.ExecutionID)
 			require.Equal(t, 1, retry.EngineCalls)
@@ -219,6 +219,69 @@ for (const category of result.categories) {
 			require.NoError(t, err)
 			require.Equal(t, evidencestate.Present, state)
 			require.Equal(t, &evidencestate.Lineage{Manifest: source.ManifestDigest, Relationship: evidencestate.Retry}, parent)
+			attemptPath := ""
+			for _, artifact := range captured.Publication.Manifest.Artifacts {
+				if artifact.Name == "execution-attempt.json" {
+					attemptPath = filepath.Join(storeRoot, "blob-"+artifact.SHA256)
+				}
+			}
+			require.NotEmpty(t, attemptPath)
+			originalBytes, err := os.ReadFile(attemptPath)
+			require.NoError(t, err)
+			require.Equal(t, captured.Reservation.Bytes, originalBytes)
+			for _, fault := range []struct {
+				name   string
+				cause  error
+				status int
+			}{
+				{name: "corrupt-original-attempt", cause: artifactmanifest.ErrCorrupt, status: http.StatusConflict},
+				{name: "missing-original-attempt", cause: artifactmanifest.ErrMissing, status: http.StatusNotFound},
+			} {
+				t.Run(fault.name, func(t *testing.T) {
+					if fault.cause == artifactmanifest.ErrCorrupt {
+						corrupt := bytes.Clone(originalBytes)
+						corrupt[0] ^= 1
+						require.Len(t, corrupt, len(originalBytes))
+						require.NotEqual(t, artifactmanifest.Hash(originalBytes), artifactmanifest.Hash(corrupt))
+						require.NoError(t, os.Chmod(attemptPath, 0o600))
+						require.NoError(t, os.WriteFile(attemptPath, corrupt, 0o600))
+					} else {
+						require.NoError(t, os.Remove(attemptPath))
+					}
+					request.Policy = &runnerunit.SubmissionPolicy{Mode: "reuse", Source: &source}
+					reuseWire, err := json.Marshal(request)
+					require.NoError(t, err)
+					deniedCLI := runSubmissionCLI(t, storeRoot, reuseWire)
+					require.Equal(t, 2, deniedCLI.ExitCode)
+					require.Zero(t, deniedCLI.EngineCalls)
+					require.Nil(t, deniedCLI.Terminal)
+					require.Nil(t, deniedCLI.Reservation)
+					require.Nil(t, deniedCLI.Completion)
+					denied := post(*request, http.StatusConflict)
+					require.Equal(t, 2, denied.ExitCode)
+					require.Zero(t, denied.EngineCalls)
+					require.Nil(t, denied.Terminal)
+					require.Nil(t, denied.Reservation)
+					require.Nil(t, denied.Completion)
+					output, err := runArtifactCLI(t, directory, "evidence", "categories", receipt.EvidenceSHA256)
+					require.ErrorIs(t, err, fault.cause)
+					for _, suffix := range []string{"", "/document", "/csv"} {
+						response := httptest.NewRecorder()
+						mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/evidence/"+receipt.EvidenceSHA256+"/categories"+suffix, nil))
+						require.Equal(t, fault.status, response.Code)
+						require.Empty(t, response.Header().Get("Content-Disposition"))
+						require.JSONEq(t, string(output), response.Body.String())
+						checkDegradedCategoryParser(t, response, false, "")
+					}
+					state, parent, err := evidencestate.InspectRetryParent(t.Context(), reader, child, "execution-attempt.json")
+					require.ErrorIs(t, err, fault.cause)
+					require.Equal(t, evidencestate.Unavailable, state)
+					require.Nil(t, parent)
+					manifest, err := backend.Get(t.Context(), "manifest-"+source.ManifestDigest, artifactmanifest.MaxManifestBytes)
+					require.NoError(t, err)
+					require.Equal(t, captured.Publication.ManifestBytes, manifest)
+				})
+			}
 		})
 	}
 }
