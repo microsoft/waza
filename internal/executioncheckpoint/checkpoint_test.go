@@ -290,7 +290,12 @@ func TestCompatibilityReportsEveryChangedDimension(t *testing.T) {
 	}
 }
 
-func checkpointContext(t *testing.T, failed bool) (Checkpoint, artifactmanifest.Binding, []byte, []byte, []byte) {
+func checkpointContext(t *testing.T, failed bool) (Checkpoint, artifactmanifest.Binding, []byte, []byte, []byte, []byte) {
+	t.Helper()
+	return checkpointContextIn(t, context.Background(), failed)
+}
+
+func checkpointContextIn(t *testing.T, ctx context.Context, failed bool) (Checkpoint, artifactmanifest.Binding, []byte, []byte, []byte, []byte) {
 	t.Helper()
 	request := readFixture(t, "../../examples/runner/unit.json")
 	if failed {
@@ -305,14 +310,23 @@ func checkpointContext(t *testing.T, failed bool) (Checkpoint, artifactmanifest.
 	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
 		return execution.NewMockEngine(config.ModelID), nil
 	})
-	envelope, binding := service.RunTerminal(context.Background(), request)
+	envelope, binding := service.RunTerminal(ctx, request)
 	expected := runnerterminal.Success
 	if failed {
 		expected = runnerterminal.EvaluationFailure
 	}
-	if binding == nil || envelope.Outcome != expected || envelope.EngineCalls != 1 || envelope.Observation == nil ||
-		len(envelope.Observation.Validations) == 0 {
+	if ctx.Err() != nil {
+		expected = runnerterminal.Canceled
+	}
+	if binding == nil || envelope.Outcome != expected {
 		t.Fatalf("production setup did not produce expected observation: %+v", envelope)
+	}
+	if ctx.Err() == nil {
+		if envelope.EngineCalls != 1 || envelope.Observation == nil || len(envelope.Observation.Validations) == 0 {
+			t.Fatalf("production setup did not execute and grade: %+v", envelope)
+		}
+	} else if envelope.EngineCalls != 0 {
+		t.Fatalf("canceled production setup unexpectedly executed: %+v", envelope)
 	}
 	terminal, err := runnerterminal.Encode(envelope, binding)
 	if err != nil {
@@ -354,12 +368,12 @@ func checkpointContext(t *testing.T, failed bool) (Checkpoint, artifactmanifest.
 		Kind: "waza.execution-checkpoint", SchemaVersion: Version, Boundary: FinalizedUnit,
 		CreatedAt: "2026-11-07T16:00:00Z", ExecutionID: id, ReservationDigest: artifactmanifest.Hash(reservation),
 		Compatibility: compatibility, CompletionDigest: artifactmanifest.Hash(completion), ManifestDigest: artifactmanifest.Hash(manifest),
-	}, attempt.Binding, reservation, completion, manifest
+	}, attempt.Binding, reservation, completion, manifest, terminal
 }
 
 func TestOriginalCompletionContext(t *testing.T) {
 	for _, failed := range []bool{false, true} {
-		checkpoint, binding, reservation, completion, manifest := checkpointContext(t, failed)
+		checkpoint, binding, reservation, completion, manifest, _ := checkpointContext(t, failed)
 		original := encodeJSON(t, checkpoint)
 		if err := ValidateContext(checkpoint, binding, reservation, completion, manifest); err != nil {
 			t.Fatal(err)

@@ -21,9 +21,12 @@ task/trial/attempt. The checkpoint profile names only these boundaries:
 These are **not mid-runtime snapshots**. SDK sessions, active tools, multi-turn
 responder state, grading-in-progress, filesystem workspaces, pending side effects
 and historical result/snapshot files are not resumable under this profile.
-A failed or interrupted runtime is not a completed unit merely because its
-error envelope was published. Completed grader failures must remain failures,
-not be rerun or relabeled as a pass.
+A published error envelope alone does not prove a finalized source attempt.
+When an independently authenticated completion and current finalized manifest
+admit that original terminal, failures and cancellations remain their original
+statuses with no new engine call. Finalizing error evidence is not successful
+logical work; retry eligibility belongs to the separate lifecycle contract.
+Completed grader failures must not be rerun or relabeled as a pass.
 
 ## Compatibility
 
@@ -110,6 +113,15 @@ checkpoint storage does not upgrade them into transactions or crash durability.
 Publication errors retain the digest of possibly stored, unverified residue.
 Cancellation after stored bytes is an error, not successful invocation completion,
 and does not delete immutable evidence.
+
+`ReadFinalized` compares current compatibility before provider access, then
+uses the actual `Store.ReadCompleted` API to capture original terminal bytes
+from the full current-content/final-marker verification pass. It admits those
+bytes against the independently authenticated original binding and sidecars.
+It never reconstructs an SDK session or runs an engine, and preserves the exact
+original failure/cancellation status, identity and native ordinal. The helper
+does not authenticate a caller-supplied binding or grant execution ownership;
+the owned public restore caller remains required.
 
 This schema has its own version; it does not change native task YAML, eval
 schema, historical `EvaluationOutcome`, snapshots, terminal 1.0 or SDK session

@@ -29,7 +29,7 @@ func localCheckpointStore(t *testing.T) (*artifactmanifest.Local, string) {
 }
 
 func TestCheckpointImmutableBlobPersistence(t *testing.T) {
-	checkpoint, _, _, _, _ := checkpointContext(t, false)
+	checkpoint, _, _, _, _, _ := checkpointContext(t, false)
 	backend, directory := localCheckpointStore(t)
 	digest, err := Put(context.Background(), backend, checkpoint)
 	if err != nil {
