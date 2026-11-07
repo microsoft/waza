@@ -34,3 +34,15 @@ func NewEngineFactory(runtime func() (*execution.OwnedRuntimeObservations, error
 		}).Build(), nil
 	}
 }
+
+// NativeEngineFactory selects owned native observations while retaining the
+// Service's existing nonnative factory, including its lifecycle/error behavior.
+func (s *Service) NativeEngineFactory(runtime func() (*execution.OwnedRuntimeObservations, error)) EngineFactory {
+	native := NewEngineFactory(runtime)
+	return func(cfg models.Config) (execution.AgentEngine, error) {
+		if cfg.EngineType == "copilot-sdk" {
+			return native(cfg)
+		}
+		return s.factory(cfg)
+	}
+}
