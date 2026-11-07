@@ -28,6 +28,9 @@ func TestSubmitBindsDetachedObserverBytesInOriginalFinalizedManifest(t *testing.
 			return nil, err
 		}
 		if report.Calls != 1 || report.Observation == nil || snapshot.Terminal.EngineCalls != 1 ||
+			snapshot.ObservedReport.Calls != report.Calls || snapshot.ObservedReport.Observation == nil ||
+			snapshot.ObservedReport.binding == nil ||
+			*snapshot.ObservedReport.binding.Identity != snapshot.Reservation.Attempt.Binding.Identity ||
 			snapshot.Terminal.Observation.Status != string(report.Observation.Status) ||
 			snapshot.Reservation.Digest != artifactmanifest.Hash(snapshot.Reservation.Bytes) {
 			t.Fatal("artifact observer did not receive original joined report/reservation")
@@ -42,6 +45,8 @@ func TestSubmitBindsDetachedObserverBytesInOriginalFinalizedManifest(t *testing.
 			return nil, err
 		}
 		snapshot.Report[0] = 'X'
+		snapshot.ObservedReport.Identity.Run = "callback-mutated"
+		snapshot.ObservedReport.Observation.Status = "failed"
 		snapshot.Reservation.Bytes[0] = 'Y'
 		snapshot.Terminal.Identity.Run = "callback-mutated"
 		snapshot.Terminal.Observation.Status = "failed"
@@ -50,7 +55,7 @@ func TestSubmitBindsDetachedObserverBytesInOriginalFinalizedManifest(t *testing.
 	service := NewService(nil)
 	result, err := service.Submit(ctx, submissionWire(t, fixture(t), nil), backend, hooks)
 	if err != nil || result.Status != "completed" || result.ExitCode != 0 || calls != 1 ||
-		result.Terminal.Outcome != runnerterminal.Success || !json.Valid(result.Report) {
+		result.Terminal.Outcome != runnerterminal.Success || len(result.Report) != 0 {
 		t.Fatalf("observer mutated original evidence or prevented completion: %+v %v", result, err)
 	}
 	ledger, err := executionledger.New(backend)
@@ -58,9 +63,9 @@ func TestSubmitBindsDetachedObserverBytesInOriginalFinalizedManifest(t *testing.
 		t.Fatal(err)
 	}
 	source := executionattempt.Source{ExecutionID: result.Reservation.ExecutionID, ManifestDigest: result.Completion.ManifestDigest}
-	completed, err := ledger.ReadCompleted(ctx, source, "terminal.json", "report.json", "observer.json")
+	completed, err := ledger.ReadCompleted(ctx, source, "terminal.json", "observer.json")
 	if err != nil || !bytes.Equal(completed.Publication.ArtifactBytes["observer.json"], expected) ||
-		len(completed.Publication.Manifest.Artifacts) != 3 ||
+		len(completed.Publication.Manifest.Artifacts) != 2 ||
 		completed.Publication.Manifest.Binding.Identity != result.Reservation.Binding.Identity {
 		t.Fatalf("observer bytes were not bound through actual original completed source: %+v %v", completed, err)
 	}

@@ -30,5 +30,8 @@ internal/testutil/readeroracle/testdata/15c/*.original -text
 internal/interop/testdata/agentv/suite.yaml -text
 internal/interop/testdata/agentv/assertions.ts -text
 internal/interop/testdata/agentv/LICENSE -text
+internal/evidencestate/testdata/** -text
+web/e2e/fixtures/execution-evidence.json -text
+web/e2e/fixtures/execution-evidence.csv -text
 # Immutable manifest vectors are exact-byte hash and serialization oracles.
 internal/artifactmanifest/testdata/** -text

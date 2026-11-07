@@ -30,14 +30,22 @@ type SubmissionRequest struct {
 }
 
 var submissionSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileSubmissionSchema("execution-submission-1.0.schema.json")
+})
+
+func compileSubmissionSchema(name string) (*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(schemaloader.Offline{})
 	for name, text := range map[string]string{
-		"execution-submission-1.0.schema.json": schemas.ExecutionSubmissionSchemaJSON,
-		"runner-request-1.0.schema.json":       schemas.RunnerRequestSchemaJSON,
-		"execution-attempt-1.0.schema.json":    schemas.ExecutionAttemptSchemaJSON,
-		"artifact-manifest-1.0.schema.json":    schemas.ArtifactManifestSchemaJSON,
-		"runner-terminal-1.0.schema.json":      schemas.RunnerTerminalSchemaJSON,
+		"execution-submission-1.0.schema.json":        schemas.ExecutionSubmissionSchemaJSON,
+		"runner-request-1.0.schema.json":              schemas.RunnerRequestSchemaJSON,
+		"execution-attempt-1.0.schema.json":           schemas.ExecutionAttemptSchemaJSON,
+		"artifact-manifest-1.0.schema.json":           schemas.ArtifactManifestSchemaJSON,
+		"runner-terminal-1.0.schema.json":             schemas.RunnerTerminalSchemaJSON,
+		"execution-submission-result-1.0.schema.json": schemas.ExecutionSubmissionResultSchemaJSON,
+		"execution-completion-1.0.schema.json":        schemas.ExecutionCompletionSchemaJSON,
+		"runner-unit-1.0.schema.json":                 schemas.RunnerUnitSchemaJSON,
+		"runner-negotiation-response-1.0.schema.json": schemas.RunnerNegotiationResponseSchemaJSON,
 	} {
 		doc, err := jsonschema.UnmarshalJSON(strings.NewReader(text))
 		if err != nil {
@@ -47,8 +55,8 @@ var submissionSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 			return nil, fmt.Errorf("registering submission schema: %w", err)
 		}
 	}
-	return compiler.Compile("https://microsoft.github.io/waza/schemas/execution-submission-1.0.schema.json")
-})
+	return compiler.Compile("https://microsoft.github.io/waza/schemas/" + name)
+}
 
 func ParseSubmission(data []byte) (*SubmissionRequest, error) {
 	if len(data) > MaxSubmissionBytes {

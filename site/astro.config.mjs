@@ -56,6 +56,7 @@ export default defineConfig({
 						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },
 						{ label: 'Execution Lifecycle (Under Development)', slug: 'guides/execution-lifecycle' },
 						{ label: 'Immutable Artifacts', slug: 'guides/immutable-artifacts' },
+						{ label: 'Execution Evidence States', slug: 'guides/execution-evidence' },
 						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },
 						{ label: 'Local Runner Container', slug: 'guides/runner-container' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },

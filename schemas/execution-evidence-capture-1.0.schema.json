@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-evidence-capture-1.0.schema.json",
+  "title": "Waza recorded evidence capture index 1.0",
+  "description": "Pre-finalization category capture metadata. Content and declared context, not execution attestation or disclosure authorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "binding", "terminal_artifact", "categories", "empty_payloads"],
+  "properties": {
+    "kind": {"const": "waza.execution-evidence-capture"},
+    "schema_version": {"const": "1.0"},
+    "binding": {"$ref": "artifact-manifest-1.0.schema.json#/properties/binding"},
+    "terminal_artifact": {"$ref": "artifact-manifest-1.0.schema.json#/$defs/name"},
+    "categories": {"$ref": "execution-evidence-1.0.schema.json#/properties/categories"},
+    "empty_payloads": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "conversation": {"const": []},
+        "tool": {"const": []},
+        "grader": {"const": {}}
+      }
+    }
+  }
+}
