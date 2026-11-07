@@ -36,6 +36,7 @@ var (
 	ErrInvalid      = errors.New("invalid execution checkpoint declaration")
 	ErrContext      = errors.New("execution checkpoint context mismatch")
 	ErrIncompatible = errors.New("incompatible execution checkpoint")
+	ErrStale        = errors.New("stale execution checkpoint")
 )
 
 type Compatibility struct {

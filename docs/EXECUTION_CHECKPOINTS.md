@@ -4,8 +4,8 @@ Checkpoint schema **1.0 is an additive declaration contract under development
 for #765**, not an operational resume feature. The current
 `executioncheckpoint` package provides strict codecs, declared compatibility
 comparison, original-source context admission and ordinary immutable checkpoint
-blob storage, retained-creator finalized publication and typed finalized-source
-reads. It does not reserve attempts, provide the single-admission public
+blob storage, retained-creator boundary publication and typed source
+reads with original-completion stale rejection. It does not reserve attempts, provide the single-admission public
 safe-boundary creation/restore flow or expose an operational resume command. A separate read-only
 API/Lab inspector admits current blob metadata but does not authorize recovery.
 Do not treat stored declaration bytes or a passing codec as evidence that
@@ -151,6 +151,24 @@ publication and original terminal bytes. These reads do not recreate a creator
 capability or upgrade declared-context/content verification into runtime
 attestation. The blob backend and typed ledger must select the same configured
 source store in the public caller.
+
+`PublishBefore` requires the same retained original creator and request binding,
+and checks typed original completion state before and after blob publication.
+The owning single-admission runner must call it before engine construction;
+the helper alone cannot establish that lifecycle point. `ReadBefore` admits the
+actual stored original reservation and current compatibility, never a creator.
+Only the typed ledger's missing **completion key** permits a fresh child attempt.
+A present completion must retain the original reservation and pass the actual
+complete publication/content/final-marker reader. Verified completion makes the
+old before checkpoint stale; corrupt, unfinalized, missing referenced content
+and unknown storage state all block recovery rather than becoming absence.
+
+The original-completion check and subsequent child reservation are not a
+transaction or a global exactly-once guarantee. A cooperating original writer
+may complete after the check, and an already-completed child is not discovered
+by probing the original parent alone. Distinct children do not reclaim the
+original creator or overwrite records. Preserve source and child evidence;
+do not infer global completed-work discovery or concurrent retry exclusion.
 
 ### Read-only source inspection
 

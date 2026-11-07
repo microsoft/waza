@@ -21,31 +21,9 @@ import (
 func PublishFinalized(ctx context.Context, backend artifactmanifest.Backend, ledger *executionledger.Ledger,
 	creator executionledger.Creator, request []byte, revision, manifestDigest string,
 ) (string, error) {
-	reserved, err := ledger.Reservation(creator)
-	if err != nil {
-		return "", fmt.Errorf("checkpoint creator: %w", err)
-	}
-	original := bytes.Clone(request)
-	compatibility, err := ForRequest(original, revision)
+	checkpoint, reserved, err := creatorDeclaration(ctx, ledger, creator, request, revision, FinalizedUnit)
 	if err != nil {
 		return "", err
-	}
-	declared, err := runnercontract.Parse(original)
-	if err != nil {
-		return "", fmt.Errorf("%w: original request selection: %w", ErrContext, err)
-	}
-	if declared.Selection != reserved.Attempt.Binding.Selection {
-		return "", fmt.Errorf("%w: request selection differs from the creator's original native tuple", ErrContext)
-	}
-	identity, err := runneridentity.DeriveJSON(original)
-	if err != nil {
-		return "", fmt.Errorf("%w: original request identity: %w", ErrContext, err)
-	}
-	if *identity != reserved.Attempt.Binding.Identity {
-		return "", fmt.Errorf("%w: request does not retain the creator's full original identity and native ordinal", ErrContext)
-	}
-	if err := ledger.ValidateCreator(ctx, creator); err != nil {
-		return "", fmt.Errorf("checkpoint creator: %w", err)
 	}
 	completed, err := ledger.ReadCompleted(ctx, executionattempt.Source{
 		ExecutionID: reserved.Attempt.ExecutionID, ManifestDigest: manifestDigest,
@@ -56,12 +34,9 @@ func PublishFinalized(ctx context.Context, backend artifactmanifest.Backend, led
 	if !bytes.Equal(completed.Reservation.Bytes, reserved.Bytes) {
 		return "", fmt.Errorf("%w: completed source differs from the retained creator reservation", ErrContext)
 	}
-	checkpoint := Checkpoint{
-		Kind: "waza.execution-checkpoint", SchemaVersion: Version, Boundary: FinalizedUnit,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), ExecutionID: reserved.Attempt.ExecutionID,
-		ReservationDigest: reserved.Digest, Compatibility: compatibility,
-		CompletionDigest: artifactmanifest.Hash(completed.CompletionBytes), ManifestDigest: manifestDigest,
-	}
+	checkpoint.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	checkpoint.CompletionDigest = artifactmanifest.Hash(completed.CompletionBytes)
+	checkpoint.ManifestDigest = manifestDigest
 	if err := ValidateContext(checkpoint, reserved.Attempt.Binding, reserved.Bytes, completed.CompletionBytes, completed.Publication.ManifestBytes); err != nil {
 		return "", err
 	}
@@ -73,6 +48,42 @@ func PublishFinalized(ctx context.Context, backend artifactmanifest.Backend, led
 		return digest, fmt.Errorf("checkpoint blob %s was stored but original creator validation failed; preserve unverified evidence: %w", digest, err)
 	}
 	return digest, nil
+}
+
+func creatorDeclaration(ctx context.Context, ledger *executionledger.Ledger, creator executionledger.Creator,
+	request []byte, revision, boundary string,
+) (Checkpoint, *executionledger.Reservation, error) {
+	reserved, err := ledger.Reservation(creator)
+	if err != nil {
+		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w", err)
+	}
+	original := bytes.Clone(request)
+	compatibility, err := ForRequest(original, revision)
+	if err != nil {
+		return Checkpoint{}, nil, err
+	}
+	declared, err := runnercontract.Parse(original)
+	if err != nil {
+		return Checkpoint{}, nil, fmt.Errorf("%w: original request selection: %w", ErrContext, err)
+	}
+	if declared.Selection != reserved.Attempt.Binding.Selection {
+		return Checkpoint{}, nil, fmt.Errorf("%w: request selection differs from the creator's original native tuple", ErrContext)
+	}
+	identity, err := runneridentity.DeriveJSON(original)
+	if err != nil {
+		return Checkpoint{}, nil, fmt.Errorf("%w: original request identity: %w", ErrContext, err)
+	}
+	if *identity != reserved.Attempt.Binding.Identity {
+		return Checkpoint{}, nil, fmt.Errorf("%w: request does not retain the creator's full original identity and native ordinal", ErrContext)
+	}
+	if err := ledger.ValidateCreator(ctx, creator); err != nil {
+		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w", err)
+	}
+	return Checkpoint{
+		Kind: "waza.execution-checkpoint", SchemaVersion: Version, Boundary: boundary,
+		ExecutionID:       reserved.Attempt.ExecutionID,
+		ReservationDigest: reserved.Digest, Compatibility: compatibility,
+	}, reserved, nil
 }
 
 // ReadStoredFinalized derives the independent original binding and sidecars
