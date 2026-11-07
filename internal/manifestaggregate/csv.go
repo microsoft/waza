@@ -25,12 +25,16 @@ func EncodeCSV(report Report) ([]byte, error) {
 	}
 	var output boundedCSV
 	writer := csv.NewWriter(&output)
-	if err := writer.Write([]string{
+	header := []string{
 		"manifest_sha256", "input_state", "recorded_outcome", "evidence_sha256", "evidence_state",
 		"usage_state", "usage_verification", "declared_usage_source",
 		"turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
 		"premium_requests", "ai_credits", "model_metrics_json", "usage_totals", "new_operation_billing", "verified_source_manifests_json",
-	}); err != nil {
+	}
+	if report.Evidence != nil {
+		header = append(header, "category_evidence_json", "declared_categories_json")
+	}
+	if err := writer.Write(header); err != nil {
 		return nil, fmt.Errorf("encoding aggregate CSV header: %w", err)
 	}
 	for index, member := range report.Members {
@@ -39,7 +43,7 @@ func EncodeCSV(report Report) ([]byte, error) {
 			candidates = report.Evidence.Members[index].Candidates
 		}
 		for _, candidate := range candidates {
-			row := make([]string, 19)
+			row := make([]string, len(header))
 			row[0], row[1], row[2] = member.ManifestSHA256, member.State, string(member.Outcome)
 			row[3], row[4] = candidate.EvidenceSHA256, candidate.State
 			row[5], row[6], row[16], row[17] = "unavailable", "unverified", "withheld", "unavailable"
@@ -53,6 +57,15 @@ func EncodeCSV(report Report) ([]byte, error) {
 			for _, declaration := range candidate.Declarations {
 				if declaration.Category == "usage" {
 					row[7] = string(declaration.Source)
+				}
+			}
+			if report.Evidence != nil && candidate.EvidenceSHA256 != "" {
+				for offset, value := range []any{candidate.Categories, candidate.Declarations} {
+					data, err := json.Marshal(value)
+					if err != nil {
+						return nil, fmt.Errorf("encoding aggregate CSV category metadata: %w", err)
+					}
+					row[19+offset] = string(data)
 				}
 			}
 			if candidate.Usage != nil {

@@ -120,10 +120,11 @@ func (b *partialFailureBackend) Get(context.Context, string, int64) ([]byte, err
 
 func TestAggregateFailedReadsReserveUnknownConsumption(t *testing.T) {
 	backend := &partialFailureBackend{}
-	bounded := &boundedBackend{Backend: backend}
+	bounded := &boundedBackend{Backend: backend, readBudget: &readBudget{}}
 	for range 4 {
-		_, err := bounded.Get(context.Background(), "blob", (MaxReadBytes/4)-1)
+		data, err := bounded.Get(context.Background(), "blob", (MaxReadBytes/4)-1)
 		require.Error(t, err)
+		require.Nil(t, data, "failed providers must not disclose partial bytes")
 	}
 	require.EqualValues(t, MaxReadBytes, bounded.read)
 	_, err := bounded.Get(context.Background(), "blob", 1)

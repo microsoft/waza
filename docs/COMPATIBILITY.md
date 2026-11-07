@@ -162,8 +162,12 @@ legacy writer versions. Omitted, null and empty selection are distinct: omitted
 has no evidence field, null is invalid, and empty emits explicit unselected
 evidence membership. Recorded usage uses native int64 counts, independently of
 assurance profiles' JavaScript-safe limits. Original source bytes and historical
-usage remain unchanged; derived category declarations and structural admission
-do not qualify producer ownership, category completeness or new billing.
+usage remain unchanged. Optional evidence now requires the canonical native
+capture index for category/usage admission: unindexed flat sidecars intentionally
+degrade to declaration-only unavailable categories in this unreleased profile.
+Declared and admitted category tallies remain separate; admitted counts use
+exact decimal int64 text and never derive from declarations. Structural admission
+does not qualify retained ownership, live execution or new billing.
 
 From the repository root, after the normal embedded dashboard assets exist:
 

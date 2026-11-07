@@ -94,11 +94,14 @@ function AggregateInspector() {
           <ul>{conflict.manifests.map((digest) => <li key={digest}><code>{digest}</code></li>)}</ul>
         </div>)}
       {report.evidence && <>
-        <h3>Evidence declarations: {report.evidence.completion}</h3>
-        <p>Content and declared context only. Category counts are declarations, not verified capture completeness.
+        <h3>Category evidence: {report.evidence.completion}</h3>
+        <p>Declarations and admitted native category shapes are reported separately. Neither establishes runtime attestation.
           Usage totals are {report.evidence.usage_totals}; original recorded credits are not new-operation billing.</p>
         <h4>Declaration-only state counts</h4>
         <dl>{Object.entries(report.evidence.declaration_state_counts).sort(([a], [b]) => a.localeCompare(b)).map(([category, states]) =>
+          <div key={category}><dt>{category}</dt><dd>{Object.entries(states).map(([state, count]) => `${state}: ${count}`).join("; ")}</dd></div>)}</dl>
+        <h4>Admitted native category state counts</h4>
+        <dl>{Object.entries(report.evidence.category_state_counts).sort(([a], [b]) => a.localeCompare(b)).map(([category, states]) =>
           <div key={category}><dt>{category}</dt><dd>{Object.entries(states).map(([state, count]) => `${state}: ${count}`).join("; ")}</dd></div>)}</dl>
         {report.evidence.members.map((member) => <div key={member.manifest_sha256}>
           <h4><code>{member.manifest_sha256}</code>: {member.state}</h4>
@@ -108,11 +111,19 @@ function AggregateInspector() {
             <p><a href={`/api/v1/evidence/${candidate.evidence_sha256}`} target="_blank" rel="noreferrer"><code>{candidate.evidence_sha256}</code></a>: {candidate.state}</p>
             <p>Current source links: {candidate.source_manifests.length === 0 ? "Unavailable" : candidate.source_manifests.map((digest) =>
               <a key={digest} href={`/api/v1/manifests/${digest}`} target="_blank" rel="noreferrer"><code>{digest} </code></a>)}</p>
+            <h5>Declared metadata</h5>
             <dl>{candidate.declared_categories.map((declaration) => <div key={declaration.category}>
               <dt>{declaration.category}</dt><dd>{declaration.declared_state}; source: {declaration.declared_source};
                 context: {declaration.declared_context}; count: {declaration.declared_observed_count ?? "Unavailable"}
                 {declaration.declared_reason && `; reason: ${declaration.declared_reason}`}
                 {declaration.declared_limit && `; limit observed: ${declaration.declared_limit.observed}; total: ${declaration.declared_limit.total ?? "Unavailable"}`}
+              </dd>
+            </div>)}</dl>
+            <h5>Native category admission</h5>
+            <dl>{candidate.categories.map((category) => <div key={category.category}>
+              <dt>{category.category}</dt><dd>{category.state}; verification: {category.verification};
+                observed count: {category.observed_count ?? "Unavailable"}
+                {category.reason && `; reason: ${category.reason}`}
               </dd>
             </div>)}</dl>
             <p>Recorded usage: {candidate.usage?.state ?? "Unavailable"}; verification: {candidate.usage?.verification ?? "unverified"}.

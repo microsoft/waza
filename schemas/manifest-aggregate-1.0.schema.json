@@ -111,9 +111,21 @@
       "properties": {
         "state": {"$ref": "#/$defs/evidence_state"},
         "declared_state": {"$ref": "#/$defs/evidence_state"},
-        "verification": {"enum": ["unverified", "declared-state-only", "source-content-and-recorded-usage-shape-only"]},
+        "verification": {"enum": ["unverified", "declared-state-only", "source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only", "recorded-degradation-only"]},
         "reason": {"type": "string", "maxLength": 64},
         "recorded": {"$ref": "#/$defs/native_usage"}
+      }
+    },
+    "admitted_category": {
+      "type": "object", "additionalProperties": false,
+      "required": ["category", "state", "verification"],
+      "properties": {
+        "category": {"$ref": "#/$defs/category"},
+        "state": {"$ref": "#/$defs/evidence_state"},
+        "declared_state": {"$ref": "#/$defs/evidence_state"},
+        "verification": {"enum": ["unverified", "declared-state-only", "source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only", "recorded-degradation-only"]},
+        "reason": {"type": "string", "maxLength": 64},
+        "observed_count": {"$ref": "#/$defs/integer_text"}
       }
     },
     "native_count": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
@@ -149,29 +161,30 @@
     },
     "evidence_candidate": {
       "type": "object", "additionalProperties": false,
-      "required": ["evidence_sha256", "state", "source_manifests", "declared_categories", "diagnostics"],
+      "required": ["evidence_sha256", "state", "source_manifests", "declared_categories", "categories", "diagnostics"],
       "properties": {
         "evidence_sha256": {"$ref": "#/$defs/digest"},
         "state": {"enum": ["verified", "missing", "unfinalized", "conflicting", "corrupt", "incompatible", "limit_exceeded", "unavailable", "timeout", "cancelled"]},
         "origin_manifest": {"$ref": "#/$defs/digest"},
         "source_manifests": {"type": "array", "maxItems": 129, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}},
         "declared_categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/declaration"}},
+        "categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/admitted_category"}},
         "usage": {"$ref": "#/$defs/recorded_usage"},
         "diagnostics": {"$ref": "#/$defs/diagnostics"}
       },
       "allOf": [{
         "if": {"properties": {"state": {"const": "verified"}}},
-        "then": {"required": ["origin_manifest", "usage"], "properties": {"source_manifests": {"minItems": 1}, "declared_categories": {"minItems": 6}}},
-        "else": {"properties": {"declared_categories": {"maxItems": 0}}, "not": {"required": ["usage"]}}
+        "then": {"required": ["origin_manifest", "usage"], "properties": {"source_manifests": {"minItems": 1}, "declared_categories": {"minItems": 6}, "categories": {"minItems": 6}}},
+        "else": {"properties": {"declared_categories": {"maxItems": 0}, "categories": {"maxItems": 0}}, "not": {"required": ["usage"]}}
       }]
     },
     "evidence": {
       "type": "object", "additionalProperties": false,
-      "required": ["completion", "verification", "qualification", "usage_totals", "members", "declaration_state_counts", "diagnostics"],
+      "required": ["completion", "verification", "qualification", "usage_totals", "members", "declaration_state_counts", "category_state_counts", "diagnostics"],
       "properties": {
         "completion": {"const": "incomplete"},
         "verification": {"const": "content-and-declared-context-only"},
-        "qualification": {"const": "producer-and-category-qualification-unavailable"},
+        "qualification": {"const": "recorded-category-shape-only"},
         "usage_totals": {"const": "withheld"},
         "members": {"type": "array", "minItems": 1, "maxItems": 128, "items": {
           "type": "object", "additionalProperties": false, "required": ["manifest_sha256", "state", "candidates"],
@@ -182,6 +195,11 @@
           }
         }},
         "declaration_state_counts": {
+          "type": "object", "propertyNames": {"$ref": "#/$defs/category"},
+          "additionalProperties": {"type": "object", "propertyNames": {"$ref": "#/$defs/evidence_state"}, "minProperties": 1,
+            "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 128}}
+        },
+        "category_state_counts": {
           "type": "object", "propertyNames": {"$ref": "#/$defs/category"},
           "additionalProperties": {"type": "object", "propertyNames": {"$ref": "#/$defs/evidence_state"}, "minProperties": 1,
             "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 128}}

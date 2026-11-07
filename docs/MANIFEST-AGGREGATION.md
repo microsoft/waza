@@ -89,23 +89,34 @@ source provenance or complete usage.
 Optional `--evidence MANIFEST_SHA256=EVIDENCE_SHA256` selects explicit derived
 sidecars; repeat it up to 128 times before deduplication. Declared origins must
 belong to the expected set before any provider is opened. Sorted, distinct pairs
-each use one actual #768 `InspectWithUsage` pass. The stored origin must match;
+each use one actual #768 `InspectCategories` pass. The stored origin must match;
 all distinct competing sidecars are reported, with no declaration/usage winner.
 Every lineage/current-source read shares the original cumulative budget.
 Origin and sidecar verification are separate current passes, not a snapshot.
 Observed failures remain withheld even when another pass verified the origin.
 
-The six category counts remain **declarations**. Explicit native `UsageStats`
-shape admission may retain original recorded usage, including incomplete credits,
-for review. Present-empty declarations never create zero usage. This verifies
-source content and recorded shape, not producer, privacy, ownership or billing
-attestation. Scores, assurance and usage totals remain withheld.
+`declared_categories` and `declaration_state_counts` retain the six declarations.
+The separate `categories` and `category_state_counts` report native category
+admission against the original terminal, canonical capture index and
+category-keyed payloads. Observed counts use exact decimal int64 text.
+Unindexed flat sidecars remain byte-verified declarations but have unavailable
+native categories, no admitted counts and no recorded usage. This intentionally
+strengthens the **unreleased** optional-evidence admission; manifest-only output
+and historical formats remain unchanged. Competing sidecars contribute to
+neither tally, and semantic failures retain byte receipts without inventing
+successful category evidence.
+
+Explicit native `UsageStats` shape admission may retain original recorded usage,
+including incomplete credits, for review. Present-empty declarations never
+create zero usage. This verifies source content and recorded shape, not privacy
+authorization, retained ownership, live execution or billing attestation.
+Scores, assurance and usage totals remain withheld.
 Future usage integration must reuse `models.AggregateUsageStats`, preserve
 recorded zero/precision and original source usage, and exclude reused/cached
 historical execution usage from new-operation billing. A historical observed
 credit value and the cost of this read-only aggregation are distinct scopes.
 
-The aggregate exposes safe declarations and admitted recorded usage, not arbitrary
+The aggregate exposes safe declarations, category admission and recorded usage, not arbitrary
 payload text or artifact names. Source links point to existing manifest/sidecar
 inspection, not unrestricted payload downloads. Keep original source privacy
 rules; aggregation cannot retroactively redact an already published source.
@@ -159,6 +170,8 @@ credits as blank cells, and recorded zero as zero. Lab rendering and CSV use
 preserved integer tokens rather than rounded JavaScript numbers, including
 9007199254740993 and MaxInt64. Lab CSV derives from its captured response without
 rereading sources; separate CLI/API invocations are separate observations.
+Optional-evidence CSV appends separate native category and declaration JSON
+columns; manifest-only CSV keeps its existing header and bytes.
 The aggregate's native usage fragment intentionally supports int64 counts;
 it does not change assurance profiles' separate JavaScript-safe integer bounds.
 Input edits and failed reloads clear prior
@@ -177,8 +190,8 @@ Unknown future profiles are not implicitly upgraded; adopt a separately
 reviewed aggregate reader/profile. Frozen historical result compatibility
 continues to use the existing compatibility corpus.
 
-Full #766 remains open until actual committed #768 category persistence and
-producer admission are integrated, all category/source/usage controls pass,
+Full #766 remains open until the actual public producer and budgeted retained
+source/ledger integration are complete, all category/source/usage controls pass,
 and the required Go/compatibility,
 dashboard/site browser, screenshot and independent review gates complete.
 Pure codecs, authored controls, mock producer integration and build success

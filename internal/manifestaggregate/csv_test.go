@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAggregateEvidenceCSVExactIntegerAndCreditPresence(t *testing.T) {
+func TestAggregateEvidenceUnindexedCSVWithholdsIntegerAndCredits(t *testing.T) {
 	for _, integer := range []string{"9007199254740993", "9223372036854775807"} {
 		for _, credits := range []*float64{nil, new(float64)} {
 			t.Run(integer+"/"+strconv.FormatBool(credits != nil), func(t *testing.T) {
@@ -32,27 +32,22 @@ func TestAggregateEvidenceCSVExactIntegerAndCreditPresence(t *testing.T) {
 				require.NoError(t, err)
 				raw, err := Encode(report)
 				require.NoError(t, err)
-				require.Contains(t, string(raw), `"input_tokens":`+integer)
+				require.NotContains(t, string(raw), `"input_tokens"`)
 				data, err := EncodeCSV(report)
 				require.NoError(t, err)
 				rows, err := csv.NewReader(bytes.NewReader(data)).ReadAll()
 				require.NoError(t, err)
 				require.Len(t, rows, 2)
-				require.Len(t, rows[1], 19)
-				require.Equal(t, integer, rows[1][9])
-				require.Contains(t, rows[1][15], `"input_tokens":`+integer)
+				require.Len(t, rows[1], 21)
+				require.Empty(t, rows[1][9])
+				require.Empty(t, rows[1][15])
 				require.Equal(t, "withheld", rows[1][16])
 				require.Equal(t, "unavailable", rows[1][17])
 				var scope []string
 				require.NoError(t, json.Unmarshal([]byte(rows[1][18]), &scope))
 				require.Equal(t, []string{origin}, scope)
-				if credits == nil {
-					require.Empty(t, rows[1][14])
-					require.Equal(t, "incomplete", rows[1][5])
-				} else {
-					require.Equal(t, "0", rows[1][14])
-					require.Equal(t, "present", rows[1][5])
-				}
+				require.Empty(t, rows[1][14])
+				require.Equal(t, "unavailable", rows[1][5])
 			})
 		}
 	}

@@ -53,7 +53,8 @@ member outcomes/verdicts, conflicts and compatibility diagnostics. Source
 manifest links reread existing public inspection receipts.
 Optional evidence pairs use `MANIFEST_SHA256=EVIDENCE_SHA256`, separated by
 whitespace. Every origin must be in the expected set. All competing sidecars
-remain visible; declaration counts are not category-completeness evidence.
+remain visible; declaration and native category state counts are separate.
+Declaration counts are not category-completeness evidence.
 **Download aggregate JSON** preserves original response bytes; **Download
 aggregate CSV** preserves exact integer counts and absent versus recorded-zero
 credits from the same captured response. The synthetic
@@ -79,9 +80,14 @@ waza aggregate "$FIRST" --store .waza-artifacts \
 The API accepts an optional `evidence` array of
 `{"manifest_sha256":DIGEST,"evidence_sha256":SIDECAR}` pairs and supports
 `?format=csv`. Omitted evidence preserves manifest-only output; `[]` explicitly
-selects none, while `null` is invalid. Source bytes and recorded native usage
-shape are checked in one sidecar pass; all origin/ancestor reads share the budget.
-Declared category states remain metadata. Recorded credits remain historical
+selects none, while `null` is invalid. Source bytes and all six native category
+shapes are checked in one sidecar pass against the canonical capture index and
+original terminal; all origin/ancestor reads share the budget. Unindexed flat
+sidecars remain declarations with unavailable native counts and usage. This is
+an intentional stronger admission rule for the unreleased optional profile,
+not a change to manifest-only or historical results. Native observed counts use
+exact decimal text, and optional-evidence CSV keeps native category metadata
+separate from declarations. Recorded credits remain historical
 source usage, not new-operation billing, and totals stay withheld.
 
 ## Troubleshoot incomplete aggregates
@@ -120,6 +126,6 @@ explicit `limit_exceeded`, not generic missing/corrupt storage.
 
 Developer ordering, conflict, trust, read-budget and migration rules are
 canonical in [the source contract](https://github.com/microsoft/waza/blob/main/docs/MANIFEST-AGGREGATION.md).
-Full release acceptance still requires the actual committed category producer/
-admission plus final Go, browser and review
+Full release acceptance still requires public producer and budgeted retained
+source/ledger integration plus final Go, browser and review
 gates. This source preview does not claim those pending steps are complete.

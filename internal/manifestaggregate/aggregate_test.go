@@ -338,11 +338,11 @@ func TestAggregateAdmissionAndCancellation(t *testing.T) {
 	report, err := Aggregate(ctx, backend, Request{Manifests: []string{strings.Repeat("a", 64)}})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, string(runnerterminal.Canceled), report.Members[0].State)
-	bounded := &boundedBackend{Backend: backend, read: MaxReadBytes}
+	bounded := &boundedBackend{Backend: backend, readBudget: &readBudget{read: MaxReadBytes}}
 	_, err = bounded.Get(context.Background(), "blob-"+strings.Repeat("a", 64), 1)
 	require.ErrorIs(t, err, ErrLimit)
 	require.False(t, errors.Is(err, artifactmanifest.ErrMissing))
-	bounded = &boundedBackend{Backend: backend}
+	bounded = &boundedBackend{Backend: backend, readBudget: &readBudget{}}
 	for range 4 {
 		_, err = bounded.Get(context.Background(), "blob-"+strings.Repeat("a", 64), (MaxReadBytes/4)-1)
 		require.ErrorIs(t, err, artifactmanifest.ErrMissing)

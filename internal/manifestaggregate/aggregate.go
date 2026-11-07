@@ -90,6 +90,10 @@ func (r Request) Validate() error {
 
 type boundedBackend struct {
 	artifactmanifest.Backend
+	*readBudget
+}
+
+type readBudget struct {
 	read           int64
 	hits           int
 	unavailable    int
@@ -99,6 +103,23 @@ type boundedBackend struct {
 }
 
 func (b *boundedBackend) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
+	return b.get(ctx, b.Backend, key, limit)
+}
+
+type boundedRead struct {
+	artifactmanifest.ReadBackend
+	*readBudget
+}
+
+func (b *boundedRead) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
+	return b.get(ctx, b.ReadBackend, key, limit)
+}
+
+func (b *readBudget) decorate(backend artifactmanifest.ReadBackend) artifactmanifest.ReadBackend {
+	return &boundedRead{ReadBackend: backend, readBudget: b}
+}
+
+func (b *readBudget) get(ctx context.Context, backend artifactmanifest.ReadBackend, key string, limit int64) ([]byte, error) {
 	if limit < 0 || limit >= MaxReadBytes-b.read {
 		b.hits++
 		return nil, ErrLimit
@@ -106,7 +127,7 @@ func (b *boundedBackend) Get(ctx context.Context, key string, limit int64) ([]by
 	// Failed reads can have consumed bytes that a provider did not return.
 	// Reserve their full admitted limit rather than assuming they cost zero.
 	b.read += limit + 1
-	data, err := b.Backend.Get(ctx, key, limit)
+	data, err := backend.Get(ctx, key, limit)
 	if err != nil && !strings.HasPrefix(key, "final-") {
 		b.nonFinalErrors++
 	}
@@ -123,14 +144,15 @@ func (b *boundedBackend) Get(ctx context.Context, key string, limit int64) ([]by
 		!errors.Is(err, context.DeadlineExceeded) {
 		b.unavailable++
 	}
+	if err != nil {
+		return nil, err
+	}
 	if int64(len(data)) > limit {
 		b.hits++
 		return nil, ErrLimit
 	}
-	if err == nil {
-		b.read -= limit + 1 - int64(len(data))
-	}
-	return data, err
+	b.read -= limit + 1 - int64(len(data))
+	return data, nil
 }
 
 // Aggregate never creates objects, starts workers, or loads project configuration.
@@ -157,7 +179,7 @@ func Aggregate(ctx context.Context, backend artifactmanifest.Backend, request Re
 		slices.SortFunc(evidence, compareEvidence)
 		evidence = slices.Compact(evidence)
 	}
-	bounded := &boundedBackend{Backend: backend}
+	bounded := &boundedBackend{Backend: backend, readBudget: &readBudget{}}
 	store := artifactmanifest.NewStore(bounded)
 	logicals := map[executionattempt.Logical][]int{}
 	contexts := map[string]bool{}

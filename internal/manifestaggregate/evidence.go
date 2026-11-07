@@ -40,12 +40,22 @@ type RecordedUsage struct {
 	Recorded      *models.UsageStats  `json:"recorded,omitempty"`
 }
 
+type AdmittedCategory struct {
+	Category      evidencestate.Category `json:"category"`
+	State         evidencestate.State    `json:"state"`
+	DeclaredState evidencestate.State    `json:"declared_state,omitempty"`
+	Verification  string                 `json:"verification"`
+	Reason        string                 `json:"reason,omitempty"`
+	ObservedCount *string                `json:"observed_count,omitempty"`
+}
+
 type EvidenceCandidate struct {
 	EvidenceSHA256 string                        `json:"evidence_sha256"`
 	State          string                        `json:"state"`
 	OriginManifest string                        `json:"origin_manifest,omitempty"`
 	Sources        []string                      `json:"source_manifests"`
 	Declarations   []CategoryDeclaration         `json:"declared_categories"`
+	Categories     []AdmittedCategory            `json:"categories"`
 	Usage          *RecordedUsage                `json:"usage,omitempty"`
 	Diagnostics    []artifactmanifest.Diagnostic `json:"diagnostics"`
 }
@@ -63,6 +73,7 @@ type EvidenceReport struct {
 	UsageTotals            string                                                 `json:"usage_totals"`
 	Members                []EvidenceMember                                       `json:"members"`
 	DeclarationStateCounts map[evidencestate.Category]map[evidencestate.State]int `json:"declaration_state_counts"`
+	CategoryStateCounts    map[evidencestate.Category]map[evidencestate.State]int `json:"category_state_counts"`
 	Diagnostics            []artifactmanifest.Diagnostic                          `json:"diagnostics"`
 }
 
@@ -76,11 +87,12 @@ func compareEvidence(a, b EvidenceInput) int {
 func aggregateEvidence(ctx context.Context, backend *boundedBackend, members []Member, references []EvidenceInput) (EvidenceReport, error) {
 	report := EvidenceReport{
 		Completion: "incomplete", Verification: "content-and-declared-context-only",
-		Qualification: "producer-and-category-qualification-unavailable", UsageTotals: "withheld",
+		Qualification: "recorded-category-shape-only", UsageTotals: "withheld",
 		Members:                []EvidenceMember{},
 		DeclarationStateCounts: map[evidencestate.Category]map[evidencestate.State]int{},
+		CategoryStateCounts:    map[evidencestate.Category]map[evidencestate.State]int{},
 		Diagnostics: []artifactmanifest.Diagnostic{{
-			Code: "qualification_unavailable", Message: "Category states and source kinds remain declarations. Recorded usage shape does not establish producer, ownership or new billing qualification; totals are withheld.",
+			Code: "qualification_unavailable", Message: "Recorded category shape is separate from declared metadata. Source ownership, execution and new billing attestation are not established; totals are withheld.",
 		}},
 	}
 	var failures []error
@@ -89,6 +101,16 @@ func aggregateEvidence(ctx context.Context, backend *boundedBackend, members []M
 		result := EvidenceMember{ManifestSHA256: member.ManifestSHA256, State: "not_selected", Candidates: []EvidenceCandidate{}}
 		for cursor < len(references) && references[cursor].ManifestSHA256 == member.ManifestSHA256 {
 			candidate, err := inspectEvidenceCandidate(ctx, backend, references[cursor])
+			if candidate.State == "verified" && member.Logical == nil {
+				candidate.State = "unavailable"
+				candidate.Declarations = []CategoryDeclaration{}
+				candidate.Categories = []AdmittedCategory{}
+				candidate.Usage = nil
+				candidate.Diagnostics = append(candidate.Diagnostics, artifactmanifest.Diagnostic{
+					Code: "origin_admission_withheld", Message: "The origin was not admitted in the manifest pass. A later sidecar read cannot replace that observed failure; category counts and usage are withheld.",
+				})
+				err = errors.Join(err, ErrIncomplete)
+			}
 			result.Candidates = append(result.Candidates, candidate)
 			if err != nil {
 				failures = append(failures, err)
@@ -103,6 +125,15 @@ func aggregateEvidence(ctx context.Context, backend *boundedBackend, members []M
 						report.DeclarationStateCounts[declaration.Category] = map[evidencestate.State]int{}
 					}
 					report.DeclarationStateCounts[declaration.Category][declaration.DeclaredState]++
+				}
+				for _, category := range result.Candidates[0].Categories {
+					if !categoryAdmitted(category) {
+						continue
+					}
+					if report.CategoryStateCounts[category.Category] == nil {
+						report.CategoryStateCounts[category.Category] = map[evidencestate.State]int{}
+					}
+					report.CategoryStateCounts[category.Category][category.State]++
 				}
 			}
 		} else if len(result.Candidates) > 1 {
@@ -120,11 +151,11 @@ func aggregateEvidence(ctx context.Context, backend *boundedBackend, members []M
 func inspectEvidenceCandidate(ctx context.Context, backend *boundedBackend, reference EvidenceInput) (EvidenceCandidate, error) {
 	result := EvidenceCandidate{
 		EvidenceSHA256: reference.EvidenceSHA256, State: "unavailable",
-		Sources: []string{}, Declarations: []CategoryDeclaration{}, Diagnostics: []artifactmanifest.Diagnostic{},
+		Sources: []string{}, Declarations: []CategoryDeclaration{}, Categories: []AdmittedCategory{}, Diagnostics: []artifactmanifest.Diagnostic{},
 	}
 	hits, unavailable := backend.hits, backend.unavailable
 	missingFinal, missingObjects, nonFinalErrors := backend.missingFinal, backend.missingObjects, backend.nonFinalErrors
-	inspection, usage, err := evidencestate.InspectWithUsage(ctx, backend, reference.EvidenceSHA256)
+	inspection, categories, err := evidencestate.InspectCategories(ctx, backend, reference.EvidenceSHA256)
 	if backend.unavailable != unavailable {
 		err = errors.Join(err, ErrUnavailable)
 	}
@@ -182,17 +213,43 @@ func inspectEvidenceCandidate(ctx context.Context, backend *boundedBackend, refe
 		result.Declarations = append(result.Declarations, declaration)
 	}
 	slices.SortFunc(result.Declarations, func(a, b CategoryDeclaration) int { return strings.Compare(string(a.Category), string(b.Category)) })
-	result.Usage = &RecordedUsage{
-		State: usage.State, DeclaredState: usage.DeclaredState, Verification: usage.Verification, Reason: usage.Reason,
+	for _, category := range categories {
+		value := AdmittedCategory{
+			Category: category.Category, State: category.State, DeclaredState: category.DeclaredState,
+			Verification: category.Verification, Reason: category.Reason,
+		}
+		if category.ObservedCount != nil {
+			count := strconv.FormatInt(*category.ObservedCount, 10)
+			value.ObservedCount = &count
+		}
+		result.Categories = append(result.Categories, value)
+		if category.Category == evidencestate.Usage {
+			result.Usage = &RecordedUsage{
+				State: category.State, DeclaredState: category.DeclaredState,
+				Verification: category.Verification, Reason: category.Reason,
+			}
+			if category.Verification == "source-content-and-recorded-usage-shape-only" &&
+				(category.State == evidencestate.Present || category.State == evidencestate.Incomplete) {
+				result.Usage.Recorded = category.Usage
+			}
+		}
 	}
-	if usage.Verification == "source-content-and-recorded-usage-shape-only" &&
-		(usage.State == evidencestate.Present || usage.State == evidencestate.Incomplete) {
-		result.Usage.Recorded = usage.Usage
-	}
+	slices.SortFunc(result.Categories, func(a, b AdmittedCategory) int { return strings.Compare(string(a.Category), string(b.Category)) })
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, artifactmanifest.Diagnostic{
-			Code: "usage_admission_failed", Message: "Source bytes were verified, but recorded usage shape was not admitted. No credits, score or billing total was substituted.",
+			Code: "category_admission_failed", Message: "Source bytes were verified, but captured category admission failed. Unqualified counts and usage remain withheld; no score or billing total was substituted.",
 		})
 	}
 	return result, err
+}
+
+func categoryAdmitted(category AdmittedCategory) bool {
+	switch category.Verification {
+	case "source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only":
+		return category.State != evidencestate.Present || category.ObservedCount != nil
+	case "recorded-degradation-only":
+		return category.State == evidencestate.Incomplete && category.ObservedCount == nil
+	default:
+		return false
+	}
 }

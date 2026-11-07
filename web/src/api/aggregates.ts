@@ -8,6 +8,10 @@ import { parseStrictJSON } from "../lib/strictJson";
 import type { EvidenceCategory, EvidenceState } from "./executionEvidence";
 
 export interface EvidenceInput { manifest_sha256: string; evidence_sha256: string }
+export interface AdmittedCategory {
+  category: EvidenceCategory; state: EvidenceState; declared_state?: EvidenceState;
+  verification: string; reason?: string; observed_count?: string;
+}
 interface RecordedUsage {
   state: EvidenceState;
   declared_state?: EvidenceState;
@@ -26,6 +30,7 @@ export interface EvidenceCandidate {
     declared_context: string; declared_observed_count?: string; declared_reason?: string;
     declared_limit?: { observed: string; total?: string };
   }[];
+  categories: AdmittedCategory[];
   usage?: RecordedUsage;
   diagnostics: { code: string; message: string }[];
 }
@@ -55,9 +60,10 @@ export interface ManifestAggregate {
   diagnostics: { code: string; message: string }[];
   evidence?: {
     completion: "incomplete"; verification: "content-and-declared-context-only";
-    qualification: "producer-and-category-qualification-unavailable"; usage_totals: "withheld";
+    qualification: "recorded-category-shape-only"; usage_totals: "withheld";
     members: { manifest_sha256: string; state: string; candidates: EvidenceCandidate[] }[];
     declaration_state_counts: Partial<Record<EvidenceCategory, Partial<Record<EvidenceState, number>>>>;
+    category_state_counts: Partial<Record<EvidenceCategory, Partial<Record<EvidenceState, number>>>>;
     diagnostics: { code: string; message: string }[];
   };
 }
@@ -76,7 +82,15 @@ function integer(value: unknown): string {
   if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value) || BigInt(value) > 9223372036854775807n) {
     throw new AggregateError("Aggregate API returned invalid integer evidence.");
   }
+
   return value;
+}
+
+function categoryAdmitted(category: AdmittedCategory): boolean {
+  if (["source-content-and-recorded-category-shape-only", "source-content-and-recorded-usage-shape-only"].includes(category.verification)) {
+    return category.state !== "present" || category.observed_count !== undefined;
+  }
+  return category.verification === "recorded-degradation-only" && category.state === "incomplete" && category.observed_count === undefined;
 }
 
 function exactUsageFields(value: unknown): Record<string, string> {
@@ -189,6 +203,7 @@ export async function aggregateManifests(manifests: string[], signal: AbortSigna
     }
     const originals = preserved.evidence.members;
     const counts: Record<string, Record<string, number>> = {};
+    const admittedCounts: Record<string, Record<string, number>> = {};
     let candidateCount = 0;
     for (const [index, member] of value.evidence.members.entries()) {
       const requested = [...new Set((evidence ?? []).filter((pair) => pair.manifest_sha256 === member.manifest_sha256)
@@ -227,6 +242,25 @@ export async function aggregateManifests(manifests: string[], signal: AbortSigna
         }
         const usage = candidate.usage;
         if (!usage) throw new AggregateError("Aggregate API omitted recorded usage availability.");
+        candidate.categories.forEach((category, categoryIndex) => {
+          const declared = candidate.declared_categories[categoryIndex];
+          if (!declared || category.category !== declared.category || category.declared_state !== declared.declared_state) {
+            throw new AggregateError("Aggregate API returned contradictory category declarations.");
+          }
+          if (category.observed_count !== undefined) {
+            integer(category.observed_count);
+            if (!categoryAdmitted(category)) throw new AggregateError("Aggregate API fabricated category counts.");
+          }
+          if (category.category === "usage" &&
+              (category.state !== usage.state || category.declared_state !== usage.declared_state ||
+                category.verification !== usage.verification || category.reason !== usage.reason)) {
+            throw new AggregateError("Aggregate API returned contradictory usage admission.");
+          }
+          if (member.state === "verified" && categoryAdmitted(category)) {
+            const states = admittedCounts[category.category] ??= {};
+            states[category.state] = (states[category.state] ?? 0) + 1;
+          }
+        });
         if (usage.recorded) {
           if (usage.verification !== "source-content-and-recorded-usage-shape-only" || usage.declared_state !== "present" ||
               !["present", "incomplete"].includes(usage.state) ||
@@ -251,6 +285,13 @@ export async function aggregateManifests(manifests: string[], signal: AbortSigna
           return !reported || Object.keys(states).length !== Object.keys(reported).length ||
             Object.entries(states).some(([state, count]) => reported[state as EvidenceState] !== count);
         })) throw new AggregateError("Aggregate API returned inconsistent declaration counts.");
+    const nativeCounts = value.evidence.category_state_counts;
+    if (Object.keys(admittedCounts).length !== Object.keys(nativeCounts).length ||
+        Object.entries(admittedCounts).some(([category, states]) => {
+          const reported = nativeCounts[category as EvidenceCategory];
+          return !reported || Object.keys(states).length !== Object.keys(reported).length ||
+            Object.entries(states).some(([state, count]) => reported[state as EvidenceState] !== count);
+        })) throw new AggregateError("Aggregate API returned inconsistent native category counts.");
   }
   return { report: value, rawJSON: text, exactUsage };
 }
@@ -260,6 +301,7 @@ export function aggregateCSV(loaded: LoadedAggregate): string {
     "usage_state", "usage_verification", "declared_usage_source", "turns", "input_tokens", "output_tokens",
     "cache_read_tokens", "cache_write_tokens", "premium_requests", "ai_credits", "model_metrics_json",
     "usage_totals", "new_operation_billing", "verified_source_manifests_json"]];
+  if (loaded.report.evidence) rows[0]!.push("category_evidence_json", "declared_categories_json");
   loaded.report.members.forEach((member, index) => {
     const candidates = loaded.report.evidence?.members[index]?.candidates;
     for (const candidate of candidates?.length ? candidates : [undefined]) {
@@ -270,7 +312,11 @@ export function aggregateCSV(loaded: LoadedAggregate): string {
         candidate?.declared_categories.find((declaration) => declaration.category === "usage")?.declared_source ?? "",
         ...["turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "premium_requests",
           "ai_credits", "model_metrics_json"].map((name) => exact?.[name] ?? ""), "withheld", "unavailable",
-        candidate?.source_manifests.length ? JSON.stringify(candidate.source_manifests) : ""]);
+        candidate?.source_manifests.length ? JSON.stringify(candidate.source_manifests) : "",
+        ...(loaded.report.evidence ? [
+          candidate ? JSON.stringify(candidate.categories) : "",
+          candidate ? JSON.stringify(candidate.declared_categories) : "",
+        ] : [])]);
     }
   });
   return rows.map((row) => row.map((cell) => /[",\r\n]/.test(cell) ? `"${cell.replaceAll('"', '""')}"` : cell).join(",")).join("\n") + "\n";

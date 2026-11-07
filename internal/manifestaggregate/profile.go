@@ -150,6 +150,7 @@ func validateEvidenceReport(report Report) error {
 		return fmt.Errorf("%w: evidence membership differs from the expected manifest set", ErrInvalid)
 	}
 	counts := map[evidencestate.Category]map[evidencestate.State]int{}
+	admittedCounts := map[evidencestate.Category]map[evidencestate.State]int{}
 	candidates := 0
 	for index, member := range evidence.Members {
 		if member.ManifestSHA256 != report.Members[index].ManifestSHA256 {
@@ -211,6 +212,31 @@ func validateEvidenceReport(report Report) error {
 				return fmt.Errorf("%w: verified evidence must retain explicit usage availability", ErrInvalid)
 			}
 			usage := candidate.Usage
+			for categoryIndex, category := range candidate.Categories {
+				if categoryIndex >= len(candidate.Declarations) ||
+					category.Category != candidate.Declarations[categoryIndex].Category ||
+					category.DeclaredState != candidate.Declarations[categoryIndex].DeclaredState {
+					return fmt.Errorf("%w: admitted categories contradict original declarations", ErrInvalid)
+				}
+				if category.ObservedCount != nil {
+					n, err := strconv.ParseInt(*category.ObservedCount, 10, 64)
+					if err != nil || n < 0 || strconv.FormatInt(n, 10) != *category.ObservedCount ||
+						!categoryAdmitted(category) {
+						return fmt.Errorf("%w: observed counts require canonical native category admission", ErrInvalid)
+					}
+				}
+				if category.Category == evidencestate.Usage &&
+					(category.State != usage.State || category.DeclaredState != usage.DeclaredState ||
+						category.Verification != usage.Verification || category.Reason != usage.Reason) {
+					return fmt.Errorf("%w: usage view contradicts category admission", ErrInvalid)
+				}
+				if member.State == "verified" && categoryAdmitted(category) {
+					if admittedCounts[category.Category] == nil {
+						admittedCounts[category.Category] = map[evidencestate.State]int{}
+					}
+					admittedCounts[category.Category][category.State]++
+				}
+			}
 			if usage.Recorded != nil {
 				if usage.Verification != "source-content-and-recorded-usage-shape-only" ||
 					usage.DeclaredState != evidencestate.Present ||
@@ -239,6 +265,14 @@ func validateEvidenceReport(report Report) error {
 	for category, states := range counts {
 		if !maps.Equal(states, evidence.DeclarationStateCounts[category]) {
 			return fmt.Errorf("%w: declaration counts contradict admitted metadata", ErrInvalid)
+		}
+	}
+	if len(admittedCounts) != len(evidence.CategoryStateCounts) {
+		return fmt.Errorf("%w: native category counts contradict admitted metadata", ErrInvalid)
+	}
+	for category, states := range admittedCounts {
+		if !maps.Equal(states, evidence.CategoryStateCounts[category]) {
+			return fmt.Errorf("%w: native category counts contradict admitted metadata", ErrInvalid)
 		}
 	}
 	return nil

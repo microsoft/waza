@@ -88,7 +88,7 @@ func evidenceRequest(origin, digest string) Request {
 	return Request{Manifests: []string{origin}, Evidence: &references}
 }
 
-func TestAggregateEvidenceRecordedZeroPrecisionAndUnqualifiedTotals(t *testing.T) {
+func TestAggregateEvidenceUnindexedUsageRemainsUnqualified(t *testing.T) {
 	for _, credits := range []float64{0, 0.12345678901234567} {
 		backend := &memoryBackend{objects: map[string][]byte{}}
 		origin, digest, _ := evidenceFixture(t, backend, 1, evidencestate.Present, recordedUsage(t, &credits))
@@ -99,14 +99,16 @@ func TestAggregateEvidenceRecordedZeroPrecisionAndUnqualifiedTotals(t *testing.T
 		require.Equal(t, "complete", report.Completion, "membership is not category qualification")
 		require.Equal(t, "incomplete", report.Evidence.Completion)
 		require.Equal(t, "withheld", report.Evidence.UsageTotals)
-		require.Equal(t, "producer-and-category-qualification-unavailable", report.Evidence.Qualification)
+		require.Equal(t, "recorded-category-shape-only", report.Evidence.Qualification)
 		candidate := report.Evidence.Members[0].Candidates[0]
 		require.Equal(t, "verified", candidate.State)
 		require.Equal(t, origin, candidate.OriginManifest)
 		require.Len(t, candidate.Declarations, 6)
-		require.Equal(t, evidencestate.Present, candidate.Usage.State)
-		require.Equal(t, "source-content-and-recorded-usage-shape-only", candidate.Usage.Verification)
-		require.Equal(t, credits, *candidate.Usage.Recorded.AICredits)
+		require.Equal(t, evidencestate.Unavailable, candidate.Usage.State)
+		require.Equal(t, "declared-state-only", candidate.Usage.Verification)
+		require.Nil(t, candidate.Usage.Recorded)
+		require.Len(t, candidate.Categories, 6)
+		require.Empty(t, report.Evidence.CategoryStateCounts)
 		require.Equal(t, 1, report.Evidence.DeclarationStateCounts[evidencestate.Usage][evidencestate.Present])
 		data, err := Encode(report)
 		require.NoError(t, err)
@@ -135,12 +137,10 @@ func TestAggregateEvidenceMissingIncompleteRedactedAndPresentEmpty(t *testing.T)
 			report, err := Aggregate(t.Context(), backend, evidenceRequest(origin, digest))
 			require.NoError(t, err)
 			usage := report.Evidence.Members[0].Candidates[0].Usage
-			require.Equal(t, control.want, usage.State)
-			if control.payload == nil || control.state != evidencestate.Present {
-				require.Nil(t, usage.Recorded)
-			} else {
-				require.Nil(t, usage.Recorded.AICredits)
-			}
+			require.Equal(t, evidencestate.Unavailable, usage.State)
+			require.Equal(t, control.state, usage.DeclaredState)
+			require.Nil(t, usage.Recorded)
+			require.Empty(t, report.Evidence.CategoryStateCounts)
 			data, err := Encode(report)
 			require.NoError(t, err)
 			require.NotContains(t, string(data), "do-not-expose")
@@ -149,19 +149,18 @@ func TestAggregateEvidenceMissingIncompleteRedactedAndPresentEmpty(t *testing.T)
 	}
 }
 
-func TestAggregateEvidenceSemanticErrorKeepsByteReceiptNotUsage(t *testing.T) {
+func TestAggregateEvidenceUnindexedMalformedUsageKeepsByteReceiptNotUsage(t *testing.T) {
 	backend := &memoryBackend{objects: map[string][]byte{}}
 	origin, digest, _ := evidenceFixture(t, backend, 1, evidencestate.Present, []byte(`{}`))
 	report, err := Aggregate(t.Context(), backend, evidenceRequest(origin, digest))
-	require.ErrorIs(t, err, ErrIncomplete)
+	require.NoError(t, err, "unindexed content remains declarations, not native category admission")
 	candidate := report.Evidence.Members[0].Candidates[0]
 	require.Equal(t, "verified", candidate.State)
 	require.Len(t, candidate.Declarations, 6)
 	require.Equal(t, evidencestate.Unavailable, candidate.Usage.State)
 	require.Nil(t, candidate.Usage.Recorded)
-	require.Contains(t, candidate.Diagnostics, artifactmanifest.Diagnostic{
-		Code: "usage_admission_failed", Message: "Source bytes were verified, but recorded usage shape was not admitted. No credits, score or billing total was substituted.",
-	})
+	require.Empty(t, candidate.Diagnostics)
+	require.Empty(t, report.Evidence.CategoryStateCounts)
 	_, err = Encode(report)
 	require.NoError(t, err)
 }
