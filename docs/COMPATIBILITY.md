@@ -115,6 +115,24 @@ observation error text; canonical comparison preserves every other native field,
 verdict, code, ordinal, and counter. The prepared terminal is shared by the
 observer and the original manifest; duplicate matching terminal bytes are not
 republished. Raw `report.json` cannot be reintroduced as an extra artifact.
+`ValidatePublication` receives a fresh snapshot of the independently retained
+original invocation after preparation, before any terminal observer or writes.
+It requires a preparation policy. The fixed `ownedsubmission.CaptureHooks`
+facade regenerates category artifacts from that original typed report and
+compares the complete inventory, media types, and bytes against the prepared
+publication. Consistently mutating a callback report and its projected terminal
+cannot substitute category observations. These are cooperating producer
+comparisons, not SDK/process attestation or disclosure authorization.
+The fixed facade rejects competing preparation/validation and extra-artifact
+callbacks: an unvalidated renamed raw report cannot bypass its category inventory.
+Additional lifecycle artifacts require a separately admitted producer contract;
+arbitrary embedding artifact callbacks remain outside the protected facade.
+
+The facade explicitly withholds conversation, tool, and reliability categories;
+every nonempty native diagnostic/error message becomes `[REDACTED]` before first
+publication, without changing codes, verdicts, counters, or original ordinals.
+Restricted native identifiers fail before reservation. Reuse admits only
+already-protected original terminal text and never sanitizes a finalized source.
 `ReuseAdmission` can deny source disclosure before an actionable decision;
 reuse never runs first-publication projection or rewrites original terminal
 bytes. Public submit registration remains disabled until the actual evidence
