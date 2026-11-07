@@ -304,11 +304,18 @@ of `--store`, with existing credentials and no automatic login. Lab can discover
 stored declaration pointers and inspect current integrity. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
 
-The additive [exact-unit checkpoint contract](docs/EXECUTION_CHECKPOINTS.md)
-currently provides schema/codec, compatibility admission and immutable declaration
-blob storage, not an operational resume command. Owned safe-boundary creation,
-restore and checkpoint Lab views remain under development; existing result and
-SDK session readers are unchanged.
+The unreleased v0.41 source adds `waza runner checkpoint create` and
+`waza runner checkpoint resume CHECKPOINT_SHA256` for captured exact-unit
+submissions. Before-unit recovery reserves a fresh retry child; finalized-unit
+recovery preserves the original terminal, including failed/canceled grading,
+without new engine calls. Use a clean versioned build and the original private
+immutable store. See [checkpoint recovery and troubleshooting](site/src/content/docs/guides/runner-checkpoints.mdx)
+and the [developer contract](docs/EXECUTION_CHECKPOINTS.md).
+The Lab separates read-only declaration inspection from explicit creation/recovery,
+showing null-aware progress, current creation metadata and protected failure
+diagnostics. Existing result and SDK session readers are unchanged. This source
+implementation is not a claim that v0.41.0 has shipped or that all platform gates
+have completed.
 
 ### `waza lifecycle` (unreleased v0.41 source preview)
 

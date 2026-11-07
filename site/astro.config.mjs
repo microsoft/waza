@@ -54,6 +54,7 @@ export default defineConfig({
 						{ label: 'Runner Contract & API', slug: 'guides/runner-contract' },
 						{ label: 'Runner Logical Identities', slug: 'guides/runner-identities' },
 						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },
+						{ label: 'Exact-unit Checkpoint Recovery', slug: 'guides/runner-checkpoints' },
 						{ label: 'Execution Lifecycle (Under Development)', slug: 'guides/execution-lifecycle' },
 						{ label: 'Immutable Artifacts', slug: 'guides/immutable-artifacts' },
 						{ label: 'Execution Evidence States', slug: 'guides/execution-evidence' },
