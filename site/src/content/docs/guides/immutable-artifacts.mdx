@@ -107,6 +107,106 @@ execution_id: ORIGINAL_EXECUTION_ID, relationship:"retry"}}`. A `branch` parent
 is an explicit incomparable branch; neither parent form establishes a global
 order or exactly-once guarantee. Keep all original records.
 
+### Source-scoped duplicate, retry and reuse sequence
+
+Unlike the codec-only model graph above, this describes the committed opt-in
+submission path. It is a source example, not a claim that hosted/native release
+gates or live agent-quality checks passed. A, B and C are display labels for
+the execution IDs emitted by the commands, never identifiers to manufacture.
+The sequential example does not establish global ordering between writers.
+Failures at reservation or publication remain operation errors; they do not
+create a completion claim or change the original actor verdict.
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Owner as Opt-in submission owner
+    participant Store as Private immutable store
+    Caller->>Owner: Distinct captured request, native ordinal 2
+    Owner->>Store: Conditionally reserve execution A
+    Store-->>Owner: Original reservation and creator capability
+    Owner->>Owner: Execute selected work and capture original terminal
+    Owner->>Store: Publish first manifest and original completion A
+    Owner-->>Caller: Protected response A
+    Caller->>Owner: Repeat same request, native ordinal 2
+    Owner->>Store: Conditionally reserve distinct execution B
+    Owner->>Owner: Execute selected work again
+    Owner->>Store: Publish first manifest and original completion B
+    Owner-->>Caller: Protected response B, same logical work
+    Caller->>Owner: Distinct ordinal 3 with retry parent A
+    Owner->>Store: Admit parent A and reserve execution C
+    Owner->>Owner: Execute selected retry work
+    Owner->>Store: Publish first manifest and original completion C
+    Owner-->>Caller: Protected response C with parent A
+    Caller->>Owner: Reuse A and its manifest digest, caller ordinal 3
+    Owner->>Store: Verify original reservation, completion, finalized content and context
+    Store-->>Owner: Verified original source A, native ordinal 2
+    Owner-->>Caller: New reuse decision, original A and terminal, zero new calls
+```
+
+Using the previously initialized `.waza-artifacts` store, run the retained
+mock/text example below. The subshell refuses to overwrite existing response
+files and stops on a failed pipeline; this fixed mock example expects zero
+exits. Parent and reuse references come only from the first actual emitted
+response. The completion check distinguishes finalization from actor success:
+`completed` is not a passing verdict. Reusing a failed/canceled original
+deliberately returns its nonzero exit; inspect that response instead of
+blindly retrying the command.
+
+```bash
+(
+  set -e -o pipefail -o noclobber
+  jq '{kind:"waza.execution-submission",schema_version:"1.0",request:.}' \
+    examples/runner/unit.json |
+    waza runner submit --store .waza-artifacts > duplicate-first.json
+  jq '{kind:"waza.execution-submission",schema_version:"1.0",request:.}' \
+    examples/runner/unit.json |
+    waza runner submit --store .waza-artifacts > duplicate-second.json
+
+  jq -e '.status == "completed" and .reservation != null and .completion != null' \
+    duplicate-first.json >/dev/null || exit 1
+  jq --slurpfile source duplicate-first.json \
+    '.selection.attempt=3 |
+     {kind:"waza.execution-submission",schema_version:"1.0",request:.,policy:{
+       mode:"distinct",parent:{
+         execution_id:$source[0].reservation.execution_id,relationship:"retry"
+       }}}' examples/runner/unit.json |
+    waza runner submit --store .waza-artifacts > duplicate-retry.json
+  jq --slurpfile source duplicate-first.json \
+    '.selection.attempt=3 |
+     {kind:"waza.execution-submission",schema_version:"1.0",request:.,policy:{
+       mode:"reuse",source:{
+         execution_id:$source[0].reservation.execution_id,
+         manifest_digest:$source[0].completion.manifest_digest
+       }}}' examples/runner/unit.json |
+    waza runner submit --store .waza-artifacts > duplicate-reused.json
+)
+```
+
+The second invocation executes again, and the retry reserves another execution;
+neither rewrites A. Successful reuse returns A's original reservation and
+terminal, even though the caller declares ordinal 3. Failed/canceled originals
+retain their native outcomes and nonzero exits, and unavailable billing is
+never fabricated. Missing/corrupt/context-incompatible or unfinished sources
+are errors, not permission to execute implicitly or rewrite source data.
+
+For these four responses, this structural comparison checks the declared
+relationships and original retention. It does **not** replace the submission
+owner's content/final-marker verification or attest runtime execution:
+
+```bash
+jq -e -s '
+  length == 4 and
+  ([.[].reservation.logical] | unique | length) == 1 and
+  ([.[0,1,2].reservation.execution_id] | unique | length) == 3 and
+  .[2].reservation.parent.execution_id == .[0].reservation.execution_id and
+  .[2].reservation.parent.relationship == "retry" and
+  .[3].status == "reused" and .[3].engine_calls == 0 and
+  .[3].reservation == .[0].reservation and .[3].terminal == .[0].terminal and
+  .[3].decision.source.manifest_digest == .[0].completion.manifest_digest
+' duplicate-first.json duplicate-second.json duplicate-retry.json duplicate-reused.json
+```
+
 The matching `POST /api/v1/runner/submit` uses the server-configured existing
 private store. It accepts only bounded literal-loopback, matching Host and
 same-origin requests; request JSON cannot select a store or inject hooks.
