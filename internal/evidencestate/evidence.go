@@ -286,7 +286,38 @@ func VerifySources(d Document, manifests, artifacts map[string][]byte) error {
 			return fmt.Errorf("lineage manifest: %w", err)
 		}
 	}
-	required := map[string]bool{origin.TerminalArtifact: true}
+	if err := verifyReferencedArtifacts(d, origin, artifacts); err != nil {
+		return err
+	}
+	for _, a := range origin.Artifacts {
+		if a.Name != origin.TerminalArtifact {
+			continue
+		}
+		data, err := verifySourceArtifact(a, artifacts)
+		if err != nil {
+			return err
+		}
+		if _, err := runnerterminal.Validate(data, origin.Binding.TerminalBinding()); err != nil {
+			return fmt.Errorf("origin terminal: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: terminal reference is not declared in origin manifest", artifactmanifest.ErrConflict)
+}
+
+func verifySourceArtifact(a artifactmanifest.Artifact, artifacts map[string][]byte) ([]byte, error) {
+	data, ok := artifacts[a.Name]
+	if !ok {
+		return nil, fmt.Errorf("%w: referenced artifact", artifactmanifest.ErrMissing)
+	}
+	if int64(len(data)) != a.SizeBytes || artifactmanifest.Hash(data) != a.SHA256 {
+		return nil, fmt.Errorf("%w: referenced artifact bytes", artifactmanifest.ErrCorrupt)
+	}
+	return data, nil
+}
+
+func verifyReferencedArtifacts(d Document, origin *artifactmanifest.Manifest, artifacts map[string][]byte) error {
+	required := make(map[string]bool)
 	if d.ExecutionSource != nil {
 		required[d.AttemptArtifact] = true
 	}
@@ -304,16 +335,9 @@ func VerifySources(d Document, manifests, artifacts map[string][]byte) error {
 		if !ok {
 			return fmt.Errorf("%w: reference is not declared in origin manifest", artifactmanifest.ErrConflict)
 		}
-		data, ok := artifacts[name]
-		if !ok {
-			return fmt.Errorf("%w: referenced artifact", artifactmanifest.ErrMissing)
+		if _, err := verifySourceArtifact(a, artifacts); err != nil {
+			return err
 		}
-		if int64(len(data)) != a.SizeBytes || artifactmanifest.Hash(data) != a.SHA256 {
-			return fmt.Errorf("%w: referenced artifact bytes", artifactmanifest.ErrCorrupt)
-		}
-	}
-	if _, err := runnerterminal.Validate(artifacts[origin.TerminalArtifact], origin.Binding.TerminalBinding()); err != nil {
-		return fmt.Errorf("origin terminal: %w", err)
 	}
 	if d.ExecutionSource != nil {
 		descriptor := declared[d.AttemptArtifact]

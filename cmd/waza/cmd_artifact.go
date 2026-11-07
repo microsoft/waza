@@ -45,6 +45,7 @@ func newArtifactCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&directory, "store", ".waza-artifacts", "Existing private local immutable store directory")
 	cmd.PersistentFlags().StringVar(&azureURL, "azure-container-url", "", "Explicit HTTPS Azure container URL; uses existing credentials without signing in")
 	cmd.MarkFlagsMutuallyExclusive("store", "azure-container-url")
+	cmd.AddCommand(newArtifactEvidenceCommand())
 
 	open := func() (*artifactmanifest.Store, func() error, error) {
 		backend, closeBackend, err := artifactmanifest.OpenBackend(directory, azureURL)

@@ -2,9 +2,10 @@
 
 Issue #768 introduces a **separate, opt-in 1.0 evidence sidecar**. The bounded
 `internal/evidencestate` codec does not change existing result readers, verdicts,
-billing, native bindings, or immutable manifest 1.0. It is a pure declaration and
-source-byte verification layer, not a producer, store, release assurance policy,
-or dashboard feature.
+billing, native bindings, or immutable manifest 1.0. The codec remains pure;
+provider-backed publication, recorded-usage admission and read-only review are
+separate opt-in paths. Neither declarations nor byte verification establish
+release assurance acceptance.
 
 ## Categories and presence
 
@@ -110,10 +111,104 @@ The schema is `schemas/execution-evidence-1.0.schema.json`, embedded through
 reviewed version/profile, strict schema/native parity, presence and degraded
 controls, actual producer/API/export tests, and documentation updates.
 
-No automatic migration, new default assurance, legacy-result reinterpretation,
-store API, or public command is delivered by this pure slice. Full #768 remains
-open pending committed #763 publisher/provider and final #764 ledger integration,
-producer/retry/resume/aggregation integration, production category-removal,
-redaction/corruption/conflict controls, and API/Lab/download/site/release/migration
-delivery. Pure codec tests are not filesystem, cloud, runtime, end-to-end, or
-native Windows execution evidence.
+There is no automatic migration, new default assurance or legacy-result
+reinterpretation. Existing artifacts remain unchanged. Missing sidecars do not
+authorize reconstructed observations, invented zero credits or inferred unique
+executions.
+
+Full #768 remains open until all-category producers, retry/resume and actual
+execution ownership, aggregation and degraded production controls are integrated.
+Pure codec tests are not filesystem, cloud, runtime, end-to-end or native Windows
+execution evidence.
+
+## Opt-in persistence and read-only review
+
+The integration adds these commands, using an **existing private store** and
+an already finalized source manifest:
+
+```bash
+waza artifact evidence publish EVIDENCE.json --store /path/to/private/store
+waza artifact evidence inspect EVIDENCE_SHA256 --store /path/to/private/store
+```
+
+The inherited `--azure-container-url` option selects the explicit Azure provider
+instead of the local store. It does not sign in, provision resources or fall back
+to local storage. Provider configuration is never read by pure codecs.
+
+The derived document is stored at `blob-<evidence SHA-256>`, using the actual
+manifest backend and content-addressed `Store.Put`. It is not inserted into its
+origin, placed at a manifest key or assigned a manifest final marker. Publication
+may leave an immutable sidecar blob if its subsequent read fails; no transaction,
+rollback or cleanup guarantee is implied.
+
+Publication admits each source once, retaining its current completed-read
+observation and a detached canonical declaration. It then verifies the newly
+persisted sidecar blob without reopening those sources. The publication receipt
+describes that invocation's source capture, not an atomic post-write source
+snapshot. A subsequent inspection or download performs fresh source admission.
+
+The configured read-only API exposes:
+
+| Endpoint | Result |
+|---|---|
+| `GET /api/v1/evidence/{digest}` | Current inspection receipt with admitted declaration metadata. |
+| `GET /api/v1/evidence/{digest}/document` | Canonical sidecar JSON, only after successful current source admission. |
+| `GET /api/v1/evidence/{digest}/csv` | Six category rows with exact decimal counts and empty cells for unavailable counts or unknown totals. |
+
+The Lab runner page includes a separate evidence inspector. It displays declared
+states and source kinds, recorded counts, measured lower bounds and lineage.
+It does not fetch source payloads, expose credit estimates, rewrite recorded
+verdicts or manufacture evidence in the synthetic demo. Failed refreshes and
+edited digest inputs clear prior receipt data and download links.
+
+JSON and CSV downloads recheck sources; an earlier receipt is not authorization
+to reuse them. Source receipt artifact names and diagnostics are withheld from
+this evidence response. Referenced names still require producer privacy
+admission before their original persistence.
+
+Source admission uses the actual #763 `Store.ReadCompleted` contract from
+`fbb1a33fd543a51bad505fc1af4423825a6a04d3`. It captures requested artifact bytes
+in the same full source verification pass, requiring a finalized marker and
+current verified integrity. Usage admission consumes those captured bytes,
+without another inspection or reopen. This is not an atomic cross-object
+snapshot or execution attestation.
+
+The reader returns no completed result on failure. Evidence receipts therefore
+retain only admitted source receipts, withhold the document on failure and do
+not perform a second inspection to invent failure-time publication metadata.
+Missing final markers and missing source bytes both remain unavailable.
+
+## Recorded usage admission
+
+`ReadUsage` separates `DeclaredState` from its admitted `State` and returns
+actual `models.UsageStats`, not a replacement billing representation. A positive
+usage declaration must reference exactly one non-terminal `application/json`
+artifact containing the native usage fields. Artifact names are caller-assigned
+aliases; neither a name nor a terminal envelope supplies usage.
+
+`InspectWithUsage(ctx, backend, digest)` returns the declaration `Inspection`,
+`UsageEvidence` and an error using one source pass. Aggregation should use this
+combined entrypoint rather than calling `Inspect` and then `ReadUsage` against
+the same cumulative backend budget. A usage-shape error does not relabel valid
+source bytes as corrupt or change the recorded declaration; the separate usage
+result stays unavailable and contains no admitted `UsageStats`.
+
+Original JSON field presence and types are validated before native decoding.
+Missing or null required counts, negative values, duplicate fields, invalid
+numeric types, overflow and unknown fields are rejected. Absent or null credits,
+missing model attribution and missing per-model credits remain incomplete;
+explicit recorded zero remains zero. Provider hosts must satisfy the native
+host-only contract, without credentials, paths, queries or fragments.
+
+The helper labels this result
+`source-content-and-recorded-usage-shape-only`. It verifies saved shape and
+completeness, not live execution, truthful producer provenance, privacy
+authorization, unique-session ownership or new-evaluation billing. Aggregators
+must require both `State == present` and non-nil `Usage`, preserve incomplete
+inputs separately, and use existing complete-credit aggregation only after their
+own source/ownership admission. Present-empty declarations contain no usage
+artifact and do not produce a synthetic zero-valued `UsageStats`.
+
+Other categories currently remain declarations, not semantically verified
+producer observations. Restricted content must be withheld before persistence;
+a successful schema parse cannot retrospectively authorize payload disclosure.
