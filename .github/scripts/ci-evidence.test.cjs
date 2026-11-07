@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync, spawn } = require("node:child_process");
 const { createHash } = require("node:crypto");
+const { deflateRawSync } = require("node:zlib");
 const { LIMITS, goReport, goParser, browserReport: parseBrowserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, writeHistoryProposal, main } = require("./ci-evidence.cjs");
 
 const env = { GITHUB_REPOSITORY: "microsoft/waza", GITHUB_WORKFLOW: "Go Build and Test", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40), GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", GITHUB_JOB: "native", RUNNER_OS: "Linux", RUNNER_ARCH: "X64", GO_CACHE_HIT: "false", NODE_CACHE_HIT: "false" };
@@ -99,6 +100,92 @@ test("production streaming capture forwards late failures beyond its report admi
   assert.ok(report.diagnostics.includes("input-byte-cap"));
   assert.equal(report.targets[0].status, null);
   assert.ok(!JSON.stringify(report).includes("SECRET"));
+});
+test("production capture bounds the actual slow-reader stdout queue", { timeout: 30000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-backpressure-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  fs.writeFileSync(path.join(dir, "all"), "example/p::TestA\n");
+  const script = `
+    const write = process.stdout.write.bind(process.stdout);
+    let maximum = 0, notified = false;
+    process.stdout.write = (...args) => {
+      const accepted = write(...args);
+      maximum = Math.max(maximum, process.stdout.writableLength);
+      if (!accepted && !notified) { notified = true; process.send({ blocked: true }); }
+      return accepted;
+    };
+    require(${JSON.stringify(path.join(__dirname, "ci-evidence.cjs"))}).main(["go", "report.json", "all", "all"])
+      .then(() => process.send({ maximum, highWaterMark: process.stdout.writableHighWaterMark }, () => process.disconnect()))
+      .catch(error => { process.stderr.write(error.message); process.exitCode = 1; process.disconnect(); });
+  `;
+  const child = spawn(process.execPath, ["-e", script], { cwd: dir, env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe", "ipc"] });
+  t.after(() => { if (child.exitCode === null) child.kill("SIGTERM"); });
+  let errors = "", maximum = null, highWaterMark = null, received = 0, timer = null;
+  child.stderr.on("data", (data) => { errors = (errors + data).slice(-4096); });
+  const blocked = new Promise((resolve) => child.on("message", (message) => {
+    if (message.blocked) resolve();
+    else { maximum = message.maximum; highWaterMark = message.highWaterMark; }
+  }));
+  const closed = new Promise((resolve, reject) => { child.once("close", resolve); child.once("error", reject); });
+  const write = (line) => new Promise((resolve, reject) => child.stdin.write(line, (error) => error ? reject(error) : resolve()));
+  const padding = JSON.stringify({ ...event("output", "TestA"), Output: "x".repeat(65536) }) + "\n";
+  const feeding = (async () => {
+    await write(JSON.stringify(event("start")) + "\n");
+    await write(JSON.stringify(event("run", "TestA")) + "\n");
+    for (let index = 0; index < 128; index++) await write(padding);
+    await write(JSON.stringify(event("pass", "TestA", 2)) + "\n");
+    await write(JSON.stringify(event("pass", null, 3)) + "\n");
+    child.stdin.end();
+  })();
+  await blocked;
+  t.after(() => clearTimeout(timer));
+  child.stdout.on("data", (chunk) => {
+    received += chunk.length;
+    child.stdout.pause();
+    timer = setTimeout(() => child.stdout.resume(), 1);
+  });
+  await feeding;
+  assert.equal(await closed, 0, errors);
+  assert.equal(received, 128 * 65536, "all console bytes reach the real slow reader");
+  assert.ok(maximum > 0 && highWaterMark > 0, "observed actual writable buffering and backpressure");
+  assert.ok(maximum <= LIMITS.line + highWaterMark, `stdout queued ${maximum} bytes`);
+  t.diagnostic(`Observed stdout queue ${maximum} bytes; high-water mark ${highWaterMark}; forwarded ${received} bytes.`);
+  const report = JSON.parse(fs.readFileSync(path.join(dir, "report.json")));
+  assert.equal(report.targets[0].status, "pass");
+});
+test("production stdout error and premature close save incomplete capture and fail the collector", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-output-errors-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  fs.writeFileSync(path.join(dir, "all"), "example/p::TestA\n");
+  for (const [fault, diagnostic] of [["error", "console-output-failed"], ["close", "console-output-closed"]]) {
+    const script = `
+      const { Writable } = require("node:stream");
+      const stream = new Writable({ write(chunk, encoding, callback) {
+        ${fault === "error" ? 'callback(new Error("SECRET"));' : "queueMicrotask(() => stream.destroy());"}
+      } });
+      Object.defineProperty(process, "stdout", { value: stream });
+      require(${JSON.stringify(path.join(__dirname, "ci-evidence.cjs"))}).main(["go", "report.json", "all", "all"])
+        .catch(error => { process.stderr.write(error.message); process.exitCode = 1; });
+    `;
+    const result = spawnSync(process.execPath, ["-e", script], {
+      cwd: dir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 10000,
+      input: [event("start"), event("run", "TestA"), { ...event("output", "TestA"), Output: "SECRET" }, event("pass", "TestA", 2), event("pass", null, 3)].map(JSON.stringify).join("\n") + "\n",
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.ok(result.stderr.includes(diagnostic));
+    const report = JSON.parse(fs.readFileSync(path.join(dir, "report.json")));
+    assert.equal(report.complete, false);
+    assert.ok(report.diagnostics.includes(diagnostic));
+    assert.ok(report.diagnostics.includes("execution-finalization-pending"));
+    assert.equal(report.targets[0].status, null, "terminal records after output failure are not admitted");
+    assert.ok(!JSON.stringify(report).includes("SECRET"));
+    const final = spawnSync(process.execPath, [path.join(__dirname, "ci-evidence.cjs"), "finish-go", "report.json", "0", "1"], { cwd: dir, encoding: "utf8" });
+    assert.equal(final.status, 0, final.stderr);
+    const finalized = JSON.parse(fs.readFileSync(path.join(dir, "report.json")));
+    assert.equal(finalized.collector_exit, 1);
+    assert.equal(finalized.complete, false);
+    assert.ok(finalized.diagnostics.includes(diagnostic));
+  }
 });
 test("production Go capture executes a real no-provider test and preserves failure exit with pipefail", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-evidence-"));
@@ -354,11 +441,13 @@ test("Actions production collector uses attempt endpoints, bounded pagination an
   assert.ok(capped.diagnostics.includes("jobs-pagination-incomplete"));
   assert.ok(!JSON.stringify(capped).includes("SECRET"));
 });
-function archive(report, name = "coverage-native-0.txt.evidence.json") {
-  const data = Buffer.from(JSON.stringify(report)), filename = Buffer.from(name);
+function archive(report, name = "coverage-native-0.txt.evidence.json", options = {}) {
+  const content = Buffer.isBuffer(report) ? report : Buffer.from(JSON.stringify(report));
+  const data = options.deflate ? deflateRawSync(content) : content, filename = Buffer.from(name);
+  const expanded = options.expanded ?? content.length, method = options.deflate ? 8 : 0;
   const local = Buffer.alloc(30), central = Buffer.alloc(46), end = Buffer.alloc(22);
-  local.writeUInt32LE(0x04034b50, 0); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(filename.length, 26);
-  central.writeUInt32LE(0x02014b50, 0); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(filename.length, 28);
+  local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(method, 8); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(expanded, 22); local.writeUInt16LE(filename.length, 26);
+  central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(method, 10); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(expanded, 24); central.writeUInt16LE(filename.length, 28);
   end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10);
   end.writeUInt32LE(central.length + filename.length, 12); end.writeUInt32LE(local.length + filename.length + data.length, 16);
   return Buffer.concat([local, filename, data, central, filename, end]);
@@ -380,6 +469,86 @@ function verified(report, overrides = {}, family = report.kind === "playwright" 
   const fixture = artifactFixture(report, overrides, family);
   return collectObservations(fixture.id, fixture.api, () => fixture.zip);
 }
+test("production artifact collection retains malformed expansion charges and rejects exhausted or dishonest declarations", () => {
+  const report = parseGo(successful);
+  report.selected = ["example/p::TestA"]; report.discovered = report.selected;
+  report.identity.source_sha = run.head_sha;
+  const fixture = artifactFixture(report), filename = "coverage-native-0.txt.evidence.json";
+  const malformed = Buffer.alloc(1024 * 1024, 120);
+  const invalid = archive(malformed, filename, { deflate: true });
+  const valid = archive(report, filename, { deflate: true });
+  const zips = [invalid, invalid, valid];
+  const artifacts = zips.map((zip, index) => ({
+    id: 100 + index, name: "ci-evidence-go-native-10-1-0", size_in_bytes: zip.length,
+    expired: false, digest: `sha256:${createHash("sha256").update(zip).digest("hex")}`,
+    workflow_run: { id: 10, head_sha: run.head_sha },
+  }));
+  const api = (endpoint) => endpoint.includes("/artifacts") ? { total_count: artifacts.length, artifacts } : fixture.api(endpoint);
+  const budget = { compressed: 0, expanded: LIMITS.aggregateBytes - malformed.length, reports: 0 };
+  const downloads = [];
+  const observed = collectObservations("10", api, (id) => { downloads.push(id); return zips[id - 100]; }, budget);
+  assert.deepEqual(downloads, [100, 101], "stop before processing later artifacts after exhausted reservation");
+  assert.equal(budget.expanded, LIMITS.aggregateBytes, "malformed JSON retains its full admitted charge");
+  assert.equal(observed.reports.length, 0);
+  assert.ok(observed.diagnostics.includes("evidence-artifact-invalid-or-unverified"));
+  assert.ok(observed.diagnostics.includes("evidence-expanded-cap"));
+
+  const secondRun = collectObservations("10", fixture.api, () => fixture.zip, budget);
+  assert.ok(secondRun.diagnostics.includes("evidence-expanded-cap"), "shared budget remains exhausted across runs");
+  assert.equal(secondRun.reports.length, 0);
+  for (const declared of [1, malformed.length + 1]) {
+    const zip = archive(malformed, filename, { deflate: true, expanded: declared });
+    const charged = { expanded: 0 };
+    assert.throws(() => artifactJSON(zip, filename, `sha256:${createHash("sha256").update(zip).digest("hex")}`, charged));
+    assert.equal(charged.expanded, declared, "failed inflation/size checks retain reservations");
+  }
+  const enough = { compressed: 0, expanded: 0, reports: 0 };
+  const retained = collectObservations("10", api, (id) => zips[id - 100], enough);
+  assert.equal(retained.reports.length, 1, "a later valid artifact remains admissible when budget permits");
+  assert.equal(enough.expanded, 2 * malformed.length + Buffer.byteLength(JSON.stringify(report)));
+});
+test("native Go capture validates probe output while historical unknown runtimes remain retained but ineligible", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-go-version-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  fs.writeFileSync(path.join(dir, "all"), "example/p::TestA\n");
+  const collector = path.join(__dirname, "ci-evidence.cjs");
+  for (const version of ["go version go1.26.4 linux/amd64", "go version go1.25.0 linux/amd64", "go version go1.27rc1 linux/amd64", "go version devel go1.27-abcdef linux/amd64", "unknown", "SECRET invalid", ""]) {
+    fs.writeFileSync(path.join(dir, "go"), `#!/bin/sh\n[ "$1" = version ] || exit 64\nprintf '%s\\n' '${version}'\n`, { mode: 0o700 });
+    for (const args of [["init-go", "report.json"], ["finish-discovery", "report.json", "0", "0"]]) {
+      const initialized = spawnSync(process.execPath, [collector, ...args], { cwd: dir, encoding: "utf8" });
+      assert.equal(initialized.status, 0, initialized.stderr);
+    }
+    const captured = spawnSync(process.execPath, [collector, "go", "report.json", "all", "all"], {
+      cwd: dir, env: { ...process.env, ...env, PATH: `${dir}${path.delimiter}${process.env.PATH}` },
+      input: successful.map(JSON.stringify).join("\n") + "\n", encoding: "utf8", timeout: 10000,
+    });
+    assert.equal(captured.status, 0, captured.stderr);
+    const finalized = spawnSync(process.execPath, [collector, "finish-go", "report.json", "0", "0"], { cwd: dir, encoding: "utf8" });
+    assert.equal(finalized.status, 0, finalized.stderr);
+    const report = JSON.parse(fs.readFileSync(path.join(dir, "report.json")));
+    const valid = version.startsWith("go version ");
+    assert.equal(report.identity.go, valid ? version : null);
+    assert.equal(report.complete, valid, JSON.stringify(report.diagnostics));
+    if (!valid) assert.ok(report.diagnostics.includes(version ? "go-runtime-invalid" : "go-runtime-unavailable"));
+    assert.ok(!JSON.stringify(report).includes("SECRET"));
+    report.identity.source_sha = run.head_sha;
+    const observed = verified(report);
+    assert.equal(observed.reports.length, 1, "authenticated unavailable evidence is retained");
+    assert.equal(trends(observed.reports).cohorts[0].eligible.length, valid ? 1 : 0);
+    assert.equal(historyProposal(observed.reports).targets.length, valid ? 1 : 0);
+  }
+  for (const version of [null, "", "unknown", "go version unknown linux/amd64", 12]) {
+    const legacy = parseGo(successful);
+    legacy.selected = ["example/p::TestA"]; legacy.discovered = legacy.selected;
+    legacy.identity.source_sha = run.head_sha; legacy.identity.go = version;
+    assert.equal(legacy.schema, 1); assert.equal(legacy.complete, true);
+    const observed = verified(legacy);
+    assert.equal(observed.reports.length, 1);
+    assert.deepEqual(observed.reports[0].identity.go, version, "do not reinterpret historical wire values");
+    assert.equal(trends(observed.reports).cohorts[0].eligible.length, 0);
+    assert.deepEqual(historyProposal(observed.reports).targets, []);
+  }
+});
 test("first-attempt timestamp omissions or invalid pairs withhold complete metadata and baseline admission", () => {
   const report = parseGo(successful);
   report.selected = ["example/p::TestA"]; report.discovered = report.selected;

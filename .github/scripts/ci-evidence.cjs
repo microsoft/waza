@@ -93,6 +93,48 @@ function goReport(env = process.env, runtime = {}) {
   report.discovery_collector_exit = null;
   return report;
 }
+function stdoutWriter(stream = process.stdout) {
+  let error = null, rejectPending = null;
+  const failed = (cause) => {
+    error ??= new Error("console-output-failed", { cause });
+    rejectPending?.(error);
+  };
+  const closed = () => {
+    error ??= new Error("console-output-closed");
+    rejectPending?.(error);
+  };
+  stream.on("error", failed);
+  stream.on("close", closed);
+  return {
+    get error() { return error; },
+    async write(output) {
+      if (stream.destroyed || stream.writableEnded) closed();
+      if (error) throw error;
+      await new Promise((resolve, reject) => {
+        let flushed = false, drained = false;
+        const cleanup = () => { stream.removeListener("drain", onDrain); rejectPending = null; };
+        const complete = () => { if (flushed && drained) { cleanup(); resolve(); } };
+        const onDrain = () => { drained = true; complete(); };
+        rejectPending = (cause) => { cleanup(); reject(cause); };
+        stream.once("drain", onDrain);
+        try {
+          if (stream.write(output, (cause) => {
+            if (cause) failed(cause);
+            else { flushed = true; complete(); }
+          })) drained = true;
+          complete();
+        } catch (cause) { failed(cause); }
+      });
+    },
+    async close() {
+      // Writable failures invoke the write callback before emitting error.
+      await new Promise((resolve) => setImmediate(resolve));
+      stream.removeListener("error", failed);
+      stream.removeListener("close", closed);
+      return error;
+    },
+  };
+}
 function goParser(report, output = () => {}) {
   const tests = new Map(), packages = new Map();
   let bytes = 0, events = 0;
@@ -106,7 +148,7 @@ function goParser(report, output = () => {}) {
     if (!event || typeof event !== "object" || Array.isArray(event)) { diagnostic(report, "invalid-json-record"); return; }
     events++;
     if (["build-output", "build-fail"].includes(event.Action) && text(event.ImportPath)) {
-      if (event.Action === "build-output" && typeof event.Output === "string") output(event.Output);
+      if (event.Action === "build-output" && typeof event.Output === "string") return output(event.Output);
       if (event.Action === "build-fail") diagnostic(report, "build-failed");
       return;
     }
@@ -123,7 +165,7 @@ function goParser(report, output = () => {}) {
     }
     // Console output stays on the runner; never serialize test output or error text.
     if (event.Action === "output" || event.Action === "build-output") {
-      if (typeof event.Output === "string") output(event.Output);
+      if (typeof event.Output === "string") return output(event.Output);
       return;
     }
     if (capped) return;
@@ -172,11 +214,12 @@ async function discoverGo(output) {
   const targets = new Set();
   let bytes = 0, pending = "";
   const decoder = new StringDecoder("utf8");
-  function accept(line) {
+  const writer = stdoutWriter();
+  async function accept(line) {
     const event = JSON.parse(line);
     if (event.Action === "run") throw new Error("discovery-executed-tests");
     if (event.Action === "build-output" && text(event.ImportPath) && typeof event.Output === "string") {
-      process.stdout.write(event.Output);
+      await writer.write(event.Output);
     }
     if (event.Action === "output" && text(event.Package) && typeof event.Output === "string") {
       const name = event.Output.trim();
@@ -185,20 +228,25 @@ async function discoverGo(output) {
     if (event.Action === "fail" || event.Action === "build-fail") throw new Error("discovery-failed");
     if (targets.size > LIMITS.targets) throw new Error("discovery-target-cap");
   }
-  for await (const chunk of process.stdin) {
-    bytes += chunk.length;
-    if (bytes > LIMITS.bytes) throw new Error("discovery-input-cap");
-    pending += decoder.write(chunk);
-    const lines = pending.split("\n");
-    pending = lines.pop();
-    for (const line of lines) {
-      if (Buffer.byteLength(line) > LIMITS.line) throw new Error("discovery-input-cap");
-      if (line.trim()) accept(line);
+  try {
+    for await (const chunk of process.stdin) {
+      bytes += chunk.length;
+      if (bytes > LIMITS.bytes) throw new Error("discovery-input-cap");
+      pending += decoder.write(chunk);
+      const lines = pending.split("\n");
+      pending = lines.pop();
+      for (const line of lines) {
+        if (Buffer.byteLength(line) > LIMITS.line) throw new Error("discovery-input-cap");
+        if (line.trim()) await accept(line);
+      }
+      if (Buffer.byteLength(pending) > LIMITS.line) throw new Error("discovery-input-cap");
     }
-    if (Buffer.byteLength(pending) > LIMITS.line) throw new Error("discovery-input-cap");
+    if (pending || decoder.end()) throw new Error("discovery-truncated");
+    if (!targets.size) throw new Error("discovery-empty");
+  } finally {
+    const error = await writer.close();
+    if (error) throw error;
   }
-  if (pending || decoder.end()) throw new Error("discovery-truncated");
-  if (!targets.size) throw new Error("discovery-empty");
   fs.writeFileSync(output, sorted(targets).join("\n") + "\n");
 }
 function goVersion() {
@@ -208,7 +256,7 @@ function goVersion() {
 async function captureGo(output, discovered, selected, env = process.env) {
   const cpu = process.cpuUsage();
   const go = goVersion();
-  const report = goReport(env, { go });
+  const report = goReport(env, { go: knownGoVersion(go) ? go : null });
   if (fs.existsSync(output)) {
     try {
       const prior = readJSON(output);
@@ -219,6 +267,7 @@ async function captureGo(output, discovered, selected, env = process.env) {
     }
   }
   if (!go) diagnostic(report, "go-runtime-unavailable");
+  else if (!knownGoVersion(go)) diagnostic(report, "go-runtime-invalid");
   report.inventory_scope = env.CI_EVIDENCE_INVENTORY_SCOPE === "names" ? "names" : "qualified";
   report.discovered = inventory(discovered, report);
   report.selected = inventory(selected, report);
@@ -226,7 +275,8 @@ async function captureGo(output, discovered, selected, env = process.env) {
     const discoveredSet = new Set(report.discovered);
     if (report.selected.some((item) => !discoveredSet.has(item))) diagnostic(report, "selection-discovery-mismatch");
   }
-  const parser = goParser(report, (output) => process.stdout.write(output)), started = performance.now();
+  const writer = stdoutWriter();
+  const parser = goParser(report, (output) => writer.write(output)), started = performance.now();
   let pending = "", dropping = false;
   const decoder = new StringDecoder("utf8");
   const save = () => {
@@ -242,23 +292,35 @@ async function captureGo(output, discovered, selected, env = process.env) {
   const cancelled = () => { diagnostic(report, "collector-cancelled"); save(); process.exit(143); };
   process.once("SIGTERM", cancelled);
   process.once("SIGINT", cancelled);
-  for await (const chunk of process.stdin) {
-    // Bound even an unterminated output record before decoding it.
-    const parts = decoder.write(chunk).split("\n");
-    for (let index = 0; index < parts.length; index++) {
-      if (!dropping) pending += parts[index];
-      if (Buffer.byteLength(pending) > LIMITS.line) { diagnostic(report, "input-line-cap"); pending = ""; dropping = true; }
-      if (index < parts.length - 1) {
-        if (!dropping && pending) parser.accept(pending);
-        pending = ""; dropping = false;
+  let failure = null;
+  try {
+    for await (const chunk of process.stdin) {
+      // Bound even an unterminated output record before decoding it.
+      const parts = decoder.write(chunk).split("\n");
+      for (let index = 0; index < parts.length; index++) {
+        if (!dropping) pending += parts[index];
+        if (Buffer.byteLength(pending) > LIMITS.line) { diagnostic(report, "input-line-cap"); pending = ""; dropping = true; }
+        if (index < parts.length - 1) {
+          if (!dropping && pending) await parser.accept(pending);
+          pending = ""; dropping = false;
+        }
       }
     }
+    pending += decoder.end();
+    if (pending || dropping) diagnostic(report, "truncated-json");
+  } catch (cause) {
+    failure = writer.error || new Error("capture-input-failed", { cause });
+    diagnostic(report, failure.message);
+  } finally {
+    const error = await writer.close();
+    if (error) { failure ??= error; diagnostic(report, error.message); }
+    try { save(); }
+    finally {
+      process.removeListener("SIGTERM", cancelled);
+      process.removeListener("SIGINT", cancelled);
+    }
   }
-  pending += decoder.end();
-  if (pending || dropping) diagnostic(report, "truncated-json");
-  save();
-  process.removeListener("SIGTERM", cancelled);
-  process.removeListener("SIGINT", cancelled);
+  if (failure) throw failure;
 }
 
 function browserOutcomes(report, env) {
@@ -485,7 +547,7 @@ function cohort(report) {
     source_ref: report.identity.ref,
   });
 }
-function artifactJSON(archive, expectedName, digest) {
+function artifactJSON(archive, expectedName, digest, budget = { expanded: 0 }) {
   if (!Buffer.isBuffer(archive) || archive.length > LIMITS.bytes) throw new Error("artifact-byte-cap");
   const actualDigest = `sha256:${createHash("sha256").update(archive).digest("hex")}`;
   if (digest !== actualDigest) throw new Error("artifact-digest-unverified");
@@ -509,7 +571,10 @@ function artifactJSON(archive, expectedName, digest) {
   if (archive.subarray(offset + 30, offset + 30 + localNameLength).toString("utf8") !== expectedName ||
       start + compressed > central) throw new Error("artifact-zip-entry");
   const compressedBytes = archive.subarray(start, start + compressed);
-  const content = method === 8 ? inflateRawSync(compressedBytes, { maxOutputLength: LIMITS.bytes }) : compressedBytes;
+  if (budget.expanded + expanded > LIMITS.aggregateBytes) throw new Error("evidence-expanded-cap");
+  budget.expanded += expanded;
+  if (!expanded) throw new Error("artifact-zip-size");
+  const content = method === 8 ? inflateRawSync(compressedBytes, { maxOutputLength: expanded }) : compressedBytes;
   if (content.length !== expanded) throw new Error("artifact-zip-size");
   return { report: JSON.parse(content.toString("utf8")), content_sha256: createHash("sha256").update(content).digest("hex"), content_bytes: content.length };
 }
@@ -532,9 +597,7 @@ function collectObservations(runID, api, download = (id) => {
           (match[1] === "browser" && match[4] !== undefined) ||
           (match[1] === "go-run" && !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(match[4] || ""))) throw new Error("artifact-name-binding");
       const expectedName = match[1] === "browser" ? "ci-evidence-browser.json" : match[1] === "go-run" ? "coverage.txt.evidence.json" : `coverage-native-${match[4]}.txt.evidence.json`;
-      const { report, content_sha256, content_bytes } = artifactJSON(download(artifact.id), expectedName, artifact.digest);
-      budget.expanded += content_bytes;
-      if (budget.expanded > LIMITS.aggregateBytes) { diagnostics.push("evidence-expanded-cap"); break; }
+      const { report, content_sha256 } = artifactJSON(download(artifact.id), expectedName, artifact.digest, budget);
       const partial = report.complete === false && Array.isArray(report.diagnostics) && report.diagnostics.length > 0 &&
         report.diagnostics.every((code) => text(code) !== null);
       const selectedValid = Array.isArray(report.selected) || (partial && report.selected == null);
@@ -556,7 +619,8 @@ function collectObservations(runID, api, download = (id) => {
       verifiedReports.set(report, { run_id: String(runID), artifact_id: artifact.id, content_sha256, metadata_complete: metadata.complete, checkout_binding: checkoutVerified ? "api-head" : "unavailable-pr-merge", sample_eligible: sampleEligible, attempt_binding: metadata.run_attempt === 1 ? "single-api-attempt" : "name-and-report-only" });
       reports.push(report);
       budget.reports++;
-    } catch {
+    } catch (error) {
+      if (error.message === "evidence-expanded-cap") { diagnostics.push("evidence-expanded-cap"); break; }
       diagnostics.push("evidence-artifact-invalid-or-unverified");
     }
   }
@@ -585,7 +649,7 @@ function knownIdentity(report) {
   required.push(report.kind === "go" ? "go" : "playwright");
   return required.every((field) => text(report.identity[field]) !== null && report.identity[field].length > 0) &&
     /^[0-9a-f]{40}$/.test(report.identity.source_sha) &&
-    (report.kind !== "playwright" || knownGoVersion(report.identity.go));
+    knownGoVersion(report.identity.go);
 }
 function eligibleSample(report) {
   if (!verifiedReports.get(report)?.sample_eligible || !knownIdentity(report) ||

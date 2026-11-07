@@ -211,8 +211,12 @@ durations, unfinished tests, selection mismatches and cancellations are explicit
 diagnostics with `complete: false`, not invented zero timings or success.
 Once Go report admission reaches its total cap, valid bounded output records
 continue to the console without adding measurements to the incomplete report.
+Capture and discovery forward one bounded console record at a time, waiting for
+write acknowledgment and backpressure drain before reading another record.
+Output errors or premature closure fail the collector; capture saves available
+evidence with explicit diagnostics and `complete: false`.
 `collector_seconds` records parser wall time (including input wait for streaming
-Go capture), **not** incremental instrumentation overhead.
+Go capture and console backpressure), **not** incremental instrumentation overhead.
 Go `collector_cpu_seconds` observes the collector process's own user/system CPU
 through final report preparation. It excludes child-process startup and artifact
 upload, and is not a claim about added full-pipeline latency.
@@ -264,7 +268,10 @@ Declared event and workflow names must match the authenticated run metadata.
 Missing/expired artifacts, missing server digests and source mismatches are
 unavailable, not eligible samples. The collection is bounded to 100 reports and
 128 MiB aggregate compressed/expanded input; individual expanded files remain
-bounded to 64 MiB.
+bounded to 64 MiB. Expanded size is reserved before decompression or JSON parsing
+and remains charged when either fails. Deflate output is limited to its declared
+expanded size; dishonest size declarations are rejected, not decoded against the
+larger per-file cap.
 Standard pull-request checkout uses GitHub's synthetic merge commit, whereas
 the Actions run API can report the PR source head. These are distinct identities.
 When that binding cannot be established, authenticated artifact observations
@@ -277,8 +284,11 @@ Cohorts separate kind, checkout SHA, workflow, event/ref, OS/architecture, exact
 execution policy and cache observations. Duplicate run/attempt/job observations
 do not add samples. Eligibility requires complete successful first attempts,
 disabled test-result caching and retries, and observed misses for dependency
-caches. Unknown cache/runtime/source evidence is ineligible. Three **distinct
-comparable runs**, not three retries/tests within one run, are necessary before
+caches. Unknown cache/runtime/source evidence is ineligible.
+Both Go and browser samples require a recognized Go-version response. Invalid
+new probe responses are discarded with diagnostics; historical schema 1 runtime
+values remain unchanged but cannot qualify when missing or unrecognized.
+Three **distinct comparable runs**, not three retries/tests within one run, are necessary before
 assessing any timing target. The initial summary always reports
 `attainment: "not-assessed"`; it installs no hard-fail timing budget.
 Artifact names alone do not authenticate an upload attempt. Runs whose API
