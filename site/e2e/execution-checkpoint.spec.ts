@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import checkpointSchema from '../../schemas/execution-checkpoint-1.0.schema.json' with { type: 'json' };
+import checkpointResultSchema from '../../schemas/runner-checkpoint-result-1.0.schema.json' with { type: 'json' };
 
 test('checkpoint schema notes preserve scope, version and deployed base', async ({ page, request }) => {
   await page.goto('/waza/reference/schema-changes/');
@@ -11,8 +13,10 @@ test('checkpoint schema notes preserve scope, version and deployed base', async 
   expect(url.pathname).toBe('/waza/schemas/execution-checkpoint-1.0.schema.json');
   const response = await request.get(url.toString());
   expect(response.status()).toBe(200);
-  expect(response.headers()['content-type']).toContain('application/schema+json');
+  expect(response.headers()['content-type']).toMatch(/^application\/json(?:;\s*charset=utf-8)?$/i);
   const schema = await response.json();
+  expect(schema).toEqual(checkpointSchema);
+  expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
   expect(schema.$id).toBe('https://microsoft.github.io/waza/schemas/execution-checkpoint-1.0.schema.json');
   expect(schema.properties.kind.const).toBe('waza.execution-checkpoint');
   expect(schema.properties.schema_version.const).toBe('1.0');
@@ -29,9 +33,13 @@ test('checkpoint schema notes preserve scope, version and deployed base', async 
   expect(resultURL.pathname).toBe('/waza/schemas/runner-checkpoint-result-1.0.schema.json');
   const resultResponse = await request.get(resultURL.toString());
   expect(resultResponse.status()).toBe(200);
-  expect(resultResponse.headers()['content-type']).toContain('application/schema+json');
+  expect(resultResponse.headers()['content-type']).toMatch(/^application\/json(?:;\s*charset=utf-8)?$/i);
   const resultSchema = await resultResponse.json();
+  expect(resultSchema).toEqual(checkpointResultSchema);
+  expect(resultSchema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
+  expect(resultSchema.$id).toBe('https://microsoft.github.io/waza/schemas/runner-checkpoint-result-1.0.schema.json');
   expect(resultSchema.properties.kind.const).toBe('waza.runner-checkpoint-result');
+  expect(resultSchema.properties.schema_version.const).toBe('1.0');
   expect(resultSchema.additionalProperties).toBe(false);
   expect(resultSchema.required).toEqual(expect.arrayContaining(['restored_units', 'remaining_work', 'compatibility_differences']));
   expect(resultSchema.properties.submission.$ref).toBe('execution-submission-result-1.0.schema.json');
