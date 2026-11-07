@@ -39,8 +39,9 @@ Current native grader bindings do not certify historical grader correspondence.
 
 ## Portable evidence
 
-Tasks retain their legacy format; new results use `1.7` and historical results
-retain their declared `1.x` versions or the missing-version `1.4` reader default.
+Tasks retain their legacy format; current source writes results `1.9` (v0.40.0 writes `1.8`), while
+published `v0.39.1` writes `1.7`. Historical results retain their declared
+`1.x` versions or the missing-version `1.4` reader default.
 Snapshot schema `1.1` adds optional `evidence`
 and selected `workspaceFiles`; the portable manifest has an independent
 `version: "1.0"`. Legacy artifacts still load without assessed evidence.
@@ -262,7 +263,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.7`
+**Default:** legacy eval schema version (`1.4`); current source result writers independently emit `1.9` (v0.40.0 writes `1.8`; published `v0.39.1` writes `1.7`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
@@ -345,6 +346,8 @@ mcp_mocks:
 | `delay_ms` | integer | Per-step delay from 0 to 300,000 ms; not a host/process timeout guarantee |
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture. Finite `sequence` responses are available only in scenario evals using exact `schemaVersion: "2.0"`; each matching call consumes one step, sequences contain 1–100 steps, and optional step delays are bounded at 300,000 ms.
+
+In **v0.40.0**, a task can replace an eval-level mock by name with its own [`mcp_mocks`](#mcp_mocks-optional) entry. Published `v0.39.1` does not apply task-level mocks. Other eval-level mocks remain available to that task.
 
 Unmatched-call diagnostics omit argument values, including nested payloads. A
 canceled or expired context at the in-process handler's tool-call admission
@@ -575,7 +578,11 @@ config:
 **Type:** string  
 **Default:** (none)
 
-Group results by a field in the output (e.g., `tags`, `task_id`). Useful for organizing results when running many tasks.
+Group results by `model` or by each task's complete ordered `tags` set. Tasks
+without tags are omitted from tag groups. Useful for organizing results when
+running many tasks. Commas and backslashes in individual tag labels are escaped
+so different tag sets remain distinct. An explicit empty tag label is represented
+as `\0`, while a task with no tags remains ungrouped.
 
 ```yaml
 config:
@@ -646,6 +653,25 @@ When `true` with `inject_skill_body: false`, Waza appends a scoped trigger-preci
 config:
   inject_skill_body: false
   trigger_skill_routing: true
+```
+
+### native_user_input
+
+**Type:** boolean
+**Default:** false
+
+Gives the agent the Copilot SDK `ask_user` tool, so it can ask the host questions
+mid-task (through `OnUserInputRequest`). Each question is answered by the task's
+[`user_input_responses`](#user_input_responses-optional) first, then by the
+task's adaptive responder (`inputs.responder`) if it has one. Anything else fails
+the run. Requires a scenario eval (`schemaVersion: "2.0"`) and
+`executor: copilot-sdk`; older Waza versions reject this field rather than
+ignoring it.
+
+```yaml
+config:
+  executor: copilot-sdk
+  native_user_input: true
 ```
 
 ### required_skills
@@ -779,6 +805,20 @@ expected: # Required: validation rules
     max_tool_calls: 5
 ```
 
+### inputs.environment (unsupported)
+
+This compatibility field is accepted as a string-to-string map, but its values
+are **not applied** during task execution. A non-empty map emits a task-load
+warning and an unsupported `task.environment` preflight diagnostic without
+printing variable names or values. Omitted or empty maps emit neither.
+Existing run exit policies are unchanged; preflight remains warning-only by
+default and retains its existing `--strict` failure policy.
+
+Remove this field and configure required environment variables outside Waza
+before starting the process. The Copilot client process is shared across tasks,
+so this is not per-task environment isolation. Native snapshot execution
+continues to reject non-empty task environment maps.
+
 ### id
 
 **Type:** string  
@@ -860,6 +900,79 @@ Replace the eval-level command mock list for this task. The enclosing eval must 
 ```yaml
 command_mocks: []
 ```
+
+### mcp_mocks (optional)
+
+**Added in v0.40.0:** Published `v0.39.1` does not apply task-level
+`mcp_mocks`.
+
+Replace or add MCP mocks for this task. Each entry replaces the eval-level [`mcp_mocks`](#mcp_mocks) entry with the same name for this task only, and a new name adds a mock; other eval-level mocks still apply. Entries use the eval-level fields. The enclosing eval must use `schemaVersion: "1.1"` or newer and `executor: copilot-sdk`, and finite response sequences require scenario eval schema `2.0`. Relative `fixtures` paths resolve from the eval directory. The list must not be empty; omit it to use the eval-level mocks.
+
+An eval mock that every selected task replaces is unused by those tasks, but its
+fixtures are skipped only when no trigger phase needs it; its inline tools are
+still validated. Trigger tests use eval-level mocks and live servers, not task
+replacements. An eval-level mock still shadows the same-named live server in that
+phase. Successfully parsed trigger tests with the mock executor are synthesized
+without MCP; unresolved trigger discovery or parsing conservatively retains
+eval-level dependencies during preflight. See the
+[preflight dependency rules](/waza/guides/preflight/).
+
+Task loading and filter errors are reported before engine startup. Admission validates inline mock `input_schema` declarations offline, even on replaced eval mocks. Schemas must be self-contained (internal `$ref` values are supported); omission or `null` retains the default tool schema.
+
+```yaml
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_regex: { question: "(?i)publish" }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
+```
+
+### user_input_responses (optional)
+
+Script answers to the agent's native questions (the SDK `ask_user` tool). Requires
+[`config.native_user_input: true`](#native_user_input) in the eval. With the flag
+set, omitting the field (or `[]`) means only the adaptive responder, if any, can
+answer.
+
+Each entry has a required `answer` and an optional `question`, an RE2 pattern that
+must match the whole question. Entries are used in order across the initial prompt,
+follow-up prompts, and responder replies of one trial; every trial and retry starts
+again at the first entry. An entry without `question` answers whatever is asked
+next. An `answer` equal to an offered choice selects it; any other answer is sent
+as typed text and is rejected when the request does not allow typed answers.
+
+```yaml
+user_input_responses:
+  - question: "(?is).*environment.*"
+    answer: staging
+  - answer: Fixes the login timeout.
+```
+
+A question that does not match the next entry, or arrives after the script is used
+up, returns an error to the SDK (never a default answer) and the run ends with
+status `error`. Unused entries also fail the run. Every request is recorded in
+`runs[].user_input_requests` and passed to inline `code` graders as
+`user_input_requests`. With the flag on, a run with no questions records `[]`;
+without it the field is absent and graders receive `null`. This is the SDK-native callback, not an MCP `ask_user` tool
+mock, and structured elicitation forms are not supported.
+
+#### Adaptive responder answers
+
+When `native_user_input` is enabled and the task has an adaptive responder
+(`inputs.responder`), scripted entries are still tried first. A question that the next entry does not match goes to the
+responder model instead, and that entry waits for a later question. The responder
+uses the same session and instructions as its between-turn replies and receives the
+question and offered choices. Its answer follows the same choice-or-typed rule. A
+responder stop, abstain, or error fails the run. Answers given during a turn do not
+count toward `max_followups`. Each in-turn responder call may take up to the task timeout, and its time counts against the agent's turn.
+
+Each record's `source` is `script` or `responder`. Without the flag, a task's
+responder keeps its existing between-turn behavior only. Responder answers call a
+model and can differ between runs.
 
 ## inputs Section
 

@@ -116,6 +116,7 @@ func TestDiagnosticInitializePersistsAndSanitizes(t *testing.T) {
 					e.provider.err = raw
 				case "start":
 					client.EXPECT().Start(gomock.Any()).Return(raw)
+					client.EXPECT().Stop().Return(nil)
 				default:
 					client.EXPECT().Start(gomock.Any()).Return(nil)
 					var auth *copilot.GetAuthStatusResponse
@@ -394,13 +395,13 @@ func TestDiagnosticInitializeSuccessAndNilObserverCompatibility(t *testing.T) {
 		client.EXPECT().Stop().Return(nil)
 		require.NoError(t, e.Shutdown(t.Context()))
 	})
-	t.Run("nil observer retains legacy local init error", func(t *testing.T) {
+	t.Run("nil observer persists startup error", func(t *testing.T) {
 		e, client := diagnosticTestEngine(t, nil)
 		require.Nil(t, e.diagnostics)
 		client.EXPECT().Start(gomock.Any()).Return(errors.New(privateDiagnosticSentinel))
-		require.ErrorContains(t, e.Initialize(t.Context()), privateDiagnosticSentinel)
-		require.NoError(t, e.Initialize(t.Context()))
 		client.EXPECT().Stop().Return(nil)
+		require.ErrorContains(t, e.Initialize(t.Context()), privateDiagnosticSentinel)
+		require.ErrorContains(t, e.Initialize(t.Context()), privateDiagnosticSentinel)
 		require.NoError(t, e.Shutdown(t.Context()))
 	})
 }

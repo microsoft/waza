@@ -278,9 +278,17 @@ type RunResult struct {
 	// backward compatibility; new consumers should prefer ToolEvents.
 	ToolEvents []ToolEvent `json:"tool_events,omitempty"`
 
+	// HostLifecycle is ordered model-turn and host shell evidence projected
+	// from structured native session events. Nil means unavailable.
+	HostLifecycle *HostLifecycle `json:"host_lifecycle,omitempty"`
 	// CommandInvocations records sanitized calls handled by declarative
 	// command_mocks. Response output is intentionally excluded.
 	CommandInvocations []CommandInvocation `json:"command_invocations,omitempty"`
+	// UserInputRequests records native SDK user-input requests handled by
+	// task-level user_input_responses, including fail-closed rejections.
+	// Absent (nil) means no native callback was registered; [] means it was
+	// registered and no question was asked.
+	UserInputRequests *[]UserInputRecord `json:"user_input_requests,omitempty"`
 	// DependencyModes records the configured mode for declared dependencies.
 	// It describes configuration, not proof that a dependency was invoked.
 	DependencyModes []DependencyMode `json:"dependency_modes,omitempty"`

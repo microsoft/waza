@@ -90,6 +90,9 @@ func checkCapturedFields(node *yaml.Node, target reflect.Type) error {
 	for target.Kind() == reflect.Pointer {
 		target = target.Elem()
 	}
+	if target == reflect.TypeFor[MeasurementDef]() {
+		return validateCapturedMetric(node)
+	}
 	if node.Tag == "!!float" || target.Kind() == reflect.Float32 || target.Kind() == reflect.Float64 {
 		return fmt.Errorf("unsupported authored floating-point declaration identity")
 	}

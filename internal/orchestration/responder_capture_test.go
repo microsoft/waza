@@ -18,16 +18,25 @@ import (
 )
 
 type responderCaptureSession struct {
-	t         *testing.T
-	workspace string
-	sendErr   error
-	oversized bool
-	calls     int
-	handlers  []copilot.SessionEventHandler
+	t                   *testing.T
+	workspace           string
+	sendErr             error
+	oversized           bool
+	rejectInput         bool
+	cancelDuringCleanup bool
+	cancel              context.CancelFunc
+	inputHandler        copilot.UserInputHandler
+	calls               int
+	handlers            []copilot.SessionEventHandler
 }
 
 func (s *responderCaptureSession) SessionID() string { return "capture-session" }
-func (s *responderCaptureSession) Disconnect() error { return nil }
+func (s *responderCaptureSession) Disconnect() error {
+	if s.calls == 2 && s.cancelDuringCleanup {
+		s.cancel()
+	}
+	return nil
+}
 func (s *responderCaptureSession) On(handler copilot.SessionEventHandler) func() {
 	s.handlers = append(s.handlers, handler)
 	return func() {}
@@ -43,6 +52,13 @@ func (s *responderCaptureSession) SendAndWait(context.Context, copilot.MessageOp
 	output := "initial output"
 	if s.calls == 2 {
 		output = "second output"
+		if s.rejectInput {
+			require.NotNil(s.t, s.inputHandler)
+			_, err := s.inputHandler(copilot.UserInputRequest{
+				Question: "Continue?", Choices: []string{"allowed"}, AllowFreeform: new(bool),
+			}, copilot.UserInputInvocation{SessionID: s.SessionID()})
+			require.Error(s.t, err)
+		}
 		if s.oversized {
 			file, err := os.Create(filepath.Join(s.workspace, "oversized.txt"))
 			require.NoError(s.t, err)
@@ -75,10 +91,12 @@ func (c *responderCaptureClient) ListModels(context.Context) ([]copilot.ModelInf
 func (c *responderCaptureClient) DeleteSession(context.Context, string) error { return nil }
 func (c *responderCaptureClient) CreateSession(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
 	c.session.workspace = cfg.WorkingDirectory
+	c.session.inputHandler = cfg.OnUserInputRequest
 	return c.session, nil
 }
 func (c *responderCaptureClient) ResumeSessionWithOptions(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (execution.CopilotSession, error) {
 	require.Equal(c.session.t, c.session.workspace, cfg.WorkingDirectory)
+	c.session.inputHandler = cfg.OnUserInputRequest
 	return c.session, nil
 }
 
@@ -87,9 +105,16 @@ type responderCaptureEngine struct {
 	t             *testing.T
 	responses     []*execution.ExecutionResponse
 	finalizations int
+	session       *responderCaptureSession
 }
 
 func (e *responderCaptureEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	if req.SessionID != "" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		e.session.cancel = cancel
+		defer cancel()
+	}
 	resp, err := e.CopilotEngine.Execute(ctx, req)
 	require.NoError(e.t, err, "the real engine reports send and capture failures in its response")
 	e.responses = append(e.responses, resp)
@@ -103,19 +128,26 @@ func (e *responderCaptureEngine) FinalizeCommandMocks(workspace string) ([]model
 
 func TestResponderCaptureFailureCountsOnlySuccessfulExecution(t *testing.T) {
 	for _, failure := range []struct {
-		name string
-		err  error
+		name                string
+		err                 error
+		rejectInput         bool
+		cancelDuringCleanup bool
 	}{
 		{name: "completed"},
 		{name: "failed", err: errors.New("synthetic execution failure")},
 		{name: "timed_out", err: context.DeadlineExceeded},
 		{name: "canceled", err: context.Canceled},
+		{name: "native_input_rejected", rejectInput: true},
+		{name: "canceled_during_cleanup", cancelDuringCleanup: true},
 	} {
 		for _, oversized := range []bool{false, true} {
 			t.Run(failure.name+map[bool]string{false: "/captured", true: "/capture_failed"}[oversized], func(t *testing.T) {
-				session := &responderCaptureSession{t: t, sendErr: failure.err, oversized: oversized}
+				session := &responderCaptureSession{
+					t: t, sendErr: failure.err, oversized: oversized,
+					rejectInput: failure.rejectInput, cancelDuringCleanup: failure.cancelDuringCleanup,
+				}
 				client := &responderCaptureClient{session: session}
-				engine := &responderCaptureEngine{t: t, CopilotEngine: execution.NewCopilotEngineBuilder("test-model", &execution.CopilotEngineBuilderOptions{
+				engine := &responderCaptureEngine{t: t, session: session, CopilotEngine: execution.NewCopilotEngineBuilder("test-model", &execution.CopilotEngineBuilderOptions{
 					NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
 				}).Build()}
 				require.NoError(t, engine.Initialize(t.Context()))
@@ -128,20 +160,26 @@ func TestResponderCaptureFailureCountsOnlySuccessfulExecution(t *testing.T) {
 					ContextDir:    contextDir,
 				}
 				runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{
-					Config:  models.Config{ModelID: "test-model", TimeoutSec: 30},
+					Config:  models.Config{ModelID: "test-model", TimeoutSec: 30, NativeUserInput: true},
 					Graders: []models.GraderConfig{{Kind: models.GraderKindDiff, Identifier: "final", Parameters: diff}},
 				}, config.WithSpecDir(t.TempDir())), engine, WithUpdateSnapshots(true))
 				runner.newClassifier = func(models.ResponderConfig, string) responderClassifier {
 					return &scriptedClassifier{decisions: []responder.Decision{{Kind: responder.DecisionReply, Answer: "continue"}}}
 				}
-				run := runner.executeRun(t.Context(), &models.TestCase{
+				tc := &models.TestCase{
 					Stimulus: models.TaskStimulus{
 						Message: "execute", Responder: &models.ResponderConfig{Instructions: "provide defaults", MaxFollowups: 1},
 					},
 					Checkpoints: []models.Checkpoint{{AfterTurn: 1, Graders: []models.ValidatorInline{
 						{Kind: models.GraderKindDiff, Identifier: "initial", Parameters: diff},
 					}}},
-				}, 1)
+				}
+				if failure.rejectInput {
+					answer := "not offered"
+					responses := []models.UserInputResponseConfig{{Answer: &answer}}
+					tc.UserInputResponses = &responses
+				}
+				run := runner.executeRun(t.Context(), tc, 1)
 				raw, err := json.Marshal(run)
 				require.NoError(t, err)
 				var saved models.RunResult
@@ -149,7 +187,8 @@ func TestResponderCaptureFailureCountsOnlySuccessfulExecution(t *testing.T) {
 				require.Equal(t, 2, session.calls)
 				require.Len(t, engine.responses, 2)
 				last := engine.responses[1]
-				require.Equal(t, failure.err == nil, last.ExecutionSucceeded)
+				completed := failure.err == nil && !failure.rejectInput && !failure.cancelDuringCleanup
+				require.Equal(t, completed, last.ExecutionSucceeded)
 				responseJSON, err := json.Marshal(last)
 				require.NoError(t, err)
 				require.NotContains(t, string(responseJSON), "ExecutionSucceeded")
@@ -163,8 +202,10 @@ func TestResponderCaptureFailureCountsOnlySuccessfulExecution(t *testing.T) {
 				}
 				require.NotNil(t, saved.Responder)
 				wantCount := 1
-				if failure.err != nil {
+				if !completed {
 					wantCount = 0
+				}
+				if failure.err != nil {
 					require.Contains(t, last.ErrorMsg, failure.err.Error())
 					require.Contains(t, saved.ErrorMsg, failure.err.Error())
 				}
@@ -172,7 +213,13 @@ func TestResponderCaptureFailureCountsOnlySuccessfulExecution(t *testing.T) {
 				require.Equal(t, 1, engine.finalizations)
 				require.Len(t, saved.Checkpoints, 1)
 				require.Equal(t, models.StatusPassed, saved.Checkpoints[0].Status)
-				if oversized || failure.err != nil {
+				if failure.rejectInput {
+					require.NotNil(t, saved.UserInputRequests)
+					require.Len(t, *saved.UserInputRequests, 1)
+					require.NotEmpty(t, (*saved.UserInputRequests)[0].Error)
+					require.Nil(t, (*saved.UserInputRequests)[0].Answer)
+				}
+				if oversized || !completed {
 					require.Equal(t, models.StatusError, saved.Status)
 					require.Equal(t, models.ResponderOutcomeError, saved.Responder.Outcome)
 				}

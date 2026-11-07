@@ -77,7 +77,7 @@ func TestMatchSnapshotRequestAndSourceRejection(t *testing.T) {
 		"missing", "extra", "duplicate", "path_alias", "source_mutation", "digest_mutation",
 		"nil_policy", "unrestricted", "skills", "ephemeral", "capture", "session", "workspace",
 		"streaming", "message_mode", "cancel_skill", "route_skill", "suppress_skill", "skill_name",
-		"skill_paths", "git_resources", "workspace_capture_paths", "mcp", "mocks", "mocks_base", "negative_timeout", "callback", "tools",
+		"skill_paths", "git_resources", "workspace_capture_paths", "mcp", "mocks", "mocks_base", "negative_timeout", "callback", "tools", "user_input",
 	} {
 		t.Run(name, func(t *testing.T) {
 			req, sources := matchRequest(), matchSources()
@@ -170,6 +170,10 @@ func TestMatchSnapshotRequestAndSourceRejection(t *testing.T) {
 				}
 			case "tools":
 				req.Tools = []copilot.Tool{{Name: "forbidden"}}
+			case "user_input":
+				script, err := execution.NewUserInputScript(nil)
+				require.NoError(t, err)
+				req.UserInput = script
 			}
 			require.Error(t, MatchSnapshot(context.Background(), admitted, binding.Key, req, sources))
 		})

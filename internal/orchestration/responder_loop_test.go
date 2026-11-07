@@ -103,7 +103,7 @@ func TestResponderLoopSetupFailureDoesNotCountUnexecutedReply(t *testing.T) {
 	resp := &execution.ExecutionResponse{Success: true}
 	info := runner.executeResponderLoop(t.Context(), &models.TestCase{Stimulus: models.TaskStimulus{
 		Responder: &models.ResponderConfig{Instructions: "provide defaults", MaxFollowups: 1},
-	}}, nil, resp, nil)
+	}}, nil, resp, nil, runner.newClassifier(models.ResponderConfig{}, ""))
 	require.Equal(t, models.ResponderOutcomeError, info.Outcome)
 	require.Contains(t, info.Reason, "follow-up request requires its initial attempt request")
 	require.Zero(t, info.FollowupsSent)
