@@ -2,12 +2,81 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 const example = JSON.parse(readFileSync(new URL("../../examples/runner/unit.json", import.meta.url), "utf8"));
+
+for (const fault of ["primary", "guard", "remove"]) {
+  test(`embedded cleanup preserves the original failure with ${fault} fault`, async (t) => {
+    const source = stripTypeScriptTypes(readFileSync(new URL("./checkpoint-embedded.spec.ts", import.meta.url), "utf8"));
+    const start = source.indexOf('test("matched owning CLI serves');
+    assert.ok(start > 0, "The actual embedded control registration must be selected.");
+    const registration = source.slice(start).replaceAll("import.meta.url", "embeddedModuleURL");
+    const primary = new Error("Injected fixture preparation failure.");
+    const secondary = new Error(`Injected ${fault} failure.`);
+    let directory;
+    let control;
+    t.after(async () => {
+      if (directory) await rm(directory, { recursive: true, force: true });
+    });
+    const register = Object.assign((_name, callback) => {
+      assert.equal(control, undefined, "Exactly one actual embedded control must be registered.");
+      control = callback;
+    }, {
+      skip: (condition) => assert.equal(condition, false),
+      setTimeout: (duration) => assert.equal(duration, 90_000),
+    });
+    runInNewContext(registration, {
+      embeddedModuleURL: new URL("./checkpoint-embedded.spec.ts", import.meta.url).href,
+      test: register,
+      expect: (value, message) => ({
+        toBeTruthy: () => assert.ok(value, message),
+        toContain: (expected) => assert.ok(value.includes(expected), message),
+        toBe: (expected) => assert.equal(value, expected, message),
+      }),
+      process: { env: { WAZA_CHECKPOINT_DELIVERY: "final", WAZA_E2E_CLI: "fault-control-not-an-executable" } },
+      execFileSync: (command, args) => {
+        if (command === "go") {
+          assert.deepEqual(Array.from(args), ["version", "-m", resolve("fault-control-not-an-executable")]);
+          return "\tbuild\tvcs.revision=fault-control\n\tbuild\tvcs.modified=false\n";
+        }
+        assert.equal(command, "git");
+        assert.deepEqual(Array.from(args), ["rev-parse", "HEAD"]);
+        return "fault-control\n";
+      },
+      resolve, join, tmpdir, AggregateError,
+      mkdtemp: async (prefix) => { directory = await mkdtemp(prefix); return directory; },
+      mkdir: async () => { throw primary; },
+      lstat: async (path) => {
+        assert.equal(path, join(directory, "reject-runtime.invoked"));
+        if (fault === "guard") throw secondary;
+        return lstat(path);
+      },
+      rm: async (path, options) => {
+        assert.equal(path, directory);
+        if (fault === "remove") throw secondary;
+        return rm(path, options);
+      },
+    }, { timeout: 1_000 });
+    assert.equal(typeof control, "function");
+    await assert.rejects(control({}), (error) => {
+      if (fault === "primary") {
+        assert.equal(error, primary, "The original failure must not be replaced.");
+      } else {
+        assert.ok(error instanceof AggregateError);
+        assert.deepEqual(error.errors, [primary, secondary]);
+      }
+      return true;
+    });
+    assert.ok(directory, "The control must have created its real invocation-owned fixture.");
+    assert.equal(existsSync(directory), fault === "remove", "Failed cleanup must not claim fixture removal.");
+  });
+}
 
 function processRequest() {
   const request = structuredClone(example);

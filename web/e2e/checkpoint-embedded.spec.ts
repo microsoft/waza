@@ -22,6 +22,7 @@ test("matched owning CLI serves every current embedded asset and actual checkpoi
   let closed: Promise<void> | undefined;
   let safeToRemove = true;
   let output = "";
+  const failures: unknown[] = [];
   try {
     await mkdir(join(directory, "results", ".waza-artifacts"), { recursive: true, mode: 0o700 });
     await writeFile(guard, '#!/bin/sh\nprintf invoked > "$0.invoked"\nexit 91\n', { flag: "wx", mode: 0o700 });
@@ -143,25 +144,36 @@ test("matched owning CLI serves every current embedded asset and actual checkpoi
     expect(resumed.submission.terminal).toEqual(created.submission.terminal);
     expect(resumed.submission.reservation.execution_id).toBe(created.submission.reservation.execution_id);
     await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toContainText("reused");
-  } finally {
-    try {
-      if (server && closed) {
-        if (server.exitCode === null && server.signalCode === null) server.kill("SIGTERM");
-        const graceful = await Promise.race([closed.then(() => true), delay(5_000).then(() => false)]);
-        if (!graceful) {
-          server.kill("SIGKILL");
-          const forced = await Promise.race([closed.then(() => true), delay(5_000).then(() => false)]);
-          expect(forced, `Embedded CLI streams did not close after force: ${output}`).toBe(true);
-          throw new Error("Embedded CLI exceeded its graceful shutdown budget.");
-        }
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    if (server && closed) {
+      if (server.exitCode === null && server.signalCode === null) server.kill("SIGTERM");
+      const graceful = await Promise.race([closed.then(() => true), delay(5_000).then(() => false)]);
+      if (!graceful) {
+        server.kill("SIGKILL");
+        const forced = await Promise.race([closed.then(() => true), delay(5_000).then(() => false)]);
+        expect(forced, `Embedded CLI streams did not close after force: ${output}`).toBe(true);
+        failures.push(new Error("Embedded CLI exceeded its graceful shutdown budget."));
       }
-      expect(await lstat(`${guard}.invoked`).then(() => true, (error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-        return false;
-      }), "Checkpoint controls must not launch the rejecting runtime.").toBe(false);
-    } finally {
-      if (!safeToRemove) throw new Error(`Embedded CLI cleanup did not join; retained fixture: ${directory}`);
+    }
+    expect(await lstat(`${guard}.invoked`).then(() => true, (error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+      return false;
+    }), "Checkpoint controls must not launch the rejecting runtime.").toBe(false);
+  } catch (error) {
+    failures.push(error);
+  }
+  if (!safeToRemove) {
+    failures.push(new Error(`Embedded CLI cleanup did not join; retained fixture: ${directory}`));
+  } else {
+    try {
       await rm(directory, { recursive: true, force: true });
+    } catch (error) {
+      failures.push(error);
     }
   }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, "Embedded checkpoint control and cleanup failed.");
 });
