@@ -178,6 +178,19 @@ HTTP success. Strict profile validation and disclosure-approved response
 projection remain the caller's responsibility: neither helper authorizes raw
 reports, rejected checkpoint source bodies, or unauthenticated source metadata.
 
+Checkpoint locator delivery uses `newRunnerCheckpointLocatorEmitter`, retaining
+the existing exiting-process diagnostic writer and its cumulative 100 ms budget,
+sticky failures, and no-retry/unchanged-inherited-handle policy. Standalone CLI
+commands with supplied diagnostic writers receive the same bounded wrapper.
+Only `checkpoint before-unit SHA256` or `checkpoint finalized-unit SHA256` plus
+one LF is accepted; actual checkpoint boundary constants and canonical digest
+validation are reused. The emitter does not approve arbitrary progress or
+authenticate the referenced content. A before-unit delivery error stops engine
+admission; a finalized-unit delivery error makes the checkpoint operation fail
+without rewriting the completed original execution or removing its locators.
+It is process-only: a blocked write may finish late, and the caller must propagate
+failure and exit rather than use it in a long-lived embedding service.
+
 `executionledger.NewReader(scopedNamespace, storeBackend)` is a read-only
 consumer of the actual `artifactmanifest.Namespace.Reader` capability. It
 exposes canonical reservation/completion lookup and verified `ReadCompleted`
