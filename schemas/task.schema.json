@@ -150,6 +150,13 @@
         "$ref": "#/$defs/commandMock"
       }
     },
+    "user_input_responses": {
+      "type": "array",
+      "description": "Ordered scripted answers to native Copilot SDK user-input (ask_user) requests. Requires config.native_user_input: true in the eval, which controls whether the SDK callback is registered. An omitted or empty list provides no scripted answers; a configured adaptive responder still answers questions, and any other question fails the run. Unexpected or unused entries fail the run.",
+      "items": {
+        "$ref": "#/$defs/userInputResponse"
+      }
+    },
     "mcp_mocks": {
       "type": "array",
       "minItems": 1,
@@ -160,6 +167,22 @@
     }
   },
   "$defs": {
+    "userInputResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer"],
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional RE2 pattern that must match the whole question. When omitted, the entry answers the next question."
+        },
+        "answer": {
+          "type": "string",
+          "description": "Answer sent to the agent. Equal to an offered choice selects it; otherwise it is a typed answer."
+        }
+      }
+    },
     "commandMock": {
       "type": "object",
       "required": ["name", "responses"],

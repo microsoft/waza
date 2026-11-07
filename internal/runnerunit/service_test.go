@@ -271,8 +271,12 @@ func TestInvalidSelectionsNeverConstructRuntime(t *testing.T) {
 		"task-empty-grader": func(r *runnercontract.Request) {
 			r.Input.Task += "graders:\n  - name: empty\n    type: text\n    config: {}\n"
 		},
-		"csv-discovery": func(r *runnercontract.Request) { r.Input.Eval += "tasks_from: neighboring.csv\n" },
-		"baseline":      func(r *runnercontract.Request) { r.Input.Eval += "baseline: true\n" },
+		"user-input-responses": func(r *runnercontract.Request) {
+			r.Input.Task += "user_input_responses:\n  - answer: staging\n"
+		},
+		"empty-user-input-responses": func(r *runnercontract.Request) { r.Input.Task += "user_input_responses: []\n" },
+		"csv-discovery":              func(r *runnercontract.Request) { r.Input.Eval += "tasks_from: neighboring.csv\n" },
+		"baseline":                   func(r *runnercontract.Request) { r.Input.Eval += "baseline: true\n" },
 		"parallel": func(r *runnercontract.Request) {
 			r.Input.Eval = strings.Replace(r.Input.Eval, "executor: mock", "executor: mock\n  parallel: true", 1)
 		},

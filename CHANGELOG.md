@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Native question callbacks** - Scenario evals can set `config.native_user_input: true` to give the agent the Copilot SDK `ask_user` tool (#818). Questions are answered by task `user_input_responses` (ordered `answer` entries with an optional `question` regex) and then by the task's adaptive responder; anything unexpected fails the run instead of getting a default answer. Results from current source use schema `1.9` and record each question in `runs[].user_input_requests`. Evals without the flag are unchanged.
+
 ### Fixed
 
 - **Cancellation force-stop join** - When a canceled send or disconnect finishes
