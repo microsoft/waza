@@ -9,6 +9,10 @@ mkdir "$scratch/bin" "$scratch/reports"
 cat > "$scratch/bin/go" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "$*" = version ]; then
+  echo "go version go1.26.4 linux/amd64"
+  exit 0
+fi
 if [[ " $* " == *" -list . "* ]]; then
   if [[ " $* " != *" -race "* ]] || [[ " $* " != *" -covermode=atomic "* ]]; then
     echo "Discovery must use the same race and coverage build." >&2
@@ -52,7 +56,7 @@ expect_status() {
 for shard in 0 1 2 3; do
   profile="$scratch/reports/coverage-native-$shard.txt"
   bash "$scripts/go_test_shard.sh" "$shard" "$profile"
-  for flag in -race -timeout=30m -covermode=atomic "-coverprofile=$profile"; do
+  for flag in -count=1 -json -v -race -timeout=30m -covermode=atomic "-coverprofile=$profile"; do
     grep -Fx -- "$flag" "$CALLS" > /dev/null
   done
   pattern="$(awk 'previous == "-run" { print; exit } { previous = $0 }' "$CALLS")"
@@ -66,6 +70,15 @@ bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
 
 expect_status 7 env LIST_STATUS=7 bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
 expect_status 9 env TEST_STATUS=9 bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
+export REAL_NODE="$(command -v node)"
+cp "$scripts/testdata/ci-evidence-node-fault.sh" "$scratch/bin/node"
+chmod +x "$scratch/bin/node"
+expect_status 13 env FAIL_FINALIZER=finish-discovery bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
+expect_status 7 env LIST_STATUS=7 FAIL_FINALIZER=finish-discovery bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
+expect_status 13 env FAIL_FINALIZER=finish-go bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
+expect_status 9 env TEST_STATUS=9 FAIL_FINALIZER=finish-go bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
+expect_status 11 env FAIL_COLLECTOR=go FAIL_FINALIZER=finish-go bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
+expect_status 9 env TEST_STATUS=9 FAIL_COLLECTOR=go FAIL_FINALIZER=finish-go bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
 expect_status 2 bash "$scripts/go_test_shard.sh" 4 "$scratch/profile"
 expect_status 2 bash "$scripts/go_test_shard.sh" -1 "$scratch/profile"
 expect_status 2 bash "$scripts/go_test_shard.sh" '0;exit 0' "$scratch/profile"

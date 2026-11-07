@@ -24,26 +24,44 @@ jobs:
         with:
           lfs: true
       - name: Setup Go Environment
+        id: go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
+      - name: Setup Node for sanitized evidence
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
       - name: Test shard discovery and failure handling
         run: bash .github/scripts/go_test_shard_test.sh
       - name: Install and prove rejecting runtime guard
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
       - name: Execute exhaustive native test shard
+        id: native_tests
         env:
           SHARD: ${{ matrix.shard }}
+          GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}
         run: |
           bash .github/scripts/go_test_shard.sh "$SHARD" "coverage-native-$SHARD.txt"
           if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
             echo "Native shard attempted to launch the Copilot runtime." >&2
             exit 1
           fi
+      - name: Retain sanitized native execution evidence
+        if: always() && steps.native_tests.outcome != 'skipped' && steps.native_tests.outcome != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-evidence-go-native-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: coverage-native-${{ matrix.shard }}.txt.evidence.json
+          retention-days: 14
+          if-no-files-found: warn
       - name: Retain coverage and test-selection evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: go-coverage-native-${{ matrix.shard }}
-          path: coverage-native-${{ matrix.shard }}.txt*
+          path: |
+            coverage-native-${{ matrix.shard }}.txt
+            coverage-native-${{ matrix.shard }}.txt.all
+            coverage-native-${{ matrix.shard }}.txt.selected
           if-no-files-found: error

@@ -354,7 +354,7 @@ func testNativeShardRuntimeGate(t *testing.T, script string) {
 	if err := os.MkdirAll(scripts, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"go_test_shard.sh", "go_test_shard_plan.py", "go_test_shard_durations.tsv"} {
+	for _, file := range []string{"go_test_shard.sh", "go_test_shard_plan.py", "go_test_shard_durations.tsv", "ci-evidence.cjs"} {
 		source, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -368,6 +368,10 @@ func testNativeShardRuntimeGate(t *testing.T, script string) {
 	env, guard := releaseControlEnvironment(t, dir, root)
 	writeReleaseFile(t, filepath.Join(dir, "go"), []byte(`#!/usr/bin/env bash
 set -euo pipefail
+if [ "$*" = version ]; then
+  echo 'go version go1.26.4 linux/amd64'
+  exit 0
+fi
 if [[ " $* " == *" -list "* ]]; then
   printf '%s\n' TestOne TestTwo TestThree TestFour
 else
@@ -376,6 +380,19 @@ else
   exit "$TEST_STATUS"
 fi
 `))
+	t.Run("version-probe", func(t *testing.T) {
+		executed := filepath.Join(dir, "version-executed")
+		cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(dir, "go"), "version")
+		cmd.Env = append(env, "TEST_EXECUTED="+executed, "TRY_RUNTIME=true", "TEST_STATUS=9")
+		output, err := cmd.CombinedOutput()
+		if err != nil || strings.TrimSpace(string(output)) != "go version go1.26.4 linux/amd64" {
+			t.Fatalf("isolated version probe: %v\n%s", err, output)
+		}
+		if _, err := os.Stat(executed); !os.IsNotExist(err) {
+			t.Fatalf("version probe satisfied test execution marker: %v", err)
+		}
+		assertNoReleaseRuntime(t, guard)
+	})
 	for _, tc := range []struct {
 		name   string
 		launch bool
