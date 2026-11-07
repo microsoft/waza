@@ -1592,3 +1592,8 @@
 .lab-runner-negotiation dl { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr; gap: 10px 24px; }
 .lab-runner-negotiation dt { font-weight: 600; }
 .lab-runner-negotiation dd { margin: 0; overflow-wrap: anywhere; }
+.lab-button.lab-manifest-pointer {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

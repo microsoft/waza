@@ -100,9 +100,15 @@ func TestCaptureHooksActualPublicationAndImmutableFailedReuse(t *testing.T) {
 				names = append(names, artifact.Name)
 			}
 			require.Contains(t, names, "execution-evidence-capture.json")
+			require.Contains(t, names, "execution-attempt.json")
 			require.NotContains(t, names, "report.json")
 			withBytes, err := ledger.ReadCompleted(context.Background(), source, names...)
 			require.NoError(t, err)
+			require.Equal(t, result.Completion.ReservationDigest, artifactmanifest.Hash(withBytes.Publication.ArtifactBytes["execution-attempt.json"]))
+			attempt, err := executionattempt.ParseAttempt(withBytes.Publication.ArtifactBytes["execution-attempt.json"])
+			require.NoError(t, err)
+			require.Equal(t, result.Reservation.ExecutionID, attempt.ExecutionID)
+			require.Equal(t, result.Reservation.Binding, attempt.Binding)
 			for name, data := range withBytes.Publication.ArtifactBytes {
 				require.NotContains(t, string(data), "private-conversation-control", name)
 				require.NotContains(t, string(data), `"prompt"`, name)
@@ -125,7 +131,7 @@ func TestCaptureHooksActualPublicationAndImmutableFailedReuse(t *testing.T) {
 }
 
 func TestCaptureHooksRejectConsistentMutableSnapshotAndArtifactChanges(t *testing.T) {
-	for _, control := range []string{"category-bytes", "missing-artifact", "duplicate-artifact", "mutable-observation"} {
+	for _, control := range []string{"category-bytes", "missing-artifact", "duplicate-artifact", "mutable-observation", "attempt-bytes"} {
 		t.Run(control, func(t *testing.T) {
 			backend := captureBackend(t)
 			observed := false
@@ -166,6 +172,12 @@ func TestCaptureHooksRejectConsistentMutableSnapshotAndArtifactChanges(t *testin
 					publication.Artifacts = publication.Artifacts[1:]
 				case "duplicate-artifact":
 					publication.Artifacts[len(publication.Artifacts)-1] = publication.Artifacts[0]
+				case "attempt-bytes":
+					for i := range publication.Artifacts {
+						if publication.Artifacts[i].Name == "execution-attempt.json" {
+							publication.Artifacts[i].Data = append(publication.Artifacts[i].Data, ' ')
+						}
+					}
 				}
 				return publication, nil
 			}

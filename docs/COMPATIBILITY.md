@@ -125,8 +125,34 @@ cannot substitute category observations. These are cooperating producer
 comparisons, not SDK/process attestation or disclosure authorization.
 The fixed facade rejects competing preparation/validation and extra-artifact
 callbacks: an unvalidated renamed raw report cannot bypass its category inventory.
-Additional lifecycle artifacts require a separately admitted producer contract;
-arbitrary embedding artifact callbacks remain outside the protected facade.
+Additional lifecycle artifacts use the fixed `SubmissionHooks.SelectLifecycle`
+contract, never arbitrary embedding artifact callbacks. `LifecycleSelection`
+contains only the independently retained reservation, admitted protected terminal,
+and original invocation deadline (empty when absent), not report aliases or the
+detached publication deadline. A trusted embedding producer stages non-writing
+metadata before independently-original publication validation. Core checks
+canonical original binding/bytes/digests, bounded ordered lifecycle events, exact
+protected terminal equality, and closed runtime observation fields; it detaches
+canonical event bytes and `lifecycle.json` before later callbacks. These fixed
+objects join the same first manifest and aggregate byte bound, with no manifest
+digest in their input and no second publication. Their event bound is 128,
+separate from the 16 generic extra-artifact bound.
+
+The selected producer must use stage-only reservation and verify-only terminal
+callbacks: later callbacks cannot supply missing inventory or persist a second
+authoritative lifecycle publication. This is a trusted host contract, not a
+sandbox against host code with backend access. The legacy writing
+`LifecycleObserver.Hooks` adapter is unchanged and is not the selected public
+producer. Public lifecycle adapter integration remains pending. Typed admission
+does not prove SDK/process observation provenance or process exit; process
+evidence remains `unknown`. Native observations preserve sink sequence, not
+timestamp sorting or cross-goroutine causality.
+
+`SubmissionHooks.Factory` optionally overrides engine construction for that
+invocation only; a shared Service never changes its retained factory. Nil retains
+the existing factory/default behavior. Immutable reuse calls neither factory,
+lifecycle selector, nor reservation/terminal callbacks and preserves original
+native ordinal and terminal bytes.
 
 The facade explicitly withholds conversation, tool, and reliability categories;
 every nonempty native diagnostic/error message becomes `[REDACTED]` before first
@@ -151,6 +177,32 @@ write/flush without retry. Unsupported write deadlines abort without an implicit
 HTTP success. Strict profile validation and disclosure-approved response
 projection remain the caller's responsibility: neither helper authorizes raw
 reports, rejected checkpoint source bodies, or unauthenticated source metadata.
+
+`executionledger.NewReader(scopedNamespace, storeBackend)` is a read-only
+consumer of the actual `artifactmanifest.Namespace.Reader` capability. It
+exposes canonical reservation/completion lookup and verified `ReadCompleted`
+without Creator, Reserve, Complete, or duplicate-decision APIs. Its shared
+admission functions preserve the native Ledger's original context checks and
+missing/corrupt/I/O distinctions.
+
+Cumulative-budget callers must construct the scoped namespace reader and
+decorated Store backend with the same invocation-owned budget state before
+calling `NewReader`; passing a raw Store backend does not enforce that budget.
+The constructor does no provider I/O and never unwraps a provider or recreates
+a namespace. Both declaration reads and artifact/final-marker reads remain
+inside their supplied decorators. Verified source bytes still confer neither
+runtime attestation nor public disclosure authorization.
+
+The protected capture facade also includes `execution-attempt.json` in the
+same first-publication manifest. Its canonical bytes and digest come from the
+retained original reservation and are included in independently-original
+publication validation. Consumers can read this original execution identifier
+without retagging native ordinals; qualification still requires canonical
+sidecar/context admission and the actual ledger's finalized source verification.
+The capture index does not invent an `ExecutionSource`, and no second capture
+publication is needed to add the sidecar. Legacy/unprotected submission and
+finalized reuse do not retroactively add or rewrite this artifact. Combined
+capture/sidecar bytes remain subject to submission's aggregate publication bound.
 
 The additive `execution-submission-result-1.0.schema.json` and
 `ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,
