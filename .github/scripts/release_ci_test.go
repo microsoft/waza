@@ -179,6 +179,9 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				createName = "Create Insider Pre-Release"
 			}
 			testBranchReleaseCreation(t, releaseSteps(workflow.Jobs["release"])[createName].Run, file)
+			testBranchVersionPropagation(t, workflow, candidateName, createName, file)
+			testReleaseVersionMutations(t, source, "release", createName,
+				func(changed []byte) error { return validateBranchPublisher(changed, file) })
 			for _, condition := range []string{"if: 'false'", "continue-on-error: true"} {
 				t.Run("detector-"+condition, func(t *testing.T) {
 					old := "      - name: " + candidateName + "\n"
@@ -333,6 +336,172 @@ esac
 	}
 }
 
+func testReleaseVersionMutations(t *testing.T, source []byte, jobName, stepName string, validate func([]byte) error) {
+	t.Helper()
+	for _, version := range []*string{nil, new(""), new("v9.9.9"), new("${{ needs.other.outputs.tag }}")} {
+		name := "omitted"
+		if version != nil {
+			name = *version
+		}
+		t.Run("version-binding-"+jobName+"-"+stepName+"-"+name, func(t *testing.T) {
+			var wire yaml.Node
+			if err := yaml.Unmarshal(source, &wire); err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := yaml.Marshal(&wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validate(baseline); err != nil {
+				t.Fatalf("positive workflow round trip must remain admitted: %v", err)
+			}
+			job := releaseMappingValue(t, releaseMappingValue(t, wire.Content[0], "jobs"), jobName)
+			target := job
+			if stepName != "" {
+				target = nil
+				for _, step := range releaseMappingValue(t, job, "steps").Content {
+					if releaseMappingValue(t, step, "name").Value == stepName {
+						target = step
+						break
+					}
+				}
+			}
+			if target == nil {
+				t.Fatal("production version consumer missing")
+			}
+			env := releaseMappingValue(t, target, "env")
+			found := false
+			for i := 0; i+1 < len(env.Content); i += 2 {
+				if env.Content[i].Value == "VERSION" {
+					if version == nil {
+						env.Content = append(env.Content[:i], env.Content[i+2:]...)
+					} else {
+						env.Content[i+1].Value = *version
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatal("production VERSION environment missing")
+			}
+			changed, err := yaml.Marshal(&wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed releaseWorkflow
+			if err := yaml.Unmarshal(changed, &parsed); err != nil {
+				t.Fatalf("version mutation must remain valid YAML: %v", err)
+			}
+			actual := parsed.Jobs[jobName].Env
+			if stepName != "" {
+				actual = releaseSteps(parsed.Jobs[jobName])[stepName].Env
+			}
+			got, exists := actual["VERSION"]
+			if version == nil && exists || version != nil && (!exists || got != *version) {
+				t.Fatal("mutation did not change intended VERSION binding")
+			}
+			if err := validate(changed); err == nil {
+				t.Fatal("wrong publication VERSION binding admitted")
+			}
+		})
+	}
+}
+
+func testBranchVersionPropagation(t *testing.T, workflow releaseWorkflow, candidateName, createName, file string) {
+	t.Helper()
+	candidate := releaseSteps(workflow.Jobs["release-candidate"])[candidateName]
+	create := releaseSteps(workflow.Jobs["release"])[createName]
+	if create.Env["VERSION"] != "${{ needs.release-candidate.outputs.tag }}" {
+		t.Fatal("production release version must come from candidate tag")
+	}
+	for _, state := range []string{"v1.2.3", "v2.4.6", "untagged", "source-error", "wrong-source", "tag-lookup-error"} {
+		t.Run("candidate-to-release-"+state, func(t *testing.T) {
+			dir := t.TempDir()
+			var tags []string
+			if state != "untagged" {
+				tag := state
+				if !strings.HasPrefix(state, "v") {
+					tag = "v1.2.3"
+				}
+				tags = []string{tag, tag + "-insider"}
+			}
+			sha := initReleaseTestRepository(t, dir, tags)
+			run := candidate.Run
+			if state == "source-error" {
+				run = failingReleaseCommand("git", "rev-parse") + run
+			}
+			if state == "tag-lookup-error" {
+				run = failingReleaseCommand("git", "tag") + run
+			}
+			eventSHA := sha
+			if state == "wrong-source" {
+				eventSHA = strings.Repeat("0", len(sha))
+			}
+			outputPath := filepath.Join(dir, "candidate-output")
+			created := filepath.Join(dir, "created-release")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA="+eventSHA, "GITHUB_OUTPUT="+outputPath)
+			output, err := cmd.CombinedOutput()
+			valid := strings.HasPrefix(state, "v")
+			if (err == nil) != (valid || state == "untagged") {
+				t.Fatalf("candidate propagation %s: %v\n%s", state, err, output)
+			}
+			if !valid {
+				if state == "source-error" || state == "tag-lookup-error" {
+					assertReleaseFailureObserved(t, dir)
+				}
+				if state == "untagged" {
+					got, err := os.ReadFile(outputPath)
+					if err != nil || string(got) != "publish=false\n" {
+						t.Fatalf("untagged candidate output: %q, %v", got, err)
+					}
+				} else if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+					t.Fatalf("failed candidate emitted publication outputs: %v", err)
+				}
+				if _, err := os.Stat(created); !os.IsNotExist(err) {
+					t.Fatalf("non-admitted candidate created release: %v", err)
+				}
+				return
+			}
+			wire, err := os.ReadFile(outputPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tag := state
+			if file == "squad-insider-release.yml" {
+				tag += "-insider"
+			}
+			if string(wire) != "publish=true\ntag="+tag+"\n" {
+				t.Fatalf("candidate tag propagation: %q", wire)
+			}
+			version := strings.TrimSuffix(strings.TrimPrefix(string(wire), "publish=true\ntag="), "\n")
+			gh := filepath.Join(dir, "gh")
+			writeReleaseFile(t, gh, []byte("#!/bin/sh\nif [ \"$2\" = view ]; then exit 1; fi\nprintf '%s\\n' \"$@\" > \"$CREATED_RELEASE\"\n"))
+			if err := os.Chmod(gh, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeRejectingTagLookup(t, dir)
+			run = strings.ReplaceAll(strings.ReplaceAll(create.Run, "${{ github.repository }}", "microsoft/waza"), "${{ github.server_url }}", "https://github.com")
+			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"CREATED_RELEASE="+created, "REMOTE_TAG_STATE=missing", "VERSION="+version, "GITHUB_SHA="+sha)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("publish detected version: %v\n%s", err, output)
+			}
+			args, err := os.ReadFile(created)
+			if err != nil || !strings.HasPrefix(string(args), "release\ncreate\n"+tag+"\n") {
+				t.Fatalf("published tag differs from production detector: %q, %v", args, err)
+			}
+			if file == "squad-insider-release.yml" && !strings.Contains(string(args), "--target\n"+sha+"\n") {
+				t.Fatalf("detected insider tag lost source binding: %q", args)
+			}
+		})
+	}
+}
+
 func writeRejectingTagLookup(t *testing.T, dir string) {
 	t.Helper()
 	path := filepath.Join(dir, "git")
@@ -378,14 +547,7 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 	} {
 		t.Run("candidate-"+tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			runReleaseCommand(t, dir, "git", "init", "-q")
-			runReleaseCommand(t, dir, "git", "config", "user.name", "Waza Test")
-			runReleaseCommand(t, dir, "git", "config", "user.email", "waza-test@example.com")
-			runReleaseCommand(t, dir, "git", "commit", "--allow-empty", "-q", "-m", "test")
-			for _, tag := range tc.tags {
-				runReleaseCommand(t, dir, "git", "tag", tag)
-			}
-			sha := strings.TrimSpace(string(runReleaseCommand(t, dir, "git", "rev-parse", "HEAD")))
+			sha := initReleaseTestRepository(t, dir, tc.tags)
 			if tc.wrongSource {
 				sha = strings.Repeat("0", len(sha))
 			}
@@ -455,6 +617,29 @@ func runReleaseCommand(t *testing.T, dir, name string, args ...string) []byte {
 	return output
 }
 
+func initReleaseTestRepository(t *testing.T, dir string, tags []string) string {
+	t.Helper()
+	runReleaseCommand(t, dir, "git", "init", "-q")
+	runReleaseCommand(t, dir, "git", "config", "user.name", "Waza Test")
+	runReleaseCommand(t, dir, "git", "config", "user.email", "waza-test@example.com")
+	runReleaseCommand(t, dir, "git", "commit", "--allow-empty", "-q", "-m", "test")
+	for _, tag := range tags {
+		runReleaseCommand(t, dir, "git", "tag", tag)
+	}
+	return strings.TrimSpace(string(runReleaseCommand(t, dir, "git", "rev-parse", "HEAD")))
+}
+
+func releaseMappingValue(t *testing.T, node *yaml.Node, key string) *yaml.Node {
+	t.Helper()
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	t.Fatalf("missing production mapping %q", key)
+	return nil
+}
+
 func failingReleaseCommand(tool, argument string) string {
 	return fmt.Sprintf("%s() {\n  command %s \"$@\" || return $?\n  if [ \"$1\" = %q ]; then\n    printf invoked > failure-observed\n    return 73\n  fi\n}\n", tool, tool, argument)
 }
@@ -472,11 +657,7 @@ func testReleaseSourceLookup(t *testing.T, script string) {
 	for _, state := range []string{"valid", "wrong-source", "matching-output-error"} {
 		t.Run("source-lookup-"+state, func(t *testing.T) {
 			dir := t.TempDir()
-			runReleaseCommand(t, dir, "git", "init", "-q")
-			runReleaseCommand(t, dir, "git", "config", "user.name", "Waza Test")
-			runReleaseCommand(t, dir, "git", "config", "user.email", "waza-test@example.com")
-			runReleaseCommand(t, dir, "git", "commit", "--allow-empty", "-q", "-m", "test")
-			sha := strings.TrimSpace(string(runReleaseCommand(t, dir, "git", "rev-parse", "HEAD")))
+			sha := initReleaseTestRepository(t, dir, nil)
 			run := script
 			if state == "wrong-source" {
 				sha = strings.Repeat("0", len(sha))
@@ -521,6 +702,8 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 		testReleaseSourceLookup(t, releaseSteps(workflow.Jobs[job])["Require exact validated source"].Run)
 	}
 	testExtensionProvenance(t, releaseSteps(workflow.Jobs["release-extension"])["Record extension artifact provenance"].Run)
+	testReleaseVersionMutations(t, source, "release-extension", "", validateTagRelease)
+	testTagVersionPropagation(t, workflow)
 	for _, mutation := range []struct{ name, old, new string }{
 		{
 			"missing-cli-validation",
@@ -554,6 +737,12 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 		{"unchecked-cli-artifact-source", `source_sha="$(cat "$source")"`, `source_sha="$(cat "$source")" || true`},
 		{"unchecked-cli-artifact-sidecar", `recorded_digest="$(cat "$digest")"`, `recorded_digest="$(cat "$digest")" || true`},
 		{"unchecked-cli-artifact-hash", `actual_digest="$(sha256sum "$binary")"`, `actual_digest="$(sha256sum "$binary")" || true`},
+		{"unbound-version-output", "version: ${{ steps.version.outputs.version }}", "version: ${{ steps.other.outputs.version }}"},
+		{"unbound-tag-output", "tag: ${{ steps.version.outputs.tag }}", "tag: ${{ steps.other.outputs.tag }}"},
+		{"wrong-version-detector", "        id: version", "        id: other"},
+		{"wrong-build-version", `VERSION="${{ needs.setup-version.outputs.version }}"`, `VERSION="9.9.9"`},
+		{"wrong-published-tag", `TAG="${{ needs.setup-version.outputs.tag }}"`, `TAG="v9.9.9"`},
+		{"overridden-extension-version", "      - name: Release Extension\n", "      - name: Release Extension\n        env:\n          VERSION: '9.9.9'\n"},
 		{"missing-extension-provenance", `printf 'source_sha=%s\n' "$GITHUB_SHA"`, ":"},
 		{"unchecked-extension-discovery", "packages=(artifacts/*.zip artifacts/*.tar.gz)", "mapfile -d '' packages < <(find artifacts -type f -print0)"},
 		{"missing-extension-inventory", `test "${#packages[@]}" -gt 0`, ":"},
@@ -571,6 +760,77 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 			}
 			if err := validateTagRelease([]byte(changed)); err == nil {
 				t.Fatal("unsafe tag release mutation was admitted")
+			}
+		})
+	}
+}
+
+func testTagVersionPropagation(t *testing.T, workflow releaseWorkflow) {
+	t.Helper()
+	detector := releaseSteps(workflow.Jobs["setup-version"])["Determine Version"]
+	for _, tc := range []struct{ tag, version string }{
+		{"v1.2.3", "1.2.3"}, {"v2.4.6-beta.2", "2.4.6-beta.2"},
+	} {
+		t.Run("tag-version-propagation-"+tc.tag, func(t *testing.T) {
+			dir := t.TempDir()
+			outputPath := filepath.Join(dir, "version-output")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", detector.Run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_REF_NAME="+tc.tag, "GITHUB_OUTPUT="+outputPath)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("production version detector: %v\n%s", err, output)
+			}
+			wire, err := os.ReadFile(outputPath)
+			if err != nil || string(wire) != "version="+tc.version+"\ntag="+tc.tag+"\n" {
+				t.Fatalf("version detector outputs: %q, %v", wire, err)
+			}
+			values := strings.Split(strings.TrimSuffix(string(wire), "\n"), "\n")
+			version := strings.TrimPrefix(values[0], "version=")
+			tag := strings.TrimPrefix(values[1], "tag=")
+			build := releaseSteps(workflow.Jobs["build-cli"])["Build Binary"].Run
+			build = strings.NewReplacer("${{ needs.setup-version.outputs.version }}", version,
+				"${{ matrix.os }}", "linux", "${{ matrix.arch }}", "amd64").Replace(build)
+			mockBuild := "go() { test \"$1\" = build; printf '%s\\n' \"$@\" > build-args; printf fixture > waza-linux-amd64; }\n"
+			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", mockBuild+build)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("detected build version: %v\n%s", err, output)
+			}
+			args, err := os.ReadFile(filepath.Join(dir, "build-args"))
+			if err != nil || !strings.Contains(string(args), "-ldflags\n-X main.version="+version+"\n") {
+				t.Fatalf("build lost detected version: %q, %v", args, err)
+			}
+			cli := releaseSteps(workflow.Jobs["release-cli"])["Create or Update GitHub Release"].Run
+			cli = strings.NewReplacer("${{ needs.setup-version.outputs.tag }}", tag,
+				"${{ github.repository }}", "microsoft/waza").Replace(cli)
+			mockCLI := "gh() { if [ \"$2\" = view ]; then return 1; fi; printf '%s\\n' \"$@\" > cli-args; }\n"
+			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", mockCLI+cli)
+			cmd.Dir = dir
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("detected CLI release tag: %v\n%s", err, output)
+			}
+			args, err = os.ReadFile(filepath.Join(dir, "cli-args"))
+			if err != nil || !strings.HasPrefix(string(args), "release\ncreate\n"+tag+"\n") {
+				t.Fatalf("CLI publication lost detected tag: %q, %v", args, err)
+			}
+			extension := workflow.Jobs["release-extension"]
+			if extension.Env["VERSION"] != "${{ needs.setup-version.outputs.version }}" {
+				t.Fatal("extension must consume detected version output")
+			}
+			for _, name := range []string{"Release Extension", "Publish Extension"} {
+				release := strings.ReplaceAll(releaseSteps(extension)[name].Run, "${{ github.repository }}", "microsoft/waza")
+				mockExtension := "azd() { printf '%s\\n' \"$@\" > extension-args; }\n"
+				cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", mockExtension+release)
+				cmd.Dir = dir
+				cmd.Env = append(os.Environ(), "VERSION="+version)
+				if output, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("detected %s version: %v\n%s", name, err, output)
+				}
+				args, err = os.ReadFile(filepath.Join(dir, "extension-args"))
+				if err != nil || !strings.Contains(string(args), "--version\n"+version+"\n") {
+					t.Fatalf("%s lost detected version: %q, %v", name, args, err)
+				}
 			}
 		})
 	}
@@ -816,17 +1076,8 @@ func testReleaseRunnerContracts(t *testing.T, source []byte, expected map[string
 				if err := yaml.Unmarshal(source, &wire); err != nil {
 					t.Fatal(err)
 				}
-				mappingValue := func(node *yaml.Node, key string) *yaml.Node {
-					for i := 0; i+1 < len(node.Content); i += 2 {
-						if node.Content[i].Value == key {
-							return node.Content[i+1]
-						}
-					}
-					t.Fatalf("missing production mapping %q", key)
-					return nil
-				}
-				jobs := mappingValue(wire.Content[0], "jobs")
-				target := mappingValue(jobs, job)
+				jobs := releaseMappingValue(t, wire.Content[0], "jobs")
+				target := releaseMappingValue(t, jobs, job)
 				found := false
 				for i := 0; i+1 < len(target.Content); i += 2 {
 					if target.Content[i].Value == "runs-on" {
@@ -1078,6 +1329,9 @@ func validateBranchPublisher(source []byte, file string) error {
 		return err
 	}
 	steps := releaseSteps(publish)
+	if steps[createName].Env["VERSION"] != "${{ needs.release-candidate.outputs.tag }}" {
+		return fmt.Errorf("publication version must bind the detected candidate tag")
+	}
 	gate := steps["Require successful complete validation"]
 	if gate.Env["VALIDATION_RESULT"] != "${{ needs.validation.result }}" ||
 		gate.Run != `test "$VALIDATION_RESULT" = success` {
@@ -1124,6 +1378,17 @@ func validateTagRelease(source []byte) error {
 	build := workflow.Jobs["build-cli"]
 	release := workflow.Jobs["release-cli"]
 	extension := workflow.Jobs["release-extension"]
+	setup := workflow.Jobs["setup-version"]
+	version := releaseSteps(setup)["Determine Version"]
+	if version.ID != "version" ||
+		!reflect.DeepEqual(setup.Outputs, map[string]string{
+			"version": "${{ steps.version.outputs.version }}", "tag": "${{ steps.version.outputs.tag }}",
+		}) || !strings.Contains(version.Run, `VERSION="${GITHUB_REF_NAME#v}"`) ||
+		!strings.Contains(version.Run, `echo "version=$VERSION" >> "$GITHUB_OUTPUT"`) ||
+		!strings.Contains(version.Run, `echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"`) ||
+		extension.Env["VERSION"] != "${{ needs.setup-version.outputs.version }}" {
+		return fmt.Errorf("tag and extension versions must bind the production version detector")
+	}
 	if validation.Uses != "./.github/workflows/release-validation.yml" ||
 		validation.Permissions["contents"] != "read" {
 		return fmt.Errorf("tag release must invoke canonical exact-source validation")
@@ -1154,6 +1419,15 @@ func validateTagRelease(source []byte) error {
 	buildSteps := releaseSteps(build)
 	publishSteps := releaseSteps(release)
 	extensionSteps := releaseSteps(extension)
+	if !strings.HasPrefix(buildSteps["Build Binary"].Run, "VERSION=\"${{ needs.setup-version.outputs.version }}\"\n") ||
+		!strings.HasPrefix(releaseSteps(release)["Create or Update GitHub Release"].Run, "TAG=\"${{ needs.setup-version.outputs.tag }}\"\n") {
+		return fmt.Errorf("CLI build and publication must consume detected version and tag")
+	}
+	for _, step := range extension.Steps {
+		if _, overrides := step.Env["VERSION"]; overrides {
+			return fmt.Errorf("extension step %q must not override its detected version", step.Name)
+		}
+	}
 	if buildSteps["Require exact validated source"].Run != releaseSourceCheck ||
 		extensionSteps["Require exact validated source"].Run != releaseSourceCheck {
 		return fmt.Errorf("tag artifacts must be built from the validated SHA")
