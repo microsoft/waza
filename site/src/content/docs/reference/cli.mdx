@@ -1681,6 +1681,7 @@ caller-retained lifecycle context and ordered immutable observation digests:
 
 ```bash
 waza lifecycle inspect inspection.json --store .waza-artifacts
+waza lifecycle source source.json --store .waza-artifacts
 ```
 
 `--store` defaults to the existing private `.waza-artifacts` directory.
@@ -1690,8 +1691,13 @@ exclusive. No runtime, update check, retry, cancellation or reclaim is started.
 
 Exit 0 means inspection succeeded, not execution success. Validation, missing
 or corrupt evidence, context/order mismatch, provider and output failures exit
-2. The projection is uniformly caller-declared/unverified; recorded terminal
+2. The manual projection is uniformly caller-declared/unverified; recorded terminal
 outcome/exit is separate, and verified worker progress/ownership is unavailable.
+`source` instead selects one original execution/manifest and explicit
+`stale_after_ms` in the source-inspection profile. Its fixed captured content is
+verified nonsnapshot content with original declared context; native process exit
+remains unknown. The source command and separate Lab panel never infer liveness,
+reclaim authority or successful execution from a successful inspection.
 See [descriptor schemas, API, lifecycle interpretation and migration](../../guides/execution-lifecycle/).
 
 ## waza runner

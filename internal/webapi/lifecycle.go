@@ -90,11 +90,7 @@ func (i configuredLifecycleInspector) Inspect(ctx context.Context, data []byte) 
 	if _, err := executionlifecycle.ParseInspection(data); err != nil {
 		return executionlifecycle.Snapshot{}, err
 	}
-	azureURL := ""
-	if i.config != nil && i.config.Enabled && i.config.Provider == "azure-blob" {
-		azureURL = "https://" + i.config.AccountName + ".blob.core.windows.net/" + i.config.ContainerName
-	}
-	backend, closeBackend, err := artifactmanifest.OpenBackend(i.directory, azureURL)
+	backend, closeBackend, err := i.openBackend()
 	if err != nil {
 		return executionlifecycle.Snapshot{}, err
 	}
@@ -105,8 +101,18 @@ func (i configuredLifecycleInspector) Inspect(ctx context.Context, data []byte) 
 	return result, nil
 }
 
+func (i configuredLifecycleInspector) openBackend() (artifactmanifest.Backend, func() error, error) {
+	azureURL := ""
+	if i.config != nil && i.config.Enabled && i.config.Provider == "azure-blob" {
+		azureURL = "https://" + i.config.AccountName + ".blob.core.windows.net/" + i.config.ContainerName
+	}
+	return artifactmanifest.OpenBackend(i.directory, azureURL)
+}
+
 func RegisterLifecycleRoutes(mux *http.ServeMux, resultsDir string, config *projectconfig.StorageConfig) {
-	RegisterLifecycleRoutesWithInspector(mux, configuredLifecycleInspector{
+	inspector := configuredLifecycleInspector{
 		directory: filepath.Join(resultsDir, ".waza-artifacts"), config: config,
-	})
+	}
+	RegisterLifecycleRoutesWithInspector(mux, inspector)
+	RegisterLifecycleSourceRoutesWithInspector(mux, inspector)
 }

@@ -34,7 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only suspect orphaning and never authorize reclaim. Inspection is uniformly
   caller-declared/unverified, not authenticated worker progress. Terminal and
   legacy exit/result/billing contracts remain unchanged. Production owner
-  observers, bounded process controls and full release gates remain pending.
+  capture now flows through protected submission/checkpoint producers.
+  `lifecycle source`, its read-only API and separate Lab panel verify fixed
+  finalized-source capture through the same private evidence-reader budget,
+  preserve original success/failed/canceled terminal facts and unknown native
+  process exit, and export exact qualified JSON without private-runtime fallback.
+  This does not authenticate live liveness or upgrade the manual descriptor
+  path. Browser/native/current-head whole-release gates remain pending.
   See [lifecycle migration and delivery limits](docs/EXECUTION_LIFECYCLE.md).
 
 - **Logical work and retained execution attempts (v0.41 source preview)** -

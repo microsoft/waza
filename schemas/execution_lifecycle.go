@@ -10,3 +10,9 @@ var ExecutionLifecycleInspectionSchemaJSON string
 
 //go:embed execution-lifecycle-1.0.schema.json
 var ExecutionLifecycleSchemaJSON string
+
+//go:embed execution-lifecycle-source-inspection-1.0.schema.json
+var ExecutionLifecycleSourceInspectionSchemaJSON string
+
+//go:embed execution-lifecycle-source-1.0.schema.json
+var ExecutionLifecycleSourceSchemaJSON string

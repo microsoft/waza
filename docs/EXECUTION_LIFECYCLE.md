@@ -223,9 +223,24 @@ The narrow result labels content `verified-nonsnapshot-content` and its context
 and missing completion does not prove death or permit reclaim. Corrupt, missing,
 restricted, contradictory or budget-denied source reads return no partial
 projection and do not alter original artifacts. The adapter creates no backend,
-namespace, writer or budget. Its opaque shared-budget facade and public
-CLI/API/Lab consumer wiring remain separate pending work; the manual descriptor
-inspection above is unchanged and is not promoted to authenticated evidence.
+namespace, writer or budget. The actual opaque `EvidenceReader.InspectLifecycle`
+facade shares its existing private counter/decorated reader. Public
+`waza lifecycle source source.json` and `POST /api/v1/lifecycle/source` create
+one facade per response, validate the same strict source-selection profile and
+return the narrow result without reading a private report.
+
+The source selection uses `kind: waza.execution-lifecycle-source-inspection`,
+`schema_version: "1.0"`, `source: {execution_id, manifest_digest}`, required
+positive `stale_after_ms` (at most one day), and optional canonical UTC `as_of`.
+The source API classifies invalid selection as 400, missing source as 404,
+corrupt/contradictory fixed source content as 409, and provider/read-limit failure
+as 503. CLI source inspection exits 0 independently of original execution exit;
+failures exit 2 with no success-shaped projection. The separate Lab panel shows
+original terminal/progress, scoped runtime facts and unknown process exit, and
+downloads the exact response bytes. Edits and failed reloads clear it. The
+manual descriptor inspection above is unchanged and is not promoted to
+authenticated evidence. Browser/build/native/whole-release delivery gates remain
+pending until their actual allocated current-head execution.
 
 `runnerunit.NewPreparedLifecycleObserver` is the non-writing adapter for the
 actual fixed `SubmissionHooks.SelectLifecycle` contract. `Reserved` retains the

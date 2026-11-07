@@ -353,13 +353,18 @@ observation digests without executing, cancelling, retrying or reclaiming work:
 
 ```bash
 waza lifecycle inspect inspection.json --store .waza-artifacts
+waza lifecycle source source.json --store .waza-artifacts
 ```
 
 The existing private store must contain the original reservation blob and every
 named observation. This returns **caller-declared, unverified** lifecycle state,
 retry advice and heartbeat diagnostics, not authenticated worker progress or
-ownership. The Lab Runner section includes the same read-only inspector when
-built from this source. Full production lifecycle/recovery remains under
+ownership. The separate `source` command selects an original execution ID and
+manifest digest, admits its fixed finalized capture through one shared-budget
+reader, and preserves original failure/cancellation outcome and unknown process
+exit. Its Lab panel downloads exact source JSON and labels content as nonsnapshot
+and context as declarations; it does not establish live worker state or reclaim
+authority. The manual descriptor path remains unchanged. Full production lifecycle/recovery remains under
 development. See [inspection context, interpretation and migration](docs/EXECUTION_LIFECYCLE.md).
 
 <span id="waza-interop-source-build-preview"></span>

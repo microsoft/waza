@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-lifecycle-source-1.0.schema.json",
+  "title": "Verified nonsnapshot lifecycle content and original declarations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "source", "verification", "context", "snapshot", "runtime_observations"],
+  "properties": {
+    "kind": {"const": "waza.execution-lifecycle-source"},
+    "schema_version": {"const": "1.0"},
+    "source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"},
+    "verification": {"const": "verified-nonsnapshot-content"},
+    "context": {"const": "original-source-declarations"},
+    "snapshot": {
+      "allOf": [
+        {"$ref": "execution-lifecycle-1.0.schema.json"},
+        {
+          "required": ["terminal"],
+          "properties": {
+            "state": {"const": "terminal-recorded"},
+            "observations": {"minItems": 2},
+            "suspected_orphan": {"const": false}
+          }
+        }
+      ]
+    },
+    "runtime_observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owned_engine_bound", "observations", "dropped", "pending_at_seal", "process_exit", "late_observation_policy"],
+      "properties": {
+        "owned_engine_bound": {"type": "boolean"},
+        "dropped": {"const": 0},
+        "pending_at_seal": {"const": 0},
+        "process_exit": {"const": "unknown"},
+        "late_observation_policy": {"const": "excluded-after-seal; retained-operator-counter"},
+        "observations": {
+          "type": "array",
+          "maxItems": 126,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sequence", "observed_at", "operation", "scope", "result"],
+            "properties": {
+              "sequence": {"type": "integer", "minimum": 1, "maximum": 126},
+              "observed_at": {"type": "string", "minLength": 20, "maxLength": 30, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"},
+              "operation": {"type": "string"},
+              "scope": {"type": "string"},
+              "result": {"type": "string"}
+            },
+            "oneOf": [
+              {"properties": {"operation": {"enum": ["client-start-invoked", "client-stop-invoked", "force-stop-invoked"]}, "scope": {"const": "sdk-client"}, "result": {"const": "invoked"}}},
+              {"properties": {"operation": {"enum": ["client-start-returned", "client-stop-returned"]}, "scope": {"const": "sdk-client"}, "result": {"enum": ["success", "error"]}}},
+              {"properties": {"operation": {"const": "force-stop-returned"}, "scope": {"const": "sdk-client"}, "result": {"const": "returned"}}},
+              {"properties": {"operation": {"const": "force-stop-requested"}, "scope": {"const": "sdk-client-control"}, "result": {"const": "requested"}}},
+              {"properties": {"operation": {"const": "cancellation-context-observed"}, "scope": {"const": "host-context"}, "result": {"enum": ["canceled", "deadline-exceeded"]}}},
+              {"properties": {"operation": {"const": "turn-abort-event-observed"}, "scope": {"const": "sdk-turn"}, "result": {"const": "observed"}}}
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {"if": {"properties": {"owned_engine_bound": {"const": false}}}, "then": {"properties": {"observations": {"maxItems": 0}}}}
+      ]
+    }
+  }
+}

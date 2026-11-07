@@ -107,7 +107,7 @@ func TestLifecycleSourceInspectionActualProtectedOriginalAndSingleSourcePass(t *
 			for key, count := range recorded.calls {
 				require.Equal(t, 1, count, "source object must not be reread: %s", key)
 			}
-			data, err := json.Marshal(inspection)
+			data, err := EncodeLifecycleInspection(inspection)
 			require.NoError(t, err)
 			require.NotContains(t, string(data), "lifecycle-private-verdict-control")
 			require.NotContains(t, string(data), `"report"`)
@@ -122,6 +122,65 @@ func TestLifecycleSourceInspectionActualProtectedOriginalAndSingleSourcePass(t *
 			require.Equal(t, inspection, again)
 		})
 	}
+}
+
+func TestLifecycleSourceRequestStrictWireAndCanonicalClock(t *testing.T) {
+	request := LifecycleSourceRequest{
+		Kind: "waza.execution-lifecycle-source-inspection", SchemaVersion: "1.0",
+		Source:       executionattempt.Source{ExecutionID: "exec-" + strings.Repeat("a", 64), ManifestDigest: strings.Repeat("b", 64)},
+		StaleAfterMS: 1000,
+	}
+	data, err := json.Marshal(request)
+	require.NoError(t, err)
+	parsed, err := ParseLifecycleSourceRequest(data)
+	require.NoError(t, err)
+	require.Equal(t, request, *parsed)
+	for _, time := range []string{"2026-11-07T16:00:00Z", "2026-11-07T16:00:00.000000001Z"} {
+		request.AsOf = time
+		valid, err := json.Marshal(request)
+		require.NoError(t, err)
+		parsed, err := ParseLifecycleSourceRequest(valid)
+		require.NoError(t, err)
+		require.Equal(t, time, parsed.AsOf)
+	}
+	sourceObject := func(value map[string]any) map[string]any {
+		source, ok := value["source"].(map[string]any)
+		require.True(t, ok, "negative control must contain the actual source object")
+		return source
+	}
+	for _, mutation := range []func(map[string]any){
+		func(v map[string]any) { delete(v, "stale_after_ms") },
+		func(v map[string]any) { v["stale_after_ms"] = nil },
+		func(v map[string]any) { v["stale_after_ms"] = false },
+		func(v map[string]any) { v["stale_after_ms"] = 0 },
+		func(v map[string]any) { v["stale_after_ms"] = 86400001 },
+		func(v map[string]any) { v["stale_after_ms"] = 1.5 },
+		func(v map[string]any) { v["as_of"] = nil },
+		func(v map[string]any) { v["as_of"] = "" },
+		func(v map[string]any) { v["as_of"] = "2026-02-31T16:00:00Z" },
+		func(v map[string]any) { v["as_of"] = "2026-11-07T16:00:00.000Z" },
+		func(v map[string]any) {
+			sourceObject(v)["execution_id"] = "exec-" + strings.Repeat("A", 64)
+		},
+		func(v map[string]any) { sourceObject(v)["manifest_digest"] = strings.Repeat("B", 64) },
+		func(v map[string]any) { sourceObject(v)["extra"] = false },
+		func(v map[string]any) { v["store"] = "/private/path" },
+	} {
+		var invalid map[string]any
+		require.NoError(t, json.Unmarshal(data, &invalid))
+		mutation(invalid)
+		changed, err := json.Marshal(invalid)
+		require.NoError(t, err)
+		require.NotEqual(t, data, changed)
+		parsed, err := ParseLifecycleSourceRequest(changed)
+		require.ErrorIs(t, err, executionlifecycle.ErrInvalid)
+		require.Nil(t, parsed)
+	}
+	duplicate := bytes.Replace(data, []byte(`"stale_after_ms":1000`), []byte(`"stale_after_ms":1000,"stale_after_ms":1`), 1)
+	require.NotEqual(t, data, duplicate)
+	parsed, err = ParseLifecycleSourceRequest(duplicate)
+	require.ErrorIs(t, err, executionlifecycle.ErrInvalid)
+	require.Nil(t, parsed)
 }
 
 func TestLifecycleSourceInspectionRetainsCausesAndWithholdsPartialMetadata(t *testing.T) {

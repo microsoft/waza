@@ -117,7 +117,11 @@ retained original admission and ordered digests. Verified worker state,
 progress and ownership remain unavailable in this preview. Retry is advice,
 stale heartbeats only suspect orphaning, and cancellation handling is separate
 from force request and observed stop. No retry/cancel/reclaim controller is
-added. Full owner-observed lifecycle and production process/recovery controls
+added. Protected producers now retain fixed lifecycle capture and the separate
+source CLI/API/Lab path verifies that original finalized content using one
+private-budget reader, with exact JSON export and unknown native process exit.
+Nonsnapshot content and declared context are not authenticated live state.
+Full browser/native/current-head lifecycle and production process/recovery controls
 remain required; see [the lifecycle delivery boundary](EXECUTION_LIFECYCLE.md).
 
 External-schema interoperability (#789) remains partial. The v0.40.0

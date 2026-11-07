@@ -43,6 +43,54 @@ unavailable and downloads the same JSON projection. Advisory next steps are
 text, not retry/cancel/reclaim controls. Edits and failed reloads clear previous
 data. No synthetic demo observations are substituted.
 
+## Inspect an original finalized source
+
+The separate source inspector selects an **original** execution ID and manifest
+digest emitted by protected submission/checkpoint creation, not a destination
+retry or latest-attempt guess. From a completed protected `runner submit` response
+saved as `submission.json`, create the selection using its actual IDs:
+
+```bash
+jq -e '
+  if .reservation.execution_id and .completion.manifest_digest then
+    {
+      kind: "waza.execution-lifecycle-source-inspection",
+      schema_version: "1.0",
+      source: {
+        execution_id: .reservation.execution_id,
+        manifest_digest: .completion.manifest_digest
+      },
+      stale_after_ms: 1000
+    }
+  else error("Completed original source is unavailable") end
+' submission.json > source.json
+```
+
+Optional `as_of` must be canonical UTC and remains omitted when unavailable.
+
+```bash
+waza lifecycle source source.json --store .waza-artifacts
+curl --silent --show-error \
+  -H 'Content-Type: application/json' --data-binary @source.json \
+  http://127.0.0.1:3000/api/v1/lifecycle/source
+```
+
+One private-budget reader verifies the completed original, canonical attempt,
+fixed lifecycle capture and event inventory. The output preserves original
+success, failed-check and canceled terminal facts separately from inspection
+exit 0. Content is `verified-nonsnapshot-content`; context is
+`original-source-declarations`, not authenticated worker liveness. Native process
+exit remains `unknown`. Missing completion does not prove death or authorize
+reclaim, and older sources missing the fixed inventory are not upgraded.
+
+The Lab's separate original-source panel exposes those qualified facts and
+downloads exact response JSON. Invalid, missing, corrupt, context-conflicting
+or budget-denied reads clear previous/partial metadata; there is no private
+runtime report or demo fallback. HTTP uses 400/404/409/503 respectively, and
+CLI failures exit 2. This source path does not change the manual declaration
+inspector or historical result/session readers. Browser and release delivery
+still require allocated current-head gates.
+
 ## Cancellation is not a single fact
 
 ```mermaid
