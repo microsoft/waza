@@ -97,7 +97,10 @@ func emitInheritedRunnerJSON(data []byte) error {
 	}()
 	select {
 	case written := <-done:
-		return written.err
+		if written.err != nil {
+			return fmt.Errorf("writing terminal output: %w", written.err)
+		}
+		return nil
 	case <-timer.C:
 		return fmt.Errorf("writing terminal output: %w", os.ErrDeadlineExceeded)
 	}
