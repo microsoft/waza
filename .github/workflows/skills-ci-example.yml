@@ -33,7 +33,7 @@ on:
         description: 'Path to evaluation YAML file'
         required: false
         type: string
-        default: 'eval/eval.yaml'
+        default: ''
 
 permissions:
   contents: read

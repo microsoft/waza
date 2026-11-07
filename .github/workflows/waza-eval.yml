@@ -219,9 +219,17 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.effective.outputs.artifact-name }}
-          path: |
-            ${{ steps.effective.outputs.output-file }}
-            transcripts/
+          path: ${{ steps.effective.outputs.output-file }}
+          include-hidden-files: true
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload optional transcripts
+        if: always() && hashFiles('transcripts/**') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.effective.outputs.artifact-name }}-transcripts
+          path: transcripts/
           retention-days: 30
           if-no-files-found: error
       

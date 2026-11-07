@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -547,6 +548,27 @@ func runEvalWorkflowScript(t *testing.T, script, directory string, environment [
 	return string(output)
 }
 
+func declaredWorkflowDefaults(t *testing.T, name, event string) map[string]string {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+	require.NoError(t, err)
+	var workflow struct {
+		On map[string]struct {
+			Inputs map[string]struct {
+				Default any `yaml:"default"`
+			} `yaml:"inputs"`
+		} `yaml:"on"`
+	}
+	require.NoError(t, yaml.Unmarshal(source, &workflow))
+	defaults := map[string]string{}
+	for name, input := range workflow.On[event].Inputs {
+		if input.Default != nil {
+			defaults[name] = fmt.Sprint(input.Default)
+		}
+	}
+	return defaults
+}
+
 func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
 	steps := readEvalWorkflowSteps(t, "waza-eval.yml", "run-evaluation")
 	resolve := evalWorkflowStepNamed(t, steps, "Resolve effective inputs")
@@ -558,7 +580,11 @@ func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
 	run := evalWorkflowStepNamed(t, steps, "Run Evaluation")
 	upload := evalWorkflowStepNamed(t, steps, "Upload Results Artifact")
 	require.Equal(t, "${{ steps.effective.outputs.artifact-name }}", upload.With["name"])
-	require.Contains(t, upload.With["path"], "${{ steps.effective.outputs.output-file }}")
+	require.Equal(t, "${{ steps.effective.outputs.output-file }}", upload.With["path"])
+	require.Equal(t, "true", upload.With["include-hidden-files"])
+	transcripts := evalWorkflowStepNamed(t, steps, "Upload optional transcripts")
+	require.Equal(t, "transcripts/", transcripts.With["path"])
+	require.NotEqual(t, "true", transcripts.With["include-hidden-files"])
 	require.Equal(t, "${{ steps.effective.outputs.output-file }}", run.Env["OUTPUT_FILE"])
 	for _, event := range []string{"push", "pull_request", "workflow_dispatch", "workflow_call"} {
 		for _, custom := range []bool{false, true} {
@@ -567,12 +593,22 @@ func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
 				outputPath := filepath.Join(dir, "outputs")
 				argvPath := filepath.Join(dir, "argv")
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "waza"), []byte("#!/bin/bash\nprintf '%s\\n' \"$@\" > \"$CAPTURE_ARGS\"\nexit 1\n"), 0o700))
+				defaults := declaredWorkflowDefaults(t, "waza-eval.yml", event)
+				if event == "workflow_call" {
+					defaults["eval-yaml"] = "examples/code-explainer/eval.yaml"
+				}
 				env := []string{"GITHUB_EVENT_NAME=" + event, "GITHUB_OUTPUT=" + outputPath,
-					"EVAL_INPUT=", "CONTEXT_INPUT=", "VERBOSE_INPUT=", "OUTPUT_INPUT=", "ARTIFACT_INPUT="}
+					"EVAL_INPUT=" + defaults["eval-yaml"], "CONTEXT_INPUT=" + defaults["context-dir"],
+					"VERBOSE_INPUT=" + defaults["verbose"], "OUTPUT_INPUT=" + defaults["output-file"],
+					"ARTIFACT_INPUT=" + defaults["artifact-name"]}
+				customOutput := "custom results.json"
+				if event == "workflow_dispatch" {
+					customOutput = ".results.json"
+				}
 				if custom {
 					env = []string{"GITHUB_EVENT_NAME=" + event, "GITHUB_OUTPUT=" + outputPath,
 						"EVAL_INPUT=custom eval.yaml", "CONTEXT_INPUT=missing context", "VERBOSE_INPUT=false",
-						"OUTPUT_INPUT=custom results.json", "ARTIFACT_INPUT=custom evidence"}
+						"OUTPUT_INPUT=" + customOutput, "ARTIFACT_INPUT=custom evidence"}
 				}
 
 				runEvalWorkflowScript(t, resolve.Run, dir, env)
@@ -587,7 +623,7 @@ func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
 				wantEval, wantOutput, wantArtifact := "examples/code-explainer/eval.yaml", "results.json", "waza-evaluation-results"
 				wantArgs := []string{"run", wantEval, "--verbose", "--output", wantOutput}
 				if custom {
-					wantEval, wantOutput, wantArtifact = "custom eval.yaml", "custom results.json", "custom evidence"
+					wantEval, wantOutput, wantArtifact = "custom eval.yaml", customOutput, "custom evidence"
 					wantArgs = []string{"run", wantEval, "--context-dir", "missing context", "--output", wantOutput}
 				}
 				require.Equal(t, wantEval, values["eval-file"])
@@ -616,6 +652,37 @@ func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
 		require.Error(t, command.Run())
 	})
 }
+func TestSkillsWorkflowDeclaredDispatchDefault(t *testing.T) {
+	step := evalWorkflowStepNamed(t, readEvalWorkflowSteps(t, "skills-ci-example.yml", "evaluate-skill"), "Determine Eval File")
+	defaults := declaredWorkflowDefaults(t, "skills-ci-example.yml", "workflow_dispatch")
+	for _, repository := range []string{"microsoft/waza", "example/skill"} {
+		t.Run(repository, func(t *testing.T) {
+			for _, override := range []string{"", "custom eval.yaml"} {
+				dir := t.TempDir()
+				want := "eval/eval.yaml"
+				if repository == "microsoft/waza" {
+					want = "examples/code-explainer/eval.yaml"
+				}
+				if override != "" {
+					want = override
+				}
+				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(dir, want)), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, want), []byte("fixture"), 0o600))
+				input := defaults["eval-yaml"]
+				if override != "" {
+					input = override
+				}
+				path := filepath.Join(dir, "outputs")
+				runEvalWorkflowScript(t, step.Run, dir, []string{"REPOSITORY=" + repository,
+					"EVAL_INPUT=" + input, "GITHUB_OUTPUT=" + path})
+				output, err := os.ReadFile(path)
+				require.NoError(t, err)
+				require.Equal(t, "eval-file="+want+"\n", string(output))
+			}
+		})
+	}
+}
+
 func TestReusableWorkflowTrialOverride(t *testing.T) {
 	run := evalWorkflowStepNamed(t, readEvalWorkflowSteps(t, "waza.yaml", "eval"), "Run Evaluation")
 	for _, trials := range []string{"", "0", "2", "1.5", "-1"} {

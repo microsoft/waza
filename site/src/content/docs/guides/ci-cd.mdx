@@ -323,6 +323,11 @@ An omitted context override leaves fixture resolution to the eval spec; an
 explicit override is forwarded unchanged (including nonexistent paths, which
 the CLI must report rather than silently ignore).
 
+The repository's `waza-eval.yml` uploads the selected JSON separately, including
+explicit hidden output paths. Optional non-hidden transcripts use the
+`<artifact-name>-transcripts` artifact, so transcripts cannot substitute for the
+result and hidden transcript files are not newly exposed.
+
 ### Recurring Regression Loop (Scheduled)
 
 Waza includes a production-ready recurring loop at [`.github/workflows/weekly-regression-loop.yml`](https://github.com/microsoft/waza/blob/main/.github/workflows/weekly-regression-loop.yml). It runs weekly, archives date-stamped results, compares against the latest successful baseline artifact, and upserts a follow-up issue when regressions are detected.

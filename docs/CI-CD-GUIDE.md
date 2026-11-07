@@ -91,6 +91,13 @@ for diagnostics, but cannot become a successful workflow output. An omitted
 context override leaves fixture resolution to the eval spec; explicit context
 and output paths are forwarded unchanged.
 
+The automatic/reusable `waza-eval.yml` result artifact contains only the selected
+JSON file, including explicitly chosen hidden names or directories. Optional
+non-hidden transcripts are uploaded separately under `<artifact-name>-transcripts`;
+transcripts cannot substitute for missing result evidence. The skills example's
+dispatch input is empty by default so its resolver selects the correct repository
+or consumer fixture path.
+
 ### GitHub Actions
 
 ```yaml
