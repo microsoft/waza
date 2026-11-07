@@ -137,26 +137,99 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 
 func TestTagReleaseRequiresValidation(t *testing.T) {
 	source := readReleaseWorkflow(t, "release.yml")
-	if err := validateTagRelease(source); err != nil {
+	normalized := strings.ReplaceAll(string(source), "\r\n", "\n")
+	if err := validateTagRelease([]byte(normalized)); err != nil {
 		t.Fatal(err)
 	}
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal([]byte(normalized), &workflow); err != nil {
+		t.Fatal(err)
+	}
+	testTagCLIArtifactVerification(t, releaseSteps(workflow.Jobs["release-cli"])["Generate SHA256 Checksums"].Run)
 	for _, mutation := range []struct{ name, old, new string }{
-		{"missing-cli-validation", "needs: [setup-version, validation]", "needs: [setup-version]"},
-		{"missing-extension-validation", "needs: [setup-version, validation]", "needs: [setup-version]"},
-		{"stale-cli-source", `run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, "run: :"},
+		{
+			"missing-cli-validation",
+			"  build-cli:\n    name: CLI ${{ matrix.os }}/${{ matrix.arch }}\n    needs: [setup-version, validation]",
+			"  build-cli:\n    name: CLI ${{ matrix.os }}/${{ matrix.arch }}\n    needs: [setup-version]",
+		},
+		{
+			"missing-extension-validation",
+			"  release-extension:\n    name: Release Extension\n    needs: [setup-version, validation]",
+			"  release-extension:\n    name: Release Extension\n    needs: [setup-version]",
+		},
+		{"stale-cli-source", `run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, "run: ':'"},
 		{"missing-cli-source-record", `printf '%s\n' "$GITHUB_SHA" > "${BINARY_NAME}.source-sha.txt"`, ":"},
 		{"missing-cli-digest", `sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"`, ":"},
+		{"missing-cli-matrix-member", "            waza-windows-arm64.exe\n", ""},
+		{"missing-cli-binary-file", `test -f "$binary"`, ":"},
+		{"missing-cli-source-file", `test -f "$source"`, ":"},
+		{"missing-cli-digest-file", `test -f "$digest"`, ":"},
 		{"missing-cli-source-verification", `test "$(cat "$source")" = "$GITHUB_SHA"`, ":"},
 		{"missing-extension-provenance", `printf 'source_sha=%s\n' "$GITHUB_SHA"`, ":"},
 		{"unpublished-extension-provenance", "Publish Extension Provenance", "Do Not Publish Extension Provenance"},
+		{"wrong-extension-provenance-tag", `azd-ext-microsoft-azd-waza_${VERSION}`, "${{ needs.setup-version.outputs.tag }}"},
 	} {
 		t.Run(mutation.name, func(t *testing.T) {
-			changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
-			if changed == string(source) {
+			changed := strings.Replace(normalized, mutation.old, mutation.new, 1)
+			if changed == normalized {
 				t.Fatal("mutation did not change production workflow")
 			}
 			if err := validateTagRelease([]byte(changed)); err == nil {
 				t.Fatal("unsafe tag release mutation was admitted")
+			}
+		})
+	}
+}
+
+func testTagCLIArtifactVerification(t *testing.T, run string) {
+	t.Helper()
+	binaries := []string{
+		"waza-linux-amd64",
+		"waza-linux-arm64",
+		"waza-darwin-amd64",
+		"waza-darwin-arm64",
+		"waza-windows-amd64.exe",
+		"waza-windows-arm64.exe",
+	}
+	for _, mutation := range []string{"none", "missing-binary", "missing-source", "missing-digest", "stale-source", "digest-mismatch"} {
+		t.Run("cli-artifacts-"+mutation, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, binary := range binaries {
+				writeReleaseFile(t, filepath.Join(dir, binary), []byte(binary))
+				writeReleaseFile(t, filepath.Join(dir, binary+".source-sha.txt"), []byte("validated-source\n"))
+				cmd := exec.CommandContext(t.Context(), "sha256sum", binary)
+				cmd.Dir = dir
+				digest, err := cmd.Output()
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeReleaseFile(t, filepath.Join(dir, binary+".sha256"), digest)
+			}
+			target := binaries[len(binaries)-1]
+			switch mutation {
+			case "missing-binary":
+				if err := os.Remove(filepath.Join(dir, target)); err != nil {
+					t.Fatal(err)
+				}
+			case "missing-source":
+				if err := os.Remove(filepath.Join(dir, target+".source-sha.txt")); err != nil {
+					t.Fatal(err)
+				}
+			case "missing-digest":
+				if err := os.Remove(filepath.Join(dir, target+".sha256")); err != nil {
+					t.Fatal(err)
+				}
+			case "stale-source":
+				writeReleaseFile(t, filepath.Join(dir, target+".source-sha.txt"), []byte("stale-source\n"))
+			case "digest-mismatch":
+				writeReleaseFile(t, filepath.Join(dir, target), []byte("altered binary"))
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != (mutation == "none") {
+				t.Fatalf("verification error = %v\n%s", err, output)
 			}
 		})
 	}
@@ -383,14 +456,28 @@ func validateTagRelease(source []byte) error {
 		return fmt.Errorf("each CLI artifact must carry source and digest evidence")
 	}
 	checks := publishSteps["Generate SHA256 Checksums"].Run
-	if !strings.Contains(checks, `test "$(cat "$source")" = "$GITHUB_SHA"`) ||
+	expectedCLIBinaries := `expected=(
+  waza-linux-amd64
+  waza-linux-arm64
+  waza-darwin-amd64
+  waza-darwin-arm64
+  waza-windows-amd64.exe
+  waza-windows-arm64.exe
+)`
+	if !strings.Contains(checks, expectedCLIBinaries) ||
+		!strings.Contains(checks, `for binary in "${expected[@]}"`) ||
+		!strings.Contains(checks, `test -f "$binary"`) ||
+		!strings.Contains(checks, `test -f "$source"`) ||
+		!strings.Contains(checks, `test -f "$digest"`) ||
+		!strings.Contains(checks, `test "$(cat "$source")" = "$GITHUB_SHA"`) ||
 		!strings.Contains(checks, `sha256sum --check "$digest"`) ||
-		!strings.Contains(checks, `-name '*.source-sha.txt'`) {
+		!strings.Contains(checks, `sha256sum "${expected[@]}" > checksums.txt`) {
 		return fmt.Errorf("CLI publication must reject stale or incomplete artifact evidence")
 	}
 	provenance := extensionSteps["Record extension artifact provenance"].Run
 	if !strings.Contains(provenance, `printf 'source_sha=%s\n' "$GITHUB_SHA"`) ||
 		!strings.Contains(provenance, `sha256sum "${packages[@]}"`) ||
+		!strings.Contains(extensionSteps["Publish Extension Provenance"].Run, `gh release upload "azd-ext-microsoft-azd-waza_${VERSION}"`) ||
 		!strings.Contains(extensionSteps["Publish Extension Provenance"].Run, "artifacts/release-provenance.txt") {
 		return fmt.Errorf("extension release must publish source-bound package digests")
 	}

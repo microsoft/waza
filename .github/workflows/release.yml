@@ -153,14 +153,24 @@ jobs:
       - name: Generate SHA256 Checksums
         working-directory: artifacts
         run: |
-          test "$(find . -maxdepth 1 -name '*.source-sha.txt' -type f | wc -l)" -eq 6
-          for source in *.source-sha.txt; do
+          expected=(
+            waza-linux-amd64
+            waza-linux-arm64
+            waza-darwin-amd64
+            waza-darwin-arm64
+            waza-windows-amd64.exe
+            waza-windows-arm64.exe
+          )
+          for binary in "${expected[@]}"; do
+            source="${binary}.source-sha.txt"
+            digest="${binary}.sha256"
+            test -f "$binary"
+            test -f "$source"
+            test -f "$digest"
             test "$(cat "$source")" = "$GITHUB_SHA"
-          done
-          for digest in *.sha256; do
             sha256sum --check "$digest"
           done
-          sha256sum waza-* > checksums.txt
+          sha256sum "${expected[@]}" > checksums.txt
           echo "Generated checksums:"
           cat checksums.txt
 
@@ -275,7 +285,7 @@ jobs:
 
       - name: Publish Extension Provenance
         run: |
-          gh release upload "${{ needs.setup-version.outputs.tag }}" \
+          gh release upload "azd-ext-microsoft-azd-waza_${VERSION}" \
             artifacts/release-provenance.txt \
             --repo "${{ github.repository }}" \
             --clobber
