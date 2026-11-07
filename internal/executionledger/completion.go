@@ -93,38 +93,84 @@ func EncodeCompletion(completion Completion) ([]byte, error) {
 // binding. The caller must separately verify source artifacts and final marker
 // through the real manifest provider before any publication or reuse decision.
 func ValidateContext(completion Completion, reservationBytes, manifestBytes []byte) error {
+	_, err := admitContext(completion, reservationBytes, manifestBytes)
+	return err
+}
+
+func admitContext(completion Completion, reservationBytes, manifestBytes []byte) (*executionattempt.Attempt, error) {
 	if _, err := EncodeCompletion(completion); err != nil {
-		return err
+		return nil, err
 	}
 	attempt, err := executionattempt.ParseAttempt(reservationBytes)
 	if err != nil {
-		return fmt.Errorf("%w: reservation: %w", ErrContext, err)
+		return nil, fmt.Errorf("%w: reservation: %w", ErrContext, err)
 	}
 	canonicalAttempt, err := executionattempt.EncodeAttempt(*attempt)
 	if err != nil {
-		return fmt.Errorf("%w: encoding reservation: %w", ErrContext, err)
+		return nil, fmt.Errorf("%w: encoding reservation: %w", ErrContext, err)
 	}
 	if !bytes.Equal(canonicalAttempt, reservationBytes) ||
 		artifactmanifest.Hash(reservationBytes) != completion.ReservationDigest ||
 		attempt.ExecutionID != completion.ExecutionID {
-		return fmt.Errorf("%w: reservation bytes, digest, or execution ID differ", ErrContext)
+		return nil, fmt.Errorf("%w: reservation bytes, digest, or execution ID differ", ErrContext)
 	}
 	manifest, err := artifactmanifest.Parse(manifestBytes)
 	if err != nil {
-		return fmt.Errorf("%w: manifest: %w", ErrContext, err)
+		return nil, fmt.Errorf("%w: manifest: %w", ErrContext, err)
 	}
 	canonicalManifest, err := artifactmanifest.Encode(*manifest)
 	if err != nil {
-		return fmt.Errorf("%w: encoding manifest: %w", ErrContext, err)
+		return nil, fmt.Errorf("%w: encoding manifest: %w", ErrContext, err)
 	}
 	if !bytes.Equal(canonicalManifest, manifestBytes) ||
 		artifactmanifest.Hash(manifestBytes) != completion.ManifestDigest {
-		return fmt.Errorf("%w: manifest bytes or digest differ", ErrContext)
+		return nil, fmt.Errorf("%w: manifest bytes or digest differ", ErrContext)
 	}
 	original, source := attempt.Binding, manifest.Binding
 	if original.Identity != source.Identity || original.Selection != source.Selection ||
 		original.ExecutionMode != source.ExecutionMode || !slices.Equal(original.GraderIDs, source.GraderIDs) {
-		return fmt.Errorf("%w: manifest contradicts original reservation binding", ErrContext)
+		return nil, fmt.Errorf("%w: manifest contradicts original reservation binding", ErrContext)
+	}
+	return attempt, nil
+}
+
+// ValidateReuseContext admits a reused decision against the original source
+// reservation and completion. The caller's declared attempt ordinal may differ;
+// source terminal/manifest bytes must never be retagged to that ordinal.
+// This remains pure admission, not provider finalization/content verification.
+func ValidateReuseContext(decision executionattempt.Decision, reservationBytes, completionBytes, manifestBytes []byte) error {
+	if _, err := executionattempt.EncodeDecision(decision); err != nil {
+		return fmt.Errorf("%w: decision: %w", ErrContext, err)
+	}
+	if decision.Policy != "reuse" || decision.Outcome != "reused" || decision.Source == nil {
+		return fmt.Errorf("%w: decision does not declare reuse", ErrContext)
+	}
+	completion, err := ParseCompletion(completionBytes)
+	if err != nil {
+		return fmt.Errorf("%w: completion: %w", ErrContext, err)
+	}
+	canonical, err := EncodeCompletion(*completion)
+	if err != nil {
+		return fmt.Errorf("%w: encoding completion: %w", ErrContext, err)
+	}
+	if !bytes.Equal(canonical, completionBytes) || completion.ExecutionID != decision.Source.ExecutionID ||
+		completion.ManifestDigest != decision.Source.ManifestDigest {
+		return fmt.Errorf("%w: decision source differs from original completion", ErrContext)
+	}
+	attempt, err := admitContext(*completion, reservationBytes, manifestBytes)
+	if err != nil {
+		return err
+	}
+	caller, source := decision.Binding, attempt.Binding
+	graders := slices.Clone(caller.GraderIDs)
+	slices.Sort(graders)
+	if decision.Logical != attempt.Logical || caller.Identity.Version != source.Identity.Version ||
+		caller.Identity.Run != source.Identity.Run || caller.Identity.Shard != source.Identity.Shard ||
+		caller.Identity.Task != source.Identity.Task || caller.Identity.Trial != source.Identity.Trial ||
+		caller.Selection.Shard != source.Selection.Shard || caller.Selection.Task != source.Selection.Task ||
+		caller.Selection.Trial != source.Selection.Trial || caller.ExecutionMode != source.ExecutionMode ||
+		!slices.Equal(graders, source.GraderIDs) {
+		return fmt.Errorf("%w: caller differs from source logical work or execution context", ErrContext)
 	}
 	return nil
 }

@@ -66,6 +66,13 @@ verification. The shared provider must independently verify the finalized
 manifest and artifact bytes before a retained creator capability can publish a
 completion or any caller can record verified reuse. No persistence provider,
 capability, reservation, or recovery behavior is supplied by this codec.
+`ValidateReuseContext` additionally compares a reused decision to its original
+source reservation, completion reference, and manifest. The caller may declare a
+different native attempt ordinal and canonical input digest while retaining the
+same logical work, shard/task/trial, execution mode, and grader set. The source
+execution ID identifies the original execution, not a new distinct target, and
+its completion/native binding is never rewritten. Pure context admission still
+requires real provider content/final-marker verification before actionable reuse.
 
 ## Integration commands
 
