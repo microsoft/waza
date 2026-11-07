@@ -77,10 +77,10 @@ func TestGoWorkflowsInstallOfflineAssertionOracleRuntimeOnEveryPlatform(t *testi
 }
 
 type ordinaryValidationStep struct {
-	Name            string `yaml:"name"`
-	If              string `yaml:"if"`
-	Run             string `yaml:"run"`
-	ContinueOnError bool   `yaml:"continue-on-error"`
+	Name            string    `yaml:"name"`
+	If              string    `yaml:"if"`
+	Run             string    `yaml:"run"`
+	ContinueOnError yaml.Node `yaml:"continue-on-error"`
 }
 
 func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool) error {
@@ -222,7 +222,9 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 			if _, ok := positions[name]; !ok {
 				return fmt.Errorf("%s: missing %s", jobName, name)
 			}
-			if steps[positions[name]].ContinueOnError {
+			continueOnError := steps[positions[name]].ContinueOnError
+			if continueOnError.Kind != 0 &&
+				(continueOnError.Tag != "!!bool" || !strings.EqualFold(continueOnError.Value, "false")) {
 				return fmt.Errorf("%s: %s must not tolerate failure", jobName, name)
 			}
 			if name != required[1] && conditions[name] != "" {
@@ -318,10 +320,10 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 						break
 					}
 					offset += position + len(anchor)
-					for _, value := range []string{"false", "true", "${{ always() }}"} { //nolint:misspell // GitHub expression.
+					for _, value := range []string{"false", "FALSE", "true", "null", "''", "\"false\"", "[]", "{}", "${{ always() }}"} { //nolint:misspell // GitHub expression.
 						mutated := string(source[:offset]) + "        continue-on-error: " + value + "\n" + string(source[offset:])
 						err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages)
-						if (err == nil) != (value == "false") {
+						if (err == nil) != strings.EqualFold(value, "false") {
 							t.Fatalf("%s at offset %d: continue-on-error=%s: validation error = %v", step, offset, value, err)
 						}
 					}
