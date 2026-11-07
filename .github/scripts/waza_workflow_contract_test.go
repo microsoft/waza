@@ -156,6 +156,28 @@ func TestWazaResultValidator(t *testing.T) {
 		command := exec.Command("bash", "validate-waza-result.sh", path, "0.8", "0")
 		require.Error(t, command.Run())
 	})
+	t.Run("literal dash-prefixed result paths", func(t *testing.T) {
+		script, err := filepath.Abs("validate-waza-result.sh")
+		require.NoError(t, err)
+		for _, name := range []string{"-results.json", "-"} {
+			dir := t.TempDir()
+			data, err := json.Marshal(valid)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o600))
+			outputPath := filepath.Join(dir, "github-output")
+			command := exec.Command("bash", script, name, "0.8", "0")
+			command.Dir = dir
+			command.Stdin = strings.NewReader("invalid stdin must not be used")
+			command.Env = append(os.Environ(), "GITHUB_OUTPUT="+outputPath)
+			output, err := command.CombinedOutput()
+			require.NoError(t, err, string(output))
+			recorded, err := os.ReadFile(outputPath)
+			require.NoError(t, err)
+			require.Contains(t, string(recorded), "status=success")
+			require.Contains(t, string(recorded), "success_rate=1")
+			require.Contains(t, string(recorded), "aggregate_score=0")
+		}
+	})
 }
 
 func TestRetainedWazaWorkflowsUseCurrentContract(t *testing.T) {
@@ -611,9 +633,11 @@ func TestAutomaticWorkflowEffectiveInputs(t *testing.T) {
 	require.Equal(t, "${{ steps.stage-result.outputs.artifact-path }}", upload.With["path"])
 	require.Equal(t, "always() && steps.stage-result.outcome == 'success'", upload.If)
 	require.Equal(t, "true", upload.With["include-hidden-files"])
+	require.Equal(t, "error", upload.With["if-no-files-found"])
 	transcripts := evalWorkflowStepNamed(t, steps, "Upload optional transcripts")
 	require.Equal(t, "transcripts/", transcripts.With["path"])
 	require.NotEqual(t, "true", transcripts.With["include-hidden-files"])
+	require.Equal(t, "ignore", transcripts.With["if-no-files-found"], "hidden-only optional inventory must not fail the required JSON upload")
 	require.Equal(t, "${{ steps.effective.outputs.output-file }}", run.Env["OUTPUT_FILE"])
 	for _, event := range []string{"push", "pull_request", "workflow_dispatch", "workflow_call"} {
 		for _, custom := range []bool{false, true} {

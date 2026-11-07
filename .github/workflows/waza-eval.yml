@@ -245,7 +245,7 @@ jobs:
           name: ${{ steps.effective.outputs.artifact-name }}-transcripts
           path: transcripts/
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: ignore
       
       - name: Check Evaluation Status
         if: always()

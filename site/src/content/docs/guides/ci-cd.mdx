@@ -330,6 +330,8 @@ Missing files, symlink results, or staging failures fail the workflow rather tha
 uploading stale paths. Optional non-hidden transcripts use the
 `<artifact-name>-transcripts` artifact, so transcripts cannot substitute for the
 result and hidden transcript files are not newly exposed.
+An empty or hidden-only optional transcript selection is ignored; missing required
+JSON evidence still fails the workflow.
 
 ### Recurring Regression Loop (Scheduled)
 

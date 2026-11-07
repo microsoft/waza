@@ -79,7 +79,7 @@ contract='
      else .summary.succeeded / .summary.total_tests end))
 '
 
-if ! jq -e -s "length == 1 and (.[0] | $contract)" "$result_file" >/dev/null 2>&1; then
+if ! jq -e -s "length == 1 and (.[0] | $contract)" < "$result_file" >/dev/null 2>&1; then
   echo "::error::Waza result artifact is malformed, incomplete, or internally inconsistent: $result_file" >&2
   exit 1
 fi
@@ -89,7 +89,7 @@ IFS=$'\t' read -r success_rate aggregate_score total_tests succeeded failed erro
     [.summary.success_rate, .summary.aggregate_score, .summary.total_tests,
      .summary.succeeded, .summary.failed, .summary.errors, .summary.skipped]
     | @tsv
-  ' "$result_file"
+  ' < "$result_file"
 )
 
 if [ "$run_exit_code" -eq 0 ] && { [ "$failed" -ne 0 ] || [ "$errors" -ne 0 ]; }; then

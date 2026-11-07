@@ -97,6 +97,7 @@ the exact regular file into a fresh staging directory, preserving its basename;
 custom paths are not interpreted as upload patterns. Missing files, symlink
 results, or staging failures fail the workflow instead of uploading stale paths.
 Optional non-hidden transcripts are uploaded separately under `<artifact-name>-transcripts`;
+an empty or hidden-only transcript selection is ignored.
 transcripts cannot substitute for missing result evidence. The skills example's
 dispatch input is empty by default so its resolver selects the correct repository
 or consumer fixture path.
