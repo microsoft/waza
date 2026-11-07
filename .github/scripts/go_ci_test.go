@@ -14,9 +14,65 @@ import (
 
 type workflowTriggers map[string]map[string][]string
 
-type workflowConcurrency struct {
-	Group            string `yaml:"group"`
-	CancelInProgress string `yaml:"cancel-in-progress"`
+func checkOfflineAssertionOracleRuntime(source []byte) error {
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				Uses string            `yaml:"uses"`
+				If   string            `yaml:"if"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	for _, name := range []string{"build-and-test", "build-and-test-windows"} {
+		found := false
+		for _, step := range workflow.Jobs[name].Steps {
+			if strings.HasPrefix(step.Uses, "actions/setup-node@") {
+				if step.If != "" || step.With["node-version"] != "22" {
+					return fmt.Errorf("%s: offline TypeScript oracle requires unconditional Node 22 setup", name)
+				}
+				found = true
+			}
+			if step.Name == "Execute Tests" && !found {
+				return fmt.Errorf("%s: tests precede offline oracle runtime setup", name)
+			}
+		}
+		if !found {
+			return fmt.Errorf("%s: missing offline oracle Node setup", name)
+		}
+	}
+	return nil
+}
+
+func TestGoWorkflowsInstallOfflineAssertionOracleRuntimeOnEveryPlatform(t *testing.T) {
+	for _, name := range []string{"go-ci.yml"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkOfflineAssertionOracleRuntime(source); err != nil {
+				t.Fatal(err)
+			}
+			for _, replacement := range []string{
+				"      - name: Setup Node.js (web build and offline assertion oracle)\n        if: matrix.os == 'ubuntu-latest'",
+				"      - name: Setup Node.js (web build and offline assertion oracle)\n        if: false",
+			} {
+				mutated := strings.Replace(string(source), "      - name: Setup Node.js (web build and offline assertion oracle)", replacement, 1)
+				if mutated == string(source) || checkOfflineAssertionOracleRuntime([]byte(mutated)) == nil {
+					t.Fatal("mutation failed to reject conditional/skipped Node setup")
+				}
+			}
+			mutated := strings.Replace(string(source), "node-version: '22'", "node-version: '20'", 1)
+			if mutated == string(source) || checkOfflineAssertionOracleRuntime([]byte(mutated)) == nil {
+				t.Fatal("mutation failed to reject unsupported TypeScript runtime")
+			}
+		})
+	}
 }
 
 func readTriggers(source []byte) (workflowTriggers, error) {
@@ -40,23 +96,72 @@ func checkTriggers(source []byte, want workflowTriggers) error {
 	return nil
 }
 
+// Evaluate only the literal expressions admitted by checkCanonicalGoWorkflow,
+// rather than approximating arbitrary GitHub Actions expression semantics.
+func goConcurrencyGroup(group, workflow, event, ref, runID string) string {
+	scope := runID
+	if event == "pull_request" {
+		scope = ref
+	}
+	return strings.NewReplacer(
+		"${{ github.workflow }}", workflow,
+		"${{ github.event_name }}", event,
+		"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", scope,
+	).Replace(group)
+}
+
 func TestGoWorkflowConcurrency(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := checkCanonicalGoWorkflow(source); err != nil {
+		t.Fatal(err)
+	}
 	var workflow struct {
-		Concurrency workflowConcurrency `yaml:"concurrency"`
+		Name        string `yaml:"name"`
+		Concurrency struct {
+			Group  string `yaml:"group"`
+			Cancel string `yaml:"cancel-in-progress"`
+		} `yaml:"concurrency"`
 	}
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		t.Fatal(err)
 	}
-	want := workflowConcurrency{
-		Group:            "go-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}",
-		CancelInProgress: "${{ github.event_name == 'pull_request' }}",
+	if workflow.Name != "Go Build and Test" {
+		t.Fatalf("unexpected workflow identity %q", workflow.Name)
 	}
-	if !reflect.DeepEqual(workflow.Concurrency, want) {
-		t.Fatalf("workflow concurrency = %#v; want %#v", workflow.Concurrency, want)
+	runs := []struct {
+		name, workflow, event, ref, runID, wantGroup string
+	}{
+		{"PR old commit", workflow.Name, "pull_request", "refs/pull/829/merge", "100", "Go Build and Test-pull_request-refs/pull/829/merge"},
+		{"PR new commit", workflow.Name, "pull_request", "refs/pull/829/merge", "101", "Go Build and Test-pull_request-refs/pull/829/merge"},
+		{"different PR", workflow.Name, "pull_request", "refs/pull/830/merge", "102", "Go Build and Test-pull_request-refs/pull/830/merge"},
+		{"other PR workflow", "Web CI", "pull_request", "refs/pull/829/merge", "103", "Web CI-pull_request-refs/pull/829/merge"},
+		{"push old run", workflow.Name, "push", "refs/heads/main", "104", "Go Build and Test-push-104"},
+		{"push same commit again", workflow.Name, "push", "refs/heads/main", "105", "Go Build and Test-push-105"},
+		{"push same ref as PR", workflow.Name, "push", "refs/pull/829/merge", "106", "Go Build and Test-push-106"},
+		{"release publication", "Release", "push", "refs/heads/main", "107", "Release-push-107"},
+		{"manual publication", "Publish Runner Reference Image", "workflow_dispatch", "refs/heads/main", "108", "Publish Runner Reference Image-workflow_dispatch-108"},
+	}
+	for i, older := range runs {
+		t.Run(older.name, func(t *testing.T) {
+			group := goConcurrencyGroup(workflow.Concurrency.Group, older.workflow, older.event, older.ref, older.runID)
+			if group != older.wantGroup {
+				t.Fatalf("group = %q; want %q", group, older.wantGroup)
+			}
+			for j, newer := range runs {
+				if i == j {
+					continue
+				}
+				incomingGroup := goConcurrencyGroup(workflow.Concurrency.Group, newer.workflow, newer.event, newer.ref, newer.runID)
+				cancel := newer.event == "pull_request"
+				wantCancel := (i == 0 && j == 1) || (i == 1 && j == 0)
+				if got := cancel && group == incomingGroup; got != wantCancel {
+					t.Errorf("%s supersedes %s = %v; want %v", newer.name, older.name, got, wantCancel)
+				}
+			}
+		})
 	}
 }
 
@@ -80,16 +185,123 @@ func selects(triggers workflowTriggers, event, branch, action string) bool {
 	return event == "push"
 }
 
+func checkCanonicalGoWorkflow(source []byte) error {
+	var workflow struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Concurrency struct {
+			Group  string `yaml:"group"`
+			Cancel string `yaml:"cancel-in-progress"`
+		} `yaml:"concurrency"`
+		Jobs map[string]struct {
+			Name  string   `yaml:"name"`
+			Uses  string   `yaml:"uses"`
+			Needs []string `yaml:"needs"`
+			If    string   `yaml:"if"`
+			Steps []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	if workflow.Concurrency.Group != "${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}" ||
+		workflow.Concurrency.Cancel != "${{ github.event_name == 'pull_request' }}" {
+		return fmt.Errorf("cancel only superseded PR runs, scoped to workflow/event/ref; non-PR runs require independent groups")
+	}
+	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) {
+		return fmt.Errorf("validation must remain read-only")
+	}
+	if workflow.Jobs["lint"].Name != "Lint" ||
+		workflow.Jobs["build-and-test-windows"].Name != "${{ matrix.os }}" ||
+		workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" {
+		return fmt.Errorf("required native and lint jobs must be retained")
+	}
+	gate := workflow.Jobs["linux-gate"]
+	if gate.Name != "ubuntu-latest" || gate.If != "${{ always() }}" ||
+		!reflect.DeepEqual(gate.Needs, []string{"build-and-test", "native-test-shards"}) {
+		return fmt.Errorf("required Linux gate must inspect both validation branches even after failure")
+	}
+	var commands string
+	for _, step := range gate.Steps {
+		commands += step.Run
+	}
+	for _, required := range []string{
+		`test "$BUILD_RESULT" = success`,
+		`test "$NATIVE_RESULT" = success`,
+		"bash .github/scripts/go_test_shard_verify.sh coverage-reports",
+	} {
+		if !strings.Contains(commands, required) {
+			return fmt.Errorf("Linux gate missing %s", required)
+		}
+	}
+	return nil
+}
+
+func TestCanonicalGoWorkflow(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCanonicalGoWorkflow(source); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range [][2]string{
+		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
+		{"${{ github.workflow }}-", ""},
+		{"${{ github.event_name }}-", ""},
+		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "go-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}"},
+		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
+		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.run_id }}"},
+		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.event_name == 'pull_request' && github.ref || github.sha }}"},
+		{"cancel-in-progress: ${{ github.event_name == 'pull_request' }}", "cancel-in-progress: true"},
+		{"cancel-in-progress: ${{ github.event_name == 'pull_request' }}", "cancel-in-progress: false"},
+		{"name: Lint", "name: Lint renamed"},
+		{"name: ubuntu-latest", "name: Linux renamed"},
+		{"needs: [build-and-test, native-test-shards]", "needs: [build-and-test]"},
+		{"if: ${{ always() }}", "if: ${{ success() }}"},
+		{`test "$NATIVE_RESULT" = success`, ":"},
+		{"bash .github/scripts/go_test_shard_verify.sh coverage-reports", ":"},
+	} {
+		mutated := strings.Replace(string(source), mutation[0], mutation[1], 1)
+		if mutated == string(source) || checkCanonicalGoWorkflow([]byte(mutated)) == nil {
+			t.Fatalf("mutation not rejected: %s", mutation[0])
+		}
+	}
+	files, err := filepath.Glob(filepath.Join("..", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var validators []string
+	for _, file := range files {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var workflow struct {
+			Jobs map[string]yaml.Node `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(raw, &workflow); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := workflow.Jobs["build-and-test-windows"]; ok {
+			validators = append(validators, filepath.Base(file))
+		}
+	}
+	if !reflect.DeepEqual(validators, []string{"go-ci.yml"}) {
+		t.Fatalf("duplicate native validation workflows: %v", validators)
+	}
+	if _, err := os.Stat(filepath.Join("..", "workflows", "squad-ci.yml")); !os.IsNotExist(err) {
+		t.Fatalf("obsolete Squad CI workflow must be removed: %v", err)
+	}
+}
 func TestGoWorkflowTriggers(t *testing.T) {
 	for _, tc := range []struct {
 		file         string
 		pushBranches []string
 		prFilters    map[string][]string
 	}{
-		{"go-ci.yml", []string{"main", "develop"}, nil},
-		{"squad-ci.yml", []string{"dev", "insider"}, map[string][]string{
-			"types": {"opened", "synchronize", "reopened"},
-		}},
+		{"go-ci.yml", []string{"main", "develop", "dev", "insider"}, nil},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			source, err := os.ReadFile(filepath.Join("..", "workflows", tc.file))

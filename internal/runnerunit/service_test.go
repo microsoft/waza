@@ -271,8 +271,12 @@ func TestInvalidSelectionsNeverConstructRuntime(t *testing.T) {
 		"task-empty-grader": func(r *runnercontract.Request) {
 			r.Input.Task += "graders:\n  - name: empty\n    type: text\n    config: {}\n"
 		},
-		"csv-discovery": func(r *runnercontract.Request) { r.Input.Eval += "tasks_from: neighboring.csv\n" },
-		"baseline":      func(r *runnercontract.Request) { r.Input.Eval += "baseline: true\n" },
+		"user-input-responses": func(r *runnercontract.Request) {
+			r.Input.Task += "user_input_responses:\n  - answer: staging\n"
+		},
+		"empty-user-input-responses": func(r *runnercontract.Request) { r.Input.Task += "user_input_responses: []\n" },
+		"csv-discovery":              func(r *runnercontract.Request) { r.Input.Eval += "tasks_from: neighboring.csv\n" },
+		"baseline":                   func(r *runnercontract.Request) { r.Input.Eval += "baseline: true\n" },
 		"parallel": func(r *runnercontract.Request) {
 			r.Input.Eval = strings.Replace(r.Input.Eval, "executor: mock", "executor: mock\n  parallel: true", 1)
 		},
@@ -312,6 +316,46 @@ func TestInvalidSelectionsNeverConstructRuntime(t *testing.T) {
 				require.Zero(t, report.Calls)
 				require.NotZero(t, report.ExitCode())
 			}
+		})
+	}
+}
+
+func TestCopilotProfileRejectsOnlyExplicitNullMetricsBeforeRuntime(t *testing.T) {
+	for _, control := range []struct {
+		name        string
+		declaration string
+		wantErr     string
+	}{
+		{name: "omitted"},
+		{name: "empty", declaration: "\nmetrics: []\n"},
+		{name: "explicit null", declaration: "\nmetrics: null\n", wantErr: "does not accept explicit metrics: null"},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			request := fixture(t)
+			request.RequiredCapabilities = []string{"exact-unit", "inline.copilot-text"}
+			request.AllowPaidExecution = true
+			request.Input.Eval = strings.Replace(request.Input.Eval, "executor: mock", "executor: copilot-sdk", 1)
+			request.Input.Eval += control.declaration
+			if control.wantErr == "" {
+				admitted, err := resolve(&request)
+				require.NoError(t, err)
+				require.NotNil(t, admitted)
+				return
+			}
+
+			constructed := 0
+			service := NewService(func(models.Config) (execution.AgentEngine, error) {
+				constructed++
+				t.Fatal("invalid native metrics must reject before runtime construction")
+				return nil, nil
+			})
+			report := service.Run(t.Context(), wire(t, request))
+			require.Equal(t, "rejected", report.Status, "%+v", report.Diagnostics)
+			require.Nil(t, report.Identity)
+			require.Nil(t, report.Observation)
+			require.Zero(t, report.Calls)
+			require.Zero(t, constructed)
+			require.Contains(t, report.Diagnostics[0].Message, control.wantErr)
 		})
 	}
 }
@@ -436,6 +480,32 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 	require.Zero(t, report.Calls)
 	require.Empty(t, report.Mode)
 	requireReceiptSchema(t, report)
+}
+
+func TestRunLocalPreservesCallerCancellation(t *testing.T) {
+	for _, phase := range []string{"before startup", "during factory"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			calls := 0
+			service := NewService(func(models.Config) (execution.AgentEngine, error) {
+				calls++
+				cancel()
+				return execution.NewMockEngine("mock"), nil
+			})
+			if phase == "before startup" {
+				cancel()
+			}
+			outcome, err := service.RunLocal(ctx, wire(t, fixture(t)))
+			require.ErrorIs(t, err, context.Canceled)
+			require.Nil(t, outcome, "cancellation must not manufacture a local success artifact")
+			if phase == "before startup" {
+				require.Zero(t, calls)
+			} else {
+				require.Equal(t, 1, calls)
+			}
+		})
+	}
 }
 
 func TestFactoryMutationAndCancellation(t *testing.T) {

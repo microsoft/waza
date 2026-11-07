@@ -14,6 +14,7 @@ examples/*
 !examples/runner/
 examples/runner/*
 !examples/runner/unit.json
+!examples/runner/copilot-unit.json
 
 # Re-exclude some files pulled in by the allowlist above
 **/*_test.go
@@ -22,3 +23,21 @@ web/node_modules/
 web/dist/
 web/test-results/
 web/playwright-report/
+
+# Explicit test-target inputs; the default reference image does not copy them.
+!internal/embedded/path_test.go
+!.github/
+.github/*
+!.github/scripts/
+.github/scripts/*
+!.github/scripts/testdata/
+.github/scripts/testdata/*
+!.github/scripts/testdata/runner-runtime/
+.github/scripts/testdata/runner-runtime/*
+!.github/scripts/testdata/runner-runtime/main.go
+!.github/scripts/testdata/runner-runtime/main_test.go
+!.github/scripts/testdata/native-bundle-probe/
+!.github/scripts/testdata/native-bundle-probe/harness/
+!.github/scripts/testdata/native-bundle-probe/harness/main.go
+!.github/scripts/testdata/native-bundle-probe/positive/
+!.github/scripts/testdata/native-bundle-probe/positive/main.go
