@@ -106,6 +106,38 @@ func TestOwnedRuntimeObservationsActualClientCalls(t *testing.T) {
 	}
 }
 
+func TestOwnedRuntimeObservationsForceRequestRequiresOwnedSupportedClient(t *testing.T) {
+	for _, owned := range []bool{false, true} {
+		for _, supported := range []bool{false, true} {
+			capture := NewOwnedRuntimeObservations()
+			clientMock := NewMockCopilotClient(gomock.NewController(t))
+			var client CopilotClient = clientMock
+			calls := 0
+			if supported {
+				client = &forceStopTestClient{
+					MockCopilotClient: clientMock,
+					forceStop:         func() { calls++ },
+				}
+			}
+			engine := &CopilotEngine{ownsClient: owned, runtimeObservations: capture}
+			engine.forceStopClient(client)
+			snapshot, err := capture.Seal()
+			require.NoError(t, err)
+			if owned && supported {
+				require.Equal(t, 1, calls)
+				require.Len(t, snapshot.Observations, 1)
+				require.Equal(t, "force-stop-requested", snapshot.Observations[0].Operation)
+				require.Equal(t, "sdk-client-control", snapshot.Observations[0].Scope)
+				require.Equal(t, "requested", snapshot.Observations[0].Result)
+			} else {
+				require.Zero(t, calls)
+				require.Empty(t, snapshot.Observations)
+			}
+			require.Equal(t, "unknown", snapshot.ProcessExit)
+		}
+	}
+}
+
 func TestOwnedRuntimeObservationsRejectSharedReusedAndSealedSinks(t *testing.T) {
 	capture := NewOwnedRuntimeObservations()
 	rejected := NewCopilotEngineBuilder("", &CopilotEngineBuilderOptions{RuntimeObservations: capture}).Build()

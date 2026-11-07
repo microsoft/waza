@@ -191,7 +191,8 @@ instrumentation are separate delivery requirements.
 The fresh owned engine factory can select `observer.RuntimeObservations()` in
 `CopilotEngineBuilderOptions.RuntimeObservations` after reservation. A sink binds
 once and cannot select a shared engine, another invocation or a finalized reuse.
-It captures actual client start/stop and force-call boundaries, context
+It captures actual client start/stop and force-call boundaries, the engine's
+owned force-control request at its callback invocation, context
 cancellation seen by the bounded send/disconnect handlers, and typed root-turn
 SDK abort events. These are separate scoped observations: a returned call is
 not model acknowledgement, a force invocation is not a successful kill, and a

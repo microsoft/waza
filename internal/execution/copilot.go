@@ -1259,6 +1259,7 @@ func (e *CopilotEngine) forceStopClient(client CopilotClient) {
 		return
 	}
 	if force, ok := client.(interface{ ForceStop() }); ok {
+		e.runtimeObservations.record("force-stop-requested", "sdk-client-control", "requested")
 		force.ForceStop()
 	}
 }
