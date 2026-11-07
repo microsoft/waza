@@ -46,19 +46,29 @@ test('checkpoint source schema registration and migration notes retain contract-
   assert.match(route, /schema: 'runner-checkpoint-result-1\.0\.schema' \}, props: \{ schema: checkpointResult \}/);
   const notes = read('site/src/content/docs/reference/schema-changes.md');
   assert.match(notes, /Checkpoint declaration 1\.0 \(unreleased contract layer\)/);
-  assert.match(notes, /does not yet provide owned checkpoint\s+creation or a resume command/);
+  assert.match(notes, /unreleased source provides protected checkpoint\s+creation and resume commands for the exact-unit profile/);
   assert.match(notes, /ownership, compatibility and restore\s+progress explicitly unavailable/);
   assert.match(notes, /\(unreleased contract layer\)/);
   assert.match(notes, /\.\.\/\.\.\/schemas\/execution-checkpoint-1\.0\.schema\.json/);
   assert.match(notes, /Only destination attempt ordinal may differ; original source\s+identity\/selection must not be retagged/);
   assert.ok(existsSync(resolve(root, 'site/e2e/execution-checkpoint.spec.ts')));
-  assert.match(read('site/e2e/execution-checkpoint.spec.ts'), /The public CLI\/API does not yet provide owned checkpoint creation or a resume command\./);
+  assert.match(read('site/e2e/execution-checkpoint.spec.ts'), /The unreleased source provides protected checkpoint creation and resume commands for the exact-unit profile\./);
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*checkpoint/);
   const lab = read('site/src/content/docs/guides/dashboard-lab.mdx');
   assert.match(lab, /GET \/api\/v1\/checkpoints\/\{digest\}/);
   assert.match(lab, /restored units and remaining work stay \*\*Unavailable\*\*/);
   assert.ok(existsSync(resolve(root, 'web/e2e/checkpoint-inspection.spec.ts')));
   assert.doesNotMatch(read('web/playwright.config.ts'), /testIgnore:.*checkpoint/);
+  assert.equal(resultSchema.properties.source_withheld.const, true);
+  assert.match(notes, /output-only optional `source_withheld: true`/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/runner-checkpoints'/);
+  const guide = read('site/src/content/docs/guides/runner-checkpoints.mdx');
+  assert.match(guide, /checkpoint create --store/);
+  assert.match(guide, /checkpoint resume BEFORE_SHA256/);
+  assert.match(guide, /checkpoint resume FINALIZED_SHA256/);
+  assert.match(guide, /before-unit|fresh retry child/);
+  assert.match(guide, /zero new engine calls/);
+  assert.match(guide, /never\s+accepted as operation input or authority/);
   const dashboardWorkflow = read('.github/workflows/web-ci.yml');
   for (const path of ['internal/executioncheckpoint/**', 'internal/executionattempt/**',
     'internal/executionledger/**', 'internal/artifactmanifest/**', 'internal/webapi/checkpoints*.go',

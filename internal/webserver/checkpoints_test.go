@@ -1,12 +1,15 @@
 package webserver
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/runnercheckpoint"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
 )
@@ -26,4 +29,26 @@ func TestDashboardRegistersCheckpointInspection(t *testing.T) {
 	require.Nil(t, result.Checkpoint)
 	require.Nil(t, result.RestoredUnits)
 	require.Nil(t, result.RemainingWork)
+}
+
+func TestDashboardRegistersProtectedCheckpointOperations(t *testing.T) {
+	server, err := New(Config{ResultsDir: t.TempDir(), NoBrowser: true, Lab: true})
+	require.NoError(t, err)
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	for _, path := range []string{"/api/v1/checkpoints", "/api/v1/checkpoints/" + strings.Repeat("a", 64) + "/resume"} {
+		response, err := httpServer.Client().Post(httpServer.URL+path, "application/json", bytes.NewBufferString("{}"))
+		require.NoError(t, err)
+		body, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, http.StatusBadRequest, response.StatusCode)
+		result, err := runnercheckpoint.ParseResult(body)
+		require.NoError(t, err)
+		require.Equal(t, "checkpoint_input_invalid", result.Diagnostics[0].Code)
+		require.Nil(t, result.Submission)
+		require.Nil(t, result.Source)
+		require.Nil(t, result.RestoredUnits)
+		require.Equal(t, "6", response.Header.Get("X-Waza-Exit-Code"))
+	}
 }

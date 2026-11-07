@@ -53,6 +53,19 @@ does not substitute checkpoint data. No checkpoint catalog or resume command is
 included in this source-preview inspector. See the
 [checkpoint schema and compatibility limits](../../reference/schema-changes/).
 
+The separate **Create or resume an exact-unit checkpoint** panel accepts captured
+submission JSON and explicit creation/recovery actions. It uses the configured
+original immutable store and the owning CLI's clean VCS-stamped build, never a
+revision typed into the browser. Operation results report current compatibility,
+field-name-only differences, explicit null/zero progress, original failed/canceled
+outcome/native ordinal, and new versus original engine calls.
+`source_withheld: true` is displayed as withheld metadata, not invented redacted
+source values or ownership. A separate current blob read shows the newly published
+boundary and UTC creation time as declaration-only metadata. Input edits, failed
+requests and cancellation clear old results; the synthetic demo has no operation
+controls. **Download checkpoint result JSON** saves the actual protected response
+bytes. See [safe-boundary examples and recovery troubleshooting](../runner-checkpoints/).
+
 The unreleased v0.41 source additionally includes **Inspect execution lifecycle
 declarations** in the Runner section. It accepts explicit retained original
 context and ordered known observation digests, showing declared state, deadline,

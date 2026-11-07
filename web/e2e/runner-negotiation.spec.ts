@@ -28,7 +28,7 @@ test.describe("Runner negotiation through the real Go API", () => {
   test.beforeAll(async ({ request }) => {
     test.setTimeout(180_000);
     directory = await mkdtemp(join(tmpdir(), "waza-runner-browser-"));
-    binary = join(directory, "waza");
+    binary = process.env.WAZA_E2E_CLI ?? join(directory, "waza");
     const env = {
       ...process.env,
       COPILOT_CLI_PATH: "/usr/bin/false",
@@ -39,9 +39,11 @@ test.describe("Runner negotiation through the real Go API", () => {
     };
     const guard = spawn("/usr/bin/false");
     expect(await new Promise((resolve) => guard.on("exit", resolve))).toBe(1);
-    execFileSync("go", ["build", "-o", binary, "./cmd/waza"], {
-      cwd: resolve(".."), env, timeout: 150_000,
-    });
+    if (!process.env.WAZA_E2E_CLI) {
+      execFileSync("go", ["build", "-o", binary, "./cmd/waza"], {
+        cwd: resolve(".."), env, timeout: 150_000,
+      });
+    }
     const listener = createServer();
     await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
     const address = listener.address();
@@ -49,6 +51,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     const port = address.port;
     await new Promise<void>((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
     await mkdir(join(directory, "results"));
+    await mkdir(join(directory, "results", ".waza-artifacts"), { mode: 0o700 });
     server = spawn(binary, ["serve", "--no-browser", "--lab", "--port", String(port), "--results-dir", join(directory, "results")], {
       cwd: directory, env, stdio: ["ignore", "pipe", "pipe"],
     });
@@ -81,7 +84,116 @@ test.describe("Runner negotiation through the real Go API", () => {
       const response = await route.fetch({ url: `${base}${url.pathname}` });
       await route.fulfill({ response });
     });
+    await page.route("**/api/v1/checkpoints**", async (route) => {
+      const url = new URL(route.request().url());
+      const response = await route.fetch({
+        url: `${base}${url.pathname}`,
+        headers: {
+          ...await route.request().allHeaders(),
+          host: new URL(base).host,
+          origin: base,
+          "sec-fetch-site": "same-origin",
+        },
+      });
+      await route.fulfill({ response });
+    });
     await page.goto("/#/lab/runner");
+  });
+
+  test("checkpoint creation reports current metadata and downloads actual protected producer bytes", async ({ page }) => {
+    const panel = page.getByRole("region", { name: "Checkpoint creation and recovery" });
+    const response = page.waitForResponse((value) =>
+      new URL(value.url()).pathname === "/api/v1/checkpoints" && value.request().method() === "POST");
+    await panel.getByRole("button", { name: "Create checkpoints and run unit", exact: true }).click();
+    const actual = await (await response).text();
+    const produced = JSON.parse(actual);
+    expect(produced.status).toBe("completed");
+    expect(produced.submission.report).toBeUndefined();
+    const operation = panel.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(operation).toContainText("compatible");
+    await expect(operation.locator("dt").filter({ hasText: /^Restored units$/ }).locator("xpath=following-sibling::dd[1]")).toHaveText("0");
+    await expect(operation.locator("dt").filter({ hasText: /^Remaining work$/ }).locator("xpath=following-sibling::dd[1]")).toHaveText("0");
+    const metadata = panel.getByRole("status", { name: "Published checkpoint current metadata" });
+    await expect(metadata).toContainText("finalized-unit");
+    await expect(metadata.locator("time")).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T.*Z$/);
+    const download = page.waitForEvent("download");
+    await panel.getByRole("button", { name: "Download checkpoint result JSON", exact: true }).click();
+    const saved = await download;
+    expect(saved.suggestedFilename()).toBe("waza-checkpoint-result.json");
+    const path = await saved.path();
+    expect(path).not.toBeNull();
+    expect(readFileSync(path!, "utf8")).toBe(actual);
+  });
+
+  test("checkpoint finalized failed original preserves ordinal and no new calls; stale before metadata is withheld", async ({ page }) => {
+    const panel = page.getByRole("region", { name: "Checkpoint creation and recovery" });
+    const request = {
+      kind: "waza.execution-submission", schema_version: "1.0",
+      request: { ...unitExample, input: {
+        ...unitExample.input,
+        task: unitExample.input.task.replace("- hello", "- absent-output-control"),
+      } },
+    };
+    expect(request.request.input.task).not.toBe(unitExample.input.task);
+    await panel.getByRole("textbox", { name: "Captured checkpoint submission (JSON)" }).fill(JSON.stringify(request));
+    const response = page.waitForResponse((value) =>
+      new URL(value.url()).pathname === "/api/v1/checkpoints" && value.request().method() === "POST");
+    await panel.getByRole("button", { name: "Create checkpoints and run unit", exact: true }).click();
+    const produced = JSON.parse(await (await response).text());
+    expect(produced.exit_code).toBe(1);
+    expect(produced.submission.terminal.outcome).toBe("evaluation_failure");
+    await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toContainText("evaluation_failure");
+    request.request.selection = { ...unitExample.selection, attempt: 3 };
+    await panel.getByRole("textbox", { name: "Captured checkpoint submission (JSON)" }).fill(JSON.stringify(request));
+    await panel.getByRole("textbox", { name: "Checkpoint digest to resume" }).fill(produced.finalized_checkpoint_sha256);
+    await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toHaveCount(0);
+    await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
+    const restored = panel.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(restored).toContainText("reused");
+    await expect(restored).toContainText("evaluation_failure");
+    await expect(restored.locator("dt").filter({ hasText: /^New engine calls$/ }).locator("xpath=following-sibling::dd[1]")).toHaveText("0");
+    await expect(restored.locator("dt").filter({ hasText: /^Original native attempt$/ }).locator("xpath=following-sibling::dd[1]")).toHaveText("2");
+    await panel.getByRole("textbox", { name: "Checkpoint digest to resume" }).fill(produced.before_checkpoint_sha256);
+    await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
+    const rejected = panel.getByRole("alert", { name: "Checkpoint operation result" });
+    await expect(rejected).toContainText("Withheld - capture admission did not succeed");
+    await expect(rejected.locator("dt").filter({ hasText: /^Restored units$/ }).locator("xpath=following-sibling::dd[1]")).toHaveText("Unavailable");
+    await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toHaveCount(0);
+    await expect(panel.getByRole("status", { name: "Published checkpoint current metadata" })).toHaveCount(0);
+  });
+
+  test("checkpoint invalid input, withholding contradictions and reload failures never retain prior results", async ({ page }) => {
+    const panel = page.getByRole("region", { name: "Checkpoint creation and recovery" });
+    const response = page.waitForResponse((value) =>
+      new URL(value.url()).pathname === "/api/v1/checkpoints" && value.request().method() === "POST");
+    await panel.getByRole("button", { name: "Create checkpoints and run unit", exact: true }).click();
+    const produced = JSON.parse(await (await response).text());
+    expect(produced.status).toBe("completed");
+    await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+    for (const marker of [false, null, true]) {
+      await page.route("**/api/v1/checkpoints", (route) => route.fulfill({
+        contentType: "application/json", headers: { "X-Waza-Exit-Code": String(produced.exit_code) },
+        json: { ...produced, source_withheld: marker },
+      }));
+      await panel.getByRole("button", { name: "Create checkpoints and run unit", exact: true }).click();
+      await expect(panel.getByRole("alert")).toContainText("invalid operation result");
+      await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toHaveCount(0);
+    }
+    let posts = 0;
+    await page.route("**/api/v1/checkpoints/*/resume", async (route) => {
+      posts++;
+      await route.fulfill({ status: 503, body: "" });
+    });
+    await panel.getByRole("textbox", { name: "Checkpoint digest to resume" }).fill("A".repeat(64));
+    await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
+    await expect(panel.getByRole("alert")).toContainText("full lowercase SHA-256");
+    expect(posts).toBe(0);
+    await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toHaveCount(0);
+    await panel.getByRole("textbox", { name: "Checkpoint digest to resume" }).fill("a".repeat(64));
+    await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
+    await expect(panel.getByRole("alert")).toBeVisible();
+    expect(posts).toBe(1);
+    await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toHaveCount(0);
   });
 
   test("built CLI executes one explicit attempt on every dispatch and rejects neighbors", () => {

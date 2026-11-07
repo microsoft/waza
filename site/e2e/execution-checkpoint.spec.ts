@@ -5,7 +5,7 @@ import checkpointResultSchema from '../../schemas/runner-checkpoint-result-1.0.s
 test('checkpoint schema notes preserve scope, version and deployed base', async ({ page, request }) => {
   await page.goto('/waza/reference/schema-changes/');
   await expect(page.getByRole('heading', { name: 'Checkpoint declaration 1.0 (unreleased contract layer)', exact: true })).toBeVisible();
-  await expect(page.getByText('The public CLI/API does not yet provide owned checkpoint creation or a resume command.', { exact: true })).toBeVisible();
+  await expect(page.getByText('The unreleased source provides protected checkpoint creation and resume commands for the exact-unit profile.', { exact: true })).toBeVisible();
   const link = page.getByRole('link', { name: 'checkpoint declaration 1.0 schema', exact: true });
   const href = await link.getAttribute('href');
   expect(href).not.toBeNull();
@@ -40,7 +40,20 @@ test('checkpoint schema notes preserve scope, version and deployed base', async 
   expect(resultSchema.$id).toBe('https://microsoft.github.io/waza/schemas/runner-checkpoint-result-1.0.schema.json');
   expect(resultSchema.properties.kind.const).toBe('waza.runner-checkpoint-result');
   expect(resultSchema.properties.schema_version.const).toBe('1.0');
+  expect(resultSchema.properties.source_withheld).toEqual(checkpointResultSchema.properties.source_withheld);
   expect(resultSchema.additionalProperties).toBe(false);
   expect(resultSchema.required).toEqual(expect.arrayContaining(['restored_units', 'remaining_work', 'compatibility_differences']));
   expect(resultSchema.properties.submission.$ref).toBe('execution-submission-result-1.0.schema.json');
+});
+
+test('checkpoint recovery guide preserves deployed navigation, boundaries and withholding limits', async ({ page }) => {
+  await page.goto('/waza/guides/runner-checkpoints/');
+  await expect(page.getByRole('heading', { name: 'Exact-unit checkpoint recovery', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recover before-unit work', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Reuse finalized-unit work', exact: true })).toBeVisible();
+  await expect(page.getByText('fresh retry child', { exact: true })).toBeVisible();
+  await expect(page.getByText('zero new engine calls', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Dashboard Lab', exact: true })).toHaveAttribute('href', '/waza/guides/dashboard-lab/');
+  await expect(page.getByRole('link', { name: 'public schemas', exact: true })).toHaveAttribute('href', '/waza/reference/schema-changes/');
+  await expect(page.getByRole('link', { name: 'Exact-unit Checkpoint Recovery', exact: true })).toHaveAttribute('href', '/waza/guides/runner-checkpoints/');
 });

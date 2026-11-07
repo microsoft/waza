@@ -13,6 +13,7 @@
     "exit_code": {"type": "integer", "minimum": 0, "maximum": 6},
     "submission": {"$ref": "execution-submission-result-1.0.schema.json"},
     "source": {"$ref": "execution-checkpoint-1.0.schema.json"},
+    "source_withheld": {"type": "boolean", "const": true, "description": "Original source metadata was withheld because public capture admission did not succeed. This does not change immutable source records."},
     "before_checkpoint_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "A failed operation may leave only an unverified residue locator."},
     "finalized_checkpoint_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "A failed operation may leave only an unverified residue locator."},
     "compatibility_result": {"enum": ["unavailable", "incompatible", "compatible"]},
@@ -34,6 +35,13 @@
     }
   },
   "allOf": [
+    {
+      "if": {"required": ["source_withheld"]},
+      "then": {
+        "not": {"required": ["source"]},
+        "properties": {"status": {"enum": ["rejected", "submission_error", "checkpoint_error"]}}
+      }
+    },
     {
       "if": {"properties": {"status": {"enum": ["completed", "reused"]}}},
       "then": {
@@ -66,7 +74,13 @@
     },
     {
       "if": {"properties": {"compatibility_result": {"const": "incompatible"}}},
-      "then": {"required": ["source"], "properties": {"status": {"const": "rejected"}, "compatibility_differences": {"minItems": 1}}},
+      "then": {
+        "anyOf": [
+          {"required": ["source"]},
+          {"required": ["source_withheld"], "properties": {"source_withheld": {"const": true}}}
+        ],
+        "properties": {"status": {"const": "rejected"}, "compatibility_differences": {"minItems": 1}}
+      },
       "else": {"properties": {"compatibility_differences": {"maxItems": 0}}}
     }
   ]

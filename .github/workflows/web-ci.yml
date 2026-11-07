@@ -8,6 +8,8 @@ on:
       - 'cmd/waza/**'
       - 'internal/runnercontract/**'
       - 'internal/runnerunit/**'
+      - 'internal/runnercheckpoint/**'
+      - 'internal/ownedsubmission/**'
       - 'internal/runneridentity/**'
       - 'internal/runnerterminal/**'
       - 'internal/executioncheckpoint/**'
@@ -67,6 +69,8 @@ jobs:
               - 'cmd/waza/**'
               - 'internal/runnercontract/**'
               - 'internal/runnerunit/**'
+              - 'internal/runnercheckpoint/**'
+              - 'internal/ownedsubmission/**'
               - 'internal/runneridentity/**'
               - 'internal/runnerterminal/**'
               - 'internal/executioncheckpoint/**'
@@ -116,6 +120,10 @@ jobs:
         working-directory: web
         run: npm run lint
 
+      - name: Build clean-stamped CLI for checkpoint API browser coverage
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        run: go build -o "${RUNNER_TEMP}/waza-checkpoint-e2e" ./cmd/waza
+
       - name: Build dashboard
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         working-directory: web
@@ -132,6 +140,7 @@ jobs:
         working-directory: web
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json
+          WAZA_E2E_CLI: ${{ runner.temp }}/waza-checkpoint-e2e
         run: npx --no-install playwright test --project=chromium --retries=0 --reporter=github,line,json
 
       - name: Upload dashboard test evidence

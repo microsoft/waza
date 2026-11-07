@@ -1,15 +1,17 @@
 # Exact-unit checkpoint contract
 
 Checkpoint schema **1.0 is an additive declaration contract under development
-for #765**, not an operational resume feature. The current
+for #765**. Protected exact-unit operations are implemented in the unreleased
+source; this is not yet a validated release recovery guarantee. The current
 `executioncheckpoint` package provides strict codecs, declared compatibility
 comparison, original-source context admission and ordinary immutable checkpoint
 blob storage, retained-creator boundary publication and typed source
 reads with original-completion stale rejection. The source-level
 `runnercheckpoint` adapter connects these primitives to actual single-admission
-submission, but public CLI/API recovery and interruption evidence remain pending.
-It does not expose an operational resume command. A separate read-only
-API/Lab inspector admits current blob metadata but does not authorize recovery.
+submission and protected public CLI/API creation/recovery. Compiled-CLI
+interruption, hosted browser and native-platform completion gates remain pending.
+A separate read-only API/Lab inspector admits current blob metadata but does not
+authorize recovery.
 Do not treat stored declaration bytes or a passing codec as evidence that
 interruption recovery works.
 
@@ -20,8 +22,8 @@ task/trial/attempt. The checkpoint profile names only these boundaries:
 
 | Boundary | Required contents | Intended owning-caller behavior |
 |---|---|---|
-| `before-unit` | Original execution ID and reservation digest, creation time, compatibility metadata; no completion/manifest references | No completed work is claimed. A future resume caller must obtain a new distinct reservation before constructing an engine. A declaration does not allow reconstructing a lost creator capability. |
-| `finalized-unit` | All preceding fields plus canonical original completion and manifest digests | A future restore caller must reread and verify source ownership, the complete original completion binding, final marker, every declared artifact and the terminal result before skipping the unit. Preserve the original source identity/attempt and failed-check verdicts. |
+| `before-unit` | Original execution ID and reservation digest, creation time, compatibility metadata; no completion/manifest references | No completed work is claimed. The resume caller obtains a new distinct reservation before constructing an engine. A declaration does not allow reconstructing a lost creator capability. |
+| `finalized-unit` | All preceding fields plus canonical original completion and manifest digests | The restore caller rereads and verifies the configured original source, complete original completion binding, final marker, every declared artifact and terminal result before skipping the unit. It preserves original source identity/attempt and failed-check verdicts. |
 
 These are **not mid-runtime snapshots**. SDK sessions, active tools, multi-turn
 responder state, grading-in-progress, filesystem workspaces, pending side effects
@@ -63,8 +65,8 @@ There is no implicit cross-version migration or age-based expiry policy.
 `CurrentRunnerRevision` reads the owning CLI's embedded Go build metadata without
 reading ambient files or invoking Git. It requires the Waza CLI main module/path,
 one exact Git revision and an explicit `vcs.modified: false`. Missing, duplicate,
-dirty, foreign-host and non-Git metadata fail closed. A future CLI recovery caller
-must use this actual build value, not accept `runner_revision` as a user flag.
+dirty, foreign-host and non-Git metadata fail closed. The CLI recovery caller
+uses this actual build value and does not accept `runner_revision` as a user flag.
 Admission tests using authored build metadata are not execution evidence for
 a released binary; production-CLI recovery tests remain required.
 
@@ -131,8 +133,9 @@ from the full current-content/final-marker verification pass. It admits those
 bytes against the independently authenticated original binding and sidecars.
 It never reconstructs an SDK session or runs an engine, and preserves the exact
 original failure/cancellation status, identity and native ordinal. The helper
-does not authenticate a caller-supplied binding or grant execution ownership;
-the owned public restore caller remains required.
+does not authenticate a caller-supplied binding or grant execution ownership.
+The protected public adapter separately performs typed original-source admission
+and capture/disclosure validation through the actual owned submission path.
 
 `PublishFinalized` accepts only the actual retained `Ledger` creator. It compares
 both the supplied original request's full identity **and its explicit selection**
@@ -222,7 +225,17 @@ operation can locate unverified residue; their presence is not publication succe
 Compatibility rejections expose only differing field names, never original
 captured values or provider details. Public serialization and operation transport
 remain gated on the shared owner privacy/capture policy; a library submission's
-retained rich report is not automatically a public response.
+retained rich report is not automatically a public response. The protected
+`SubmitCaptured`/`ResumeCaptured` paths compose actual original-category policy,
+track actual publication/reuse approval, and produce a non-mutating public
+projection. Unapproved original source/partial terminal/report bytes are omitted.
+The output-only optional `source_withheld: true` records source withholding;
+it is mutually exclusive with `source` and forbidden on successful/compatible
+results. Incompatible results retain nonempty field-name-only differences even
+when source metadata cannot be disclosed. False, null and wrong-type markers
+reject, as does a marker plus source. The marker never grants admission or
+ownership and is not accepted in submission input. Optional historical reports
+are omitted only from public output, never rewritten in original storage.
 The read-only source inspector below does not inherit these owning-caller results.
 
 The additive
@@ -235,6 +248,39 @@ rights. Changed boundary/source references, fabricated progress and coherent
 source substitutions reject. Reader admission is not independently verified
 recovery evidence; public transport must still apply the shared capture/privacy
 policy before serializing any rich report.
+
+## Protected public operations (unreleased v0.41 source)
+
+The CLI accepts one `waza.execution-submission` wrapper on stdin:
+`waza runner checkpoint create --store DIRECTORY` or
+`waza runner checkpoint resume CHECKPOINT_SHA256 --store DIRECTORY`.
+The explicit `--azure-container-url` alternative uses the same actual provider
+factory and existing credentials, without automatic login. There is no
+user-supplied runner revision; public operations read the owning CLI's clean
+embedded VCS metadata. Stdout is one strictly validated protected operation
+result. Stderr announces `checkpoint BOUNDARY SHA256` as each stored boundary
+is published, allowing the caller to retain a before-unit reference if interrupted.
+Those references are locators, not completed execution evidence.
+
+The dashboard's literal-loopback, same-origin JSON API provides
+`POST /api/v1/checkpoints` and
+`POST /api/v1/checkpoints/{digest}/resume`. Both use the configured original
+immutable store, the same protected adapter, and the shared bounded transport.
+The wrapper budget is the native 4 MiB request budget plus 8192 bytes. Unsupported
+active providers reject rather than falling back to local storage. Delivery is
+one write/flush with an exit-code header, not a claim of consumer receipt.
+The HTTP response is not a checkpoint discovery stream: an interruption before
+delivery may leave a blob whose digest the caller never received. No pointer,
+catalog or ownership-rehydration API is introduced.
+
+The Lab **Create or resume an exact-unit checkpoint** panel executes explicit
+actions and displays actual operation compatibility/progress, original terminal
+status/native ordinal and new-versus-original engine calls. Source withholding
+is explicit. A separate current blob read displays newly published boundary/time
+as declaration-only metadata, not replacement execution evidence. Input edits,
+failed calls and cancellation clear prior result/metadata; the synthetic demo
+does not run these operations. JSON download preserves the actual protected
+response bytes. See the [operational guide](../site/src/content/docs/guides/runner-checkpoints.mdx).
 
 Focused Unix process controls run actual `Submit`/adapter in a separate test
 process, observe its stored checkpoint reference, kill that exact process and
@@ -277,8 +323,16 @@ blob persistence/concurrency/corruption/failure tests, and context tests
 using actual production mock runner terminal output, including passed and
 failed-check controls. Typed-owner tests also cover foreign/zero creators,
 coherent source selection/identity mismatch, late creator failure and current
-source corruption. Those tests **do not prove single-admission submit ordering,
-kill-and-resume, process-crash durability or exactly-once work**. Complete public
-creation/restore, failed-restore process tests,
-user commands, connected resume examples and authenticated Lab compatibility/progress
-remain required before #765 is complete or a release can advertise recovery.
+source corruption. Separate production submission and protected CLI/HTTP tests
+cover single admission, fresh before-unit retry parents, original failed/canceled
+finalized reuse, unavailable/corrupt source and capture denial. The current-source
+Lab is connected to those public operations; its new browser cases still require
+execution against the exact changed head.
+
+Full compiled-CLI interruption and failed-restore process evidence, native-platform
+checks, hosted dashboard/site validation and matching generated assets remain
+required before #765 is complete or a release can advertise recovery. Library
+process controls are not public-CLI evidence; no check establishes global
+exactly-once work. CLI checkpoint locator delivery on stderr is currently an
+unbounded write, so a blocked locator consumer can stall before-unit admission.
+Do not treat input/output deadline coverage as proof of bounded locator delivery.

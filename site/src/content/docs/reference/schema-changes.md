@@ -64,8 +64,8 @@ digests. It is not a runtime snapshot or an existing-results migration.
 The current source layer provides schema/codec, pure compatibility/context
 admission and immutable declaration blob storage. The source Lab/API can inspect
 current canonical declaration metadata, with ownership, compatibility and restore
-progress explicitly unavailable. **The public CLI/API does not yet provide owned checkpoint
-creation or a resume command.** Keep existing commands and artifact readers
+progress explicitly unavailable. **The unreleased source provides protected checkpoint
+creation and resume commands for the exact-unit profile.** Keep existing commands and artifact readers
 for historical and unsupported workflows. Matching declarations do not confer
 attempt ownership or prove completed evidence. Checkpoint restore must
 independently verify source ownership and finalized content before skipping work.
@@ -92,8 +92,15 @@ The independent
 validates explicit null/known progress, redacted differing compatibility field
 names, actual submission status and original source or fresh-child lineage.
 Static profile admission neither verifies the provider nor authorizes rich-report
-disclosure. Public protected transport, current operational Lab integration and
-real interruption/platform/browser evidence remain delivery requirements.
+disclosure. The output-only optional `source_withheld: true` records omitted
+unapproved source metadata. It cannot coexist with `source` or successful/compatible
+results; incompatible rejections retain field-name-only differences. False, null,
+wrong-type and contradictory markers reject. It does not grant ownership or
+change checkpoint/native artifact reader versions.
+The source CLI/API and Lab now expose explicit protected operations. Compiled-CLI
+interruption, native-platform and current-head browser/full validation remain
+completion gates, not implied by schema admission. See
+[resume examples and troubleshooting](../../guides/runner-checkpoints/).
 
 ### Lifecycle declarations and inspection 1.0 (unreleased source preview)
 
