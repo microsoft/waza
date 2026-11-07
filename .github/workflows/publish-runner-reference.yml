@@ -149,6 +149,7 @@ jobs:
           subject-name: ghcr.io/microsoft/waza-runner-reference
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+          create-storage-record: false
       - name: Revalidate protected main after push and attestation
         id: final_guard
         shell: bash
