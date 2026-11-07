@@ -17,7 +17,7 @@ interface SourceReference {
   manifest_digest: string;
 }
 
-interface SubmissionResult {
+export interface SubmissionResult {
   kind: "waza.execution-submission-result";
   schema_version: "1.0";
   status: "rejected" | "submission_error" | "completed" | "reused";
@@ -26,11 +26,17 @@ interface SubmissionResult {
   caller?: RunnerIdentity;
   reservation?: {
     execution_id: string;
+    logical: { run: string; work: string };
     parent?: { execution_id: string; relationship: "retry" | "branch" };
-    binding: { identity: RunnerIdentity; selection: WorkSelection };
+    binding: { identity: RunnerIdentity; selection: WorkSelection; execution_mode: "mock" | "copilot"; grader_ids: string[] };
   };
   completion?: { execution_id: string; manifest_digest: string; reservation_digest: string };
-  decision?: { policy: "distinct" | "reuse"; source?: SourceReference };
+  decision?: {
+    policy: "distinct" | "reuse"; outcome: "distinct" | "reused";
+    execution_id?: string; source?: SourceReference;
+    logical: { run: string; work: string };
+    binding: { identity: RunnerIdentity; selection: WorkSelection; execution_mode: "mock" | "copilot"; grader_ids: string[] };
+  };
   terminal?: RunnerTerminal;
   diagnostics: { code: string; message: string }[];
 }
@@ -58,6 +64,71 @@ for (const schema of [
   attemptSchema, completionSchema, submissionSchema, checkpointSchema,
 ]) ajv.addSchema(schema);
 const validate = ajv.compile<CheckpointOperationResult>(resultSchema);
+const validateSubmission = ajv.compile<SubmissionResult>(submissionSchema);
+
+function sameIdentity(a: RunnerIdentity | undefined, b: RunnerIdentity | undefined): boolean {
+  return !!a && !!b && ([
+    "version", "canonical_digest", "run", "shard", "task", "trial", "attempt",
+  ] as const).every((key) => a[key] === b[key]);
+}
+
+function sameSelection(a: WorkSelection | undefined, b: WorkSelection | undefined): boolean {
+  return !!a && !!b && (["shard", "task", "trial", "attempt"] as const)
+    .every((key) => a[key] === b[key]);
+}
+
+function validateSubmissionContext(value: SubmissionResult): void {
+  if ("report" in value) throw new Error("Submission API returned an unapproved raw report.");
+  const reservation = value.reservation;
+  const decision = value.decision;
+  const terminal = value.terminal;
+  if (terminal && (value.status === "rejected" || !value.caller || !reservation || !decision)) {
+    throw new Error("Submission terminal has no admitted original ownership context.");
+  }
+  if (reservation && (!value.caller || value.caller.run !== reservation.logical.run ||
+      value.caller.trial !== reservation.logical.work)) {
+    throw new Error("Submission caller does not retain original logical work.");
+  }
+  if (decision && (!reservation || !sameIdentity(decision.binding.identity, value.caller) ||
+      decision.logical.run !== reservation.logical.run ||
+      decision.logical.work !== reservation.logical.work)) {
+    throw new Error("Submission decision contradicts its caller or original work.");
+  }
+  if (decision?.policy === "distinct" && (
+      !reservation || decision.execution_id !== reservation.execution_id ||
+      !sameIdentity(decision.binding.identity, reservation.binding.identity) ||
+      !sameSelection(decision.binding.selection, reservation.binding.selection) ||
+      decision.binding.execution_mode !== reservation.binding.execution_mode ||
+      decision.binding.grader_ids.length !== reservation.binding.grader_ids.length ||
+      decision.binding.grader_ids.some((id, index) => id !== reservation.binding.grader_ids[index]))) {
+    throw new Error("Distinct submission changed its original reservation.");
+  }
+  if (value.completion && (!reservation || value.completion.execution_id !== reservation.execution_id ||
+      (decision?.policy === "reuse" &&
+        (!decision.source || decision.source.execution_id !== reservation.execution_id ||
+          decision.source.manifest_digest !== value.completion.manifest_digest)))) {
+    throw new Error("Submission completion or reuse source contradicts its original.");
+  }
+  if (terminal && ((reservation && (!sameIdentity(terminal.identity, reservation.binding.identity) ||
+      !sameSelection(terminal.selection, reservation.binding.selection))) ||
+      (value.status !== "submission_error" && value.exit_code !== terminal.exit_code) ||
+      (value.status !== "reused" && value.engine_calls !== terminal.engine_calls))) {
+    throw new Error("Submission changed its original native terminal or call count.");
+  }
+  if (terminal?.observation && (!sameSelection(terminal.selection, terminal.observation.selection) ||
+      terminal.observation.attempts !== terminal.selection?.attempt ||
+      terminal.observation.engine_calls !== terminal.engine_calls ||
+      (reservation && terminal.observation.execution_mode !== reservation.binding.execution_mode))) {
+    throw new Error("Submission observation changed the original native ordinal.");
+  }
+}
+
+export function parseProtectedSubmissionResult(text: string): SubmissionResult {
+  const value = parseStrictJSON(text);
+  if (!validateSubmission(value)) throw new Error("Submission API returned an invalid result.");
+  validateSubmissionContext(value);
+  return value;
+}
 
 // This consumes protected operation responses, never authorizes source
 // disclosure or infers recovery from a declaration-only inspection receipt.
@@ -72,6 +143,7 @@ export function parseCheckpointOperationResult(text: string): CheckpointOperatio
     throw new Error("Checkpoint API returned one reference for different safe boundaries.");
   }
   const submission = value.submission;
+  if (submission) validateSubmissionContext(submission);
   if (submission && "report" in submission) {
     throw new Error("Checkpoint API returned an unapproved raw report.");
   }

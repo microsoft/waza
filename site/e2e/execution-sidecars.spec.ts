@@ -9,6 +9,8 @@ test('codec-preview guidance links to actual versioned sidecar schemas', async (
   const expected = [
     ['attempt and duplicate-decision schema', 'execution-attempt-1.0.schema.json', 'waza.execution-attempt'],
     ['completion-reference schema', 'execution-completion-1.0.schema.json', 'waza.execution-completion'],
+    ['submission request schema', 'execution-submission-1.0.schema.json', 'waza.execution-submission'],
+    ['submission result', 'execution-submission-result-1.0.schema.json', 'waza.execution-submission-result'],
   ] as const;
   for (const [label, filename, kind] of expected) {
     const link = page.getByRole('link', { name: label, exact: true });

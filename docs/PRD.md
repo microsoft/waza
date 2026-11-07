@@ -94,6 +94,18 @@ and an explicit manifest; no billing, evidence or execution attestation is
 invented. Attempt ownership remains the separate #764 contract. See
 [publication and migration](IMMUTABLE_ARTIFACTS.md).
 
+The unreleased owned-execution layer (#764) adds opt-in captured `runner submit`
+and protected loopback HTTP submission. A fresh retained execution ID is
+independent of native attempt ordinals; explicit reuse verifies original
+completion/content/context without new engine calls or terminal retagging.
+The same first manifest includes protected category, original attempt and fixed
+lifecycle metadata. Raw reports and unadmitted binding/source text are withheld.
+Failures and historical billing attribution remain original, not reclassified
+as success or new charges. Retry/branch parents are append-only with incomparable
+siblings, not a global order or exactly-once claim. Lab consumption and broader
+native, hosted-browser and release acceptance remain separate validation gates.
+See [submission and migration](../site/src/content/docs/guides/immutable-artifacts.mdx#execute-distinct-work-or-explicitly-reuse-its-original).
+
 The unreleased lifecycle layer (#767) adds bounded declared transitions,
 immutable observations and read-only CLI/API/Lab source inspection from explicit
 retained original admission and ordered digests. Verified worker state,
