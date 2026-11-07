@@ -5,8 +5,10 @@ for #765**, not an operational resume feature. The current
 `executioncheckpoint` package provides strict codecs, declared compatibility
 comparison, original-source context admission and ordinary immutable checkpoint
 blob storage, retained-creator boundary publication and typed source
-reads with original-completion stale rejection. It does not reserve attempts, provide the single-admission public
-safe-boundary creation/restore flow or expose an operational resume command. A separate read-only
+reads with original-completion stale rejection. The source-level
+`runnercheckpoint` adapter connects these primitives to actual single-admission
+submission, but public CLI/API recovery and interruption evidence remain pending.
+It does not expose an operational resume command. A separate read-only
 API/Lab inspector admits current blob metadata but does not authorize recovery.
 Do not treat stored declaration bytes or a passing codec as evidence that
 interruption recovery works.
@@ -169,6 +171,42 @@ may complete after the check, and an already-completed child is not discovered
 by probing the original parent alone. Distinct children do not reclaim the
 original creator or overwrite records. Preserve source and child evidence;
 do not infer global completed-work discovery or concurrent retry exclusion.
+
+### Source-level owning caller adapter
+
+`runnercheckpoint.Service` wraps the actual `runnerunit.Service.Submit` once.
+It does not copy semantic admission, factory construction, execution or terminal
+lifecycle. The host supplies the real `CurrentRunnerRevision` value; library
+tests using authored revisions do not prove clean production build admission.
+
+`Submit` creates a before checkpoint in the actual retained-creator `Reserved`
+hook before factory construction. The embedding host's existing reservation
+observer runs first; checkpoint publication then validates the original creator
+and frozen request. The separate `Published` callback receives an actual stored
+checkpoint digest and boundary, not a guessed extra-artifact or lifecycle profile.
+The actual joined `Terminal` hook remains **before** manifest publication and
+completion. Finalized checkpoint publication occurs only after actual `Submit`
+returns its verified completion with the retained creator still in-process.
+Publication/callback failures preserve available digest locators and partial
+source records, return errors, and do not create success-shaped progress.
+
+`Resume` admits current compatibility and actual original source records.
+Before-unit recovery supplies a new distinct child with immutable `retry`
+lineage to that exact original reservation, and rechecks the original completion
+state in the real pre-factory callback. Finalized recovery uses actual explicit
+source reuse, without callbacks, fresh IDs or engine construction. Original
+terminal/report bytes, failed/canceled status and native ordinal are retained.
+Omitted policy selects this boundary-specific operation; explicit conflicting
+parent/source/mode declarations reject rather than being silently rewritten.
+Ordinary submission omission still means distinct execution.
+
+Successful finalized reuse reports one restored unit, zero remaining work and
+the actual submission's zero new engine calls. A fresh child reports zero restored
+units and, only after actual completed publication, zero remaining work. These
+counts describe this selected exact unit, not global work or successful grading.
+Rejected/unknown restore progress remains null. Digest fields on a failed
+operation can locate unverified residue; their presence is not publication success.
+The read-only source inspector below does not inherit these owning-caller results.
 
 ### Read-only source inspection
 
