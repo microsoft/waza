@@ -248,7 +248,7 @@ summary error counters retain the operational classification, including exports.
 |---|---|
 | `run` | 0 success, 1 failed task validation, 2 configuration/runtime error |
 | `gate` | 0 pass, 1 regression/task-set policy, 2 golden failure, 3 configuration error |
-| `grade` | Emits JSON `passed: false` for a completed failed verdict but exits 0; consumers must inspect the verdict. Operational grading or retained execution errors use exit 2, emit `status: error` without `overall_score`, and preserve requested regraded output. |
+| `grade` | Emits JSON `passed: false` for a completed failed verdict but exits 0; consumers must inspect the verdict. Operational grading or retained execution errors use exit 2. Frozen-evidence task-grading failures and retained execution errors emit `status: error` without `overall_score` and preserve requested regraded output. Other non-evidence grader errors can return before publishing JSON or regraded output. |
 | `replay` | 0 consistency pass, 1 inconsistency/divergence; configuration errors use the normal error exit |
 
 ## Explicit native release-policy addition
