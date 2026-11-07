@@ -14,6 +14,7 @@ func TestDockerGoCacheContract(t *testing.T) {
 	}
 	source := string(data)
 	check := func(source string) error {
+		source = strings.ReplaceAll(source, "\r\n", "\n")
 		if !strings.HasPrefix(source, "# syntax=docker/dockerfile:1\n") {
 			return fmt.Errorf("Dockerfile must select the cache-mount frontend")
 		}
@@ -37,6 +38,16 @@ func TestDockerGoCacheContract(t *testing.T) {
 	if err := check(source); err != nil {
 		t.Fatal(err)
 	}
+	source = strings.ReplaceAll(source, "\r\n", "\n")
+	t.Run("crlf-checkout", func(t *testing.T) {
+		crlf := strings.ReplaceAll(source, "\n", "\r\n")
+		if crlf == source || !strings.Contains(crlf, "\r\n") {
+			t.Fatal("CRLF control did not change the production Dockerfile line endings")
+		}
+		if err := check(crlf); err != nil {
+			t.Fatal(err)
+		}
+	})
 	for _, mutation := range []struct {
 		name, old, replacement string
 	}{
