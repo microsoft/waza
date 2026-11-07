@@ -72,7 +72,7 @@ function ManifestInspector() {
           {catalog.truncated && <p>Discovery is truncated; this is not a complete result inventory.</p>}
           {catalog.manifest_sha256.length === 0 && <p>No manifest pointers were returned.</p>}
           <ul>{catalog.manifest_sha256.map((value) => (
-            <li key={value}><button className="lab-button" onClick={() => {
+            <li key={value}><button className="lab-button lab-manifest-pointer" onClick={() => {
               request.current?.abort();
               setDigest(value);
               setResult(null);
@@ -109,6 +109,7 @@ function ManifestInspector() {
           </dl>
           <h3>Declared artifacts</h3>
           {result.receipt.artifacts.length === 0 ? <p>No artifact declarations available.</p> : (
+            <div className="lab-table-scroll" tabIndex={0} role="region" aria-label="Artifact inspection details">
             <table>
               <caption>Per-artifact content integrity</caption>
               <thead><tr><th scope="col">Logical name</th><th scope="col">Integrity</th><th scope="col">SHA-256</th><th scope="col">Size (bytes)</th><th scope="col">Media type</th></tr></thead>
@@ -124,6 +125,7 @@ function ManifestInspector() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
           <h3>Logical-name diagnostics</h3>
           {result.receipt.diagnostics.length === 0 ? <p>No diagnostics reported.</p> : (

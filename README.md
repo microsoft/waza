@@ -2445,6 +2445,10 @@ cleanup failures are reported. Published `v0.39.1` does not provide this file.
 
 See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration options and examples.
 
+Newly generated workspace-capture diagnostics omit absolute paths and raw
+filesystem errors while retaining typed causes internally. This is not general
+artifact redaction; see the [capture diagnostic boundary](docs/graders/diff.md).
+
 ## Documentation
 
 - **[Getting Started](docs/GETTING-STARTED.md)** - Complete walkthrough: init → new → run → check
