@@ -120,8 +120,11 @@ waza artifact inspect "$DIGEST" \
 
 Create the container and provision access separately. The CLI uses available
 default credentials; Go callers supply an explicit credential to the backend.
-This path does not run login. Use an HTTPS container URL without embedded
-credentials, query/SAS tokens, or fragments.
+This path does not initiate interactive login. Token acquisition may invoke
+installed Azure CLI or azd credential helpers; runtime authentication is not
+process-free. Pure manifest/schema validation does not open providers or invoke
+those helpers. Use an HTTPS container URL without embedded credentials,
+query/SAS tokens, or fragments.
 
 Local storage uses a no-replace hard link; Azure uses conditional PUT
 (`If-None-Match: *`). Both verify existing objects before accepting identical

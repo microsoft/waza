@@ -43,7 +43,7 @@ func newArtifactCommand() *cobra.Command {
 		Long: "Opt-in immutable publication. Verification checks content and declared context, not execution attestation. Legacy result storage is unchanged.",
 	}
 	cmd.PersistentFlags().StringVar(&directory, "store", ".waza-artifacts", "Existing private local immutable store directory")
-	cmd.PersistentFlags().StringVar(&azureURL, "azure-container-url", "", "Explicit HTTPS Azure container URL; uses existing credentials without signing in")
+	cmd.PersistentFlags().StringVar(&azureURL, "azure-container-url", "", "Explicit HTTPS Azure container URL; uses existing credentials without initiating interactive login")
 	cmd.MarkFlagsMutuallyExclusive("store", "azure-container-url")
 	cmd.AddCommand(newArtifactEvidenceCommand())
 

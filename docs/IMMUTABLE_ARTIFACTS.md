@@ -245,7 +245,10 @@ not adversarial external replacement or durable ownership attestation.
 opener used by the CLI and native API. An explicit Azure URL selects Azure,
 never a local fallback; an omitted URL opens only the existing local directory.
 It returns the actual backend and its close operation so bounded consumers can
-wrap reads before constructing a `Store`. It does not sign in.
+wrap reads before constructing a `Store`. It does not initiate interactive
+Azure login. Token acquisition can invoke installed Azure CLI or azd credential
+helpers; runtime provider authentication is not process-free. Pure schema and
+manifest validation do not open providers or invoke those helpers.
 
 `Store.ReadCompleted(ctx, digest, artifactNames...)` returns a
 `CompletedPublication` containing the canonical `Manifest`, its exact
@@ -265,6 +268,9 @@ successful execution. Ordinary `Inspect` still reports verified but unfinalized
 declarations. Returned manifest and byte slices are invocation-owned, not cached
 mutable storage pointers. Consumers must validate the captured terminal and
 their own source-binding profiles; the receipt is not execution attestation.
+If the manifest is later missing or corrupt, inspection still checks its final
+marker independently and retains both publication state and content failure.
+A matching marker never makes failed or unavailable content verified.
 
 Local storage retains an `os.Root` handle. It stages bytes using exclusive
 creation with mode `0600`, sets the owned descriptor read-only (`0400`), checks
