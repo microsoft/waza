@@ -12,7 +12,8 @@ immutable publications without starting workers, models, grader subprocesses, lo
 project configuration, or performing an update check. The selected local store
 must already exist. Explicit `--azure-container-url` selects Azure instead of
 `--store`, using the shared immutable provider factory and existing credentials.
-There is no provider fallback or implicit login.
+There is no provider fallback, and aggregation does not initiate interactive
+Azure login.
 
 The aggregation core receives an already selected backend and constructs no
 runtime or credentials. Explicit Azure CLI/API reads use the shared provider's
@@ -63,6 +64,12 @@ not a promise that a mutable/corrupt provider will always return the old report.
 compatible, nonconflicting success/evaluation-failure terminal publications.
 It is **membership completeness**, not evidence completeness or a passing
 evaluation. `evaluation_failure` retains actual failing verdicts.
+Selected sidecar/category admission failures and failed declared source context
+also keep the operation incomplete. For example, every member may retain
+`success` while one selected sidecar's `source_context.state` is `missing`:
+the state counts still describe the original terminals, but the API returns
+409 and the CLI exits 2. Do not infer whole-operation success from member counts
+or from the sidecar's independent byte-verification state.
 
 Missing manifests/artifacts, unfinalized sources, corruption, conflicts,
 unsupported profiles, cancellation, timeout and infrastructure failure remain
@@ -125,6 +132,26 @@ native shape observations remain separately labeled. Without a source
 declaration, context remains unavailable and no namespace is opened.
 Even verified context establishes only content and declared-context consistency:
 it does not hydrate Creator authority, prove live execution or authorize billing.
+When the verified canonical attempt declares a parent, optional
+`source_context.parent_context` reports only that immediate edge. A retry source
+link requires current canonical parent completion, finalized manifest and exact
+descriptor/reservation agreement for the same logical work. This extra lookup
+is nonsnapshot and shares the existing 256 MiB budget. Missing abandoned parents
+remain unavailable; corruption, conflict, limits and cancellation retain their
+diagnostics and make the operation incomplete (API 409, CLI 2) without erasing
+already verified child or category facts. Bad parent links are withheld.
+Branch declarations remain `branch`/`unavailable`; no latest attempt or
+transitive execution graph is inferred. No-parent attempts omit the new view.
+Original manifest bytes, sidecar `lineage`, source lists and billing are unchanged.
+The nested view is preserved inside the existing `source_context_json` CSV
+column, not a new column or a rewrite of manifest-only exports.
+
+Read-only consumers use `manifestaggregate.NewEvidenceReader` once per response,
+then its `InspectCategories` and `InspectSourceContext` methods. They share one
+private counter and expose no writer, raw namespace, undecorated backend or
+counter accessor. A failed primary category admission prevents optional parent
+reads. Consumers must preserve both returned errors and independently valid
+facts; verified child context alone is not whole-response success.
 Future usage integration must reuse `models.AggregateUsageStats`, preserve
 recorded zero/precision and original source usage, and exclude reused/cached
 historical execution usage from new-operation billing. A historical observed
@@ -186,7 +213,8 @@ preserved integer tokens rather than rounded JavaScript numbers, including
 9007199254740993 and MaxInt64. Lab CSV derives from its captured response without
 rereading sources; separate CLI/API invocations are separate observations.
 Optional-evidence CSV appends separate native category and declaration JSON
-columns; manifest-only CSV keeps its existing header and bytes.
+columns plus `source_context_json`; manifest-only CSV keeps its existing header
+and bytes. An unread/unselected sidecar cannot supply a source-context claim.
 The aggregate's native usage fragment intentionally supports int64 counts;
 it does not change assurance profiles' separate JavaScript-safe integer bounds.
 Input edits and failed reloads clear prior
@@ -205,10 +233,12 @@ Unknown future profiles are not implicitly upgraded; adopt a separately
 reviewed aggregate reader/profile. Frozen historical result compatibility
 continues to use the existing compatibility corpus.
 
-Full #766 remains open until the actual public producer and budgeted retained
-source/ledger integration are complete, all category/source/usage controls pass,
-and the required Go/compatibility,
-dashboard/site browser, screenshot and independent review gates complete.
+The actual read-only ledger adapter and same-manifest producer descriptor
+bridge are integrated into the bounded source-context layer. Full #766 remains
+open until the owning public producers/consumers are aligned on the combined
+source, all category/source/usage controls and required Go/compatibility,
+dashboard/site browser, screenshot and independent review gates complete,
+and the user/developer documentation is published with the tested release.
 Pure codecs, authored controls, mock producer integration and build success
 alone do not prove live agent quality, native Windows behavior or publication.
 

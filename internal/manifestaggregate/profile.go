@@ -180,6 +180,19 @@ func validateEvidenceReport(report Report) error {
 					(source.State != "verified" && source.Verification != "unverified") {
 					return fmt.Errorf("%w: original source context contradicts admitted evidence", ErrInvalid)
 				}
+				if parent := source.ParentContext; parent != nil {
+					if source.State != "verified" || source.Source == nil ||
+						(parent.Relationship != "retry" && parent.Relationship != "branch") ||
+						(parent.Relationship == "branch" && parent.State != "unavailable") ||
+						(parent.State == "verified" && (parent.Relationship != "retry" || parent.Source == nil ||
+							parent.Verification != "content-and-declared-context-only" ||
+							parent.Source.ExecutionID == source.Source.ExecutionID ||
+							parent.Source.ManifestDigest == source.Source.ManifestDigest)) ||
+						(parent.State != "verified" && (parent.Source != nil || parent.Verification != "unverified")) ||
+						(parent.Relationship == "retry" && parent.State != "verified" && report.Completion != "incomplete") {
+						return fmt.Errorf("%w: immediate parent context contradicts admitted child", ErrInvalid)
+					}
+				}
 			}
 			if candidate.State != "verified" {
 				continue

@@ -63,8 +63,16 @@ type EvidenceCandidate struct {
 }
 
 type SourceContext struct {
+	State         string                   `json:"state"`
+	Verification  string                   `json:"verification"`
+	Source        *executionattempt.Source `json:"source,omitempty"`
+	ParentContext *ParentContext           `json:"parent_context,omitempty"`
+}
+
+type ParentContext struct {
 	State        string                   `json:"state"`
 	Verification string                   `json:"verification"`
+	Relationship string                   `json:"relationship"`
 	Source       *executionattempt.Source `json:"source,omitempty"`
 }
 
@@ -164,7 +172,8 @@ func inspectEvidenceCandidate(ctx context.Context, backend *boundedBackend, refe
 	}
 	hits, unavailable := backend.hits, backend.unavailable
 	missingFinal, missingObjects, nonFinalErrors := backend.missingFinal, backend.missingObjects, backend.nonFinalErrors
-	inspection, categories, err := evidencestate.InspectCategories(ctx, backend, reference.EvidenceSHA256)
+	reader := &EvidenceReader{backend: backend}
+	inspection, categories, err := reader.InspectCategories(ctx, reference.EvidenceSHA256)
 	if backend.unavailable != unavailable {
 		err = errors.Join(err, ErrUnavailable)
 	}
@@ -244,12 +253,18 @@ func inspectEvidenceCandidate(ctx context.Context, backend *boundedBackend, refe
 		}
 	}
 	slices.SortFunc(result.Categories, func(a, b AdmittedCategory) int { return strings.Compare(string(a.Category), string(b.Category)) })
-	sourceContext, sourceErr := inspectSourceContext(ctx, backend, *inspection.Document)
+	sourceContext, sourceErr := reader.InspectSourceContext(ctx, *inspection.Document)
 	result.SourceContext = sourceContext
 	if sourceErr != nil {
-		result.Diagnostics = append(result.Diagnostics, artifactmanifest.Diagnostic{
+		diagnostic := artifactmanifest.Diagnostic{
 			Code: "original_source_context_withheld", Message: "Current reservation, completion and original attempt bytes were not admitted together. Native shapes remain a separate observation; no retained-source or billing claim is made.",
-		})
+		}
+		if sourceContext != nil && sourceContext.State == "verified" && sourceContext.ParentContext != nil {
+			diagnostic = artifactmanifest.Diagnostic{
+				Code: "retry_parent_context_withheld", Message: "The immediate declared parent was not admitted. Verified child and category facts remain separate; no parent source link or runtime claim is made.",
+			}
+		}
+		result.Diagnostics = append(result.Diagnostics, diagnostic)
 	}
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, artifactmanifest.Diagnostic{

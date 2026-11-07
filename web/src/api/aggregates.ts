@@ -5,6 +5,7 @@ import attemptSchema from "../../../schemas/execution-attempt-1.0.schema.json";
 import manifestSchema from "../../../schemas/artifact-manifest-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
 import { parseStrictJSON } from "../lib/strictJson";
+import { sourceContextConsistent, type SourceContext } from "../lib/sourceContext";
 import type { EvidenceCategory, EvidenceState } from "./executionEvidence";
 
 export interface EvidenceInput { manifest_sha256: string; evidence_sha256: string }
@@ -32,10 +33,7 @@ export interface EvidenceCandidate {
   }[];
   categories: AdmittedCategory[];
   usage?: RecordedUsage;
-  source_context?: {
-    state: string; verification: "unverified" | "content-and-declared-context-only";
-    source?: { execution_id: string; manifest_digest: string };
-  };
+  source_context?: SourceContext;
   diagnostics: { code: string; message: string }[];
 }
 export interface LoadedAggregate {
@@ -224,12 +222,8 @@ export async function aggregateManifests(manifests: string[], signal: AbortSigna
         if (candidate.evidence_sha256 !== requested[candidateIndex]) {
           throw new AggregateError("Aggregate API returned unsorted or unrequested sidecars.");
         }
-        const source = candidate.source_context;
-        if (source && (candidate.state !== "verified" ||
-            (source.source !== undefined && source.source.manifest_digest !== candidate.origin_manifest) ||
-            (source.source !== undefined && source.state !== "verified" && value.completion !== "incomplete") ||
-            (source.state === "verified" && (!source.source || source.verification !== "content-and-declared-context-only")) ||
-            (source.state !== "verified" && source.verification !== "unverified"))) {
+        if ((candidate.source_context !== undefined && candidate.state !== "verified") ||
+            !sourceContextConsistent(candidate.source_context, candidate.origin_manifest, value.completion === "incomplete")) {
           throw new AggregateError("Aggregate API returned contradictory original source context.");
         }
         if (candidate.state !== "verified") continue;
