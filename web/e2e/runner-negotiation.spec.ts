@@ -147,12 +147,43 @@ test.describe("Runner negotiation through the real Go API", () => {
     await panel.getByRole("textbox", { name: "Captured checkpoint submission (JSON)" }).fill(JSON.stringify(request));
     await panel.getByRole("textbox", { name: "Checkpoint digest to resume" }).fill(produced.finalized_checkpoint_sha256);
     await expect(panel.getByRole("status", { name: "Checkpoint operation result" })).toHaveCount(0);
+    const resumedResponse = page.waitForResponse((value) =>
+      new URL(value.url()).pathname === `/api/v1/checkpoints/${produced.finalized_checkpoint_sha256}/resume`);
     await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
+    const resumed = JSON.parse(await (await resumedResponse).text());
+    expect(resumed.status).toBe("reused");
+    expect(resumed.submission.caller.attempt).toBe(3);
+    expect(resumed.submission.reservation.binding.identity.attempt).toBe(2);
     const restored = panel.getByRole("status", { name: "Checkpoint operation result" });
     await expect(restored).toContainText("reused");
     await expect(restored).toContainText("evaluation_failure");
     await expect(restored.locator("dt").filter({ hasText: /^New engine calls$/ }).locator("xpath=following-sibling::dd[1]")).toHaveText("0");
     await expect(restored.locator("dt").filter({ hasText: /^Original native attempt$/ }).locator("xpath=following-sibling::dd[1]")).toHaveText("2");
+    for (const field of ["run", "trial"] as const) {
+      const contradiction = structuredClone(resumed);
+      const original = contradiction.submission.reservation.binding.identity[field];
+      const changed = field === "run" ? `${original}-retagged` : original + 1;
+      contradiction.submission.reservation.binding.identity[field] = changed;
+      contradiction.submission.terminal.identity[field] = changed;
+      expect(contradiction.submission.reservation.binding.identity[field]).not.toBe(original);
+      expect(contradiction.submission.reservation.logical).toEqual(resumed.submission.reservation.logical);
+      expect(contradiction.submission.caller).toEqual(resumed.submission.caller);
+      expect(contradiction.submission.decision).toEqual(resumed.submission.decision);
+      const pattern = `**/api/v1/checkpoints/${produced.finalized_checkpoint_sha256}/resume`;
+      const nearMiss = (route: Route) => route.fulfill({
+        contentType: "application/json", headers: { "X-Waza-Exit-Code": String(resumed.exit_code) },
+        json: contradiction,
+      });
+      await page.route(pattern, nearMiss);
+      try {
+        await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
+        await expect(panel.getByRole("alert")).toContainText("invalid operation result");
+        await expect(restored).toHaveCount(0);
+        await expect(panel.getByRole("button", { name: "Download checkpoint result JSON", exact: true })).toHaveCount(0);
+      } finally {
+        await page.unroute(pattern, nearMiss);
+      }
+    }
     await panel.getByRole("textbox", { name: "Checkpoint digest to resume" }).fill(produced.before_checkpoint_sha256);
     await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
     const rejected = panel.getByRole("alert", { name: "Checkpoint operation result" });
