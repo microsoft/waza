@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId, useMemo } from "react";
 
 export interface DataPoint {
   label: string;
@@ -15,11 +15,54 @@ const PADDING = { top: 20, right: 16, bottom: 32, left: 56 };
 const CHART_HEIGHT = 200;
 const GRID_LINES = 5;
 
+function chartGeometry(data: DataPoint[], svgWidth: number) {
+  const plotW = svgWidth - PADDING.left - PADDING.right;
+  const plotH = CHART_HEIGHT - PADDING.top - PADDING.bottom;
+  let minVal = Infinity;
+  let maxVal = -Infinity;
+  for (const point of data) {
+    minVal = Math.min(minVal, point.value);
+    maxVal = Math.max(maxVal, point.value);
+  }
+  const range = maxVal - minVal || 1;
+  const yMin = minVal - range * 0.1;
+  const yMax = maxVal + range * 0.1;
+  const yRange = yMax - yMin || 1;
+  const toX = (index: number) =>
+    PADDING.left +
+    (data.length === 1 ? plotW / 2 : (index / (data.length - 1)) * plotW);
+  const toY = (value: number) =>
+    PADDING.top + plotH - ((value - yMin) / yRange) * plotH;
+  const coordinates = data.map((point, index) => ({
+    x: toX(index),
+    y: toY(point.value),
+  }));
+  const linePath = coordinates
+    .map(({ x, y }, index) => `${index === 0 ? "M" : "L"} ${x} ${y}`)
+    .join(" ");
+
+  return {
+    plotW,
+    plotH,
+    toX,
+    toY,
+    linePath,
+    areaPath: data.length
+      ? `${linePath} L ${toX(data.length - 1)} ${PADDING.top + plotH} L ${toX(0)} ${PADDING.top + plotH} Z`
+      : "",
+    gridYValues: Array.from(
+      { length: GRID_LINES },
+      (_, index) => yMin + (yRange * index) / (GRID_LINES - 1),
+    ),
+  };
+}
+
 export default function TrendChart({
   title,
   data,
   formatValue,
 }: TrendChartProps) {
+  const markerId = `trend-point-${useId().replace(/:/g, "")}`;
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltip, setTooltip] = useState<{
     x: number;
@@ -41,6 +84,11 @@ export default function TrendChart({
     return () => observer.disconnect();
   }, []);
 
+  const geometry = useMemo(
+    () => chartGeometry(data, svgWidth),
+    [data, svgWidth],
+  );
+
   if (data.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
@@ -52,31 +100,15 @@ export default function TrendChart({
     );
   }
 
-  const values = data.map((d) => d.value);
-  const minVal = Math.min(...values);
-  const maxVal = Math.max(...values);
-  const range = maxVal - minVal || 1;
-  const yMin = minVal - range * 0.1;
-  const yMax = maxVal + range * 0.1;
-  const yRange = yMax - yMin || 1;
-
-  const plotW = svgWidth - PADDING.left - PADDING.right;
-  const plotH = CHART_HEIGHT - PADDING.top - PADDING.bottom;
-
-  const toX = (i: number) =>
-    PADDING.left + (data.length === 1 ? plotW / 2 : (i / (data.length - 1)) * plotW);
-  const toY = (v: number) =>
-    PADDING.top + plotH - ((v - yMin) / yRange) * plotH;
-
-  const linePath = data
-    .map((d, i) => `${i === 0 ? "M" : "L"} ${toX(i)} ${toY(d.value)}`)
-    .join(" ");
-
-  const areaPath = `${linePath} L ${toX(data.length - 1)} ${PADDING.top + plotH} L ${toX(0)} ${PADDING.top + plotH} Z`;
-
-  const gridYValues = Array.from({ length: GRID_LINES }, (_, i) =>
-    yMin + (yRange * i) / (GRID_LINES - 1),
-  );
+  const {
+    plotW,
+    plotH,
+    toX,
+    toY,
+    linePath,
+    areaPath,
+    gridYValues,
+  } = geometry;
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const svg = svgRef.current;
@@ -84,15 +116,14 @@ export default function TrendChart({
     const rect = svg.getBoundingClientRect();
     const mx = e.clientX - rect.left;
 
-    let closest = 0;
-    let closestDist = Infinity;
-    for (let i = 0; i < data.length; i++) {
-      const dist = Math.abs(toX(i) - mx);
-      if (dist < closestDist) {
-        closestDist = dist;
-        closest = i;
-      }
-    }
+    const position =
+      plotW > 0
+        ? ((mx - PADDING.left) / plotW) * (data.length - 1)
+        : 0;
+    const closest = Math.max(
+      0,
+      Math.min(data.length - 1, Math.ceil(position - 0.5)),
+    );
 
     const pt = data[closest];
     if (!pt) return;
@@ -114,6 +145,26 @@ export default function TrendChart({
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTooltip(null)}
       >
+        <defs>
+          <marker
+            id={markerId}
+            markerWidth={10}
+            markerHeight={10}
+            refX={5}
+            refY={5}
+            markerUnits="userSpaceOnUse"
+          >
+            <circle
+              cx={5}
+              cy={5}
+              r={3}
+              fill="rgb(59 130 246)"
+              stroke="rgb(39 39 42)"
+              strokeWidth={2}
+            />
+          </marker>
+        </defs>
+
         {/* Grid lines */}
         {gridYValues.map((v, i) => (
           <g key={i}>
@@ -184,17 +235,16 @@ export default function TrendChart({
         />
 
         {/* Data points */}
-        {data.map((d, i) => (
-          <circle
-            key={i}
-            cx={toX(i)}
-            cy={toY(d.value)}
-            r={3}
-            fill="rgb(59 130 246)"
-            stroke="rgb(39 39 42)" // zinc-800
-            strokeWidth={2}
-          />
-        ))}
+        <path
+          data-testid="trend-points"
+          data-point-count={data.length}
+          d={linePath}
+          fill="none"
+          stroke="none"
+          markerStart={`url(#${markerId})`}
+          markerMid={`url(#${markerId})`}
+          markerEnd={`url(#${markerId})`}
+        />
 
         {/* Tooltip crosshair & dot */}
         {tooltip && (
@@ -222,6 +272,7 @@ export default function TrendChart({
       {/* Tooltip overlay */}
       {tooltip && (
         <div
+          data-testid="trend-tooltip"
           className="pointer-events-none absolute z-10 rounded bg-zinc-700 px-2 py-1 text-xs text-zinc-100 shadow-lg"
           style={{
             left: tooltip.x,
