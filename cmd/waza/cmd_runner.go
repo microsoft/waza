@@ -27,6 +27,7 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(newRunnerAdaptCommand())
+	cmd.AddCommand(newRunnerCheckpointCommand(service))
 	cmd.AddCommand(&cobra.Command{
 		Use: "capabilities", Short: "Print supported runner versions and capabilities as JSON",
 		Args: cobra.NoArgs,

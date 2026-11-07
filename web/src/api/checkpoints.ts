@@ -66,7 +66,7 @@ const validateInspection = ajv.compile<CheckpointInspection>({
   else: { not: { required: ["checkpoint"] } },
 });
 
-function canonicalTime(value: string): boolean {
+export function isCanonicalCheckpointTime(value: string): boolean {
   const match = value.match(/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.[0-9]{0,8}[1-9])?Z$/);
   const seconds = match?.[1];
   if (!seconds || seconds.startsWith("0000")) return false;
@@ -100,7 +100,7 @@ export async function inspectCheckpoint(digest: string, signal: AbortSignal): Pr
   }
   if (!validateInspection(value) || value.checkpoint_sha256 !== digest ||
       (response.status === 200) !== (value.availability === "blob-verified") ||
-      (value.checkpoint !== undefined && !canonicalTime(value.checkpoint.created_at))) {
+      (value.checkpoint !== undefined && !isCanonicalCheckpointTime(value.checkpoint.created_at))) {
     throw new CheckpointInspectionError("Checkpoint API returned invalid or inconsistent source metadata.");
   }
   return value;

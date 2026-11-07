@@ -37,6 +37,7 @@ type Result struct {
 	ExitCode                 int                             `json:"exit_code"`
 	Submission               *runnerunit.Submission          `json:"submission,omitempty"`
 	Source                   *executioncheckpoint.Checkpoint `json:"source,omitempty"`
+	SourceWithheld           bool                            `json:"source_withheld,omitempty"`
 	BeforeDigest             string                          `json:"before_checkpoint_sha256,omitempty"`
 	FinalizedDigest          string                          `json:"finalized_checkpoint_sha256,omitempty"`
 	CompatibilityResult      string                          `json:"compatibility_result"`

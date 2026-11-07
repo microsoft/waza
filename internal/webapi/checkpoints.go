@@ -102,11 +102,15 @@ func registerCheckpointRoutes(mux *http.ServeMux, inspector checkpointBlobInspec
 // RegisterCheckpointRoutes reads only caller-known digests in the configured
 // immutable store. It cannot discover checkpoints or execute/restore work.
 func RegisterCheckpointRoutes(mux *http.ServeMux, resultsDir string, config *projectconfig.StorageConfig) {
+	registerCheckpointRoutes(mux, checkpointBlobInspector{open: checkpointBackendFor(resultsDir, config)})
+}
+
+func checkpointBackendFor(resultsDir string, config *projectconfig.StorageConfig) func() (artifactmanifest.Backend, func() error, error) {
 	provider := manifestInspectorFor(resultsDir, config)
-	registerCheckpointRoutes(mux, checkpointBlobInspector{open: func() (artifactmanifest.Backend, func() error, error) {
+	return func() (artifactmanifest.Backend, func() error, error) {
 		if config != nil && config.Enabled && config.Provider != "" && config.Provider != "local" && config.Provider != "azure-blob" {
 			return nil, nil, fmt.Errorf("checkpoint inspection does not support the configured active provider")
 		}
 		return provider.openBackend()
-	}})
+	}
 }
