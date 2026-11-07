@@ -131,6 +131,11 @@ type ExecutionRequest struct {
 	// both the native SDK session tool configuration and a fail-closed
 	// OnPermissionRequest wrapper.
 	ToolPolicy *ToolPolicy
+
+	// UserInput scripts answers to native SDK user-input requests. Nil leaves
+	// OnUserInputRequest unregistered. Callers share one script across the
+	// initial and resumed turns of a run so order is preserved.
+	UserInput *UserInputScript `json:"-"`
 }
 
 // ResourceFile represents a file resource
@@ -191,6 +196,9 @@ type ExecutionResponse struct {
 	// unrestricted or no tool was ever denied.
 	ToolPolicyDenials  []ToolPolicyDenial
 	CommandInvocations []models.CommandInvocation
+	// UserInputRequests is the cumulative record of native user-input
+	// requests handled by [ExecutionRequest.UserInput].
+	UserInputRequests []models.UserInputRecord
 }
 
 // CommandMockFinalizer collects task-level command records and checks expected

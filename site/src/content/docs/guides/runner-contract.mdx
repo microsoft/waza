@@ -5,26 +5,40 @@ description: Check the versioned runner CLI and HTTP API before execution, with 
 
 import ZoomImage from '../../../components/ZoomImage.astro';
 
-**Source-build preview for v0.40.0.** The implemented capabilities are
-`negotiation`, `exact-unit` and `inline.mock-text`. This bounded profile executes
-one captured mock/text attempt. Embedding hosts cannot substitute a native engine:
-the factory result must be a non-nil concrete mock engine; other implementations
+**Available in standalone v0.40.0.** The implemented capabilities are
+`negotiation`, `exact-unit`, `inline.mock-text`, `terminal-result` and
+`inline.copilot-text`. These bounded profiles execute one captured text attempt.
+The factory result must match the selected profile: a non-nil concrete mock
+engine or a privately owned, diagnostic Copilot engine; other implementations
 and wrappers fail before any engine lifecycle call, with zero calls, no
 observation and no claimed execution mode. Admitted receipts carry
-[input-derived identities](../runner-identities/). Native/paid execution,
-terminal envelopes, archives, local adapters and the container reference remain
-unavailable. No release or container publication is announced here.
+[input-derived identities](../runner-identities/). Copilot execution requires
+explicit paid consent and disables all tools and skills. General native
+file/tool/skill workflows and archives remain unavailable.
+A [local container reference](../runner-container/) exercises the mock/text
+profile; [published-image acceptance](../runner-container/#published-candidate-and-acceptance-evidence)
+is a separate, digest-bound result.
+The [local compatibility adapter](../runner-compatibility/) captures a narrower
+one-task mock/text suite offline; explicit `run --runner-compat` uses the same
+execution service while retaining historical artifacts and local exits.
+
+Exact-unit execution/shutdown deadlines and cancellation do not fix the broader
+legacy multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865),
+addressed separately by the later timeout/persistence fix
+[#870](https://github.com/microsoft/waza/pull/870). That fix is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts.
 
 ## CLI: JSON stdin and stdout
 
-Build this source with `make build`, then inspect its capabilities:
+Install standalone v0.40.0 or [build its tagged source](../../reference/releases/)
+with `make build VERSION=0.40.0`, then inspect its capabilities:
 
 ```bash
 waza runner capabilities
 ```
 
 ```json
-{"schema_version":"1.0","versions":["1.0"],"capabilities":["negotiation","exact-unit","inline.mock-text"]}
+{"schema_version":"1.0","versions":["1.0"],"capabilities":["negotiation","exact-unit","inline.mock-text","terminal-result","inline.copilot-text"]}
 ```
 
 Negotiate without launching a model, tool, subprocess or runtime:
@@ -51,7 +65,7 @@ The response has kind `waza.runner-negotiation`, schema version `1.0`, status
 Requested versions, required/optional capabilities and available capabilities
 are echoed separately. Empty arrays stay arrays, not `null`.
 
-Requiring `"terminal-result"` or `"inline.native-text"` instead returns
+Requiring `"inline.native-text"` instead returns
 `unsupported_capability` with an actionable diagnostic and exit 5, before
 interpreting any input or constructing an engine. Names are exact and
 case-sensitive: `Negotiation`, `negotiation.extra` and ` negotiation` do not
@@ -80,7 +94,7 @@ waza runner run < examples/runner/unit.json
 ```
 
 `validate` performs the same negotiation and admission as `run`, but creates no
-engine. `run` explicitly starts one fresh mock runtime and executes exactly one
+engine. `run` explicitly starts one fresh profile-matching runtime and executes exactly one
 attempt. The example selects:
 
 ```json
@@ -135,8 +149,30 @@ and the request/eval/task deadlines bound the attempt, and shutdown is attempted
 with a separate five-second budget. HTTP server shutdown cancels active
 requests and waits for handler cleanup.
 
-The response kind is **`waza.runner-unit`**, an invocation-local selection and
-attempt receipt, **not** the future terminal result envelope:
+Both exact-unit profiles accept eval `metrics` as **uncomputed, identity-bound
+metadata**. A successful terminal result reports only the selected attempt:
+it does not report aggregate metric values, metric-threshold decisions or
+whole-evaluation success. Nonempty declarations are validated offline against
+the canonical eval schema's metric definition using original numeric values;
+malformed, wrong-type and out-of-range nonempty declarations reject before
+runtime construction. For historical compatibility, explicit `metrics: null`
+decodes as nil, like an omitted field, in the shared captured reader used by
+mock execution and native snapshot reconstruction; exact-unit Copilot admission
+still rejects explicit null. Existing empty arrays also remain accepted.
+Numeric values must be finite and must not underflow the native numeric range.
+The local compatibility adapter independently rejects an explicit `metrics`
+field, including null, rather than dropping unsupported metadata. This
+captured-reader compatibility does not relax strict canonical eval-schema
+admission, which still requires a nonempty metrics array.
+The public Copilot example includes a nonempty schema-valid declaration;
+changing it changes identity, not the attempt-only execution scope. The local
+compatibility adapter still rejects nonempty metrics rather than projecting
+aggregate claims.
+
+Offline validation returns **`waza.runner-unit`**, an invocation-local selection
+receipt. Execution now returns [**`waza.runner-terminal`**](../runner-terminal/),
+with a bounded observed summary and stable exit category. Internal unit receipt
+fields remain:
 
 | Field | Interpretation |
 |---|---|
@@ -146,21 +182,80 @@ attempt receipt, **not** the future terminal result envelope:
 | `adjacent_work_selected` | Always false; no adjacent candidates are loaded |
 | `engine_calls` | Observed actual engine invocations, zero or one |
 | `status` | `ready` after validation only; `rejected`, `completed`, or `execution_error` |
-| `execution_mode` / `observation` | `mock` plus the original attempt's `RunResult` when available |
+| `execution_mode` / `observation` | `mock` or `copilot` plus the original attempt's `RunResult` when available |
 | `identity` | Optional versioned input digest and logical hierarchy, derived after admission and before runtime construction |
 
 `completed` means a graded attempt completed, not that every check passed.
 Inspect `observation.status` and `validations`. Logical IDs describe admitted
-input, not executed work. No terminal-envelope validity, publication, billing estimate or archive assurance
+input, not executed work. No publication, billing estimate or archive assurance
 is invented. The nested observation remains the existing attempt shape;
 this layer provides no receipt ingestion/archive reader.
 
-Unit-command exits are 0 for ready/passing completion, 1 for completed failing
-checks, 2 for execution/input/output failure, 5 for unsupported negotiated
-requirements, and 6 for invalid selection. These are command-local behavior,
-not #760's final terminal categories. Transport/input interruptions may have no
-receipt. Native execution stays unavailable even if `allow_paid_execution` is
-true; this boolean never enables an unadvertised profile.
+Run exits are 0 success, 1 failed checks, 2 infrastructure/output failure,
+3 cancellation, 4 timeout, 5 unsupported negotiated requirements and 6 invalid
+input. These are runner-local categories; legacy commands remain unchanged.
+Broken output and uncatchable termination cannot guarantee delivery.
+Paid consent alone never enables an unadvertised or optional profile.
+
+### Opt-in production Copilot text execution
+
+Require `exact-unit` and **`inline.copilot-text`** (not `inline.mock-text`),
+set `config.executor: copilot-sdk`, choose an explicit nonblank `config.model`, and
+set `allow_paid_execution: true`. The captured example uses the same 2/2 tuple:
+
+```bash
+# Offline: no authentication, subprocess or inference.
+waza runner validate < examples/runner/copilot-unit.json
+# Opt-in inference: requires your configured Copilot runtime and authentication.
+# This may incur charges on every dispatch, including explicit repeats.
+waza runner run < examples/runner/copilot-unit.json
+```
+
+The profile keeps the mock profile's input restrictions and builtin text checks.
+The SDK receives skills disabled, an empty tool allowlist, deny-all permission
+checks and a denying pre-tool hook. Runtime configuration discovery,
+repository-origin file hooks and on-demand instruction discovery are explicitly
+disabled in the SDK session settings, not left at runtime defaults. No explicit
+hook/plugin/instruction roots are supplied. Ordinary execution defaults are
+unchanged. Custom instructions and embedding retrieval are skipped, shared
+session-store access and memory are disabled, and host git context is disabled.
+The eval executor is `copilot-sdk`; the terminal mode is separately `copilot`.
+The post-create/resume `session.options.update` also carries
+`skipCustomInstructions: true`; rejection fails before any prompt is sent.
+SDK capture/wire controls verify the requested settings; they do not
+attest runtime discovery behavior or a host filesystem sandbox.
+It cannot consume fixtures, files, MCP,
+agent definitions, responders or follow-ups. A tool attempt is an execution
+failure, not permission to broaden the request.
+
+Each invocation owns its SDK client and workspace. Request cancellation and
+the task/eval timeout force-stop that private transport; shutdown has a separate
+five-second budget and also interrupts the transport on expiry. Cleanup and
+incomplete-usage diagnostics fail explicitly. The terminal reports the observed
+`copilot` mode but does not publish billing or attest provider provenance.
+Credentials and supported provider/runtime environment settings remain deployment
+inputs, not identity-bound content. Validation proves no runtime readiness.
+An effective nonzero `first_event_timeout_seconds` is rejected before runtime
+construction because its legacy child-context watchdog cannot interrupt an
+uncooperative RPC. Use task/eval `timeout_seconds` or request `timeout_ms`.
+A task override of zero can disable the eval-level first-event setting.
+
+Deterministic tests use SDK fakes, including a send that ignores cancellation
+until its transport is killed. They do not prove live-provider behavior or
+native-platform coverage. Additional maintainer controls build the production
+CLI and run it against a synthetic stdio subprocess with no inherited
+credentials/provider configuration. They validate terminal JSON, identities,
+the exact selected tuple, grader verdicts and the full RPC inventory for
+success, failed checks, session error, timeout, startup failure, protocol
+mismatch and unsupported capability. See the
+[offline production-process controls](https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md#offline-production-process-controls)
+for exact commands and limitations. Synthetic responses are not bundled-runtime,
+inference, billing, sandbox or container-image assurance.
+No termination guarantee covers a custom transport
+whose force-stop operation never returns, arbitrary filesystem hangs or host loss.
+The identity algorithm and historical mock IDs do not change: the authored
+executor/model already participate in the canonical eval digest. General
+`waza run` and its mock-only compatibility adapter are unchanged.
 
 ### Troubleshooting selection
 
@@ -180,7 +275,7 @@ alone or a declared tuple as evidence of actual execution.
 | `GET /api/v1/runner/capabilities` | Same advertisement as `runner capabilities` |
 | `POST /api/v1/runner/negotiate` | Same request and response as `runner negotiate` |
 | `POST /api/v1/runner/validate` | Offline exact selection validation |
-| `POST /api/v1/runner/run` | Explicitly execute one admitted mock/text attempt |
+| `POST /api/v1/runner/run` | Explicitly execute one admitted mock/text or opted-in Copilot/text attempt |
 
 ```bash
 curl --silent --show-error \
@@ -192,17 +287,46 @@ curl --silent --show-error \
   Use `--data-binary @examples/runner/unit.json` and the `/validate` or `/run`
   route for the same complete request used by the CLI.
 
-A complete JSON request returns HTTP 200; inspect `status` rather than treating
+A complete admitted JSON request returns HTTP 200; inspect negotiation/validation `status`
+or run `outcome`/`exit_code` rather than treating
 transport success as compatibility. Missing/non-JSON media type returns 415.
-An oversized or failed upload returns 400. A five-second body read deadline
+Negotiation/validation oversized or failed uploads return 400.
+Run returns terminal bodies for invalid media (415), oversize (413), read
+failure (400), interrupted/timed-out body (408) and infrastructure failure (500),
+when output is writable. A five-second body read deadline
 is installed before media-type validation, bounding partial uploads even when
-the media type is missing or invalid and the server drains unread request bytes
-before completing a 415. Incomplete timed-out uploads close their connection;
-ordinary completed requests retain keep-alive. Middleware must preserve
+the media type is missing or invalid. Negotiation/validation may drain unread
+request bytes before completing a 415. Run rejects without draining an unadmitted
+body: its HTTP/1.1 connection closes even if the client sent the complete body,
+so the client must reconnect. Incomplete timed-out uploads also close their
+connection. Completed negotiation/validation requests and fully read run requests
+retain keep-alive, including admitted terminal failures. Middleware must preserve
 response-controller read-deadline support; inability to install the deadline
-fails closed with HTTP 500. Transport failures are not execution outcomes.
+fails closed with HTTP 500. Transport failures are not evaluation verdicts.
 The API reads no host input paths and stores no runner receipts. It retains the existing
-loopback server; no cloud authentication, scheduler or worker registry is added.
+server; no cloud authentication, scheduler or worker registry is added.
+
+**Paid native HTTP execution is local-only.** The immediate peer must be a
+loopback IP and `Host` must be `localhost` or a literal loopback IP. A supplied
+browser `Origin` must exactly match the request's HTTP(S) scheme and authority;
+cross-site and same-site (not same-origin) Fetch Metadata are rejected. Forwarded
+headers are not trusted. Rejected requests return HTTP 403 and a
+`native_http_denied` terminal diagnostic with zero engine calls and no execution
+identity or observation, before runtime construction. DNS Host aliases are not
+resolved or admitted, including aliases that resolve to loopback.
+
+Offline validation/negotiation, remote mock execution and existing remote
+read/static serving retain their previous behavior. Use local `waza runner run`
+for native execution outside this HTTP boundary. This policy trusts local
+processes, not individual OS users, and adds no remote-user authentication.
+Do not expose the paid endpoint through a reverse proxy that rewrites remote
+peer, Host or Origin into trusted local values. `allow_paid_execution` is request
+consent, not server-owner authorization.
+
+If final usage is unavailable after disconnect, isolated runner sessions do not
+resume solely to retrieve shutdown usage, because that SDK fallback uses
+unrestricted defaults. Missing usage remains explicit and fails terminalization,
+not recorded zero. Ordinary execution retains its existing fallback.
 
 ## Schemas and presence
 
@@ -211,6 +335,7 @@ loopback server; no cloud authentication, scheduler or worker registry is added.
 - [Complete runner request 1.0 schema](../../schemas/runner-request-1.0.schema.json)
 - [Capability advertisement 1.0 schema](../../schemas/runner-capabilities-1.0.schema.json)
 - [Exact unit receipt 1.0 schema](../../schemas/runner-unit-1.0.schema.json)
+- [Terminal envelope 1.0 schema](../../schemas/runner-terminal-1.0.schema.json)
 
 All four compact request fields are required. `versions` must contain at least
 one distinct `major.minor` string. Capability arrays may explicitly be empty;
@@ -232,8 +357,8 @@ shard/eval/task strings, not host paths. `negotiate` only **shape-checks** this
 request: captured YAML, semantic selection validity and payment permission are
 never executed or interpreted by negotiation. `validate`/`run` additionally
 perform the bounded profile's semantic admission; only `run` starts the admitted
-mock runtime. This layer advertises `negotiation`, `exact-unit` and
-`inline.mock-text`, not native execution or terminal results.
+profile's runtime. Negotiation alone never enables paid execution or emits
+terminal results.
 Do not treat compatibility as work admission.
 Any complete-only field selects this schema, so partial complete requests report
 their missing or invalid fields rather than compact-profile unknown fields.
@@ -280,7 +405,7 @@ and incompatibility diagnostics from the public API. The check never runs an
 evaluation. Editing or retrying clears prior results; failed refreshes show an
 error instead of stale compatibility.
 
-<ZoomImage src="../../images/dashboard-lab-negotiation.png" alt="Live Runner contract view showing an unavailable terminal-result requirement and available negotiation and exact mock/text capabilities." />
+<ZoomImage src="../../images/dashboard-lab-negotiation.png" alt="Live Runner contract view showing an unavailable native requirement and available negotiation, exact mock/text and terminal capabilities." />
 
 The **Validate exact work selection** panel sends the complete captured example
 to `/validate`. It displays requested/resolved shard/task/trial/attempt,
@@ -296,10 +421,18 @@ Rejected or older receipts show identity as unavailable; no ID is fabricated.
 The synthetic demo does not call the runner API or fabricate negotiation data.
 On an older server or static host, the check reports an error, not success.
 
-## Initial contract notes (unreleased)
+The separate **Run selected unit** action actually executes the captured request,
+then shows the [terminal outcome, exit, diagnostics and JSON export](../runner-terminal/).
 
-This adds negotiation and exact mock/text execution without changing local result
+<span id="initial-contract-notes-unreleased"></span>
+
+## Initial contract and release boundaries
+
+This adds negotiation and exact inline text execution without changing local result
 or eval versions. No older binary gains these commands automatically. There is
-no paid-provider call, adapter migration, container digest, durable publication
-or strong-isolation guarantee in this layer. The v0.40.0 release article
-is deferred until the release's required items are merged.
+no automatic paid-provider call, container digest, durable publication
+or strong-isolation guarantee in this layer. Existing mock requests need no
+migration; opt-in Copilot requests must require the new capability and consent.
+An older server rejects that capability before execution.
+See [release scope and availability](../../reference/releases/) for standalone,
+extension and digest-bound container status.

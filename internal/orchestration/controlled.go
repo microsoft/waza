@@ -49,10 +49,15 @@ func ValidateControlledConfiguration(spec *models.EvalSpec, tc *models.TestCase)
 	if spec.Config.EngineType != "mock" || !spec.SkillsDisabledForTask(tc.SkillPaths) {
 		return fmt.Errorf("controlled mock execution requires actual mock configuration with ambient skills disabled")
 	}
+	return validateSingleTurnTextConfiguration(spec, tc)
+}
+
+func validateSingleTurnTextConfiguration(spec *models.EvalSpec, tc *models.TestCase) error {
 	if spec.Baseline || spec.Config.Concurrent ||
-		!reflect.ValueOf(spec.Hooks).IsZero() || len(spec.MCPMocks) != 0 ||
+		!reflect.ValueOf(spec.Hooks).IsZero() || len(spec.MCPMocks) != 0 || len(tc.MCPMocks) != 0 ||
 		len(spec.Config.ServerConfigs) != 0 || len(spec.CommandMocks) != 0 ||
-		tc.CommandMocks != nil || len(tc.Checkpoints) != 0 || tc.Stimulus.Responder != nil ||
+		tc.CommandMocks != nil || tc.UserInputResponses != nil || spec.Config.NativeUserInput ||
+		len(tc.Checkpoints) != 0 || tc.Stimulus.Responder != nil ||
 		len(tc.Stimulus.FollowUps) != 0 || len(tc.Stimulus.Repos) != 0 {
 		return fmt.Errorf("controlled execution cannot certify selected hooks/cache/parallel/dependency/multiturn/repository modes")
 	}
