@@ -387,6 +387,29 @@ func TestLoadResources_PathValidation(t *testing.T) {
 	assert.Equal(t, []byte("{}"), resources[2].Content)
 }
 
+func TestWorkspaceCapturePathsIncludesAllDiffGraderScopes(t *testing.T) {
+	diff := func(path string) models.DiffGraderParameters {
+		return models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{{Path: path, Contains: []string{"ready"}}}}
+	}
+	specGraders := []models.GraderConfig{
+		{Kind: models.GraderKindDiff, Parameters: diff("node_modules/global.txt")},
+		{Kind: models.GraderKindText, Parameters: models.TextGraderParameters{Contains: []string{"ignored"}}},
+	}
+	tc := &models.TestCase{
+		Validators: []models.ValidatorInline{{Kind: models.GraderKindDiff, Parameters: diff(".git/task.txt")}},
+		Checkpoints: []models.Checkpoint{{Graders: []models.ValidatorInline{
+			{Kind: models.GraderKindDiff, Parameters: diff("node_modules/checkpoint.txt")},
+			{Kind: models.GraderKindDiff, Parameters: diff("node_modules/global.txt")},
+		}}},
+	}
+
+	require.Equal(t, []string{
+		".git/task.txt",
+		"node_modules/checkpoint.txt",
+		"node_modules/global.txt",
+	}, workspaceCapturePaths(specGraders, tc))
+}
+
 func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 	spec := &models.EvalSpec{Config: models.Config{TrialsPerTask: 2}}
 	runner := NewEvalRunner(config.NewEvalConfig(spec), nil)
