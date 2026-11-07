@@ -144,7 +144,7 @@ test.describe("Lab execution evidence states", () => {
       await expect(admitted.getByRole("row")).toHaveCount(7);
       const first = admitted.getByRole("row").nth(1);
       await expect(first.locator("th, td")).toHaveText([
-        "conversation", "present", "unavailable", "Unavailable", "declared-state-only", "category_not_verified",
+        "conversation", "present", "unavailable (unqualified declaration)", "Unavailable", "declared-state-only", "category_not_verified",
       ]);
       await expect(admitted).not.toContainText("9007199254740993");
       await expect(admitted).not.toContainText("observed empty");
