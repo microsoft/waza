@@ -8,6 +8,8 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/ownedsubmission"
 )
 
 // EvidenceReader shares one admitted-read budget across a response's category
@@ -72,4 +74,33 @@ func (r *EvidenceReader) InspectSourceContext(ctx context.Context, document evid
 		admitted = r.categoryDocument == artifactmanifest.Hash(wire)
 	}
 	return inspectSourceContext(ctx, r.backend, document, admitted)
+}
+
+// InspectLifecycle admits only the completed original's fixed lifecycle capture.
+// It shares the category/source budget and returns no partial metadata on error.
+// Captured content is nonsnapshot and does not authenticate current liveness.
+func (r *EvidenceReader) InspectLifecycle(ctx context.Context, source executionattempt.Source,
+	asOf string, staleAfterMS int64,
+) (ownedsubmission.LifecycleInspection, error) {
+	if r == nil || r.backend == nil {
+		return ownedsubmission.LifecycleInspection{}, ErrInvalid
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reader, err := newEvidenceSourceReader(r.backend)
+	if err != nil {
+		return ownedsubmission.LifecycleInspection{}, err
+	}
+	hits, unavailable := r.backend.hits, r.backend.unavailable
+	result, err := ownedsubmission.InspectLifecycle(ctx, reader, source, asOf, staleAfterMS)
+	if r.backend.hits != hits {
+		err = errors.Join(err, ErrLimit)
+	}
+	if r.backend.unavailable != unavailable {
+		err = errors.Join(err, ErrUnavailable)
+	}
+	if err != nil {
+		return ownedsubmission.LifecycleInspection{}, err
+	}
+	return result, nil
 }

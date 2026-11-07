@@ -152,6 +152,14 @@ private counter and expose no writer, raw namespace, undecorated backend or
 counter accessor. A failed primary category admission prevents optional parent
 reads. Consumers must preserve both returned errors and independently valid
 facts; verified child context alone is not whole-response success.
+The same reader's `InspectLifecycle(ctx, source, asOf, staleAfterMS)` admits the
+original completed source's fixed `lifecycle.json`, canonical attempt and event
+inventory through that counter. It returns a separately qualified, deep-owned
+projection or an error with no partial metadata. This is verified nonsnapshot
+content and original-source declarations, not authenticated worker liveness.
+The captured runtime's `process_exit` remains unknown; a recorded terminal does
+not prove process exit. Caller-supplied freshness parameters do not authenticate
+the timestamps or authorize reclaim.
 Future usage integration must reuse `models.AggregateUsageStats`, preserve
 recorded zero/precision and original source usage, and exclude reused/cached
 historical execution usage from new-operation billing. A historical observed
