@@ -22,6 +22,11 @@ verified reuse and duplicate/concurrent-writer production tests, public surfaces
 and release/migration guidance. Do not treat these pure tests as storage or
 runtime execution evidence.
 
+The three frozen attempt, decision, and completion JSON fixtures retain LF on
+checkout through path-specific `.gitattributes` rules. Their byte oracles are not
+normalized to hide checkout changes; the codecs separately accept valid CRLF
+JSON whitespace. These rules do not change legacy fixtures or wire decoding.
+
 Logical run is the existing `runneridentity.Identity.Run`; logical work is
 `Identity.Trial`. An execution owner allocates a fresh opaque `exec-` identifier,
 independent of the caller's native `Selection.Attempt`. Allocation uses 256 random
