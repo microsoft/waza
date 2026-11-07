@@ -219,9 +219,12 @@ func TestTaskMCPMocksServeOverTheRealSubprocess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
+	buildStarted := time.Now()
 	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../../cmd/waza")
 	output, err := build.CombinedOutput()
-	require.NoError(t, err, "%s", output)
+	buildElapsed := time.Since(buildStarted)
+	require.NoError(t, err, "MCP mock CLI build_elapsed=%s: %s", buildElapsed, output)
+	t.Logf("MCP mock production CLI build_elapsed=%s", buildElapsed)
 
 	runner, _ := writeTaskMCPMockEval(t, "1.1", map[string]string{
 		"publish.yaml": taskMCPMockPublishTask,
@@ -270,6 +273,13 @@ func TestMockToolStderrHelperProcess(t *testing.T) {
 		require.NoError(t, err)
 		os.Exit(3)
 	}
+	if mode == "cancel" {
+		_, err := fmt.Fprintln(os.Stdout, `{"jsonrpc":"2.0","id":1,"result":{}}`)
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, os.Stdin)
+		require.NoError(t, err)
+		os.Exit(3)
+	}
 	done := make(chan error, 1)
 	go func() {
 		_, err := io.WriteString(os.Stderr, strings.Repeat("mock stderr output\n", 65536))
@@ -281,15 +291,33 @@ func TestMockToolStderrHelperProcess(t *testing.T) {
 }
 
 func TestMockToolDiagnosticCallerHelperProcess(t *testing.T) {
-	if os.Getenv("WAZA_TEST_MOCK_STDERR") == "" {
+	mode := os.Getenv("WAZA_TEST_MOCK_STDERR")
+	if mode == "" {
 		return
 	}
-	answer := callMockTool(t, os.Args[0], []string{"-test.run=^TestMockToolStderrHelperProcess$"}, "probe", nil)
+	args := []string{"-test.run=^TestMockToolStderrHelperProcess$"}
+	if mode == "start-cancel" {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		callMockToolWithContext(t, ctx, os.Args[0], args, "probe", nil, nil)
+		t.Fatal("canceled mock subprocess unexpectedly started")
+	}
+	if mode == "cancel" {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		callMockToolWithContext(t, ctx, os.Args[0], args, "probe", nil, func(id json.RawMessage) {
+			if string(id) == "1" {
+				cancel()
+			}
+		})
+		t.Fatal("canceled mock subprocess unexpectedly returned")
+	}
+	answer := callMockTool(t, os.Args[0], args, "probe", nil)
 	require.Equal(t, "ready", answer)
 }
 
 func TestMockToolDiagnosticsJoinStderrBeforeReading(t *testing.T) {
-	for _, mode := range []string{"success", "error", "malformed"} {
+	for _, mode := range []string{"success", "error", "malformed", "cancel", "start-cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
@@ -304,12 +332,22 @@ func TestMockToolDiagnosticsJoinStderrBeforeReading(t *testing.T) {
 				var exit *exec.ExitError
 				require.ErrorAs(t, err, &exit, "%s", output)
 				require.Equal(t, 1, exit.ExitCode(), "expected caller assertion failure, not crash: %s", output)
-				if mode == "error" {
+				switch mode {
+				case "error":
 					require.Contains(t, string(output), "reading mock response: EOF")
 					require.Contains(t, string(output), "joined wait:")
-				} else {
+					require.Regexp(t, `setup_elapsed=\S+ process_start_elapsed=\S+ post_start_ctx_err=<nil> protocol_elapsed=\S+ pre_cleanup_ctx_err=<nil> response_frames=0`, string(output))
+				case "malformed":
 					require.Contains(t, string(output), "invalid character")
 					require.Contains(t, string(output), "joined mock subprocess cleanup:")
+					require.Regexp(t, `setup_elapsed=\S+ process_start_elapsed=\S+ post_start_ctx_err=<nil> protocol_elapsed=\S+ pre_cleanup_ctx_err=<nil> response_frames=1`, string(output))
+				case "cancel":
+					require.Contains(t, string(output), "reading mock response:")
+					require.Regexp(t, `setup_elapsed=\S+ process_start_elapsed=\S+ post_start_ctx_err=<nil> protocol_elapsed=\S+ pre_cleanup_ctx_err=context canceled response_frames=1`, string(output))
+				case "start-cancel":
+					require.Regexp(t, `setup_elapsed=\S+ process_start_elapsed=\S+ post_start_ctx_err=context canceled`, string(output))
+					require.NotContains(t, string(output), "mock diagnostic sentinel")
+					return
 				}
 				require.Contains(t, string(output), "mock diagnostic sentinel")
 			}
@@ -319,7 +357,13 @@ func TestMockToolDiagnosticsJoinStderrBeforeReading(t *testing.T) {
 
 func callMockTool(t *testing.T, binary string, args []string, tool string, arguments map[string]any) string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	return callMockToolWithContext(t, t.Context(), binary, args, tool, arguments, nil)
+}
+
+func callMockToolWithContext(t *testing.T, parent context.Context, binary string, args []string, tool string, arguments map[string]any, onResponse func(json.RawMessage)) string {
+	t.Helper()
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	child := exec.CommandContext(ctx, binary, args...)
 	child.WaitDelay = 2 * time.Second
@@ -330,7 +374,13 @@ func callMockTool(t *testing.T, binary string, args []string, tool string, argum
 	require.NoError(t, err)
 	var stderr strings.Builder
 	child.Stderr = &stderr
-	require.NoError(t, child.Start())
+	setupElapsed := time.Since(started)
+	startedProcess := time.Now()
+	err = child.Start()
+	processStartElapsed, postStartContextErr := time.Since(startedProcess), ctx.Err()
+	require.NoError(t, err, "setup_elapsed=%s process_start_elapsed=%s post_start_ctx_err=%v",
+		setupElapsed, processStartElapsed, postStartContextErr)
+	protocolStarted := time.Now()
 	waited := false
 	defer func() {
 		cancel()
@@ -346,19 +396,24 @@ func callMockTool(t *testing.T, binary string, args []string, tool string, argum
 	params, err := json.Marshal(map[string]any{"name": tool, "arguments": arguments})
 	require.NoError(t, err)
 	_, err = fmt.Fprintf(stdin, "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1}\n{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"id\":2,\"params\":%s}\n", params)
-	require.NoError(t, err)
+	require.NoError(t, err, "setup_elapsed=%s process_start_elapsed=%s post_start_ctx_err=%v protocol_elapsed=%s pre_cleanup_ctx_err=%v response_frames=0",
+		setupElapsed, processStartElapsed, postStartContextErr, time.Since(protocolStarted), ctx.Err())
 	reader := bufio.NewReader(stdout)
 	var text string
+	responseFrames := 0
 	for text == "" {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
+			protocolElapsed, preCleanupContextErr := time.Since(protocolStarted), ctx.Err()
 			cancel()
 			closeErr := errors.Join(stdin.Close(), stdout.Close())
 			waitErr := child.Wait()
 			waited = true
-			t.Fatalf("reading mock response: %v; closing pipes: %v; joined wait: %v; stderr: %s",
-				err, closeErr, waitErr, stderr.String())
+			t.Fatalf("reading mock response: %v; closing pipes: %v; joined wait: %v; setup_elapsed=%s process_start_elapsed=%s post_start_ctx_err=%v protocol_elapsed=%s pre_cleanup_ctx_err=%v response_frames=%d; stderr: %s",
+				err, closeErr, waitErr, setupElapsed, processStartElapsed, postStartContextErr,
+				protocolElapsed, preCleanupContextErr, responseFrames, stderr.String())
 		}
+		responseFrames++
 		var response struct {
 			ID     json.RawMessage `json:"id"`
 			Result struct {
@@ -368,18 +423,29 @@ func callMockTool(t *testing.T, binary string, args []string, tool string, argum
 				IsError bool `json:"isError"`
 			} `json:"result"`
 		}
-		require.NoError(t, json.Unmarshal(line, &response))
+		require.NoError(t, json.Unmarshal(line, &response),
+			"setup_elapsed=%s process_start_elapsed=%s post_start_ctx_err=%v protocol_elapsed=%s pre_cleanup_ctx_err=%v response_frames=%d",
+			setupElapsed, processStartElapsed, postStartContextErr, time.Since(protocolStarted), ctx.Err(), responseFrames)
+		if onResponse != nil {
+			onResponse(response.ID)
+		}
 		if string(response.ID) == "2" {
 			require.False(t, response.Result.IsError, "%s", line)
 			require.Len(t, response.Result.Content, 1)
 			text = response.Result.Content[0].Text
 		}
 	}
+	protocolElapsed := time.Since(protocolStarted)
+	shutdownStarted := time.Now()
 	require.NoError(t, stdin.Close())
 	_, _ = io.Copy(io.Discard, reader)
 	waitErr := child.Wait()
 	waited = true
-	require.NoError(t, waitErr, "stderr: %s", stderr.String())
+	shutdownElapsed := time.Since(shutdownStarted)
+	require.NoError(t, waitErr, "setup_elapsed=%s process_start_elapsed=%s post_start_ctx_err=%v protocol_elapsed=%s shutdown_elapsed=%s pre_cleanup_ctx_err=%v response_frames=%d; stderr: %s",
+		setupElapsed, processStartElapsed, postStartContextErr, protocolElapsed, shutdownElapsed, ctx.Err(), responseFrames, stderr.String())
+	t.Logf("MCP mock process setup_elapsed=%s process_start_elapsed=%s post_start_ctx_err=%v protocol_elapsed=%s response_frames=%d shutdown_elapsed=%s",
+		setupElapsed, processStartElapsed, postStartContextErr, protocolElapsed, responseFrames, shutdownElapsed)
 	return text
 }
 

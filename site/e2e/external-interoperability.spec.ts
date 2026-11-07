@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('release links the narrow assertion adapter without claiming suite support', async ({ page }) => {
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
-  await expect(main).toContainText('Current published standalone release: v0.40.0');
+  await expect(main).toContainText('Current published standalone release: v0.40.1');
   await expect(main).toContainText('full external task/suite interoperability remain incomplete');
   await expect(main).toContainText('waza interop import/export');
   await expect(main).toContainText('This is assertion conformance, not whole-suite or agent-quality evidence.');

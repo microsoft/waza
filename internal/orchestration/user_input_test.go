@@ -95,6 +95,30 @@ user_input_responses:
     answer: fixes login
 `
 
+func TestSelectedTasksRequireNativeUserInputOptIn(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, offline := range []bool{false, true} {
+			t.Run(fmt.Sprintf("enabled=%t/offline=%t", enabled, offline), func(t *testing.T) {
+				cfg, dir := writeUserInputEval(t, userInputTaskYAML, models.ScenarioSchemaVersion)
+				cfg.Spec().Config.NativeUserInput = enabled
+				load := LoadSelectedTestCases
+				if offline {
+					load = LoadSelectedTestCasesOffline
+				}
+				tasks, err := load(cfg.Spec(), dir, time.Now())
+				if enabled {
+					require.NoError(t, err)
+					require.Len(t, tasks, 1)
+					require.NotNil(t, tasks[0].UserInputResponses)
+					require.Len(t, *tasks[0].UserInputResponses, 2)
+				} else {
+					require.ErrorContains(t, err, "user_input_responses requires config.native_user_input: true")
+				}
+			})
+		}
+	}
+}
+
 func TestRunBenchmarkAnswersNativeQuestionsAcrossInitialAndResumedTurns(t *testing.T) {
 	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{
 		"start":    {{Question: "Deploy where?", Choices: []string{"staging", "prod"}, AllowFreeform: new(bool)}},

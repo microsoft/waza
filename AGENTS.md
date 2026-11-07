@@ -236,6 +236,32 @@ Sources: [major API break](https://github.com/microsoft/waza/pull/684#discussion
 [coordinated modules](https://github.com/microsoft/waza/pull/566#discussion_r3886209518),
 [stale release metadata](https://github.com/microsoft/waza/pull/527#discussion_r3787431986).
 
+### Preserve measured performance characteristics
+
+- Optimize the production lifecycle at representative scale. Retain focused Go
+  benchmarks with `-benchmem`; include construction, refresh, or serialization
+  when production repeats that work. For dashboard changes, measure the relevant
+  production bundle, DOM, or browser path. Compare against current `main` with
+  interleaved runs rather than relying on a reusable-object microbenchmark alone.
+- Scope caches and compiled state to the smallest real lifecycle: a grading pass,
+  immutable assurance case, dashboard snapshot/refresh, or one staging call.
+  Bound entries by admitted input/configuration, cache only validated successes,
+  and replace refresh state transactionally. Use content identity when file
+  metadata is insufficient; do not expose cached pointers/slices mutably or leak
+  state between tasks, runs, or workspaces.
+- Make expensive work lazy only through an explicit path whose callers do not
+  consume the omitted result, such as metadata-only skill parsing, per-schema
+  validation, or non-home route loading. Preserve general API behavior, wire
+  field presence, ordering, errors, ownership checks, and accessibility. For
+  large histories or captures, reduce repeated copies, per-item serialization,
+  and DOM growth without dropping source data.
+
+Sources: [production-lifecycle regex benchmark](https://github.com/microsoft/waza/pull/849),
+[transactional dashboard projections](https://github.com/microsoft/waza/pull/858),
+[explicit metadata-only parsing](https://github.com/microsoft/waza/pull/843),
+[bounded trend-chart DOM](https://github.com/microsoft/waza/pull/856),
+[owned capture buffers](https://github.com/microsoft/waza/pull/833).
+
 ## Building and Testing
 
 > **Requires Go 1.26 or later.** The module targets `go 1.26` (`go.mod`), which means Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
@@ -323,11 +349,16 @@ Repository protection/rulesets are authoritative for required checks and
 approvals. Read the active rules with
 `gh api repos/microsoft/waza/rules/branches/main`; do not assume workflow display
 names are the required status contexts. Go validation is defined in
-`.github/workflows/go-ci.yml` and `.github/workflows/squad-ci.yml`; preserve
-required native-platform tests and lint.
+the single `.github/workflows/go-ci.yml`; preserve required native-platform tests
+and lint. It covers PRs to every base and pushes to `main`, `develop`, `dev`, and
+`insider`; do not reintroduce a duplicate Squad PR validation workflow.
+Superseded PR runs are cancelled per workflow/event/ref, not release publication.
 
 Linux executes `internal/controlledcomparison` in four deterministic shards
-through `.github/workflows/go-native-shards.yml`; all remaining packages run in
+through `.github/workflows/go-native-shards.yml`, balanced longest-first using
+observed top-level durations in `.github/scripts/go_test_shard_durations.tsv`.
+Python 3 computes placement only; discovery remains authoritative and new tests
+use the median historical duration. All remaining packages run in
 the main Linux build job. Discovery uses the same race/atomic build and includes
 tests, examples, and fuzz seed targets without changing their fixtures or
 internal skip behavior. Each shard retains the 30-minute Go test deadline.
@@ -342,9 +373,10 @@ Exercise discovery and all failure branches with
 `bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
 
 Squad Release and Squad Insider Release reuse the same four native shards and
-30-minute race/atomic package deadline. Their release job explicitly rejects
-failed, cancelled, or skipped shards and verifies all five coverage profiles and
-exactly-once native selection before publication. Test the release wiring with
+30-minute race/atomic package deadline, running remaining validation in parallel.
+Their publication job explicitly rejects failed, cancelled, or skipped validation
+branches and verifies all five coverage profiles and exactly-once native selection
+before publishing the tested binary artifact. Test the release wiring with
 `go test -count=1 ./.github/scripts` and the offline runtime/integration controls
 with `bash .github/scripts/release_gate_test.sh`. Release tests and native shards
 install a verified rejecting Copilot runtime. The mock integration requires a
@@ -377,9 +409,9 @@ run to prove. This release-only admission does not change legacy runtime overwri
 behavior or preflight's default non-strict exit policy.
 This is offline harness evidence, not live agent-quality evidence.
 
-Both Go lint workflows use `.github/scripts/lint.sh` to require configuration
+The Go lint job uses `.github/scripts/lint.sh` to require configuration
 validation against a checksum-pinned upstream release schema before running lint.
-When upgrading golangci-lint, update both workflow versions and the script's
+When upgrading golangci-lint, update the workflow version and the script's
 version check, upstream release commit, and schema checksum together.
 
 ## Fixture Isolation

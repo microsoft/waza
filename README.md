@@ -17,8 +17,8 @@ Function key in the browser. See [scope, privacy, and integration handoff](site/
 → [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
 Mock success checks the harness, not agent quality or live service safety.
 
-**Version boundary (November 4, 2026):** the published standalone CLI is
-`v0.40.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.40.0)). Scenario authoring, preflight, selected-file evidence,
+**Version boundary (November 6, 2026):** the published standalone CLI is
+`v0.40.1` ([release](https://github.com/microsoft/waza/releases/tag/v0.40.1)). Scenario authoring, preflight, selected-file evidence,
 assurance profiles, controlled release policies, recorded reliability, and the
 opt-in dashboard Lab were introduced in `v0.39.0` and remain included.
 Install the published binary or run `waza update`; a source build is optional.
@@ -28,6 +28,12 @@ Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See
 **v0.40.0 adds** bounded
 runner/text execution, selected AgentV assertion conversion, task-level MCP
 mocks, program-grader context, host lifecycle evidence, and Lab conversations.
+Read [Waza v0.40.0: run exactly the work you declared](https://microsoft.github.io/waza/releases/v0-40-0/)
+for the release story and known limits.
+The [v0.40.1 hotfix release](https://microsoft.github.io/waza/releases/v0-40-1/)
+aligns selected-task coverage, strict token exits, grouping, hooks, saved runs,
+artifact paths, execution startup, and JavaScript grader input with their
+documented contracts.
 These additions are not in an installed v0.39.1 binary. The separately versioned
 azd extension/registry and native runner image have independent publication and
 acceptance gates; see the
@@ -66,22 +72,22 @@ Requires Go 1.26+, Git LFS, Make, Node.js 22.23.4+ on the 22.x line or Node.js 2
 Note: due to the use of LFS artifacts you cannot install waza using `go install`. To install waza outside of a normal release, clone the repository:
 
 ```bash
-git clone --branch v0.40.0 https://github.com/microsoft/waza.git
+git clone --branch v0.40.1 https://github.com/microsoft/waza.git
 cd waza
 
 # ensure git LFS-based artifacts are available (for embedded copilot binaries)
 git lfs install
 git lfs pull
 
-make build VERSION=0.40.0
+make build VERSION=0.40.1
 ./waza <waza command line>
 ```
 
-The verified `v0.40.0` tag resolves to
-`93e80d7fdcbf9206215366d6ecca7ed08d26b2b3`. The immutable tag's
+The verified `v0.40.1` tag resolves to
+`e0c251df896bee4e0f9b38a693a6105bf7eadd19`. The immutable tag's
 `version.txt` and `extension.yaml` remain `0.39.1`. The release workflow updates
 those files only in a later version-sync branch, not in the tag.
-`make build` defaults to `VERSION=0.1.0`, so pass `VERSION=0.40.0` explicitly
+`make build` defaults to `VERSION=0.1.0`, so pass `VERSION=0.40.1` explicitly
 when building this tag. Official release builds inject the version from the
 tag with linker flags. A locally stamped binary is not a verified release asset,
 and does not prove extension registry synchronization.
@@ -106,16 +112,16 @@ azd waza --help
 The extension has its own version and artifact history; a command prefix does
 not establish parity with standalone main. Check `azd waza --version` and
 `azd waza --help` before following examples. The registry currently lists
-through `0.40.0`, matching the separately published `0.40.0` extension artifact.
-The [separate v0.40.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.0)
+through `0.40.1`, matching the separately published `0.40.1` extension artifact.
+The [separate v0.40.1 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1)
 is published with six platform archives, and this repository's registry and
-version metadata are synchronized to `0.40.0`. The standalone v0.40.0 additions
+version metadata are synchronized to `0.40.1`. The standalone v0.40.0 additions
 below are not included in a v0.39.1 extension installation. Artifact publication
 and registry synchronization are separate gates; check the installed version.
-The source URL above follows `main`, not this branch. Before the
-[release-sync PR #883](https://github.com/microsoft/waza/pull/883) merges, that URL
-still serves `0.39.1`; after the merge it includes `0.40.0`. Updating an
-installation before the merge cannot select `0.40.0` from that source.
+The source URL above follows `main`, not this branch. Before
+[release-sync PR #908](https://github.com/microsoft/waza/pull/908) merges, that URL
+still serves `0.40.0`; after the merge it includes `0.40.1`. Updating an
+installation before the merge cannot select `0.40.1` from that source.
 For supported commands, for example:
 
 ```bash
@@ -904,7 +910,7 @@ waza migrate results.json
 
 Generate a skill-to-eval coverage grid showing which skills are fully covered, partially covered, or missing evals.
 
-**Note**: Full coverage requires tasks (via `tasks:` or `tasks_from:`) and 2+ grader types. The coverage percentage reflects only fully covered skills.
+**Note**: Full coverage requires at least one active task discovered through `tasks:` or selected through `tasks_from:`, plus 2+ grader types. Unmatched task patterns and empty CSV selections count as zero tasks. The coverage percentage reflects only fully covered skills.
 
 | Flag | Short | Description |
 |------|-------|-------------|

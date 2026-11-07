@@ -1107,7 +1107,34 @@ func TestResolveGroup_Model(t *testing.T) {
 	cfg := config.NewEvalConfig(spec)
 	runner := NewEvalRunner(cfg, nil)
 
-	assert.Equal(t, "gpt-4o", runner.resolveGroup())
+	assert.Equal(t, "gpt-4o", runner.resolveGroup(&models.TestCase{}))
+}
+
+func TestResolveGroup_Tags(t *testing.T) {
+	spec := &models.EvalSpec{
+		Config: models.Config{
+			GroupBy: "tags",
+		},
+	}
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
+
+	multipleTags := runner.resolveGroup(&models.TestCase{
+		Tags: []string{"smoke", "regression"},
+	})
+	singleCommaTag := runner.resolveGroup(&models.TestCase{
+		Tags: []string{"smoke, regression"},
+	})
+	assert.Equal(t, "smoke, regression", multipleTags)
+	assert.Equal(t, `smoke\, regression`, singleCommaTag)
+	assert.Len(t, computeGroupStats([]models.TestOutcome{
+		{Group: multipleTags},
+		{Group: singleCommaTag},
+	}), 2)
+	emptyTag := runner.resolveGroup(&models.TestCase{Tags: []string{""}})
+	assert.Equal(t, `\0`, emptyTag)
+	assert.Len(t, computeGroupStats([]models.TestOutcome{{Group: emptyTag}}), 1)
+	assert.Equal(t, "", runner.resolveGroup(&models.TestCase{}))
 }
 
 func TestResolveGroup_Empty(t *testing.T) {
@@ -1120,7 +1147,7 @@ func TestResolveGroup_Empty(t *testing.T) {
 	cfg := config.NewEvalConfig(spec)
 	runner := NewEvalRunner(cfg, nil)
 
-	assert.Equal(t, "", runner.resolveGroup())
+	assert.Equal(t, "", runner.resolveGroup(&models.TestCase{}))
 }
 
 func TestResolveGroup_Unknown(t *testing.T) {
@@ -1133,5 +1160,5 @@ func TestResolveGroup_Unknown(t *testing.T) {
 	cfg := config.NewEvalConfig(spec)
 	runner := NewEvalRunner(cfg, nil)
 
-	assert.Equal(t, "", runner.resolveGroup())
+	assert.Equal(t, "", runner.resolveGroup(&models.TestCase{}))
 }

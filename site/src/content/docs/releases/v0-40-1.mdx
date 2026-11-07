@@ -1,0 +1,84 @@
+---
+title: "Waza v0.40.1: make release workflows match their contracts"
+description: Hotfixes for selected-task coverage, strict token budgets, grouping, hooks, saved runs, adversarial artifacts, execution startup, and JavaScript graders.
+---
+
+Waza v0.40.1 is a stability release for workflows that were already documented
+in v0.40.0. It does not add a new evaluation surface. Instead, it fixes places
+where selection, process status, saved results, templates, paths, or runtime
+lifecycle behavior did not match the existing contract.
+
+**Released November 6, 2026**, this version includes the v0.40.0 runner and
+evidence features plus eight focused corrections. Install the
+[standalone v0.40.1 release](https://github.com/microsoft/waza/releases/tag/v0.40.1)
+or run `waza update`. The azd extension is versioned and published separately;
+see the [release and download reference](../../reference/releases/).
+
+## Count and group the work that will actually run
+
+`waza coverage` now loads the selected task files or CSV rows through the same
+selection path used by execution. A glob and an equivalent explicit task list
+therefore report the same task count. An empty selection reports zero tasks and
+Partial coverage instead of claiming 100% Full coverage. Selection failures
+remain visible as warnings rather than becoming invented tasks.
+
+The documented `config.group_by: tags` setting now resolves each task's complete
+ordered tag set into the existing group label. Tagged runs produce CLI and JSON
+group statistics; untagged tasks remain ungrouped. This does not introduce
+multi-membership result fields. See [`group_by`](../../reference/schema/#group_by)
+and the [coverage command](../../reference/cli/#waza-coverage).
+
+## Make automation observe the documented process result
+
+`waza tokens check --strict` now exits **1** when a selected file exceeds its
+budget. Advisory checks still exit **0**, and invalid input still exits **2**.
+JSON output continues to describe the exceedance; callers no longer need to
+ignore a successful process status to discover a strict-budget failure. See the
+[token-limit guide](../../guides/token-limits/).
+
+Lifecycle hooks now render top-level eval `inputs` through the existing template
+engine for `before_run`, `after_run`, `before_each` and `after_each`. Rendered
+empty commands are rejected, and hook configuration or input changes invalidate
+legacy task caches. This is hook-command templating, separate from CSV
+task-prompt interpolation. See [lifecycle hooks](../../guides/eval-yaml/#hooks).
+
+## Keep saved runs and artifact paths distinct
+
+Sequential models started within the same second now receive distinct,
+monotonic nanosecond-resolution run IDs. Every model remains visible to result
+discovery and the dashboard. Historical local artifacts that already share an
+`eval_id` fail with a diagnostic naming both files instead of silently hiding
+one result; Waza does not rewrite those stored identities.
+
+`waza adversarial --artifacts-dir` now treats bare relative paths, `./` paths,
+and absolute paths consistently. The selected pack reaches the same synthesized
+spec and task artifacts for each form. Temporary-directory and
+`--keep-artifacts` behavior are unchanged. See the
+[adversarial harness](../../guides/adversarial/).
+
+## Avoid canceling healthy execution and large graders
+
+A healthy first Copilot event now disarms the first-event watchdog without
+canceling the active request. The no-event timeout still cancels and reports its
+distinct diagnostic, and the derived send context is released when execution
+returns. This is a lifecycle correction, not broader native workflow support;
+the [runner contract](../../guides/runner-contract/) retains its documented
+profile, deadline, credential, and cost boundaries.
+
+The JavaScript `code` grader now reads its context directly from file descriptor
+0. Reading through `process.stdin` could switch a pipe to non-blocking mode and
+fail large contexts intermittently with `EAGAIN` on Linux and macOS. Assertions,
+result parsing, the Python wrapper, and the program-grader
+[`WAZA_GRADING_CONTEXT`](../../guides/graders/#program) contract are unchanged.
+
+## Upgrade without changing the experiment
+
+These fixes do not change the v0.40.0 runner schemas, result schema **1.8**, or
+the meaning of existing evaluation fields. They make documented selection,
+grouping, hooks, exits, paths, identities, execution startup, and grader input
+behave consistently.
+
+Read [Waza v0.40.0: run exactly the work you declared](../v0-40-0/) for the
+feature release and its limits. See the
+[full v0.40.0...v0.40.1 comparison](https://github.com/microsoft/waza/compare/v0.40.0...v0.40.1)
+for the code-level changes.
