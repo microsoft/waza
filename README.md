@@ -413,6 +413,14 @@ The task entry must be eval-relative, and successful adaptation passes shared
 offline admission within the complete 4 MiB emitted-byte limit.
 See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
 
+The unreleased v0.41 source adds opt-in `waza runner submit --store .waza-artifacts`
+for one captured submission wrapper. Default distinct execution reserves a fresh
+opaque execution ID; explicit verified reuse preserves original terminal bytes
+and native ordinals with zero new calls. Failed originals remain failed.
+The protected loopback `POST /api/v1/runner/submit` uses server-configured storage,
+never a request-selected path. Neither surface exposes raw reports or migrates
+legacy results. See [submission, retry, reuse and migration](site/src/content/docs/guides/immutable-artifacts.mdx#execute-distinct-work-or-explicitly-reuse-its-original).
+
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
 keeps the default scratch image mock-only and provides an explicit
 `native-reference` target for the exact-unit native Copilot text profile. The

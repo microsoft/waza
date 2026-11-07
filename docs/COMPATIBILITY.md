@@ -68,7 +68,9 @@ Finalized source-only restore performs no new engine call and preserves original
 verified evidence; it is not a claim about the current native provider.
 
 `runnerunit.Service.Submit(ctx, wrapperBytes, backend, hooks)` is an additive
-embedding API, not yet a CLI/API/Lab route. Its strict
+embedding API. The opt-in `waza runner submit` and loopback
+`POST /api/v1/runner/submit` select the protected owned capture composer, not
+arbitrary embedding callbacks. Its strict
 `execution-submission-1.0.schema.json` wrapper retains the original native request
 and admits it once. Omitted wrapper policy selects distinct execution; explicit
 null is invalid. Distinct submission reserves before factory construction,
@@ -78,6 +80,18 @@ terminal and category-scoped artifacts through the actual Store before completio
 Cancellation after reservation can finalize a canceled terminal with zero calls.
 Publication or observer errors are submission errors, not successful completion;
 partial immutable records are retained rather than reclaimed.
+
+Public submission performs offline wrapper/native admission before opening the
+explicit existing private store. Category admission precedes reservation;
+original publication/source admission precedes terminal disclosure. Responses
+contain no raw report and replace operator diagnostic text with fixed messages.
+An unadmitted binding does not disclose caller or reservation metadata. A store
+close failure retains admitted original actor facts and the actual new-call
+count, but returns `submission_error`/exit 2 without a completion claim.
+Transport failure is never retried with another record. HTTP uses the shared
+bounded literal-loopback/Host/same-origin input and one-write output helpers;
+requests cannot select filesystem/provider locations. Source corruption/context
+conflicts return HTTP 409 with an operation error, not successful reuse.
 
 Explicit reuse verifies finalized original context and any recorded report
 against the terminal, including status and grader verdicts, before recording an
@@ -151,7 +165,8 @@ factory, and supplies no unrestricted artifact/report callback. Its native gette
 runs only after reservation for the copilot profile; mock execution retains the
 real unbound empty sink. A configured getter returning nil is an error, not
 missing capture silently presented as success. Shared `NewEngineFactory(nil)`
-preserves legacy default builder options. Public registration remains pending.
+preserves legacy default builder options. Protected public submission selects
+the same observer and category policy, with the native-only Service resolver.
 `Service.NativeEngineFactory(runtimeGetter)` selects that shared native builder
 only for `copilot-sdk`; all other configurations retain the Service's original
 factory, including injected cancellation and error behavior. Creating the

@@ -61,6 +61,78 @@ null, invalid wire types, duplicate/aliased keys, and malformed Unicode.
 Explicit empty grader arrays are valid. Each sidecar is limited to 1 MiB and a
 complete lineage graph to 1,024 attempts.
 
+## Execute distinct work or explicitly reuse its original
+
+**Unreleased v0.41 source.** The owned submission command uses the actual
+immutable store and protected capture/lifecycle publisher. This is separate
+from the offline codec preview above and from ordinary `runner run`.
+
+Create the private store once, then wrap the existing captured native request:
+
+```bash
+mkdir -m700 .waza-artifacts
+jq '{kind:"waza.execution-submission",schema_version:"1.0",request:.}' \
+  examples/runner/unit.json |
+  waza runner submit --store .waza-artifacts > submission.json
+```
+
+Omitting `policy` selects distinct execution. Repeating the same request reserves
+a different execution ID even when its declared native attempt is unchanged.
+The one result is a protected [submission result](../../schemas/execution-submission-result-1.0.schema.json);
+the [submission request schema](../../schemas/execution-submission-1.0.schema.json)
+rejects explicit null policies, ambiguous keys, and unrecognized fields.
+`completed` describes finalized terminal evidence, not successful grading.
+
+Explicit reuse must name the exact original execution ID and manifest digest:
+
+```bash
+jq --slurpfile source submission.json \
+  '{kind:"waza.execution-submission",schema_version:"1.0",request:.,policy:{
+    mode:"reuse",source:{
+      execution_id:$source[0].reservation.execution_id,
+      manifest_digest:$source[0].completion.manifest_digest
+    }}}' examples/runner/unit.json |
+  waza runner submit --store .waza-artifacts > reused.json
+```
+
+Use a result with an actual `completion`, not a partial/error record. Reuse
+verifies the original finalized source and makes zero new engine calls.
+Original native ordinals, terminal bytes, failed verdicts, and historical usage
+attribution remain unchanged. Missing usage is unavailable, not zero.
+Restricted original diagnostic text is not retroactively redacted into a new
+authenticated source; disclosure/reuse is denied and original bytes retained.
+
+For a new retry, use `policy: {mode:"distinct", parent:{
+execution_id: ORIGINAL_EXECUTION_ID, relationship:"retry"}}`. A `branch` parent
+is an explicit incomparable branch; neither parent form establishes a global
+order or exactly-once guarantee. Keep all original records.
+
+The matching `POST /api/v1/runner/submit` uses the server-configured existing
+private store. It accepts only bounded literal-loopback, matching Host and
+same-origin requests; request JSON cannot select a store or inject hooks.
+Source conflicts/corruption are operation errors, not successful reuse.
+Publication, cancellation, resource-release and transport failures must be
+checked alongside actor verdicts. A close failure retains admitted actor facts
+but withholds an operation completion claim. Never retry a failed output
+channel with fallback JSON.
+
+The saved-results Lab's runner tab offers the same explicit submission and shows
+current caller identity separately from original execution/native ordinal,
+parent declarations, new-call count and original manifest reference. It clears
+old results when input changes or a request fails. The download retains exact
+response JSON rather than a reconstructed summary; the synthetic demo cannot
+submit. These views do not invent absent usage, runtime attestation or a complete
+lineage graph from one parent reference.
+
+### Migration and release boundary
+
+Submission is opt-in: do not replace historical result lookup, native `run`,
+mutable output files, or billing attribution with a sidecar digest. Old results
+are not retroactively assigned retained execution ownership. No manifest-v1
+rewrite, automatic migration, or release availability is implied. Broader
+native-platform, hosted browser and release gates remain separate from the
+focused source controls.
+
 ## Prepare a declaration
 
 Keep the original dedicated [runner terminal envelope](../runner-terminal/) and

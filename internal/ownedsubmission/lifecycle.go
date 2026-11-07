@@ -9,11 +9,18 @@ import (
 // NewLifecycleCaptureHooks creates one invocation-owned non-writing observer and
 // conservative capture policy. It does not register or authorize public routes.
 func NewLifecycleCaptureHooks(now func() time.Time) (runnerunit.SubmissionHooks, error) {
+	return lifecycleCaptureHooks(now, nil)
+}
+
+func lifecycleCaptureHooks(now func() time.Time, service *runnerunit.Service) (runnerunit.SubmissionHooks, error) {
 	observer, err := runnerunit.NewPreparedLifecycleObserver(now)
 	if err != nil {
 		return runnerunit.SubmissionHooks{}, err
 	}
 	hooks := observer.Hooks()
 	hooks.Factory = runnerunit.NewEngineFactory(observer.RuntimeObservations)
+	if service != nil {
+		hooks.Factory = service.NativeEngineFactory(observer.RuntimeObservations)
+	}
 	return CaptureHooks(hooks)
 }
