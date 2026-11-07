@@ -20,7 +20,7 @@ func newAggregateCommand() *cobra.Command {
 		Use:          "aggregate DIGEST [DIGEST...]",
 		SilenceUsage: true,
 		Short:        "Aggregate completed immutable manifests without workers or agents",
-		Long:         "Derive a deterministic JSON or CSV report from an explicit expected manifest set, optionally selecting evidence sidecars. Uses only the selected immutable store; never loads project configuration, executes agents, or rewrites historical results. Category states remain declarations and usage totals are withheld. Exit 0 means complete compatible membership, 1 means a recorded evaluation failure, and 2 means incomplete, conflicting, incompatible or unreadable inputs. None is an evidence-assurance decision.",
+		Long:         "Derive a deterministic JSON or CSV report from an explicit expected manifest set, optionally selecting evidence sidecars. Uses only the selected immutable store; never loads project configuration, executes agents, or rewrites historical results. Declared categories and admitted native shapes remain separate; usage totals are withheld. Exit 0 means complete compatible membership, 1 means a recorded evaluation failure, and 2 means incomplete, conflicting, incompatible or unreadable inputs. None is an evidence-assurance decision.",
 		Args:         cobra.RangeArgs(1, manifestaggregate.MaxInputs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			request := manifestaggregate.Request{Manifests: args}
