@@ -114,7 +114,7 @@ func TestReleaseWorkflowGates(t *testing.T) {
 		{"tolerated-lint-job", "  lint:\n", "  lint:\n    continue-on-error: true\n"},
 		{"skipped-build-source", "      - name: Require exact source\n", "      - name: Require exact source\n        if: 'false'\n"},
 		{"different-download", "          name: release-tested-${{ github.sha }}\n          path: .", "          name: other-binary\n          path: ."},
-		{"missing-binary-digest", "sha256sum --check waza.sha256", ":"},
+		{"missing-binary-digest", `test "$(cat waza.sha256)" = "$(sha256sum waza)"`, ":"},
 		{"missing-executable-mode", "chmod +x waza", ":"},
 		{"missing-coverage-artifact", "            coverage.txt\n", ""},
 		{"stale-source", `run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`, "run: ':'"},
@@ -152,6 +152,8 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				candidateName = "Detect exact insider tag"
 			}
 			testReleaseCandidateDetection(t, releaseSteps(workflow.Jobs["release-candidate"])[candidateName].Run, file)
+			testReleaseBinaryHandoff(t, "sha256sum waza > waza.sha256",
+				releaseSteps(workflow.Jobs["release"])["Require exact validated source and tested binary"].Run)
 			createName := "Create Release"
 			if file == "squad-insider-release.yml" {
 				createName = "Create Insider Pre-Release"
@@ -166,7 +168,8 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				{"unbound-validation-result", "${{ needs.validation.result }}", "success"},
 				{"ignored-validation-result", `test "$VALIDATION_RESULT" = success`, ":"},
 				{"stale-source", `test "$(cat source-sha.txt)" = "$GITHUB_SHA"`, ":"},
-				{"missing-digest", "sha256sum --check waza.sha256", ":"},
+				{"missing-digest", `test "$(cat waza.sha256)" = "$(sha256sum waza)"`, ":"},
+				{"unchecked-tag-lookup", `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`, `mapfile -t candidates < <(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')`},
 				{"different-evidence", "name: release-validation-${{ github.sha }}", "name: release-validation-other"},
 				{"rebuild-before-publication", "run: |\n          if gh release view", "run: |\n          go build -o waza ./cmd/waza\n          if gh release view"},
 				{"included-generated-insider-tag", `if [[ "$tag" != *-insider ]]; then`, "if true; then"},
@@ -245,6 +248,7 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 	for _, tc := range []struct {
 		name        string
 		tags        []string
+		lookupError bool
 		wantSuccess bool
 		wantOutput  string
 	}{
@@ -252,6 +256,7 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 		{name: "base-tag", tags: []string{"v1.2.3"}, wantSuccess: true, wantOutput: "publish=true\ntag=v1.2.3\n"},
 		{name: "base-and-insider-tags", tags: []string{"v1.2.3", "v1.2.3-insider"}, wantSuccess: true, wantOutput: "publish=true\ntag=v1.2.3\n"},
 		{name: "multiple-base-tags", tags: []string{"v1.2.3", "v1.2.4"}, wantSuccess: false},
+		{name: "failed-tag-lookup", lookupError: true, wantSuccess: false},
 	} {
 		t.Run("candidate-"+tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -267,11 +272,27 @@ func testReleaseCandidateDetection(t *testing.T, run, file string) {
 			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "GITHUB_SHA="+sha, "GITHUB_OUTPUT="+outputPath)
+			if tc.lookupError {
+				wrapper := filepath.Join(dir, "git")
+				writeReleaseFile(t, wrapper, []byte("#!/bin/sh\nprintf 'tag lookup failed\\n' >&2\nexit 73\n"))
+				if err := os.Chmod(wrapper, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				cmd.Env = append(cmd.Env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != tc.wantSuccess {
 				t.Fatalf("%s candidate error = %v\n%s", file, err, output)
 			}
 			if !tc.wantSuccess {
+				if tc.lookupError {
+					if !strings.Contains(string(output), "tag lookup failed") {
+						t.Fatal("failed lookup control did not execute")
+					}
+					if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+						t.Fatalf("failed lookup emitted candidate outputs: %v", err)
+					}
+				}
 				return
 			}
 			got, err := os.ReadFile(outputPath)
@@ -583,7 +604,7 @@ func validateReleaseValidation(source []byte) error {
 		upload.With["path"] != "waza\nwaza.sha256\ncoverage.txt\n" || upload.With["if-no-files-found"] != "error" ||
 		!strings.HasPrefix(download.Uses, "actions/download-artifact@") || download.With["name"] != upload.With["name"] || download.With["path"] != "." ||
 		buildSteps["Record tested binary digest"].Run != "sha256sum waza > waza.sha256" ||
-		steps["Verify and restore tested binary"].Run != "sha256sum --check waza.sha256\nchmod +x waza\n./waza --version\n" {
+		steps["Verify and restore tested binary"].Run != "test \"$(cat waza.sha256)\" = \"$(sha256sum waza)\"\nchmod +x waza\n./waza --version\n" {
 		return fmt.Errorf("publication must retrieve the exact integration-tested binary, digest and remaining coverage")
 	}
 	nativeDownload := steps["Download native coverage and discovery evidence"]
@@ -649,7 +670,7 @@ func validateBranchPublisher(source []byte, file string) error {
 		tagStep = candidateSteps["Detect exact insider tag"]
 		createName = "Create Insider Pre-Release"
 	}
-	if tagStep.Run == "" || !strings.Contains(tagStep.Run, `git tag --points-at "$GITHUB_SHA" --list 'v*.*.*'`) ||
+	if tagStep.Run == "" || !strings.Contains(tagStep.Run, `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`) ||
 		!strings.Contains(tagStep.Run, `if [[ "$tag" != *-insider ]]; then`) ||
 		!strings.Contains(tagStep.Run, `echo "publish=false" >> "$GITHUB_OUTPUT"`) ||
 		!strings.Contains(tagStep.Run, `if [ "${#tags[@]}" -gt 1 ]`) {
@@ -667,7 +688,7 @@ func validateBranchPublisher(source []byte, file string) error {
 	}
 	download := steps["Download complete validation evidence"]
 	if download.With["name"] != "release-validation-${{ github.sha }}" || download.With["path"] != "." ||
-		steps["Require exact validated source and tested binary"].Run != "test \"$(cat source-sha.txt)\" = \"$GITHUB_SHA\"\nsha256sum --check waza.sha256\nchmod +x waza\n./waza --version\n" {
+		steps["Require exact validated source and tested binary"].Run != "test \"$(cat source-sha.txt)\" = \"$GITHUB_SHA\"\ntest \"$(cat waza.sha256)\" = \"$(sha256sum waza)\"\nchmod +x waza\n./waza --version\n" {
 		return fmt.Errorf("publisher must consume complete exact-source tested evidence")
 	}
 	if !strings.Contains(steps[createName].Run, "./waza ./waza.sha256 ./source-sha.txt") {
@@ -767,12 +788,13 @@ func validateTagRelease(source []byte) error {
 
 func testReleaseBinaryHandoff(t *testing.T, record, restore string) {
 	t.Helper()
-	for _, mutation := range []string{"none", "binary", "digest", "missing-binary", "missing-digest"} {
+	for _, mutation := range []string{"none", "binary", "digest", "foreign-filename", "missing-binary", "missing-digest"} {
 		t.Run("binary-handoff-"+mutation, func(t *testing.T) {
 			dir := t.TempDir()
 			binary := filepath.Join(dir, "waza")
 			content := []byte("#!/bin/sh\nprintf '%s\\n' tested-release-binary > version-observed\n")
 			writeReleaseFile(t, binary, content)
+			writeReleaseFile(t, filepath.Join(dir, "source-sha.txt"), []byte("validated-source\n"))
 			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", record)
 			cmd.Dir = dir
 			if output, err := cmd.CombinedOutput(); err != nil {
@@ -787,6 +809,15 @@ func testReleaseBinaryHandoff(t *testing.T, record, restore string) {
 				writeReleaseFile(t, binary, append(content, []byte("# altered binary\n")...))
 			case "digest":
 				writeReleaseFile(t, filepath.Join(dir, "waza.sha256"), []byte(strings.Repeat("0", 64)+"  waza\n"))
+			case "foreign-filename":
+				writeReleaseFile(t, filepath.Join(dir, "other"), content)
+				foreign := exec.CommandContext(t.Context(), "sha256sum", "other")
+				foreign.Dir = dir
+				digest, err := foreign.Output()
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeReleaseFile(t, filepath.Join(dir, "waza.sha256"), digest)
 			case "missing-binary":
 				if err := os.Remove(binary); err != nil {
 					t.Fatal(err)
@@ -798,6 +829,7 @@ func testReleaseBinaryHandoff(t *testing.T, record, restore string) {
 			}
 			cmd = exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", restore)
 			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != (mutation == "none") {
 				t.Fatalf("restore mutation %s: %v\n%s", mutation, err, output)

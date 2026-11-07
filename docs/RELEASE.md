@@ -53,6 +53,9 @@ publishes only its downloaded, digest-verified tested binary. Stable and insider
 release assets include `waza.sha256` and `source-sha.txt`.
 Generated `-insider` tags are excluded from candidate detection so retries still
 select the single base tag. New insider tags explicitly target the validated SHA.
+Tag lookup failures stop admission instead of being interpreted as an untagged
+head. Tested-binary sidecars must match both the digest and the `waza` filename
+before the binary can execute or publish.
 
 The six CLI matrix binaries and azd packages are release builds from the
 validated source, with recorded digests; they are not the Linux binary exercised

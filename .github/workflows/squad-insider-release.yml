@@ -23,7 +23,11 @@ jobs:
       - name: Detect exact insider tag
         id: tag
         run: |
-          mapfile -t candidates < <(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')
+          tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"
+          candidates=()
+          if [ -n "$tag_output" ]; then
+            mapfile -t candidates <<< "$tag_output"
+          fi
           tags=()
           for tag in "${candidates[@]}"; do
             if [[ "$tag" != *-insider ]]; then
@@ -68,7 +72,7 @@ jobs:
       - name: Require exact validated source and tested binary
         run: |
           test "$(cat source-sha.txt)" = "$GITHUB_SHA"
-          sha256sum --check waza.sha256
+          test "$(cat waza.sha256)" = "$(sha256sum waza)"
           chmod +x waza
           ./waza --version
 

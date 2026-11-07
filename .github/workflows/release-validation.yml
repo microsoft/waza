@@ -234,7 +234,7 @@ jobs:
 
       - name: Verify and restore tested binary
         run: |
-          sha256sum --check waza.sha256
+          test "$(cat waza.sha256)" = "$(sha256sum waza)"
           chmod +x waza
           ./waza --version
 
