@@ -38,9 +38,10 @@ func TestReaderAdmitsActualProtectedSubmissionWithoutCreatorHydration(t *testing
 	reader, err := executionledger.NewReader(scoped, backend)
 	require.NoError(t, err)
 	source := executionattempt.Source{ExecutionID: submitted.Reservation.ExecutionID, ManifestDigest: submitted.Completion.ManifestDigest}
-	completed, err := reader.ReadCompleted(context.Background(), source)
+	completed, err := reader.ReadCompleted(context.Background(), source, "terminal.json", "execution-attempt.json")
 	require.NoError(t, err)
 	require.Equal(t, submitted.Reservation.Binding, completed.Publication.Manifest.Binding)
+	require.Equal(t, completed.Reservation.Bytes, completed.Publication.ArtifactBytes["execution-attempt.json"])
 	terminal, err := runnerterminal.Validate(completed.Publication.ArtifactBytes["terminal.json"], completed.Reservation.Attempt.Binding.TerminalBinding())
 	require.NoError(t, err)
 	require.Equal(t, submitted.Terminal.Selection.Attempt, terminal.Selection.Attempt)

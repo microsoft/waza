@@ -167,6 +167,17 @@ a namespace. Both declaration reads and artifact/final-marker reads remain
 inside their supplied decorators. Verified source bytes still confer neither
 runtime attestation nor public disclosure authorization.
 
+The protected capture facade also includes `execution-attempt.json` in the
+same first-publication manifest. Its canonical bytes and digest come from the
+retained original reservation and are included in independently-original
+publication validation. Consumers can read this original execution identifier
+without retagging native ordinals; qualification still requires canonical
+sidecar/context admission and the actual ledger's finalized source verification.
+The capture index does not invent an `ExecutionSource`, and no second capture
+publication is needed to add the sidecar. Legacy/unprotected submission and
+finalized reuse do not retroactively add or rewrite this artifact. Combined
+capture/sidecar bytes remain subject to submission's aggregate publication bound.
+
 The additive `execution-submission-result-1.0.schema.json` and
 `ParseSubmissionResult`/`EncodeSubmissionResult` validate original wire types,
 phase requirements, caller/decision logical context, original reservation hash,

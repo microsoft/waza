@@ -117,6 +117,16 @@ func prepareCapturePublication(source runnerunit.SubmissionSnapshot) (runnerunit
 			Name: descriptor.Name, MediaType: descriptor.MediaType, Data: data,
 		})
 	}
+	attempt, err := executionattempt.EncodeAttempt(source.Reservation.Attempt)
+	if err != nil {
+		return runnerunit.SubmissionPublication{}, err
+	}
+	if !bytes.Equal(attempt, source.Reservation.Bytes) || artifactmanifest.Hash(attempt) != source.Reservation.Digest {
+		return runnerunit.SubmissionPublication{}, executionledger.ErrContext
+	}
+	result.Artifacts = append(result.Artifacts, runnerunit.SubmissionArtifact{
+		Name: "execution-attempt.json", MediaType: "application/json", Data: bytes.Clone(attempt),
+	})
 	return result, nil
 }
 
