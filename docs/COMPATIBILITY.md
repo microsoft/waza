@@ -152,6 +152,12 @@ runs only after reservation for the copilot profile; mock execution retains the
 real unbound empty sink. A configured getter returning nil is an error, not
 missing capture silently presented as success. Shared `NewEngineFactory(nil)`
 preserves legacy default builder options. Public registration remains pending.
+`Service.NativeEngineFactory(runtimeGetter)` selects that shared native builder
+only for `copilot-sdk`; all other configurations retain the Service's original
+factory, including injected cancellation and error behavior. Creating the
+resolver does not invoke either factory or getter. Mock submission/reuse
+controls exercise the retained factory through the actual Submit caller;
+native builder-only binding is not SDK launch or process evidence.
 Typed admission
 does not prove SDK/process observation provenance or process exit; process
 evidence remains `unknown`. Native observations preserve sink sequence, not
