@@ -734,13 +734,19 @@ func TestInspectUserInputCheckedWhenTaskDecodeIsBlocked(t *testing.T) {
 		invalid                    bool
 	}{
 		{"no opt-in", recoveryEval("2.0"), "  - answer: \"yes\"\n", "require config.native_user_input", true},
+		{"null", recoveryEval("2.0"), "  null\n", "must be an array", true},
 		{"invalid regex", nativeUserInputEval("2.0"), "  - question: \"(\"\n    answer: \"yes\"\n", "user_input_responses are invalid", true},
 		{"valid", nativeUserInputEval("2.0"), "  - question: \"Continue.*\"\n    answer: \"yes\"\n", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path, _ := writeSuite(t, tc.eval, blocked+"user_input_responses:\n"+tc.entry)
 			r := Inspect(path, Options{})
-			require.True(t, hasDiagnostic(r, "task.configuration", Unresolved), "the external reference must still block decoding: %+v", r.Diagnostics)
+			if tc.name == "null" {
+				require.True(t, hasDiagnostic(r, "schema.external_reference", Unresolved), "%+v", r.Diagnostics)
+				require.True(t, hasDiagnostic(r, "task.configuration", Invalid), "%+v", r.Diagnostics)
+			} else {
+				require.True(t, hasDiagnostic(r, "task.configuration", Unresolved), "the external reference must still block decoding: %+v", r.Diagnostics)
+			}
 			require.False(t, r.Complete)
 			require.Equal(t, tc.invalid, hasDiagnostic(r, "task.user_input", Invalid), "%+v", r.Diagnostics)
 			require.Equal(t, tc.invalid, r.Failed(false), "%+v", r.Diagnostics)

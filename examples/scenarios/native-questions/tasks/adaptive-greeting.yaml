@@ -33,4 +33,4 @@ graders:
       must_exist: [greeting.txt]
       content_patterns:
         - path: greeting.txt
-          must_match: ["(?i)Hello Ada from staging"]
+          must_match: ['(?i)\AHello Ada from staging(?:\r?\n)?\z']

@@ -7,6 +7,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ValidateUserInputResponsesDocument validates field shape without decoding
+// graders, so blocked offline schema resolution cannot hide a null declaration.
+func ValidateUserInputResponsesDocument(data []byte) error {
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return err
+	}
+	return validateUserInputResponsesNode(&node)
+}
+
+func validateUserInputResponsesNode(node *yaml.Node) error {
+	if node.Kind == yaml.DocumentNode && len(node.Content) == 1 {
+		node = node.Content[0]
+	}
+	value, err := effectiveStringNode(node, "user_input_responses")
+	if err != nil {
+		return err
+	}
+	if value != nil && value.Kind != yaml.SequenceNode {
+		return fmt.Errorf("user_input_responses must be an array")
+	}
+	return nil
+}
+
 // UserInputResponseConfig scripts one answer to a native Copilot SDK
 // user-input (ask_user) request. Entries are consumed strictly in order.
 type UserInputResponseConfig struct {

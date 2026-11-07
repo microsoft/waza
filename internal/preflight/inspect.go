@@ -247,6 +247,10 @@ func inspectTaskUserInput(r *Report, spec *models.EvalSpec, task *models.TestCas
 // inspectBlockedTaskUserInput checks the scripted answers of a task whose full
 // decode failed, so an unresolved prerequisite cannot hide them.
 func inspectBlockedTaskUserInput(r *Report, spec *models.EvalSpec, data []byte, path string) {
+	if err := models.ValidateUserInputResponsesDocument(data); err != nil {
+		r.add("task.user_input", Invalid, path, "", "", "Task user_input_responses must be an array.", "Omit the field or supply an array of scripted answers.")
+		return
+	}
 	var declared struct {
 		ID                 string                            `yaml:"id"`
 		UserInputResponses *[]models.UserInputResponseConfig `yaml:"user_input_responses"`

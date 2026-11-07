@@ -699,8 +699,6 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
 	userInputRejectionMark := req.UserInput.rejectionCount()
-	// The responder answering a native question must stop with this turn.
-	defer req.UserInput.BindTurn(ctx)()
 	var enableAmbientDiscovery *bool
 	var skipAmbientRetrieval *bool
 	var memory *copilot.MemoryConfiguration
@@ -1052,6 +1050,8 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	}
 
 	// Send prompt with updated API
+	userInputCtx, cancelUserInput := context.WithCancel(sendCtx)
+	releaseUserInput := req.UserInput.BindTurn(userInputCtx)
 	var retireClient bool
 	_, sessionAbandoned, retireClient, err = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
@@ -1059,6 +1059,8 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	}, func() {
 		e.forceStopClient(client)
 	})
+	cancelUserInput()
+	releaseUserInput()
 	if retireClient {
 		e.retireClient(client)
 	}

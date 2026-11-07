@@ -121,6 +121,35 @@ func TestRecoveryCLIExampleGradesArgumentsAndExitSequence(t *testing.T) {
 	}
 }
 
+func TestNativeGreetingExampleRequiresExactFile(t *testing.T) {
+	base := testutil.RepoFile(t, "examples", "scenarios", "native-questions")
+	spec, err := models.LoadEvalSpec(filepath.Join(base, "eval.yaml"))
+	require.NoError(t, err)
+	task, err := models.LoadTestCase(filepath.Join(base, "tasks", "adaptive-greeting.yaml"))
+	require.NoError(t, err)
+	records := []models.UserInputRecord{
+		{Answer: new("staging"), Source: models.UserInputSourceScript},
+		{Answer: new("Ada"), Source: models.UserInputSourceResponder},
+	}
+	for _, test := range []struct {
+		content string
+		passed  bool
+	}{
+		{"Hello Ada from staging", true},
+		{"Hello Ada from staging\n", true},
+		{"Hello Ada from staging\r\n", true},
+		{"ERROR: deployment failed\nHello Ada from staging\nEnvironment: production", false},
+		{"Hello Ada from staging\nextra", false},
+	} {
+		workspace := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workspace, "greeting.txt"), []byte(test.content), 0600))
+		graded, err := gradeRunWithJudge(t.Context(), spec, task, &models.RunResult{UserInputRequests: &records}, workspace, "", io.Discard, false, evidenceGradeSource{})
+		require.NoError(t, err)
+		require.NotEmpty(t, graded.Validations)
+		require.Equal(t, test.passed, graded.Status == models.StatusPassed, "%q: %+v", test.content, graded.Validations)
+	}
+}
+
 func TestNativeQuestionsExampleGradesRecordedAnswers(t *testing.T) {
 	base := testutil.RepoFile(t, "examples", "scenarios", "native-questions")
 	spec, err := models.LoadEvalSpec(filepath.Join(base, "eval.yaml"))

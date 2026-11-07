@@ -855,6 +855,9 @@ graders:
 
 Each request is recorded under `runs[].user_input_requests` with its session ID,
 offered choices, answer, `was_freeform`, `source`, and `error` when rejected.
+Omit `user_input_responses` or use `[]` when there are no scripted answers;
+`null` is invalid. Questions arriving after the agent's active send ends are
+rejected, including during session teardown.
 
 If the task also has an adaptive responder (`inputs.responder`), questions that
 the next scripted entry does not match are answered by the responder model

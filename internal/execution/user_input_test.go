@@ -326,6 +326,41 @@ func TestCopilotUserInputCallbackOnCreateAndResume(t *testing.T) {
 	require.ErrorContains(t, script.Finish(), "no scripted user_input_responses entry remains")
 }
 
+func TestCopilotRejectsUserInputDuringDisconnect(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := newClientMock(ctrl)
+	session := newSessionMock(ctrl)
+	var handler copilot.UserInputHandler
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
+			handler = cfg.OnUserInputRequest
+			return session, nil
+		})
+	client.EXPECT().DeleteSession(gomock.Any(), "late").AnyTimes()
+	session.EXPECT().SessionID().AnyTimes().Return("late")
+	session.EXPECT().On(gomock.Any()).AnyTimes().Return(func() {})
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	called := false
+	session.EXPECT().Disconnect().DoAndReturn(func() error {
+		called = true
+		_, err := handler(copilot.UserInputRequest{Question: "Continue?"}, copilot.UserInputInvocation{SessionID: "late"})
+		require.ErrorContains(t, err, "outside an active agent turn")
+		return nil
+	})
+	engine := NewCopilotEngineBuilder("test", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+	}).Build()
+	defer func() { require.NoError(t, engine.Shutdown(t.Context())) }()
+	require.NoError(t, engine.Initialize(t.Context()))
+	script := newTestScript(t, []models.UserInputResponseConfig{{Answer: strPtr("yes")}})
+	_, err := engine.Execute(t.Context(), &ExecutionRequest{Message: "go", UserInput: script})
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Zero(t, script.next)
+	require.Nil(t, script.Records()[0].Answer)
+	require.ErrorContains(t, script.Finish(), "outside an active agent turn")
+}
+
 func TestCopilotLeavesUserInputCallbackUnsetWithoutScript(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)

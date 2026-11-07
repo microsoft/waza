@@ -9,6 +9,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTaskRejectsNonArrayUserInputResponses(t *testing.T) {
+	for _, field := range []string{
+		"user_input_responses: null\n",
+		"user_input_responses: &n null\n",
+		"ignored: &n null\nuser_input_responses: *n\n",
+		"<<: {user_input_responses: null}\n",
+		"user_input_responses: wrong\n",
+		"user_input_responses: {}\n",
+	} {
+		data := []byte("id: t\nname: T\ninputs: {prompt: go}\n" + field)
+		_, err := ParseTestCase(data, "task.yaml")
+		require.ErrorContains(t, err, "user_input_responses must be an array")
+		_, err = ParseTestCaseOffline(data, "task.yaml", nil)
+		require.ErrorContains(t, err, "user_input_responses must be an array")
+		require.ErrorContains(t, ValidateUserInputResponsesDocument(data), "user_input_responses must be an array")
+	}
+	for _, field := range []string{"", "user_input_responses: []\n", "<<: {user_input_responses: []}\n", "<<: {user_input_responses: null}\nuser_input_responses: []\n"} {
+		task, err := ParseTestCase([]byte("id: t\nname: T\ninputs: {prompt: go}\n"+field), "task.yaml")
+		require.NoError(t, err)
+		require.Equal(t, field != "", task.UserInputResponses != nil)
+	}
+}
+
 func TestValidateUserInputResponses(t *testing.T) {
 	s := func(v string) *string { return &v }
 	cases := []struct {
