@@ -3,8 +3,9 @@
 **Under development for #767 / v0.41.0; not operational recovery.** The
 `internal/executionlifecycle` package implements a bounded pure projection and
 digest-addressed observation storage, read-only CLI/API inspection and a connected
-Dashboard Lab source component. It does not yet have a production owner
-observer or authenticated live lifecycle view; dashboard build/browser gates
+Dashboard Lab source component, with invocation-local owner observers. It does
+not yet select lifecycle capture through a public submission operation or expose
+an authenticated live lifecycle view; dashboard build/browser gates
 remain separate delivery requirements. Existing
 `waza runner run`, HTTP terminal responses and historical local execution retain
 their current behavior. Do not close #767 or advertise recovery from this layer.
@@ -176,6 +177,32 @@ configured native inspection API, not an impossible mocked response.
 
 ## Invocation observation and validation (unreleased)
 
+`runnerunit.NewPreparedLifecycleObserver` is the non-writing adapter for the
+actual fixed `SubmissionHooks.SelectLifecycle` contract. `Reserved` retains the
+owned reservation and original invocation deadline, then stages only the
+started event and invocation-local runtime sink. `SelectLifecycle` runs after
+protected terminal preparation and before independently validating the original
+category inventory. It seals detached fixed metadata; it never writes blobs,
+adds arbitrary artifacts, receives a rich report, or binds to a completion
+digest that does not yet exist.
+
+The core independently admits the original context, protected terminal, event
+order/digests and closed runtime fields. Its single first publisher includes
+`lifecycle.json` and canonical `lifecycle-observation-NNN.json` objects alongside
+the separately validated original inventory. The later `Terminal` callback
+only verifies unchanged original terminal bytes; it cannot create missing
+inventory or republish a terminal. An invocation uses `SubmissionHooks.Factory`
+to select its fresh sink after reservation, never a mutable closure on the
+shared service factory. Immutable reuse selects neither factory nor observer.
+
+Preparation, seal, verification and persistence errors are evidence-operation
+failures, not permission to rewrite the actor's status, ordinal or terminal.
+Production-caller controls cover success, completed check failure, cancellation,
+timeout, prepublication rejection, owned-root publication failure, returned-byte
+detachment, and concurrent invocation factories through the actual protected
+publisher. This internal adapter does not by itself enable public lifecycle
+capture, authenticate runtime evidence, or complete operational recovery.
+
 `runnerunit.NewLifecycleObserver` attaches to the actual submission's retained
 creator through `Reserved` and joined `Terminal` callbacks. It validates the
 creator and exact original reservation before writing observations, captures
@@ -198,6 +225,16 @@ SDK abort events. These are separate scoped observations: a returned call is
 not model acknowledgement, a force invocation is not a successful kill, and a
 turn-abort event is not an OS process exit. The SDK's actual `Cmd.Wait` and
 `processDone` are private; **process exit remains unknown** in this adapter.
+
+The explicitly allocated `TestOwnedRuntimeNativeNoSendControl` is opt-in through
+`WAZA_NATIVE_LIFECYCLE_SMOKE=1`. Ordinary rejecting-runtime gates leave it disabled.
+It deliberately uses the actual embedded path in an isolated no-auth,
+discovery-disabled child, with a rejecting provider and zero requests, never
+`Send`. Client base and session configuration use the same owned storage root,
+and disconnect, session deletion and shutdown remain strict checks. Its bounded
+test-worker `Wait` joins only that worker; even a passing control leaves SDK
+process exit unknown. A failed session cleanup is a failed control, not a
+successful startup receipt.
 
 Capture callbacks perform no I/O or user callbacks and never wait for another
 observer lock. Contention/overflow is explicit incomplete evidence, not success.

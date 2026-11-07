@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +24,7 @@ import (
 )
 
 func TestLifecycleObserverActualProtectedCheckpointAndRestore(t *testing.T) {
-	fixture, err := os.ReadFile("../../examples/runner/unit.json")
-	require.NoError(t, err)
+	fixture := lifecycleFixtureBytes(t)
 	for _, control := range []string{"success", "failed", "canceled-after-before", "terminal-observer-failure"} {
 		t.Run(control, func(t *testing.T) {
 			backend, err := artifactmanifest.OpenLocal(t.TempDir())
