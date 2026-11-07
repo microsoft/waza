@@ -146,6 +146,21 @@ func HookEnd(event copilot.SessionEvent) (*copilot.HookEndData, bool) {
 	return data, ok
 }
 
+func TurnStart(event copilot.SessionEvent) (*copilot.AssistantTurnStartData, bool) {
+	data, ok := event.Data.(*copilot.AssistantTurnStartData)
+	return data, ok
+}
+
+func TurnEnd(event copilot.SessionEvent) (*copilot.AssistantTurnEndData, bool) {
+	data, ok := event.Data.(*copilot.AssistantTurnEndData)
+	return data, ok
+}
+
+func SystemNotification(event copilot.SessionEvent) (*copilot.SystemNotificationData, bool) {
+	data, ok := event.Data.(*copilot.SystemNotificationData)
+	return data, ok
+}
+
 func Shutdown(event copilot.SessionEvent) (*copilot.SessionShutdownData, bool) {
 	data, ok := event.Data.(*copilot.SessionShutdownData)
 	return data, ok

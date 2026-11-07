@@ -39,6 +39,7 @@ func (c *Client) ResumeSessionWithOptions(_ context.Context, id string, config *
 	c.Resumes.Add(1)
 	return &session{client: c, id: id, config: &copilot.SessionConfig{
 		Model: config.Model, Tools: config.Tools, WorkingDirectory: config.WorkingDirectory,
+		OnUserInputRequest: config.OnUserInputRequest,
 	}}, nil
 }
 

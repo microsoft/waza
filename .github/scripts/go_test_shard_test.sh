@@ -2,6 +2,7 @@
 set -euo pipefail
 
 scripts="$(cd "$(dirname "$0")" && pwd)"
+python3 "$scripts/go_test_shard_plan_test.py"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/waza-shard-test.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 mkdir "$scratch/bin" "$scratch/reports"
