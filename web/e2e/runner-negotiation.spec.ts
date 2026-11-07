@@ -445,31 +445,53 @@ test.describe("Runner negotiation through the real Go API", () => {
   test("Copilot profile validates offline and reports guarded native startup without inference", async ({ page, request }) => {
     // Native execution must reach the actual same-origin server, not the
     // preview proxy used by mock-only controls.
+    const dashboardOrigin = new URL(page.url()).origin;
     await page.unroute("**/api/v1/runner/**");
-    await page.goto(`${base}/#/lab/runner`);
-    const captured = JSON.parse(readFileSync(new URL("../../examples/runner/copilot-unit.json", import.meta.url), "utf8"));
-    const admitted = await request.post(`${base}/api/v1/runner/validate`, { data: captured });
-    const report = await admitted.json();
-    expect(report.status).toBe("ready");
-    expect(report.engine_calls).toBe(0);
-    expect(report.adjacent_work_selected).toBe(false);
-    expect(report.resolved).toEqual(captured.selection);
-    const input = page.getByRole("textbox", { name: "Exact work request (JSON)" });
-    await input.fill(JSON.stringify({ ...captured, allow_paid_execution: false }));
-    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
-    const terminal = page.getByRole("status", { name: "Terminal result" });
-    await expect(terminal).toContainText("invalid_input");
-    await expect(terminal).toContainText("allow_paid_execution: true");
-    await input.fill(JSON.stringify(captured));
-    await page.getByRole("button", { name: "Validate selection" }).click();
-    const selection = page.getByRole("status", { name: "Selection validation result" });
-    await expect(selection).toContainText("Valid selection (not executed)");
-    await expect(selection).toContainText("shard-a / selected / trial 2 / attempt 2");
-    await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
-    await expect(terminal).toContainText("infrastructure_failure");
-    await expect(terminal).toContainText("initialize/start_failed");
-    await expect(terminal).toContainText(report.identity.attempt);
-    await expect(terminal.getByRole("list", { name: "Observed grader verdicts" })).toHaveCount(0);
+    // The preview CLI predates the dashboard build. Forward current static
+    // bytes only; matched embedded delivery has its own final control.
+    const staticMatcher = (url: URL) => url.origin === base &&
+      (url.pathname === "/" || url.pathname === "/favicon.svg" || url.pathname.startsWith("/assets/"));
+    const staticBridge = async (route: Route) => {
+      const url = new URL(route.request().url());
+      const response = await route.fetch({ url: `${dashboardOrigin}${url.pathname}${url.search}`, maxRedirects: 0 });
+      const contentType = response.headers()["content-type"]?.split(";")[0].trim();
+      const expectedType = url.pathname === "/" ? /^text\/html$/ :
+        url.pathname.endsWith(".js") ? /^(text|application)\/javascript$/ :
+          url.pathname.endsWith(".css") ? /^text\/css$/ : /^(?!text\/html$).+$/;
+      if (response.status() !== 200 || !contentType || !expectedType.test(contentType)) {
+        throw new Error(`Current dashboard static resource ${url.pathname} returned ${response.status()} ${contentType ?? "missing Content-Type"}.`);
+      }
+      await route.fulfill({ response });
+    };
+    await page.route(staticMatcher, staticBridge);
+    try {
+      await page.goto(`${base}/#/lab/runner`);
+      const captured = JSON.parse(readFileSync(new URL("../../examples/runner/copilot-unit.json", import.meta.url), "utf8"));
+      const admitted = await request.post(`${base}/api/v1/runner/validate`, { data: captured });
+      const report = await admitted.json();
+      expect(report.status).toBe("ready");
+      expect(report.engine_calls).toBe(0);
+      expect(report.adjacent_work_selected).toBe(false);
+      expect(report.resolved).toEqual(captured.selection);
+      const input = page.getByRole("textbox", { name: "Exact work request (JSON)" });
+      await input.fill(JSON.stringify({ ...captured, allow_paid_execution: false }));
+      await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
+      const terminal = page.getByRole("status", { name: "Terminal result" });
+      await expect(terminal).toContainText("invalid_input");
+      await expect(terminal).toContainText("allow_paid_execution: true");
+      await input.fill(JSON.stringify(captured));
+      await page.getByRole("button", { name: "Validate selection" }).click();
+      const selection = page.getByRole("status", { name: "Selection validation result" });
+      await expect(selection).toContainText("Valid selection (not executed)");
+      await expect(selection).toContainText("shard-a / selected / trial 2 / attempt 2");
+      await page.getByRole("button", { name: "Run selected unit", exact: true }).click();
+      await expect(terminal).toContainText("infrastructure_failure");
+      await expect(terminal).toContainText("initialize/start_failed");
+      await expect(terminal).toContainText(report.identity.attempt);
+      await expect(terminal.getByRole("list", { name: "Observed grader verdicts" })).toHaveCount(0);
+    } finally {
+      await page.unroute(staticMatcher, staticBridge);
+    }
   });
 
   test("native HTTP trust rejection is produced by the real server and preserved by Lab export", async ({ page, request }) => {
