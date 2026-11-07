@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/rootedfile"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -61,8 +63,123 @@ func FromEvalConfigWithVersion(mock models.MCPMockConfig, baseDir, version strin
 func ValidateEvalMocks(mocks []models.MCPMockConfig, baseDir, version string) error {
 	var errs []error
 	for _, mock := range mocks {
-		if _, err := FromEvalConfigWithVersion(mock, baseDir, version); err != nil {
+		if err := validateMockAdmission(mock, baseDir, version); err != nil {
 			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateMockAdmission(mock models.MCPMockConfig, baseDir, version string) error {
+	var errs []error
+	for name, tool := range mock.Tools {
+		if err := validateMockInputSchema(mock.Name, name, tool.InputSchema, baseDir); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	cfg, err := FromEvalConfigWithVersion(mock, baseDir, version)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if cfg != nil {
+		for name, tool := range cfg.Tools {
+			if _, inline := mock.Tools[name]; inline {
+				continue
+			}
+			if err := validateMockInputSchema(mock.Name, name, tool.InputSchema, baseDir); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateMockInputSchema(mockName, toolName string, schema any, baseDir string) error {
+	if schema == nil {
+		return nil
+	}
+	if err := models.ValidateMCPInputSchemaOffline(schema, filepath.Join(baseDir, "mock-input-schema.json")); err != nil {
+		return fmt.Errorf("mcp mock %q tool %q input schema: %w", mockName, toolName, err)
+	}
+	return nil
+}
+
+// InlineMockDeclarations returns the inline part of a mock, without its
+// fixture directory. ok is false when nothing inline remains to validate.
+func InlineMockDeclarations(mock models.MCPMockConfig) (models.MCPMockConfig, bool) {
+	mock.Fixtures = ""
+	return mock, len(mock.Tools) > 0
+}
+
+// ValidateInlineMockDeclarations validates the inline tools of each mock
+// without reading fixture directories.
+func ValidateInlineMockDeclarations(mocks []models.MCPMockConfig, baseDir, version string) error {
+	return validateInlineMockDeclarations(mocks, baseDir, version, false)
+}
+
+// ValidateInlineMockDeclarationsOffline validates inline tools without reading
+// fixture directories or resolving external matcher schemas.
+func ValidateInlineMockDeclarationsOffline(mocks []models.MCPMockConfig, baseDir, version string) error {
+	return validateInlineMockDeclarations(mocks, baseDir, version, true)
+}
+
+func validateInlineMockDeclarations(mocks []models.MCPMockConfig, baseDir, version string, offline bool) error {
+	var errs []error
+	for _, mock := range mocks {
+		declared, ok := InlineMockDeclarations(mock)
+		if !ok {
+			continue
+		}
+		var err error
+		if offline {
+			var errs []error
+			for name, tool := range declared.Tools {
+				if inputErr := validateMockInputSchema(declared.Name, name, tool.InputSchema, baseDir); inputErr != nil {
+					errs = append(errs, inputErr)
+				}
+			}
+			_, configErr := FromEvalConfigOfflineWithVersion(declared, baseDir, version)
+			err = errors.Join(append(errs, configErr)...)
+		} else {
+			err = validateMockAdmission(declared, baseDir, version)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ValidateMCPMocksForTasks admits the MCP mocks that the given selected tasks
+// will start: each task's own mocks, and every eval mock that at least one
+// task still uses. For an eval mock that every task replaces by name, only its
+// inline declarations are validated. With no tasks, every eval mock is
+// admitted as before task-level mocks existed.
+func ValidateMCPMocksForTasks(spec *models.EvalSpec, tasks []*models.TestCase, baseDir string) error {
+	return ValidateMCPMocksForPhases(spec, tasks, baseDir, false)
+}
+
+// ValidateMCPMocksForPhases also admits eval dependencies used outside tasks.
+func ValidateMCPMocksForPhases(spec *models.EvalSpec, tasks []*models.TestCase, baseDir string, usesEvalMCP bool) error {
+	taskMocks := models.TaskMCPMocks(tasks)
+	var errs []error
+	for _, mock := range spec.MCPMocks {
+		if !usesEvalMCP && models.MCPMockReplacedByEveryTask(mock.Name, taskMocks) {
+			if err := ValidateInlineMockDeclarations([]models.MCPMockConfig{mock}, baseDir, spec.SchemaVersion); err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
+		if err := validateMockAdmission(mock, baseDir, spec.SchemaVersion); err != nil {
+			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
+		}
+	}
+	for _, task := range tasks {
+		if task == nil || len(task.MCPMocks) == 0 {
+			continue
+		}
+		if err := ValidateEvalMocks(task.MCPMocks, baseDir, spec.SchemaVersion); err != nil {
+			errs = append(errs, fmt.Errorf("task %q: %w", task.TestID, err))
 		}
 	}
 	return errors.Join(errs...)
@@ -183,10 +300,11 @@ func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool, overr
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
+		data, err := readFixtureFile(path)
 		if err != nil {
-			return err
+			return fmt.Errorf("read MCP mock fixture %q: %w", path, err)
 		}
+
 		typedData := stripSourceSequences(data)
 		var bundle struct {
 			Tools map[string]Tool `json:"tools"`
@@ -241,6 +359,32 @@ func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool, overr
 		return errors.Join(errs...)
 	}
 	return nil
+}
+
+func readFixtureFile(path string) (_ []byte, err error) {
+	// Preserve existing fixture symlinks, including targets outside the fixture directory.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(filepath.Dir(resolved))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	file, err := rootedfile.Open(root, filepath.Base(resolved))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("fixture must be a regular JSON file")
+	}
+	return io.ReadAll(file)
 }
 
 func convertResponses(in []models.MCPMockResponse) []Response {

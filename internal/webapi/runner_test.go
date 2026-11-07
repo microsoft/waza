@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
@@ -106,11 +107,40 @@ func TestRunnerUnitNoDeadlineSupportFailsClosedBeforeFactory(t *testing.T) {
 				request := httptest.NewRequest(http.MethodPost, "/api/v1/runner/"+action, bytes.NewBufferString("{}"))
 				request.Header.Set("Content-Type", media)
 				recorder := httptest.NewRecorder()
-				mux.ServeHTTP(recorder, request)
+				writer := &runnerUnsupportedReadDeadline{ResponseRecorder: recorder}
+				mux.ServeHTTP(writer, request)
 				require.Equal(t, http.StatusInternalServerError, recorder.Code)
-				require.JSONEq(t, `{"code":500,"error":"setting runner read deadline: feature not supported"}`, recorder.Body.String())
+				require.Equal(t, 1, writer.reads, "read deadline setup precedes every media-type check")
+				if action == "run" {
+					envelope, err := runnerterminal.Validate(recorder.Body.Bytes(), nil)
+					require.NoError(t, err)
+					require.Equal(t, runnerterminal.InfrastructureFailure, envelope.Outcome)
+					require.Equal(t, 2, envelope.ExitCode)
+					require.Equal(t, "input", envelope.FailureBoundary)
+					require.Zero(t, envelope.EngineCalls)
+					require.Nil(t, envelope.Identity)
+					require.Nil(t, envelope.Observation)
+					require.Len(t, envelope.Diagnostics, 1)
+					require.Contains(t, envelope.Diagnostics[0].Message, "setting runner read deadline: feature not supported")
+					require.Equal(t, "close", recorder.Header().Get("Connection"))
+					require.Equal(t, 1, bytes.Count(recorder.Body.Bytes(), []byte{'\n'}))
+				} else {
+					require.JSONEq(t, `{"code":500,"error":"setting runner read deadline: feature not supported"}`, recorder.Body.String())
+				}
 				require.Zero(t, factories)
 			})
 		}
 	}
 }
+
+type runnerUnsupportedReadDeadline struct {
+	*httptest.ResponseRecorder
+	reads int
+}
+
+func (w *runnerUnsupportedReadDeadline) SetReadDeadline(time.Time) error {
+	w.reads++
+	return http.ErrNotSupported
+}
+
+func (w *runnerUnsupportedReadDeadline) SetWriteDeadline(time.Time) error { return nil }

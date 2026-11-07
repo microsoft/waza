@@ -236,9 +236,40 @@ Sources: [major API break](https://github.com/microsoft/waza/pull/684#discussion
 [coordinated modules](https://github.com/microsoft/waza/pull/566#discussion_r3886209518),
 [stale release metadata](https://github.com/microsoft/waza/pull/527#discussion_r3787431986).
 
+### Preserve measured performance characteristics
+
+- Optimize the production lifecycle at representative scale. Retain focused Go
+  benchmarks with `-benchmem`; include construction, refresh, or serialization
+  when production repeats that work. For dashboard changes, measure the relevant
+  production bundle, DOM, or browser path. Compare against current `main` with
+  interleaved runs rather than relying on a reusable-object microbenchmark alone.
+- Scope caches and compiled state to the smallest real lifecycle: a grading pass,
+  immutable assurance case, dashboard snapshot/refresh, or one staging call.
+  Bound entries by admitted input/configuration, cache only validated successes,
+  and replace refresh state transactionally. Use content identity when file
+  metadata is insufficient; do not expose cached pointers/slices mutably or leak
+  state between tasks, runs, or workspaces.
+- Make expensive work lazy only through an explicit path whose callers do not
+  consume the omitted result, such as metadata-only skill parsing, per-schema
+  validation, or non-home route loading. Preserve general API behavior, wire
+  field presence, ordering, errors, ownership checks, and accessibility. For
+  large histories or captures, reduce repeated copies, per-item serialization,
+  and DOM growth without dropping source data.
+
+Sources: [production-lifecycle regex benchmark](https://github.com/microsoft/waza/pull/849),
+[transactional dashboard projections](https://github.com/microsoft/waza/pull/858),
+[explicit metadata-only parsing](https://github.com/microsoft/waza/pull/843),
+[bounded trend-chart DOM](https://github.com/microsoft/waza/pull/856),
+[owned capture buffers](https://github.com/microsoft/waza/pull/833).
+
 ## Building and Testing
 
 > **Requires Go 1.26 or later.** The module targets `go 1.26` (`go.mod`), which means Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
+
+The ordinary `cmd/waza` tests and `go test ./...` also require **Node.js 22.18+
+or 24+** on `PATH`. The interoperability conformance test executes the retained
+upstream TypeScript assertion oracle using Node's type stripping; it needs no
+npm packages or inference. Missing Node is a test failure, not a skipped oracle.
 
 ```bash
 # Build
@@ -318,11 +349,16 @@ Repository protection/rulesets are authoritative for required checks and
 approvals. Read the active rules with
 `gh api repos/microsoft/waza/rules/branches/main`; do not assume workflow display
 names are the required status contexts. Go validation is defined in
-`.github/workflows/go-ci.yml` and `.github/workflows/squad-ci.yml`; preserve
-required native-platform tests and lint.
+the single `.github/workflows/go-ci.yml`; preserve required native-platform tests
+and lint. It covers PRs to every base and pushes to `main`, `develop`, `dev`, and
+`insider`; do not reintroduce a duplicate Squad PR validation workflow.
+Superseded PR runs are cancelled per workflow/event/ref, not release publication.
 
 Linux executes `internal/controlledcomparison` in four deterministic shards
-through `.github/workflows/go-native-shards.yml`; all remaining packages run in
+through `.github/workflows/go-native-shards.yml`, balanced longest-first using
+observed top-level durations in `.github/scripts/go_test_shard_durations.tsv`.
+Python 3 computes placement only; discovery remains authoritative and new tests
+use the median historical duration. All remaining packages run in
 the main Linux build job. Discovery uses the same race/atomic build and includes
 tests, examples, and fuzz seed targets without changing their fixtures or
 internal skip behavior. Each shard retains the 30-minute Go test deadline.
@@ -336,9 +372,46 @@ dependent job or remove a package without providing exhaustive required shards.
 Exercise discovery and all failure branches with
 `bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
 
-Both Go lint workflows use `.github/scripts/lint.sh` to require configuration
+Squad Release and Squad Insider Release reuse the same four native shards and
+30-minute race/atomic package deadline, running remaining validation in parallel.
+Their publication job explicitly rejects failed, cancelled, or skipped validation
+branches and verifies all five coverage profiles and exactly-once native selection
+before publishing the tested binary artifact. Test the release wiring with
+`go test -count=1 ./.github/scripts` and the offline runtime/integration controls
+with `bash .github/scripts/release_gate_test.sh`. Release tests and native shards
+install a verified rejecting Copilot runtime. The mock integration requires a
+fresh saved JSON outcome with the four expected tasks and all three trials,
+consistent summary/task/run/grader statuses, and zero errors, skips, or cached
+tasks. Exit 1 is accepted only for completed grader failures, never task/runtime
+errors, cancellation, or missing/incomplete evidence. Any attempted runtime launch
+also fails the gate.
+Inline grader exceptions and text-grader regex configuration errors carry
+`details.evaluation_errors` separately from false assertions and are rejected by
+the integration gate. Both inline runtimes convert each caught exception to a
+message once and reuse it for ordinary failures and structured error evidence.
+The fixed mock example permits no checkpoint results and
+requires grader scores to agree with verdicts (1 for pass, less than 1 for fail).
+Each native shard checks
+its own rejecting runtime marker after tests, including tolerated launches.
+Publication uses `!cancelled()` as well as explicit shard-result checks.
+The SIGTERM regression holds the production CLI inside a blocking grader
+subprocess until cancellation, rather than synchronizing on console output.
+Both workflows execute the production-CLI regression controls
+in `.github/scripts`, including the otherwise indistinguishable task-error exit 1.
+The integration requires `jq` (available on the Ubuntu release runners).
+The fixed release example is hook-free, requires one recorded attempt per run,
+and pins each named grader result to its expected type; retries must not hide
+discarded evaluation exceptions or substitute executable-launch failures.
+Before execution it requires a complete offline preflight report, rejects invalid
+configuration and colliding final grader names (including synthesized expectation
+names), and leaves interpreter/model availability unresolved for the actual guarded
+run to prove. This release-only admission does not change legacy runtime overwrite
+behavior or preflight's default non-strict exit policy.
+This is offline harness evidence, not live agent-quality evidence.
+
+The Go lint job uses `.github/scripts/lint.sh` to require configuration
 validation against a checksum-pinned upstream release schema before running lint.
-When upgrading golangci-lint, update both workflow versions and the script's
+When upgrading golangci-lint, update the workflow version and the script's
 version check, upstream release commit, and schema checksum together.
 
 ## Fixture Isolation
@@ -361,6 +434,15 @@ exercise default discovery must also change into their fixture directory.
 `ENABLE_COPILOT_TESTS=false` only disables explicitly gated integration tests;
 it does not disable the production SDK execution path. Deterministic CLI gates
 must also use an absolute, verified `COPILOT_CLI_PATH` that rejects runtime launch.
+
+For MCP process-test failures, distinguish CLI build time, OS process creation,
+and protocol exchange/shutdown time. Record elapsed phases and context state
+before cleanup; label invocation setup as `setup_elapsed` and context observed
+immediately after `Start` returns as `post_start_ctx_err`. Inspect output buffers
+only after `Wait` joins their copy
+goroutines. An empty-stderr exit or a test's total duration does not establish a
+protocol failure. Retain fresh production-CLI execution and existing deadlines
+while diagnosing startup delays; a diagnostic-only pass is not a root-cause fix.
 
 ## Documentation Requirements
 
