@@ -209,6 +209,75 @@ inputs separately, and use existing complete-credit aggregation only after their
 own source/ownership admission. Present-empty declarations contain no usage
 artifact and do not produce a synthetic zero-valued `UsageStats`.
 
-Other categories currently remain declarations, not semantically verified
-producer observations. Restricted content must be withheld before persistence;
-a successful schema parse cannot retrospectively authorize payload disclosure.
+## Recorded category capture and admission
+
+The separate `execution-evidence-capture-1.0.schema.json` index is produced
+**before origin finalization**. It retains the actual native binding, six
+category records and explicit empty payload proofs. It contains no origin
+manifest digest or sidecar digest, and no nonempty message/tool/grader payload.
+The separately digested derived document still references only the finalized
+origin; neither artifact creates a digest cycle.
+
+`CaptureReport(report, withheld)` consumes one fresh invocation-local
+`runnerunit.Report`. `Report.Terminal()` projects that same report and returns
+detached comparison binding values without another execution or creator
+authority. A guarded mock report is labeled with a declared mock source;
+copilot mode does not become live attestation. Provenance records the original
+declared binding, not an observed environment or finalization claim.
+
+Nonempty conversation, tool and grader payloads are stored in independent
+`application/json` objects named `execution-evidence-{category}.json`. Usage
+remains a standalone native `UsageStats` object. Reliability references the
+original native terminal. The index's provenance record references
+`execution-evidence-capture.json` and that terminal; category counts are counts
+of recorded items, not numbers of supporting objects. Only the capture index
+name is reserved by admission; other payload names remain aliases and never
+qualify a category by themselves.
+
+Nil withholding uses the conservative conversation/tool-withheld default.
+Explicit `[]` opts into captured content subject to the shipped snapshot
+secret policy. A matching restricted value withholds the **entire category**:
+no payload bytes, count or reference enter immutable storage. Fixed native
+token-counter field names are not mistaken for credentials; freeform tool
+arguments/results and grader details retain sensitive-key checks. Operators
+must additionally withhold restricted categories: regex filtering is not
+comprehensive privacy detection or disclosure authorization.
+
+`ValidateCaptureBinding` must run **before reservation or any persistence**.
+Known native identity digests are opaque hashes; restricted task/grader/shard
+identifiers are rejected. First-publication capture may sanitize native
+diagnostic free text while preserving outcome, exit policy and counters;
+reliability is explicitly redacted when this occurs. Never apply this
+transformation to a finalized or reused terminal.
+
+`PreparedCapture.Artifacts()` returns detached native descriptors and prepared
+bytes, with no runtime/storage work. `PersistOwnedCapture` requires the actual
+`executionledger.Ledger` and retained `Creator`, compares original reservation
+binding, stages into one native origin, finalizes it, records completion, and
+publishes the separate sidecar. Its lifecycle has distinct verification phases;
+it does not promise a single read across the entire write lifecycle, an atomic
+snapshot, transaction or rollback. Storage/completion/semantic failures remain
+errors and can leave already-persisted artifacts.
+
+`InspectCategories(ctx, backend, digest)` returns declaration inspection,
+six `CategoryEvidence` results and an error. It uses **one current source
+pass** and never exports captured text/tool/grader payloads. It compares index,
+sidecar and original binding by category key; validates original payload types
+and counts; and checks native grader IDs/verdicts without replacing them.
+Missing/null message content and missing tool completion remain incomplete,
+not empty text or false-success defaults. Explicit recorded `[]`/`{}` proofs
+are required for present-empty. Missing index means unqualified declarations;
+failed whole-source admission withholds every category. A byte-verified source
+can still have conflicting/invalid semantic evidence.
+
+Oversize category objects are withheld, never truncated, with a measured bound
+strictly exceeding the real 64 MiB limit. Publication-total degradation uses
+actual candidate byte totals, including the actual reservation object, against
+256 MiB. Unparsed oversize payload counts remain unknown. Recorded degradation
+does not verify discarded bytes or turn incomplete evidence into acceptance.
+
+These are internal producer/read contracts with actual owner-backed mock
+regressions, not completed public submission, retry/resume, aggregation, Lab or
+release integration. Existing CLI/API/Lab surfaces above still display
+declarations; they must consume semantic admission before claiming categories
+qualified. Full #768 remains open.

@@ -114,34 +114,11 @@ func admitUsage(d *Document, source *artifactmanifest.CompletedPublication) (Usa
 				return result, fmt.Errorf("%w: recorded usage requires application/json", ErrInvalid)
 			}
 			data := source.ArtifactBytes[name]
-			value, err := jsonutil.Parse(data)
-			if err != nil {
-				return result, fmt.Errorf("%w: recorded usage JSON: %w", ErrInvalid, err)
-			}
-			schema, err := usageSchema()
+			usage, err := parseRecordedUsage(data)
 			if err != nil {
 				return result, err
 			}
-			if err := schema.Validate(value); err != nil {
-				return result, fmt.Errorf("%w: recorded usage fields: %w", ErrInvalid, err)
-			}
-			var usage models.UsageStats
-			if err := json.Unmarshal(data, &usage); err != nil {
-				return result, fmt.Errorf("%w: decoding recorded usage: %w", ErrInvalid, err)
-			}
-			for model := range usage.ModelMetrics {
-				if strings.TrimSpace(model) == "" {
-					return result, fmt.Errorf("%w: recorded usage model attribution label is empty", ErrInvalid)
-				}
-			}
-			if usage.ProviderHost != "" {
-				host, err := url.Parse("https://" + usage.ProviderHost)
-				if err != nil || host.Hostname() == "" || host.Host != usage.ProviderHost ||
-					host.User != nil || host.Path != "" || host.RawQuery != "" || host.Fragment != "" {
-					return result, fmt.Errorf("%w: recorded usage provider_host must omit credentials, paths, queries and fragments", ErrInvalid)
-				}
-			}
-			result.State, result.Usage, result.Verification, result.Reason = Present, &usage, "source-content-and-recorded-usage-shape-only", ""
+			result.State, result.Usage, result.Verification, result.Reason = Present, usage, "source-content-and-recorded-usage-shape-only", ""
 			if usage.AICredits == nil || len(usage.ModelMetrics) == 0 {
 				result.State, result.Reason = Incomplete, "incomplete_credit_or_model_attribution"
 			}
@@ -155,4 +132,37 @@ func admitUsage(d *Document, source *artifactmanifest.CompletedPublication) (Usa
 		return result, artifactmanifest.ErrConflict
 	}
 	return result, fmt.Errorf("%w: usage category is missing", ErrInvalid)
+}
+
+// parseRecordedUsage is shared by pre-persistence capture and source admission.
+// It validates original fields before decoding; it does not verify a source.
+func parseRecordedUsage(data []byte) (*models.UsageStats, error) {
+	value, err := jsonutil.Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("%w: recorded usage JSON: %w", ErrInvalid, err)
+	}
+	schema, err := usageSchema()
+	if err != nil {
+		return nil, err
+	}
+	if err := schema.Validate(value); err != nil {
+		return nil, fmt.Errorf("%w: recorded usage fields: %w", ErrInvalid, err)
+	}
+	var usage models.UsageStats
+	if err := json.Unmarshal(data, &usage); err != nil {
+		return nil, fmt.Errorf("%w: decoding recorded usage: %w", ErrInvalid, err)
+	}
+	for model := range usage.ModelMetrics {
+		if strings.TrimSpace(model) == "" {
+			return nil, fmt.Errorf("%w: recorded usage model attribution label is empty", ErrInvalid)
+		}
+	}
+	if usage.ProviderHost != "" {
+		host, err := url.Parse("https://" + usage.ProviderHost)
+		if err != nil || host.Hostname() == "" || host.Host != usage.ProviderHost ||
+			host.User != nil || host.Path != "" || host.RawQuery != "" || host.Fragment != "" {
+			return nil, fmt.Errorf("%w: recorded usage provider_host must omit credentials, paths, queries and fragments", ErrInvalid)
+		}
+	}
+	return &usage, nil
 }
