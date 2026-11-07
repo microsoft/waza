@@ -2,6 +2,7 @@ package validation
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,7 +25,17 @@ func TestLazySchemasProductionCLIStartup(t *testing.T) {
 	// Poison the real compiler boundary: any startup compilation must fail,
 	// while a validation command proves the sentinel is actually reachable.
 	poisoned := poisonSchemaCompiler(t, string(source))
-	dir := t.TempDir()
+	project := isolatedSchemaCLIDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".waza.yaml"), []byte("{}\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(project, "evals", "startup-test"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(project, "evals", "startup-test", "eval.yaml"), []byte(validEvalYAML), 0o600))
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(key, project)
+	}
+	dir := isolatedSchemaCLIDir(t)
+	rel, err := filepath.Rel(project, dir)
+	require.NoError(t, err)
+	require.False(t, filepath.IsLocal(rel), "startup fixture must escape project-local temporary storage")
 	overlaySource := filepath.Join(dir, "schema.go")
 	require.NoError(t, os.WriteFile(overlaySource, []byte(poisoned), 0o600))
 	overlay, err := json.Marshal(map[string]any{"Replace": map[string]string{sourcePath: overlaySource}})
@@ -121,6 +132,52 @@ func TestLazySchemasProductionCLIStartup(t *testing.T) {
 		})
 	}
 	require.Zero(t, requests.Load(), "static validation must not fetch grader schema references")
+}
+
+func isolatedSchemaCLIDir(t *testing.T) string {
+	t.Helper()
+	base, err := os.UserCacheDir()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(base, 0o700))
+	dir, err := os.MkdirTemp(base, "waza-schema-cli-")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, os.RemoveAll(dir), "removing owned schema CLI fixture")
+	})
+	physical, err := filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+	require.NoError(t, validateSchemaCLIAncestry(physical))
+	return physical
+}
+
+func validateSchemaCLIAncestry(dir string) error {
+	for {
+		for _, marker := range []string{"skills", ".waza.yaml", ".git"} {
+			path := filepath.Join(dir, marker)
+			_, err := os.Lstat(path)
+			if err == nil {
+				return fmt.Errorf("schema CLI fixture inherits project marker %q", path)
+			}
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("checking schema CLI fixture marker %q: %w", path, err)
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		dir = parent
+	}
+}
+
+func TestSchemaCLIAncestryRejectsProjectMarkers(t *testing.T) {
+	for _, marker := range []string{"skills", ".waza.yaml", ".git"} {
+		t.Run(marker, func(t *testing.T) {
+			parent := isolatedSchemaCLIDir(t)
+			require.NoError(t, os.WriteFile(filepath.Join(parent, marker), nil, 0o600))
+			require.ErrorContains(t, validateSchemaCLIAncestry(filepath.Join(parent, "nested")), marker)
+		})
+	}
 }
 
 func poisonSchemaCompiler(t *testing.T, source string) string {
