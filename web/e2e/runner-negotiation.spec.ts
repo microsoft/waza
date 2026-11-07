@@ -191,7 +191,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       await page.route(pattern, nearMiss);
       try {
         await panel.getByRole("button", { name: "Resume checkpoint", exact: true }).click();
-        await expect(panel.getByRole("alert")).toContainText("invalid operation result");
+        await expect(panel.getByRole("alert")).toHaveText("Submission original binding contradicts its logical work. No previous operation result is shown.");
         await expect(restored).toHaveCount(0);
         await expect(panel.getByRole("button", { name: "Download checkpoint result JSON", exact: true })).toHaveCount(0);
       } finally {
