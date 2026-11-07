@@ -109,6 +109,12 @@ function goParser(report, output = () => {}) {
     }
     const pkg = text(event.Package), name = event.Test === undefined ? null : text(event.Test);
     if (!pkg || (event.Test !== undefined && !name)) { diagnostic(report, "invalid-target"); return; }
+    if (event.Action === "attr") {
+      if (!name || ["Key", "Value"].some((field) => event[field] !== undefined && typeof event[field] !== "string")) {
+        diagnostic(report, "invalid-attribute");
+      }
+      return;
+    }
     if (!["start", "run", "pause", "cont", "pass", "fail", "skip", "output", "build-output", "build-fail"].includes(event.Action)) {
       diagnostic(report, "unknown-action"); return;
     }

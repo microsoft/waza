@@ -122,6 +122,46 @@ test("production Go capture executes a real no-provider test and preserves failu
   assert.equal(partial.complete, false);
   assert.ok(partial.diagnostics.includes("truncated-json"));
 });
+test("actual Go attributes are discarded without hiding malformed or unknown events", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-attributes-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  fs.writeFileSync(path.join(dir, "go.mod"), "module example/p\n\ngo 1.26\n");
+  fs.writeFileSync(path.join(dir, "example_test.go"), 'package p\nimport "testing"\nfunc TestA(t *testing.T) { t.Attr("SECRET_KEY", "SECRET_VALUE"); t.Attr("empty", ""); t.Run("child", func(t *testing.T) { t.Attr("child", "SECRET_VALUE") }) }\nfunc TestSkipped(t *testing.T) { t.Attr("skip", "SECRET_VALUE"); t.Skip("SECRET") }\n');
+  fs.writeFileSync(path.join(dir, "all"), "example/p::TestA\nexample/p::TestSkipped\n");
+  const produced = spawnSync("go", ["test", "-count=1", "-json", "-v", "."], { cwd: dir, encoding: "utf8", timeout: 30000 });
+  assert.equal(produced.status, 0, produced.stderr);
+  const attributes = produced.stdout.trim().split("\n").map((line) => JSON.parse(line)).filter((event) => event.Action === "attr");
+  assert.equal(attributes.length, 4, "actual producer must exercise attributes on parent, child and skipped tests");
+  assert.ok(attributes.some((event) => event.Key === "SECRET_KEY" && event.Value === "SECRET_VALUE"));
+  assert.ok(attributes.some((event) => event.Key === "empty" && event.Value === undefined), "Go omits an empty attribute value");
+  const collector = path.join(__dirname, "ci-evidence.cjs");
+  const capture = (input) => {
+    const captured = spawnSync(process.execPath, [collector, "go", "report.json", "all", "all"], { cwd: dir, input, encoding: "utf8" });
+    assert.equal(captured.status, 0, captured.stderr);
+    const finalized = spawnSync(process.execPath, [collector, "finish-go", "report.json", "0", "0"], { cwd: dir, encoding: "utf8" });
+    assert.equal(finalized.status, 0, finalized.stderr);
+    const report = JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8"));
+    assert.ok(!JSON.stringify(report).includes("SECRET"));
+    return report;
+  };
+  const valid = capture(produced.stdout);
+  assert.equal(valid.complete, true, JSON.stringify(valid.diagnostics));
+  assert.equal(valid.targets.length, 3);
+  assert.equal(valid.counts.top_level.pass, 1);
+  assert.equal(valid.counts.top_level.skip, 1);
+  assert.equal(valid.counts.subtests.pass, 1);
+  for (const [extra, diagnostic] of [
+    [JSON.stringify({ ...attributes[0], Action: "attribute" }), "unknown-action"],
+    [JSON.stringify({ ...attributes[0], Key: 12 }), "invalid-attribute"],
+    [JSON.stringify({ ...attributes[0], Value: null }), "invalid-attribute"],
+    [JSON.stringify({ ...attributes[0], Test: undefined }), "invalid-attribute"],
+    ["{bad}", "malformed-json"],
+  ]) {
+    const invalid = capture(produced.stdout + extra + "\n");
+    assert.equal(invalid.complete, false);
+    assert.ok(invalid.diagnostics.includes(diagnostic), JSON.stringify(invalid.diagnostics));
+  }
+});
 test("production discovery admits actual Go list output but rejects execution and truncation", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-discovery-"));
   t.after(() => fs.rmSync(dir, { recursive: true }));

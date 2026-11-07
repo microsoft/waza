@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -10,6 +11,108 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestCIGoCaptureActualMockCommandTerminals(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	install := exec.CommandContext(t.Context(), "bash", filepath.Join(root, ".github", "scripts", "go_offline_env.sh"))
+	install.Env = append(os.Environ(), "RUNNER_TEMP="+dir)
+	var stderr bytes.Buffer
+	install.Stderr = &stderr
+	assignments, err := install.Output()
+	if err != nil {
+		t.Fatalf("installing rejecting runtime guard: %v\n%s", err, &stderr)
+	}
+	env := append(os.Environ(), strings.Split(strings.TrimSpace(string(assignments)), "\n")...)
+	guard := ""
+	for _, assignment := range strings.Split(strings.TrimSpace(string(assignments)), "\n") {
+		if value, ok := strings.CutPrefix(assignment, "COPILOT_CLI_PATH="); ok {
+			guard = value
+		}
+	}
+	if !filepath.IsAbs(guard) {
+		t.Fatal("runtime guard is not absolute")
+	}
+	assertNoReleaseRuntime(t, guard)
+	t.Cleanup(func() { assertNoReleaseRuntime(t, guard) })
+	names := []string{"TestSuggest_CopilotJSON", "TestSuggest_CopilotModel", "TestSuggest_CopilotMultipleFiles", "TestSuggest_CopilotText"}
+	producer := exec.CommandContext(t.Context(), "go", "test", "-count=1", "-json", "-v", "-timeout=60s",
+		"./cmd/waza/tokens", "-run", "^("+strings.Join(names, "|")+")$")
+	producer.Dir, producer.Env = root, env
+	stderr.Reset()
+	producer.Stderr = &stderr
+	stream, err := producer.Output()
+	if err != nil {
+		t.Fatalf("actual mock command producer: %v\n%s", err, &stderr)
+	}
+	runs, passes := make(map[string]int), make(map[string]int)
+	for _, line := range bytes.Split(bytes.TrimSpace(stream), []byte("\n")) {
+		var event struct{ Action, Test string }
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("actual producer emitted invalid JSON: %v", err)
+		}
+		switch event.Action {
+		case "run":
+			runs[event.Test]++
+		case "pass":
+			if event.Test != "" {
+				passes[event.Test]++
+			}
+		}
+	}
+	if len(runs) != len(names) || len(passes) != len(names) {
+		t.Fatalf("actual terminal inventory: runs=%v passes=%v", runs, passes)
+	}
+	const pkg = "github.com/microsoft/waza/cmd/waza/tokens"
+	var inventory strings.Builder
+	for _, name := range names {
+		if runs[name] != 1 || passes[name] != 1 {
+			t.Fatalf("%s: run=%d pass=%d", name, runs[name], passes[name])
+		}
+		inventory.WriteString(pkg + "::" + name + "\n")
+	}
+	all := filepath.Join(dir, "all")
+	if err := os.WriteFile(all, []byte(inventory.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	collector := filepath.Join(root, ".github", "scripts", "ci-evidence.cjs")
+	reportPath := filepath.Join(dir, "report.json")
+	capture := exec.CommandContext(t.Context(), "node", collector, "go", reportPath, all, all)
+	capture.Dir, capture.Env, capture.Stdin = dir, env, bytes.NewReader(stream)
+	if output, err := capture.CombinedOutput(); err != nil {
+		t.Fatalf("actual Go stream capture: %v\n%s", err, output)
+	}
+	finalize := exec.CommandContext(t.Context(), "node", collector, "finish-go", reportPath, "0", "0")
+	finalize.Dir, finalize.Env = dir, env
+	if output, err := finalize.CombinedOutput(); err != nil {
+		t.Fatalf("actual Go stream finalization: %v\n%s", err, output)
+	}
+	raw, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report struct {
+		Complete bool
+		Targets  []struct {
+			Name, Status string
+			Seconds      *float64
+		}
+	}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.Complete || len(report.Targets) != len(names) {
+		t.Fatalf("actual mock command evidence incomplete: %s", raw)
+	}
+	for _, target := range report.Targets {
+		if !slices.Contains(names, target.Name) || target.Status != "pass" || target.Seconds == nil {
+			t.Fatalf("missing actual terminal verdict/timing: %+v", target)
+		}
+	}
+}
 
 func copyCICaptureScripts(t *testing.T, dir string) {
 	t.Helper()

@@ -189,6 +189,9 @@ success; late failure without a terminal failing package is explicit incomplete
 evidence. Original command failures still determine the CI exit.
 Finalization failures cannot replace an earlier producer or collector failure.
 Until execution exits are finalized, a Go report remains explicitly incomplete.
+Go test attribute payloads are discarded, not measurements; malformed attributes
+and unknown actions remain diagnostics. A package pass cannot supply missing
+per-test terminal verdicts or timings: those captures remain incomplete.
 Go compiler `ImportPath` records retain build diagnostics in the console, not
 the uploaded report; build failures remain explicit incomplete evidence.
 Browser evidence records the actual discovery and execution step outcomes.
