@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { startEvidenceHTTP } from "./helpers/evidence-http";
 
 // This exact authored/mock receipt is emitted through the real CLI, immutable
 // Local store and HTTP API in TestArtifactEvidenceCLIToPersistedAPIAndDownloads.
@@ -90,33 +91,29 @@ test.describe("Lab execution evidence states", () => {
     await expect(panel(page).getByRole("link", { name: "Download evidence CSV" })).toHaveCount(0);
   });
 
-  test("downloads exactly the producer-proven JSON and CSV without numeric rounding", async ({ page, context }) => {
-    const requests: string[] = [];
-    await page.route(`**/api/v1/evidence/${digest}`, (route) => route.fulfill({ contentType: "application/json", body: fixture }));
-    await context.route(`**/api/v1/evidence/${digest}/document`, (route) => {
-      requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
-      return route.fulfill({
-        contentType: "application/json", headers: { "Content-Disposition": `attachment; filename="execution-evidence-${digest}.json"` }, body: documentFixture,
-      });
-    });
-    await context.route(`**/api/v1/evidence/${digest}/csv`, (route) => {
-      requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
-      return route.fulfill({
-        contentType: "text/csv", headers: { "Content-Disposition": `attachment; filename="execution-evidence-${digest}.csv"` }, body: csvFixture,
-      });
-    });
-    await inspect(page);
-    for (const [name, content] of [["Download evidence JSON", documentFixture], ["Download evidence CSV", csvFixture]]) {
-      const [download] = await Promise.all([
-        page.waitForEvent("download"), panel(page).getByRole("link", { name, exact: true }).click(),
-      ]);
-      expect(await download.failure()).toBeNull();
-      const path = await download.path();
-      if (path === null) throw new Error("Downloaded evidence file is unavailable.");
-      expect(fs.readFileSync(path, "utf8")).toBe(content);
-      expect(content).toContain("9007199254740993");
+  test("downloads exactly the producer-proven JSON and CSV without numeric rounding", async ({ page }) => {
+    const server = await startEvidenceHTTP(new URL(page.url()).origin, digest, fixture, documentFixture, csvFixture);
+    try {
+      await page.goto(`${server.base}/#/lab/runner`);
+      await inspect(page);
+      for (const [name, extension, content] of [
+        ["Download evidence JSON", "json", documentFixture], ["Download evidence CSV", "csv", csvFixture],
+      ]) {
+        const [download] = await Promise.all([
+          page.waitForEvent("download"), panel(page).getByRole("link", { name, exact: true }).click(),
+        ]);
+        expect(await download.failure()).toBeNull();
+        expect(download.suggestedFilename()).toBe(`execution-evidence-${digest}.${extension}`);
+        const path = await download.path();
+        if (path === null) throw new Error("Downloaded evidence file is unavailable.");
+        expect(fs.readFileSync(path, "utf8")).toBe(content);
+        expect(content).toContain("9007199254740993");
+      }
+      expect(server.requests).toEqual([`GET /api/v1/evidence/${digest}/document`, `GET /api/v1/evidence/${digest}/csv`]);
+      expect(server.failures).toEqual([]);
+    } finally {
+      await server.close();
     }
-    expect(requests).toEqual([`GET /api/v1/evidence/${digest}/document`, `GET /api/v1/evidence/${digest}/csv`]);
   });
 
   test("synthetic demo does not reconstruct recorded evidence", async ({ page }) => {
