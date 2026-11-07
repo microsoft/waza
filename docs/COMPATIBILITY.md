@@ -143,7 +143,16 @@ callbacks: later callbacks cannot supply missing inventory or persist a second
 authoritative lifecycle publication. This is a trusted host contract, not a
 sandbox against host code with backend access. The legacy writing
 `LifecycleObserver.Hooks` adapter is unchanged and is not the selected public
-producer. Public lifecycle adapter integration remains pending. Typed admission
+producer. The committed `PreparedLifecycleObserver` supplies non-writing
+reservation/selection and verify-only terminal hooks. The shared
+`ownedsubmission.NewLifecycleCaptureHooks` composer creates that actual observer
+with an explicit clock, adds conservative category capture and a fresh per-call
+factory, and supplies no unrestricted artifact/report callback. Its native getter
+runs only after reservation for the copilot profile; mock execution retains the
+real unbound empty sink. A configured getter returning nil is an error, not
+missing capture silently presented as success. Shared `NewEngineFactory(nil)`
+preserves legacy default builder options. Public registration remains pending.
+Typed admission
 does not prove SDK/process observation provenance or process exit; process
 evidence remains `unknown`. Native observations preserve sink sequence, not
 timestamp sorting or cross-goroutine causality.
@@ -177,6 +186,19 @@ write/flush without retry. Unsupported write deadlines abort without an implicit
 HTTP success. Strict profile validation and disclosure-approved response
 projection remain the caller's responsibility: neither helper authorizes raw
 reports, rejected checkpoint source bodies, or unauthenticated source metadata.
+
+Checkpoint locator delivery uses `newRunnerCheckpointLocatorEmitter`, retaining
+the existing exiting-process diagnostic writer and its cumulative 100 ms budget,
+sticky failures, and no-retry/unchanged-inherited-handle policy. Standalone CLI
+commands with supplied diagnostic writers receive the same bounded wrapper.
+Only `checkpoint before-unit SHA256` or `checkpoint finalized-unit SHA256` plus
+one LF is accepted; actual checkpoint boundary constants and canonical digest
+validation are reused. The emitter does not approve arbitrary progress or
+authenticate the referenced content. A before-unit delivery error stops engine
+admission; a finalized-unit delivery error makes the checkpoint operation fail
+without rewriting the completed original execution or removing its locators.
+It is process-only: a blocked write may finish late, and the caller must propagate
+failure and exit rather than use it in a long-lived embedding service.
 
 `executionledger.NewReader(scopedNamespace, storeBackend)` is a read-only
 consumer of the actual `artifactmanifest.Namespace.Reader` capability. It
