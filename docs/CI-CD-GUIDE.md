@@ -148,6 +148,19 @@ runner's implicit PowerShell as Bash. The intentionally Linux-only inventory
 step is not shell-validated as Windows execution, and unrelated optional steps
 do not acquire a new shell restriction.
 
+The existing required Windows job also selects the two hidden shell-control
+families explicitly, since ordinary `go test ./...` omits `.github/scripts`.
+The Windows-only step runs `TestCompletenessGoLintShellExecution` and
+`TestOrdinaryShellOverridesAndDisabledPaths` uncached and verbose with a
+five-minute Go deadline, after Node and the rejecting runtime are ready.
+Its Bash pipeline propagates command failures, normalizes only terminal CRLF,
+and requires both named top-level RUN/PASS records with no skipped controls.
+The subsequent runtime-marker check covers this step too. The Linux job skips
+this Windows-only step while its existing GoLint package selection remains
+unchanged. Static selection regressions are not native Windows execution:
+that evidence requires the current-head Windows job to actually run and pass
+the selected families.
+
 The ordinary source record binds the immutable event's PR head, base SHA/ref and
 tested merge SHA, plus the actual caller workflow, workflow run and attempt.
 Receipt capture reconstructs those fields from the runner event/environment and

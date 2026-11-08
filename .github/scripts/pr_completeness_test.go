@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/build"
 	"go/parser"
 	"go/token"
@@ -176,18 +177,38 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 	if err := check(source); err != nil {
 		t.Fatal(err)
 	}
-	t.Run("explicit-false-valid", func(t *testing.T) {
-		mutated := strings.Replace(string(source), "run: go test -count=1", "continue-on-error: false\n        run: go test -count=1", 1)
-		if mutated == string(source) {
-			t.Fatal("explicit-false control did not change the actual step")
+	lintHeader := regexp.MustCompile(`(?m)^  lint:\n`).FindIndex(source)
+	if lintHeader == nil {
+		t.Fatal("actual production Lint block is missing")
+	}
+	lintEnd := len(source)
+	if nextJob := regexp.MustCompile(`(?m)^  [A-Za-z0-9_-]+:\n`).FindIndex(source[lintHeader[1]:]); nextJob != nil {
+		lintEnd = lintHeader[1] + nextJob[0]
+	}
+	mutateLint := func(old, replacement string) []byte {
+		t.Helper()
+		original := string(source[lintHeader[0]:lintEnd])
+		block := strings.Replace(original, old, replacement, 1)
+		if block == original {
+			t.Fatalf("mutation did not change the actual Lint block: %q", old)
 		}
-		if err := check([]byte(mutated)); err != nil {
+		mutated := []byte(string(source[:lintHeader[0]]) + block + string(source[lintEnd:]))
+		end := lintHeader[0] + len(block)
+		if !bytes.Equal(mutated[:lintHeader[0]], source[:lintHeader[0]]) ||
+			!bytes.Equal(mutated[end:], source[lintEnd:]) {
+			t.Fatal("Lint mutation changed the Windows stanza or another consumer")
+		}
+		return mutated
+	}
+	t.Run("explicit-false-valid", func(t *testing.T) {
+		mutated := mutateLint("run: go test -count=1", "continue-on-error: false\n        run: go test -count=1")
+		if err := check(mutated); err != nil {
 			t.Fatalf("explicit false must remain valid: %v", err)
 		}
 	})
 	for _, value := range []string{"true", `"${{ inputs.allow_failure }}"`} {
-		mutated := strings.Replace(string(source), "run: go test -count=1", "continue-on-error: "+value+"\n        run: go test -count=1", 1)
-		if mutated == string(source) || check([]byte(mutated)) == nil {
+		mutated := mutateLint("run: go test -count=1", "continue-on-error: "+value+"\n        run: go test -count=1")
+		if check(mutated) == nil {
 			t.Fatal("actual step must reject true or dynamic continue-on-error")
 		}
 	}
@@ -242,11 +263,8 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 			t.Fatal("higher unsafe GOFLAGS must not inherit lower empty admission")
 		}
 	})
-	withHelper := strings.Replace(string(source), "run: go test -count=1", "run: go test -count=1 ./.github/scripts/release-assets-helper", 1)
-	if withHelper == string(source) {
-		t.Fatal("alternative-valid helper package did not change source")
-	}
-	if err := check([]byte(withHelper)); err != nil {
+	withHelper := mutateLint("run: go test -count=1", "run: go test -count=1 ./.github/scripts/release-assets-helper")
+	if err := check(withHelper); err != nil {
 		t.Fatalf("literal future helper package must remain valid: %v", err)
 	}
 	for _, mutation := range []struct{ old, replacement string }{
@@ -257,8 +275,8 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 		{"run: go test -count=1", "if: false\n        run: go test -count=1"},
 		{"run: go test -count=1", "run: go test -count=1 -run TestWorkflowTriggerTypedInputs"},
 	} {
-		mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
-		if mutated == string(source) || check([]byte(mutated)) == nil {
+		mutated := mutateLint(mutation.old, mutation.replacement)
+		if check(mutated) == nil {
 			t.Fatal("actual GoLint source mutation did not reject omitted, replaced or narrowed execution")
 		}
 	}
@@ -422,6 +440,208 @@ func TestCompletenessGoLintShellExecution(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestCompletenessWindowsControlsSelectedByNativeJob(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const command = `log="$(mktemp)"
+go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts | sed 's/\r$//' | tee "$log"
+if grep -q -- '--- SKIP:' "$log"; then
+  echo "Native Windows shell controls must not skip." >&2
+  exit 1
+fi
+for control in TestCompletenessGoLintShellExecution TestOrdinaryShellOverridesAndDisabledPaths; do
+  grep -Fxq "=== RUN   $control" "$log"
+  grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"
+done
+rm "$log"
+`
+	controls := []string{"TestCompletenessGoLintShellExecution", "TestOrdinaryShellOverridesAndDisabledPaths"}
+	for _, name := range []string{"pr_completeness_test.go", "go_ci_test.go"} {
+		file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv != nil {
+				continue
+			}
+			for i, control := range controls {
+				if function.Name.Name == control {
+					if function.Type.Results != nil || function.Type.Params.NumFields() != 1 {
+						t.Fatalf("%s is not a runnable Go test", control)
+					}
+					pointer, ok := function.Type.Params.List[0].Type.(*ast.StarExpr)
+					if !ok {
+						t.Fatalf("%s must accept *testing.T", control)
+					}
+					selector, ok := pointer.X.(*ast.SelectorExpr)
+					if !ok || selector.Sel.Name != "T" {
+						t.Fatalf("%s must accept *testing.T", control)
+					}
+					packageName, ok := selector.X.(*ast.Ident)
+					if !ok || packageName.Name != "testing" {
+						t.Fatalf("%s must accept *testing.T", control)
+					}
+					controls[i] = ""
+				}
+			}
+		}
+	}
+	if controls[0] != "" || controls[1] != "" {
+		t.Fatalf("native selector names missing actual Go test declarations: %q", controls)
+	}
+	check := func(input []byte) error {
+		var workflow struct {
+			Defaults ordinaryRunDefaults `yaml:"defaults"`
+			Jobs     map[string]struct {
+				If       string                  `yaml:"if"`
+				RunsOn   string                  `yaml:"runs-on"`
+				Defaults ordinaryRunDefaults     `yaml:"defaults"`
+				Steps    []ordinaryExecutionStep `yaml:"steps"`
+				Strategy struct {
+					Matrix struct {
+						OS []string `yaml:"os"`
+					} `yaml:"matrix"`
+				} `yaml:"strategy"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(input, &workflow); err != nil {
+			return err
+		}
+		job := workflow.Jobs["build-and-test-windows"]
+		if job.If != "" || job.RunsOn != "windows-latest" ||
+			!reflect.DeepEqual(job.Strategy.Matrix.OS, []string{"windows-latest"}) {
+			return fmt.Errorf("native shell controls require the unconditional Windows job")
+		}
+		positions := make(map[string]int)
+		selected := 0
+		for i, step := range job.Steps {
+			positions[step.Name] = i
+			if step.Name != "Test native Windows shell controls" {
+				continue
+			}
+			selected++
+			if step.If != "matrix.os == 'windows-latest'" || step.Run != command {
+				return fmt.Errorf("Windows shell controls must retain the exact finite uncached selector and nonempty/no-skip evidence checks")
+			}
+			if step.ContinueOnError.Kind != 0 && (step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false") {
+				return fmt.Errorf("Windows shell controls must propagate failures")
+			}
+			arguments, err := ordinaryShellArguments("Windows", workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, step.Shell)
+			if err != nil {
+				return err
+			}
+			if len(arguments) < 2 || arguments[len(arguments)-2] != "-o" || arguments[len(arguments)-1] != "pipefail" {
+				return fmt.Errorf("Windows shell-control pipeline requires Bash pipefail")
+			}
+		}
+		if selected != 1 {
+			return fmt.Errorf("native Windows shell-control step count=%d; require one", selected)
+		}
+		for _, prerequisite := range []string{
+			"Setup Node.js (web build and offline assertion oracle)", "Install and prove rejecting runtime guard", "Execute Tests",
+		} {
+			position, present := positions[prerequisite]
+			if !present || position >= positions["Test native Windows shell controls"] {
+				return fmt.Errorf("Windows shell controls must follow %s", prerequisite)
+			}
+		}
+		marker, present := positions["Reject tolerated runtime launches"]
+		if !present || marker <= positions["Test native Windows shell controls"] {
+			return fmt.Errorf("runtime marker must be checked after Windows shell controls")
+		}
+		return nil
+	}
+	if err := check(source); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []struct{ old, replacement string }{
+		{"      - name: Test native Windows shell controls", "      - name: Missing Windows shell controls"},
+		{"        if: matrix.os == 'windows-latest'", "        if: false"},
+		{"        if: matrix.os == 'windows-latest'", "        if: matrix.os == 'ubuntu-latest'"},
+		{"        if: matrix.os == 'windows-latest'", "        if: matrix.os == 'windows-latest'\n        continue-on-error: true"},
+		{"        if: matrix.os == 'windows-latest'", "        if: matrix.os == 'windows-latest'\n        shell: bash -c true {0}"},
+		{"        if: matrix.os == 'windows-latest'", "        if: matrix.os == 'windows-latest'\n        shell: bash -e {0}"},
+		{"        os: [windows-latest]", "        os: [ubuntu-latest]"},
+		{"-timeout=5m", "-timeout=0"},
+		{"-count=1 -v -timeout=5m", "-count=1 -timeout=5m"},
+		{"OrdinaryShellOverridesAndDisabledPaths)$", "MissingControl)$"},
+		{`          if grep -q -- '--- SKIP:' "$log"; then`, "          if false; then"},
+		{`            grep -Fxq "=== RUN   $control" "$log"`, ":"},
+		{`            grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"`, ":"},
+	} {
+		mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
+		if mutated == string(source) {
+			t.Fatalf("native-selection mutation did not change production source: %q", mutation.old)
+		}
+		if err := check([]byte(mutated)); err == nil {
+			t.Fatalf("native-selection bypass admitted: %q", mutation.replacement)
+		}
+	}
+	for _, declaration := range []string{
+		"        continue-on-error: false",
+		"        shell: bash -e -o pipefail {0}",
+	} {
+		mutated := strings.Replace(string(source), "        if: matrix.os == 'windows-latest'",
+			"        if: matrix.os == 'windows-latest'\n"+declaration, 1)
+		if mutated == string(source) {
+			t.Fatal("alternative-valid native-selection mutation did not change production source")
+		}
+		if err := check([]byte(mutated)); err != nil {
+			t.Fatalf("alternative-valid native selection rejected: %s: %v", declaration, err)
+		}
+	}
+	for _, fixture := range []struct {
+		name   string
+		output string
+		status int
+		valid  bool
+	}{
+		{"complete", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 0, true},
+		{"complete-crlf", "=== RUN   TestCompletenessGoLintShellExecution\r\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\r\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\r\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\r\n", 0, true},
+		{"empty", "testing: warning: no tests to run\nPASS\n", 0, false},
+		{"missing-family", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n", 0, false},
+		{"skipped", "=== RUN   TestCompletenessGoLintShellExecution\n--- SKIP: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 0, false},
+		{"skipped-subtest", "=== RUN   TestCompletenessGoLintShellExecution\n=== RUN   TestCompletenessGoLintShellExecution/required-native-case\n    --- SKIP: TestCompletenessGoLintShellExecution/required-native-case (0.01s)\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 0, false},
+		{"failed-command", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 27, false},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			scratch := t.TempDir()
+			probe := "#!/usr/bin/env bash\nprintf '%s' \"$WAZA_WINDOWS_CONTROL_OUTPUT\"\nexit \"$WAZA_WINDOWS_CONTROL_STATUS\"\n"
+			if err := os.WriteFile(filepath.Join(scratch, "go"), []byte(probe), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			script := filepath.Join(scratch, "native selection.sh")
+			if err := os.WriteFile(script, []byte(command), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			arguments, err := ordinaryShellArguments("Windows", yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "bash"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			probeCommand := exec.CommandContext(t.Context(), "bash", append(arguments, script)...)
+			probeCommand.Env = append(os.Environ(),
+				"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"TMPDIR="+filepath.ToSlash(scratch),
+				"WAZA_WINDOWS_CONTROL_OUTPUT="+fixture.output,
+				"WAZA_WINDOWS_CONTROL_STATUS="+strconv.Itoa(fixture.status))
+			output, err := probeCommand.CombinedOutput()
+			if (err == nil) != fixture.valid {
+				t.Fatalf("actual workflow output admission %s: err=%v\n%s", fixture.name, err, output)
+			}
+			if fixture.status != 0 {
+				exit, ok := errors.AsType[*exec.ExitError](err)
+				if !ok || exit.ExitCode() != fixture.status {
+					t.Fatalf("actual workflow pipeline lost status %d: %v", fixture.status, err)
+				}
+			}
+		})
+	}
 }
 
 func TestCompletenessRuntimeImportClosure(t *testing.T) {
