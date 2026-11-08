@@ -86,9 +86,9 @@ full-diff review:
 |---|---|
 | Go, lint, native Linux shards and Windows | Every ordinary PR, preserving the existing native gates. |
 | Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, and runner examples. |
-| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures. |
-| Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs and `Makefile`. |
-| Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs, grader docs and examples. |
+| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures, plus runner container `MAINTAINERS.md` and `published-image-test.mjs` read by documentation checks. |
+| Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
+| Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
 | Docker image and native runner contracts | Container/context files, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |
 | Squad tools on Linux and Windows | Squad state, skills/agent definitions, PR requirements, casting `.gitattributes`, and Ralph/Squad tooling scripts. |
 | Pinned judge runtime on Linux and macOS | Embedded runtime, execution/graders/judge evidence/models, their repository package dependency closure (including filesystem admission, snapshot readers, schema loading, events, config, skills/tokens and compiled test helpers), root schemas, modules and `.gitattributes`. |

@@ -7,6 +7,12 @@ const test = require('node:test');
 const { applicability, captureReceipt, contracts, createPlan, evaluate, planOutputs, prEventMode, prRouting, producerTitle, runtimeInputs, verifyBrowser } = require('./pr-completeness.cjs');
 
 const cli = path.join(__dirname, 'pr-completeness.cjs');
+const consumedLeafInputs = [
+  ['examples/runner/container/MAINTAINERS.md', 'site'],
+  ['examples/runner/container/published-image-test.mjs', 'site'],
+  ['examples/runner/unit.json', 'examples'],
+  ['.gitattributes', 'assurance'],
+];
 const source = {
   repository: 'microsoft/waza', event: 'pull_request', action: 'synchronize', pr: 900,
   workflow: 'Go Build and Test',
@@ -61,6 +67,11 @@ function scratch(t) {
 }
 
 test('actual API/model/schema and container paths select production consumers; unrelated prose does not', () => {
+  for (const [file, family] of consumedLeafInputs) {
+    assert.equal(fs.existsSync(path.resolve(__dirname, '../..', file)), true, file);
+    assert.equal(applicability([file])[family], true, file);
+    assert.equal(applicability([`${file}-near-miss`])[family], false, file);
+  }
   for (const file of ['internal/webapi/handlers.go', 'internal/webapi/store.go', 'internal/models/outcome.go', 'schemas/eval.schema.json', 'cmd/waza/cmd_run.go', 'docs.go']) {
     assert.equal(fs.existsSync(path.resolve(__dirname, '../..', file)), true, file);
     const selected = applicability([file]);
@@ -566,4 +577,39 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   assert.equal(retargetPlan.source.base_sha, base);
   assert.equal(retargetPlan.source.tested_sha, tested);
   assert.deepEqual(retargetPlan.paths, plan.paths);
+  let leafControl = 0;
+  for (const [file, family] of consumedLeafInputs) {
+    for (const changedFile of [file, `${file}-near-miss`]) {
+      const applicable = changedFile === file;
+      const suffix = String(++leafControl);
+      git('checkout', '-qb', `consumer-head-${suffix}`, initialMain);
+      fs.mkdirSync(path.dirname(path.join(directory, changedFile)), { recursive: true });
+      fs.writeFileSync(path.join(directory, changedFile), '# changed consumer input\n');
+      git('add', '--', changedFile);
+      git('commit', '-qm', 'change one consumer input');
+      const leafHead = git('rev-parse', 'HEAD');
+      const leafBaseRef = `consumer-base-${suffix}`;
+      git('checkout', '-qb', leafBaseRef, initialMain);
+      git('merge', '--no-ff', '-qm', 'test one consumer input', leafHead);
+      env.GITHUB_SHA = git('rev-parse', 'HEAD');
+      fs.writeFileSync(eventPath, JSON.stringify({
+        action: 'synchronize', number: source.pr,
+        pull_request: { head: { sha: leafHead }, base: { sha: initialMain, ref: leafBaseRef } },
+      }));
+      const discovered = invoke();
+      assert.equal(discovered.status, 0, discovered.stderr);
+      const leafPlan = JSON.parse(discovered.stdout);
+      assert.deepEqual(leafPlan.paths, [changedFile]);
+      assert.equal(leafPlan.applicable[family], applicable, changedFile);
+      fs.writeFileSync(planPath, JSON.stringify(leafPlan));
+      const selected = select(family);
+      assert.equal(selected.status, 0, selected.stderr);
+      assert.equal(JSON.parse(selected.stdout).applicable, applicable, changedFile);
+      fs.writeFileSync(planPath, JSON.stringify(createPlan(leafPlan.source, [])));
+      const omittedInput = select(family);
+      assert.equal(omittedInput.status, 1);
+      assert.equal(omittedInput.stdout, '');
+      assert.match(omittedInput.stderr, /Changed-path inventory does not match actual tested merge/);
+    }
+  }
 });

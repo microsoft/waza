@@ -132,9 +132,10 @@ function applicability(paths) {
     go: true,
     dashboard: all || backend || modules || matches('web', 'examples/runner'),
     site: all || matches('site', 'docs', 'README.md', 'CHANGELOG.md', 'version.txt', 'registry.json', 'go.mod', 'schemas', 'internal/embedded',
-      'internal/models', 'internal/runneridentity/testdata', 'internal/runnerunit/testdata', 'internal/runnerterminal/testdata'),
-    examples: all || backend || modules || matches('site', 'docs', 'examples/interop', 'README.md', 'registry.json', 'Makefile', 'web'),
-    assurance: all || backend || modules || matches('web', 'scripts', 'docs/graders', 'examples', 'testdata/frozen-assurance-readers'),
+      'internal/models', 'internal/runneridentity/testdata', 'internal/runnerunit/testdata', 'internal/runnerterminal/testdata',
+      'examples/runner/container/MAINTAINERS.md', 'examples/runner/container/published-image-test.mjs'),
+    examples: all || backend || modules || matches('site', 'docs', 'examples/interop', 'examples/runner/unit.json', 'README.md', 'registry.json', 'Makefile', 'web'),
+    assurance: all || backend || modules || matches('web', 'scripts', 'docs/graders', 'examples', 'testdata/frozen-assurance-readers', '.gitattributes'),
     container: all || backend || modules || paths.some((file) => /^[^/]+\.go$/.test(file)) ||
       matches('Dockerfile', '.dockerignore', 'version.txt', 'web', 'examples/runner', 'docs/graders',
         '.github/scripts/testdata/runner-runtime', '.github/scripts/testdata/native-bundle-probe'),

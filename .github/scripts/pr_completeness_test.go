@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"go/build"
@@ -20,18 +21,25 @@ import (
 
 func runCompletenessNode(t *testing.T, args ...string) []byte {
 	t.Helper()
-	version, err := exec.CommandContext(t.Context(), "node", "--version").CombinedOutput()
-	if err != nil {
-		t.Fatalf("read completeness Node runtime version: %v\n%s", err, version)
+	run := func(args ...string) []byte {
+		t.Helper()
+		var stderr bytes.Buffer
+		command := exec.CommandContext(t.Context(), "node", args...)
+		command.Stderr = &stderr
+		output, err := command.Output()
+		if err != nil {
+			t.Fatalf("completeness controls require working Node 22.18+ or 24+: %v\nstdout:\n%s\nstderr:\n%s", err, output, stderr.Bytes())
+		}
+		if stderr.Len() > 0 {
+			t.Logf("completeness Node stderr: %s", stderr.Bytes())
+		}
+		return output
 	}
+	version := run("--version")
 	if err := checkCompletenessNodeVersion(string(version)); err != nil {
 		t.Fatal(err)
 	}
-	output, err := exec.CommandContext(t.Context(), "node", args...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("completeness controls require working Node 22.18+ or 24+: %v\n%s", err, output)
-	}
-	return output
+	return run(args...)
 }
 
 func checkCompletenessNodeVersion(version string) error {
@@ -66,6 +74,23 @@ func TestCompletenessNodeRuntimeAdmission(t *testing.T) {
 		if err := checkCompletenessNodeVersion(version); err == nil {
 			t.Errorf("invalid or unsupported Node release %q was admitted", version)
 		}
+	}
+}
+
+func TestCompletenessNodeWarningsRetainStructuredOutput(t *testing.T) {
+	output := runCompletenessNode(t, "-e", `
+process.emitWarning("type-stripping control", {type: "ExperimentalWarning"});
+process.stdout.write(JSON.stringify(require("./pr-completeness.cjs").applicability(["AGENTS.md"])));
+`)
+	var selected map[string]bool
+	if err := json.Unmarshal(output, &selected); err != nil {
+		t.Fatalf("decode selector stdout despite runtime warning: %v\n%s", err, output)
+	}
+	if !reflect.DeepEqual(selected, map[string]bool{
+		"go": true, "dashboard": false, "site": false, "examples": false,
+		"assurance": false, "container": false, "tools": false, "runtime": false,
+	}) {
+		t.Fatalf("unexpected selector output: %v", selected)
 	}
 }
 
