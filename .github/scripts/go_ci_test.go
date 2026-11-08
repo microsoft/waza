@@ -13,6 +13,85 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(source []byte) error {
+		var workflow struct {
+			Jobs map[string]struct {
+				Name  string                   `yaml:"name"`
+				Steps []ordinaryValidationStep `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(source, &workflow); err != nil {
+			return err
+		}
+		job := workflow.Jobs["lint"]
+		if job.Name != "Lint" {
+			return fmt.Errorf("helper tests require the required Lint job")
+		}
+		for _, step := range job.Steps {
+			if step.Name != "Test Go workflow trigger selection" {
+				continue
+			}
+			if step.If != "" || (step.ContinueOnError.Kind != 0 &&
+				(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false")) {
+				return fmt.Errorf("helper test selection must run without conditional or tolerated failures")
+			}
+			scratch := t.TempDir()
+			captured := filepath.Join(scratch, "arguments")
+			probe := "#!/usr/bin/env bash\nset -euo pipefail\ntest ! -e \"$WAZA_HELPER_TEST_ARGUMENTS\"\nprintf '%s\\n' \"$@\" > \"$WAZA_HELPER_TEST_ARGUMENTS\"\n"
+			if err := os.WriteFile(filepath.Join(scratch, "go"), []byte(probe), 0o700); err != nil {
+				return err
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-e", "-o", "pipefail", "-c", step.Run)
+			cmd.Env = append(os.Environ(),
+				"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"WAZA_HELPER_TEST_ARGUMENTS="+captured,
+			)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("execute actual Lint test-selection command: %w\n%s", err, output)
+			}
+			data, err := os.ReadFile(captured)
+			if err != nil {
+				return fmt.Errorf("Lint must invoke Go, not merely mention the package: %w", err)
+			}
+			args := strings.Split(strings.TrimSpace(string(data)), "\n")
+			if len(args) < 2 || args[0] != "test" || args[1] != "-count=1" {
+				return fmt.Errorf("expected uncached Go test invocation, got %q", args)
+			}
+			count := 0
+			for _, arg := range args {
+				if arg == "./.github/scripts/release-assets-helper" {
+					count++
+				}
+			}
+			if count != 1 {
+				return fmt.Errorf("actual Lint Go invocation selects helper %d times; want exactly once", count)
+			}
+			return nil
+		}
+		return fmt.Errorf("required Lint helper test-selection step is missing")
+	}
+	if err := check(source); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, before, after string }{
+		{"missing-package", " ./.github/scripts/release-assets-helper", ""},
+		{"echo-only", "run: go test -count=1 ./.github/scripts", "run: echo go test -count=1 ./.github/scripts"},
+		{"skipped-step", "- name: Test Go workflow trigger selection\n        run:", "- name: Test Go workflow trigger selection\n        if: false\n        run:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := strings.Replace(string(source), tc.before, tc.after, 1)
+			if mutated == string(source) || check([]byte(mutated)) == nil {
+				t.Fatalf("actual helper selection mutation %q was not rejected", tc.name)
+			}
+		})
+	}
+}
+
 type workflowTriggers map[string]map[string][]string
 
 func checkOfflineAssertionOracleRuntime(source []byte) error {
