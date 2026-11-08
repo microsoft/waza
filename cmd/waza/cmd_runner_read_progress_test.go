@@ -30,7 +30,7 @@ import (
 
 const runnerReadProgressSize = (2 << 20) + 1
 const runnerReadProgressPrefix = "WAZA_TEST_STDIN_PROGRESS/"
-const runnerReadProgressOriginalSHA256 = "1f16f5780bb013a31eed101893d62a6c1c50b76559c9608582c71e75d88a8787"
+const runnerReadProgressOriginalSHA256 = "97d3c90bac883555db3baaa028ad314877b0fd28c14867a5b2c6e62c3511fb69"
 
 // Sharing OS-independent process ownership lets portable fixtures run
 // the same sole-Wait/copy/cleanup path as the native Windows controller.
@@ -699,7 +699,7 @@ func TestRunnerTerminalReadProgressCheckout(t *testing.T) {
 				}
 				require.Equal(t, expected, physical)
 				if autocrlf {
-					require.Equal(t, "18849644c640ed3ea803e46bf4b2360abd4452294de65facfce4c041b3e8c2aa",
+					require.Equal(t, "f99b53ed1909e04c6f20d8c73d1e6083abb791ee6bbc8f6115ad51ffb9150b0a",
 						fmt.Sprintf("%x", sha256.Sum256(physical)))
 				}
 				t.Chdir(directory)
@@ -785,6 +785,47 @@ func TestRunnerTerminalReadProgressCheckout(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestRunnerTerminalReadProgressHistoricalReader(t *testing.T) {
+	historical, err := os.ReadFile("testdata/runner_stdin_windows_dd3.go.txt")
+	require.NoError(t, err)
+	frozen := bytes.ReplaceAll(historical, []byte("\r\n"), []byte("\n"))
+	require.True(t, bytes.Equal(historical, frozen) ||
+		bytes.Equal(historical, bytes.ReplaceAll(frozen, []byte("\n"), []byte("\r\n"))))
+	require.Equal(t, "1f16f5780bb013a31eed101893d62a6c1c50b76559c9608582c71e75d88a8787",
+		fmt.Sprintf("%x", sha256.Sum256(frozen)))
+	require.Equal(t, "18849644c640ed3ea803e46bf4b2360abd4452294de65facfce4c041b3e8c2aa",
+		fmt.Sprintf("%x", sha256.Sum256(bytes.ReplaceAll(frozen, []byte("\n"), []byte("\r\n")))))
+	current, err := os.ReadFile("runner_stdin_windows.go")
+	require.NoError(t, err)
+	canonical := bytes.ReplaceAll(current, []byte("\r\n"), []byte("\n"))
+	require.True(t, bytes.Equal(current, canonical) ||
+		bytes.Equal(current, bytes.ReplaceAll(canonical, []byte("\n"), []byte("\r\n"))))
+	current = canonical
+	require.Equal(t, runnerReadProgressOriginalSHA256, fmt.Sprintf("%x", sha256.Sum256(current)))
+	require.NotEqual(t, frozen, current, "the historical terminal emitter is not the current source")
+	readerBody := func(source []byte) []byte {
+		t.Helper()
+		positions := token.NewFileSet()
+		file, err := parser.ParseFile(positions, "reader.go", source, 0)
+		require.NoError(t, err)
+		var body []byte
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Name.Name != "readInheritedRunnerInputLimit" {
+				continue
+			}
+			require.Nil(t, body, "the source must have one inherited reader")
+			require.Len(t, function.Body.List, 6)
+			body = source[positions.Position(function.Body.Pos()).Offset:positions.Position(function.Body.End()).Offset]
+		}
+		require.NotEmpty(t, body)
+		return body
+	}
+	require.Equal(t, readerBody(frozen), readerBody(current), "only the inherited reader body is unchanged")
+	_, err = runnerReadProgressOverlay(frozen, strings.Repeat("a", 32))
+	require.ErrorContains(t, err, "inherited-reader source changed")
 }
 
 func TestRunnerTerminalReadProgressOverlay(t *testing.T) {
