@@ -13,6 +13,174 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(source []byte) error {
+		var workflow struct {
+			Env  map[string]yaml.Node `yaml:"env"`
+			Jobs map[string]struct {
+				Name  string               `yaml:"name"`
+				Env   map[string]yaml.Node `yaml:"env"`
+				Steps []struct {
+					ordinaryValidationStep `yaml:",inline"`
+					Env                    map[string]yaml.Node `yaml:"env"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(source, &workflow); err != nil {
+			return err
+		}
+		job := workflow.Jobs["lint"]
+		if job.Name != "Lint" {
+			return fmt.Errorf("helper tests require the required Lint job")
+		}
+		for _, step := range job.Steps {
+			if step.Name != "Test Go workflow trigger selection" {
+				continue
+			}
+			if step.If != "" || (step.ContinueOnError.Kind != 0 &&
+				(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false")) {
+				return fmt.Errorf("helper test selection must run without conditional or tolerated failures")
+			}
+			var goflags *yaml.Node
+			for _, env := range []map[string]yaml.Node{workflow.Env, job.Env, step.Env} {
+				if value, present := env["GOFLAGS"]; present {
+					goflags = &value
+				}
+			}
+			if goflags != nil && (goflags.Kind != yaml.ScalarNode || goflags.Tag != "!!str" || goflags.Value != "") {
+				return fmt.Errorf("effective declared GOFLAGS must be omitted or a literal empty string")
+			}
+			literal := strings.Fields(step.Run)
+			if len(literal) < 4 || !slices.Equal(literal[:3], []string{"go", "test", "-count=1"}) {
+				return fmt.Errorf("expected literal uncached Go test command")
+			}
+			for _, arg := range literal[3:] {
+				if !strings.HasPrefix(arg, "./") {
+					return fmt.Errorf("expected only literal package arguments after -count=1, got %q", arg)
+				}
+				for _, char := range arg {
+					if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-", char) {
+						return fmt.Errorf("nonliteral package argument %q", arg)
+					}
+				}
+			}
+			scratch := t.TempDir()
+			captured := filepath.Join(scratch, "arguments")
+			capturedEnv := filepath.Join(scratch, "environment")
+			probe := "#!/usr/bin/env bash\nset -euo pipefail\ntest ! -e \"$WAZA_HELPER_TEST_ARGUMENTS\"\nprintf '%s\\n' \"$@\" > \"$WAZA_HELPER_TEST_ARGUMENTS\"\nprintf 'GOFLAGS=%s\\n' \"$GOFLAGS\" > \"$WAZA_HELPER_TEST_ENVIRONMENT\"\n"
+			if err := os.WriteFile(filepath.Join(scratch, "go"), []byte(probe), 0o700); err != nil {
+				return err
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-e", "-o", "pipefail", "-c", step.Run)
+			cmd.Env = append(os.Environ(),
+				"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"WAZA_HELPER_TEST_ARGUMENTS="+captured,
+				"WAZA_HELPER_TEST_ENVIRONMENT="+capturedEnv,
+				"GOFLAGS=",
+			)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("execute actual Lint test-selection command: %w\n%s", err, output)
+			}
+			// This guards declarative workflow configuration, not ambient go env -w or runner tool state.
+			envData, err := os.ReadFile(capturedEnv)
+			if err != nil {
+				return fmt.Errorf("record effective GOFLAGS: %w", err)
+			}
+			if string(envData) != "GOFLAGS=\n" {
+				return fmt.Errorf("actual Go environment differs from the admitted empty GOFLAGS")
+			}
+			data, err := os.ReadFile(captured)
+			if err != nil {
+				return fmt.Errorf("Lint must invoke Go, not merely mention the package: %w", err)
+			}
+			args := strings.Split(strings.TrimSpace(string(data)), "\n")
+			if !slices.Equal(args, literal[1:]) {
+				return fmt.Errorf("actual Go arguments differ from literal unfiltered command: %q", args)
+			}
+			count := 0
+			for _, arg := range args {
+				if arg == "./.github/scripts/release-assets-helper" {
+					count++
+				}
+			}
+			if count != 1 {
+				return fmt.Errorf("actual Lint Go invocation selects helper %d times; want exactly once", count)
+			}
+			return nil
+		}
+		return fmt.Errorf("required Lint helper test-selection step is missing")
+	}
+	if err := check(source); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, before, after string }{
+		{"missing-package", " ./.github/scripts/release-assets-helper", ""},
+		{"echo-only", "run: go test -count=1 ./.github/scripts", "run: echo go test -count=1 ./.github/scripts"},
+		{"skipped-step", "- name: Test Go workflow trigger selection\n        run:", "- name: Test Go workflow trigger selection\n        if: false\n        run:"},
+		{"run-value", "-count=1 ./.github/scripts", "-count=1 -run '^$' ./.github/scripts"},
+		{"run-equals", "-count=1 ./.github/scripts", "-count=1 -run=^$ ./.github/scripts"},
+		{"list-value", "-count=1 ./.github/scripts", "-count=1 -list '.' ./.github/scripts"},
+		{"list-equals", "-count=1 ./.github/scripts", "-count=1 -list=. ./.github/scripts"},
+		{"skip-value", "-count=1 ./.github/scripts", "-count=1 -skip '.' ./.github/scripts"},
+		{"skip-equals", "-count=1 ./.github/scripts", "-count=1 -skip=. ./.github/scripts"},
+		{"args-value", "-count=1 ./.github/scripts", "-count=1 -args -test.run '^$' ./.github/scripts"},
+		{"args-equals", "-count=1 ./.github/scripts", "-count=1 -args=-test.run=^$ ./.github/scripts"},
+		{"exec-value", "-count=1 ./.github/scripts", "-count=1 -exec echo ./.github/scripts"},
+		{"exec-equals", "-count=1 ./.github/scripts", "-count=1 -exec=echo ./.github/scripts"},
+		{"late-run", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper -run=^$"},
+		{"count-override", "-count=1 ./.github/scripts", "-count=1 -count=0 ./.github/scripts"},
+		{"failure-mask", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper || true"},
+		{"pipeline-mask", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper | true"},
+		{"duplicate-helper", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper ./.github/scripts/release-assets-helper"},
+		{"workflow-goflags", "jobs:\n", "env:\n  GOFLAGS: '-run=^$'\njobs:\n"},
+		{"job-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: '-list=.'\n"},
+		{"step-goflags", "- name: Test Go workflow trigger selection\n", "- name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: '-skip=.'\n"},
+		{"dynamic-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: '${{ vars.GOFLAGS }}'\n"},
+		{"null-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: null\n"},
+		{"boolean-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: false\n"},
+		{"numeric-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: 0\n"},
+		{"sequence-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: []\n"},
+		{"mapping-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: {}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := strings.Replace(string(source), tc.before, tc.after, 1)
+			if mutated == string(source) || check([]byte(mutated)) == nil {
+				t.Fatalf("actual helper selection mutation %q was not rejected", tc.name)
+			}
+		})
+	}
+	for _, tc := range []struct{ name, before, after string }{
+		{"package-order", "./.github/scripts ./.github/scripts/publish-runner-reference-guard", "./.github/scripts/publish-runner-reference-guard ./.github/scripts"},
+		{"additional-package", "-count=1 ./.github/scripts", "-count=1 ./internal/models ./.github/scripts"},
+		{"workflow-empty-goflags", "jobs:\n", "env:\n  GOFLAGS: ''\njobs:\n"},
+		{"job-empty-overrides-workflow", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: ''\n"},
+		{"step-empty-overrides-job", "- name: Test Go workflow trigger selection\n", "- name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: ''\n"},
+		{"step-empty-overrides-workflow", "- name: Test Go workflow trigger selection\n", "- name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: ''\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := strings.Replace(string(source), tc.before, tc.after, 1)
+			switch tc.name {
+			case "job-empty-overrides-workflow":
+				mutated = strings.Replace(mutated, "jobs:\n", "env:\n  GOFLAGS: '-run=^$'\njobs:\n", 1)
+			case "step-empty-overrides-job":
+				mutated = strings.Replace(mutated, "  lint:\n", "  lint:\n    env:\n      GOFLAGS: '-list=.'\n", 1)
+			case "step-empty-overrides-workflow":
+				mutated = strings.Replace(mutated, "jobs:\n", "env:\n  GOFLAGS: '${{ vars.GOFLAGS }}'\njobs:\n", 1)
+			}
+			if mutated == string(source) {
+				t.Fatal("alternative-valid command was not changed")
+			}
+			if err := check([]byte(mutated)); err != nil {
+				t.Fatalf("alternative-valid command rejected: %v", err)
+			}
+		})
+	}
+}
+
 type workflowTriggers map[string]workflowTrigger
 
 type workflowLiteral struct {
