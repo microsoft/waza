@@ -195,20 +195,24 @@ func TestRunnerTerminalWindowsFullUndrainedStdoutPipe(t *testing.T) {
 		require.Equal(t, 2, exit.ExitCode(), "stderr: %s", stderr.String())
 	})
 	t.Run("phase timing", func(t *testing.T) {
+		t.Logf("raw native production-caller timing markers and stderr: %q", stderr.String())
 		events, err := parseRunnerTerminalTiming(stderr.String(), nonce)
 		require.NoError(t, err)
 		require.Len(t, events, 2)
 		require.Equal(t, "emit-start", events[0].phase)
 		require.Equal(t, "emit-timeout", events[1].phase)
+		preEmission := events[0].at.Sub(started)
+		emission := events[1].emitElapsed
+		postEmission := finished.Sub(events[1].at)
+		total := finished.Sub(started)
+		t.Logf("native production-caller phases: start_call=%s pre_emission=%s emission=%s post_emission_exit_wait=%s total=%s",
+			startReturned.Sub(started), preEmission, emission, postEmission, total)
 		require.False(t, events[0].at.Before(started))
 		require.False(t, events[1].at.Before(events[0].at))
 		require.False(t, finished.Before(events[1].at))
-		require.GreaterOrEqual(t, events[1].emitElapsed, 5*time.Second,
+		require.GreaterOrEqual(t, emission, 5*time.Second,
 			"the production emission allowance must remain five seconds")
 		require.GreaterOrEqual(t, events[1].at.Sub(events[0].at), 5*time.Second)
-		t.Logf("native production-caller phases: start_call=%s pre_emission=%s emission=%s post_emission_exit_wait=%s total=%s",
-			startReturned.Sub(started), events[0].at.Sub(started), events[1].emitElapsed,
-			finished.Sub(events[1].at), finished.Sub(started))
 	})
 	t.Run("stderr", func(t *testing.T) {
 		require.Contains(t, stderr.String(), "i/o timeout")
