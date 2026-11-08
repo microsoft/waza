@@ -320,7 +320,7 @@ config:
 tasks:
   - "tasks/*.yaml"
 `,
-			wantRunExit: 1, wantValidated: true, wantStatus: "failure",
+			wantRunExit: 2, wantValidated: true, wantStatus: "failure",
 		},
 		{
 			name:          "configuration error",
