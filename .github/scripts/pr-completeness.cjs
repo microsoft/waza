@@ -131,7 +131,7 @@ function applicability(paths) {
   return {
     go: true,
     dashboard: all || backend || modules || matches('web', 'examples/runner'),
-    site: all || matches('site', 'docs', 'README.md', 'CHANGELOG.md', 'version.txt', 'registry.json', 'go.mod', 'schemas', 'internal/embedded',
+    site: all || matches('site', 'docs', 'README.md', 'CHANGELOG.md', 'version.txt', 'registry.json', 'go.mod', 'cmd/waza/cmd_serve.go', 'schemas', 'internal/embedded',
       'internal/models', 'internal/runneridentity/testdata', 'internal/runnerunit/testdata', 'internal/runnerterminal/testdata',
       'examples', 'Makefile', 'web/playwright.config.ts', 'web/package-lock.json', 'web/e2e/runner-negotiation.spec.ts',
       '.squad/model-policy.md', 'DEMO-SCRIPT.md', 'LICENSE', 'meet-the-squad.md',

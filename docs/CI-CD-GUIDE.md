@@ -86,7 +86,7 @@ full-diff review:
 |---|---|
 | Go, lint, native Linux shards and Windows | Every ordinary PR, preserving the existing native gates. |
 | Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, and runner examples. |
-| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config and lockfile content read by documentation checks; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
+| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config and lockfile content read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
 | Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
 | Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
 | Docker image and native runner contracts | Container/context files, `.gitattributes` LFS checkout rules for embedded assets, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |
@@ -94,7 +94,7 @@ full-diff review:
 | Pinned judge runtime on Linux and macOS | Embedded runtime, execution/graders/judge evidence/models, their repository package dependency closure (including filesystem admission, snapshot readers, schema loading, events, config, skills/tokens and compiled test helpers), root schemas, modules and `.gitattributes`. |
 
 Workflow and completeness-interpreter changes select the affected gate families.
-The current production documentation prebuild input trace observed 210 distinct
+The initial production documentation prebuild input trace observed 210 distinct
 repository paths, not 210 content reads. Besides the three content inputs
 `Makefile`, `web/playwright.config.ts` and `web/package-lock.json`, it found
 existence/stat checks for `web/e2e/runner-negotiation.spec.ts`, linked
@@ -107,6 +107,13 @@ over-selects descendant edits: the documentation checks consume directory
 existence, not every descendant's content. Actual Git addition, deletion and
 rename controls cover file leaves, including removal of a consumed directory's
 last tracked leaf; a Git directory path is never fabricated.
+
+That historical trace predates the serve-flag documentation guard. Its new
+content input, `cmd/waza/cmd_serve.go`, selects site validation through an exact
+leaf match; the guard's CLI reference and dashboard guide inputs are already
+covered by `site/`. The incoming workflow and Go site-filter inventories retain
+the same exact serve-source leaf. This integration traces the added declaration
+and reader inputs, not a new complete prebuild-input census.
 
 Instruction-only `AGENTS.md` edits retain the existing exemption from expensive
 site/chat auxiliary suites. Documentation link checks also observe its

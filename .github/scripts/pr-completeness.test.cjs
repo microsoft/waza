@@ -14,7 +14,7 @@ const consumedLeafInputs = [
   ['.gitattributes', 'assurance'],
   ['.gitattributes', 'container'],
   ...[
-    'Makefile', 'web/playwright.config.ts', 'web/package-lock.json', 'web/e2e/runner-negotiation.spec.ts',
+    'Makefile', 'web/playwright.config.ts', 'web/package-lock.json', 'web/e2e/runner-negotiation.spec.ts', 'cmd/waza/cmd_serve.go',
     '.squad/model-policy.md', 'DEMO-SCRIPT.md', 'LICENSE', 'meet-the-squad.md',
     'internal/interop/testdata/agentv/PROVENANCE.md', 'internal/runnercompat/testdata/eval-1.4.yaml',
     'internal/runnercompat/testdata/task.yaml',
