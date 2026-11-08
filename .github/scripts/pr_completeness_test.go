@@ -837,6 +837,7 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 
 	var workflow struct {
 		Jobs map[string]struct {
+			RunsOn   string `yaml:"runs-on"`
 			Strategy struct {
 				Matrix struct {
 					Include []struct {
@@ -862,6 +863,7 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 		return fmt.Errorf("%s must retain one receipt-producing job", family)
 	}
 	var job struct {
+		RunsOn   string `yaml:"runs-on"`
 		Strategy struct {
 			Matrix struct {
 				Include []struct {
@@ -884,15 +886,28 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 	}
 	if len(units) > 1 {
 		actual := make([]string, 0, len(job.Strategy.Matrix.Include))
+		expectedRunners := map[string]string{
+			"linux":   "ubuntu-latest",
+			"windows": "windows-latest",
+			"macos":   "macos-latest",
+		}
+		if job.RunsOn != "${{ matrix.os }}" {
+			return fmt.Errorf("%s matrix job must run on its declared OS", family)
+		}
 		for _, member := range job.Strategy.Matrix.Include {
 			if member.OS == "" || member.Unit == "" {
 				return fmt.Errorf("%s matrix member lacks an OS or stable unit", family)
+			}
+			if member.OS != expectedRunners[member.Unit] {
+				return fmt.Errorf("%s unit %s runs on %s; want %s", family, member.Unit, member.OS, expectedRunners[member.Unit])
 			}
 			actual = append(actual, member.Unit)
 		}
 		if !reflect.DeepEqual(actual, units) {
 			return fmt.Errorf("%s matrix units %v; want %v", family, actual, units)
 		}
+	} else if job.RunsOn != "ubuntu-latest" {
+		return fmt.Errorf("%s assurance receipt must retain its Ubuntu runner", family)
 	}
 
 	steps := map[string]struct {
@@ -965,6 +980,10 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 		return fmt.Errorf("%s receipt capture is not fail-closed or family-bound", family)
 	}
 	upload := false
+	expectedReceiptPath := "${{ runner.temp }}/pr-completeness-receipt/receipt.json"
+	if len(units) > 1 {
+		expectedReceiptPath = "${{ runner.temp }}/pr-completeness-receipt-${{ matrix.unit }}/receipt.json"
+	}
 	for _, step := range job.Steps {
 		if !strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
 			continue
@@ -972,6 +991,7 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 		upload = true
 		if step.If != "always() && steps.receipt.outcome == 'success'" ||
 			step.With["name"].Value != "${{ steps.receipt.outputs.artifact_name }}" ||
+			step.With["path"].Value != expectedReceiptPath ||
 			step.With["if-no-files-found"].Value != "error" {
 			return fmt.Errorf("%s receipt upload does not require successful capture and an exact artifact", family)
 		}
@@ -1018,6 +1038,7 @@ func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
 				{"pr-completeness.cjs receipt", "pr-completeness.cjs evaluate"},
 				{"fetch-depth: 2", "fetch-depth: 1"},
 				{"name: ${{ inputs.pr_completeness_plan }}", "name: unrelated-plan"},
+				{"path: ${{ runner.temp }}/pr-completeness-receipt", "path: ${{ runner.temp }}/unrelated/steps.json #"},
 			} {
 				mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
 				if mutated == string(source) {
@@ -1025,6 +1046,16 @@ func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
 				}
 				if checkAuxiliaryReceiptWorkflow([]byte(mutated), workflow.family, workflow.units) == nil {
 					t.Fatalf("%s mutation was admitted: %q", workflow.file, mutation.old)
+				}
+			}
+			nativeRunner := map[string]string{"tools": "windows-latest", "runtime": "macos-latest"}[workflow.family]
+			if nativeRunner != "" {
+				mutated := strings.Replace(string(source), nativeRunner, "ubuntu-latest", 1)
+				if mutated == string(source) {
+					t.Fatalf("native runner mutation did not change %s", workflow.file)
+				}
+				if checkAuxiliaryReceiptWorkflow([]byte(mutated), workflow.family, workflow.units) == nil {
+					t.Fatalf("%s admitted Linux in place of %s", workflow.file, nativeRunner)
 				}
 			}
 		})
