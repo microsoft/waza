@@ -98,7 +98,7 @@ process.stdout.write(JSON.stringify(require("./pr-completeness.cjs").applicabili
 
 func TestCompletenessProductionCLIControls(t *testing.T) {
 	output := runCompletenessNode(t, "--test", "--test-reporter=tap", "pr-completeness.test.cjs")
-	for metric, count := range map[string]int{"tests": 16, "pass": 16, "fail": 0, "cancelled": 0, "skipped": 0} { //nolint:misspell // Node TAP field name.
+	for metric, count := range map[string]int{"tests": 17, "pass": 17, "fail": 0, "cancelled": 0, "skipped": 0} { //nolint:misspell // Node TAP field name.
 		pattern := regexp.MustCompile(fmt.Sprintf(`(?m)^# %s %d\r?$`, metric, count))
 		if !pattern.Match(output) {
 			t.Fatalf("production Node controls lack expected %s=%d evidence:\n%s", metric, count, output)
@@ -811,6 +811,220 @@ func TestCompletenessRuntimeImportClosure(t *testing.T) {
 			for _, selector := range selectors {
 				if !visited[selector] {
 					t.Errorf("runtime selector %s has no demonstrated pinned test-binary import", selector)
+				}
+			}
+		})
+	}
+}
+
+func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string) error {
+	triggers, err := readTriggers(source)
+	if err != nil {
+		return err
+	}
+	input := triggers["workflow_call"].Inputs["pr_completeness_plan"]
+	if input.Type != "string" ||
+		input.Default != (workflowLiteral{Present: true, Tag: "!!str", Value: ""}) ||
+		(input.Required.Present && input.Required.Value != "false") {
+		return fmt.Errorf("%s completeness plan input must remain optional and inactive", family)
+	}
+	if _, ok := triggers["pull_request"]; !ok {
+		return fmt.Errorf("%s lost its direct pull request trigger", family)
+	}
+	if _, ok := triggers["push"]; !ok {
+		return fmt.Errorf("%s lost its direct push trigger", family)
+	}
+
+	var workflow struct {
+		Jobs map[string]struct {
+			Strategy struct {
+				Matrix struct {
+					Include []struct {
+						OS   string `yaml:"os"`
+						Unit string `yaml:"unit"`
+					} `yaml:"include"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+			Steps []struct {
+				ID              string               `yaml:"id"`
+				Uses            string               `yaml:"uses"`
+				If              string               `yaml:"if"`
+				Run             string               `yaml:"run"`
+				ContinueOnError yaml.Node            `yaml:"continue-on-error"`
+				With            map[string]yaml.Node `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	if len(workflow.Jobs) != 1 {
+		return fmt.Errorf("%s must retain one receipt-producing job", family)
+	}
+	var job struct {
+		Strategy struct {
+			Matrix struct {
+				Include []struct {
+					OS   string `yaml:"os"`
+					Unit string `yaml:"unit"`
+				} `yaml:"include"`
+			} `yaml:"matrix"`
+		} `yaml:"strategy"`
+		Steps []struct {
+			ID              string               `yaml:"id"`
+			Uses            string               `yaml:"uses"`
+			If              string               `yaml:"if"`
+			Run             string               `yaml:"run"`
+			ContinueOnError yaml.Node            `yaml:"continue-on-error"`
+			With            map[string]yaml.Node `yaml:"with"`
+		} `yaml:"steps"`
+	}
+	for _, candidate := range workflow.Jobs {
+		job = candidate
+	}
+	if len(units) > 1 {
+		actual := make([]string, 0, len(job.Strategy.Matrix.Include))
+		for _, member := range job.Strategy.Matrix.Include {
+			if member.OS == "" || member.Unit == "" {
+				return fmt.Errorf("%s matrix member lacks an OS or stable unit", family)
+			}
+			actual = append(actual, member.Unit)
+		}
+		if !reflect.DeepEqual(actual, units) {
+			return fmt.Errorf("%s matrix units %v; want %v", family, actual, units)
+		}
+	}
+
+	steps := map[string]struct {
+		Uses string
+		If   string
+		Run  string
+		With map[string]yaml.Node
+	}{}
+	for _, step := range job.Steps {
+		if step.ID == "" {
+			continue
+		}
+		if _, duplicate := steps[step.ID]; duplicate {
+			return fmt.Errorf("%s duplicate step id %s", family, step.ID)
+		}
+		if step.ContinueOnError.Kind != 0 &&
+			(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false") {
+			return fmt.Errorf("%s step %s tolerates failure", family, step.ID)
+		}
+		steps[step.ID] = struct {
+			Uses string
+			If   string
+			Run  string
+			With map[string]yaml.Node
+		}{step.Uses, step.If, step.Run, step.With}
+	}
+	sourceCheckout := false
+	planDownload := false
+	for _, step := range job.Steps {
+		switch {
+		case strings.HasPrefix(step.Uses, "actions/checkout@"):
+			sourceCheckout = step.With["fetch-depth"].Value == "2"
+		case strings.HasPrefix(step.Uses, "actions/download-artifact@"):
+			planDownload = step.If == "inputs.pr_completeness_plan != ''" &&
+				step.With["name"].Value == "${{ inputs.pr_completeness_plan }}" &&
+				step.With["path"].Value == "${{ runner.temp }}/pr-completeness-plan"
+		}
+	}
+	if !sourceCheckout || !planDownload {
+		return fmt.Errorf("%s must fetch both merge parents and the exact current-run plan artifact", family)
+	}
+	required := map[string][]string{
+		"assurance": {"checkout", "build", "custody", "guard", "qualification", "export", "preserved_export", "consent", "reader", "preserved_reader", "browser"},
+		"tools":     {"checkout", "integrity", "tests"},
+		"runtime":   {"checkout", "tests"},
+	}[family]
+	for _, id := range required {
+		if _, ok := steps[id]; !ok {
+			return fmt.Errorf("%s receipt omits required step id %s", family, id)
+		}
+	}
+	checkout := steps["checkout"]
+	if checkout.If != "inputs.pr_completeness_plan != ''" ||
+		!strings.Contains(checkout.Run, `git rev-parse HEAD`) ||
+		!strings.Contains(checkout.Run, `GITHUB_OUTPUT`) {
+		return fmt.Errorf("%s checkout evidence is not conditionally source-bound", family)
+	}
+	receipt, ok := steps["receipt"]
+	if !ok {
+		return fmt.Errorf("%s receipt capture step is missing", family)
+	}
+	unit := units[0]
+	if len(units) > 1 {
+		unit = `"${{ matrix.unit }}"`
+	}
+	if receipt.If != "always() && inputs.pr_completeness_plan != ''" ||
+		!strings.Contains(receipt.Run, `pr-completeness.cjs receipt`) ||
+		!strings.Contains(receipt.Run, `pr-completeness-plan/plan.json`) ||
+		!strings.Contains(receipt.Run, " "+family+" "+unit) {
+		return fmt.Errorf("%s receipt capture is not fail-closed or family-bound", family)
+	}
+	upload := false
+	for _, step := range job.Steps {
+		if !strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
+			continue
+		}
+		upload = true
+		if step.If != "always() && steps.receipt.outcome == 'success'" ||
+			step.With["name"].Value != "${{ steps.receipt.outputs.artifact_name }}" ||
+			step.With["if-no-files-found"].Value != "error" {
+			return fmt.Errorf("%s receipt upload does not require successful capture and an exact artifact", family)
+		}
+	}
+	if !upload {
+		return fmt.Errorf("%s receipt artifact upload is missing", family)
+	}
+	if family == "assurance" {
+		browser := steps["browser"]
+		if !strings.Contains(browser.Run, "--retries=0") ||
+			!strings.Contains(browser.Run, "--reporter=github,line,json") {
+			return fmt.Errorf("assurance browser receipt lacks explicit zero-retry JSON evidence")
+		}
+	}
+	return nil
+}
+
+func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
+	workflows := []struct {
+		file   string
+		family string
+		units  []string
+	}{
+		{"grader-assurance-ci.yml", "assurance", []string{"assurance"}},
+		{"squad-tools-ci.yml", "tools", []string{"linux", "windows"}},
+		{"evidence-judge-ci.yml", "runtime", []string{"linux", "macos"}},
+	}
+	for _, workflow := range workflows {
+		t.Run(workflow.family, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", workflow.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkAuxiliaryReceiptWorkflow(source, workflow.family, workflow.units); err != nil {
+				t.Fatal(err)
+			}
+			for _, mutation := range []struct {
+				old         string
+				replacement string
+			}{
+				{"        default: ''", "        default: active"},
+				{"if: always() && inputs.pr_completeness_plan != ''", "if: inputs.pr_completeness_plan != ''"},
+				{"id: receipt", "id: omitted_receipt"},
+				{"pr-completeness.cjs receipt", "pr-completeness.cjs evaluate"},
+				{"fetch-depth: 2", "fetch-depth: 1"},
+				{"name: ${{ inputs.pr_completeness_plan }}", "name: unrelated-plan"},
+			} {
+				mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
+				if mutated == string(source) {
+					t.Fatalf("mutation did not change %s: %q", workflow.file, mutation.old)
+				}
+				if checkAuxiliaryReceiptWorkflow([]byte(mutated), workflow.family, workflow.units) == nil {
+					t.Fatalf("%s mutation was admitted: %q", workflow.file, mutation.old)
 				}
 			}
 		})
