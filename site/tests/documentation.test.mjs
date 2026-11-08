@@ -26,6 +26,75 @@ const releaseInputs = [
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
+function assertExecutionBrowserDiscovery(config, target) {
+  assert.ok(['web', 'site'].includes(target), 'expected web or site discovery profile');
+  // Keep literal contents opaque so comments and example strings cannot supply configuration fields.
+  const tokens = [...config.matchAll(/(['"`])(?:\\[\s\S]|(?!\1)[^\\])*\1|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|\.\.\.|[A-Za-z_$][\w$]*|[^\s]/g)]
+    .map((match) => match[0]).filter((token) => !token.startsWith('//') && !token.startsWith('/*'));
+  const opening = ['export', 'default', 'defineConfig', '(', '{'];
+  const start = tokens.findIndex((_, index) => opening.every((token, offset) => tokens[index + offset] === token));
+  assert.ok(start >= 0, 'browser discovery requires a literal exported defineConfig object');
+  const fields = [];
+  let depth = 0;
+  let end;
+  for (let index = start + opening.length - 1; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token === '{') depth++;
+    if (token === '}' && --depth === 0) {
+      end = index;
+      break;
+    }
+    assert.notEqual(token, '...', 'dynamic configuration spreads can narrow browser discovery');
+    assert.ok(!(token === ']' && tokens[index + 1] === ':'), 'computed configuration keys can narrow browser discovery');
+    const name = /^['"]/.test(token) ? token.slice(1, -1) : token;
+    if (['testDir', 'testIgnore', 'testMatch'].includes(name) && tokens[index + 1] === ':') {
+      fields.push({ name, index, depth });
+    }
+  }
+  assert.ok(end !== undefined, 'browser configuration object must close');
+  assert.deepEqual(tokens.slice(end + 1), [')', ';'], 'exported browser configuration must not have subsequent mutations');
+  assert.equal(fields.filter(({ name }) => name === 'testMatch').length, 0, 'testMatch must not narrow browser discovery');
+  const expectedIgnore = target === 'web'
+    ? ['string:**/checkpoint-cli-process.test.mjs']
+    : ['[', 'string:chat.spec.ts', ',', 'string:chat-unavailable.spec.ts', ']'];
+  for (const [name, expected] of [
+    ['testDir', ['string:./e2e']],
+    ['testIgnore', expectedIgnore],
+  ]) {
+    const matches = fields.filter((field) => field.name === name);
+    assert.equal(matches.length, 1, `${target}: exactly one ${name} declaration is required`);
+    const field = matches[0];
+    assert.equal(field.depth, 1, `${target}: ${name} must be declared on the exported configuration`);
+    const value = tokens.slice(field.index + 2, field.index + 2 + expected.length)
+      .map((token) => /^['"]/.test(token) ? `string:${token.slice(1, -1)}` : token);
+    assert.deepEqual(value, expected, `${target}: ${name} must retain the exact literal discovery contract`);
+    assert.ok([',', '}'].includes(tokens[field.index + 2 + expected.length]),
+      `${target}: ${name} must not have a dynamic or additional value`);
+  }
+}
+
+function assertExecutionLifecycleWorkflowDiscovery(workflow) {
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
+  const filter = workflow.match(/^            web:\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  assert.ok(push && filter, 'actual dashboard push and PR filter blocks must exist');
+  const apiSelector = 'internal/webapi/lifecycle*.go';
+  for (const path of [apiSelector, 'internal/executionlifecycle/**',
+    'schemas/execution-lifecycle*.json', 'schemas/execution_lifecycle.go']) {
+    assert.equal(workflow.split(`'${path}'`).length - 1, 2, `${path} must select both push and PR paths-filter`);
+    for (const [name, block] of [['main push gate', push], ['PR web filter', filter]]) {
+      const patterns = [...block.matchAll(/^\s+- '([^'\r\n]+)'$/gm)].map((match) => match[1]);
+      assert.equal(patterns.filter((pattern) => pattern === path).length, 1,
+        `${name}: missing exact lifecycle selector ${path}`);
+    }
+  }
+  for (const path of ['internal/webapi/lifecycle.go', 'internal/webapi/lifecycle_source.go']) {
+    assert.ok(existsSync(resolve(root, path)), `${path}: actual lifecycle API source must exist`);
+    const [prefix, suffix] = apiSelector.split('*');
+    assert.ok(path.startsWith(prefix) && path.endsWith(suffix) &&
+      !path.slice(prefix.length, -suffix.length).includes('/'), `${apiSelector} must admit ${path}`);
+  }
+}
+
 test('checkpoint source schema registration and migration notes retain contract-only limits', () => {
   const schema = JSON.parse(read('schemas/execution-checkpoint-1.0.schema.json'));
   assert.equal(schema.$id, 'https://microsoft.github.io/waza/schemas/execution-checkpoint-1.0.schema.json');
@@ -53,12 +122,12 @@ test('checkpoint source schema registration and migration notes retain contract-
   assert.match(notes, /Only destination attempt ordinal may differ; original source\s+identity\/selection must not be retagged/);
   assert.ok(existsSync(resolve(root, 'site/e2e/execution-checkpoint.spec.ts')));
   assert.match(read('site/e2e/execution-checkpoint.spec.ts'), /The unreleased source provides protected checkpoint creation and resume commands for the exact-unit profile\./);
-  assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*checkpoint/);
+  assertExecutionBrowserDiscovery(read('site/playwright.config.ts'), 'site');
   const lab = read('site/src/content/docs/guides/dashboard-lab.mdx');
   assert.match(lab, /GET \/api\/v1\/checkpoints\/\{digest\}/);
   assert.match(lab, /restored units and remaining work stay \*\*Unavailable\*\*/);
   assert.ok(existsSync(resolve(root, 'web/e2e/checkpoint-inspection.spec.ts')));
-  assert.doesNotMatch(read('web/playwright.config.ts'), /testIgnore:.*checkpoint/);
+  assertExecutionBrowserDiscovery(read('web/playwright.config.ts'), 'web');
   assert.equal(resultSchema.properties.source_withheld.const, true);
   assert.match(notes, /output-only optional `source_withheld: true`/);
   assert.match(read('site/astro.config.mjs'), /slug: 'guides\/runner-checkpoints'/);
@@ -106,18 +175,88 @@ test('lifecycle source schemas, declared inspection guidance and browser discove
   assert.match(read('site/src/content/docs/reference/cli.mdx'), /## waza lifecycle/);
   assert.match(read('site/src/content/docs/reference/schema-changes.md'), /Lifecycle declarations and inspection 1\.0/);
   assert.ok(existsSync(resolve(root, 'site/e2e/execution-lifecycle.spec.ts')));
-  assert.match(read('site/playwright.config.ts'), /testDir: ["']\.\/e2e["']/);
-  assert.match(read('web/playwright.config.ts'), /testDir: ["']\.\/e2e["']/);
-  assert.doesNotMatch(read('web/playwright.config.ts'), /testIgnore|testMatch/);
+  assertExecutionBrowserDiscovery(read('site/playwright.config.ts'), 'site');
+  assertExecutionBrowserDiscovery(read('web/playwright.config.ts'), 'web');
   const workflow = read('.github/workflows/web-ci.yml');
-  for (const path of ['internal/webapi/lifecycle.go', 'internal/executionlifecycle/**',
-    'schemas/execution-lifecycle*.json', 'schemas/execution_lifecycle.go']) {
-    assert.equal(workflow.split(`'${path}'`).length - 1, 2, `${path} must select both push and PR paths-filter`);
-  }
+  assertExecutionLifecycleWorkflowDiscovery(workflow);
   assert.match(workflow, /^permissions:\n  contents: read/m);
   assert.match(workflow, /timeout-minutes: 30/);
   assert.match(workflow, /delivery_phase:[\s\S]*options: \[preview, final\][\s\S]*default: preview/);
   assert.match(workflow, /npx --no-install playwright test --project=chromium --retries=0/);
+});
+
+test('execution browser discovery admits actual configurations and literal equivalents', async (t) => {
+  const web = read('web/playwright.config.ts');
+  const site = read('site/playwright.config.ts');
+  for (const [name, config, target] of [
+    ['actual web Node-harness exclusion', web, 'web'],
+    ['actual site legacy chat exclusions', site, 'site'],
+    ['web single-quoted literal and CRLF', web.replace(
+      '"**/checkpoint-cli-process.test.mjs"', "'**/checkpoint-cli-process.test.mjs'").replaceAll('\n', '\r\n'), 'web'],
+    ['site double-quoted literals and comments', site.replace(
+      "['chat.spec.ts', 'chat-unavailable.spec.ts']", '["chat.spec.ts", "chat-unavailable.spec.ts"]')
+      .replace('export default', '// testIgnore and testMatch examples are not declarations.\nexport default'), 'site'],
+  ]) {
+    await t.test(name, () => assertExecutionBrowserDiscovery(config, target));
+  }
+});
+
+test('execution browser discovery rejects mutations of the actual protected configurations', async (t) => {
+  for (const target of ['web', 'site']) {
+    const config = read(`${target}/playwright.config.ts`);
+    const declaration = config.match(/^  testIgnore:.*$/m)?.[0];
+    const directory = config.match(/^  testDir:.*$/m)?.[0];
+    assert.ok(declaration && directory, `${target}: actual discovery declarations must exist`);
+    for (const [name, mutated, diagnostic] of [
+      ['missing exclusion', config.replace(declaration, ''), /exactly one testIgnore/],
+      ['duplicate exclusion', config.replace(declaration, `${declaration}\n${declaration}`), /exactly one testIgnore/],
+      ['checkpoint browser exclusion', config.replace(declaration, '  testIgnore: "**/checkpoint*.spec.ts",'), /exact literal discovery/],
+      ['lifecycle browser exclusion', config.replace(declaration, '  testIgnore: "**/execution-lifecycle.spec.ts",'), /exact literal discovery/],
+      ['broad browser exclusion', config.replace(declaration, '  testIgnore: "**/*.spec.ts",'), /exact literal discovery/],
+      ['broader Node exclusion', config.replace(declaration, '  testIgnore: "**/*.test.mjs",'), /exact literal discovery/],
+      ['additional exclusion', config.replace(declaration,
+        '  testIgnore: ["**/checkpoint-cli-process.test.mjs", "**/checkpoint-inspection.spec.ts"],'), /exact literal discovery/],
+      ['dynamic exclusion', config.replace(declaration, '  testIgnore: process.env.PLAYWRIGHT_IGNORE,'), /exact literal discovery/],
+      ['computed exclusion key', config.replace('testIgnore:', '["testIgnore"]:'), /computed configuration keys/],
+      ['additional computed key', config.replace(declaration,
+        `${declaration}\n  ["test" + "Ignore"]: "**/*.spec.ts",`), /computed configuration keys/],
+      ['dynamic configuration spread', config.replace(declaration, `${declaration}\n  ...discovery,`), /dynamic configuration spreads/],
+      ['testMatch narrowing', config.replace(declaration, `${declaration}\n  testMatch: "**/checkpoint-inspection.spec.ts",`), /testMatch must not narrow/],
+      ['project exclusion', config.replace('name: ', 'testIgnore: "**/checkpoint*.spec.ts", name: '), /exactly one testIgnore/],
+      ['commented-out exclusion', config.replace(declaration, `  // ${declaration.trim()}`), /exactly one testIgnore/],
+      ['example-string exclusion', config.replace(declaration, '').replace('export default',
+        `const example = \`\n${declaration}\n\`;\nexport default`), /exactly one testIgnore/],
+      ['dynamic exclusion suffix', config.replace(declaration, declaration.replace(/,$/, ' + extraExclusions,')), /dynamic or additional value/],
+      ['missing test directory', config.replace(directory, ''), /exactly one testDir/],
+      ['dynamic test directory', config.replace(directory, '  testDir: process.env.PLAYWRIGHT_TEST_DIR,'), /exact literal discovery/],
+    ]) {
+      assert.notEqual(mutated, config, `${target}/${name}: mutation must change the actual configuration`);
+      await t.test(`${target}/${name}`, () =>
+        assert.throws(() => assertExecutionBrowserDiscovery(mutated, target), diagnostic));
+    }
+  }
+});
+
+test('lifecycle workflow discovery rejects missing selectors despite matching comment counts', async (t) => {
+  const workflow = read('.github/workflows/web-ci.yml');
+  const selector = 'internal/webapi/lifecycle*.go';
+  const pushLine = `      - '${selector}'\n`;
+  const filterLine = `              - '${selector}'\n`;
+  for (const [name, lines, diagnostic] of [
+    ['main push selector', [pushLine], /main push gate: missing exact lifecycle selector/],
+    ['PR web selector', [filterLine], /PR web filter: missing exact lifecycle selector/],
+    ['both production selectors', [pushLine, filterLine], /main push gate: missing exact lifecycle selector/],
+  ]) {
+    let mutated = workflow;
+    for (const line of lines) {
+      assert.equal(workflow.split('\n').filter((entry) => `${entry}\n` === line).length, 1,
+        `${name}: actual selector must exist exactly once in the targeted gate`);
+      mutated = mutated.replace(line, '') + `\n# non-selector '${selector}'\n`;
+    }
+    assert.notEqual(mutated, workflow, `${name}: mutation must remove the actual gate selector`);
+    assert.equal(mutated.split(`'${selector}'`).length - 1, 2, 'comments must preserve the misleading global count');
+    await t.test(name, () => assert.throws(() => assertExecutionLifecycleWorkflowDiscovery(mutated), diagnostic));
+  }
 });
 
 test('local container conformance is selected by its production build inputs', () => {
