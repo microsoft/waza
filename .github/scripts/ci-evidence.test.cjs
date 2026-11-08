@@ -789,6 +789,59 @@ test("production cache read-and-close preserves both failures and exits nonzero"
     }
   }
 });
+test("Linux production preparation admits only exact plain npm paths and one line terminator",
+  { skip: process.platform !== "linux" }, (t) => {
+    for (const [output, admitted] of [
+      ["lf", true], ["crlf", true], ["unterminated", true],
+      ["json", false], ["malformed", false], ["multiline", false], ["wrong-path", false],
+      ["leading-space", false], ["trailing-space", false], ["extra-newline", false], ["empty", false],
+    ]) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cold plain paths "));
+      t.after(() => fs.rmSync(dir, { recursive: true }));
+      const bin = path.join(dir, "bin");
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, "go"), `#!${process.execPath}
+process.stdout.write(JSON.stringify({GOMODCACHE:process.env.GOMODCACHE,GOCACHE:process.env.GOCACHE})+"\\n");
+`, { mode: 0o700 });
+      const invocation = path.join(dir, "npm-argv.json");
+      fs.writeFileSync(path.join(bin, "npm"), `#!${process.execPath}
+const fs=require("node:fs"),args=process.argv.slice(2),value=process.env.npm_config_cache;
+fs.writeFileSync(process.env.FIXTURE_NPM_ARGV,JSON.stringify(args));
+if(JSON.stringify(args)!==JSON.stringify(["config","get","cache"]))process.exit(64);
+const outputs={
+lf:value+"\\n",crlf:value+"\\r\\n",unterminated:value,json:JSON.stringify(value)+"\\n",
+malformed:"{invalid\\n",multiline:value+"\\n"+value+"\\n", "wrong-path":value+"-other\\n",
+"leading-space":" "+value+"\\n","trailing-space":value+" \\n","extra-newline":value+"\\n\\n",empty:"\\n"
+};
+process.stdout.write(outputs[process.env.FIXTURE_NPM_OUTPUT]);
+`, { mode: 0o700 });
+      const environment = {
+        ...process.env, ...env, RUNNER_TEMP: dir, GITHUB_ENV: path.join(dir, "environment"),
+        PATH: bin + path.delimiter + process.env.PATH,
+        CI_EVIDENCE_COLD_REQUESTED: "true", CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED: "true",
+        ImageOS: "ubuntu24", ImageVersion: "20261107.1",
+        FIXTURE_NPM_ARGV: invocation, FIXTURE_NPM_OUTPUT: output,
+      };
+      fs.writeFileSync(environment.GITHUB_ENV, "previous=preserved\n", { mode: 0o600 });
+      const prepare = () => isolatedCache.prepare("go-npm", dir, environment);
+      if (admitted) {
+        const root = prepare();
+        const state = JSON.parse(fs.readFileSync(path.join(root, "state.json"), "utf8"));
+        assert.ok(state.paths.npm.includes(" plain paths "), "valid fixture must contain spaces");
+        assert.equal(state.observation.stores.npm.initial_entries, 0);
+        assert.equal(state.observation.stores.npm.actual_path_match, true);
+        assert.ok(fs.readFileSync(environment.GITHUB_ENV, "utf8").includes(`npm_config_cache=${state.paths.npm}\n`));
+      } else {
+        assert.throws(prepare, /cache-observation-npm-path-mismatch/, output);
+        assert.equal(fs.readFileSync(environment.GITHUB_ENV, "utf8"), "previous=preserved\n", output);
+        const roots = fs.readdirSync(dir).filter((name) => name.startsWith("waza-ci-cold-"));
+        assert.equal(roots.length, 1);
+        assert.equal(fs.existsSync(path.join(dir, roots[0], "state.json")), false,
+          "invalid npm output cannot publish a partial observation");
+      }
+      assert.deepEqual(JSON.parse(fs.readFileSync(invocation, "utf8")), ["config", "get", "cache"]);
+    }
+  });
 test("Linux production cache preparation observes actual private tool paths and rejects competing store replacement",
   { skip: process.platform !== "linux" }, (t) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cold-paths-"));

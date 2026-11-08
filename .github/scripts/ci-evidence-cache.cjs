@@ -35,10 +35,10 @@ function cacheCohort(observation) {
   };
 }
 
-function checkedCommand(binary, args, options) {
+function checkedCommand(binary, args, options, trimOutput = true) {
   const result = spawnSync(binary, args, { ...options, encoding: "utf8", timeout: 30000, maxBuffer: 1024 * 1024 });
   if (result.error || result.status !== 0) throw new Error(`cache-observation-command-failed:${binary}`);
-  return result.stdout.trim();
+  return trimOutput ? result.stdout.trim() : result.stdout;
 }
 
 function directoryIdentity(directory) {
@@ -91,9 +91,9 @@ function probe(state, env) {
     throw new Error("cache-observation-go-path-mismatch");
   }
   if (state.paths.npm) {
-    const actualNpm = JSON.parse(checkedCommand("npm", ["config", "get", "cache", "--json"], {
+    const actualNpm = checkedCommand("npm", ["config", "get", "cache"], {
       env, cwd: state.npm_directory,
-    }));
+    }, false).replace(/\r?\n$/, "");
     if (actualNpm !== state.paths.npm) throw new Error("cache-observation-npm-path-mismatch");
   }
 }
