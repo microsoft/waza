@@ -505,8 +505,9 @@ jobs:
 ### Exit Codes
 
 - **`0`** — Evaluation passed (all tasks met thresholds)
-- **`1`** — Evaluation failed (grader failures or task/run errors; inspect recorded run statuses)
-- **`2`** — Configuration or startup error before a complete evaluation
+- **`1`** — Evaluation failed its grading or quality threshold
+- **`2`** — Configuration, startup, or operational task/run error. A result file
+  may still be saved; inspect its task and run statuses for diagnostics.
 
 ### Result JSON Structure
 
@@ -530,10 +531,10 @@ jobs:
     "errors": 0,
     "skipped": 0,
     "success_rate": 1,
-    "aggregate_score": 1,
-    "weighted_score": 1,
-    "min_score": 1,
-    "max_score": 1,
+    "aggregate_score": 0,
+    "weighted_score": 0,
+    "min_score": 0,
+    "max_score": 0,
     "std_dev": 0,
     "duration_ms": 5000
   },
