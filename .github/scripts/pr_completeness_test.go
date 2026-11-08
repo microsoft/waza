@@ -168,6 +168,28 @@ func checkCompletenessControlSelection(source []byte) error {
 	return fmt.Errorf("GoLint completeness control step is missing")
 }
 
+func effectiveWindowsEnv(name string, scopes ...map[string]yaml.Node) (yaml.Node, bool, error) {
+	var effective yaml.Node
+	present := false
+	for _, scope := range scopes {
+		var matched yaml.Node
+		matches := 0
+		for key, value := range scope {
+			if strings.EqualFold(key, name) {
+				matched = value
+				matches++
+			}
+		}
+		if matches > 1 {
+			return yaml.Node{}, false, fmt.Errorf("Windows environment contains ambiguous case variants for %s", name)
+		}
+		if matches == 1 {
+			effective, present = matched, true
+		}
+	}
+	return effective, present, nil
+}
+
 func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
 	if err != nil {
@@ -546,12 +568,9 @@ rm "$log"
 			if len(arguments) < 2 || arguments[len(arguments)-2] != "-o" || arguments[len(arguments)-1] != "pipefail" {
 				return fmt.Errorf("Windows shell-control pipeline requires Bash pipefail")
 			}
-			var flags yaml.Node
-			flagsPresent := false
-			for _, env := range []map[string]yaml.Node{workflow.Env, job.Env, step.Env} {
-				if value, present := env["GOFLAGS"]; present {
-					flags, flagsPresent = value, true
-				}
+			flags, flagsPresent, err := effectiveWindowsEnv("GOFLAGS", workflow.Env, job.Env, step.Env)
+			if err != nil {
+				return err
 			}
 			if flagsPresent && (flags.Kind != yaml.ScalarNode || flags.Tag != "!!str" || flags.Value != "") {
 				return fmt.Errorf("Windows shell-control GOFLAGS must be omitted or literal empty after workflow/job/step overrides")
@@ -577,7 +596,7 @@ rm "$log"
 	if err := check(source); err != nil {
 		t.Fatal(err)
 	}
-	setFlags := func(input []byte, scope, value string) []byte {
+	setFlags := func(input []byte, scope, name, value string) []byte {
 		t.Helper()
 		anchors := map[string]string{
 			"workflow": "permissions:\n",
@@ -585,44 +604,61 @@ rm "$log"
 			"step":     "      - name: Test native Windows shell controls\n",
 		}
 		replacements := map[string]string{
-			"workflow": "env:\n  GOFLAGS: " + value + "\n\npermissions:\n",
-			"job":      "  build-and-test-windows:\n    env:\n      GOFLAGS: " + value + "\n",
-			"step":     "      - name: Test native Windows shell controls\n        env:\n          GOFLAGS: " + value + "\n",
+			"workflow": "env:\n  " + name + ": " + value + "\n\npermissions:\n",
+			"job":      "  build-and-test-windows:\n    env:\n      " + name + ": " + value + "\n",
+			"step":     "      - name: Test native Windows shell controls\n        env:\n          " + name + ": " + value + "\n",
 		}
 		mutated := strings.Replace(string(input), anchors[scope], replacements[scope], 1)
 		if mutated == string(input) {
-			t.Fatalf("%s GOFLAGS control did not change the actual workflow", scope)
+			t.Fatalf("%s %s control did not change the actual workflow", scope, name)
 		}
 		return []byte(mutated)
 	}
 	for _, scope := range []string{"workflow", "job", "step"} {
 		t.Run(scope+"-literal-empty-goflags-valid", func(t *testing.T) {
-			if err := check(setFlags(source, scope, `""`)); err != nil {
+			if err := check(setFlags(source, scope, "GOFLAGS", `""`)); err != nil {
 				t.Fatalf("literal empty GOFLAGS must remain valid: %v", err)
 			}
 		})
-		for i, value := range []string{`"-skip=Test.*/.*"`, `"-run=^$"`,
-			`"${{ inputs.go_flags }}"`, `" "`, "null", "false", "1"} {
+		for i, mutation := range []struct{ name, value string }{
+			{"GOFLAGS", `"-skip=Test.*/.*"`}, {"goflags", `"-skip=Test.*/.*"`},
+			{"GoFlags", `"-run=^$"`}, {"GOFLAGS", `"${{ inputs.go_flags }}"`},
+			{"GOFLAGS", `" "`}, {"GOFLAGS", "null"}, {"GOFLAGS", "false"}, {"GOFLAGS", "1"},
+		} {
 			t.Run(fmt.Sprintf("%s-unsafe-goflags-%d", scope, i), func(t *testing.T) {
-				if err := check(setFlags(source, scope, value)); err == nil {
+				if err := check(setFlags(source, scope, mutation.name, mutation.value)); err == nil {
 					t.Fatal("nonempty or unprovable effective GOFLAGS must reject native control selection")
 				}
 			})
 		}
+		t.Run(scope+"-ambiguous-goflags-case", func(t *testing.T) {
+			mutated := setFlags(source, scope, "GOFLAGS", `""`)
+			anchors := map[string]string{
+				"workflow": "  GOFLAGS: \"\"\n",
+				"job":      "      GOFLAGS: \"\"\n",
+				"step":     "          GOFLAGS: \"\"\n",
+			}
+			anchor := anchors[scope]
+			mutated = []byte(strings.Replace(string(mutated), anchor,
+				anchor+strings.Replace(anchor, "GOFLAGS: \"\"", `goflags: "-skip=Test.*/.*"`, 1), 1))
+			if err := check(mutated); err == nil {
+				t.Fatal("ambiguous same-scope GOFLAGS case variants must reject native control selection")
+			}
+		})
 	}
 	for _, override := range []struct{ lower, higher string }{
 		{"workflow", "job"}, {"workflow", "step"}, {"job", "step"},
 	} {
 		t.Run(override.lower+"-goflags-overridden-by-"+override.higher, func(t *testing.T) {
-			lower := setFlags(source, override.lower, `"-skip=Test.*/.*"`)
-			if err := check(setFlags(lower, override.higher, `""`)); err != nil {
+			lower := setFlags(source, override.lower, "goflags", `"-skip=Test.*/.*"`)
+			if err := check(setFlags(lower, override.higher, "GoFlags", `""`)); err != nil {
 				t.Fatalf("higher literal empty GOFLAGS must override lower unsafe value: %v", err)
 			}
 		})
 	}
 	t.Run("step-unsafe-goflags-overrides-empty-job", func(t *testing.T) {
-		lower := setFlags(setFlags(source, "workflow", `"-skip=Test.*/.*"`), "job", `""`)
-		if err := check(setFlags(lower, "step", `"-run=^$"`)); err == nil {
+		lower := setFlags(setFlags(source, "workflow", "goflags", `"-skip=Test.*/.*"`), "job", "GOFLAGS", `""`)
+		if err := check(setFlags(lower, "step", "GoFlags", `"-run=^$"`)); err == nil {
 			t.Fatal("higher unsafe GOFLAGS must not inherit lower empty admission")
 		}
 	})
