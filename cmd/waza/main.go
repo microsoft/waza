@@ -23,6 +23,22 @@ func (e *TestFailureError) Error() string {
 	return e.Message
 }
 
+// BenchmarkError retains completed benchmark artifacts while reporting an
+// operational failure rather than a completed negative judgment.
+type BenchmarkError struct {
+	Message string
+}
+
+func (e *BenchmarkError) Error() string {
+	return e.Message
+}
+
+func completedBenchmarkError(err error) bool {
+	_, runtimeError := errors.AsType[*BenchmarkError](err)
+	_, validationError := errors.AsType[*TestFailureError](err)
+	return runtimeError || validationError
+}
+
 // ExitCodeError lets a subcommand request a specific process exit code while
 // still returning an error to cobra so the message is printed and usage is
 // suppressed. Used by `waza gate` to expose its documented exit code matrix
@@ -62,7 +78,8 @@ func main() {
 		// Check error type to determine exit code
 		code := ExitError
 		var testFailureErr *TestFailureError
-		if errors.As(err, &testFailureErr) {
+		_, benchmarkError := errors.AsType[*BenchmarkError](err)
+		if !benchmarkError && errors.As(err, &testFailureErr) {
 			code = ExitTestFailed
 		}
 		if _, diagnosticErr := fmt.Fprintln(diagnostics, err); diagnosticErr != nil {

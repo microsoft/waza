@@ -1040,7 +1040,9 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		cacheKey, err := cache.CacheKeyWithSpecDir(spec, tc, r.cfg.FixtureDir(), r.cfg.SpecDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found && cache.RecordedMCPMocksMatch(cachedOutcome, models.EffectiveMCPMocks(spec, tc)) {
-				if len(cachedOutcome.Runs) != spec.Config.TrialsPerTask {
+				if cachedOutcome.Status == models.StatusError || OverallStatus(cachedOutcome.Runs) == models.StatusError {
+					fmt.Fprintf(os.Stderr, "[WARN] Ignoring operationally errored cache entry for test %q; executing again\n", tc.DisplayName)
+				} else if len(cachedOutcome.Runs) != spec.Config.TrialsPerTask {
 					fmt.Fprintf(os.Stderr, "[WARN] Ignoring incomplete cache entry for test %q: got %d/%d trials\n",
 						tc.DisplayName, len(cachedOutcome.Runs), spec.Config.TrialsPerTask)
 				} else {
@@ -1057,7 +1059,7 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 			// Run the test and cache the result
 			outcome := r.runTestUncached(taskCtx, tc, testNum, totalTests)
 			// Store in cache and log any failures
-			if len(outcome.Runs) == spec.Config.TrialsPerTask && taskCtx.Err() == nil {
+			if outcome.Status != models.StatusError && len(outcome.Runs) == spec.Config.TrialsPerTask && taskCtx.Err() == nil {
 				if err := r.cache.Put(cacheKey, &outcome); err != nil {
 					fmt.Fprintf(os.Stderr, "[WARN] Failed to write cache for test %q: %v\n", tc.DisplayName, err)
 				}
@@ -1152,13 +1154,15 @@ func (r *EvalRunner) buildTestOutcome(tc *models.TestCase, runs []models.RunResu
 		DisplayName: tc.DisplayName,
 		Group:       r.resolveGroup(tc),
 		Golden:      tc.Golden,
-		Status:      overallStatus(runs),
+		Status:      OverallStatus(runs),
 		Runs:        runs,
 		Stats:       ComputeTestStats(runs),
 	}
 }
 
-func overallStatus(runs []models.RunResult) models.Status {
+// OverallStatus aggregates final trials, preserving operational errors ahead of
+// completed failures. Skipped trials do not override a recorded verdict.
+func OverallStatus(runs []models.RunResult) models.Status {
 	if len(runs) == 0 {
 		return models.StatusSkipped
 	}
@@ -1166,6 +1170,8 @@ func overallStatus(runs []models.RunResult) models.Status {
 	allSkipped := true
 	for _, run := range runs {
 		switch run.Status {
+		case models.StatusError:
+			return models.StatusError
 		case models.StatusSkipped:
 			continue
 		case models.StatusPassed:

@@ -382,10 +382,10 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 		results, err := runCommandForSpec(cmd, specPaths[0], skillFolders)
 
 		// Only write outputs when the run produced meaningful results:
-		// either success (err == nil) or test failures (outcomes are still valid).
+		// either success or completed benchmarks (including operational errors).
 		// For other errors (spec load/parse failures), skip writing and return early.
 		if err != nil {
-			if _, ok := errors.AsType[*TestFailureError](err); !ok {
+			if !completedBenchmarkError(err) {
 				return err
 			}
 		}
@@ -423,10 +423,9 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 		outcomes, err := runCommandForSpec(cmd, sp, skillFolders)
 		result.outcomes = outcomes
 		if err != nil {
-			var testErr *TestFailureError
-			if errors.As(err, &testErr) {
+			if completedBenchmarkError(err) {
 				result.err = err
-				lastErr = err
+				lastErr = errors.Join(lastErr, err)
 			} else {
 				return err
 			}
@@ -692,11 +691,10 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 
 		outcome, err := runSingleModelWithPartialPath(cmd, spec, specPath, defaultSkills, partialPath)
 		if err != nil {
-			var testErr *TestFailureError
-			if errors.As(err, &testErr) {
-				// Test failures are recorded but don't stop a multi-model run
+			if completedBenchmarkError(err) {
+				// Completed failures retain artifacts and don't stop other models.
 				allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome, partialPath: partialPath})
-				lastErr = err
+				lastErr = errors.Join(lastErr, err)
 				continue
 			}
 			return nil, err
@@ -1175,6 +1173,18 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 			return nil, fmt.Errorf("failed to save output: %w", err)
 		}
 		fmt.Printf("\nResults saved to: %s\n", outputPath)
+	}
+
+	// Operational errors take precedence over validation and baseline impact.
+	if outcome.Digest.Errors > 0 {
+		return outcome, &BenchmarkError{
+			Message: fmt.Sprintf("benchmark completed: %d failed and %d error(s)", outcome.Digest.Failed, outcome.Digest.Errors),
+		}
+	}
+	if outcome.IsBaseline && outcome.BaselineOutcome.Digest.Errors > 0 {
+		return outcome, &BenchmarkError{
+			Message: fmt.Sprintf("baseline benchmark completed: %d failed and %d error(s)", outcome.BaselineOutcome.Digest.Failed, outcome.BaselineOutcome.Digest.Errors),
+		}
 	}
 
 	// Return test failure as error so caller can decide how to handle it
@@ -2426,10 +2436,9 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 		outcomes, runErr := runCommandForSpec(cmd, sp, skillDirs)
 		result.outcomes = outcomes
 		if runErr != nil {
-			var testErr *TestFailureError
-			if errors.As(runErr, &testErr) {
+			if completedBenchmarkError(runErr) {
 				result.err = runErr
-				lastErr = runErr
+				lastErr = errors.Join(lastErr, runErr)
 			} else {
 				return runErr
 			}
