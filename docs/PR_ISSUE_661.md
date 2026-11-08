@@ -40,9 +40,12 @@ This pull request establishes an offline preserved-replay benchmark corpus exten
     4. `bad-forbidden-action`: Valid final state achieved while calling a forbidden destructive tool.
   - **Schema Adherence**: Full compliance with `schemas/grader-reference-1.0.schema.json` and `schemas/evidence-manifest-1.0.schema.json`, maintaining 48 globally unique case IDs, 48 unique manifest SHA-256 digests, and relative snapshot paths (`snapshots/<id>.json`).
 
+- **Committed Snapshot Corpus & Platform Scope**:
+  - **Committed Fixtures**: All 48 canonical snapshot payloads are committed under `internal/assurance/testdata/snapshots/`, validated on disk by `TestBenchmarkCorpusFixturePersistence`, and replayed through the disk-based snapshot loader in `TestBenchmarkCorpusVerifyPreserved`.
+  - **Platform Grading Boundaries**: Preserved `ToolCallsGrader` boundary checks evaluate directly against serialized snapshot events across all platforms (including Windows). Preserved `FileGrader` outcome checks require secure workspace materialization supported on Linux/macOS, safely failing closed to `AssessmentError` / `OperationalError` on unsupported platforms.
+
 - **Follow-ups or known gaps**:
   - Full acceptance scope for #661 remains open: live model qualification, multi-attempt retry policies, and broader mutation/oracle hardening belong to subsequent Epic #657 milestones.
-  - Snapshot payload directory structure in `internal/assurance/testdata/snapshots/` can be materialized if external disk-based snapshot loaders are wired in future tasks.
 
 ## Type of change
 
