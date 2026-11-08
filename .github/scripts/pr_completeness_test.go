@@ -3,6 +3,7 @@ package scripts
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/build"
 	"go/parser"
@@ -104,67 +105,74 @@ func TestCompletenessProductionCLIControls(t *testing.T) {
 	}
 }
 
+func checkCompletenessControlSelection(source []byte) error {
+	var workflow struct {
+		Env      map[string]yaml.Node `yaml:"env"`
+		Defaults ordinaryRunDefaults  `yaml:"defaults"`
+		Jobs     map[string]struct {
+			If       string               `yaml:"if"`
+			RunsOn   string               `yaml:"runs-on"`
+			Env      map[string]yaml.Node `yaml:"env"`
+			Defaults ordinaryRunDefaults  `yaml:"defaults"`
+			Steps    []struct {
+				ordinaryExecutionStep `yaml:",inline"`
+				Env                   map[string]yaml.Node `yaml:"env"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	job := workflow.Jobs["lint"]
+	if job.If != "" || job.RunsOn != "ubuntu-latest" {
+		return fmt.Errorf("Linux GoLint must select completeness controls unconditionally")
+	}
+	for _, step := range job.Steps {
+		if step.Name != "Test Go workflow trigger selection" {
+			continue
+		}
+		if step.If != "" || (step.ContinueOnError.Kind != 0 &&
+			(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false")) {
+			return fmt.Errorf("completeness control step must not skip or tolerate failure")
+		}
+		if _, err := ordinaryShellArguments("Linux", workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, step.Shell); err != nil {
+			return fmt.Errorf("GoLint completeness control shell: %w", err)
+		}
+		var flags yaml.Node
+		flagsPresent := false
+		for _, env := range []map[string]yaml.Node{workflow.Env, job.Env, step.Env} {
+			if value, present := env["GOFLAGS"]; present {
+				flags, flagsPresent = value, true
+			}
+		}
+		if flagsPresent && (flags.Kind != yaml.ScalarNode || flags.Tag != "!!str" || flags.Value != "") {
+			return fmt.Errorf("GoLint GOFLAGS must be omitted or literal empty after workflow/job/step overrides")
+		}
+		args := strings.Fields(step.Run)
+		if len(args) < 4 || args[0] != "go" || args[1] != "test" || args[2] != "-count=1" {
+			return fmt.Errorf("GoLint must execute uncached Go controls")
+		}
+		selected := false
+		for _, argument := range args[3:] {
+			if !regexp.MustCompile(`^\./[A-Za-z0-9_./-]+$`).MatchString(argument) {
+				return fmt.Errorf("GoLint must not narrow or replace control execution")
+			}
+			selected = selected || argument == "./.github/scripts"
+		}
+		if !selected {
+			return fmt.Errorf("GoLint omits the completeness production bridge package")
+		}
+		return nil
+	}
+	return fmt.Errorf("GoLint completeness control step is missing")
+}
+
 func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := func(source []byte) error {
-		var workflow struct {
-			Env  map[string]yaml.Node `yaml:"env"`
-			Jobs map[string]struct {
-				If     string               `yaml:"if"`
-				RunsOn string               `yaml:"runs-on"`
-				Env    map[string]yaml.Node `yaml:"env"`
-				Steps  []struct {
-					ordinaryValidationStep `yaml:",inline"`
-					Env                    map[string]yaml.Node `yaml:"env"`
-				} `yaml:"steps"`
-			} `yaml:"jobs"`
-		}
-		if err := yaml.Unmarshal(source, &workflow); err != nil {
-			return err
-		}
-		job := workflow.Jobs["lint"]
-		if job.If != "" || job.RunsOn != "ubuntu-latest" {
-			return fmt.Errorf("Linux GoLint must select completeness controls unconditionally")
-		}
-		for _, step := range job.Steps {
-			if step.Name != "Test Go workflow trigger selection" {
-				continue
-			}
-			if step.If != "" || (step.ContinueOnError.Kind != 0 &&
-				(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false")) {
-				return fmt.Errorf("completeness control step must not skip or tolerate failure")
-			}
-			var flags yaml.Node
-			flagsPresent := false
-			for _, env := range []map[string]yaml.Node{workflow.Env, job.Env, step.Env} {
-				if value, present := env["GOFLAGS"]; present {
-					flags, flagsPresent = value, true
-				}
-			}
-			if flagsPresent && (flags.Kind != yaml.ScalarNode || flags.Tag != "!!str" || flags.Value != "") {
-				return fmt.Errorf("GoLint GOFLAGS must be omitted or literal empty after workflow/job/step overrides")
-			}
-			args := strings.Fields(step.Run)
-			if len(args) < 4 || args[0] != "go" || args[1] != "test" || args[2] != "-count=1" {
-				return fmt.Errorf("GoLint must execute uncached Go controls")
-			}
-			selected := false
-			for _, argument := range args[3:] {
-				if !regexp.MustCompile(`^\./[A-Za-z0-9_./-]+$`).MatchString(argument) {
-					return fmt.Errorf("GoLint must not narrow or replace control execution")
-				}
-				selected = selected || argument == "./.github/scripts"
-			}
-			if !selected {
-				return fmt.Errorf("GoLint omits the completeness production bridge package")
-			}
-			return nil
-		}
-		return fmt.Errorf("GoLint completeness control step is missing")
-	}
+	check := checkCompletenessControlSelection
 	if err := check(source); err != nil {
 		t.Fatal(err)
 	}
@@ -254,6 +262,166 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 			t.Fatal("actual GoLint source mutation did not reject omitted, replaced or narrowed execution")
 		}
 	}
+}
+
+func TestCompletenessGoLintShellExecution(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setShell := func(input []byte, scope, value string) []byte {
+		t.Helper()
+		anchors := map[string]string{
+			"workflow": "permissions:\n",
+			"job":      "    defaults:\n      run:\n        working-directory: ./\n\n    steps:\n",
+			"step":     "      - name: Test Go workflow trigger selection\n",
+		}
+		replacements := map[string]string{
+			"workflow": "defaults:\n  run:\n    shell: " + value + "\n\npermissions:\n",
+			"job":      "    defaults:\n      run:\n        working-directory: ./\n        shell: " + value + "\n\n    steps:\n",
+			"step":     "      - name: Test Go workflow trigger selection\n        shell: " + value + "\n",
+		}
+		mutated := strings.Replace(string(input), anchors[scope], replacements[scope], 1)
+		if mutated == string(input) {
+			t.Fatalf("%s shell mutation did not change the actual workflow", scope)
+		}
+		var valid yaml.Node
+		if err := yaml.Unmarshal([]byte(mutated), &valid); err != nil {
+			t.Fatalf("%s shell mutation produced invalid YAML: %v", scope, err)
+		}
+		return []byte(mutated)
+	}
+	runSelected := func(input []byte, fail bool) {
+		t.Helper()
+		if err := checkCompletenessControlSelection(input); err != nil {
+			t.Fatalf("valid selected shell was rejected: %v", err)
+		}
+		var workflow struct {
+			Defaults ordinaryRunDefaults `yaml:"defaults"`
+			Jobs     map[string]struct {
+				Defaults ordinaryRunDefaults     `yaml:"defaults"`
+				Steps    []ordinaryExecutionStep `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(input, &workflow); err != nil {
+			t.Fatal(err)
+		}
+		job := workflow.Jobs["lint"]
+		selected := 0
+		for _, step := range job.Steps {
+			if step.Name != "Test Go workflow trigger selection" {
+				continue
+			}
+			selected++
+			arguments, err := ordinaryShellArguments("Linux", workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, step.Shell)
+			if err != nil {
+				t.Fatal(err)
+			}
+			command := step.Run
+			if fail {
+				command += "\nexit 27\n"
+			}
+			captured, err := ordinaryGoArguments(t, command, "Linux", nil, arguments)
+			if fail {
+				exit, ok := errors.AsType[*exec.ExitError](err)
+				if !ok || exit.ExitCode() != 27 {
+					t.Fatalf("runner-shaped shell must preserve exit 27: %v", err)
+				}
+			} else {
+				expected := strings.Fields(step.Run)[2:]
+				if err != nil || len(captured) == 0 || !reflect.DeepEqual(captured, expected) {
+					t.Fatalf("actual selected control argv=%q want=%q err=%v", captured, expected, err)
+				}
+			}
+		}
+		if selected != 1 {
+			t.Fatalf("actual control-step inventory=%d; want one", selected)
+		}
+	}
+	t.Run("implicit-linux-shell", func(t *testing.T) {
+		runSelected(source, false)
+		runSelected(source, true)
+	})
+	supported := []string{"bash", "bash -e {0}", "bash -e -o pipefail {0}", "bash --noprofile --norc -e -o pipefail {0}"}
+	unsafe := []string{`"bash -c true {0}"`, `"bash {0}"`, `"sh"`, `"pwsh"`, `"cmd"`,
+		`"bash -e {0}; true"`, `"${{ inputs.shell }}"`, `""`, `" "`, "null", "false", "1", "[]", "{shell: bash}"}
+	for _, scope := range []string{"workflow", "job", "step"} {
+		for i, shell := range supported {
+			t.Run(fmt.Sprintf("%s-supported-%d", scope, i), func(t *testing.T) {
+				mutated := setShell(source, scope, strconv.Quote(shell))
+				runSelected(mutated, false)
+				runSelected(mutated, true)
+			})
+		}
+		for i, value := range unsafe {
+			t.Run(fmt.Sprintf("%s-unsafe-%d", scope, i), func(t *testing.T) {
+				if err := checkCompletenessControlSelection(setShell(source, scope, value)); err == nil {
+					t.Fatal("unsafe or unprovable effective shell was admitted")
+				}
+			})
+		}
+	}
+	for _, override := range []struct{ lower, higher string }{
+		{"workflow", "job"}, {"workflow", "step"}, {"job", "step"},
+	} {
+		t.Run(override.lower+"-overridden-by-"+override.higher, func(t *testing.T) {
+			for _, lower := range unsafe {
+				mutated := setShell(setShell(source, override.lower, lower), override.higher, `"bash"`)
+				runSelected(mutated, false)
+			}
+			lower := setShell(source, override.lower, `"bash"`)
+			for _, higher := range unsafe {
+				if err := checkCompletenessControlSelection(setShell(lower, override.higher, higher)); err == nil {
+					t.Fatal("higher unsafe or explicitly empty shell fell back to a lower safe shell")
+				}
+			}
+		})
+	}
+	t.Run("ignored-script-counterexample", func(t *testing.T) {
+		for _, scope := range []string{"workflow", "job", "step"} {
+			if err := checkCompletenessControlSelection(setShell(source, scope, `"bash -c true {0}"`)); err == nil {
+				t.Fatal("actual guard must reject the ignored-script shell")
+			}
+		}
+		_, err := ordinaryGoArguments(t, "go test -count=1 ./.github/scripts\nexit 27\n", "Linux", nil, []string{"-c", "true"})
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("counterexample must exit zero without recording any Go invocation: %v", err)
+		}
+	})
+	t.Run("safe-shell-does-not-admit-disabled-step", func(t *testing.T) {
+		mutated := setShell(source, "step", `"bash"`)
+		mutated = []byte(strings.Replace(string(mutated), "        shell: \"bash\"\n", "        shell: \"bash\"\n        if: false\n", 1))
+		if err := checkCompletenessControlSelection(mutated); err == nil {
+			t.Fatal("safe shell weakened the disabled-step rejection")
+		}
+	})
+	t.Run("unrelated-shell-remains-outside-selection", func(t *testing.T) {
+		anchor := "      - name: Test lint script failure handling\n"
+		mutated := strings.Replace(string(source), anchor, anchor+"        shell: pwsh\n", 1)
+		if mutated == string(source) {
+			t.Fatal("unrelated step control did not change source")
+		}
+		if err := checkCompletenessControlSelection([]byte(mutated)); err != nil {
+			t.Fatalf("selection guard must not impose Bash on unrelated steps: %v", err)
+		}
+	})
+	t.Run("alias-is-not-a-literal-shell", func(t *testing.T) {
+		mutated := setShell(setShell(source, "workflow", "&canonical bash"), "step", "*canonical")
+		if err := checkCompletenessControlSelection(mutated); err == nil {
+			t.Fatal("alias shell bypassed the documented literal-only admission")
+		}
+	})
+	t.Run("windows-default-is-not-bash", func(t *testing.T) {
+		if _, err := ordinaryShellArguments("Windows"); err == nil {
+			t.Fatal("implicit Windows PowerShell was treated as Bash")
+		}
+		for _, shell := range supported {
+			_, err := ordinaryShellArguments("Windows", yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: shell})
+			if err != nil {
+				t.Fatalf("existing explicit Windows Bash form was rejected: %v", err)
+			}
+		}
+	})
 }
 
 func TestCompletenessRuntimeImportClosure(t *testing.T) {

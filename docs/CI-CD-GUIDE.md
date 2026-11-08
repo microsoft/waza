@@ -130,6 +130,24 @@ may override a lower unsafe value. Nonempty flags and unprovable expressions
 cannot establish execution of the full controls. Explicit
 `continue-on-error: false` is valid; true or dynamic values are not.
 
+The same ordinary execution helper resolves typed shell declarations from
+workflow `defaults.run.shell`, job defaults and the selected step, in that order.
+Omission preserves the runner's implicit Bash; an explicit higher-precedence
+literal can override an unsafe lower value, while explicit empty/null values do
+not fall back. Supported forms are `bash`, `bash -e {0}`,
+`bash -e -o pipefail {0}` and
+`bash --noprofile --norc -e -o pipefail {0}`. Other/custom shells, expressions,
+non-string values and aliases cannot establish this Bash-only execution contract.
+Shared ordinary offline checks apply the same resolution to their required
+steps; argv-recorder and failure controls execute the resolved runner-shaped
+script invocation rather than assuming a hard-coded shell.
+This policy is scoped to the existing Bash-script callers, not generic Windows
+PowerShell/CMD workflows. Linux omission keeps implicit Bash; these Windows
+callers need their existing explicit Bash defaults rather than treating the
+runner's implicit PowerShell as Bash. The intentionally Linux-only inventory
+step is not shell-validated as Windows execution, and unrelated optional steps
+do not acquire a new shell restriction.
+
 The ordinary source record binds the immutable event's PR head, base SHA/ref and
 tested merge SHA, plus the actual caller workflow, workflow run and attempt.
 Receipt capture reconstructs those fields from the runner event/environment and
