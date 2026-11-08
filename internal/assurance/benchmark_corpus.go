@@ -187,7 +187,7 @@ func (s BenchmarkScenario) Spec() *models.EvalSpec {
 	}
 }
 
-// Cases returns the 4 human-labeled reference cases for this scenario.
+// Cases returns the 4 synthetically labeled reference cases for this scenario.
 func (s BenchmarkScenario) Cases() []BenchmarkCase {
 	return []BenchmarkCase{
 		{
