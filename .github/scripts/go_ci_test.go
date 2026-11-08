@@ -157,6 +157,7 @@ esac
 	cmd.Env = append(os.Environ(),
 		"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"RUNNER_OS="+platform,
+		"CI_EVIDENCE_COLD_REQUESTED=false",
 		"WAZA_PACKAGE_INVENTORY="+inventory,
 		"WAZA_TEST_ARGUMENTS="+arguments,
 		"WAZA_DISCOVERY_ARGUMENTS="+discovery,
@@ -489,12 +490,27 @@ func TestOrdinaryCICaptureRejectsWeakenedDiscoveryExecutionAndInventory(t *testi
 
 func readTriggers(source []byte) (workflowTriggers, error) {
 	var workflow struct {
-		On workflowTriggers `yaml:"on"`
+		On map[string]yaml.Node `yaml:"on"`
 	}
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return nil, err
 	}
-	return workflow.On, nil
+	triggers := make(workflowTriggers)
+	for event, declaration := range workflow.On {
+		if event == "workflow_dispatch" {
+			if err := checkColdInput(declaration); err != nil {
+				return nil, err
+			}
+			triggers[event] = nil
+			continue
+		}
+		var filters map[string][]string
+		if err := declaration.Decode(&filters); err != nil {
+			return nil, err
+		}
+		triggers[event] = filters
+	}
+	return triggers, nil
 }
 
 func checkTriggers(source []byte, want workflowTriggers) error {
@@ -525,7 +541,7 @@ func selects(triggers workflowTriggers, event, branch, action string) bool {
 		}
 		return slices.Contains(types, action)
 	}
-	return event == "push"
+	return event == "push" || event == "workflow_dispatch"
 }
 
 func checkCanonicalGoWorkflow(source []byte) error {
@@ -649,8 +665,9 @@ func TestGoWorkflowTriggers(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := workflowTriggers{
-				"push":         {"branches": tc.pushBranches},
-				"pull_request": tc.prFilters,
+				"push":              {"branches": tc.pushBranches},
+				"pull_request":      tc.prFilters,
+				"workflow_dispatch": nil,
 			}
 			if err := checkTriggers(source, want); err != nil {
 				t.Fatal(err)
@@ -674,7 +691,10 @@ func TestGoWorkflowTriggers(t *testing.T) {
 					t.Errorf("push branch=%q selected=%v; want %v", branch, got, want)
 				}
 			}
-			for _, event := range []string{"pull_request_target", "workflow_dispatch", "release"} {
+			if !selects(triggers, "workflow_dispatch", "feature/frozen-source", "") {
+				t.Fatal("declared feature-only opt-in dispatch missing; default-branch activation is a separate prerequisite")
+			}
+			for _, event := range []string{"pull_request_target", "release"} {
 				if selects(triggers, event, "main", "opened") {
 					t.Errorf("unexpected event selected: %s", event)
 				}

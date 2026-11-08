@@ -8,6 +8,10 @@ const { spawnSync, spawn } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const { deflateRawSync } = require("node:zlib");
 const { LIMITS, goReport, goParser, browserReport: parseBrowserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, writeHistoryProposal, main } = require("./ci-evidence.cjs");
+const isolatedCache = require("./ci-evidence-cache.cjs");
+
+// Fixture collectors cannot reuse the enclosing workflow's private observation.
+process.env.CI_EVIDENCE_COLD_REQUESTED = "false";
 
 const env = { GITHUB_REPOSITORY: "microsoft/waza", GITHUB_WORKFLOW: "Go Build and Test", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40), GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", GITHUB_JOB: "native", RUNNER_OS: "Linux", RUNNER_ARCH: "X64", GO_CACHE_HIT: "false", NODE_CACHE_HIT: "false" };
 const browserReport = (data, env, discovery, runtime = { go: "go version go1.26.4 linux/amd64" }) => parseBrowserReport(data, env, discovery, runtime);
@@ -558,6 +562,343 @@ function verified(report, overrides = {}, family = report.kind === "playwright" 
   const fixture = artifactFixture(report, overrides, family);
   return collectObservations(fixture.id, fixture.api, () => fixture.zip);
 }
+function isolatedObservation(report) {
+  return {
+    schema: 1, mode: "isolated-empty", platform: "linux", phase: "before-dependencies",
+    restore: false, save: false,
+    ...Object.fromEntries(["repository", "source_sha", "workflow_sha", "run_id", "attempt", "job"]
+      .map((field) => [field, report.identity[field]])),
+    image_os: report.identity.image_os, image_version: report.identity.image_version,
+    stores: {
+      go_modules: { initial_entries: 0, actual_path_match: true },
+      go_build: { initial_entries: 0, actual_path_match: true },
+      npm: { initial_entries: 0, actual_path_match: true },
+    },
+  };
+}
+test("isolated observation admission binds typed cold stores without reinterpreting legacy cache misses", () => {
+  const report = parseGo(successful);
+  report.identity.source_sha = run.head_sha;
+  report.identity.image_os = "ubuntu24";
+  report.identity.image_version = "20261107.1";
+  report.selected = ["example/p::TestA"];
+  report.discovered = report.selected;
+  const legacy = verified(report, {}, "go-run");
+  assert.equal(legacy.diagnostics.length, 0);
+  assert.equal(trends(legacy.reports).cohorts[0].eligible.length, 1);
+  assert.equal(Object.hasOwn(trends(legacy.reports).cohorts[0].cohort, "cache_observation"), false);
+  report.cache_observation = isolatedObservation(report);
+  const observed = verified(report, {}, "go-run");
+  assert.equal(observed.diagnostics.length, 0);
+  assert.equal(trends(observed.reports).cohorts[0].eligible.length, 1);
+  const proposal = historyProposal(observed.reports);
+  assert.equal(proposal.targets.length, 1);
+  assert.equal(proposal.targets[0].observations.length, 1);
+  const descriptor = proposal.cohorts[proposal.targets[0].observations[0].cohort_id];
+  assert.equal(descriptor.cache_observation.mode, "isolated-empty");
+  assert.equal(Object.hasOwn(descriptor.cache_observation, "run_id"), false);
+  assert.equal(Object.hasOwn(descriptor.cache_observation, "source_sha"), false);
+  assert.equal(Object.hasOwn(descriptor.cache_observation, "paths"), false);
+});
+test("invalid isolated evidence cannot hide missing stores, warm caches or source and scope mismatches", () => {
+  for (const mutate of [
+    (report) => { report.cache_observation.schema = 2; },
+    (report) => { report.cache_observation.source_sha = "b".repeat(40); },
+    (report) => { report.cache_observation.attempt = "2"; },
+    (report) => { delete report.cache_observation.image_os; },
+    (report) => { report.cache_observation.image_version = "20261108.1"; },
+    (report) => { report.cache_observation.image_os = report.identity.image_os = "/PRIVATE-image"; },
+    (report) => { report.cache_observation.restore = true; },
+    (report) => { report.cache_observation.save = null; },
+    (report) => { report.cache_observation.stores.go_build.initial_entries = 1; },
+    (report) => { report.cache_observation.stores.go_modules.actual_path_match = "true"; },
+    (report) => { delete report.cache_observation.stores.go_build; },
+    (report) => { report.cache.go_dependencies = null; },
+    (report) => { report.cache.node_dependencies = true; },
+    (report) => { report.cache_observation.stores.npm = "not-applicable"; },
+    (report) => { report.cache_observation.stores.npm.path = "SECRET"; },
+    (report) => { report.identity.os = "Windows"; },
+  ]) {
+    const report = parseGo(successful);
+    report.identity.source_sha = run.head_sha;
+    report.identity.image_os = "ubuntu24";
+    report.identity.image_version = "20261107.1";
+    report.selected = ["example/p::TestA"];
+    report.discovered = report.selected;
+    report.cache_observation = isolatedObservation(report);
+    mutate(report);
+    const observed = verified(report, {}, "go-run");
+    assert.equal(observed.reports.length, 0);
+    assert.ok(observed.diagnostics.includes("evidence-artifact-invalid-or-unverified"));
+    assert.equal(historyProposal(observed.reports).targets.length, 0);
+  }
+});
+test("unavailable isolated capture retains partial observations without inventing false cache values", () => {
+  const report = parseGo(successful);
+  report.identity.source_sha = run.head_sha;
+  report.complete = false;
+  report.diagnostics = ["cold-cache-observation-unavailable"];
+  report.cache = { test_results: "disabled", go_dependencies: null, node_dependencies: null };
+  report.cache_observation = null;
+  report.selected = ["example/p::TestA"];
+  report.discovered = report.selected;
+  const observed = verified(report, {}, "go-run");
+  assert.equal(observed.reports.length, 1);
+  assert.equal(observed.reports[0].cache.go_dependencies, null);
+  assert.equal(observed.reports[0].cache_observation, null);
+  assert.equal(trends(observed.reports).cohorts[0].eligible.length, 0);
+  assert.equal(historyProposal(observed.reports).targets.length, 0);
+});
+test("actual runner-image changes split otherwise equal isolated cohorts without including invocation paths", () => {
+  const reports = ["20261107.1", "20261108.1"].map((image, index) => {
+    const report = parseGo(successful);
+    report.identity.source_sha = run.head_sha;
+    report.identity.image_os = "ubuntu24";
+    report.identity.image_version = image;
+    report.identity.run_id = String(10 + index);
+    report.selected = ["example/p::TestA"];
+    report.discovered = report.selected;
+    report.cache_observation = isolatedObservation(report);
+    return verified(report, {}, "go-run").reports[0];
+  });
+  test("native cold receipts require explicit npm non-applicability without claiming a browser dependency miss", () => {
+    const report = parseGo(successful);
+    report.identity.source_sha = run.head_sha;
+    report.identity.image_os = "ubuntu24";
+    report.identity.image_version = "20261107.1";
+    report.selected = ["example/p::TestA"];
+    report.discovered = report.selected;
+    report.cache.node_dependencies = "not-applicable";
+    report.cache_observation = isolatedObservation(report);
+    report.cache_observation.stores.npm = "not-applicable";
+    const native = verified(report);
+    assert.equal(native.reports.length, 1);
+    assert.equal(trends(native.reports).cohorts[0].eligible.length, 1);
+    assert.equal(verified(report, {}, "go-run").reports.length, 0);
+    report.cache.node_dependencies = false;
+    report.cache_observation.stores.npm = { initial_entries: 0, actual_path_match: true };
+    assert.equal(verified(report).reports.length, 0);
+    assert.equal(verified(report, {}, "go-run").reports.length, 1);
+  });
+  assert.equal(trends(reports).cohorts.length, 2);
+  const proposal = historyProposal(reports);
+  assert.equal(Object.keys(proposal.cohorts).length, 2);
+  assert.equal(proposal.targets.length, 1);
+  assert.equal(proposal.targets[0].observations.length, 2);
+});
+test("isolated cache preparation requires explicit supported mode rather than converting disabled caches to misses", () => {
+  assert.throws(() => isolatedCache.prepare("go", undefined, {}), /cache-observation-mode-unavailable/);
+  const report = goReport({ ...env, GO_CACHE_HIT: "", NODE_CACHE_HIT: "" });
+  assert.equal(report.cache.go_dependencies, null);
+  assert.equal(report.cache.node_dependencies, null);
+  assert.equal(Object.hasOwn(report, "cache_observation"), false);
+  const invalidImage = goReport({ ...env, ImageOS: "/PRIVATE-image", ImageVersion: "20261107.1" });
+  assert.equal(invalidImage.identity.image_os, null);
+  assert.ok(invalidImage.diagnostics.includes("runner-image-unavailable"));
+  assert.ok(!JSON.stringify(invalidImage).includes("PRIVATE-image"));
+  assert.equal(Object.hasOwn(report.identity, "image_os"), false);
+});
+test("production cold-capture CLI fails with retained null diagnostics instead of manufacturing an isolated miss", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cold-cli-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  const output = path.join(dir, "report.json"), all = path.join(dir, "all");
+  fs.writeFileSync(all, "example/p::TestA\n");
+  const invocation = spawnSync(process.execPath,
+    [path.join(__dirname, "ci-evidence.cjs"), "go", output, all, all], {
+      cwd: dir, encoding: "utf8", input: successful.map((event) => JSON.stringify(event)).join("\n") + "\n",
+      env: { ...process.env, ...env, CI_EVIDENCE_COLD_REQUESTED: "true",
+        CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED: "true",
+        RUNNER_TEMP: dir, CI_EVIDENCE_COLD_STATE: path.join(dir, "PRIVATE-unavailable-state") },
+    });
+  assert.equal(invocation.error, undefined);
+  assert.equal(invocation.status, 1);
+  const captured = JSON.parse(fs.readFileSync(output, "utf8"));
+  assert.equal(captured.complete, false);
+  assert.equal(captured.cache.go_dependencies, null);
+  assert.equal(captured.cache.node_dependencies, null);
+  assert.equal(captured.cache_observation, null);
+  assert.ok(captured.diagnostics.includes("cold-cache-observation-unavailable"));
+  assert.equal(historyProposal([captured]).targets.length, 0);
+  assert.ok(!JSON.stringify(captured).includes("PRIVATE-unavailable-state"));
+  assert.ok(!JSON.stringify(captured).includes(dir));
+});
+test("POSIX production cache file admission rejects real FIFO leaves without blocking or following symlinks",
+  { skip: process.platform === "win32" }, (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cache-fifo-"));
+    t.after(() => fs.rmSync(dir, { recursive: true }));
+    const fifo = path.join(dir, "fifo");
+    const setup = spawnSync("mkfifo", ["-m", "600", fifo], { encoding: "utf8" });
+    assert.equal(setup.error, undefined);
+    assert.equal(setup.status, 0, setup.stderr);
+    assert.equal(fs.lstatSync(fifo).isFIFO(), true, "fixture must be an actual FIFO, not a missing file");
+    const target = path.join(dir, "regular"), link = path.join(dir, "link");
+    fs.writeFileSync(target, "regular", { mode: 0o600 });
+    fs.symlinkSync(target, link);
+    for (const [file, flags, privateState] of [
+      [fifo, fs.constants.O_RDONLY, true],
+      [fifo, fs.constants.O_WRONLY | fs.constants.O_APPEND, false],
+      [link, fs.constants.O_RDONLY, true],
+    ]) {
+      const script = `
+        const cache=require(${JSON.stringify(path.join(__dirname, "ci-evidence-cache.cjs"))});
+        try { cache.checkedFile(${JSON.stringify(file)},${flags},${privateState}); }
+        catch(error){console.error(error.code||error.message);process.exitCode=1;}
+      `;
+      const admitted = spawnSync(process.execPath, ["-e", script], { encoding: "utf8", timeout: 5000 });
+      assert.equal(admitted.error, undefined, "nonregular admission must reject, not reach the child timeout");
+      assert.equal(admitted.status, 1);
+      assert.match(admitted.stderr, /cache-observation-file-invalid|ENXIO|ELOOP/);
+    }
+    const descriptor = isolatedCache.checkedFile(target, fs.constants.O_RDONLY, true);
+    assert.equal(isolatedCache.readAndClose(descriptor), "regular", "a valid regular file remains admissible");
+    assert.equal(fs.lstatSync(fifo).isFIFO(), true);
+    assert.equal(fs.readFileSync(target, "utf8"), "regular");
+  });
+test("production cache read-and-close preserves both failures and exits nonzero", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cache-read-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  const file = path.join(dir, "state");
+  fs.writeFileSync(file, '{"schema":1}', { mode: 0o600 });
+  for (const fault of ["none", "read", "close", "both"]) {
+    const script = `
+      const fs=require("node:fs"),cache=require(${JSON.stringify(path.join(__dirname, "ci-evidence-cache.cjs"))});
+      const descriptor=fs.openSync(${JSON.stringify(file)},"r"),read=fs.readSync,close=fs.closeSync;
+      const readError=new Error("injected-primary-read"),closeError=new Error("injected-close");
+      let closed=false;
+      fs.readSync=(...args)=>{if(${JSON.stringify(fault)}==="read"||${JSON.stringify(fault)}==="both")throw readError;return read(...args);};
+      fs.closeSync=(fd)=>{if(${JSON.stringify(fault)}==="close"||${JSON.stringify(fault)}==="both")throw closeError;close(fd);closed=true;};
+      try { console.log(JSON.stringify({raw:cache.readAndClose(descriptor)})); }
+      catch(error){console.log(JSON.stringify({aggregate:error instanceof AggregateError,
+        primary:error===readError,secondary:error===closeError,
+        failures:error.errors?.map(e=>e.message),sameCauses:error.errors?.[0]===readError&&error.errors?.[1]===closeError,
+        message:error.message}));process.exitCode=1;}
+      finally{fs.readSync=read;fs.closeSync=close;if(!closed)close(descriptor);}
+    `;
+    const result = spawnSync(process.execPath, ["-e", script], { encoding: "utf8", timeout: 5000 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, fault === "none" ? 0 : 1);
+    const observed = JSON.parse(result.stdout);
+    if (fault === "none") assert.equal(observed.raw, '{"schema":1}');
+    if (fault === "read") assert.equal(observed.primary, true);
+    if (fault === "close") assert.equal(observed.secondary, true);
+    if (fault === "both") {
+      assert.equal(observed.aggregate, true);
+      assert.equal(observed.message, "cache-observation-read-and-close-failed");
+      assert.equal(observed.sameCauses, true);
+      assert.deepEqual(observed.failures, ["injected-primary-read", "injected-close"]);
+    }
+  }
+});
+test("Linux production cache preparation observes actual private tool paths and rejects competing store replacement",
+  { skip: process.platform !== "linux" }, (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cold-paths-"));
+    t.after(() => fs.rmSync(dir, { recursive: true }));
+    const identity = {
+      repository: env.GITHUB_REPOSITORY, source_sha: spawnSync("git", ["rev-parse", "HEAD"], {
+        encoding: "utf8", cwd: path.resolve(__dirname, "../.."),
+      }).stdout.trim(),
+      workflow_sha: env.GITHUB_SHA, run_id: env.GITHUB_RUN_ID, attempt: env.GITHUB_RUN_ATTEMPT,
+      job: env.GITHUB_JOB, os: "Linux",
+      image_os: "ubuntu24", image_version: "20261107.1",
+    };
+    const environment = {
+      ...process.env, ...env, RUNNER_TEMP: dir, GITHUB_ENV: path.join(dir, "environment"),
+      CI_EVIDENCE_COLD_REQUESTED: "true", CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED: "true",
+      ImageOS: "ubuntu24", ImageVersion: "20261107.1",
+    };
+    fs.writeFileSync(environment.GITHUB_ENV, "", { mode: 0o600 });
+    const root = isolatedCache.prepare("go-npm", path.resolve(__dirname, "../..", "web"), environment);
+    const assignments = Object.fromEntries(fs.readFileSync(environment.GITHUB_ENV, "utf8").trim().split("\n")
+      .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
+    const observedEnv = { ...environment, ...assignments };
+    const observed = isolatedCache.observe(identity, observedEnv);
+    assert.equal(observed.cache.go_dependencies, false);
+    assert.equal(observed.cache.node_dependencies, false);
+    assert.equal(observed.observation.stores.go_modules.initial_entries, 0);
+    assert.equal(observed.observation.stores.go_build.initial_entries, 0);
+    assert.equal(observed.observation.stores.npm.initial_entries, 0);
+    assert.equal(isolatedCache.validObservation(observed.observation, identity, observed.cache), true);
+    assert.ok(!JSON.stringify(observed).includes(root), "public cache evidence cannot reveal private store paths");
+    fs.renameSync(assignments.GOMODCACHE, path.join(root, "original-gomod"));
+    const competing = path.join(dir, "competing");
+    fs.mkdirSync(competing, { mode: 0o700 });
+    fs.writeFileSync(path.join(competing, "sentinel"), "user-owned");
+    fs.symlinkSync(competing, assignments.GOMODCACHE, "dir");
+    assert.throws(() => isolatedCache.observe(identity, observedEnv), /cache-observation-directory-invalid/);
+    assert.equal(fs.readFileSync(path.join(competing, "sentinel"), "utf8"), "user-owned");
+    assert.ok(fs.existsSync(path.join(root, "original-gomod")), "failed admission cannot remove original stores");
+  });
+test("Linux cache preparation fails explicitly on environment publication without deleting retained stores",
+  { skip: process.platform !== "linux" }, (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cold-env-"));
+    t.after(() => fs.rmSync(dir, { recursive: true }));
+    const environment = {
+      ...process.env, ...env, RUNNER_TEMP: dir, GITHUB_ENV: dir,
+      CI_EVIDENCE_COLD_REQUESTED: "true", CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED: "true",
+      ImageOS: "ubuntu24", ImageVersion: "20261107.1",
+    };
+    assert.throws(() => isolatedCache.prepare("go", undefined, environment),
+      /cache-observation-prepare-failed; retained RUNNER_TEMP\//);
+    const roots = fs.readdirSync(dir).filter((name) => name.startsWith("waza-ci-cold-"));
+    assert.equal(roots.length, 1);
+    assert.ok(fs.statSync(path.join(dir, roots[0], "gomod")).isDirectory());
+    assert.ok(fs.statSync(path.join(dir, roots[0], "gobuild")).isDirectory());
+    assert.ok(fs.statSync(path.join(dir, roots[0], "state.json")).isFile());
+  });
+test("Linux preparation retains owned residue and competing entries after mkdir, write, close and exclusive-create faults",
+  { skip: process.platform !== "linux" }, (t) => {
+    for (const fault of ["mkdir", "write", "close", "exclusive-create"]) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-cold-fault-"));
+      t.after(() => fs.rmSync(dir, { recursive: true }));
+      const environment = {
+        ...process.env, ...env, RUNNER_TEMP: dir, GITHUB_ENV: path.join(dir, "environment"),
+        CI_EVIDENCE_COLD_REQUESTED: "true", CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED: "true",
+        ImageOS: "ubuntu24", ImageVersion: "20261107.1",
+      };
+      fs.writeFileSync(environment.GITHUB_ENV, "previous=preserved\n", { mode: 0o600 });
+      const original = { mkdirSync: fs.mkdirSync, openSync: fs.openSync, writeFileSync: fs.writeFileSync, closeSync: fs.closeSync };
+      let stateDescriptor, statePath, triggered = false;
+      const fail = () => { triggered = true; throw Object.assign(new Error("injected-owned-state-fault"), { code: "EFAULT" }); };
+      fs.mkdirSync = (directory, ...args) => {
+        if (fault === "mkdir" && directory.endsWith("/gobuild")) fail();
+        return original.mkdirSync(directory, ...args);
+      };
+      fs.openSync = (file, flags, ...args) => {
+        if (typeof file === "string" && file.endsWith("/state.json") && flags === "wx") {
+          statePath = file;
+          if (fault === "exclusive-create") {
+            triggered = true;
+            original.writeFileSync(file, "competing-owned-state", { mode: 0o600 });
+          }
+          stateDescriptor = original.openSync(file, flags, ...args);
+          return stateDescriptor;
+        }
+        return original.openSync(file, flags, ...args);
+      };
+      fs.writeFileSync = (file, ...args) => {
+        if (fault === "write" && file === stateDescriptor) fail();
+        return original.writeFileSync(file, ...args);
+      };
+      fs.closeSync = (descriptor) => {
+        if (fault === "close" && descriptor === stateDescriptor) fail();
+        return original.closeSync(descriptor);
+      };
+      try {
+        assert.throws(() => isolatedCache.prepare("go", undefined, environment), /cache-observation-prepare-failed/);
+        assert.equal(triggered, true, "fixture must reach the intended filesystem fault");
+      } finally {
+        Object.assign(fs, original);
+        if (fault === "close" && stateDescriptor !== undefined) original.closeSync(stateDescriptor);
+      }
+      assert.equal(fs.readFileSync(environment.GITHUB_ENV, "utf8"), "previous=preserved\n");
+      const roots = fs.readdirSync(dir).filter((name) => name.startsWith("waza-ci-cold-"));
+      assert.equal(roots.length, 1);
+      assert.ok(fs.statSync(path.join(dir, roots[0], "gomod")).isDirectory());
+      if (fault === "exclusive-create") {
+        assert.equal(fs.readFileSync(statePath, "utf8"), "competing-owned-state");
+      }
+    }
+  });
 test("production artifact collection retains malformed expansion charges and rejects exhausted or dishonest declarations", () => {
   const report = parseGo(successful);
   report.selected = ["example/p::TestA"]; report.discovered = report.selected;

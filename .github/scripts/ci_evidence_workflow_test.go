@@ -11,6 +11,144 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func checkColdInput(declaration yaml.Node) error {
+	var input struct {
+		Inputs map[string]struct {
+			Description string
+			Type        string
+			Default     yaml.Node
+			Required    yaml.Node
+		}
+	}
+	if err := declaration.Decode(&input); err != nil {
+		return err
+	}
+	cold, exists := input.Inputs["cold_observation"]
+	if declaration.Kind != yaml.MappingNode || len(declaration.Content) != 2 ||
+		!exists || len(input.Inputs) != 1 || cold.Description == "" || cold.Type != "boolean" ||
+		cold.Default.Tag != "!!bool" || cold.Default.Value != "false" ||
+		cold.Required.Tag != "!!bool" || cold.Required.Value != "false" {
+		return fmt.Errorf("cold observation must be an optional typed boolean with explicit default false")
+	}
+	return nil
+}
+
+func checkColdWorkflow(source []byte, file string) error {
+	var workflow struct {
+		On   map[string]yaml.Node `yaml:"on"`
+		Env  map[string]string
+		Jobs map[string]releaseJob
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	events, jobID, requested := []string{"workflow_dispatch"}, "build-and-test",
+		"${{ github.event_name == 'workflow_dispatch' && inputs.cold_observation }}"
+	cache, nodeCache, prepareIf, scope := "${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' }}",
+		"${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' && 'npm' || '' }}",
+		"env.CI_EVIDENCE_COLD_REQUESTED == 'true'", "go-npm web"
+	switch file {
+	case "go-native-shards.yml":
+		events, jobID, requested = []string{"workflow_call"}, "native", "${{ inputs.cold_observation }}"
+		cache, nodeCache, prepareIf, scope = "${{ !inputs.cold_observation }}", "", "inputs.cold_observation", "go"
+	case "web-ci.yml":
+		events, jobID, requested = []string{"workflow_dispatch", "workflow_call"}, "build", "${{ inputs.cold_observation == true }}"
+		prepareIf += " && (steps.filter.outputs.web == 'true' || github.event_name != 'pull_request')"
+	case "go-ci.yml":
+		if workflow.Jobs["native-test-shards"].With["cold_observation"] != requested ||
+			workflow.Jobs["build-and-test-windows"].Env["CI_EVIDENCE_COLD_REQUESTED"] != "" {
+			return fmt.Errorf("cold mode must propagate to native Linux only, without changing Windows")
+		}
+	default:
+		return fmt.Errorf("unsupported cold workflow")
+	}
+	for _, event := range events {
+		if err := checkColdInput(workflow.On[event]); err != nil {
+			return err
+		}
+	}
+	job := workflow.Jobs[jobID]
+	if workflow.Env["CI_EVIDENCE_COLD_REQUESTED"] != "" ||
+		job.Env["CI_EVIDENCE_COLD_REQUESTED"] != requested ||
+		job.Env["CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED"] != requested {
+		return fmt.Errorf("cold state must be explicitly requested in its owning Linux job")
+	}
+	prepare, goSetup, nodeSetup := -1, -1, -1
+	for i, step := range job.Steps {
+		if strings.HasPrefix(step.Uses, "actions/cache") {
+			return fmt.Errorf("cold workflow cannot restore or save ambient dependency caches")
+		}
+		if strings.HasPrefix(step.Uses, "actions/setup-go@") {
+			goSetup = i
+			if step.With["cache"] != cache {
+				return fmt.Errorf("Go cache restore/save must be disabled only for explicit opt-in")
+			}
+		}
+		if strings.HasPrefix(step.Uses, "actions/setup-node@") {
+			nodeSetup = i
+			if step.With["cache"] != nodeCache || step.With["package-manager-cache"] != cache {
+				return fmt.Errorf("Node explicit and automatic caching must both be disabled only for opt-in")
+			}
+		}
+		if step.Name == "Observe initially empty isolated stores" {
+			if prepare >= 0 || step.Run != "node .github/scripts/ci-evidence-cache.cjs prepare "+scope ||
+				step.If != prepareIf || step.ContinueOnError {
+				return fmt.Errorf("cold preparation must run once with the actual applicable stores and fail explicitly")
+			}
+			prepare = i
+		}
+	}
+	if goSetup < 0 || nodeSetup < 0 || prepare <= goSetup || prepare <= nodeSetup {
+		return fmt.Errorf("both toolchains must be ready before observing isolated stores")
+	}
+	for _, step := range job.Steps[:prepare] {
+		if step.Run != "" {
+			return fmt.Errorf("initial empty observation must precede dependencies, offline guard, discovery and tests")
+		}
+	}
+	return nil
+}
+
+func TestCIEvidenceColdWorkflowContracts(t *testing.T) {
+	for _, file := range []string{"go-ci.yml", "go-native-shards.yml", "web-ci.yml"} {
+		t.Run(file, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkColdWorkflow(source, file); err != nil {
+				t.Fatal(err)
+			}
+			cache := "${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' }}"
+			if file == "go-native-shards.yml" {
+				cache = "${{ !inputs.cold_observation }}"
+			}
+			for _, mutation := range [][2]string{
+				{"default: false", "default: true"},
+				{"type: boolean", "type: string"},
+				{"package-manager-cache: " + cache, "package-manager-cache: true"},
+				{"          cache: " + cache, "          cache: true"},
+				{"node .github/scripts/ci-evidence-cache.cjs prepare", "echo cache-disabled"},
+				{"      - name: Observe initially empty isolated stores\n", "      - name: Warm before observation\n        run: go mod download\n      - name: Observe initially empty isolated stores\n"},
+				{"      - name: Observe initially empty isolated stores\n", "      - name: Observe initially empty isolated stores\n        continue-on-error: true\n"},
+			} {
+				changed := strings.Replace(string(source), mutation[0], mutation[1], 1)
+				if changed == string(source) || checkColdWorkflow([]byte(changed), file) == nil {
+					t.Fatalf("unsafe cold workflow mutation admitted: %s", mutation[0])
+				}
+			}
+			if file != "go-native-shards.yml" {
+				changed := strings.Replace(string(source),
+					"${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' && 'npm' || '' }}",
+					"${{ inputs.cold_observation && '' || 'npm' }}", 1)
+				if changed == string(source) || checkColdWorkflow([]byte(changed), file) == nil {
+					t.Fatal("falsy cold-cache fallback admitted")
+				}
+			}
+		})
+	}
+}
+
 func checkNativeEvidence(source, script []byte) error {
 	var workflow releaseWorkflow
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
@@ -119,12 +257,22 @@ func checkOrdinaryEvidence(source []byte, name string) error {
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
-	if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != "read" {
-		return fmt.Errorf("ordinary evidence must preserve read-only permissions")
+	isRelease := name == "squad-release.yml" || name == "squad-insider-release.yml"
+	permission := "read"
+	if isRelease {
+		permission = "write"
+	}
+	if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != permission {
+		return fmt.Errorf("%s: evidence must preserve existing %s contents permissions", name, permission)
 	}
 	jobs := []string{"validate"}
 	if name == "go-ci.yml" {
 		jobs = []string{"build-and-test", "build-and-test-windows"}
+	} else if isRelease {
+		jobs = []string{"build-test"}
+		if workflow.Jobs["build-test"].Permissions["contents"] != "read" {
+			return fmt.Errorf("release evidence must remain in the read-only validation job")
+		}
 	}
 	for _, id := range jobs {
 		job := workflow.Jobs[id]
@@ -177,7 +325,7 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 	if err := checkBrowserEvidence(browser); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"go-ci.yml", "squad-preview.yml"} {
+	for _, name := range []string{"go-ci.yml", "squad-preview.yml", "squad-release.yml", "squad-insider-release.yml"} {
 		source, err := os.ReadFile(filepath.Join("..", "workflows", name))
 		if err != nil {
 			t.Fatal(err)
@@ -253,4 +401,5 @@ func TestCIEvidenceCollectorProductionContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("structured evidence production contracts: %v\n%s", err, output)
 	}
+	t.Logf("production Node contracts:\n%s", output)
 }

@@ -27,6 +27,7 @@ func TestCIGoCaptureActualMockCommandTerminals(t *testing.T) {
 		t.Fatalf("installing rejecting runtime guard: %v\n%s", err, &stderr)
 	}
 	env := append(os.Environ(), strings.Split(strings.TrimSpace(string(assignments)), "\n")...)
+	env = append(env, "CI_EVIDENCE_COLD_REQUESTED=false")
 	guard := ""
 	for _, assignment := range strings.Split(strings.TrimSpace(string(assignments)), "\n") {
 		if value, ok := strings.CutPrefix(assignment, "COPILOT_CLI_PATH="); ok {
@@ -119,7 +120,7 @@ func copyCICaptureScripts(t *testing.T, dir string) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"ci_go_test_capture.sh", "ci-evidence.cjs"} {
+	for _, file := range []string{"ci_go_test_capture.sh", "ci-evidence.cjs", "ci-evidence-cache.cjs"} {
 		content, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -208,6 +209,7 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 				cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(scripts, "ci_go_test_capture.sh"), scope, "coverage.txt")
 				cmd.Dir = dir
 				cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls,
+					"CI_EVIDENCE_COLD_REQUESTED=false",
 					"FAIL_PHASE="+tc.phase, "FAIL_COLLECTOR="+tc.collector, "FAIL_FINALIZER="+tc.finalizer, "REAL_NODE="+realNode)
 				output, err := cmd.CombinedOutput()
 				status := 0

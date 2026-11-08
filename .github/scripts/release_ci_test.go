@@ -27,6 +27,7 @@ type releaseJob struct {
 	Name           string
 	Outputs        map[string]string
 	Env            map[string]string
+	With           map[string]string
 	Uses           string
 	Needs          []string
 	If             string
@@ -63,6 +64,9 @@ func TestReleaseWorkflowGates(t *testing.T) {
 			}
 			buildSteps := releaseSteps(workflow.Jobs["build-test"])
 			testReleasePackageSelection(t, buildSteps["Execute Tests"].Run)
+			if err := checkOrdinaryRuntimeMarker(t, buildSteps["Reject tolerated runtime launches"].Run); err != nil {
+				t.Fatal(err)
+			}
 			testReleaseBinaryHandoff(t, buildSteps["Record tested binary digest"].Run, steps["Verify and restore tested binary"].Run)
 			testReleaseCoverageEvidence(t, steps["Verify exhaustive native test selection and coverage"].Run)
 			for _, mutation := range []struct{ name, old, new string }{
@@ -78,6 +82,8 @@ func TestReleaseWorkflowGates(t *testing.T) {
 				{"skipped-integration", "      - name: Integration Test\n", "      - name: Integration Test\n        if: 'false'\n"},
 				{"ignored-integration-failure", "      - name: Integration Test\n", "      - name: Integration Test\n        continue-on-error: true\n"},
 				{"missing-guard", `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
+				{"missing-test-capture", "bash .github/scripts/ci_go_test_capture.sh remaining coverage.txt", "go test ./..."},
+				{"missing-runtime-rejection", `"$COPILOT_CLI_PATH.invoked"`, `"$COPILOT_CLI_PATH.unchecked"`},
 				{"different-download", "          name: release-tested-${{ github.sha }}\n          path: .", "          name: other-binary\n          path: ."},
 				{"missing-binary-digest", "sha256sum --check waza.sha256", ":"},
 				{"missing-executable-mode", "chmod +x waza", ":"},
@@ -155,7 +161,7 @@ func validateReleaseWorkflow(source []byte, file string) error {
 		binary, create = "Build Insider Release Binary", "Create Insider Pre-Release"
 	}
 	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Install and prove rejecting runtime guard",
-		"Test release gate failure handling", "Run Go Vet", "Execute Tests", binary, "Integration Test",
+		"Test release gate failure handling", "Run Go Vet", "Execute Tests", "Reject tolerated runtime launches", binary, "Integration Test",
 		"Record tested binary digest", "Upload tested release binary and remaining coverage"}); err != nil {
 		return err
 	}
@@ -181,6 +187,14 @@ func validateReleaseWorkflow(source []byte, file string) error {
 		buildSteps[binary].Run != "go build -v -o waza ./cmd/waza\n./waza --version\n" ||
 		buildSteps["Integration Test"].Run != "bash .github/scripts/release_integration_test.sh ./waza" {
 		return fmt.Errorf("build branch must retain vet, runtime guard, failure controls and tested binary integration")
+	}
+	if buildSteps["Execute Tests"].Run != "bash .github/scripts/ci_go_test_capture.sh remaining coverage.txt" ||
+		buildSteps["Execute Tests"].ID != "ci_tests" ||
+		!strings.Contains(buildSteps["Reject tolerated runtime launches"].Run, `"$COPILOT_CLI_PATH.invoked"`) {
+		return fmt.Errorf("release must capture the existing remaining execution once and reject tolerated runtime launches")
+	}
+	if err := checkOrdinaryEvidence(source, file); err != nil {
+		return err
 	}
 	upload, download := buildSteps["Upload tested release binary and remaining coverage"], steps["Download tested release binary and remaining coverage"]
 	if !strings.HasPrefix(upload.Uses, "actions/upload-artifact@") || upload.With["name"] != "release-tested-${{ github.sha }}" ||
@@ -354,7 +368,7 @@ func testNativeShardRuntimeGate(t *testing.T, script string) {
 	if err := os.MkdirAll(scripts, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"go_test_shard.sh", "go_test_shard_plan.py", "go_test_shard_durations.tsv", "ci-evidence.cjs"} {
+	for _, file := range []string{"go_test_shard.sh", "go_test_shard_plan.py", "go_test_shard_durations.tsv", "ci-evidence.cjs", "ci-evidence-cache.cjs"} {
 		source, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -366,6 +380,7 @@ func testNativeShardRuntimeGate(t *testing.T, script string) {
 		t.Fatal(err)
 	}
 	env, guard := releaseControlEnvironment(t, dir, root)
+	env = append(env, "CI_EVIDENCE_COLD_REQUESTED=false")
 	writeReleaseFile(t, filepath.Join(dir, "go"), []byte(`#!/usr/bin/env bash
 set -euo pipefail
 if [ "$*" = version ]; then
@@ -434,52 +449,52 @@ fi
 
 func testReleasePackageSelection(t *testing.T, script string) {
 	t.Helper()
-	dir := t.TempDir()
-	goPath := filepath.Join(dir, "go")
+	packages := []string{
+		"github.com/microsoft/waza/cmd/waza", "github.com/microsoft/waza/internal/controlledcomparison",
+		"github.com/microsoft/waza/internal/nativesnapshot", "github.com/microsoft/waza/internal/nativetask",
+		"github.com/microsoft/waza/internal/controlledcomparison-near-miss", "github.com/microsoft/waza/internal/controlledcomparison/child",
+	}
+	if err := checkOrdinaryTestSelection(t, script, "Linux", packages, true); err != nil {
+		t.Fatal(err)
+	}
 	fake := `#!/usr/bin/env bash
 set -euo pipefail
-if [ "$1" = list ]; then
+if [ "$1" = version ]; then
+  printf '%s\n' 'go version go1.26.4 linux/amd64'
+elif [ "$1" = list ]; then
   test "$#" -eq 2
   test "$2" = ./...
   if [ "${LIST_STATUS:-0}" -ne 0 ]; then exit "$LIST_STATUS"; fi
   printf '%s\n' github.com/microsoft/waza/cmd/waza github.com/microsoft/waza/internal/controlledcomparison github.com/microsoft/waza/internal/nativesnapshot github.com/microsoft/waza/internal/nativetask github.com/microsoft/waza/internal/controlledcomparison-near-miss github.com/microsoft/waza/internal/controlledcomparison/child
 else
-  printf '%s\n' "$@" > "$CALLS"
-  exit "${TEST_STATUS:-0}"
+  phase=execution
+  for arg in "$@"; do if [ "$arg" = -list ]; then phase=discovery; fi; done
+  if [ "$phase" = discovery ]; then
+    printf '%s\n' '{"Action":"output","Package":"github.com/microsoft/waza/cmd/waza","Output":"TestObserved\n"}' \
+      '{"Action":"pass","Package":"github.com/microsoft/waza/cmd/waza","Elapsed":1}'
+  else
+    exit "${TEST_STATUS:-0}"
+  fi
 fi
 `
-	if err := os.WriteFile(goPath, []byte(fake), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		list, test, want int
-	}{{0, 0, 0}, {7, 0, 7}, {0, 9, 9}} {
+	}{{7, 0, 7}, {0, 9, 9}} {
+		dir := t.TempDir()
+		copyCICaptureScripts(t, filepath.Join(dir, ".github", "scripts"))
+		if err := os.WriteFile(filepath.Join(dir, "go"), []byte(fake), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		cmd := exec.Command("bash", "-euo", "pipefail", "-c", script)
-		calls := filepath.Join(dir, "calls")
+		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
-			"CALLS="+calls, fmt.Sprintf("LIST_STATUS=%d", tc.list), fmt.Sprintf("TEST_STATUS=%d", tc.test))
+			"CI_EVIDENCE_COLD_REQUESTED=false", fmt.Sprintf("LIST_STATUS=%d", tc.list), fmt.Sprintf("TEST_STATUS=%d", tc.test))
 		output, err := cmd.CombinedOutput()
 		if cmd.ProcessState == nil {
 			t.Fatalf("starting workflow shell: %v\n%s", err, output)
 		}
 		if got := cmd.ProcessState.ExitCode(); got != tc.want {
 			t.Fatalf("list=%d test=%d: exit=%d, want=%d: %v\n%s", tc.list, tc.test, got, tc.want, err, output)
-		}
-		if tc.want != 0 {
-			continue
-		}
-		args, err := os.ReadFile(calls)
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := []string{"test", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic",
-			"github.com/microsoft/waza/cmd/waza",
-			"github.com/microsoft/waza/internal/nativesnapshot",
-			"github.com/microsoft/waza/internal/nativetask",
-			"github.com/microsoft/waza/internal/controlledcomparison-near-miss",
-			"github.com/microsoft/waza/internal/controlledcomparison/child"}
-		if got := strings.Split(strings.TrimSpace(string(args)), "\n"); !reflect.DeepEqual(got, want) {
-			t.Fatalf("test args = %q; want %q", got, want)
 		}
 	}
 }

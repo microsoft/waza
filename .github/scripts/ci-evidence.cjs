@@ -8,10 +8,12 @@ const { StringDecoder } = require("node:string_decoder");
 const { createHash } = require("node:crypto");
 const { inflateRawSync } = require("node:zlib");
 const os = require("node:os");
+const cacheObservation = require("./ci-evidence-cache.cjs");
 
 const LIMITS = Object.freeze({ bytes: 64 * 1024 * 1024, line: 1024 * 1024, targets: 100000, pages: 10, attempts: 10, reports: 100, aggregateBytes: 128 * 1024 * 1024 });
 const number = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 const text = (value) => typeof value === "string" && value.length <= 1024 && !/[\x00-\x1f]/.test(value) ? value : null;
+const imageID = (value) => text(value) !== null && /^[A-Za-z0-9._-]+$/.test(value) ? value : null;
 const seconds = (start, end) => {
   if (typeof start !== "string" || typeof end !== "string") return null;
   const delta = Date.parse(end) - Date.parse(start);
@@ -52,11 +54,13 @@ function identity(env = process.env, runtime = {}) {
     job: text(env.GITHUB_JOB), os: text(env.RUNNER_OS) || process.platform,
     arch: text(env.RUNNER_ARCH) || process.arch, node: process.version,
     os_release: os.release(), os_version: os.version(),
+    ...(env.ImageOS !== undefined ? { image_os: imageID(env.ImageOS) } : {}),
+    ...(env.ImageVersion !== undefined ? { image_version: imageID(env.ImageVersion) } : {}),
     ...runtime,
   };
 }
 function base(kind, env, runtime) {
-  return {
+  const report = {
     schema: 1, kind, identity: identity(env, runtime), complete: false,
     observed_at: new Date().toISOString(),
     diagnostics: [], cache: {
@@ -65,6 +69,25 @@ function base(kind, env, runtime) {
       node_dependencies: env.CI_EVIDENCE_INVENTORY_SCOPE === "names" ? "not-applicable" : ["true", "false"].includes(env.NODE_CACHE_HIT) ? env.NODE_CACHE_HIT === "true" : null,
     },
   };
+  if (["image_os", "image_version"].some((field) => Object.hasOwn(report.identity, field) && report.identity[field] === null)) {
+    diagnostic(report, "runner-image-unavailable");
+  }
+  return report;
+}
+function observeColdCache(report, env = process.env) {
+  if (env.CI_EVIDENCE_COLD_REQUESTED !== "true") return;
+  try {
+    const observed = cacheObservation.observe(report.identity, env);
+    report.cache = observed.cache;
+    report.cache_observation = observed.observation;
+  } catch {
+    report.cache.go_dependencies = null;
+    if (report.cache.node_dependencies !== "not-applicable") report.cache.node_dependencies = null;
+    report.cache_observation = null;
+    diagnostic(report, "cold-cache-observation-unavailable");
+    report.complete = false;
+    process.exitCode = 1;
+  }
 }
 function inventory(file, report) {
   if (!file) { diagnostic(report, "inventory-unavailable"); return null; }
@@ -260,6 +283,7 @@ async function captureGo(output, discovered, selected, env = process.env) {
   const cpu = process.cpuUsage();
   const go = goVersion();
   const report = goReport(env, { go: knownGoVersion(go) ? go : null });
+  observeColdCache(report, env);
   if (fs.existsSync(output)) {
     try {
       const prior = readJSON(output);
@@ -548,6 +572,12 @@ function cohort(report) {
     node: report.identity.node, playwright: report.identity.playwright ?? null,
     policy: report.policy, selected: report.selected, cache: report.cache,
     source_ref: report.identity.ref,
+    ...(Object.hasOwn(report.identity, "image_os") ? { image_os: report.identity.image_os } : {}),
+    ...(Object.hasOwn(report.identity, "image_version") ? { image_version: report.identity.image_version } : {}),
+    ...(Object.hasOwn(report, "cache_observation") ? {
+      cache_observation: report.cache_observation === null ? null :
+        cacheObservation.cacheCohort(report.cache_observation),
+    } : {}),
   });
 }
 function artifactJSON(archive, expectedName, digest, budget = { expanded: 0 }) {
@@ -610,12 +640,17 @@ function collectObservations(runID, api, download = (id) => {
           target && typeof target === "object" && !Array.isArray(target) &&
           text(target.package) && text(target.name) && typeof target.top_level === "boolean" &&
           ["pass", "fail", "skip"].includes(target.status) && number(target.seconds) !== null));
+      const cacheObservationValid = !Object.hasOwn(report, "cache_observation") ||
+        cacheObservation.validObservation(report.cache_observation, report.identity || {}, report.cache || {}) ||
+        (partial && report.cache_observation === null);
+      const cacheScopeValid = report.cache_observation == null ||
+        (match[1] === "go-native") === (report.cache_observation.stores?.npm === "not-applicable");
       if (report.schema !== 1 || report.kind !== (match[1] === "browser" ? "playwright" : "go") ||
           report.identity?.repository !== "microsoft/waza" || report.identity?.run_id !== String(runID) ||
           report.identity?.event !== metadata.event || report.identity?.workflow !== metadata.workflow ||
           report.identity?.attempt !== match[3] ||
           Number(match[3]) > metadata.run_attempt || metadata.run_attempt === null ||
-          !selectedValid || !policyValid || !targetsValid || !report.cache || typeof report.cache !== "object" || Array.isArray(report.cache) ||
+          !selectedValid || !policyValid || !targetsValid || !cacheObservationValid || !cacheScopeValid || !report.cache || typeof report.cache !== "object" || Array.isArray(report.cache) ||
           (match[1] === "go-run" && report.identity.job !== match[4])) throw new Error("artifact-report-binding");
       const checkoutVerified = /^[0-9a-f]{40}$/.test(metadata.source_sha || "") && report.identity.source_sha === metadata.source_sha && report.identity.workflow_sha === metadata.source_sha;
       if (!checkoutVerified && metadata.event !== "pull_request") throw new Error("artifact-checkout-binding");
@@ -660,6 +695,8 @@ function knownIdentity(report) {
     knownGoVersion(report.identity.go);
 }
 function eligibleSample(report) {
+  if (Object.hasOwn(report, "cache_observation") &&
+      !cacheObservation.validObservation(report.cache_observation, report.identity, report.cache)) return false;
   if (!verifiedReports.get(report)?.sample_eligible || !knownIdentity(report) ||
       report.complete !== true || report.identity.attempt !== "1" || report.policy?.retries !== 0 ||
       report.cache.test_results !== "disabled") return false;
@@ -750,6 +787,7 @@ async function main(args, api, download) {
       diagnostic(report, "browser-input-invalid-or-missing");
     }
     if (discoveryInvalid) diagnostic(report, "browser-discovery-invalid-or-missing");
+    observeColdCache(report);
     if (report.diagnostics.length) report.complete = false;
     report.collector_seconds = (performance.now() - started) / 1000;
     writeJSON(output, report);

@@ -6,6 +6,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { browserReport, browserInventory } = require("./ci-evidence.cjs");
+// Reporter fixtures cannot reuse the enclosing workflow's private observation.
+process.env.CI_EVIDENCE_COLD_REQUESTED = "false";
 
 test("installed Playwright producer matches locked versions and emits discovery/pass/fail/skip without browser/provider calls", (t) => {
   const modulePath = process.env.CI_EVIDENCE_PLAYWRIGHT_MODULE_PATH
