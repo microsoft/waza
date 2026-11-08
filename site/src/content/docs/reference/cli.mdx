@@ -1885,6 +1885,15 @@ waza models --json
 | `1` | One or more tasks failed |
 | `2` | Configuration or runtime error |
 
+For `run`, an operational execution or grader error takes precedence over
+completed failed judgments: the task is `error`, contributes to `summary.errors`,
+and exits `2` after saving requested completed results. A passing trial does not
+erase another trial's operational error. Completed negative judgments remain
+`failed` and exit `1`; skipped trials remain neutral. This precedence also applies
+across baseline passes, models, and skills. Regrading valid frozen output can
+replace a failed judge setup with a new verdict without changing execution
+billing; historical readers do not rewrite old classifications.
+
 ## Global Flags
 
 | Flag | Description |
