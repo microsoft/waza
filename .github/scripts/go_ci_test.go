@@ -13,7 +13,117 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type workflowTriggers map[string]map[string][]string
+type workflowTriggers map[string]workflowTrigger
+
+type workflowLiteral struct {
+	Present bool
+	Tag     string
+	Value   string
+}
+
+type workflowInput struct {
+	Type        string
+	Default     workflowLiteral
+	Required    workflowLiteral
+	Description string
+}
+
+type workflowTrigger struct {
+	Mapping bool
+	Filters map[string][]string
+	Inputs  map[string]workflowInput
+	Other   map[string]yaml.Node
+}
+
+func (trigger *workflowTrigger) UnmarshalYAML(node *yaml.Node) error {
+	if node.Tag == "!!null" {
+		return nil
+	}
+	trigger.Mapping = true
+	var fields map[string]yaml.Node
+	if err := node.Decode(&fields); err != nil {
+		return err
+	}
+	for key, value := range fields {
+		switch key {
+		case "inputs":
+			if value.Kind != yaml.MappingNode {
+				return fmt.Errorf("workflow inputs must be a mapping")
+			}
+			var definitions map[string]map[string]yaml.Node
+			if err := value.Decode(&definitions); err != nil {
+				return err
+			}
+			trigger.Inputs = make(map[string]workflowInput, len(definitions))
+			for name, definition := range definitions {
+				var input workflowInput
+				for field, raw := range definition {
+					if raw.Kind != yaml.ScalarNode {
+						return fmt.Errorf("input %s: %s must be scalar", name, field)
+					}
+					switch field {
+					case "type", "description":
+						if raw.Tag != "!!str" {
+							return fmt.Errorf("input %s: %s must be a string", name, field)
+						}
+						if field == "type" {
+							input.Type = raw.Value
+						} else {
+							input.Description = raw.Value
+						}
+					case "default":
+						input.Default = workflowLiteral{Present: true, Tag: raw.Tag, Value: raw.Value}
+					case "required":
+						if raw.Tag != "!!bool" {
+							return fmt.Errorf("input %s: required must be boolean", name)
+						}
+						input.Required = workflowLiteral{Present: true, Tag: raw.Tag, Value: strings.ToLower(raw.Value)}
+					default:
+						return fmt.Errorf("input %s: unsupported field %s", name, field)
+					}
+				}
+				defaultTag := map[string][]string{
+					"boolean": {"!!bool"}, "string": {"!!str"}, "number": {"!!int", "!!float"},
+				}[input.Type]
+				if defaultTag == nil || (input.Default.Present && !slices.Contains(defaultTag, input.Default.Tag)) {
+					return fmt.Errorf("input %s: invalid type or default", name)
+				}
+				if input.Default.Tag == "!!bool" {
+					input.Default.Value = strings.ToLower(input.Default.Value)
+				}
+				trigger.Inputs[name] = input
+			}
+		case "branches", "branches-ignore", "paths", "paths-ignore", "types":
+			var filter []string
+			var entries []yaml.Node
+			if err := value.Decode(&entries); err != nil {
+				return err
+			}
+			if entries != nil {
+				filter = make([]string, 0, len(entries))
+			}
+			for _, entry := range entries {
+				if entry.Kind == yaml.AliasNode && entry.Alias != nil {
+					entry = *entry.Alias
+				}
+				if entry.Kind != yaml.ScalarNode || entry.Tag != "!!str" {
+					return fmt.Errorf("workflow %s entries must be strings", key)
+				}
+				filter = append(filter, entry.Value)
+			}
+			if trigger.Filters == nil {
+				trigger.Filters = make(map[string][]string)
+			}
+			trigger.Filters[key] = filter
+		default:
+			if trigger.Other == nil {
+				trigger.Other = make(map[string]yaml.Node)
+			}
+			trigger.Other[key] = value
+		}
+	}
+	return nil
+}
 
 func checkOfflineAssertionOracleRuntime(source []byte) error {
 	var workflow struct {
@@ -399,21 +509,21 @@ func checkTriggers(source []byte, want workflowTriggers) error {
 // Selection is deliberately limited to the exact, literal branch/type filters
 // admitted by checkTriggers, not a general GitHub Actions glob interpreter.
 func selects(triggers workflowTriggers, event, branch, action string) bool {
-	filters, ok := triggers[event]
+	trigger, ok := triggers[event]
 	if !ok {
 		return false
 	}
-	if branches, ok := filters["branches"]; ok && !slices.Contains(branches, branch) {
+	if branches, ok := trigger.Filters["branches"]; ok && !slices.Contains(branches, branch) {
 		return false
 	}
 	if event == "pull_request" {
-		types, ok := filters["types"]
+		types, ok := trigger.Filters["types"]
 		if !ok {
 			types = []string{"opened", "synchronize", "reopened"}
 		}
 		return slices.Contains(types, action)
 	}
-	return event == "push"
+	return event == "push" || event == "workflow_dispatch"
 }
 
 func checkCanonicalGoWorkflow(source []byte) error {
@@ -537,8 +647,8 @@ func TestGoWorkflowTriggers(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := workflowTriggers{
-				"push":         {"branches": tc.pushBranches},
-				"pull_request": tc.prFilters,
+				"push":         {Mapping: true, Filters: map[string][]string{"branches": tc.pushBranches}},
+				"pull_request": {Filters: tc.prFilters},
 			}
 			if err := checkTriggers(source, want); err != nil {
 				t.Fatal(err)
