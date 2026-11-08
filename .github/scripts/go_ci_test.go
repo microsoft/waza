@@ -204,6 +204,10 @@ type ordinaryRunDefaults struct {
 	} `yaml:"run"`
 }
 
+func normalizeWorkflowLineEndings(source []byte) []byte {
+	return []byte(strings.ReplaceAll(string(source), "\r\n", "\n"))
+}
+
 func ordinaryShellArguments(platform string, declarations ...yaml.Node) ([]string, error) {
 	var effective yaml.Node
 	for _, declaration := range declarations {
@@ -573,6 +577,7 @@ func TestOrdinaryShellOverridesAndDisabledPaths(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			source = normalizeWorkflowLineEndings(source)
 			rootUnsafe := strings.Replace(string(source), "permissions:\n",
 				"defaults:\n  run:\n    shell: bash -c true {0}\n\npermissions:\n", 1)
 			if rootUnsafe == string(source) {

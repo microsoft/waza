@@ -287,6 +287,7 @@ func TestCompletenessGoLintShellExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	source = normalizeWorkflowLineEndings(source)
 	setShell := func(input []byte, scope, value string) []byte {
 		t.Helper()
 		anchors := map[string]string{
@@ -447,6 +448,7 @@ func TestCompletenessWindowsControlsSelectedByNativeJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	source = normalizeWorkflowLineEndings(source)
 	const command = `log="$(mktemp)"
 go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts | sed 's/\r$//' | tee "$log"
 if grep -q -- '--- SKIP:' "$log"; then
@@ -497,12 +499,17 @@ rm "$log"
 	}
 	check := func(input []byte) error {
 		var workflow struct {
-			Defaults ordinaryRunDefaults `yaml:"defaults"`
+			Env      map[string]yaml.Node `yaml:"env"`
+			Defaults ordinaryRunDefaults  `yaml:"defaults"`
 			Jobs     map[string]struct {
-				If       string                  `yaml:"if"`
-				RunsOn   string                  `yaml:"runs-on"`
-				Defaults ordinaryRunDefaults     `yaml:"defaults"`
-				Steps    []ordinaryExecutionStep `yaml:"steps"`
+				If       string               `yaml:"if"`
+				RunsOn   string               `yaml:"runs-on"`
+				Env      map[string]yaml.Node `yaml:"env"`
+				Defaults ordinaryRunDefaults  `yaml:"defaults"`
+				Steps    []struct {
+					ordinaryExecutionStep `yaml:",inline"`
+					Env                   map[string]yaml.Node `yaml:"env"`
+				} `yaml:"steps"`
 				Strategy struct {
 					Matrix struct {
 						OS []string `yaml:"os"`
@@ -539,6 +546,16 @@ rm "$log"
 			if len(arguments) < 2 || arguments[len(arguments)-2] != "-o" || arguments[len(arguments)-1] != "pipefail" {
 				return fmt.Errorf("Windows shell-control pipeline requires Bash pipefail")
 			}
+			var flags yaml.Node
+			flagsPresent := false
+			for _, env := range []map[string]yaml.Node{workflow.Env, job.Env, step.Env} {
+				if value, present := env["GOFLAGS"]; present {
+					flags, flagsPresent = value, true
+				}
+			}
+			if flagsPresent && (flags.Kind != yaml.ScalarNode || flags.Tag != "!!str" || flags.Value != "") {
+				return fmt.Errorf("Windows shell-control GOFLAGS must be omitted or literal empty after workflow/job/step overrides")
+			}
 		}
 		if selected != 1 {
 			return fmt.Errorf("native Windows shell-control step count=%d; require one", selected)
@@ -560,6 +577,55 @@ rm "$log"
 	if err := check(source); err != nil {
 		t.Fatal(err)
 	}
+	setFlags := func(input []byte, scope, value string) []byte {
+		t.Helper()
+		anchors := map[string]string{
+			"workflow": "permissions:\n",
+			"job":      "  build-and-test-windows:\n",
+			"step":     "      - name: Test native Windows shell controls\n",
+		}
+		replacements := map[string]string{
+			"workflow": "env:\n  GOFLAGS: " + value + "\n\npermissions:\n",
+			"job":      "  build-and-test-windows:\n    env:\n      GOFLAGS: " + value + "\n",
+			"step":     "      - name: Test native Windows shell controls\n        env:\n          GOFLAGS: " + value + "\n",
+		}
+		mutated := strings.Replace(string(input), anchors[scope], replacements[scope], 1)
+		if mutated == string(input) {
+			t.Fatalf("%s GOFLAGS control did not change the actual workflow", scope)
+		}
+		return []byte(mutated)
+	}
+	for _, scope := range []string{"workflow", "job", "step"} {
+		t.Run(scope+"-literal-empty-goflags-valid", func(t *testing.T) {
+			if err := check(setFlags(source, scope, `""`)); err != nil {
+				t.Fatalf("literal empty GOFLAGS must remain valid: %v", err)
+			}
+		})
+		for i, value := range []string{`"-skip=Test.*/.*"`, `"-run=^$"`,
+			`"${{ inputs.go_flags }}"`, `" "`, "null", "false", "1"} {
+			t.Run(fmt.Sprintf("%s-unsafe-goflags-%d", scope, i), func(t *testing.T) {
+				if err := check(setFlags(source, scope, value)); err == nil {
+					t.Fatal("nonempty or unprovable effective GOFLAGS must reject native control selection")
+				}
+			})
+		}
+	}
+	for _, override := range []struct{ lower, higher string }{
+		{"workflow", "job"}, {"workflow", "step"}, {"job", "step"},
+	} {
+		t.Run(override.lower+"-goflags-overridden-by-"+override.higher, func(t *testing.T) {
+			lower := setFlags(source, override.lower, `"-skip=Test.*/.*"`)
+			if err := check(setFlags(lower, override.higher, `""`)); err != nil {
+				t.Fatalf("higher literal empty GOFLAGS must override lower unsafe value: %v", err)
+			}
+		})
+	}
+	t.Run("step-unsafe-goflags-overrides-empty-job", func(t *testing.T) {
+		lower := setFlags(setFlags(source, "workflow", `"-skip=Test.*/.*"`), "job", `""`)
+		if err := check(setFlags(lower, "step", `"-run=^$"`)); err == nil {
+			t.Fatal("higher unsafe GOFLAGS must not inherit lower empty admission")
+		}
+	})
 	for _, mutation := range []struct{ old, replacement string }{
 		{"      - name: Test native Windows shell controls", "      - name: Missing Windows shell controls"},
 		{"        if: matrix.os == 'windows-latest'", "        if: false"},
