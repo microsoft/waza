@@ -61,47 +61,13 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 }
 
 func TestPackagedDashboardRejectsPartialDiscoveryAndPreservesConcurrentOutput(t *testing.T) {
-	dir := t.TempDir()
-	dist := filepath.Join(dir, "web", "dist")
-	fixtureDist := filepath.Join(dir, "fixture-dist")
-	for _, root := range []string{dist, fixtureDist} {
-		for path, content := range map[string]string{
-			"index.html":    "<!doctype html><script src='/assets/app.js'></script>",
-			"favicon.svg":   "<svg/>",
-			"assets/app.js": "export {};",
-		} {
-			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			writeReleaseFile(t, filepath.Join(root, path), []byte(content))
-		}
-	}
-	if err := os.MkdirAll(filepath.Join(fixtureDist, "api"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeReleaseFile(t, filepath.Join(fixtureDist, "api", "health"), []byte("{}"))
-	bin := filepath.Join(dir, "bin")
-	if err := os.Mkdir(bin, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	dir, dist, fixtureDist, bin, script := packagedDashboardFixture(t)
 	writeReleaseFile(t, filepath.Join(bin, "find"), []byte(`#!/usr/bin/env bash
 mkdir -p web/dist
 printf concurrent > web/dist/concurrent.txt
 printf '%s\0' "$1/app.js"
 exit 71
 `))
-	writeReleaseFile(t, filepath.Join(bin, "waza"), []byte(`#!/usr/bin/env bash
-set -euo pipefail
-port=''
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --port ]; then port="$2"; shift 2; else shift; fi
-done
-exec python3 -m http.server "$port" --bind 127.0.0.1 --directory "$FIXTURE_DIST"
-`))
-	script, err := filepath.Abs("release_dashboard_integration_test.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
 	cmd := exec.CommandContext(t.Context(), "bash", script, filepath.Join(bin, "waza"))
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FIXTURE_DIST="+fixtureDist)
@@ -122,6 +88,90 @@ exec python3 -m http.server "$port" --bind 127.0.0.1 --directory "$FIXTURE_DIST"
 	if err != nil || string(concurrent) != "concurrent" {
 		t.Fatalf("preserved concurrent dashboard = %q, %v", concurrent, err)
 	}
+}
+
+func TestPackagedDashboardRestoreRejectsDestinationCreationRace(t *testing.T) {
+	dir, _, fixtureDist, bin, script := packagedDashboardFixture(t)
+	writeReleaseFile(t, filepath.Join(bin, "find"), []byte(`#!/usr/bin/env bash
+printf '%s\0' "$1/app.js"
+exit 71
+`))
+	writeReleaseFile(t, filepath.Join(bin, "mv"), []byte(`#!/usr/bin/env bash
+set -euo pipefail
+if [ "$#" -eq 4 ] && [ "$1" = -T ] && [ "$2" = --no-clobber ] && [ "$4" = web/dist ]; then
+  mkdir -p web/dist
+  printf racing > web/dist/racing.txt
+fi
+exec "$REAL_MV" "$@"
+`))
+	realMove, err := exec.LookPath("mv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), "bash", script, filepath.Join(bin, "waza"))
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"FIXTURE_DIST="+fixtureDist, "REAL_MV="+realMove)
+	output, err := cmd.CombinedOutput()
+	marker := "Failed to restore the release dashboard; original remains at "
+	position := strings.Index(string(output), marker)
+	if err == nil || position < 0 {
+		t.Fatalf("destination creation race must fail without nesting: %v\n%s", err, output)
+	}
+	line := string(output)[position+len(marker):]
+	line = strings.TrimSuffix(strings.SplitN(line, "\n", 2)[0], ".")
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(line)) })
+	if _, err := os.Stat(filepath.Join(line, "index.html")); err != nil {
+		t.Fatalf("original dashboard was not preserved at %s: %v", line, err)
+	}
+	racing, err := os.ReadFile(filepath.Join(dir, "web", "dist", "racing.txt"))
+	if err != nil || string(racing) != "racing" {
+		t.Fatalf("competing dashboard was modified: %q, %v", racing, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "web", "dist", "source-dist")); !os.IsNotExist(err) {
+		t.Fatalf("original dashboard nested into competing output: %v", err)
+	}
+}
+
+func packagedDashboardFixture(t *testing.T) (dir, dist, fixtureDist, bin, script string) {
+	t.Helper()
+	dir = t.TempDir()
+	dist = filepath.Join(dir, "web", "dist")
+	fixtureDist = filepath.Join(dir, "fixture-dist")
+	for _, root := range []string{dist, fixtureDist} {
+		for path, content := range map[string]string{
+			"index.html":    "<!doctype html><script src='/assets/app.js'></script>",
+			"favicon.svg":   "<svg/>",
+			"assets/app.js": "export {};",
+		} {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeReleaseFile(t, filepath.Join(root, path), []byte(content))
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(fixtureDist, "api"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReleaseFile(t, filepath.Join(fixtureDist, "api", "health"), []byte("{}"))
+	bin = filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReleaseFile(t, filepath.Join(bin, "waza"), []byte(`#!/usr/bin/env bash
+set -euo pipefail
+port=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --port ]; then port="$2"; shift 2; else shift; fi
+done
+exec python3 -m http.server "$port" --bind 127.0.0.1 --directory "$FIXTURE_DIST"
+`))
+	var err error
+	script, err = filepath.Abs("release_dashboard_integration_test.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir, dist, fixtureDist, bin, script
 }
 
 func TestReleaseLastBuilderAdmission(t *testing.T) {

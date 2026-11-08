@@ -20,13 +20,16 @@ cleanup() {
   fi
   if [ -d "$source_dist" ]; then
     if [ ! -e web/dist ]; then
-      if ! mv "$source_dist" web/dist; then
+      if ! mv -T --no-clobber "$source_dist" web/dist || [ -d "$source_dist" ]; then
         echo "Failed to restore the release dashboard; original remains at $source_dist." >&2
         status=1
       fi
     else
       concurrent_dist="web/dist.release-dashboard-concurrent.$$"
-      if mv web/dist "$concurrent_dist" && mv "$source_dist" web/dist; then
+      if mv -T --no-clobber web/dist "$concurrent_dist" &&
+        [ ! -e web/dist ] &&
+        mv -T --no-clobber "$source_dist" web/dist &&
+        [ ! -d "$source_dist" ]; then
         echo "Concurrent dashboard output preserved at $concurrent_dist; original web/dist restored." >&2
       else
         echo "Dashboard cleanup collision: preserve $source_dist and any $concurrent_dist output for recovery." >&2
@@ -41,7 +44,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mv web/dist "$source_dist"
+mv -T --no-clobber web/dist "$source_dist"
 mkdir -p "$scratch/results"
 port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
 "$binary" serve --no-browser --port "$port" --results-dir "$scratch/results" >"$scratch/server.log" 2>&1 &
