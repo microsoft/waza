@@ -10,7 +10,7 @@ const contracts = {
     units: {
       lint: ['checkout', 'lint_controls', 'workflow_controls', 'lint'],
       linux: ['checkout', 'verify_modules', 'download', 'node', 'guard', 'inventory', 'web_build', 'format', 'vet', 'tests', 'no_launch', 'binary', 'integration'],
-      windows: ['checkout', 'verify_modules', 'download', 'node', 'guard', 'vet', 'tests', 'no_launch', 'binary', 'integration'],
+      windows: ['checkout', 'verify_modules', 'download', 'node', 'guard', 'vet', 'tests', 'shell_controls', 'no_launch', 'binary', 'integration'],
       'native-0': ['checkout', 'discovery_controls', 'guard', 'tests', 'coverage'],
       'native-1': ['checkout', 'discovery_controls', 'guard', 'tests', 'coverage'],
       'native-2': ['checkout', 'discovery_controls', 'guard', 'tests', 'coverage'],

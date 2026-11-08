@@ -374,6 +374,17 @@ test('receipt capture strips unrelated outputs and browser logs rather than reta
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports, { ...source, run_attempt: '2' }), /Source mismatch: run_attempt/);
   delete steps.browser;
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports, source));
+
+  const windows = control.receipts.find((receipt) => receipt.family === 'go' && receipt.unit === 'windows');
+  const windowsSteps = structuredClone(windows.steps);
+  assert.equal(captureReceipt(control.plan, 'go', 'windows', windowsSteps, source.tested_sha, undefined, source)
+    .steps.shell_controls.outcome, 'success');
+  delete windowsSteps.shell_controls;
+  assert.throws(() => captureReceipt(control.plan, 'go', 'windows', windowsSteps, source.tested_sha, undefined, source),
+    /Missing command shell_controls/);
+  windowsSteps.shell_controls = { outcome: 'skipped', conclusion: 'skipped' };
+  assert.throws(() => captureReceipt(control.plan, 'go', 'windows', windowsSteps, source.tested_sha, undefined, source),
+    /Required step shell_controls did not succeed/);
 });
 
 test('browser discovery rejects empty, retried, failed, near-miss and unexpected skip evidence', () => {
