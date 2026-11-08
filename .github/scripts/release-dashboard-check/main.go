@@ -33,16 +33,7 @@ func main() {
 }
 
 func check() (result error) {
-	for _, path := range []string{"web", "web/dist"} {
-		info, err := os.Lstat(path)
-		if err != nil {
-			return fmt.Errorf("release dashboard directory %s: %w", path, err)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("release dashboard directory must not be a symlink: %s", path)
-		}
-	}
-	root, err := os.OpenRoot("web/dist")
+	root, err := openDashboardRoot("web/dist")
 	if err != nil {
 		return fmt.Errorf("opening release dashboard: %w", err)
 	}
@@ -61,7 +52,7 @@ func check() (result error) {
 	if err := directory(root, "assets"); err != nil {
 		return err
 	}
-	assets, err := openFile(root, "assets")
+	assets, err := root.openDirectory("assets")
 	if err != nil {
 		return fmt.Errorf("opening release dashboard assets: %w", err)
 	}
@@ -89,10 +80,19 @@ func check() (result error) {
 	return checkDocument(root, index)
 }
 
-func directory(root *os.Root, path string) error {
-	info, err := root.Lstat(path)
+func directory(root *dashboardRoot, path string) (result error) {
+	dir, err := root.openDirectory(path)
 	if err != nil {
 		return fmt.Errorf("release dashboard directory %s: %w", path, err)
+	}
+	defer func() {
+		if err := dir.Close(); err != nil {
+			result = errors.Join(result, fmt.Errorf("closing release dashboard directory %s: %w", path, err))
+		}
+	}()
+	info, err := dir.Stat()
+	if err != nil {
+		return fmt.Errorf("inspecting release dashboard directory %s: %w", path, err)
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("release dashboard requires a nonsymlink directory: %s", path)
@@ -100,26 +100,8 @@ func directory(root *os.Root, path string) error {
 	return nil
 }
 
-func readFile(root *os.Root, path string) (content []byte, result error) {
-	parts := strings.Split(path, "/")
-	for _, part := range parts {
-		if part == "" || part == "." || part == ".." || strings.Contains(part, `\`) {
-			return nil, fmt.Errorf("invalid release dashboard path: %s", path)
-		}
-	}
-	for i := 1; i < len(parts); i++ {
-		if err := directory(root, strings.Join(parts[:i], "/")); err != nil {
-			return nil, err
-		}
-	}
-	info, err := root.Lstat(path)
-	if err != nil {
-		return nil, fmt.Errorf("release dashboard file %s: %w", path, err)
-	}
-	if !info.Mode().IsRegular() || info.Size() == 0 {
-		return nil, fmt.Errorf("release dashboard requires a nonempty regular nonsymlink file: %s", path)
-	}
-	file, err := openFile(root, path)
+func readFile(root *dashboardRoot, path string) (content []byte, result error) {
+	file, err := root.openFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening release dashboard file %s: %w", path, err)
 	}
@@ -128,7 +110,7 @@ func readFile(root *os.Root, path string) (content []byte, result error) {
 			result = errors.Join(result, fmt.Errorf("closing release dashboard file %s: %w", path, err))
 		}
 	}()
-	info, err = file.Stat()
+	info, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("inspecting release dashboard file %s: %w", path, err)
 	}
@@ -145,7 +127,20 @@ func readFile(root *os.Root, path string) (content []byte, result error) {
 	return content, nil
 }
 
-func checkDocument(root *os.Root, index []byte) error {
+func dashboardPathParts(path string) ([]string, error) {
+	if path == "" || filepath.IsAbs(path) || strings.Contains(path, `\`) {
+		return nil, fmt.Errorf("invalid release dashboard path: %s", path)
+	}
+	parts := strings.Split(path, "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return nil, fmt.Errorf("invalid release dashboard path: %s", path)
+		}
+	}
+	return parts, nil
+}
+
+func checkDocument(root *dashboardRoot, index []byte) error {
 	tokenizer := html.NewTokenizer(bytes.NewReader(index))
 	for {
 		kind := tokenizer.Next()

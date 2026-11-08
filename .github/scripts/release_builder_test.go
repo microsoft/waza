@@ -29,7 +29,7 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 				}
 				writeReleaseFile(t, filepath.Join(sources, name), content)
 			}
-			writeReleaseFile(t, filepath.Join(dir, "go.mod"), []byte("module dashboard.fixture\n\ngo 1.26.4\n\nrequire golang.org/x/net v0.61.0\n"))
+			writeReleaseFile(t, filepath.Join(dir, "go.mod"), []byte("module dashboard.fixture\n\ngo 1.26.4\n\nrequire (\n\tgolang.org/x/net v0.61.0\n\tgolang.org/x/sys v0.49.0\n)\n"))
 			sum, err := os.ReadFile("../../go.sum")
 			if err != nil {
 				t.Fatal(err)

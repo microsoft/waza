@@ -112,6 +112,9 @@ func TestReleaseWorkflowGates(t *testing.T) {
 		{"tolerated-dashboard-admission", "      - name: Require built dashboard output\n", "      - name: Require built dashboard output\n        continue-on-error: true\n"},
 		{"missing-dashboard-check", "run: " + releaseDashboardCheck, "run: ':'"},
 		{"ignored-dashboard-error", "run: " + releaseDashboardCheck, "run: " + releaseDashboardCheck + " || true"},
+		{"missing-packaged-dashboard", "run: bash .github/scripts/release_dashboard_integration_test.sh ./waza", "run: ':'"},
+		{"skipped-packaged-dashboard", "      - name: Verify packaged release dashboard\n", "      - name: Verify packaged release dashboard\n        if: 'false'\n"},
+		{"tolerated-packaged-dashboard", "      - name: Verify packaged release dashboard\n", "      - name: Verify packaged release dashboard\n        continue-on-error: true\n"},
 		{"tolerated-build-job", "  build-test:\n", "  build-test:\n    continue-on-error: true\n"},
 		{"tolerated-completion-job", "  complete:\n", "  complete:\n    continue-on-error: true\n"},
 		{"missing-build-dependency", "needs: [native-test-shards, build-test, windows-test, lint]", "needs: [native-test-shards, windows-test, lint]"},
@@ -1905,7 +1908,8 @@ func validateReleaseValidation(source []byte) error {
 	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Require exact source",
 		"Setup Go Environment", "Download dashboard checker dependency", "Setup Node.js (for web UI build)",
 		"Build Web UI", "Require built dashboard output", "Require clean packaged source", "Install and prove rejecting runtime guard",
-		"Test release gate failure handling", "Run Go Vet", "Execute Tests", "Build Release Binary", "Integration Test",
+		"Test release gate failure handling", "Run Go Vet", "Execute Tests", "Build Release Binary",
+		"Verify packaged release dashboard", "Integration Test",
 		"Record tested binary digest", "Upload tested release binary and remaining coverage"}); err != nil {
 		return err
 	}
@@ -1952,8 +1956,9 @@ func validateReleaseValidation(source []byte) error {
 		buildSteps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
 		buildSteps["Run Go Vet"].Run != "go vet ./..." ||
 		buildSteps["Build Release Binary"].Run != "go build -v -o waza ./cmd/waza\nbash .github/scripts/release_binary_check.sh waza\n./waza --version\n" ||
+		buildSteps["Verify packaged release dashboard"].Run != "bash .github/scripts/release_dashboard_integration_test.sh ./waza" ||
 		buildSteps["Integration Test"].Run != "bash .github/scripts/release_integration_test.sh ./waza" {
-		return fmt.Errorf("build branch must retain vet, runtime guard, failure controls and tested binary integration")
+		return fmt.Errorf("build branch must retain vet, runtime guard, failure controls and tested binary integrations")
 	}
 	upload, download := buildSteps["Upload tested release binary and remaining coverage"], steps["Download tested release binary and remaining coverage"]
 	if !strings.HasPrefix(upload.Uses, "actions/upload-artifact@") || upload.With["name"] != "release-tested-${{ github.sha }}" ||

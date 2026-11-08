@@ -86,6 +86,9 @@ jobs:
           bash .github/scripts/release_binary_check.sh waza
           ./waza --version
 
+      - name: Verify packaged release dashboard
+        run: bash .github/scripts/release_dashboard_integration_test.sh ./waza
+
       - name: Integration Test
         run: bash .github/scripts/release_integration_test.sh ./waza
 
