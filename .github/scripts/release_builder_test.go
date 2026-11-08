@@ -60,7 +60,7 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 	}
 }
 
-func TestPackagedDashboardRejectsPartialAssetDiscovery(t *testing.T) {
+func TestPackagedDashboardRejectsPartialDiscoveryAndPreservesConcurrentOutput(t *testing.T) {
 	dir := t.TempDir()
 	dist := filepath.Join(dir, "web", "dist")
 	fixtureDist := filepath.Join(dir, "fixture-dist")
@@ -85,6 +85,8 @@ func TestPackagedDashboardRejectsPartialAssetDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeReleaseFile(t, filepath.Join(bin, "find"), []byte(`#!/usr/bin/env bash
+mkdir -p web/dist
+printf concurrent > web/dist/concurrent.txt
 printf '%s\0' "$1/app.js"
 exit 71
 `))
@@ -104,8 +106,21 @@ exec python3 -m http.server "$port" --bind 127.0.0.1 --directory "$FIXTURE_DIST"
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FIXTURE_DIST="+fixtureDist)
 	output, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(output), "asset discovery failed") {
-		t.Fatalf("partial asset discovery must fail explicitly: %v\n%s", err, output)
+	if err == nil || !strings.Contains(string(output), "asset discovery failed") ||
+		!strings.Contains(string(output), "Concurrent dashboard output preserved") {
+		t.Fatalf("partial discovery and cleanup collision must fail safely: %v\n%s", err, output)
+	}
+	restored, err := os.ReadFile(filepath.Join(dist, "index.html"))
+	if err != nil || string(restored) != "<!doctype html><script src='/assets/app.js'></script>" {
+		t.Fatalf("original dashboard was not restored: %v, %q", err, restored)
+	}
+	backups, err := filepath.Glob(filepath.Join(dir, "web", "dist.release-dashboard-concurrent.*", "concurrent.txt"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("concurrent dashboard output was not preserved: %v, %v", err, backups)
+	}
+	concurrent, err := os.ReadFile(backups[0])
+	if err != nil || string(concurrent) != "concurrent" {
+		t.Fatalf("preserved concurrent dashboard = %q, %v", concurrent, err)
 	}
 }
 

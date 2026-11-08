@@ -12,14 +12,32 @@ source_dist="$scratch/source-dist"
 server_pid=""
 
 cleanup() {
+  status=$?
+  trap - EXIT
   if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
     kill "$server_pid"
     wait "$server_pid" 2>/dev/null || true
   fi
-  if [ -d "$source_dist" ] && [ ! -e web/dist ]; then
-    mv "$source_dist" web/dist
+  if [ -d "$source_dist" ]; then
+    if [ ! -e web/dist ]; then
+      if ! mv "$source_dist" web/dist; then
+        echo "Failed to restore the release dashboard; original remains at $source_dist." >&2
+        status=1
+      fi
+    else
+      concurrent_dist="web/dist.release-dashboard-concurrent.$$"
+      if mv web/dist "$concurrent_dist" && mv "$source_dist" web/dist; then
+        echo "Concurrent dashboard output preserved at $concurrent_dist; original web/dist restored." >&2
+      else
+        echo "Dashboard cleanup collision: preserve $source_dist and any $concurrent_dist output for recovery." >&2
+      fi
+      status=1
+    fi
   fi
-  rm -rf "$scratch"
+  if [ ! -d "$source_dist" ]; then
+    rm -rf "$scratch"
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
