@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/execution"
@@ -137,11 +138,42 @@ func TestLocalServicePreservesObservedFailureWithoutChangingTerminalPolicy(t *te
 	require.Equal(t, models.StatusError, report.Observation.Status)
 	outcome, err := service.RunLocal(t.Context(), request)
 	require.NoError(t, err)
-	require.Equal(t, 1, outcome.Digest.Failed)
+	require.Equal(t, 1, outcome.Digest.Errors)
+	require.Zero(t, outcome.Digest.Failed)
+	require.Len(t, outcome.TestOutcomes, 1)
+	require.Equal(t, models.StatusError, outcome.TestOutcomes[0].Status)
 	require.Equal(t, models.StatusError, outcome.TestOutcomes[0].Runs[0].Status)
 	envelope, _ := service.RunTerminal(t.Context(), request)
 	require.Equal(t, runnerterminal.InfrastructureFailure, envelope.Outcome)
 	require.Equal(t, 2, envelope.ExitCode)
 	require.Equal(t, 1, envelope.EngineCalls)
 	require.Equal(t, string(models.StatusError), envelope.Observation.Status)
+}
+
+func TestLocalServiceCompletedFalseVerdictRemainsEvaluationFailure(t *testing.T) {
+	request, err := runnercontract.Parse(localRequest(t))
+	require.NoError(t, err)
+	const original = "Mock response for: hello"
+	require.Contains(t, request.Input.Eval, original)
+	request.Input.Eval = strings.Replace(request.Input.Eval, original, "IMPOSSIBLE_OUTPUT_CANARY", 1)
+	require.NotContains(t, request.Input.Eval, original)
+	service := NewService(nil)
+	input := wire(t, *request)
+	outcome, err := service.RunLocal(t.Context(), input)
+	require.NoError(t, err)
+	require.Equal(t, 1, outcome.Digest.Failed)
+	require.Zero(t, outcome.Digest.Errors)
+	require.Len(t, outcome.TestOutcomes, 1)
+	require.Equal(t, models.StatusFailed, outcome.TestOutcomes[0].Status)
+	require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusFailed, run.Status)
+	require.Empty(t, run.ErrorMsg)
+	require.Len(t, run.Validations, 5)
+	require.False(t, run.Validations["precise"].Passed)
+	envelope, _ := service.RunTerminal(t.Context(), input)
+	require.Equal(t, runnerterminal.EvaluationFailure, envelope.Outcome)
+	require.Equal(t, 1, envelope.ExitCode)
+	require.Equal(t, 1, envelope.EngineCalls)
+	require.Equal(t, string(models.StatusFailed), envelope.Observation.Status)
 }

@@ -41,13 +41,13 @@ func TestRunnerCompatPreservesObservedExecutionErrorArtifact(t *testing.T) {
 		cmd := newRootCommand()
 		cmd.SetArgs(args)
 		cmd.SetErr(io.Discard)
-		var failed *TestFailureError
-		require.ErrorAs(t, cmd.Execute(), &failed, "observed execution errors retain the local exit-1 policy")
+		var failed *BenchmarkError
+		require.ErrorAs(t, cmd.Execute(), &failed, "observed execution errors use the local runtime-error policy")
 		outcome, err := models.LoadEvaluationOutcome(output)
 		require.NoError(t, err, "an observed error must still be saved")
 		require.Len(t, outcome.TestOutcomes, 1)
 		task := &outcome.TestOutcomes[0]
-		require.Equal(t, models.StatusFailed, task.Status)
+		require.Equal(t, models.StatusError, task.Status)
 		require.Len(t, task.Runs, 1)
 		run := &task.Runs[0]
 		require.Equal(t, models.StatusError, run.Status)
@@ -60,8 +60,8 @@ func TestRunnerCompatPreservesObservedExecutionErrorArtifact(t *testing.T) {
 		require.Equal(t, []models.EvaluationSessionUsage{{}}, outcome.EvaluationUsage.Sessions,
 			"native usage scope retains an anonymous invocation without inventing a session or usage")
 		require.Nil(t, outcome.Digest.Usage)
-		require.Equal(t, 1, outcome.Digest.Failed)
-		require.Equal(t, 0, outcome.Digest.Errors)
+		require.Equal(t, 0, outcome.Digest.Failed)
+		require.Equal(t, 1, outcome.Digest.Errors)
 		require.Equal(t, 1, task.Stats.TotalRuns)
 		require.NotNil(t, run.FailureArtifacts)
 		artifacts := run.FailureArtifacts
@@ -120,7 +120,7 @@ func TestRunnerCompatPropagatesOutputWriterFailures(t *testing.T) {
 					require.Equal(t, 1, writer.matches, "only the selected production message exercises this writer")
 					if mode == "complete" {
 						if executionFailure {
-							var failed *TestFailureError
+							var failed *BenchmarkError
 							require.ErrorAs(t, err, &failed)
 						} else {
 							require.NoError(t, err)
