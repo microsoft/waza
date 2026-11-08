@@ -51,12 +51,6 @@ Ubuntu runner) computes the plan. Every shard still retains its 30-minute test
 deadline, atomic coverage, full discovery inventory, and selected test names;
 the aggregate gate verifies identical inventories and exactly-once selection.
 
-The planner tests assert an independently specified unequal-cost assignment and
-the equal-load tie breakers (assigned test count, then shard index). The shell
-regression reorders discovery and compares every shard's selected inventory
-through the production selector. These controls do not establish the three-run
-balance or workflow-latency targets in #825; measured acceptance remains open.
-
 Squad Release and Squad Insider Release run remaining-package validation in
 parallel with these shards. Publication waits for both branches to succeed,
 verifies all five coverage profiles and native selection, and downloads the
