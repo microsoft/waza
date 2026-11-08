@@ -534,6 +534,7 @@ func TestBenchmarkCorpusVerifyPreserved_MissingOrUnreadableEvidenceRejection(t *
 	})
 
 	t.Run("corrupt snapshot JSON", func(t *testing.T) {
+		scenario := DefaultBenchmarkScenarios()[0]
 		tempDir := t.TempDir()
 		snapshotsDir := filepath.Join(tempDir, "snapshots")
 		require.NoError(t, os.MkdirAll(snapshotsDir, 0o700))
@@ -567,6 +568,24 @@ func TestBenchmarkCorpusVerifyPreserved_MissingOrUnreadableEvidenceRejection(t *
 
 		// Corrupt snapshot must never pass qualification
 		require.NotEqual(t, AssessmentPassed, report.State)
+		corruptedCaseID := inMemoryDoc.Cases[0].ID
+		matchingObservations := 0
+		for _, reqAssessment := range report.Requirements {
+			for _, obs := range reqAssessment.Observations {
+				if obs.CaseID == corruptedCaseID {
+					matchingObservations++
+					require.Equal(t, Invalid, obs.State, "corrupted snapshot observations must be Invalid")
+					require.Nil(t, obs.Result, "invalid observation must have no result")
+					require.Nil(t, obs.Agreement, "invalid observation must have no agreement")
+					if reqAssessment.Check.Grader == scenario.OutcomeGraderID() {
+						require.Equal(t, "preserved_input_invalid_or_over_limit", obs.Reason)
+					} else if reqAssessment.Check.Grader == scenario.BoundaryGraderID() {
+						require.Equal(t, "native_observation_unavailable", obs.Reason)
+					}
+				}
+			}
+		}
+		require.Equal(t, 2, matchingObservations, "both checks for corrupted case must be inspected and recorded")
 	})
 
 	t.Run("unreadable or missing workspace files payload", func(t *testing.T) {
