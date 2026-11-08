@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"go.yaml.in/yaml/v3"
+	"gopkg.in/yaml.v3"
 )
 
 func runCompletenessNode(t *testing.T, args ...string) []byte {
@@ -111,10 +111,15 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 	}
 	check := func(source []byte) error {
 		var workflow struct {
+			Env  map[string]yaml.Node `yaml:"env"`
 			Jobs map[string]struct {
-				If     string                   `yaml:"if"`
-				RunsOn string                   `yaml:"runs-on"`
-				Steps  []ordinaryValidationStep `yaml:"steps"`
+				If     string               `yaml:"if"`
+				RunsOn string               `yaml:"runs-on"`
+				Env    map[string]yaml.Node `yaml:"env"`
+				Steps  []struct {
+					ordinaryValidationStep `yaml:",inline"`
+					Env                    map[string]yaml.Node `yaml:"env"`
+				} `yaml:"steps"`
 			} `yaml:"jobs"`
 		}
 		if err := yaml.Unmarshal(source, &workflow); err != nil {
@@ -131,6 +136,16 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 			if step.If != "" || (step.ContinueOnError.Kind != 0 &&
 				(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false")) {
 				return fmt.Errorf("completeness control step must not skip or tolerate failure")
+			}
+			var flags yaml.Node
+			flagsPresent := false
+			for _, env := range []map[string]yaml.Node{workflow.Env, job.Env, step.Env} {
+				if value, present := env["GOFLAGS"]; present {
+					flags, flagsPresent = value, true
+				}
+			}
+			if flagsPresent && (flags.Kind != yaml.ScalarNode || flags.Tag != "!!str" || flags.Value != "") {
+				return fmt.Errorf("GoLint GOFLAGS must be omitted or literal empty after workflow/job/step overrides")
 			}
 			args := strings.Fields(step.Run)
 			if len(args) < 4 || args[0] != "go" || args[1] != "test" || args[2] != "-count=1" {
@@ -153,6 +168,72 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 	if err := check(source); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("explicit-false-valid", func(t *testing.T) {
+		mutated := strings.Replace(string(source), "run: go test -count=1", "continue-on-error: false\n        run: go test -count=1", 1)
+		if mutated == string(source) {
+			t.Fatal("explicit-false control did not change the actual step")
+		}
+		if err := check([]byte(mutated)); err != nil {
+			t.Fatalf("explicit false must remain valid: %v", err)
+		}
+	})
+	for _, value := range []string{"true", `"${{ inputs.allow_failure }}"`} {
+		mutated := strings.Replace(string(source), "run: go test -count=1", "continue-on-error: "+value+"\n        run: go test -count=1", 1)
+		if mutated == string(source) || check([]byte(mutated)) == nil {
+			t.Fatal("actual step must reject true or dynamic continue-on-error")
+		}
+	}
+	setFlags := func(source []byte, scope, value string) []byte {
+		t.Helper()
+		anchors := map[string]string{
+			"workflow": "permissions:\n",
+			"job":      "  lint:\n",
+			"step":     "      - name: Test Go workflow trigger selection\n",
+		}
+		replacements := map[string]string{
+			"workflow": "env:\n  GOFLAGS: " + value + "\n\npermissions:\n",
+			"job":      "  lint:\n    env:\n      GOFLAGS: " + value + "\n",
+			"step":     "      - name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: " + value + "\n",
+		}
+		mutated := strings.Replace(string(source), anchors[scope], replacements[scope], 1)
+		if mutated == string(source) {
+			t.Fatalf("%s GOFLAGS control did not change the actual workflow", scope)
+		}
+		return []byte(mutated)
+	}
+	for _, scope := range []string{"workflow", "job", "step"} {
+		t.Run(scope+"-literal-empty-valid", func(t *testing.T) {
+			if err := check(setFlags(source, scope, `""`)); err != nil {
+				t.Fatalf("literal empty GOFLAGS must remain valid: %v", err)
+			}
+		})
+		for i, value := range []string{`"-run=TestWorkflowTriggerTypedInputs"`, `"-v"`,
+			`"${{ inputs.go_flags }}"`, `" "`, "null", "false", "1"} {
+			t.Run(fmt.Sprintf("%s-unsafe-flags-%d", scope, i), func(t *testing.T) {
+				if err := check(setFlags(source, scope, value)); err == nil {
+					t.Fatal("nonempty or unprovable effective GOFLAGS must reject control selection")
+				}
+			})
+		}
+	}
+	for _, override := range []struct{ lower, higher string }{
+		{"workflow", "job"}, {"workflow", "step"}, {"job", "step"},
+	} {
+		t.Run(override.lower+"-overridden-by-"+override.higher, func(t *testing.T) {
+			for _, value := range []string{`"-run=TestWorkflowTriggerTypedInputs"`, `"${{ inputs.go_flags }}"`} {
+				lower := setFlags(source, override.lower, value)
+				if err := check(setFlags(lower, override.higher, `""`)); err != nil {
+					t.Fatalf("higher literal empty GOFLAGS must override lower unsafe value: %v", err)
+				}
+			}
+		})
+	}
+	t.Run("step-unsafe-overrides-empty-job", func(t *testing.T) {
+		lower := setFlags(setFlags(source, "workflow", `"-run=TestWorkflowTriggerTypedInputs"`), "job", `""`)
+		if err := check(setFlags(lower, "step", `"-run=TestWorkflowTriggerTypedInputs"`)); err == nil {
+			t.Fatal("higher unsafe GOFLAGS must not inherit lower empty admission")
+		}
+	})
 	withHelper := strings.Replace(string(source), "run: go test -count=1", "run: go test -count=1 ./.github/scripts/release-assets-helper", 1)
 	if withHelper == string(source) {
 		t.Fatal("alternative-valid helper package did not change source")

@@ -12,6 +12,7 @@ const consumedLeafInputs = [
   ['examples/runner/container/published-image-test.mjs', 'site'],
   ['examples/runner/unit.json', 'examples'],
   ['.gitattributes', 'assurance'],
+  ['.gitattributes', 'container'],
 ];
 const source = {
   repository: 'microsoft/waza', event: 'pull_request', action: 'synchronize', pr: 900,
@@ -33,8 +34,8 @@ function browser(title = 'a real selected assertion', status = 'passed', file = 
   };
 }
 
-function fixture(paths = ['internal/models/outcome.go', '.squad/routing.md']) {
-  const plan = createPlan(source, paths);
+function fixture(paths = ['internal/models/outcome.go', '.squad/routing.md'], observedSource = source) {
+  const plan = createPlan(observedSource, paths);
   const needs = { 'pr-scope': { result: 'success' } };
   const receipts = [];
   for (const [family, contract] of Object.entries(contracts)) {
@@ -43,10 +44,10 @@ function fixture(paths = ['internal/models/outcome.go', '.squad/routing.md']) {
     for (const [unit, steps] of Object.entries(contract.units)) {
       const receipt = {
         kind: 'waza.pr-completeness-receipt', schema: 1, family, unit,
-        source: { ...source }, tested_sha: source.tested_sha,
+        source: { ...observedSource }, tested_sha: observedSource.tested_sha,
         steps: Object.fromEntries(steps.map((step) => [step, { outcome: 'success', conclusion: 'success' }])),
       };
-      if (receipt.steps.checkout) receipt.steps.checkout.outputs = { commit: source.tested_sha };
+      if (receipt.steps.checkout) receipt.steps.checkout.outputs = { commit: observedSource.tested_sha };
       if (family === 'dashboard') receipt.browser_reports = { browser: browser() };
       if (family === 'site') receipt.browser_reports = { browser: browser(), chat: browser(), chat_unavailable: browser() };
       if (family === 'assurance') receipt.browser_reports = { browser: browser(producerTitle, 'passed', 'assurance.spec.ts') };
@@ -54,8 +55,8 @@ function fixture(paths = ['internal/models/outcome.go', '.squad/routing.md']) {
     }
   }
   const current_pr = {
-    number: source.pr, state: 'open', head: { sha: source.head_sha },
-    base: { sha: source.base_sha, ref: source.base_ref, repo: { full_name: source.repository } },
+    number: observedSource.pr, state: 'open', head: { sha: observedSource.head_sha },
+    base: { sha: observedSource.base_sha, ref: observedSource.base_ref, repo: { full_name: observedSource.repository } },
   };
   return { plan, needs, receipts, current_pr };
 }
@@ -387,27 +388,11 @@ test('browser discovery rejects empty, retried, failed, near-miss and unexpected
   }
 });
 
-test('production evaluate CLI rejects ambiguous JSON and propagates unavailable evidence to exit status', (t) => {
+test('production evaluate CLI rejects ambiguous JSON before source admission', (t) => {
   const directory = scratch(t);
   const input = path.join(directory, 'input.json');
   const control = fixture(['AGENTS.md']);
-  fs.writeFileSync(input, JSON.stringify(control));
   const invoke = () => spawnSync(process.execPath, [cli, 'evaluate', input], { encoding: 'utf8' });
-  const good = invoke();
-  assert.equal(good.status, 0, good.stderr);
-  assert.equal(JSON.parse(good.stdout).passed, true);
-  const missingAPI = structuredClone(control);
-  delete missingAPI.current_pr;
-  fs.writeFileSync(input, JSON.stringify(missingAPI));
-  const noCurrentPR = invoke();
-  assert.equal(noCurrentPR.status, 1);
-  assert.equal(JSON.parse(noCurrentPR.stdout).passed, false);
-  assert.equal(Object.values(JSON.parse(noCurrentPR.stdout).scopes).every((scope) => scope === 'unavailable'), true);
-  control.needs.lint.result = 'skipped';
-  fs.writeFileSync(input, JSON.stringify(control));
-  const unavailable = invoke();
-  assert.equal(unavailable.status, 1);
-  assert.equal(JSON.parse(unavailable.stdout).passed, false);
   for (const bytes of [
     Buffer.from(JSON.stringify(control).replace('"schema":1', '"schema":1,"schema":1')),
     Buffer.from(JSON.stringify(control).replace('"pr":900', '"pr":900.000000000000000001')),
@@ -475,6 +460,56 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   assert.equal(plan.paths.includes('parent-only'), false);
   const planPath = path.join(directory, 'plan.json');
   const stepsPath = path.join(directory, 'steps.json');
+  const evaluationPath = path.join(directory, 'evaluation.json');
+  const evaluation = fixture(plan.paths, plan.source);
+  fs.writeFileSync(evaluationPath, JSON.stringify(evaluation));
+  const evaluateCLI = (extra = {}) => spawnSync(process.execPath, [cli, 'evaluate', evaluationPath], {
+    cwd: directory, env: { ...env, ...extra }, encoding: 'utf8',
+  });
+  const evaluated = evaluateCLI();
+  assert.equal(evaluated.status, 0, evaluated.stderr);
+  assert.equal(JSON.parse(evaluated.stdout).passed, true);
+  const reorderedEvaluation = structuredClone(evaluation);
+  reorderedEvaluation.plan.paths.reverse();
+  fs.writeFileSync(evaluationPath, JSON.stringify(reorderedEvaluation));
+  const reorderedResult = evaluateCLI();
+  assert.equal(reorderedResult.status, 0, reorderedResult.stderr);
+  assert.equal(JSON.parse(reorderedResult.stdout).passed, true);
+  fs.writeFileSync(evaluationPath, JSON.stringify(evaluation));
+  for (const extra of [
+    { GITHUB_EVENT_NAME: 'push', GITHUB_RUN_ID: '999', GITHUB_RUN_ATTEMPT: '2', GITHUB_SHA: head },
+    { GITHUB_EVENT_NAME: 'push' }, { GITHUB_WORKFLOW: 'Unrelated workflow' },
+    { GITHUB_RUN_ID: '999' }, { GITHUB_RUN_ATTEMPT: '2' }, { GITHUB_SHA: head },
+    { GITHUB_REPOSITORY: 'unrelated/repository' },
+    { GITHUB_EVENT_PATH: path.join(directory, 'missing-event.json') },
+  ]) {
+    const replayed = evaluateCLI(extra);
+    assert.equal(replayed.status, 1);
+    assert.equal(replayed.stdout, '');
+    assert.match(replayed.stderr, /PR completeness:/);
+  }
+  const omittedEvaluation = fixture(plan.paths.filter((file) => file !== helperPath), plan.source);
+  fs.writeFileSync(evaluationPath, JSON.stringify(omittedEvaluation));
+  const omittedEvaluationInput = evaluateCLI();
+  assert.equal(omittedEvaluationInput.status, 1);
+  assert.equal(omittedEvaluationInput.stdout, '');
+  assert.match(omittedEvaluationInput.stderr, /Changed-path inventory does not match actual tested merge/);
+  for (const mutate of [
+    (input) => { delete input.current_pr; },
+    (input) => { input.needs.lint.result = 'skipped'; },
+  ]) {
+    const unavailableInput = structuredClone(evaluation);
+    mutate(unavailableInput);
+    fs.writeFileSync(evaluationPath, JSON.stringify(unavailableInput));
+    const unavailable = evaluateCLI();
+    assert.equal(unavailable.status, 1, unavailable.stderr);
+    const result = JSON.parse(unavailable.stdout);
+    assert.equal(result.passed, false);
+    if (!unavailableInput.current_pr) {
+      assert.equal(Object.values(result.scopes).every((scope) => scope === 'unavailable'), true);
+    }
+  }
+  fs.writeFileSync(evaluationPath, JSON.stringify(evaluation));
   fs.writeFileSync(planPath, JSON.stringify(plan));
   const outputs = spawnSync(process.execPath, [cli, 'outputs', planPath], { cwd: directory, env, encoding: 'utf8' });
   assert.equal(outputs.status, 0, outputs.stderr);
@@ -530,6 +565,7 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   assert.equal(wrongParents.status, 1);
   assert.equal(wrongParents.stdout, '');
   assert.match(wrongParents.stderr, /Merge parents do not match event base and head/);
+  assert.equal(evaluateCLI().status, 1, 'evaluation must reject mismatched event merge parents');
   wrongEvent.pull_request.base.sha = base;
   wrongEvent.pull_request.base.ref = 'feature/different-parent';
   fs.writeFileSync(eventPath, JSON.stringify(wrongEvent));
@@ -537,6 +573,7 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   assert.equal(wrongRef.status, 1);
   assert.equal(wrongRef.stdout, '');
   assert.match(wrongRef.stderr, /Source mismatch: base_ref/);
+  assert.equal(evaluateCLI().status, 1, 'evaluation must reject a stale base ref');
   fs.writeFileSync(eventPath, JSON.stringify(event));
   assert.equal(capture().status, 0, 'source-negative controls must retain successful steps');
   steps.lint.outcome = 'skipped';
@@ -568,6 +605,7 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   const metadata = invoke();
   assert.equal(metadata.status, 1);
   assert.match(metadata.stderr, /Metadata-only edit is not PR validation/);
+  assert.equal(evaluateCLI().status, 1, 'metadata edits cannot replay ordinary evaluation evidence');
   event.changes = retargetChanges();
   fs.writeFileSync(eventPath, JSON.stringify(event));
   const retarget = invoke();
@@ -577,6 +615,11 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   assert.equal(retargetPlan.source.base_sha, base);
   assert.equal(retargetPlan.source.tested_sha, tested);
   assert.deepEqual(retargetPlan.paths, plan.paths);
+  assert.equal(evaluateCLI().status, 1, 'retarget requires freshly bound evaluation input');
+  fs.writeFileSync(evaluationPath, JSON.stringify(fixture(retargetPlan.paths, retargetPlan.source)));
+  const retargetEvaluation = evaluateCLI();
+  assert.equal(retargetEvaluation.status, 0, retargetEvaluation.stderr);
+  assert.equal(JSON.parse(retargetEvaluation.stdout).passed, true);
   let leafControl = 0;
   for (const [file, family] of consumedLeafInputs) {
     for (const changedFile of [file, `${file}-near-miss`]) {

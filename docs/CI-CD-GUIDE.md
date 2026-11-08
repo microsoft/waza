@@ -89,13 +89,20 @@ full-diff review:
 | Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures, plus runner container `MAINTAINERS.md` and `published-image-test.mjs` read by documentation checks. |
 | Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
 | Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
-| Docker image and native runner contracts | Container/context files, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |
+| Docker image and native runner contracts | Container/context files, `.gitattributes` LFS checkout rules for embedded assets, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |
 | Squad tools on Linux and Windows | Squad state, skills/agent definitions, PR requirements, casting `.gitattributes`, and Ralph/Squad tooling scripts. |
 | Pinned judge runtime on Linux and macOS | Embedded runtime, execution/graders/judge evidence/models, their repository package dependency closure (including filesystem admission, snapshot readers, schema loading, events, config, skills/tokens and compiled test helpers), root schemas, modules and `.gitattributes`. |
 
 Workflow and completeness-interpreter changes select the affected gate families.
 Instruction-only `AGENTS.md` edits do not add expensive auxiliary suites.
 Explicit `not_applicable` is different from absent, failed or skipped evidence.
+
+GoLint selection controls resolve declarative `GOFLAGS` with workflow, job and
+step precedence, retaining original YAML node types. The effective value must
+be omitted or a literal empty string; a higher-precedence literal empty value
+may override a lower unsafe value. Nonempty flags and unprovable expressions
+cannot establish execution of the full controls. Explicit
+`continue-on-error: false` is valid; true or dynamic values are not.
 
 The ordinary source record binds the immutable event's PR head, base SHA/ref and
 tested merge SHA, plus the actual caller workflow, workflow run and attempt.
@@ -143,6 +150,12 @@ unavailable; independent command failures are still reported. The workflow
 must fetch and check that snapshot immediately before evaluation. This is a
 point-in-time check, not a guarantee that the PR cannot change afterward;
 merge-time verification remains required.
+
+The final `evaluate` CLI independently repeats the actual caller and tested
+merge admission used by selection and receipt capture. A complete passing input
+from another event, run, attempt or merge cannot supply ordinary completeness
+success, and an omitted changed path is rejected. The exported pure `evaluate`
+API remains offline; executing the CLI requires the runner event and checkout.
 
 Body/title-only PR edits must use **distinct check names and concurrency** and
 must not publish ordinary completeness success or cancel active validation.

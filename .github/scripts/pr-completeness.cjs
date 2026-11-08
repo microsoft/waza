@@ -137,7 +137,7 @@ function applicability(paths) {
     examples: all || backend || modules || matches('site', 'docs', 'examples/interop', 'examples/runner/unit.json', 'README.md', 'registry.json', 'Makefile', 'web'),
     assurance: all || backend || modules || matches('web', 'scripts', 'docs/graders', 'examples', 'testdata/frozen-assurance-readers', '.gitattributes'),
     container: all || backend || modules || paths.some((file) => /^[^/]+\.go$/.test(file)) ||
-      matches('Dockerfile', '.dockerignore', 'version.txt', 'web', 'examples/runner', 'docs/graders',
+      matches('Dockerfile', '.dockerignore', '.gitattributes', 'version.txt', 'web', 'examples/runner', 'docs/graders',
         '.github/scripts/testdata/runner-runtime', '.github/scripts/testdata/native-bundle-probe'),
     tools: all || matches('.squad', '.github/skills', '.github/agents', '.github/PR_REQUIREMENTS.md', '.gitattributes') ||
       paths.some((file) => /^\.github\/scripts\/(?:ralph|squad)[^/]*\.(?:cjs|mjs)$/.test(file)),
@@ -396,7 +396,8 @@ function main(args) {
   }
   requireValue(args[0] === 'evaluate' && args.length === 2, 'Usage: pr-completeness.cjs route | plan | outputs PLAN.json | select PLAN.json FAMILY | receipt PLAN.json FAMILY UNIT STEPS.json [BROWSER.json] | evaluate INPUT.json');
   const input = readJSON(args[1]);
-  return evaluate(input.plan, input.needs, input.receipts, input.current_pr);
+  const observed = invocationPlan(input.plan, readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd());
+  return evaluate(observed, input.needs, input.receipts, input.current_pr);
 }
 
 if (require.main === module) {
