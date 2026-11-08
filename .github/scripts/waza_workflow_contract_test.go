@@ -249,10 +249,17 @@ func TestWorkflowContractAgainstActualCLIArtifacts(t *testing.T) {
 	guardOutput, err := guard.Output()
 	require.NoError(t, err, string(guardOutput))
 	offlineEnv := strings.Split(strings.TrimSpace(string(guardOutput)), "\n")
+	var guardPath string
+	for _, entry := range offlineEnv {
+		if strings.HasPrefix(entry, "COPILOT_CLI_PATH=") {
+			guardPath = strings.TrimPrefix(entry, "COPILOT_CLI_PATH=")
+			break
+		}
+	}
+	require.NotEmpty(t, guardPath)
 	t.Cleanup(func() {
-		entries, err := filepath.Glob(filepath.Join(dir, "*.invoked"))
-		require.NoError(t, err)
-		require.Empty(t, entries, "all production fixtures must avoid launching Copilot")
+		_, err := os.Stat(guardPath + ".invoked")
+		require.ErrorIs(t, err, os.ErrNotExist, "all production fixtures must avoid launching Copilot")
 	})
 	binary := filepath.Join(dir, "waza")
 	build := exec.Command("go", "build", "-o", binary, "../../cmd/waza")
