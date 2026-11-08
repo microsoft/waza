@@ -28,6 +28,29 @@ SDK fakes rather than copying them into a second suite. It includes all CLI
 subpackages, every grader and the ownership areas below. Do not substitute
 only the new `Compatibility` selector for the release gate.
 
+Ordinary Linux, Windows, and preview validation run the broad Go suite with
+`-count=1` under the rejecting runtime policy. Linux and preview also execute
+`make test-compat-inventory`, which checks the corpus prerequisites and prints
+the exact package inventory subsumed by that broad run; it does not execute the
+same packages a second time.
+
+The isolated `internal/embedded` `TestPath` protocol smoke test is the explicit
+exception: it starts the actual bundled native CLI outside the rejecting guard
+and its invocation marker. It clears credentials, disables logged-in-user use,
+and checks a local test provider receives zero requests without sending an
+inference prompt, within bounded contexts. This is native protocol evidence,
+not zero-CLI-launch, live-inference, or general network-egress isolation evidence.
+
+Workflow regression controls execute the production test-selection shell with a
+recording Go substitute and compare its arguments with actual package discovery.
+They require the whole suite (excluding only the separately guarded native shard
+package on Linux), uncached race/atomic coverage, and no narrowing test selectors.
+They also execute each production runtime-marker check with an absent and a
+present marker, requiring success only when no forbidden launch was recorded.
+Required guard, inventory, test, marker, and integration steps cannot tolerate
+failure via `continue-on-error`; mutation controls check every Linux, Windows,
+and preview occurrence, allowing only omission or explicit `false`.
+
 Ordinary and `--runner-compat` benchmark summaries use the command's configured
 output writer and propagate write failures, including short writes, as output
 errors (exit 2), before saving the requested result file. The summary text is
@@ -194,11 +217,46 @@ regression test, not a new organizational assignment.
 
 ## Stable exit meanings
 
+### Operational trial errors
+
+New native runs and regraded tasks use the following status precedence. An
+operational error means a trial did not obtain a complete verdict; it is not
+a completed negative judgment.
+
+| Recorded final trial statuses | Task status |
+|---|---|
+| One or more `error`, with any combination of other statuses | `error` |
+| No errors, one or more `failed`, with passed/skipped trials allowed | `failed` |
+| Only `passed` and optional `skipped`, with at least one pass | `passed` |
+| Only `skipped`, or no recorded trials | `skipped` |
+
+Each task contributes to exactly one summary counter. Errors take precedence
+over failed judgments and successful trials, including repeated trials; skipped
+trials remain neutral. This deliberately corrects the historical error-to-failed
+aggregation (#925), not the existing all-completed-trials pass requirement.
+Partial/cancelled runs retain their incomplete metadata and cancellation errors.
+Retries still apply only to completed failed attempts, not operational errors;
+the final attempt determines its trial status and discarded-attempt usage is
+retained. Operational errors are not reusable cached results.
+
+Historical artifact readers preserve recorded task statuses and counters rather
+than retroactively claiming corrected evidence. Regrading replaces the selected
+task's status from its graded trials: preserved execution errors remain errors,
+while valid frozen output can obtain a new verdict without changing recorded
+execution billing. Failed evidence-judge setup remains fail-closed.
+
+`run` saves completed benchmark artifacts before returning runtime exit **2**
+when either the primary or baseline evaluation contains operational errors.
+This takes precedence over validation exit **1**, even across multiple models
+or skills. Completed false judgments still use exit **1**. The dashboard's
+run-level `outcome` remains its existing passed/failed rollup; task outcomes and
+summary error counters retain the operational classification, including exports.
+
 | Command | Existing contract |
 |---|---|
 | `run` | 0 success, 1 failed task validation, 2 configuration/runtime error |
 | `gate` | 0 pass, 1 regression/task-set policy, 2 golden failure, 3 configuration error |
-| `grade` | Emits JSON `passed: false` for a failed verdict but currently exits 0; consumers must inspect the verdict. This is reporting, not the CI gate. |
+| `grade` | Emits JSON `passed: false` for a completed failed verdict but exits 0; consumers must inspect the verdict. Operational grading or retained execution errors use exit 2. Frozen-evidence task-grading failures and retained execution errors emit `status: error` without `overall_score` and preserve requested regraded output. Other non-evidence grader errors can return before publishing JSON or regraded output. |
 | `replay` | 0 consistency pass, 1 inconsistency/divergence; configuration errors use the normal error exit |
 
 ## Explicit native release-policy addition

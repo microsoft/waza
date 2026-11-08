@@ -1,6 +1,7 @@
 package execution_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -49,4 +50,34 @@ func TestJudgeFilesAreCapturedBeforeActorDisconnect(t *testing.T) {
 	restored, err := os.ReadFile(filepath.Join(response.WorkspaceDir, "report.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "DISCONNECT_RESTORED_CANARY", string(restored))
+}
+
+func TestWorkspaceCaptureLimitStillDisconnectsAndReportsError(t *testing.T) {
+	client := &copilotfake.Client{
+		Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			content := bytes.Repeat([]byte("x"), (16<<20)+1)
+			require.NoError(t, os.WriteFile(filepath.Join(config.WorkingDirectory, "oversized.bin"), content, 0600))
+			return []copilot.SessionEvent{
+				{Data: &copilot.UserMessageData{Content: options.Prompt}},
+				{Data: &copilot.AssistantMessageData{Content: "done"}},
+			}, nil
+		},
+		Disconnect: func(config *copilot.SessionConfig) error {
+			return os.WriteFile(filepath.Join(config.WorkingDirectory, "oversized.bin"), []byte("RESTORED"), 0600)
+		},
+	}
+	engine := client.Engine()
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(t.Context())) })
+
+	response, err := engine.Execute(t.Context(), &execution.ExecutionRequest{Message: "Write output", NoSkills: true})
+	require.NoError(t, err)
+	require.False(t, response.Success)
+	require.Contains(t, response.ErrorMsg, "workspace capture incomplete")
+	require.Contains(t, response.ErrorMsg, "exceeds per-file limit")
+	require.Nil(t, response.WorkspaceFiles)
+
+	restored, err := os.ReadFile(filepath.Join(response.WorkspaceDir, "oversized.bin"))
+	require.NoError(t, err)
+	require.Equal(t, "RESTORED", string(restored))
 }

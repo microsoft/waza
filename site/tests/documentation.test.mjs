@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
+const serveCommandInput = 'cmd/waza/cmd_serve.go';
 const catalogInputs = {
   native: 'internal/models/outcome.go',
   schema: 'schemas/eval.schema.json',
@@ -204,7 +205,28 @@ function assertSiteDiscovery(workflow, inputs) {
 
 test('every catalog, release and Docker workflow input enables PR site checks and the main push workflow', () => {
   assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
-    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml']);
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml', serveCommandInput]);
+});
+
+test('serve flag source selects site checks and selector omissions fail closed', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertSiteDiscovery(workflow, [serveCommandInput]);
+  const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
+  assert.ok(site, 'PR site filter must exist');
+  assert.ok(site.includes(`'${serveCommandInput}'`), 'serve source must have an exact PR site selector');
+  assert.doesNotMatch(site, /'(?:cmd\/\*\*|cmd\/waza\/\*\*|cmd\/waza\/cmd_run\.go)'/,
+    'unrelated commands must not select site checks for the serve guard');
+  for (const [selector, line, diagnostic] of [
+    ['PR site filter', `              - '${serveCommandInput}'\n`, /PR site filter excludes documentation input/],
+    ['main push', "      - 'cmd/waza/**'\n", /main push gate excludes documentation input/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
+    assert.throws(() => assertSiteDiscovery(mutated, [serveCommandInput]), diagnostic, selector);
+  }
+  const exactPush = workflow.replace("      - 'cmd/waza/**'\n", `      - '${serveCommandInput}'\n`);
+  assert.notEqual(exactPush, workflow, 'alternative push selector must change the actual workflow');
+  assertSiteDiscovery(exactPush, [serveCommandInput]);
 });
 
 test('Docker guard discovery rejects removal from either production site selector', () => {
@@ -779,4 +801,41 @@ test('published workflow guides do not require unreleased main for v0.39.0 featu
     assert.doesNotMatch(text, /(?:upcoming|current source)\/main-only|source-build-only|require upcoming main|build upcoming main/i, path);
     assert.match(text, /reference\/releases|releases\/#upcoming-main-only-capabilities/, path);
   }
+});
+
+test('waza serve reference lists only flags the serve command registers', () => {
+  const command = read(serveCommandInput);
+  const registered = new Set(
+    [...command.matchAll(/\.Flags\(\)\.(?:String|Bool|Int|StringSlice|Duration)Var\([^,]+,\s*"([^"]+)"/g)]
+      .map((match) => match[1]),
+  );
+  assert.ok(registered.size > 0, 'serve command must register at least one flag');
+  assert.ok(!registered.has('stdio'), 'serve command must not register --stdio');
+
+  const reference = read('site/src/content/docs/reference/cli.mdx');
+  const section = reference.split('## waza serve')[1]?.split('\n## ')[0];
+  assert.ok(section, 'waza serve reference section must exist');
+
+  const tableFlags = [...section.matchAll(/^\| `--([a-z0-9-]+)` \|/gm)]
+    .map((match) => match[1]);
+  assert.ok(tableFlags.length > 0, 'waza serve flags table must list flags');
+  for (const flag of tableFlags) {
+    assert.ok(registered.has(flag), `documented serve flag --${flag} is not registered in cmd_serve.go`);
+  }
+
+  const examples = [...section.matchAll(/```bash\n([\s\S]*?)```/g)]
+    .map((match) => match[1]).join('\n');
+  const exampleFlags = [...examples.matchAll(/--([a-z0-9-]+)/g)]
+    .map((match) => match[1]);
+  assert.ok(exampleFlags.length > 0, 'waza serve examples must use flags');
+  for (const flag of exampleFlags) {
+    assert.ok(registered.has(flag), `serve example flag --${flag} is not registered in cmd_serve.go`);
+  }
+
+  assert.doesNotMatch(section, /--stdio\b/, 'waza serve reference must not reintroduce --stdio');
+  assert.doesNotMatch(
+    read('site/src/content/docs/guides/dashboard.mdx'),
+    /waza serve --stdio\b/,
+    'dashboard guide must not reintroduce waza serve --stdio',
+  );
 });
