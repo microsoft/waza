@@ -6,6 +6,7 @@ import test from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
+const serveCommandInput = 'cmd/waza/cmd_serve.go';
 const catalogInputs = {
   native: 'internal/models/outcome.go',
   schema: 'schemas/eval.schema.json',
@@ -204,7 +205,28 @@ function assertSiteDiscovery(workflow, inputs) {
 
 test('every catalog, release and Docker workflow input enables PR site checks and the main push workflow', () => {
   assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
-    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml']);
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml', serveCommandInput]);
+});
+
+test('serve flag source selects site checks and selector omissions fail closed', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertSiteDiscovery(workflow, [serveCommandInput]);
+  const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
+  assert.ok(site, 'PR site filter must exist');
+  assert.ok(site.includes(`'${serveCommandInput}'`), 'serve source must have an exact PR site selector');
+  assert.doesNotMatch(site, /'(?:cmd\/\*\*|cmd\/waza\/\*\*|cmd\/waza\/cmd_run\.go)'/,
+    'unrelated commands must not select site checks for the serve guard');
+  for (const [selector, line, diagnostic] of [
+    ['PR site filter', `              - '${serveCommandInput}'\n`, /PR site filter excludes documentation input/],
+    ['main push', "      - 'cmd/waza/**'\n", /main push gate excludes documentation input/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
+    assert.throws(() => assertSiteDiscovery(mutated, [serveCommandInput]), diagnostic, selector);
+  }
+  const exactPush = workflow.replace("      - 'cmd/waza/**'\n", `      - '${serveCommandInput}'\n`);
+  assert.notEqual(exactPush, workflow, 'alternative push selector must change the actual workflow');
+  assertSiteDiscovery(exactPush, [serveCommandInput]);
 });
 
 test('Docker guard discovery rejects removal from either production site selector', () => {
@@ -782,7 +804,7 @@ test('published workflow guides do not require unreleased main for v0.39.0 featu
 });
 
 test('waza serve reference lists only flags the serve command registers', () => {
-  const command = read('cmd/waza/cmd_serve.go');
+  const command = read(serveCommandInput);
   const registered = new Set(
     [...command.matchAll(/\.Flags\(\)\.(?:String|Bool|Int|StringSlice|Duration)Var\([^,]+,\s*"([^"]+)"/g)]
       .map((match) => match[1]),
