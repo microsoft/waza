@@ -2119,6 +2119,15 @@ func validateTagRelease(source []byte) error {
 		!strings.HasPrefix(releaseSteps(release)["Create or Update GitHub Release"].Run, "TAG=\"${{ needs.setup-version.outputs.tag }}\"\n") {
 		return fmt.Errorf("CLI build and publication must consume detected version and tag")
 	}
+	publication := publishSteps["Create or Update GitHub Release"].Run
+	if !strings.HasPrefix(publication, "TAG=\"${{ needs.setup-version.outputs.tag }}\"\nbash .github/scripts/release_tag_check.sh \"$TAG\"\n") {
+		return fmt.Errorf("CLI publication must enforce shared remote-tag admission before any release operation")
+	}
+	create := "elif ! gh release create \"$TAG\" artifacts/* \\\n    --repo \"${{ github.repository }}\" \\\n    "
+	if !strings.Contains(publication, create+"--verify-tag --target \"$GITHUB_SHA\" \\\n") &&
+		!strings.Contains(publication, create+"--target \"$GITHUB_SHA\" --verify-tag \\\n") {
+		return fmt.Errorf("CLI release creation must verify the existing tag and target the validated source")
+	}
 
 	for _, step := range extension.Steps {
 		if _, overrides := step.Env["VERSION"]; overrides {

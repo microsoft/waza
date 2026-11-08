@@ -1,11 +1,82 @@
 package scripts
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestReleaseCLITagGateMutations(t *testing.T) {
+	source := readReleaseWorkflow(t, "release.yml")
+	for _, mutation := range []struct {
+		name, old, new string
+		admitted       bool
+	}{
+		{"original", "", "", true},
+		{"reordered-flags", `--verify-tag --target "$GITHUB_SHA"`, `--target "$GITHUB_SHA" --verify-tag`, true},
+		{"missing-tag-admission", `bash .github/scripts/release_tag_check.sh "$TAG"`, ":", false},
+		{"tolerated-tag-admission", `bash .github/scripts/release_tag_check.sh "$TAG"`, `bash .github/scripts/release_tag_check.sh "$TAG" || true`, false},
+		{"wrong-guard-tag", `bash .github/scripts/release_tag_check.sh "$TAG"`, `bash .github/scripts/release_tag_check.sh "$GITHUB_SHA"`, false},
+		{"missing-verify-tag", "--verify-tag ", "", false},
+		{"missing-target", `--target "$GITHUB_SHA"`, "", false},
+		{"wrong-target", `--target "$GITHUB_SHA"`, "--target main", false},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			var workflow releaseWorkflow
+			if err := yaml.Unmarshal(source, &workflow); err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := yaml.Marshal(workflow)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validateTagRelease(baseline); err != nil {
+				t.Fatalf("positive canonical YAML round trip: %v", err)
+			}
+			job := workflow.Jobs["release-cli"]
+			changedRun := ""
+			for i := range job.Steps {
+				step := &job.Steps[i]
+				if step.Name == "Create or Update GitHub Release" {
+					changedRun = step.Run
+					if mutation.old != "" {
+						changedRun = strings.Replace(step.Run, mutation.old, mutation.new, 1)
+						if changedRun == step.Run {
+							t.Fatal("mutation did not change the selected CLI tag boundary")
+						}
+					}
+					step.Run = changedRun
+				}
+			}
+			if changedRun == "" {
+				t.Fatal("canonical CLI publication step missing")
+			}
+			syntax := exec.CommandContext(t.Context(), "bash", "-n")
+			syntax.Stdin = strings.NewReader(changedRun)
+			if output, err := syntax.CombinedOutput(); err != nil {
+				t.Fatalf("mutation must remain valid Bash: %v\n%s", err, output)
+			}
+			workflow.Jobs["release-cli"] = job
+			changed, err := yaml.Marshal(workflow)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var actual releaseWorkflow
+			if err := yaml.Unmarshal(changed, &actual); err != nil {
+				t.Fatalf("mutation must remain valid YAML: %v", err)
+			}
+			if releaseSteps(actual.Jobs["release-cli"])["Create or Update GitHub Release"].Run != changedRun {
+				t.Fatal("mutation lost the intended CLI Bash source")
+			}
+			admissionErr := validateTagRelease(changed)
+			if admitted := admissionErr == nil; admitted != mutation.admitted {
+				t.Fatalf("CLI tag mutation admission = %v, want %v: %v", admitted, mutation.admitted, admissionErr)
+			}
+		})
+	}
+}
 
 func TestReleasePublicationMutations(t *testing.T) {
 	source := readReleaseWorkflow(t, "release.yml")
