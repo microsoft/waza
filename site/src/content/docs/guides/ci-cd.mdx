@@ -171,8 +171,9 @@ dependency-cache hits. Missing cache outputs stay `null`; configured caching is
 not proof of a hit or miss. No model calls or additional full-suite run are
 added. Native exhaustive inventory and atomic-coverage verification remain
 independent required gates.
-The release remaining-package layer is still pending its separate guard
-dependency; native shards used by release already share the same capture.
+Release remaining-package jobs and their native shards share the guarded
+capture and 14-day retention. This describes the workflow wiring, not proof
+of hosted release execution or performance-target attainment.
 
 Go discovery uses the existing shard `.all`/`.selected` inventories. Top-level
 tests, nested tests and packages have separate observed/executed/pass/fail/skip

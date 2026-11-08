@@ -15,8 +15,8 @@ process.env.CI_EVIDENCE_COLD_REQUESTED = "false";
 
 const env = { GITHUB_REPOSITORY: "microsoft/waza", GITHUB_WORKFLOW: "Go Build and Test", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40), GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", GITHUB_JOB: "native", RUNNER_OS: "Linux", RUNNER_ARCH: "X64", GO_CACHE_HIT: "false", NODE_CACHE_HIT: "false" };
 const browserReport = (data, env, discovery, runtime = { go: "go version go1.26.4 linux/amd64" }) => parseBrowserReport(data, env, discovery, runtime);
-const parseGo = (events) => {
-  const report = goReport(env, { go: "go version go1.26.4 linux/amd64" }), parser = goParser(report);
+const parseGo = (events, selection = {}) => {
+  const report = Object.assign(goReport(env, { go: "go version go1.26.4 linux/amd64" }), selection), parser = goParser(report);
   for (const event of events) parser.accept(typeof event === "string" ? event : JSON.stringify(event));
   const result = parser.finish();
   result.execution_exit = result.counts.packages.fail ? 1 : 0;
@@ -534,6 +534,55 @@ test("Actions production collector uses attempt endpoints, bounded pagination an
   assert.ok(capped.diagnostics.includes("jobs-pagination-incomplete"));
   assert.ok(!JSON.stringify(capped).includes("SECRET"));
 });
+test("production Actions totals withhold job integrity failures but preserve unrelated diagnostics and recorded zero", () => {
+  const collect = (lists, { artifacts = [], incomplete = false } = {}) => collectActions("10", (endpoint) => {
+    if (endpoint.includes("/jobs")) {
+      const attempt = Number(/\/attempts\/([0-9]+)\//.exec(endpoint)[1]);
+      const page = Number(/[?&]page=([0-9]+)/.exec(endpoint)[1]);
+      return { total_count: lists[attempt - 1].length + (incomplete ? 1 : 0),
+        jobs: !incomplete || page === 1 ? lists[attempt - 1] : [] };
+    }
+    if (endpoint.includes("/artifacts")) return { total_count: artifacts.length, artifacts };
+    if (endpoint.includes("/attempts/")) return { run_started_at: "2026-11-07T10:01:00Z" };
+    return { ...run, run_attempt: lists.length };
+  });
+  const good = job(1, "01", "02");
+  const known = collect([[good]]);
+  assert.equal(known.complete, true);
+  assert.equal(known.runner_elapsed_minutes_by_os["ubuntu-latest"], 1);
+  for (const [lists, diagnostic] of [
+    [[[{ ...good, head_sha: "b".repeat(40) }]], "job-source-unverified"],
+    [[[{ ...good, run_id: 11 }]], "job-source-unverified"],
+    [[[good, good]], "duplicate-job-in-attempt"],
+    [[[good, { ...good, id: 1.5 }]], "job-id-unavailable"],
+    [[[good], [job(1, "03", "05", "success", 2)]], "retained-job-conflict"],
+    [[[job(1, "01", null)]], "job-metadata-incomplete"],
+  ]) {
+    const report = collect(lists);
+    assert.ok(report.jobs.length > 0, "control must retain an observed job");
+    assert.ok(report.diagnostics.includes(diagnostic), diagnostic);
+    assert.equal(report.runner_elapsed_minutes_by_os["ubuntu-latest"], null, diagnostic);
+  }
+  const pagination = collect([[good]], { incomplete: true });
+  assert.ok(pagination.diagnostics.includes("jobs-pagination-incomplete"));
+  assert.equal(pagination.jobs.length, 1, "a complete known duration cannot hide the missing inventory");
+  assert.equal(pagination.runner_elapsed_minutes_by_os["ubuntu-latest"], null);
+  const artifact = { id: 100, name: "unrelated", size_in_bytes: 0,
+    workflow_run: { id: 11, head_sha: run.head_sha } };
+  const unknownStep = structuredClone(good);
+  unknownStep.steps[0].completed_at = null;
+  for (const [lists, artifacts, expected, diagnostics] of [
+    [[[good]], [artifact], 1, ["artifact-source-unverified"]],
+    [[[unknownStep]], [], 1, ["step-duration-unavailable"]],
+    [[[job(1, "01", "01")]], [], 0, []],
+    [[[job(1, "01", "01")]], [artifact], 0, ["artifact-source-unverified"]],
+    [[[job(1, "01", "02", "failure")]], [], 1, []],
+  ]) {
+    const report = collect(lists, { artifacts });
+    for (const code of diagnostics) assert.ok(report.diagnostics.includes(code), code);
+    assert.equal(report.runner_elapsed_minutes_by_os["ubuntu-latest"], expected);
+  }
+});
 function archive(report, name = "coverage-native-0.txt.evidence.json", options = {}) {
   const content = Buffer.isBuffer(report) ? report : Buffer.from(JSON.stringify(report));
   const data = options.deflate ? deflateRawSync(content) : content, filename = Buffer.from(name);
@@ -562,6 +611,135 @@ function verified(report, overrides = {}, family = report.kind === "playwright" 
   const fixture = artifactFixture(report, overrides, family);
   return collectObservations(fixture.id, fixture.api, () => fixture.zip);
 }
+test("verified complete Go reports require selected target and count integrity without repairing incomplete evidence", () => {
+  const produce = (events = successful, selection = {
+    selected: ["example/p::TestA"], inventory_scope: "qualified",
+  }) => {
+    const report = parseGo(events, selection);
+    report.identity.source_sha = run.head_sha;
+    return report;
+  };
+  const inspect = (report, admitted, eligible) => {
+    const snapshot = structuredClone(report);
+    const observed = verified(report, {}, "go-run");
+    assert.equal(observed.reports.length, admitted ? 1 : 0);
+    assert.deepEqual(report, snapshot, "admission must not repair counts or mutate producer evidence");
+    const grouped = trends(observed.reports), proposal = historyProposal(observed.reports);
+    assert.equal(grouped.cohorts.reduce((sum, cohort) => sum + cohort.eligible.length, 0), eligible ? 1 : 0);
+    if (!eligible) assert.deepEqual(proposal.targets, []);
+    if (!admitted) assert.ok(observed.diagnostics.includes("evidence-artifact-invalid-or-unverified"));
+    return proposal;
+  };
+  const good = produce();
+  assert.equal(good.complete, true);
+  assert.equal(good.counts.subtests.skip, 1);
+  assert.equal(inspect(good, true, true).targets[0].target, "example/p::TestA");
+  const mutations = [
+    (report) => { report.targets = []; },
+    (report) => { report.targets[0].name = "TestB"; },
+    (report) => { report.targets.push(structuredClone(report.targets[0])); },
+    (report) => { report.targets[0].executed = null; },
+    (report) => { report.targets[0].top_level = false; },
+    (report) => { report.selected = []; },
+    (report) => { report.selected.push(report.selected[0]); },
+    (report) => { report.packages = []; },
+    (report) => {
+      report.packages = [];
+      report.counts.packages = { observed: 0, executed: 0, pass: 0, fail: 0, skip: 0, unfinished: 0 };
+    },
+    (report) => {
+      for (const target of report.targets) target.package = "example/orphan";
+      report.selected = ["example/orphan::TestA"];
+    },
+    (report) => { report.packages[0].status = "fail"; },
+    (report) => { report.counts = null; },
+  ];
+  for (const scope of ["top_level", "subtests", "packages"]) {
+    for (const field of ["observed", "executed", "pass", "fail", "skip", "unfinished"]) {
+      mutations.push((report) => { report.counts[scope][field]++; });
+    }
+  }
+  for (const mutate of mutations) {
+    const report = structuredClone(good);
+    mutate(report);
+    assert.notDeepEqual(report, good, "mutation must change actual producer output");
+    inspect(report, false, false);
+  }
+  const mismatch = produce([
+    event("start"), event("run", "TestB"), event("pass", "TestB", 2), event("pass", null, 3),
+  ]);
+  assert.ok(mismatch.diagnostics.includes("selection-execution-mismatch"));
+  inspect(mismatch, true, false);
+  const missingDuration = produce([
+    event("start"), event("run", "TestA"), event("pass", "TestA"), event("pass", null, 3),
+  ]);
+  assert.ok(missingDuration.diagnostics.includes("duration-unavailable"));
+  inspect(missingDuration, true, false);
+  const missingPackage = produce([event("run", "TestA"), event("pass", "TestA", 1)]);
+  assert.ok(missingPackage.diagnostics.includes("execution-unavailable"));
+  assert.deepEqual(missingPackage.packages, []);
+  assert.deepEqual(missingPackage.counts.packages, { observed: 0, executed: 0, pass: 0, fail: 0, skip: 0, unfinished: 0 });
+  inspect(missingPackage, true, false);
+  inspect({ ...missingPackage, complete: true, diagnostics: [] }, false, false);
+  inspect(produce([event("start"), event("pass", null, 0)], { selected: [] }), true, false);
+  inspect(produce([
+    event("start"), event("run", "TestA"), event("fail", "TestA", 1), event("fail", null, 1),
+  ]), true, false);
+  const zero = produce([
+    event("start"), event("run", "TestA"), event("pass", "TestA", 0), event("pass", null, 0),
+  ]);
+  assert.equal(inspect(zero, true, true).targets[0].observations[0].seconds, 0);
+  const named = produce([
+    event("start"), event("run", "TestA"), event("pass", "TestA", 1), event("pass", null, 1),
+    { ...event("start"), Package: "example/other" },
+    { ...event("run", "TestA"), Package: "example/other" },
+    { ...event("pass", "TestA", 1), Package: "example/other" },
+    { ...event("pass", null, 1), Package: "example/other" },
+  ], { selected: ["TestA"], inventory_scope: "names" });
+  assert.equal(named.complete, true);
+  assert.equal(named.counts.top_level.observed, 2);
+  assert.equal(inspect(named, true, true).targets.length, 2, "one name may select distinct packages");
+});
+test("production report processing limits charge valid and invalid bodies at 99, 100 and 101 across shared calls", () => {
+  const report = parseGo(successful);
+  report.identity.source_sha = run.head_sha;
+  report.selected = ["example/p::TestA"];
+  const fixture = artifactFixture(report, {}, "go-run");
+  const invalid = archive({ ...report, schema: 2 }, "coverage.txt.evidence.json");
+  const probe = (count, pattern, budget = { compressed: 0, expanded: 0, reports: 0 }) => {
+    const attempted = Math.min(count, LIMITS.reports - budget.reports);
+    const zips = Array.from({ length: count }, (_, index) =>
+      pattern === "invalid" || (pattern === "mixed" && index % 2 === 0) ||
+        (pattern === "invalid-prefix" && index < count - 1) ? invalid : fixture.zip);
+    const artifacts = zips.map((zip, index) => ({
+      id: 1000 + index, name: "ci-evidence-go-run-10-1-native", size_in_bytes: zip.length,
+      expired: false, digest: `sha256:${createHash("sha256").update(zip).digest("hex")}`,
+      workflow_run: { id: 10, head_sha: run.head_sha },
+    }));
+    const api = (endpoint) => {
+      if (!endpoint.includes("/artifacts")) return fixture.api(endpoint);
+      const page = Number(/[?&]page=([0-9]+)/.exec(endpoint)[1]);
+      return { total_count: artifacts.length, artifacts: artifacts.slice((page - 1) * 100, page * 100) };
+    };
+    const downloads = [];
+    const observed = collectObservations("10", api, (id) => {
+      downloads.push(id); return zips[id - 1000];
+    }, budget);
+    assert.equal(downloads.length, attempted);
+    assert.equal(observed.reports.length, zips.slice(0, attempted).filter((zip) => zip === fixture.zip).length);
+    assert.equal(observed.diagnostics.includes("evidence-artifact-cap"), count > attempted);
+    return budget;
+  };
+  for (const count of [99, 100, 101]) {
+    for (const pattern of ["valid", "invalid", "mixed", "invalid-prefix"]) {
+      assert.equal(probe(count, pattern).reports, Math.min(count, LIMITS.reports));
+    }
+  }
+  const shared = probe(99, "invalid");
+  probe(1, "valid", shared);
+  probe(1, "valid", shared);
+  assert.equal(shared.reports, 100, "invalid charges remain reserved across source collections");
+});
 function isolatedObservation(report) {
   return {
     schema: 1, mode: "isolated-empty", platform: "linux", phase: "before-dependencies",
@@ -1357,6 +1535,8 @@ test("verified dependency-cache admission retains missing observations without v
     const report = makeReport("go-native");
     if (scope === undefined) delete report.inventory_scope;
     else report.inventory_scope = scope;
+    report.selected = ["example/p::TestA"];
+    report.discovered = report.selected;
     inspect(report, "go-native", false);
   }
   const masquerading = makeReport("go-native");

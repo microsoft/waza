@@ -117,6 +117,37 @@ function goReport(env = process.env, runtime = {}) {
   report.discovery_collector_exit = null;
   return report;
 }
+function targetCounts(items) {
+  return {
+    observed: items.length, executed: items.filter((item) => item.executed).length,
+    pass: items.filter((item) => item.status === "pass").length,
+    fail: items.filter((item) => item.status === "fail").length,
+    skip: items.filter((item) => item.status === "skip").length,
+    unfinished: items.filter((item) => item.status === null).length,
+  };
+}
+function completeGoTargets(report) {
+  const valid = (target) => target && typeof target === "object" && !Array.isArray(target) &&
+    text(target.package) && typeof target.executed === "boolean" &&
+    ["pass", "fail", "skip"].includes(target.status) && number(target.seconds) !== null;
+  if (!Array.isArray(report.targets) || !Array.isArray(report.packages) || !report.packages.length ||
+      report.targets.length + report.packages.length > LIMITS.targets ||
+      !report.targets.every((target) => valid(target) && text(target.name) &&
+        target.top_level === !target.name.includes("/")) ||
+      !report.packages.every(valid)) return false;
+  const packages = new Set(report.packages.map((target) => target.package));
+  if (new Set(report.targets.map((target) => `${target.package}::${target.name}`)).size !== report.targets.length ||
+      packages.size !== report.packages.length || report.targets.some((target) => !packages.has(target.package))) return false;
+  const top = report.targets.filter((target) => target.top_level);
+  const actual = new Set(top.map((target) => report.inventory_scope === "names" ? target.name : `${target.package}::${target.name}`));
+  if (!Array.isArray(report.selected) || report.selected.length > LIMITS.targets ||
+      report.selected.some((target) => !text(target)) ||
+      new Set(report.selected).size !== report.selected.length ||
+      actual.size !== report.selected.length || report.selected.some((target) => !actual.has(target))) return false;
+  return [["top_level", top], ["subtests", report.targets.filter((target) => !target.top_level)], ["packages", report.packages]]
+    .every(([scope, items]) => Object.entries(targetCounts(items))
+      .every(([field, count]) => report.counts?.[scope]?.[field] === count));
+}
 function stdoutWriter(stream = process.stdout) {
   let error = null, rejectPending = null;
   const failed = (cause) => {
@@ -219,13 +250,7 @@ function goParser(report, output = () => {}) {
     }
     report.counts = {};
     for (const [scope, items] of [["top_level", report.targets.filter((item) => item.top_level)], ["subtests", report.targets.filter((item) => !item.top_level)], ["packages", report.packages]]) {
-      report.counts[scope] = {
-        observed: items.length, executed: items.filter((item) => item.executed).length,
-        pass: items.filter((item) => item.status === "pass").length,
-        fail: items.filter((item) => item.status === "fail").length,
-        skip: items.filter((item) => item.status === "skip").length,
-        unfinished: items.filter((item) => item.status === null).length,
-      };
+      report.counts[scope] = targetCounts(items);
     }
     const top = report.targets.filter((item) => item.top_level);
     report.top_level_seconds = top.length && top.every((item) => item.seconds !== null) ? top.reduce((sum, item) => sum + item.seconds, 0) : null;
@@ -506,9 +531,11 @@ function summarizeActions(run, attempts, artifacts, diagnostics = []) {
   }
   report.jobs = [...retained.values()].sort((a, b) => a.id - b.id);
   report.runner_elapsed_minutes_by_os = {};
+  const inventoryComplete = report.attempts.every((attempt) => attempt.complete) &&
+    !report.diagnostics.some((code) => code === "attempt-cap" || code.startsWith("jobs-") ||
+      ["job-source-unverified", "job-id-unavailable", "duplicate-job-in-attempt", "retained-job-conflict"].includes(code));
   for (const os of new Set(report.jobs.map((job) => job.os))) {
     const jobs = report.jobs.filter((job) => job.os === os);
-    const inventoryComplete = report.attempts.every((attempt) => attempt.complete) && !diagnostics.some((code) => code === "attempt-cap" || code.startsWith("jobs-"));
     report.runner_elapsed_minutes_by_os[os || "unknown"] = inventoryComplete && jobs.every((job) => job.elapsed_seconds !== null) ? jobs.reduce((sum, job) => sum + job.elapsed_seconds / 60, 0) : null;
   }
   const stepDurations = report.jobs.flatMap((job) => job.steps || []).map((step) => step.seconds);
@@ -626,6 +653,7 @@ function collectObservations(runID, api, download = (id) => {
     }
     budget.compressed += artifact.bytes ?? LIMITS.aggregateBytes;
     if (budget.compressed > LIMITS.aggregateBytes || budget.reports >= LIMITS.reports) { diagnostics.push("evidence-artifact-cap"); break; }
+    budget.reports++;
     try {
       if ((match[1] === "go-native" && !/^[0-3]$/.test(match[4] || "")) ||
           (match[1] === "browser" && match[4] !== undefined) ||
@@ -636,11 +664,7 @@ function collectObservations(runID, api, download = (id) => {
         report.diagnostics.every((code) => text(code) !== null);
       const selectedValid = Array.isArray(report.selected) || (partial && report.selected == null);
       const policyValid = (report.policy && typeof report.policy === "object" && !Array.isArray(report.policy)) || (partial && report.policy == null);
-      const targetsValid = report.kind !== "go" || report.complete !== true ||
-        (Array.isArray(report.targets) && report.targets.length <= LIMITS.targets && report.targets.every((target) =>
-          target && typeof target === "object" && !Array.isArray(target) &&
-          text(target.package) && text(target.name) && typeof target.top_level === "boolean" &&
-          ["pass", "fail", "skip"].includes(target.status) && number(target.seconds) !== null));
+      const targetsValid = report.kind !== "go" || report.complete !== true || completeGoTargets(report);
       const cacheObservationValid = !Object.hasOwn(report, "cache_observation") ||
         cacheObservation.validObservation(report.cache_observation, report.identity || {}, report.cache || {}) ||
         (partial && report.cache_observation === null);
@@ -663,7 +687,6 @@ function collectObservations(runID, api, download = (id) => {
       verifiedReports.set(report, { run_id: String(runID), artifact_id: artifact.id, content_sha256, metadata_complete: metadata.complete, checkout_binding: checkoutVerified ? "api-head" : "unavailable-pr-merge", sample_eligible: sampleEligible, attempt_binding: metadata.run_attempt === 1 ? "single-api-attempt" : "name-and-report-only" });
       if (match[1] === "go-native") nativeReports.add(report);
       reports.push(report);
-      budget.reports++;
     } catch (error) {
       if (error.message === "evidence-expanded-cap") { diagnostics.push("evidence-expanded-cap"); break; }
       diagnostics.push("evidence-artifact-invalid-or-unverified");
