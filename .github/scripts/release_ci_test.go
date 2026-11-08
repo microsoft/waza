@@ -321,6 +321,27 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 		{"media-fallback", []string{index, favicon, js, css}, nil, "", true},
 		{"media-conditional-missing-reference", []string{index, favicon, js, css}, nil, "", false},
 		{"media-inert-missing-reference", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-module-space", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-module-tab", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-module-lf", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-module-cr", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-module-ff", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-type-space", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-type-tab", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-type-lf", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-type-cr", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-type-ff", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-language-space", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-language-tab", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-language-lf", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-language-cr", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-language-ff", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-uppercase-module", []string{index, favicon, js, css}, nil, "", true},
+		{"raw-default-omitted", []string{index, favicon, js, css}, nil, "", true},
+		{"raw-default-type-empty", []string{index, favicon, js, css}, nil, "", true},
+		{"raw-default-language-empty", []string{index, favicon, js, css}, nil, "", true},
+		{"raw-type-overrides-language", []string{index, favicon, js, css}, nil, "", false},
+		{"raw-inert-missing-reference", []string{index, favicon, js, css}, nil, "", false},
 	} {
 		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -468,7 +489,7 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 					fmt.Fprintf(&html, "<script src='/assets/index-a.js'></script><link rel=stylesheet type='%s' href='/assets/index-b.css'>", styleType)
 				case "ascii-role-whitespace":
 					html.Reset()
-					html.WriteString("<script type=' &#9;&#10;&#12;&#13;module &#9;&#10;&#12;&#13;' src='/assets/index-a.js'></script><link rel=' &#9;&#10;&#12;&#13;stylesheet &#9;&#10;&#12;&#13;' type=' &#9;&#10;&#12;&#13;text/css &#9;&#10;&#12;&#13;' href='/assets/index-b.css'>")
+					html.WriteString("<script type=' &#9;&#10;&#12;&#13;text/javascript &#9;&#10;&#12;&#13;' src='/assets/index-a.js'></script><link rel=' &#9;&#10;&#12;&#13;stylesheet &#9;&#10;&#12;&#13;' type=' &#9;&#10;&#12;&#13;text/css &#9;&#10;&#12;&#13;' href='/assets/index-b.css'>")
 				case "nbsp-script-type", "unicode-script-type", "nonhtml-ascii-script-type":
 					scriptType := map[string]string{"nbsp-script-type": "&nbsp;module", "unicode-script-type": "&#x2003;module", "nonhtml-ascii-script-type": "&#11;module"}[fixture.name]
 					html.Reset()
@@ -534,6 +555,34 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 				case "media-conditional-missing-reference", "media-inert-missing-reference":
 					media := map[string]string{"media-conditional-missing-reference": "(min-width: 1px)", "media-inert-missing-reference": "not all"}[fixture.name]
 					fmt.Fprintf(&html, "<link rel=stylesheet media='%s' href='assets/missing.css'>", media)
+				case "raw-module-space", "raw-module-tab", "raw-module-lf", "raw-module-cr", "raw-module-ff",
+					"raw-type-space", "raw-type-tab", "raw-type-lf", "raw-type-cr", "raw-type-ff",
+					"raw-language-space", "raw-language-tab", "raw-language-lf", "raw-language-cr", "raw-language-ff":
+					parts := strings.Split(fixture.name, "-")
+					whitespace := map[string]string{"space": " ", "tab": "&#9;", "lf": "&#10;", "cr": "&#13;", "ff": "&#12;"}[parts[2]]
+					attributes := ""
+					switch parts[1] {
+					case "module":
+						attributes = fmt.Sprintf("type='%smodule%s'", whitespace, whitespace)
+					case "type":
+						attributes = fmt.Sprintf("type='%s'", whitespace)
+					case "language":
+						attributes = fmt.Sprintf("language='javascript%s'", whitespace)
+					}
+					html.Reset()
+					fmt.Fprintf(&html, "<script %s src='assets/index-a.js'></script><link rel=stylesheet href='assets/index-b.css'>", attributes)
+				case "raw-uppercase-module", "raw-default-omitted", "raw-default-type-empty", "raw-default-language-empty", "raw-type-overrides-language":
+					attributes := map[string]string{
+						"raw-uppercase-module":        "type=MODULE",
+						"raw-default-omitted":         "",
+						"raw-default-type-empty":      "type='' language=vbscript",
+						"raw-default-language-empty":  "language=''",
+						"raw-type-overrides-language": "type=application/json language=javascript",
+					}[fixture.name]
+					html.Reset()
+					fmt.Fprintf(&html, "<script %s src='assets/index-a.js'></script><link rel=stylesheet href='assets/index-b.css'>", attributes)
+				case "raw-inert-missing-reference":
+					html.WriteString("<script type=' module ' src='assets/missing.js'></script>")
 				}
 				switch fixture.name {
 				case "empty-referenced-js":

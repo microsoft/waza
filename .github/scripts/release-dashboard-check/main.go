@@ -227,12 +227,20 @@ func checkDocument(root *os.Root, index []byte) error {
 		if !hasType && attrs["language"] != "" {
 			scriptType = "text/" + attrs["language"]
 		}
-		scriptType = asciiLower(strings.Trim(scriptType, htmlWhitespace))
-		executable := slices.Contains([]string{"", "module", "text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript"},
-			scriptType)
+		if scriptType == "" {
+			scriptType = "text/javascript"
+		}
+		scriptType = asciiLower(scriptType)
+		classicType := scriptType
+		if hasType {
+			classicType = strings.Trim(classicType, htmlWhitespace)
+		}
+		classic := slices.Contains([]string{"text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript"},
+			classicType)
+		executable := classic || scriptType == "module"
 		forValue, hasFor := attrs["for"]
 		event, hasEvent := attrs["event"]
-		if executable && scriptType != "module" && hasFor && hasEvent {
+		if classic && hasFor && hasEvent {
 			forValue = asciiLower(strings.Trim(forValue, htmlWhitespace))
 			event = asciiLower(strings.Trim(event, htmlWhitespace))
 			executable = forValue == "window" && (event == "onload" || event == "onload()")

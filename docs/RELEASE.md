@@ -94,6 +94,11 @@ HTML role tokens and MIME hints use only space, tab, LF, CR and form feed as
 whitespace; entity-decoded Unicode spaces cannot promote inert content to a role.
 Role and MIME case folding also changes only ASCII A-Z; Unicode lookalikes do
 not become supported executable types.
+Script defaults use the original field presence and literal empty values:
+`type` always overrides `language`. ASCII padding is accepted only for supported
+JavaScript MIME hints in a present `type` attribute. Module identifiers and
+language-derived MIME hints are matched without trimming; whitespace-only
+`type` values do not become defaults.
 Classic scripts with both legacy `for` and `event` attributes count only when
 their ASCII-trimmed, ASCII-folded values are `window` and `onload` or `onload()`.
 Present empty values do not qualify. Module scripts and scripts with only one
