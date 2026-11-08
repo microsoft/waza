@@ -128,6 +128,27 @@ func TestProductionCallerRoundTrip(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsAssetDirectoryReplacementDuringRead(t *testing.T) {
+	artifact, digest := packed(t)
+	assets := filepath.Join(artifact, "web", "dist", "assets")
+	moved := filepath.Join(artifact, "web", "dist", "assets-moved")
+	changed := false
+	faults := hooks{read: func(f *os.File) ([]byte, error) {
+		data, err := io.ReadAll(f)
+		if err == nil && !changed && filepath.Base(f.Name()) == "favicon.svg" {
+			changed = true
+			err = errors.Join(os.Rename(assets, moved), os.Mkdir(assets, 0o700))
+		}
+		return data, err
+	}}
+	if _, err := caller(t, arguments("verify", artifact, "", digest, testIdentity), faults); err == nil {
+		t.Fatal("verify emitted a digest after the observed asset directory was replaced")
+	}
+	if !changed {
+		t.Fatal("asset directory replacement was not exercised")
+	}
+}
+
 func TestArtifactMutationsThroughCaller(t *testing.T) {
 	for _, tc := range []struct {
 		name string

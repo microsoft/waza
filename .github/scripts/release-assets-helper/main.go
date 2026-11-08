@@ -374,6 +374,9 @@ func (s *session) inventoryWithDirectories(r *os.Root, intended map[string]bool)
 	if err := walk(r, ""); err != nil {
 		return snapshot{}, err
 	}
+	if err := s.checkObserved(); err != nil {
+		return snapshot{}, fmt.Errorf("recheck inventory observations: %w", err)
+	}
 	slices.SortFunc(result.files, func(a, b entry) int { return strings.Compare(a.Path, b.Path) })
 	slices.Sort(result.dirs)
 	return result, nil
