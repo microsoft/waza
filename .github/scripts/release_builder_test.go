@@ -60,6 +60,55 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 	}
 }
 
+func TestPackagedDashboardRejectsPartialAssetDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	dist := filepath.Join(dir, "web", "dist")
+	fixtureDist := filepath.Join(dir, "fixture-dist")
+	for _, root := range []string{dist, fixtureDist} {
+		for path, content := range map[string]string{
+			"index.html":    "<!doctype html><script src='/assets/app.js'></script>",
+			"favicon.svg":   "<svg/>",
+			"assets/app.js": "export {};",
+		} {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeReleaseFile(t, filepath.Join(root, path), []byte(content))
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(fixtureDist, "api"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReleaseFile(t, filepath.Join(fixtureDist, "api", "health"), []byte("{}"))
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReleaseFile(t, filepath.Join(bin, "find"), []byte(`#!/usr/bin/env bash
+printf '%s\0' "$1/app.js"
+exit 71
+`))
+	writeReleaseFile(t, filepath.Join(bin, "waza"), []byte(`#!/usr/bin/env bash
+set -euo pipefail
+port=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --port ]; then port="$2"; shift 2; else shift; fi
+done
+exec python3 -m http.server "$port" --bind 127.0.0.1 --directory "$FIXTURE_DIST"
+`))
+	script, err := filepath.Abs("release_dashboard_integration_test.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), "bash", script, filepath.Join(bin, "waza"))
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FIXTURE_DIST="+fixtureDist)
+	output, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "asset discovery failed") {
+		t.Fatalf("partial asset discovery must fail explicitly: %v\n%s", err, output)
+	}
+}
+
 func TestReleaseLastBuilderAdmission(t *testing.T) {
 	build, err := os.ReadFile("../../build.sh")
 	if err != nil {

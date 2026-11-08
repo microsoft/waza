@@ -100,7 +100,7 @@ jobs:
           node-version: '22'
 
       - name: Download dashboard checker dependency
-        run: go mod download golang.org/x/net
+        run: go mod download golang.org/x/net golang.org/x/sys
 
       - name: Build Web UI
         working-directory: web
@@ -250,7 +250,7 @@ jobs:
           node-version: '22'
 
       - name: Download dashboard checker dependency
-        run: go mod download golang.org/x/net
+        run: go mod download golang.org/x/net golang.org/x/sys
 
       - name: Build Web UI
         working-directory: web

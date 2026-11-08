@@ -1979,7 +1979,7 @@ func validateReleaseValidation(source []byte) error {
 	if windowsSteps["Run Go Vet"].Run != "go vet ./..." ||
 		windowsSteps["Install and prove Windows rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
 		windowsSteps["Reject forbidden Windows runtime launches"].Run != `test ! -e "$COPILOT_CLI_PATH.invoked"` ||
-		windowsSteps["Execute complete Windows tests"].Run != "go test -v -race -count=1 -timeout=30m ./..." {
+		windowsSteps["Execute complete Windows tests"].Run != "go test -v -race -count=1 -timeout=30m ./...\ngo test -v -race -count=1 -timeout=5m ./.github/scripts/release-dashboard-check\n" {
 		return fmt.Errorf("release validation must retain native Windows vet, guarded race execution and launch detection")
 	}
 	lintSteps := releaseSteps(lint)
@@ -2122,7 +2122,7 @@ func validateReleaseDashboard(job releaseJob) error {
 	if steps["Require clean packaged source"].Run != "bash .github/scripts/release_source_check.sh" {
 		return fmt.Errorf("release builds must admit clean committed dashboard and source metadata")
 	}
-	if steps["Download dashboard checker dependency"].Run != "go mod download golang.org/x/net" {
+	if steps["Download dashboard checker dependency"].Run != "go mod download golang.org/x/net golang.org/x/sys" {
 		return fmt.Errorf("dashboard checker dependency setup must precede offline host execution")
 	}
 	return nil

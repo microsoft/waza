@@ -64,6 +64,11 @@ fetch_and_compare "/" "$source_dist/index.html" "text/html"
 fetch_and_compare "/favicon.svg" "$source_dist/favicon.svg" "image/svg\\+xml"
 
 asset_count=0
+asset_inventory="$scratch/assets.inventory"
+if ! find "$source_dist/assets" -type f -print0 > "$asset_inventory"; then
+  echo "Packaged release dashboard asset discovery failed." >&2
+  exit 1
+fi
 while IFS= read -r -d '' asset; do
   relative="${asset#"$source_dist"}"
   case "$relative" in
@@ -73,7 +78,7 @@ while IFS= read -r -d '' asset; do
   esac
   fetch_and_compare "$relative" "$asset" "$expected_type"
   asset_count=$((asset_count + 1))
-done < <(find "$source_dist/assets" -type f -print0)
+done < "$asset_inventory"
 
 if [ "$asset_count" -eq 0 ]; then
   echo "Packaged release dashboard contains no served assets." >&2
