@@ -196,13 +196,14 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 	for _, ref := range currentRefs {
 		currentFiles = append(currentFiles, "web/dist"+ref)
 	}
-	for _, fixture := range []struct {
+	type dashboardFixture struct {
 		name        string
 		files       []string
 		directories []string
 		empty       string
 		admitted    bool
-	}{
+	}
+	fixtures := []dashboardFixture{
 		{"complete", []string{index, favicon, js, css}, nil, "", true},
 		{"current-index", currentFiles, nil, "", true},
 		{"alternative-bundles", []string{index, favicon, "web/dist/assets/app.js", "web/dist/assets/theme.css", "web/dist/assets/chunk.js"}, nil, "", true},
@@ -342,7 +343,75 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 		{"raw-default-language-empty", []string{index, favicon, js, css}, nil, "", true},
 		{"raw-type-overrides-language", []string{index, favicon, js, css}, nil, "", false},
 		{"raw-inert-missing-reference", []string{index, favicon, js, css}, nil, "", false},
+	}
+	firstStyle := "<link rel=stylesheet title=Other media='not all' href='assets/preferred.css'>"
+	defaultStyle := "<meta http-equiv=default-style content=Other>"
+	style := func(attributes string) string {
+		return fmt.Sprintf("<link rel=stylesheet %s href='assets/index-b.css'>", attributes)
+	}
+	preferredHTML := map[string]string{}
+	for _, preferred := range []struct {
+		name, markup string
+		admitted     bool
+	}{
+		{"baseline-persistent", style(""), true},
+		{"different-title", firstStyle + style("title=App"), false},
+		{"case-sensitive-title", firstStyle + style("title=other"), false},
+		{"meta-different-title", defaultStyle + style("title=App"), false},
+		{"matching-title", firstStyle + style("title=Other"), true},
+		{"meta-matching-title", defaultStyle + style("title=Other"), true},
+		{"persistent-fallback", firstStyle + style(""), true},
+		{"sole-title-default", style("title=App"), true},
+		{"meta-persistent-fallback", defaultStyle + style(""), true},
+		{"missing-conditional-reference", strings.Replace(firstStyle, "preferred.css", "missing.css", 1) + style(""), false},
+		{"later-meta-disables", style("title=App") + defaultStyle, false},
+		{"later-meta-matches", style("title=Other") + defaultStyle, true},
+		{"later-meta-reenables", defaultStyle + style("title=App") + "<meta http-equiv=default-style content=App>", true},
+		{"last-meta-disables", "<meta http-equiv=default-style content=App>" + style("title=App") + defaultStyle, false},
+		{"later-empty-meta-noop", defaultStyle + style("title=App") + "<meta http-equiv=default-style content=''>", false},
+		{"missing-meta-content-noop", "<meta http-equiv=default-style>" + style("title=App"), true},
+		{"empty-meta-content-noop", "<meta http-equiv=default-style content=''>" + style("title=App"), true},
+		{"padded-meta-keyword-noop", "<meta http-equiv=' default-style ' content=Other>" + style("title=App"), true},
+		{"unicode-meta-keyword-noop", "<meta http-equiv='default-&#x17F;tyle' content=Other>" + style("title=App"), true},
+		{"uppercase-meta-keyword", "<meta http-equiv=DEFAULT-STYLE content=Other>" + style("title=App"), false},
+		{"space-meta-content-literal", "<meta http-equiv=default-style content=' '>" + style("title=App"), false},
+		{"padded-meta-content-literal", "<meta http-equiv=default-style content=' Other '>" + style("title=Other"), false},
+		{"padded-meta-title-match", "<meta http-equiv=default-style content=' Other '>" + style("title=' Other '"), true},
+		{"entity-title-match", "<meta http-equiv=default-style content=App>" + style("title='&#65;pp'"), true},
+		{"empty-first-title", strings.Replace(firstStyle, "title=Other", "title=''", 1) + style("title=App"), true},
+		{"space-first-title-literal", strings.Replace(firstStyle, "title=Other", "title=' '", 1) + style("title=App"), false},
+		{"reversed-sheet-order", style("title=App") + firstStyle, true},
+		{"disabled-first-title", strings.Replace(firstStyle, "title=Other", "disabled title=Other", 1) + style("title=App"), true},
+		{"alternate-first-title", strings.Replace(firstStyle, "rel=stylesheet", "rel='alternate stylesheet'", 1) + style("title=App"), true},
+		{"unsupported-first-type", strings.Replace(firstStyle, "title=Other", "type=application/json title=Other", 1) + style("title=App"), true},
+		{"preload-first-title", strings.Replace(firstStyle, "rel=stylesheet", "rel=preload as=style", 1) + style("title=App"), true},
+		{"disabled-missing-reference", strings.Replace(firstStyle, "title=Other", "disabled title=Other", 1) +
+			"<link rel=stylesheet disabled title=Other href='assets/missing.css'>" + style(""), false},
+		{"inline-first-title", "<style title=Other media='not all'>.probe { color: red; }</style>" + style("title=App"), false},
+		{"inline-uppercase-type", "<style type=TEXT/CSS title=Other></style>" + style("title=App"), false},
+		{"inline-empty-type", "<style type='' title=Other></style>" + style("title=App"), false},
+		{"inline-padded-type-noop", "<style type=' text/css ' title=Other></style>" + style("title=App"), true},
+		{"inline-unsupported-type-noop", "<style type=application/json title=Other></style>" + style("title=App"), true},
+		{"inline-parameter-type-noop", "<style type='text/css; charset=utf-8' title=Other></style>" + style("title=App"), true},
+		{"inline-empty-title-noop", "<style title=''></style>" + style("title=App"), true},
+		{"inline-disabled-attribute", "<style disabled title=Other></style>" + style("title=App"), false},
+		{"template-preferences-inert", "<template>" + defaultStyle + "<style title=Other></style></template>" + style("title=App"), true},
+		{"noscript-preferences-inert", "<noscript>" + defaultStyle + "<style title=Other></style></noscript>" + style("title=App"), true},
+		{"inline-matching-title", "<style title=Other media='not all'></style>" + style("title=Other"), true},
+		{"link-padded-css-type", strings.Replace(firstStyle, "title=Other", "type=' text/css ' title=Other", 1) + style("title=App"), false},
+		{"selected-alternate-not-fallback", defaultStyle +
+			strings.Replace(strings.Replace(firstStyle, "rel=stylesheet", "rel='alternate stylesheet'", 1),
+				"media='not all'", "media=all", 1) + style("title=App"), false},
+		{"unsupported-missing-reference", "<link rel=stylesheet type=application/json title=Other href='assets/missing.css'>" + style(""), false},
 	} {
+		name := "preferred-" + preferred.name
+		preferredHTML[name] = "<!doctype html><html><head><script type=module src='assets/index-a.js'></script>" +
+			preferred.markup + "</head><body><div class=probe>fixture</div></body></html>"
+		fixtures = append(fixtures, dashboardFixture{
+			name: name, files: []string{index, favicon, js, css, "web/dist/assets/preferred.css"}, admitted: preferred.admitted,
+		})
+	}
+	for _, fixture := range fixtures {
 		t.Run("dashboard-"+fixture.name, func(t *testing.T) {
 			dir := t.TempDir()
 			refs := []string{}
@@ -356,6 +425,15 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 					t.Fatal(err)
 				}
 				content := []byte("fixture dashboard output")
+				if _, preferred := preferredHTML[fixture.name]; preferred {
+					if strings.HasSuffix(path, ".css") {
+						content = []byte(".probe { color: rgb(0, 0, 255); }\n")
+					} else if strings.HasSuffix(path, ".js") {
+						content = []byte("void 0;\n")
+					} else if path == favicon {
+						content = []byte("<svg xmlns='http://www.w3.org/2000/svg'></svg>")
+					}
+				}
 				if strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") {
 					refs = append(refs, strings.TrimPrefix(path, "web/dist"))
 				}
@@ -583,6 +661,10 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 					fmt.Fprintf(&html, "<script %s src='assets/index-a.js'></script><link rel=stylesheet href='assets/index-b.css'>", attributes)
 				case "raw-inert-missing-reference":
 					html.WriteString("<script type=' module ' src='assets/missing.js'></script>")
+				}
+				if preferred, exists := preferredHTML[fixture.name]; exists {
+					html.Reset()
+					html.WriteString(preferred)
 				}
 				switch fixture.name {
 				case "empty-referenced-js":

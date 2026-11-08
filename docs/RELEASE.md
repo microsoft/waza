@@ -110,6 +110,15 @@ still checked. Conditional-only stylesheets, including `screen` and query lists,
 do not establish styling under this intentionally tighter static release profile.
 They are not invalid HTML; the checker does not evaluate media queries or claim
 viewport-specific applicability.
+Static stylesheet-set selection follows active HTML declarations in document
+order. The first eligible non-alternate, non-disabled titled stylesheet chooses
+the preferred name; inline styles participate but do not replace the required
+external fallback. Nonempty `default-style` metadata can change that name,
+including after earlier links. Candidate titles and names are entity-decoded,
+case-sensitive, and not trimmed. Untitled persistent stylesheets remain enabled;
+titled candidates must match the final preferred name. Inline style types use
+raw HTML keywords, unlike link MIME hints. This does not execute scripts, model
+HTTP headers/CSP or asynchronous loading, or establish browser-rendering evidence.
 Duplicate attributes and unfinished tokens
 are rejected before DOM normalization; this is a strict built-index profile, not
 a claim to execute arbitrary HTML. The first active base href must resolve to

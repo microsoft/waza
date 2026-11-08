@@ -189,8 +189,18 @@ func checkDocument(root *os.Root, index []byte) error {
 	}); err != nil {
 		return err
 	}
-	hasEntry, hasStyle := false, false
+	hasEntry := false
+	preferredStyle := ""
+	styleTitles := []string{}
 	err = walk(document, func(node *html.Node, attrs map[string]string) error {
+		if node.Data == "meta" && asciiLower(attrs["http-equiv"]) == "default-style" && attrs["content"] != "" {
+			preferredStyle = attrs["content"]
+		}
+		inlineType := asciiLower(attrs["type"])
+		if node.Data == "style" && (inlineType == "" || inlineType == "text/css") &&
+			preferredStyle == "" && attrs["title"] != "" {
+			preferredStyle = attrs["title"]
+		}
 		reference, exists := "", false
 		rels := strings.FieldsFunc(asciiLower(attrs["rel"]), func(r rune) bool {
 			return strings.ContainsRune(htmlWhitespace, r)
@@ -253,15 +263,20 @@ func checkDocument(root *os.Root, index []byte) error {
 		styleType := asciiLower(strings.Trim(attrs["type"], htmlWhitespace))
 		media := asciiLower(strings.Trim(attrs["media"], htmlWhitespace))
 		if node.Data == "link" && slices.Contains(rels, "stylesheet") && !slices.Contains(rels, "alternate") &&
-			strings.HasSuffix(resolved.Path, ".css") && !disabled && (styleType == "" || styleType == "text/css") &&
-			(media == "" || media == "all") {
-			hasStyle = true
+			!disabled && (styleType == "" || styleType == "text/css") {
+			if preferredStyle == "" && attrs["title"] != "" {
+				preferredStyle = attrs["title"]
+			}
+			if strings.HasSuffix(resolved.Path, ".css") && (media == "" || media == "all") {
+				styleTitles = append(styleTitles, attrs["title"])
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	hasStyle := slices.Contains(styleTitles, "") || slices.Contains(styleTitles, preferredStyle)
 	if !hasEntry || !hasStyle {
 		return errors.New("release dashboard must load an executable entry script and enabled unconditional stylesheet, not only preload or inert content")
 	}
