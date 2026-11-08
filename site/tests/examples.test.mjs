@@ -214,9 +214,18 @@ test('local runner compatibility examples execute the actual CLI and retain loca
     assert.equal(terminal.outcome, 'success');
     const bad = replaceExactlyOnce(task, 'output_contains: [hello]', 'output_contains: [missing-marker]');
     writeFileSync(join(cwd, 'tasks/selected.case.yaml'), bad);
-    run(['run', 'custom-suite.yaml', '--runner-compat', '--output', 'failed.json'], cwd, 1);
-    const failed = JSON.parse(readFileSync(join(cwd, 'failed.json'), 'utf8'));
-    assert.equal(failed.tasks[0].runs[0].validations._output_contains.passed, false);
+    for (const [mode, flags] of [['ordinary', []], ['adapted', ['--runner-compat']]]) {
+      run(['run', 'custom-suite.yaml', ...flags, '--output', `${mode}-failed.json`], cwd, 1);
+      const failed = JSON.parse(readFileSync(join(cwd, `${mode}-failed.json`), 'utf8'));
+      assert.equal(failed.tasks.length, 1);
+      assert.equal(failed.tasks[0].status, 'failed');
+      assert.equal(failed.tasks[0].runs.length, 1);
+      assert.equal(failed.tasks[0].runs[0].status, 'failed');
+      assert.equal(failed.tasks[0].runs[0].validations._output_contains.passed, false);
+      assert.equal(failed.tasks[0].stats.error_runs, 0);
+      assert.equal(failed.summary.failed, 1);
+      assert.equal(failed.summary.errors, 0);
+    }
     assert.equal(dispatch('run', capture(), 1).outcome, 'evaluation_failure');
     const alternative = replaceExactlyOnce(task, 'prompt: hello', 'prompt: hello alternative');
     writeFileSync(join(cwd, 'tasks/selected.case.yaml'), alternative);
@@ -232,15 +241,16 @@ test('local runner compatibility examples execute the actual CLI and retain loca
     const failingEnv = { ...fixture.env, TMPDIR: blockedTemporary, TMP: blockedTemporary, TEMP: blockedTemporary };
     const failingRun = cliRunner(failingEnv);
     for (const [mode, flags] of [['ordinary', []], ['adapted', ['--runner-compat']]]) {
-      failingRun(['run', 'custom-suite.yaml', ...flags, '--output', `${mode}-error.json`], cwd, 1);
+      failingRun(['run', 'custom-suite.yaml', ...flags, '--output', `${mode}-error.json`], cwd, 2);
       const observed = JSON.parse(readFileSync(join(cwd, `${mode}-error.json`), 'utf8'));
       assert.equal(observed.tasks.length, 1);
-      assert.equal(observed.tasks[0].status, 'failed');
+      assert.equal(observed.tasks[0].status, 'error');
       assert.equal(observed.tasks[0].runs.length, 1);
       assert.equal(observed.tasks[0].runs[0].status, 'error');
       assert.match(observed.tasks[0].runs[0].error_msg, /failed to create mock workspace/);
       assert.equal(observed.tasks[0].stats.error_runs, 1);
-      assert.equal(observed.summary.failed, 1);
+      assert.equal(observed.summary.failed, 0);
+      assert.equal(observed.summary.errors, 1);
       assert.deepEqual(observed.evaluation_usage.sessions, [{}]);
     }
     const infrastructure = dispatch('run', capture(), 2, failingEnv);

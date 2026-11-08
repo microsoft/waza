@@ -93,3 +93,21 @@ Each expected file contributes:
 **Workspace Context:**
 
 The diff grader operates on the post-execution workspace directory. Each task gets a fresh workspace with fixtures copied in (see [Fixture Isolation](../../README.md#fixture-isolation)). The `snapshot` path is resolved relative to `--context-dir`.
+
+Waza preserves regular workspace files before the agent session disconnects so this grader can observe edits that disconnect may restore. `.git` and `node_modules` trees are excluded by default, while every `expected_files[].path` remains explicitly preserved even inside those directories. Capture is limited to 10,000 files, 20,000 traversal entries, 16 MiB per file, and 64 MiB total. If a target or workspace exceeds those limits, the run reports a workspace-capture error and skips graders and snapshot updates rather than grading an incomplete snapshot.
+
+With `--skip-graders`, grader-only preservation requirements are omitted, including task and checkpoint diff targets. Ordinary workspace capture remains enabled with the same exclusions and limits; unused targets in excluded trees cannot fail execution-only runs.
+
+If capture fails after a follow-up or responder turn, the error result still retains that turn's output, transcript, tool calls, skill invocations, duration, and usage. Successfully executed responder replies remain counted in `responder.followups_sent` even when their capture fails; replies that fail setup or execution, time out, or are canceled are not counted, including when capture also fails. Previously completed checkpoint results remain recorded, but the failed capture cannot supply workspace evidence or run later checkpoints and final graders. Trigger tests record capture failures as execution errors rather than successful trigger classifications.
+
+A capture-failed response returned alongside an execution error still preserves its observations and rejects workspace evidence from earlier turns. The original execution error remains recorded, and the failed reply does not count as successfully executed.
+
+Newly generated workspace-capture diagnostics never include absolute filesystem
+paths or the raw underlying filesystem error. I/O failures report a bounded
+code (`not_found`, `permission`, `closed`, or `io`), operation, and actionable
+message; only contained logical workspace-relative names may appear, quoted
+and truncated to 160 bytes. Rejected absolute or escaping targets are not echoed.
+Typed filesystem causes remain available internally through `errors.Is` and
+`errors.As`, but are excluded from serialized responses. This boundary applies
+only to generated capture diagnostics: workspace metadata, authored output,
+transcripts, other error producers, and legacy artifacts are not scrubbed.

@@ -75,12 +75,13 @@ The local output uses current `EvaluationOutcome` writer schema 1.9 with native
 eval/task IDs, statistics, grader details and unavailable usage. Historical 1.7
 results remain readable. Generated run/session IDs,
 timestamps, workspace paths and timing measurements remain invocation-specific.
-Exits remain 0 (passed), 1 (failed checks or a recorded execution-error attempt,
-with requested results saved), and 2 (invalid configuration, failure before an
-observed attempt, lifecycle or output error). An observed execution error keeps
-the native run `error` status and failed-task aggregate, including cancellation
-observed during the attempt. The external runner's typed failure and 0-6
-transport taxonomy remain separate.
+Exits are 0 (passed), 1 (completed failed checks), and 2 (configuration,
+operational execution/grading, lifecycle or output error). An observed execution
+error keeps the native run and task `error` statuses and contributes to
+`summary.errors`, with requested results saved, including cancellation observed
+during the attempt. This corrects the historical error-to-failed aggregation;
+see [operational trial errors](COMPATIBILITY.md#operational-trial-errors).
+The external runner's typed failure and 0-6 transport taxonomy remain separate.
 Diagnostics, summaries and saved-output confirmations all detect short writes
 as output errors. A failed confirmation does not remove an already saved result.
 
