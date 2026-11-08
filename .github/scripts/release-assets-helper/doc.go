@@ -8,6 +8,20 @@
 // It never erases a checkout's tracked dist. The future workflow caller must
 // arrange an invocation-owned absent destination without deleting user assets.
 //
+// install verifies an external artifact and fills only absent intended assets/
+// leaves in an existing --workspace CHECKOUT/web/dist. Existing index.html,
+// favicon.svg and other non-assets files must already match exactly; intended
+// equal bundles are reused, never replaced. Full prewrite discovery rejects
+// conflicting files, links, special entries and unexpected directories/files.
+// Empty intended parent directories are allowed. verify-installed repeats the
+// same complete admission with no creation and requires all files present.
+// Both require --manifest-sha256 and forbid --destination. Forbidden flags are
+// rejected even with empty values; original commands forbid --workspace while
+// legacy verify continues to ignore --destination. Every invocation
+// independently admits the external root; manifest rereads match both original
+// canonical bytes and the trusted digest. Retained identities and final full
+// source/destination revalidation reject observed replacements or changed bytes.
+//
 // Each command requires --input, --repository, --source-sha, --checkout-sha,
 // --run-id and --run-attempt. pack/restore require --destination; verify/restore
 // require --manifest-sha256. The caller must observe checkout SHA and validate
@@ -16,6 +30,8 @@
 // Manifest bytes are canonical helper-generated JSON without a trailing newline.
 // Metadata must remain outside dist; inventory is bounded to 4096 files and
 // 100 MiB including artifact metadata, with a 1 MiB manifest limit.
+// Discovery also bounds directory entries, depth and retained roots. These are
+// logical input limits, not a claim that process RSS equals the payload limit.
 //
 // Linux and macOS host support is implemented; this handoff was exercised only
 // on Darwin/arm64, not Linux. Rooted directory and regular-file handles
@@ -29,6 +45,15 @@
 // may have replaced. Diagnostics report the requested destination, not a
 // guaranteed current location: retained-parent moves can make the current
 // pathname unknown. Descriptor cleanup failures are propagated.
+// install closes all owned handles on both success and failure, retains primary
+// and cleanup errors, and emits no digest before cleanup succeeds. It leaves
+// partial intended assets in place; retries independently readmit exact complete
+// leftovers and reject partial/conflicting ones without repair or deletion.
+// Later compilers/checkers reopen paths: these guarantees are not race-free
+// whole-build assurance. The integration caller must enforce exact tracked HEAD
+// and clean source before and after install and preserve semantic/binary/azd
+// admission. File equality here is not Git provenance; this helper invokes no
+// Git, network or runtime to establish it.
 //
 // Content hashes establish integrity against caller-supplied source/run/digest
 // identity, not trust in the workflow, reproducibility or genuine build

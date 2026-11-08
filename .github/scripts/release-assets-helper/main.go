@@ -99,6 +99,14 @@ type session struct {
 	files       []*os.File
 	directories map[string]*os.Root
 	hooks       hooks
+	observed    []observation
+	rootEntries map[*os.Root]observation
+}
+
+type observation struct {
+	parent *os.Root
+	name   string
+	info   fs.FileInfo
 }
 
 func (s *session) close() error {
@@ -151,6 +159,10 @@ func (s *session) child(parent *os.Root, name string) (*os.Root, error) {
 	after, err := parent.Lstat(name)
 	if err != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
 		return nil, fmt.Errorf("directory %q changed during admission: %w", name, errors.Join(err, errors.New("identity mismatch")))
+	}
+	s.observed = append(s.observed, observation{parent, name, opened})
+	if s.rootEntries != nil {
+		s.rootEntries[r] = observation{parent, name, opened}
 	}
 	return r, nil
 }
@@ -205,6 +217,7 @@ func (s *session) regular(r *os.Root, name string) (*os.File, error) {
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
 		return nil, fmt.Errorf("file %q changed during admission: %w", name, errors.Join(err, errors.New("identity mismatch")))
 	}
+	s.observed = append(s.observed, observation{r, name, opened})
 	return f, nil
 }
 
@@ -231,6 +244,7 @@ func (s *session) read(f *os.File, limit int64) ([]byte, error) {
 type snapshot struct {
 	files []entry
 	data  map[string][]byte
+	dirs  []string
 }
 
 func sum(data []byte) string {
@@ -239,6 +253,10 @@ func sum(data []byte) string {
 }
 
 func (s *session) inventory(r *os.Root) (snapshot, error) {
+	return s.inventoryWithDirectories(r, nil)
+}
+
+func (s *session) inventoryWithDirectories(r *os.Root, intended map[string]bool) (snapshot, error) {
 	result := snapshot{data: make(map[string][]byte)}
 	var total int64
 	var walk func(*os.Root, string) error
@@ -255,7 +273,23 @@ func (s *session) inventory(r *os.Root) (snapshot, error) {
 		if s.hooks.discover != nil {
 			names, readErr = s.hooks.discover(f)
 		} else {
-			names, readErr = f.ReadDir(-1)
+			for {
+				batch, err := f.ReadDir(128)
+				names = append(names, batch...)
+				if len(names) > 2*maxFiles {
+					readErr = errors.New("asset directory exceeds entry limit")
+					break
+				}
+				if err != nil {
+					if err != io.EOF {
+						readErr = err
+					}
+					break
+				}
+			}
+		}
+		if len(names) > 2*maxFiles {
+			readErr = errors.Join(readErr, errors.New("asset directory exceeds entry limit"))
 		}
 		closeErr := s.closeFile(f)
 		if err := errors.Join(readErr, closeErr); err != nil {
@@ -272,15 +306,22 @@ func (s *session) inventory(r *os.Root) (snapshot, error) {
 				return err
 			}
 			if info.IsDir() {
+				if intended != nil && !intended[name] {
+					return fmt.Errorf("unexpected output directory %q", name)
+				}
 				child, err := s.child(dir, item.Name())
 				if err != nil {
 					return err
+				}
+				result.dirs = append(result.dirs, name)
+				if intended != nil && s.directories[name] == nil {
+					s.directories[name] = child
 				}
 				count := len(result.files)
 				if err := walk(child, name); err != nil {
 					return err
 				}
-				if len(result.files) == count {
+				if len(result.files) == count && intended == nil {
 					return fmt.Errorf("empty directory %q is not represented by the file inventory", name)
 				}
 				continue
@@ -306,6 +347,7 @@ func (s *session) inventory(r *os.Root) (snapshot, error) {
 		return snapshot{}, err
 	}
 	slices.SortFunc(result.files, func(a, b entry) int { return strings.Compare(a.Path, b.Path) })
+	slices.Sort(result.dirs)
 	return result, nil
 }
 
@@ -511,16 +553,20 @@ func (s *session) visible(root *os.Root, name string) error {
 }
 
 type options struct {
-	command, input, destination, digest, checkout string
-	source                                        identity
+	command, input, destination, digest, checkout, workspace string
+	source                                                   identity
 }
 
 func execute(opts options, fault hooks) (digest string, err error) {
 	if err := opts.source.validate(opts.checkout); err != nil {
 		return "", err
 	}
-	if opts.command != "pack" && opts.command != "verify" && opts.command != "restore" {
-		return "", errors.New("command must be pack, verify or restore")
+	if opts.command != "pack" && opts.command != "verify" && opts.command != "restore" &&
+		opts.command != "install" && opts.command != "verify-installed" {
+		return "", errors.New("command must be pack, verify, restore, install or verify-installed")
+	}
+	if opts.command == "install" || opts.command == "verify-installed" {
+		return executeInstall(opts, fault)
 	}
 	s := session{hooks: fault, directories: make(map[string]*os.Root)}
 	created := false
@@ -621,13 +667,14 @@ func execute(opts options, fault hooks) (digest string, err error) {
 
 func run(args []string, stdout io.Writer, fault hooks) error {
 	if len(args) == 0 {
-		return errors.New("usage: release-assets-helper pack|verify|restore --input PATH [--destination NEW_PATH] --repository microsoft/waza --source-sha SHA --checkout-sha SHA --run-id ID --run-attempt ATTEMPT [--manifest-sha256 DIGEST]")
+		return errors.New("usage: release-assets-helper pack|verify|restore|install|verify-installed --input PATH [--destination NEW_PATH | --workspace CHECKOUT] --repository microsoft/waza --source-sha SHA --checkout-sha SHA --run-id ID --run-attempt ATTEMPT [--manifest-sha256 DIGEST]")
 	}
 	opts := options{command: args[0]}
 	flags := flag.NewFlagSet("release-assets-helper", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&opts.input, "input", "", "workspace for pack; artifact for verify/restore")
 	flags.StringVar(&opts.destination, "destination", "", "new, absent artifact or dist directory")
+	flags.StringVar(&opts.workspace, "workspace", "", "existing checkout for install/verify-installed")
 	flags.StringVar(&opts.source.Repository, "repository", "", "expected repository")
 	flags.StringVar(&opts.source.SourceSHA, "source-sha", "", "expected full source SHA")
 	flags.StringVar(&opts.checkout, "checkout-sha", "", "independently observed checkout SHA")
@@ -637,8 +684,19 @@ func run(args []string, stdout io.Writer, fault hooks) error {
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || opts.input == "" || (opts.command != "verify" && opts.destination == "") {
-		return errors.New("require input, no positional arguments, and an absent destination for pack/restore")
+	var destinationSet, workspaceSet bool
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "destination":
+			destinationSet = true
+		case "workspace":
+			workspaceSet = true
+		}
+	})
+	install := opts.command == "install" || opts.command == "verify-installed"
+	if flags.NArg() != 0 || opts.input == "" || (install && (opts.workspace == "" || destinationSet)) ||
+		(!install && (workspaceSet || (opts.command != "verify" && opts.destination == ""))) {
+		return errors.New("require input and no positional arguments; install/verify-installed require nonempty workspace and forbid destination, original commands forbid workspace and pack/restore require an absent destination")
 	}
 	digest, err := execute(opts, fault)
 	if err != nil {
