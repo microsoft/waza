@@ -238,7 +238,7 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantCommand := "go test -count=1 ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
+		wantCommand := "go test -count=1 -v ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
 		if strings.Contains(workflowName, "release") {
 			wantCommand = "go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
 		}
