@@ -14,6 +14,7 @@ import (
 
 var siteFilterPaths = []string{
 	"site/**", "docs/**", "README.md", "CHANGELOG.md", "version.txt", "registry.json", "go.mod",
+	"cmd/waza/cmd_serve.go",
 	"internal/embedded/**", "internal/models/outcome.go", "internal/models/schema_version.go",
 	"internal/runneridentity/testdata/**", "internal/runnerunit/testdata/**", "internal/runnerterminal/testdata/**",
 	"schemas/**", ".github/workflows/site-ci.yml", ".github/workflows/docker-ci.yml",
@@ -203,6 +204,7 @@ func testSiteFilterSelection(t *testing.T, source []byte) {
 		{"site/src/content/docs/index.mdx", true, true},
 		{"docs/GUIDE.md", true, true},
 		{"internal/models/outcome.go", true, true},
+		{"cmd/waza/cmd_serve.go", true, true},
 		{"internal/embedded/assets/runner", true, true},
 		{"internal/execution/copilot.go", false, true},
 		{"examples/interop/tasks/example.yaml", false, true},

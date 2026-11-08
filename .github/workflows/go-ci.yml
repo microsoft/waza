@@ -104,6 +104,21 @@ jobs:
             go test -count=1 -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic ./...
           fi
 
+      - name: Test native Windows shell controls
+        if: matrix.os == 'windows-latest'
+        run: |
+          log="$(mktemp)"
+          go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts | sed 's/\r$//' | tee "$log"
+          if grep -q -- '--- SKIP:' "$log"; then
+            echo "Native Windows shell controls must not skip." >&2
+            exit 1
+          fi
+          for control in TestCompletenessGoLintShellExecution TestOrdinaryShellOverridesAndDisabledPaths; do
+            grep -Fxq "=== RUN   $control" "$log"
+            grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"
+          done
+          rm "$log"
+
       - name: Reject tolerated runtime launches
         run: |
           if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
@@ -225,7 +240,7 @@ jobs:
         run: bash .github/scripts/lint_test.sh
 
       - name: Test Go workflow trigger selection
-        run: go test -count=1 ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard
+        run: go test -count=1 ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard ./.github/scripts/release-assets-helper
 
       - name: Verify configuration and run golangci-lint
         run: bash .github/scripts/lint.sh
