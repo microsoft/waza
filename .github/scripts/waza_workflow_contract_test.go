@@ -59,6 +59,18 @@ func TestWazaResultValidator(t *testing.T) {
 			runExit: 0, threshold: "1", wantValid: true, wantStatus: "success",
 		},
 		{
+			name: "mixed passed and skipped trials are diagnostic",
+			mutate: func(result map[string]any) {
+				jsonObject(t, result["config"])["runs_per_test"] = 2
+				task := jsonObject(t, jsonItems(t, result["tasks"])[0])
+				runs := jsonItems(t, task["runs"])
+				second := cloneJSONMap(t, jsonObject(t, runs[0]))
+				second["run_number"], second["status"] = 2, "skipped"
+				task["runs"] = append(runs, second)
+			},
+			runExit: 0, threshold: "1", wantValid: true, wantStatus: "failure",
+		},
+		{
 			name: "skipped diagnostic is not successful grading",
 			mutate: func(result map[string]any) {
 				summary := jsonObject(t, result["summary"])

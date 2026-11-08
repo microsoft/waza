@@ -84,10 +84,11 @@ if ! jq -e -s "length == 1 and (.[0] | $contract)" < "$result_file" >/dev/null 2
   exit 1
 fi
 
-IFS=$'\t' read -r success_rate aggregate_score total_tests succeeded failed errors skipped < <(
+IFS=$'\t' read -r success_rate aggregate_score total_tests succeeded failed errors skipped all_runs_passed < <(
   jq -r '
     [.summary.success_rate, .summary.aggregate_score, .summary.total_tests,
-     .summary.succeeded, .summary.failed, .summary.errors, .summary.skipped]
+     .summary.succeeded, .summary.failed, .summary.errors, .summary.skipped,
+     (all(.tasks[].runs[]; .status == "passed"))]
     | @tsv
   ' < "$result_file"
 )
@@ -101,6 +102,7 @@ status=failure
 if [ "$run_exit_code" -eq 0 ] &&
   [ "$total_tests" -gt 0 ] &&
   [ "$skipped" -eq 0 ] &&
+  [ "$all_runs_passed" = true ] &&
   jq -en --arg rate "$success_rate" --arg minimum "$min_success_rate" \
     '($rate | tonumber) >= ($minimum | tonumber)' >/dev/null; then
   status=success
