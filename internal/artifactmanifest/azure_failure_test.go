@@ -106,6 +106,31 @@ func TestAzureNativeInterruptedConditionalCommitRecovers(t *testing.T) {
 	}
 }
 
+func TestAzureConditionalUploadRecognizesOccupiedResponses(t *testing.T) {
+	data := []byte("immutable content")
+	key := "blob-" + Hash(data)
+	for _, response := range []struct {
+		name   string
+		status int
+		code   string
+	}{
+		{name: "condition-not-met", status: http.StatusPreconditionFailed, code: "ConditionNotMet"},
+		{name: "blob-already-exists", status: http.StatusConflict, code: "BlobAlreadyExists"},
+	} {
+		t.Run(response.name, func(t *testing.T) {
+			transport := &fakeAzure{
+				objects:        map[string][]byte{key: data},
+				occupiedStatus: response.status,
+				occupiedCode:   response.code,
+			}
+			created, err := azureBackend(t, transport).Create(context.Background(), key, data)
+			if created || err != nil {
+				t.Fatalf("occupied response became creation/failure: %v %v", created, err)
+			}
+		})
+	}
+}
+
 func TestAzurePublicationCloseFailuresPreserveObservedMarker(t *testing.T) {
 	for _, object := range []string{"blob-", "final-"} {
 		t.Run(object, func(t *testing.T) {

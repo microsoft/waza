@@ -50,6 +50,8 @@ type fakeAzure struct {
 	failPut          error
 	failCommittedPut error
 	failGet          map[string]error
+	occupiedStatus   int
+	occupiedCode     string
 }
 
 func (f *fakeAzure) Do(r *http.Request) (*http.Response, error) {
@@ -77,8 +79,15 @@ func (f *fakeAzure) Do(r *http.Request) (*http.Response, error) {
 			return nil, f.failPut
 		}
 		if _, exists := f.objects[key]; exists {
-			header.Set("X-Ms-Error-Code", "ConditionNotMet")
-			return response(http.StatusPreconditionFailed, []byte("<Error><Code>ConditionNotMet</Code></Error>"))
+			status, code := f.occupiedStatus, f.occupiedCode
+			if status == 0 {
+				status = http.StatusPreconditionFailed
+			}
+			if code == "" {
+				code = "ConditionNotMet"
+			}
+			header.Set("X-Ms-Error-Code", code)
+			return response(status, []byte("<Error><Code>"+code+"</Code></Error>"))
 		}
 		f.objects[key] = append([]byte(nil), data...)
 		if (strings.HasPrefix(key, "final-") || strings.HasPrefix(key, namespacePrefix)) && f.failCommittedPut != nil {

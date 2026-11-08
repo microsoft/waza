@@ -110,8 +110,12 @@ func (a *Azure) createObject(ctx context.Context, key string, data []byte) (bool
 	})
 	if err != nil {
 		var response *azcore.ResponseError
-		if errors.As(err, &response) && response.StatusCode == http.StatusPreconditionFailed && response.ErrorCode == "ConditionNotMet" {
-			return false, nil
+		if errors.As(err, &response) {
+			occupied := response.StatusCode == http.StatusPreconditionFailed && response.ErrorCode == "ConditionNotMet" ||
+				response.StatusCode == http.StatusConflict && response.ErrorCode == "BlobAlreadyExists"
+			if occupied {
+				return false, nil
+			}
 		}
 		return false, fmt.Errorf("conditional Azure object upload: %w", err)
 	}
