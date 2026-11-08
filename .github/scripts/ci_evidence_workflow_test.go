@@ -68,6 +68,18 @@ func checkColdWorkflow(source []byte, file string) error {
 		}
 	}
 	job := workflow.Jobs[jobID]
+	if file == "go-native-shards.yml" {
+		steps := releaseSteps(job)
+		fixture := steps["Test shard discovery and failure handling"]
+		execute := steps["Execute exhaustive native test shard"]
+		_, executeOverride := execute.Env["CI_EVIDENCE_COLD_REQUESTED"]
+		if fixture.Run != "bash .github/scripts/go_test_shard_test.sh" ||
+			fixture.If != "" || fixture.ContinueOnError || len(fixture.Env) != 1 ||
+			fixture.Env["CI_EVIDENCE_COLD_REQUESTED"] != "false" ||
+			executeOverride {
+			return fmt.Errorf("only the synthetic shard fixture may disable inherited cold observation")
+		}
+	}
 	if workflow.Env["CI_EVIDENCE_COLD_REQUESTED"] != "" ||
 		job.Env["CI_EVIDENCE_COLD_REQUESTED"] != requested ||
 		job.Env["CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED"] != requested {
@@ -91,8 +103,10 @@ func checkColdWorkflow(source []byte, file string) error {
 			}
 		}
 		if step.Name == "Observe initially empty isolated stores" {
+			_, prepareOverride := step.Env["CI_EVIDENCE_COLD_REQUESTED"]
 			if prepare >= 0 || step.Run != "node .github/scripts/ci-evidence-cache.cjs prepare "+scope ||
-				step.If != prepareIf || step.ContinueOnError {
+				step.If != prepareIf || step.ContinueOnError ||
+				prepareOverride {
 				return fmt.Errorf("cold preparation must run once with the actual applicable stores and fail explicitly")
 			}
 			prepare = i
@@ -131,6 +145,8 @@ func TestCIEvidenceColdWorkflowContracts(t *testing.T) {
 				{"node .github/scripts/ci-evidence-cache.cjs prepare", "echo cache-disabled"},
 				{"      - name: Observe initially empty isolated stores\n", "      - name: Warm before observation\n        run: go mod download\n      - name: Observe initially empty isolated stores\n"},
 				{"      - name: Observe initially empty isolated stores\n", "      - name: Observe initially empty isolated stores\n        continue-on-error: true\n"},
+				{"      - name: Observe initially empty isolated stores\n", "      - name: Observe initially empty isolated stores\n        env:\n          CI_EVIDENCE_COLD_REQUESTED: ''\n"},
+				{"      - name: Observe initially empty isolated stores\n", "      - name: Observe initially empty isolated stores\n        env:\n          CI_EVIDENCE_COLD_REQUESTED: null\n"},
 			} {
 				changed := strings.Replace(string(source), mutation[0], mutation[1], 1)
 				if changed == string(source) || checkColdWorkflow([]byte(changed), file) == nil {
@@ -144,8 +160,112 @@ func TestCIEvidenceColdWorkflowContracts(t *testing.T) {
 				if changed == string(source) || checkColdWorkflow([]byte(changed), file) == nil {
 					t.Fatal("falsy cold-cache fallback admitted")
 				}
+			} else {
+				for _, mutation := range [][2]string{
+					{"        env:\n          CI_EVIDENCE_COLD_REQUESTED: 'false'\n", ""},
+					{"          CI_EVIDENCE_COLD_REQUESTED: 'false'", "          CI_EVIDENCE_COLD_REQUESTED: 'true'"},
+					{"          SHARD: ${{ matrix.shard }}", "          CI_EVIDENCE_COLD_REQUESTED: 'false'\n          SHARD: ${{ matrix.shard }}"},
+					{"          SHARD: ${{ matrix.shard }}", "          CI_EVIDENCE_COLD_REQUESTED: ''\n          SHARD: ${{ matrix.shard }}"},
+					{"          SHARD: ${{ matrix.shard }}", "          CI_EVIDENCE_COLD_REQUESTED: null\n          SHARD: ${{ matrix.shard }}"},
+				} {
+					changed := strings.Replace(string(source), mutation[0], mutation[1], 1)
+					if changed == string(source) || checkColdWorkflow([]byte(changed), file) == nil {
+						t.Fatalf("cold fixture isolation mutation admitted: %s", mutation[0])
+					}
+				}
 			}
 		})
+	}
+}
+
+func TestCIEvidenceLintVisibilityContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const command = "go test -count=1 -v ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
+	check := func(source []byte) error {
+		var workflow releaseWorkflow
+		if err := yaml.Unmarshal(source, &workflow); err != nil {
+			return err
+		}
+		job := workflow.Jobs["lint"]
+		if job.Name != "Lint" || job.If != "" {
+			return fmt.Errorf("existing lint job must remain unconditional")
+		}
+		selected := 0
+		for _, step := range job.Steps {
+			if step.Name != "Test Go workflow trigger selection" {
+				continue
+			}
+			selected++
+			if step.Run != command || step.If != "" || step.ContinueOnError || step.Uses != "" {
+				return fmt.Errorf("lint must execute the same complete uncached package selection once with visible test output")
+			}
+		}
+		if selected != 1 {
+			return fmt.Errorf("lint must retain exactly one selected production contract step")
+		}
+		return nil
+	}
+	if err := check(source); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range [][2]string{
+		{command, strings.Replace(command, " -v", "", 1)},
+		{command, strings.Replace(command, " -v", " -v -run TestOnly", 1)},
+		{command, strings.Replace(command, " -v", " -v -list .", 1)},
+		{command, strings.Replace(command, " -count=1", "", 1)},
+		{command, "go test -count=1 -v ./.github/scripts"},
+		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        if: false\n"},
+		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        continue-on-error: true\n"},
+		{"    name: Lint\n", "    name: Lint\n    if: false\n"},
+		{"      - name: Test Go workflow trigger selection\n", "      # " + command + "\n      - name: Unselected contract decoy\n"},
+		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        run: " + command + "\n      - name: Test Go workflow trigger selection\n"},
+	} {
+		changed := strings.Replace(string(source), mutation[0], mutation[1], 1)
+		if changed == string(source) || check([]byte(changed)) == nil {
+			t.Fatalf("lint visibility mutation admitted: %s", mutation[1])
+		}
+	}
+}
+
+func TestCIEvidenceColdNativeFixtureCaller(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-native-shards.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	step := releaseSteps(workflow.Jobs["native"])["Test shard discovery and failure handling"]
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, isolated := range []bool{false, true} {
+		cmd := exec.CommandContext(t.Context(), "bash", "-c", step.Run)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "CI_EVIDENCE_COLD_REQUESTED=true", "CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED=true")
+		if isolated {
+			for name, value := range step.Env {
+				cmd.Env = append(cmd.Env, name+"="+value)
+			}
+		}
+		output, err := cmd.CombinedOutput()
+		if !isolated {
+			if err == nil {
+				t.Fatal("unisolated synthetic fixture unexpectedly admitted cold observation")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("isolated production fixture caller: %v\n%s", err, output)
+		}
+		if !strings.Contains(string(output), "Native shard discovery, selection, failure propagation, and required artifact verification: PASS") {
+			t.Fatalf("fixture caller did not reach its exhaustive assertions:\n%s", output)
+		}
 	}
 }
 

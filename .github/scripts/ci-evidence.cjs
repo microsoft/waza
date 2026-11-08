@@ -21,6 +21,7 @@ const seconds = (start, end) => {
 };
 const sorted = (values) => [...values].sort();
 const verifiedReports = new WeakMap();
+const nativeReports = new WeakSet();
 const diagnostic = (report, code) => {
   if (!report.diagnostics.includes(code)) report.diagnostics.push(code);
 };
@@ -660,6 +661,7 @@ function collectObservations(runID, api, download = (id) => {
       const sampleEligible = checkoutVerified && metadata.complete && metadata.run_attempt === 1 && match[3] === "1" && metadata.final_conclusion === "success" &&
         metadata.jobs.every((job) => ["success", "skipped"].includes(job.conclusion));
       verifiedReports.set(report, { run_id: String(runID), artifact_id: artifact.id, content_sha256, metadata_complete: metadata.complete, checkout_binding: checkoutVerified ? "api-head" : "unavailable-pr-merge", sample_eligible: sampleEligible, attempt_binding: metadata.run_attempt === 1 ? "single-api-attempt" : "name-and-report-only" });
+      if (match[1] === "go-native") nativeReports.add(report);
       reports.push(report);
       budget.reports++;
     } catch (error) {
@@ -700,8 +702,10 @@ function eligibleSample(report) {
   if (!verifiedReports.get(report)?.sample_eligible || !knownIdentity(report) ||
       report.complete !== true || report.identity.attempt !== "1" || report.policy?.retries !== 0 ||
       report.cache.test_results !== "disabled") return false;
-  const dependencies = Object.values(report.cache).filter((value) => value !== "disabled" && value !== "not-applicable");
-  if (!dependencies.length || !dependencies.every((value) => value === false)) return false;
+  if (report.cache.go_dependencies !== false ||
+      !(report.cache.node_dependencies === false ||
+        (report.cache.node_dependencies === "not-applicable" && report.kind === "go" &&
+          report.inventory_scope === "names" && nativeReports.has(report)))) return false;
   const counts = report.kind === "go" ? report.counts?.top_level : report.counts;
   if (number(counts?.executed) === null || counts.executed <= 0 || counts.fail !== 0) return false;
   return report.kind === "go" ? report.discovery_exit === 0 && report.discovery_collector_exit === 0 && report.execution_exit === 0 && report.collector_exit === 0 && report.policy.count === 1 && report.counts?.packages?.fail === 0 && counts.unfinished === 0 : report.discovery_outcome === "success" && report.execution_outcome === "success" && counts.flaky === 0 && counts.first_attempt_failures === 0;

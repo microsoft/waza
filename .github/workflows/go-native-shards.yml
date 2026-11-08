@@ -48,6 +48,8 @@ jobs:
         if: inputs.cold_observation
         run: node .github/scripts/ci-evidence-cache.cjs prepare go
       - name: Test shard discovery and failure handling
+        env:
+          CI_EVIDENCE_COLD_REQUESTED: 'false'
         run: bash .github/scripts/go_test_shard_test.sh
       - name: Install and prove rejecting runtime guard
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"

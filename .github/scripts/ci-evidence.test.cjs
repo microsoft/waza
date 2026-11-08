@@ -666,7 +666,8 @@ test("actual runner-image changes split otherwise equal isolated cohorts without
     report.identity.source_sha = run.head_sha;
     report.identity.image_os = "ubuntu24";
     report.identity.image_version = "20261107.1";
-    report.selected = ["example/p::TestA"];
+    report.inventory_scope = "names";
+    report.selected = ["TestA"];
     report.discovered = report.selected;
     report.cache.node_dependencies = "not-applicable";
     report.cache_observation = isolatedObservation(report);
@@ -1310,6 +1311,58 @@ test("trend eligibility requires verified distinct comparable first-run samples;
   assert.equal(proposal.targets[0].observations[0].provenance.artifact_id, 100);
   assert.match(proposal.targets[0].observations[0].report_content_sha256, /^[0-9a-f]{64}$/);
 });
+test("verified dependency-cache admission retains missing observations without vacuous eligibility", () => {
+  const makeReport = (family) => {
+    const report = family === "browser" ?
+      browserReport(browser(), { ...env, BROWSER_DISCOVERY_OUTCOME: "success", BROWSER_EXECUTION_OUTCOME: "success" },
+        ["chromium::test-id"]) : parseGo(successful);
+    report.identity.source_sha = run.head_sha;
+    if (family !== "browser") {
+      report.inventory_scope = family === "go-native" ? "names" : "qualified";
+      report.selected = family === "go-native" ? ["TestA"] : ["example/p::TestA"];
+      report.discovered = report.selected;
+      if (family === "go-native") report.cache.node_dependencies = "not-applicable";
+    }
+    return report;
+  };
+  const inspect = (report, family, eligible) => {
+    const observed = verified(report, {}, family);
+    assert.equal(observed.diagnostics.length, 0);
+    assert.equal(observed.reports.length, 1, "legacy cache payload remains readable");
+    const grouped = trends(observed.reports);
+    assert.equal(grouped.cohorts[0].observations.length, 1);
+    assert.equal(grouped.cohorts[0].observations[0].provenance.sample_eligible, true,
+      "fixture must establish authenticated source admission independently of cache eligibility");
+    assert.equal(grouped.cohorts[0].eligible.length, eligible ? 1 : 0);
+    assert.equal(historyProposal(observed.reports).targets.length,
+      eligible && family !== "browser" ? 1 : 0);
+    for (const field of ["go_dependencies", "node_dependencies"]) {
+      assert.equal(Object.hasOwn(observed.reports[0].cache, field), Object.hasOwn(report.cache, field));
+      assert.equal(observed.reports[0].cache[field], report.cache[field]);
+    }
+  };
+  for (const family of ["go-run", "go-native", "browser"]) {
+    inspect(makeReport(family), family, true);
+    for (const field of ["go_dependencies", "node_dependencies"]) {
+      for (const value of [undefined, null, "", true, "false", "disabled", "not-applicable", false]) {
+        const report = makeReport(family);
+        if (value === undefined) delete report.cache[field];
+        else report.cache[field] = value;
+        inspect(report, family, value === false ||
+          (field === "node_dependencies" && value === "not-applicable" && family === "go-native"));
+      }
+    }
+  }
+  for (const scope of [undefined, "qualified"]) {
+    const report = makeReport("go-native");
+    if (scope === undefined) delete report.inventory_scope;
+    else report.inventory_scope = scope;
+    inspect(report, "go-native", false);
+  }
+  const masquerading = makeReport("go-native");
+  inspect(masquerading, "go-run", false);
+});
+
 test("artifact content, filename, source and expiry must verify independently", () => {
   const report = parseGo(successful);
   report.selected = ["example/p::TestA"]; report.discovered = report.selected;
