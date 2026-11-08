@@ -365,9 +365,75 @@ func duplicateRunnerFD(t *testing.T, file *os.File) *os.File {
 
 func runnerFDFlags(t *testing.T, file *os.File) int {
 	t.Helper()
-	flags, err := unix.FcntlInt(file.Fd(), unix.F_GETFL, 0)
+	raw, err := file.SyscallConn()
 	require.NoError(t, err)
+	var flags int
+	var flagErr error
+	err = raw.Control(func(fd uintptr) {
+		flags, flagErr = unix.FcntlInt(fd, unix.F_GETFL, 0)
+	})
+	require.NoError(t, err)
+	require.NoError(t, flagErr)
 	return flags
+}
+
+func TestRunnerFDFlagsPreservesPipeFlags(t *testing.T) {
+	for _, control := range []struct {
+		name        string
+		readEnd     bool
+		nonblocking bool
+	}{
+		{name: "reader/blocking", readEnd: true},
+		{name: "reader/nonblocking", readEnd: true, nonblocking: true},
+		{name: "writer/blocking"},
+		{name: "writer/nonblocking", nonblocking: true},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			reader, writer, err := os.Pipe()
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, reader.Close()) })
+			t.Cleanup(func() { require.NoError(t, writer.Close()) })
+			file := writer
+			if control.readEnd {
+				file = reader
+			}
+			peer := duplicateRunnerFD(t, file)
+			t.Cleanup(func() { require.NoError(t, peer.Close()) })
+			raw, err := file.SyscallConn()
+			require.NoError(t, err)
+			peerRaw, err := peer.SyscallConn()
+			require.NoError(t, err)
+			var setErr error
+			require.NoError(t, raw.Control(func(fd uintptr) {
+				setErr = unix.SetNonblock(int(fd), control.nonblocking)
+			}))
+			require.NoError(t, setErr)
+
+			// Snapshot kernel flags without invoking the getter under test.
+			readFlags := func(conn syscall.RawConn) int {
+				var flags int
+				var flagErr error
+				require.NoError(t, conn.Control(func(fd uintptr) {
+					flags, flagErr = unix.FcntlInt(fd, unix.F_GETFL, 0)
+				}))
+				require.NoError(t, flagErr)
+				return flags
+			}
+			before := readFlags(raw)
+			require.Equal(t, control.nonblocking, before&unix.O_NONBLOCK != 0)
+			require.Equal(t, before, readFlags(peerRaw))
+			for range 3 {
+				flags := runnerFDFlags(t, file)
+				require.Equal(t, before, readFlags(raw), "observing the Go-owned handle must preserve its flags")
+				require.Equal(t, before, readFlags(peerRaw), "observing the Go-owned handle must preserve shared peer flags")
+				require.Equal(t, before, flags)
+				flags = runnerFDFlags(t, peer)
+				require.Equal(t, before, readFlags(raw), "observing the peer must preserve the Go-owned handle's flags")
+				require.Equal(t, before, readFlags(peerRaw))
+				require.Equal(t, before, flags)
+			}
+		})
+	}
 }
 
 func fillRunnerPipe(t *testing.T, writer *os.File) []byte {
