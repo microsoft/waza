@@ -133,7 +133,10 @@ function applicability(paths) {
     dashboard: all || backend || modules || matches('web', 'examples/runner'),
     site: all || matches('site', 'docs', 'README.md', 'CHANGELOG.md', 'version.txt', 'registry.json', 'go.mod', 'schemas', 'internal/embedded',
       'internal/models', 'internal/runneridentity/testdata', 'internal/runnerunit/testdata', 'internal/runnerterminal/testdata',
-      'examples/runner/container/MAINTAINERS.md', 'examples/runner/container/published-image-test.mjs'),
+      'examples', 'Makefile', 'web/playwright.config.ts', 'web/package-lock.json', 'web/e2e/runner-negotiation.spec.ts',
+      '.squad/model-policy.md', 'DEMO-SCRIPT.md', 'LICENSE', 'meet-the-squad.md',
+      'internal/interop/testdata/agentv/PROVENANCE.md', 'internal/runnercompat/testdata/eval-1.4.yaml',
+      'internal/runnercompat/testdata/task.yaml'),
     examples: all || backend || modules || matches('site', 'docs', 'examples/interop', 'examples/runner/unit.json', 'README.md', 'registry.json', 'Makefile', 'web'),
     assurance: all || backend || modules || matches('web', 'scripts', 'docs/graders', 'examples', 'testdata/frozen-assurance-readers', '.gitattributes'),
     container: all || backend || modules || paths.some((file) => /^[^/]+\.go$/.test(file)) ||

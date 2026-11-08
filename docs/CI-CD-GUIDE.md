@@ -86,7 +86,7 @@ full-diff review:
 |---|---|
 | Go, lint, native Linux shards and Windows | Every ordinary PR, preserving the existing native gates. |
 | Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, and runner examples. |
-| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures, plus runner container `MAINTAINERS.md` and `published-image-test.mjs` read by documentation checks. |
+| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config and lockfile content read by documentation checks; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
 | Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
 | Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
 | Docker image and native runner contracts | Container/context files, `.gitattributes` LFS checkout rules for embedded assets, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |
@@ -94,7 +94,26 @@ full-diff review:
 | Pinned judge runtime on Linux and macOS | Embedded runtime, execution/graders/judge evidence/models, their repository package dependency closure (including filesystem admission, snapshot readers, schema loading, events, config, skills/tokens and compiled test helpers), root schemas, modules and `.gitattributes`. |
 
 Workflow and completeness-interpreter changes select the affected gate families.
-Instruction-only `AGENTS.md` edits do not add expensive auxiliary suites.
+The current production documentation prebuild input trace observed 210 distinct
+repository paths, not 210 content reads. Besides the three content inputs
+`Makefile`, `web/playwright.config.ts` and `web/package-lock.json`, it found
+existence/stat checks for `web/e2e/runner-negotiation.spec.ts`, linked
+`.squad/model-policy.md`, `DEMO-SCRIPT.md`, `LICENSE`, `meet-the-squad.md`,
+`internal/interop/testdata/agentv/PROVENANCE.md` and the runner compatibility
+eval/task fixtures. These exact file inputs select site validation.
+Eleven additional linked files and three directory targets are covered by the
+existing containment-aware `examples/` root match. The root deliberately
+over-selects descendant edits: the documentation checks consume directory
+existence, not every descendant's content. Actual Git addition, deletion and
+rename controls cover file leaves, including removal of a consumed directory's
+last tracked leaf; a Git directory path is never fabricated.
+
+Instruction-only `AGENTS.md` edits retain the existing exemption from expensive
+site/chat auxiliary suites. Documentation link checks also observe its
+existence/type, so deletion or type replacement remains a known coverage gap
+under this exemption. No status-aware wire extension or separate cheap job is
+implemented here; this matrix does not claim unconditional coverage of all
+210 observed inputs or a future base's input closure.
 Explicit `not_applicable` is different from absent, failed or skipped evidence.
 
 GoLint selection controls resolve declarative `GOFLAGS` with workflow, job and

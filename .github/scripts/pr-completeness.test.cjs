@@ -8,11 +8,29 @@ const { applicability, captureReceipt, contracts, createPlan, evaluate, planOutp
 
 const cli = path.join(__dirname, 'pr-completeness.cjs');
 const consumedLeafInputs = [
-  ['examples/runner/container/MAINTAINERS.md', 'site'],
-  ['examples/runner/container/published-image-test.mjs', 'site'],
+  ['examples/runner/container/MAINTAINERS.md', 'site', true],
+  ['examples/runner/container/published-image-test.mjs', 'site', true],
   ['examples/runner/unit.json', 'examples'],
   ['.gitattributes', 'assurance'],
   ['.gitattributes', 'container'],
+  ...[
+    'Makefile', 'web/playwright.config.ts', 'web/package-lock.json', 'web/e2e/runner-negotiation.spec.ts',
+    '.squad/model-policy.md', 'DEMO-SCRIPT.md', 'LICENSE', 'meet-the-squad.md',
+    'internal/interop/testdata/agentv/PROVENANCE.md', 'internal/runnercompat/testdata/eval-1.4.yaml',
+    'internal/runnercompat/testdata/task.yaml',
+  ].map((file) => [file, 'site']),
+  ...[
+    'examples/ci/basic-example.yml', 'examples/ci/eval-on-pr.yml', 'examples/ci/README.md',
+    'examples/compatibility/README.md', 'examples/evidence-judge/eval.yaml',
+    'examples/grader-challenges/authored-output/README.md', 'examples/grader-challenges/calibration/README.md',
+    'examples/grader-challenges/cli-target/README.md', 'examples/interop/run.sh',
+    'examples/README.md', 'examples/scenarios/README.md',
+  ].map((file) => [file, 'site', true]),
+];
+const siteDirectoryWitnesses = [
+  ['examples/README.md', 'examples'],
+  ['examples/controlled-comparison/eval.yaml', 'examples/controlled-comparison'],
+  ['examples/scenarios/native-questions/eval.yaml', 'examples/scenarios/native-questions'],
 ];
 const source = {
   repository: 'microsoft/waza', event: 'pull_request', action: 'synchronize', pr: 900,
@@ -68,11 +86,18 @@ function scratch(t) {
 }
 
 test('actual API/model/schema and container paths select production consumers; unrelated prose does not', () => {
-  for (const [file, family] of consumedLeafInputs) {
+  for (const [file, family, nearMiss = false] of consumedLeafInputs) {
     assert.equal(fs.existsSync(path.resolve(__dirname, '../..', file)), true, file);
     assert.equal(applicability([file])[family], true, file);
-    assert.equal(applicability([`${file}-near-miss`])[family], false, file);
+    assert.equal(applicability([`${file}-near-miss`])[family], nearMiss, file);
   }
+  for (const [file, directory] of siteDirectoryWitnesses) {
+    assert.equal(fs.existsSync(path.resolve(__dirname, '../..', file)), true, file);
+    assert.equal(fs.statSync(path.resolve(__dirname, '../..', directory)).isDirectory(), true, directory);
+    assert.equal(applicability([file]).site, true, file);
+    assert.equal(applicability([`${directory}-near-miss/${path.basename(file)}`]).site, directory !== 'examples', directory);
+  }
+  assert.equal(applicability(['AGENTS.md']).site, false, 'instruction-only exemption remains an explicit coverage exception');
   for (const file of ['internal/webapi/handlers.go', 'internal/webapi/store.go', 'internal/models/outcome.go', 'schemas/eval.schema.json', 'cmd/waza/cmd_run.go', 'docs.go']) {
     assert.equal(fs.existsSync(path.resolve(__dirname, '../..', file)), true, file);
     const selected = applicability([file]);
@@ -621,28 +646,63 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   assert.equal(retargetEvaluation.status, 0, retargetEvaluation.stderr);
   assert.equal(JSON.parse(retargetEvaluation.stdout).passed, true);
   let leafControl = 0;
-  for (const [file, family] of consumedLeafInputs) {
-    for (const changedFile of [file, `${file}-near-miss`]) {
-      const applicable = changedFile === file;
+  const leafCases = consumedLeafInputs.flatMap(([file, family, nearMiss = false]) => [
+    [file, family, true], [`${file}-near-miss`, family, nearMiss],
+  ]);
+  leafCases.push(...siteDirectoryWitnesses.map(([file, directory]) => [file, 'site', true, directory]));
+  leafCases.push(['examples-near-miss/README.md', 'site', false]);
+  for (const [changedFile, family, applicable, directoryWitness] of leafCases) {
+    const operations = directoryWitness || changedFile === 'Makefile' || changedFile === 'web/e2e/runner-negotiation.spec.ts'
+      ? ['add', 'delete', 'rename'] : ['add'];
+    for (const operation of operations) {
       const suffix = String(++leafControl);
-      git('checkout', '-qb', `consumer-head-${suffix}`, initialMain);
-      fs.mkdirSync(path.dirname(path.join(directory, changedFile)), { recursive: true });
-      fs.writeFileSync(path.join(directory, changedFile), '# changed consumer input\n');
-      git('add', '--', changedFile);
+      let leafBase = initialMain;
+      if (operation !== 'add') {
+        git('checkout', '-qb', `consumer-setup-${suffix}`, initialMain);
+        fs.mkdirSync(path.dirname(path.join(directory, changedFile)), { recursive: true });
+        fs.writeFileSync(path.join(directory, changedFile), '# original consumer input\n');
+        git('add', '-f', '--', changedFile);
+        git('commit', '-qm', 'prepare one consumer input');
+        leafBase = git('rev-parse', 'HEAD');
+        if (directoryWitness) {
+          assert.deepEqual(git('ls-tree', '-r', '--name-only', leafBase, '--', directoryWitness).split('\n'), [changedFile],
+            'directory control must contain exactly its final tracked leaf');
+          assert.equal(fs.statSync(path.join(directory, directoryWitness)).isDirectory(), true);
+        }
+      }
+      git('checkout', '-qb', `consumer-head-${suffix}`, leafBase);
+      const renamedFile = `renamed-consumer-${suffix}`;
+      if (operation === 'add') {
+        fs.mkdirSync(path.dirname(path.join(directory, changedFile)), { recursive: true });
+        fs.writeFileSync(path.join(directory, changedFile), '# changed consumer input\n');
+        git('add', '-f', '--', changedFile);
+      } else if (operation === 'delete') {
+        git('rm', '--', changedFile);
+      } else {
+        git('mv', '--', changedFile, renamedFile);
+      }
       git('commit', '-qm', 'change one consumer input');
       const leafHead = git('rev-parse', 'HEAD');
       const leafBaseRef = `consumer-base-${suffix}`;
-      git('checkout', '-qb', leafBaseRef, initialMain);
+      git('checkout', '-qb', leafBaseRef, leafBase);
       git('merge', '--no-ff', '-qm', 'test one consumer input', leafHead);
       env.GITHUB_SHA = git('rev-parse', 'HEAD');
+      if (directoryWitness && operation !== 'add') {
+        const checkout = path.join(directory, `consumer-checkout-${suffix}`);
+        git('clone', '--shared', '--quiet', '--no-checkout', directory, checkout);
+        git('-C', checkout, 'checkout', '--detach', '-q', env.GITHUB_SHA);
+        assert.equal(git('-C', checkout, 'ls-tree', '-r', '--name-only', 'HEAD', '--', directoryWitness), '');
+        assert.equal(fs.existsSync(path.join(checkout, directoryWitness)), false,
+          'removing the final tracked leaf must remove the consumed directory from a fresh checkout');
+      }
       fs.writeFileSync(eventPath, JSON.stringify({
         action: 'synchronize', number: source.pr,
-        pull_request: { head: { sha: leafHead }, base: { sha: initialMain, ref: leafBaseRef } },
+        pull_request: { head: { sha: leafHead }, base: { sha: leafBase, ref: leafBaseRef } },
       }));
       const discovered = invoke();
       assert.equal(discovered.status, 0, discovered.stderr);
       const leafPlan = JSON.parse(discovered.stdout);
-      assert.deepEqual(leafPlan.paths, [changedFile]);
+      assert.deepEqual(leafPlan.paths, operation === 'rename' ? [changedFile, renamedFile].sort() : [changedFile]);
       assert.equal(leafPlan.applicable[family], applicable, changedFile);
       fs.writeFileSync(planPath, JSON.stringify(leafPlan));
       const selected = select(family);
