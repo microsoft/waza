@@ -525,12 +525,17 @@ func TestBenchmarkCorpusVerifyPreserved_MissingOrUnreadableEvidenceRejection(t *
 
 		// Missing snapshot must never pass qualification; observation must report InsufficientEvidence
 		require.NotEqual(t, AssessmentPassed, report.State)
+		checkedObservations := 0
 		for _, reqAssessment := range report.Requirements {
 			for _, obs := range reqAssessment.Observations {
+				checkedObservations++
 				require.Equal(t, InsufficientEvidence, obs.State)
 				require.Equal(t, "snapshot_unavailable", obs.Reason)
+				require.Nil(t, obs.Result)
+				require.Nil(t, obs.Agreement)
 			}
 		}
+		require.Equal(t, len(inMemoryDoc.Cases)*2, checkedObservations, "all requirements and checks across all cases must record missing snapshot observations")
 	})
 
 	t.Run("corrupt snapshot JSON", func(t *testing.T) {
