@@ -214,7 +214,7 @@ func TestExecuteRunMCPMockCleanupPreservesReplacementAndFailsRun(t *testing.T) {
 			if executionFails {
 				require.Contains(t, run.ErrorMsg, "original execution failure")
 			}
-			require.Equal(t, models.StatusFailed, overallStatus([]models.RunResult{run}))
+			require.Equal(t, models.StatusError, OverallStatus([]models.RunResult{run}))
 			data, err := json.Marshal(run)
 			require.NoError(t, err)
 			var saved models.RunResult
@@ -322,7 +322,7 @@ func TestRunTestMCPMockParentReplacementFailsOutcome(t *testing.T) {
 			require.Equal(t, "preserve parent replacement", string(replacement))
 			require.NoFileExists(t, originalConfig)
 			require.False(t, engine.response.Success)
-			require.Equal(t, models.StatusFailed, outcome.Status)
+			require.Equal(t, models.StatusError, outcome.Status)
 			require.Len(t, outcome.Runs, 1)
 			run := outcome.Runs[0]
 			require.Equal(t, models.StatusError, run.Status)
@@ -336,7 +336,7 @@ func TestRunTestMCPMockParentReplacementFailsOutcome(t *testing.T) {
 			require.NoError(t, err)
 			var saved models.TestOutcome
 			require.NoError(t, json.Unmarshal(body, &saved))
-			require.Equal(t, models.StatusFailed, saved.Status)
+			require.Equal(t, models.StatusError, saved.Status)
 			require.Equal(t, models.StatusError, saved.Runs[0].Status)
 			require.Equal(t, run.ErrorMsg, saved.Runs[0].ErrorMsg)
 		})
@@ -396,7 +396,7 @@ func TestRunTestMCPMockCacheInvalidatesPriorAttemptBehavior(t *testing.T) {
 			require.Len(t, outcome.Runs, 1)
 			if source == "invalid-version" {
 				require.Empty(t, engine.results)
-				require.Equal(t, models.StatusFailed, outcome.Status)
+				require.Equal(t, models.StatusError, outcome.Status)
 				require.Equal(t, models.StatusError, outcome.Runs[0].Status)
 				require.Contains(t, outcome.Runs[0].ErrorMsg, "requires explicit enclosing scenario schemaVersion")
 				return
