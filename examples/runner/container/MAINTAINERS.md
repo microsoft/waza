@@ -78,6 +78,11 @@ source revision; the candidate guard requires that revision to equal the
 requested SHA and current `main`. Its per-run tag is only a convenience;
 consumers must pin the immutable `@sha256:` digest instead.
 
+Artifact Metadata Storage Records are explicitly disabled to preserve the
+publisher's existing permission boundary when upgrading the provenance action.
+Signed provenance is still pushed to the registry; no `artifact-metadata: write`
+permission is granted.
+
 The `GITHUB_TOKEN` package-write and attestation permissions are declarations,
 not proof that repository, organization or package policy allows publication.
 Record the actual publisher outcome rather than inferring success from a

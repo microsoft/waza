@@ -200,6 +200,9 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 		attestation.With["push-to-registry"] != "true" {
 		t.Fatalf("signed provenance must bind the image package to the exact build digest: %#v", attestation)
 	}
+	if attestation.With["create-storage-record"] != "false" {
+		t.Fatalf("signed provenance must explicitly disable artifact storage records without expanding permissions: %#v", attestation.With)
+	}
 	stepIndex := func(steps []runnerReferenceStep, name string) int {
 		for i, step := range steps {
 			if step.Name == name {

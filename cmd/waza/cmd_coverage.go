@@ -446,7 +446,7 @@ func parseSkillName(path string) string {
 		return ""
 	}
 	var sk skill.Skill
-	if err := sk.UnmarshalText(data); err != nil {
+	if err := sk.UnmarshalTextWithoutTokenCount(data); err != nil {
 		return ""
 	}
 	return strings.TrimSpace(sk.Frontmatter.Name)

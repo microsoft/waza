@@ -126,7 +126,10 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 			return fmt.Errorf("reporting saved local runner output: %w", err)
 		}
 	}
-	if outcome.Digest.Failed > 0 || outcome.Digest.Errors > 0 {
+	if outcome.Digest.Errors > 0 {
+		return &BenchmarkError{Message: fmt.Sprintf("benchmark completed: %d failed and %d error(s)", outcome.Digest.Failed, outcome.Digest.Errors)}
+	}
+	if outcome.Digest.Failed > 0 {
 		return &TestFailureError{Message: fmt.Sprintf("benchmark completed: %d failed and %d error(s)", outcome.Digest.Failed, outcome.Digest.Errors)}
 	}
 	return nil
