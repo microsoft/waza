@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/internal/evidence"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -264,6 +266,13 @@ func TestBenchmarkCorpusObservePreservedMechanical(t *testing.T) {
 		require.NoError(t, boundaryObs.Err)
 		require.NotNil(t, boundaryObs.Result)
 		require.Equal(t, *c.Checks[1].ExpectedPassed, boundaryObs.Result.Passed)
+		if *c.Checks[1].ExpectedPassed {
+			require.Equal(t, 1.0, boundaryObs.Result.Score)
+			require.Equal(t, "all tool_calls checks passed", boundaryObs.Result.Feedback)
+		} else {
+			require.Zero(t, boundaryObs.Result.Score)
+			require.Contains(t, boundaryObs.Result.Feedback, "forbidden tool")
+		}
 		boundariesTested++
 
 		// 2. Grade outcome check directly from serialized snapshot if secure workspace materialization is supported
@@ -280,6 +289,14 @@ func TestBenchmarkCorpusObservePreservedMechanical(t *testing.T) {
 			require.NoError(t, outcomeObs.Err)
 			require.NotNil(t, outcomeObs.Result)
 			require.Equal(t, *c.Checks[0].ExpectedPassed, outcomeObs.Result.Passed)
+			if *c.Checks[0].ExpectedPassed {
+				require.Equal(t, 1.0, outcomeObs.Result.Score)
+				require.Equal(t, "All file checks passed", outcomeObs.Result.Feedback)
+			} else {
+				require.InDelta(t, 1.0/3, outcomeObs.Result.Score, 1e-12)
+				require.Contains(t, outcomeObs.Result.Feedback, "missing expected pattern")
+				require.Contains(t, outcomeObs.Result.Feedback, "contains forbidden pattern")
+			}
 
 			overallPassed := outcomeObs.Result.Passed && boundaryObs.Result.Passed
 			if c.Classification == CaseGood || c.Classification == CaseAlternative {
@@ -385,6 +402,260 @@ func TestBenchmarkCorpusVerifyPreserved(t *testing.T) {
 		require.Equal(t, AssessmentError, report.State)
 		require.Equal(t, PreservedReportVersion, report.SchemaVersion)
 	}
+}
+
+func TestBenchmarkCorpusVerifyPreserved_OneFailingRequirementRejection(t *testing.T) {
+	pkg, err := BuildBenchmarkCorpus()
+	require.NoError(t, err)
+
+	executable, err := fixtureExecutableSHA256()
+	require.NoError(t, err)
+	inMemoryDoc := pkg.Document
+	inMemoryDoc.ImplementationExecutableSHA256 = new(executable)
+
+	scenarios := DefaultBenchmarkScenarios()
+	scenario := scenarios[0]
+
+	// Take case 0 (good case expecting boundary check to pass).
+	// Mutate its snapshot by adding a call to the forbidden tool,
+	// and re-seal the manifest. This creates a true single-check failure under preserved replay.
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(pkg.Snapshots[inMemoryDoc.Cases[0].Snapshot], &raw))
+	raw["toolEvents"] = []models.ToolEvent{
+		{Turn: 1, Sequence: 1, ToolCallID: "call-1", ToolName: scenario.ForbiddenTool, Success: true},
+	}
+	var manifest models.EvidenceManifest
+	require.NoError(t, json.Unmarshal(marshalReferenceTest(t, raw["evidence"]), &manifest))
+	for i := range manifest.Artifacts {
+		value, err := pointerValue(raw, manifest.Artifacts[i].Pointer)
+		require.NoError(t, err)
+		manifest.Artifacts[i].ContentDigest, err = evidence.JSONDigest(value)
+		require.NoError(t, err)
+	}
+	require.NoError(t, evidence.Seal(&manifest))
+	raw["evidence"] = manifest
+
+	tempDir := t.TempDir()
+	for relPath, data := range pkg.Snapshots {
+		destPath := filepath.Join(tempDir, relPath)
+		require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0o700))
+		if relPath == inMemoryDoc.Cases[0].Snapshot {
+			require.NoError(t, os.WriteFile(destPath, marshalReferenceTest(t, raw), 0o600))
+		} else {
+			require.NoError(t, os.WriteFile(destPath, data, 0o600))
+		}
+	}
+
+	mutatedDoc := inMemoryDoc
+	mutatedDoc.Cases = append([]ReferenceCase(nil), inMemoryDoc.Cases...)
+	mutatedDoc.Cases[0] = inMemoryDoc.Cases[0]
+	mutatedDoc.Cases[0].ManifestSHA256 = manifest.SHA256
+
+	root, err := os.OpenRoot(tempDir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, root.Close()) })
+
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	req := VerifyRequest{
+		Now:          now,
+		EvalSource:   []byte("waza reference benchmark corpus v1.0\n"),
+		Spec:         pkg.CombinedSpec,
+		Tasks:        pkg.Tasks,
+		SnapshotRoot: root,
+		Acceptance:   ReviewSourceAcceptance{SourceID: "synthetic-source", AcceptCurrentDecision: true},
+	}
+	rebindSyntheticReview(t, &req, mutatedDoc)
+
+	report, err := VerifyPreserved(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, report)
+
+	// Confirm fail-closed behavior: 1 failing check out of 96 rejects the entire qualification
+	require.NotEqual(t, AssessmentPassed, report.State)
+	foundDisagreement := false
+	for _, reqAssessment := range report.Requirements {
+		if reqAssessment.Check.Grader == scenario.BoundaryGraderID() {
+			for _, obs := range reqAssessment.Observations {
+				if obs.CaseID == inMemoryDoc.Cases[0].ID {
+					require.NotNil(t, obs.Agreement)
+					require.False(t, *obs.Agreement, "tampered boundary check must disagree with declared expectation")
+					require.Equal(t, AssessmentFailed, reqAssessment.State)
+					foundDisagreement = true
+				}
+			}
+		}
+	}
+	require.True(t, foundDisagreement, "must locate the tampered observation")
+	if preservedWorkspaceSupported() {
+		require.Equal(t, AssessmentFailed, report.State)
+		require.Equal(t, "label_disagreement", report.Reason)
+	}
+}
+
+func TestBenchmarkCorpusVerifyPreserved_MissingOrUnreadableEvidenceRejection(t *testing.T) {
+	pkg, err := BuildBenchmarkCorpus()
+	require.NoError(t, err)
+
+	executable, err := fixtureExecutableSHA256()
+	require.NoError(t, err)
+	inMemoryDoc := pkg.Document
+	inMemoryDoc.ImplementationExecutableSHA256 = new(executable)
+
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+
+	t.Run("missing snapshot file", func(t *testing.T) {
+		tempDir := t.TempDir()
+		root, err := os.OpenRoot(tempDir)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, root.Close()) })
+
+		req := VerifyRequest{
+			Now:          now,
+			EvalSource:   []byte("waza reference benchmark corpus v1.0\n"),
+			Spec:         pkg.CombinedSpec,
+			Tasks:        pkg.Tasks,
+			SnapshotRoot: root,
+			Acceptance:   ReviewSourceAcceptance{SourceID: "synthetic-source", AcceptCurrentDecision: true},
+		}
+		rebindSyntheticReview(t, &req, inMemoryDoc)
+
+		report, err := VerifyPreserved(t.Context(), req)
+		require.NoError(t, err)
+		require.NotNil(t, report)
+
+		// Missing snapshot must never pass qualification; observation must report InsufficientEvidence
+		require.NotEqual(t, AssessmentPassed, report.State)
+		for _, reqAssessment := range report.Requirements {
+			for _, obs := range reqAssessment.Observations {
+				require.Equal(t, InsufficientEvidence, obs.State)
+				require.Equal(t, "snapshot_unavailable", obs.Reason)
+			}
+		}
+	})
+
+	t.Run("corrupt snapshot JSON", func(t *testing.T) {
+		tempDir := t.TempDir()
+		snapshotsDir := filepath.Join(tempDir, "snapshots")
+		require.NoError(t, os.MkdirAll(snapshotsDir, 0o700))
+		for relPath, data := range pkg.Snapshots {
+			destPath := filepath.Join(tempDir, relPath)
+			require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0o700))
+			if relPath == inMemoryDoc.Cases[0].Snapshot {
+				require.NoError(t, os.WriteFile(destPath, []byte("{corrupt-json"), 0o600))
+			} else {
+				require.NoError(t, os.WriteFile(destPath, data, 0o600))
+			}
+		}
+
+		root, err := os.OpenRoot(tempDir)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, root.Close()) })
+
+		req := VerifyRequest{
+			Now:          now,
+			EvalSource:   []byte("waza reference benchmark corpus v1.0\n"),
+			Spec:         pkg.CombinedSpec,
+			Tasks:        pkg.Tasks,
+			SnapshotRoot: root,
+			Acceptance:   ReviewSourceAcceptance{SourceID: "synthetic-source", AcceptCurrentDecision: true},
+		}
+		rebindSyntheticReview(t, &req, inMemoryDoc)
+
+		report, err := VerifyPreserved(t.Context(), req)
+		require.NoError(t, err)
+		require.NotNil(t, report)
+
+		// Corrupt snapshot must never pass qualification
+		require.NotEqual(t, AssessmentPassed, report.State)
+	})
+
+	t.Run("unreadable or missing workspace files payload", func(t *testing.T) {
+		task := pkg.Tasks[inMemoryDoc.Cases[0].TaskID]
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(pkg.Snapshots[inMemoryDoc.Cases[0].Snapshot], &raw))
+		raw["workspaceFiles"] = nil
+
+		var manifest models.EvidenceManifest
+		require.NoError(t, json.Unmarshal(marshalReferenceTest(t, raw["evidence"]), &manifest))
+		manifest.Artifacts = manifest.Artifacts[1:] // only tool-events
+		require.NoError(t, evidence.Seal(&manifest))
+		raw["evidence"] = manifest
+
+		data := marshalReferenceTest(t, raw)
+		obs := ObservePreservedMechanical(t.Context(), PreservedMechanicalInput{
+			Task:           task,
+			Spec:           pkg.CombinedSpec,
+			Check:          inMemoryDoc.Cases[0].Checks[0].Check,
+			SnapshotBytes:  data,
+			ManifestSHA256: manifest.SHA256,
+			Evidence:       inMemoryDoc.Cases[0].Checks[0].Evidence,
+		})
+		require.Equal(t, InsufficientEvidence, obs.State)
+		require.Error(t, obs.Err)
+	})
+}
+
+func TestBenchmarkCorpusPreserved_CompleteButEmptyTapeLimitation(t *testing.T) {
+	pkg, err := BuildBenchmarkCorpus()
+	require.NoError(t, err)
+
+	scenarios := DefaultBenchmarkScenarios()
+	scenario := scenarios[0] // mcp-ticket-routing
+	task := scenario.Task()
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(pkg.Snapshots[pkg.Document.Cases[0].Snapshot], &raw))
+	raw["toolEvents"] = []any{}
+
+	var manifest models.EvidenceManifest
+	require.NoError(t, json.Unmarshal(marshalReferenceTest(t, raw["evidence"]), &manifest))
+	for i := range manifest.Artifacts {
+		val, err := pointerValue(raw, manifest.Artifacts[i].Pointer)
+		require.NoError(t, err)
+		manifest.Artifacts[i].ContentDigest, err = evidence.JSONDigest(val)
+		require.NoError(t, err)
+	}
+	require.NoError(t, evidence.Seal(&manifest))
+	raw["evidence"] = manifest
+	snapshotData := marshalReferenceTest(t, raw)
+
+	toolEvidence := []models.EvidenceReference{{Origin: manifest.Origin, ArtifactID: "tool-events"}}
+	boundaryCheck := task.Requirements[1].Checks[0]
+	// 1. Negative constraint check (ForbiddenTools): passing vacuously because 0 tools were called
+	obsPass := ObservePreservedMechanical(t.Context(), PreservedMechanicalInput{
+		Task:           task,
+		Spec:           pkg.CombinedSpec,
+		Check:          boundaryCheck,
+		SnapshotBytes:  snapshotData,
+		ManifestSHA256: manifest.SHA256,
+		Evidence:       toolEvidence,
+	})
+	require.Equal(t, Observed, obsPass.State)
+	require.NoError(t, obsPass.Err)
+	require.NotNil(t, obsPass.Result)
+	require.True(t, obsPass.Result.Passed, "empty tape does not invoke forbidden tools")
+
+	// 2. Affirmative constraint check (RequiredTools): correctly fails when empty tape provides no tool calls
+	affirmativeSpec := &models.EvalSpec{Graders: []models.GraderConfig{{
+		Identifier: "affirmative-tool", Kind: models.GraderKindToolCalls,
+		Parameters: models.ToolCallsGraderParameters{RequiredTools: []string{scenario.PrimaryTool}},
+	}}}
+	affirmativeTask := &models.TestCase{TestID: task.TestID, Requirements: []models.Requirement{{
+		ID: "must-call-tool", Category: "boundary", Description: "Primary tool must be called.",
+		Checks: []models.RequirementCheck{{Scope: "eval", Grader: "affirmative-tool"}},
+	}}}
+	obsFail := ObservePreservedMechanical(t.Context(), PreservedMechanicalInput{
+		Task:           affirmativeTask,
+		Spec:           affirmativeSpec,
+		Check:          affirmativeTask.Requirements[0].Checks[0],
+		SnapshotBytes:  snapshotData,
+		ManifestSHA256: manifest.SHA256,
+		Evidence:       toolEvidence,
+	})
+	require.Equal(t, Observed, obsFail.State)
+	require.False(t, obsFail.Result.Passed, "affirmative tool requirement correctly fails on empty tape")
+	require.Zero(t, obsFail.Result.Score)
+	require.Contains(t, obsFail.Result.Feedback, fmt.Sprintf("required tool %q was not called", scenario.PrimaryTool))
 }
 
 func TestBenchmarkCorpusCRLFAndContradictionRegressions(t *testing.T) {

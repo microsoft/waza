@@ -9,24 +9,28 @@
 
 ## Summary
 
-This pull request introduces a canonical 12-scenario reference benchmark corpus covering 48 labeled candidate test cases across MCP, CLI, and Repository domains to deterministically validate grading integrity under Issue #661 and parent Epic #657. It authors scenario definitions pairing dual-requirement checks (state-based `FileGrader` outcome verification and boundary `ToolCallsGrader` safety checks) against known-good, alternative-valid, bad-wrong-state, and bad-forbidden-action implementations. The user-visible outcome is bounded, zero-cloud verification of grader correctness, ensuring exact 1.0 acceptance of compliant states and definitive rejection of invalid or policy-violating attempts without executing non-deterministic or costly live model calls.
+This pull request establishes an offline preserved-replay benchmark corpus extension covering 12 canonical scenarios and 48 labeled candidate test cases across MCP, CLI, and Repository domains to deterministically validate grading integrity under Issue #661 and parent Epic #657. It formalizes and extends the 12 existing scenario patterns from `internal/graders/challenge_corpus_test.go` into sealed reference specifications pairing dual-requirement checks (state-based `FileGrader` outcome verification and boundary `ToolCallsGrader` safety checks) against known-good, alternative-valid, bad-wrong-state, and bad-forbidden-action implementations. Cryptographic manifests (`evidence.Seal`) and bounded mechanical replays guarantee zero-cloud repeatability without executing live model invocations.
 
 ## Related issue
 
-- Closes #661
+- Relates to #661 (Establishes offline preserved-replay baseline; full acceptance scope remains open for live-model qualification and multi-attempt retry policies)
 - Related to #657 (Parent Epic: Grader Assurance & Qualification Lifecycle)
 
 ## Agent handoff
 
 - **Scope**:
-  Authored the complete offline grader assurance benchmark corpus generator, static reference fixture, and mechanical evaluation harness across 12 distinct scenarios spanning 3 primary domains (4 MCP, 4 CLI, 4 Repository), providing 48 human-labeled cases total (12 known-good, 12 alternative-valid, 12 bad-wrong-state, and 12 bad-forbidden-action).
+  Authored the offline grader assurance benchmark corpus generator, static reference fixture, and mechanical evaluation harness extending the 12 canonical scenarios across 3 primary domains (4 MCP, 4 CLI, 4 Repository), providing 48 labeled cases total (12 known-good, 12 alternative-valid, 12 bad-wrong-state, and 12 bad-forbidden-action).
 
 - **Key files changed**:
   - `internal/assurance/benchmark_corpus.go`: Core domain definitions, `BenchmarkScenario`, `BenchmarkCaseKind`, `BenchmarkCase`, regex pattern generators, execution context builders, and `BuildBenchmarkCorpus()` snapshot/manifest generation logic.
-  - `internal/assurance/benchmark_corpus_test.go`: 5 test suites verifying structural validity, 96 mechanical observation evaluations (both direct `ObserveMechanical` and `ObserveDeclaredMechanical`), reference document admission via `ParseReferences()`, fixture round-trip persistence, and `VerifyRequest` qualification builder.
+  - `internal/assurance/benchmark_corpus_test.go`: 8 test suites verifying structural validity, 96 mechanical observation evaluations (both direct `ObserveMechanical` and `ObserveDeclaredMechanical`), reference document admission via `ParseReferences()`, fixture round-trip persistence, cross-platform preserved mechanical grading, `VerifyPreserved` preserved replay, single-requirement failure discrimination, missing/unreadable evidence rejection, and complete-but-empty tape boundary limitations.
   - `internal/assurance/testdata/benchmark_corpus.json`: Sealed, self-contained reference document containing 48 cases with cryptographic digests (`SHA-256`) and schema compliance.
 
-- **Important decisions**:
+- **Important decisions & Scope Clarifications**:
+  - **Corpus Lineage & Preserved-Replay Extension**: Reuses and formalizes the 12 canonical challenge scenario definitions from `internal/graders/challenge_corpus_test.go` into sealed reference fixtures with cryptographic provenance (`evidence.Seal`), rather than introducing 12 independent new challenge designs.
+  - **Oracle Scope**: Expected labels are deterministically derived from scenario declarations rather than an external independent human-label oracle. Independent-oracle controls and broader mutation hardening are deferred to linked follow-ups under parent Epic #657.
+  - **Tape Integrity vs Execution Completeness**: Cryptographic manifest sealing (`evidence.Seal`) guarantees artifact un-tamperedness relative to capture, but does not prove the captured tape is complete relative to actual live agent execution (e.g., complete-but-empty tapes satisfy negative boundary rules without proving affirmative actions occurred). Exercised and asserted in `TestBenchmarkCorpusPreserved_CompleteButEmptyTapeLimitation`.
+  - **Single-Requirement Failure Discrimination**: Qualification enforces strict all-checks-required behavior via `VerifyPreserved`; any single-check disagreement or unreadable snapshot immediately fails closed to `AssessmentFailed` / `InsufficientEvidence`.
   - **Zero-Cloud Requirement**: Relies exclusively on bounded, deterministic mechanical evaluation via `FileGrader` and `ToolCallsGrader` with isolated temporary workspaces, requiring no external network connectivity, live Copilot/LLM engines, or cloud credentials.
   - **Balanced Domain Representation**: Evenly divided into 4 MCP scenarios (`mcp-ticket-routing`, `mcp-feature-toggle`, `mcp-record-archive`, `mcp-resource-access`), 4 CLI scenarios (`cli-config-target`, `cli-export-format`, `cli-deploy-environment`, `cli-package-version`), and 4 Repository scenarios (`repository-config-fix`, `repository-doc-link`, `repository-dependency-pin`, `repository-migration`).
   - **Strict Four-Case Classification**: Every scenario enforces exactly 4 candidate states:
@@ -37,7 +41,7 @@ This pull request introduces a canonical 12-scenario reference benchmark corpus 
   - **Schema Adherence**: Full compliance with `schemas/grader-reference-1.0.schema.json` and `schemas/evidence-manifest-1.0.schema.json`, maintaining 48 globally unique case IDs, 48 unique manifest SHA-256 digests, and relative snapshot paths (`snapshots/<id>.json`).
 
 - **Follow-ups or known gaps**:
-  - Offline benchmark validation only; live model qualification and multi-attempt retry policies belong to subsequent Epic #657 milestones.
+  - Full acceptance scope for #661 remains open: live model qualification, multi-attempt retry policies, and broader mutation/oracle hardening belong to subsequent Epic #657 milestones.
   - Snapshot payload directory structure in `internal/assurance/testdata/snapshots/` can be materialized if external disk-based snapshot loaders are wired in future tasks.
 
 ## Type of change
@@ -97,12 +101,15 @@ flowchart TD
   - `git diff --check origin/main..HEAD` passed with zero errors or trailing whitespace issues.
 - [x] **Automated Test Coverage**:
   - `TestBenchmarkCorpusStructure`: Verified 12 scenarios, 48 cases, 3 domains, correct case classification counts.
-  - `TestBenchmarkCorpusObserveMechanical`: Verified 96 mechanical observations through `ObserveMechanical`.
+  - `TestBenchmarkCorpusObserveMechanical`: Verified 96 mechanical observations through `ObserveMechanical` with exact score and feedback assertions.
   - `TestBenchmarkCorpusReferenceAdmission`: Verified JSON Schema validation against `schemas/grader-reference-1.0.schema.json`, plus parse, admission, and cryptographic integrity of `ReferenceDocument` via `ParseReferences`.
   - `TestBenchmarkCorpusDeclaredMechanical`: Verified `ObserveDeclaredMechanical` against declared `TestCase` and `EvalSpec`.
   - `TestBenchmarkCorpusFixturePersistence`: Verified static fixture round-trip serialization, committed reference JSON schema validation, and presence of all 48 reference snapshots.
-  - `TestBenchmarkCorpusObservePreservedMechanical`: Verified mechanical evaluation against serialized snapshot bytes (enforcing all 48 preserved boundary checks across all platforms, with outcome file checks where workspace materialization is supported).
+  - `TestBenchmarkCorpusObservePreservedMechanical`: Verified mechanical evaluation against serialized snapshot bytes (enforcing all 48 preserved boundary checks cross-platform with exact score/feedback checks, and outcome file checks where workspace materialization is supported).
   - `TestBenchmarkCorpusVerifyPreserved`: Verified `VerifyPreserved` preserved assessment against committed reference testdata and snapshots.
+  - `TestBenchmarkCorpusVerifyPreserved_OneFailingRequirementRejection`: Verified strict all-checks-required fail-closed behavior when a single requirement check fails.
+  - `TestBenchmarkCorpusVerifyPreserved_MissingOrUnreadableEvidenceRejection`: Verified missing snapshots, corrupt snapshot JSON, or unreadable workspace files fail closed to `InsufficientEvidence` and never become passing qualification evidence.
+  - `TestBenchmarkCorpusPreserved_CompleteButEmptyTapeLimitation`: Verified complete-but-empty tool-event tape behavior across negative boundary checks vs affirmative tool requirements, documenting execution completeness limitations.
   - `TestBenchmarkCorpusCRLFAndContradictionRegressions`: Verified 60 mechanical evaluations covering valid CRLF endings, mixed-ending contradictions, and pure CRLF contradictions across all 12 scenarios.
 
 ## Documentation
@@ -115,7 +122,7 @@ flowchart TD
   - Comprehensive reference fixtures authored at `internal/assurance/testdata/benchmark_corpus.json`.
 - [x] Documentation updates & Limitations:
   - Authored this maintainer-facing PR specification at `docs/PR_ISSUE_661.md`.
-  - **Scope Limitation**: Strictly scoped to bounded offline grader assurance benchmark corpus validation. Does not execute or claim live model runtime guarantees, which are handled in subsequent stages of parent Epic #657.
+  - **Scope Limitation**: Strictly scoped to bounded offline grader assurance benchmark corpus validation. Reuses the 12 canonical challenge scenario definitions from `internal/graders/challenge_corpus_test.go` as a preserved-replay extension. Expectations are syntactically derived rather than an independent human-label oracle. Full acceptance scope for #661 remains open for live-model qualification and multi-attempt retry policies under parent Epic #657.
 
 ## Risk and rollback
 
