@@ -22,7 +22,7 @@ func ParseSkillFile(path string) (*ParsedSkillSpec, error) {
 	}
 
 	var sk skill.Skill
-	if err := sk.UnmarshalText(data); err != nil {
+	if err := sk.UnmarshalTextWithoutTokenCount(data); err != nil {
 		return nil, fmt.Errorf("parsing SKILL.md: %w", err)
 	}
 	if strings.TrimSpace(sk.Frontmatter.Name) == "" {
