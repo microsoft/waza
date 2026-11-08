@@ -106,6 +106,10 @@ func (s *session) installFile(dist *os.Root, name string, data []byte) error {
 	}
 	observed := observation{dir, leaf, info}
 	s.observed = append(s.observed, observed)
+	if s.fileCache == nil {
+		s.fileCache = make(map[rootedName]*os.File)
+	}
+	s.fileCache[rootedName{dir, leaf}] = file
 	if err := observed.check(); err != nil {
 		return err
 	}

@@ -21,6 +21,9 @@
 // independently admits the external root; manifest rereads match both original
 // canonical bytes and the trusted digest. Retained identities and final full
 // source/destination revalidation reject observed replacements or changed bytes.
+// Repeated inventories reuse admitted file/directory handles within one command,
+// rechecking visible identities and rereading bytes without retaining duplicates.
+// Admission never switches a cached handle to a replacement entry.
 //
 // Each command requires --input, --repository, --source-sha, --checkout-sha,
 // --run-id and --run-attempt. pack/restore require --destination; verify/restore

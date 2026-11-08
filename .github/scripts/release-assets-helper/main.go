@@ -101,6 +101,14 @@ type session struct {
 	hooks       hooks
 	observed    []observation
 	rootEntries map[*os.Root]observation
+	rootCache   map[rootedName]*os.Root
+	fileCache   map[rootedName]*os.File
+	filesystem  *os.Root
+}
+
+type rootedName struct {
+	parent *os.Root
+	name   string
 }
 
 type observation struct {
@@ -147,11 +155,15 @@ func (s *session) child(parent *os.Root, name string) (*os.Root, error) {
 			return nil, err
 		}
 	}
-	r, err := parent.OpenRoot(name)
-	if err != nil {
-		return nil, fmt.Errorf("open directory %q: %w", name, err)
+	key := rootedName{parent, name}
+	r := s.rootCache[key]
+	if r == nil {
+		r, err = parent.OpenRoot(name)
+		if err != nil {
+			return nil, fmt.Errorf("open directory %q: %w", name, err)
+		}
+		s.roots = append(s.roots, r)
 	}
-	s.roots = append(s.roots, r)
 	opened, err := r.Stat(".")
 	if err != nil {
 		return nil, err
@@ -164,6 +176,10 @@ func (s *session) child(parent *os.Root, name string) (*os.Root, error) {
 	if s.rootEntries != nil {
 		s.rootEntries[r] = observation{parent, name, opened}
 	}
+	if s.rootCache == nil {
+		s.rootCache = make(map[rootedName]*os.Root)
+	}
+	s.rootCache[key] = r
 	return r, nil
 }
 
@@ -175,11 +191,15 @@ func (s *session) openRoot(name string) (*os.Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	r, err := os.OpenRoot(string(filepath.Separator))
-	if err != nil {
-		return nil, err
+	r := s.filesystem
+	if r == nil {
+		r, err = os.OpenRoot(string(filepath.Separator))
+		if err != nil {
+			return nil, err
+		}
+		s.roots = append(s.roots, r)
+		s.filesystem = r
 	}
-	s.roots = append(s.roots, r)
 	for _, part := range strings.Split(strings.TrimPrefix(absolute, string(filepath.Separator)), string(filepath.Separator)) {
 		if part != "" {
 			r, err = s.child(r, part)
@@ -204,11 +224,15 @@ func (s *session) regular(r *os.Root, name string) (*os.File, error) {
 			return nil, err
 		}
 	}
-	f, err := rootedfile.Open(r, name)
-	if err != nil {
-		return nil, fmt.Errorf("open file %q: %w", name, err)
+	key := rootedName{r, name}
+	f := s.fileCache[key]
+	if f == nil {
+		f, err = rootedfile.Open(r, name)
+		if err != nil {
+			return nil, fmt.Errorf("open file %q: %w", name, err)
+		}
+		s.files = append(s.files, f)
 	}
-	s.files = append(s.files, f)
 	opened, err := f.Stat()
 	if err != nil {
 		return nil, err
@@ -218,6 +242,10 @@ func (s *session) regular(r *os.Root, name string) (*os.File, error) {
 		return nil, fmt.Errorf("file %q changed during admission: %w", name, errors.Join(err, errors.New("identity mismatch")))
 	}
 	s.observed = append(s.observed, observation{r, name, opened})
+	if s.fileCache == nil {
+		s.fileCache = make(map[rootedName]*os.File)
+	}
+	s.fileCache[key] = f
 	return f, nil
 }
 
