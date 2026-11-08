@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -43,20 +44,56 @@ func TestRunnerProductionTransportAdmission(t *testing.T) {
 			t.Parallel()
 			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run="+runFilter, "-test.skip="+skipFilter, "-test.v")
 			// GOCOVERDIR alone does not make test binaries emit into the parent's coverage directory.
+			actionCoverDir := ""
 			if coverDir != "" {
-				command.Args = append(command.Args, "-test.gocoverdir="+coverDir)
+				actionCoverDir = t.TempDir()
+				command.Args = append(command.Args, "-test.gocoverdir="+actionCoverDir)
 			}
 			command.Env = append(os.Environ(), runnerTransportActionEnv+"="+action)
 			output, err := command.CombinedOutput()
 			t.Logf("%s", output)
 			require.NoError(t, err, "%s", output)
 			if coverDir != "" {
+				require.NoError(t, mergeRunnerTransportCoverageCounters(actionCoverDir, coverDir, command.Process.Pid))
 				counters, err := filepath.Glob(filepath.Join(coverDir, fmt.Sprintf("covcounters.*.%d.*", command.Process.Pid)))
 				require.NoError(t, err)
 				require.Len(t, counters, 1, "each action must contribute counters to the parent's coverage directory")
 			}
 		})
 	}
+}
+
+func mergeRunnerTransportCoverageCounters(sourceDir, targetDir string, pid int) error {
+	counters, err := filepath.Glob(filepath.Join(sourceDir, fmt.Sprintf("covcounters.*.%d.*", pid)))
+	if err != nil {
+		return fmt.Errorf("finding child coverage counters: %w", err)
+	}
+	if len(counters) != 1 {
+		return fmt.Errorf("expected one child coverage counter file for pid %d, got %d", pid, len(counters))
+	}
+
+	data, err := os.ReadFile(counters[0])
+	if err != nil {
+		return fmt.Errorf("reading child coverage counters: %w", err)
+	}
+
+	temporary, err := os.CreateTemp(targetDir, "tmp.runner-transport-counters.")
+	if err != nil {
+		return fmt.Errorf("creating temporary parent coverage counters: %w", err)
+	}
+	temporaryName := temporary.Name()
+
+	if _, err := temporary.Write(data); err != nil {
+		return errors.Join(fmt.Errorf("copying child coverage counters: %w", err), temporary.Close(), os.Remove(temporaryName))
+	}
+	if err := temporary.Close(); err != nil {
+		return errors.Join(fmt.Errorf("closing temporary parent coverage counters: %w", err), os.Remove(temporaryName))
+	}
+	target := filepath.Join(targetDir, filepath.Base(counters[0]))
+	if err := os.Rename(temporaryName, target); err != nil {
+		return errors.Join(fmt.Errorf("publishing parent coverage counters: %w", err), os.Remove(temporaryName))
+	}
+	return nil
 }
 
 func runnerTransportRunFilter(filter string) (string, error) {
