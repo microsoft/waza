@@ -1623,6 +1623,8 @@ waza artifact inspect "$DIGEST" --store .waza-artifacts
 an exact declared artifact. Exit 0 means the selected operation completed;
 invalid input, partial/corrupt/conflicting content, storage and output failures
 exit 2. `inspect` can return a JSON diagnostic receipt and still exit nonzero.
+Publication is `unknown` without a usable marker observation or after an
+ambiguous finalization write; only observed marker absence is `unfinalized`.
 Use `--azure-container-url https://account.blob.core.windows.net/container`
 instead of `--store` for Azure; existing credentials are required and no login
 is launched. `--store` defaults to `.waza-artifacts` and must already exist.
@@ -1705,7 +1707,6 @@ waza serve
 | `--results-dir` | Directory to scan for saved result artifacts (default: `.`) |
 | `--no-browser` | Print the dashboard URL without opening a browser |
 | `--tcp` | TCP address for JSON-RPC (e.g., `:9000`) |
-| `--stdio` | Use stdin/stdout for piping |
 
 ### Examples
 

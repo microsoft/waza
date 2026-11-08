@@ -148,7 +148,12 @@ directory entries). Select a digest and inspect it separately. A pointer is
 not proof that its content is complete, valid, or finalized, and the catalog is
 not a complete fleet inventory.
 
-- `publication: "unfinalized"` means no final marker exists. Integrity can still
+- `publication: "unknown"` means no usable marker observation is available, or
+  finalization may have committed despite its error. Invalid digest, unavailable
+  store, unreadable/malformed marker, and mixed missing/read errors do not prove
+  marker absence. This required string is an error state, never successful
+  inspection; declaration schema and legacy result versions are unchanged.
+- `publication: "unfinalized"` means inspection observed no final marker. Integrity can still
   be verified when all declared content is present and consistent.
 - `publication: "finalized"` means the manifest's matching final marker exists.
   Always also check `integrity` and `diagnostics`: later corruption fails
@@ -187,6 +192,9 @@ After interruption or a timeout, commitment may be ambiguous. Run `inspect`
 against the same digest and backend. If verified but unfinalized, retry
 `finalize`; if finalized and verified, keep the existing publication.
 If inspection fails, do not assume nothing committed.
+An `unknown` receipt must not be defaulted to unfinalized or accepted as verified
+HTTP200 success. Independent content or provider-close failures retain a
+publication state that was actually observed; check both fields and diagnostics.
 
 | Problem | Safe action |
 |---|---|

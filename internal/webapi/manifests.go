@@ -93,7 +93,7 @@ func (i configuredManifestInspector) Catalog(ctx context.Context) (result artifa
 func (i configuredManifestInspector) Inspect(ctx context.Context, digest string) (receipt artifactmanifest.Receipt, resultErr error) {
 	unavailable := func(err error) (artifactmanifest.Receipt, error) {
 		return artifactmanifest.Receipt{
-			ManifestSHA256: digest, Publication: "unfinalized", Integrity: "unverified",
+			ManifestSHA256: digest, Publication: "unknown", Integrity: "unverified",
 			Verification: "content-and-declared-context-only", Artifacts: []artifactmanifest.ArtifactState{},
 			Diagnostics: []artifactmanifest.Diagnostic{{Code: "storage_error", Message: "Immutable store is unavailable. Select an existing private store; no legacy result was substituted."}},
 		}, err

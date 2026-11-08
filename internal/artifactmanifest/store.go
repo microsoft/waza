@@ -42,7 +42,7 @@ type Receipt struct {
 }
 
 func emptyReceipt(digest string) Receipt {
-	return Receipt{ManifestSHA256: digest, Publication: "unfinalized", Integrity: "unverified",
+	return Receipt{ManifestSHA256: digest, Publication: "unknown", Integrity: "unverified",
 		Verification: "content-and-declared-context-only", Artifacts: []ArtifactState{}, Diagnostics: []Diagnostic{}}
 }
 
@@ -241,7 +241,10 @@ func (s *Store) inspectMarker(ctx context.Context, digest string, r *Receipt) er
 	marker, err := s.backend.Get(ctx, "final-"+digest, 64)
 	switch {
 	case errors.Is(err, ErrMissing):
-		return nil
+		if onlyMissing(err) {
+			r.Publication = "unfinalized"
+			return nil
+		}
 	case errors.Is(err, ErrConflict):
 		r.Publication = "conflict"
 	case err != nil:
@@ -259,6 +262,27 @@ func (s *Store) inspectMarker(ctx context.Context, digest string, r *Receipt) er
 	return err
 }
 
+// Joined read failures do not establish absence merely by containing ErrMissing.
+func onlyMissing(err error) bool {
+	switch cause := err.(type) {
+	case interface{ Unwrap() []error }:
+		causes := cause.Unwrap()
+		if len(causes) == 0 {
+			return false
+		}
+		for _, child := range causes {
+			if !onlyMissing(child) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		return onlyMissing(cause.Unwrap())
+	default:
+		return errors.Is(err, ErrMissing)
+	}
+}
+
 // Finalize conditionally completes this manifest after content verification.
 // Attempt ownership and duplicate decisions belong to the attempt ledger, not
 // this content-addressed store; distinct attempts may share declared identities.
@@ -271,6 +295,7 @@ func (s *Store) Finalize(ctx context.Context, digest string) (Receipt, error) {
 	key := "final-" + digest
 	if _, err := s.backend.Create(ctx, key, []byte(digest)); err != nil {
 		r.Diagnostics = append(r.Diagnostics, diagnostic(err))
+		r.Publication = "unknown"
 		r.Integrity = "unverified"
 		return r, fmt.Errorf("committing finalization: %w", err)
 	}

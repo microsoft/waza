@@ -49,6 +49,7 @@ type fakeAzure struct {
 	objects          map[string][]byte
 	failPut          error
 	failCommittedPut error
+	failGet          map[string]error
 }
 
 func (f *fakeAzure) Do(r *http.Request) (*http.Response, error) {
@@ -87,6 +88,9 @@ func (f *fakeAzure) Do(r *http.Request) (*http.Response, error) {
 		}
 		return response(http.StatusCreated, nil)
 	case http.MethodGet:
+		if err := f.failGet[key]; err != nil {
+			return nil, err
+		}
 		if r.URL.Query().Get("comp") == "list" {
 			prefix := r.URL.Query().Get("prefix")
 			if prefix == "" {

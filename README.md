@@ -301,7 +301,8 @@ waza artifact inspect "$DIGEST" --store .waza-artifacts
 `DIGEST` is the canonical manifest digest returned by `create`; `terminal` must
 be its declared logical artifact name. Azure uses `--azure-container-url` instead
 of `--store`, with existing credentials and no automatic login. Lab can discover
-stored declaration pointers and inspect current integrity. See
+stored declaration pointers and inspect current integrity. Unreadable publication
+or an ambiguous finalization write reports `unknown`, not observed marker absence. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
 
 <span id="waza-interop-source-build-preview"></span>

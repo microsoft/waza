@@ -178,6 +178,92 @@ func TestArtifactStoredManifestFailureRetainsFinalMarker(t *testing.T) {
 	}
 }
 
+func TestArtifactCLIAndAPIUnknownMarker(t *testing.T) {
+	for _, marker := range []string{"malformed", "directory"} {
+		t.Run(marker, func(t *testing.T) {
+			directory, path, m, _ := artifactCLIFixture(t)
+			digest, err := artifactmanifest.Digest(m)
+			require.NoError(t, err)
+			_, err = runArtifactCLI(t, directory, "create", path)
+			require.NoError(t, err)
+			for _, a := range m.Artifacts {
+				filename := a.Name
+				if filename == m.TerminalArtifact {
+					filename = "terminal.json"
+				}
+				_, err = runArtifactCLI(t, directory, "upload", path, a.Name, filepath.Join(directory, filename))
+				require.NoError(t, err)
+			}
+			output, err := runArtifactCLI(t, directory, "finalize", digest)
+			require.NoError(t, err)
+			var receipt artifactmanifest.Receipt
+			require.NoError(t, json.Unmarshal(output, &receipt))
+			require.Equal(t, "finalized", receipt.Publication, "control must actually finalize before mutation")
+			root, err := os.OpenRoot(filepath.Join(directory, ".waza-artifacts"))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, root.Close()) }()
+			key := "final-" + digest
+			require.NoError(t, root.Chmod(key, 0o600))
+			require.NoError(t, root.Remove(key))
+			if marker == "directory" {
+				require.NoError(t, root.Mkdir(key, 0o700))
+			} else {
+				require.NoError(t, root.WriteFile(key, []byte("malformed marker"), 0o400))
+			}
+			output, err = runArtifactCLI(t, directory, "inspect", digest)
+			require.ErrorIs(t, err, artifactmanifest.ErrCorrupt)
+			mux := http.NewServeMux()
+			webapi.RegisterManifestRoutes(mux, directory, nil)
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/manifests/"+digest, nil))
+			require.Equal(t, http.StatusConflict, response.Code)
+			require.JSONEq(t, string(output), response.Body.String(), "API must preserve the actual CLI observation")
+			require.NoError(t, json.Unmarshal(output, &receipt))
+			require.Equal(t, "unknown", receipt.Publication)
+			require.Equal(t, "failed", receipt.Integrity)
+			require.Len(t, receipt.Artifacts, 2)
+			require.Equal(t, "empty.txt", receipt.Artifacts[0].Name)
+			require.Zero(t, receipt.Artifacts[0].SizeBytes)
+			require.Equal(t, "verified", receipt.Artifacts[0].Integrity)
+			require.NotEmpty(t, receipt.Diagnostics)
+		})
+	}
+}
+
+func TestArtifactCLIAndAPIUnavailablePublication(t *testing.T) {
+	directory := t.TempDir()
+	digest := strings.Repeat("a", 64)
+	output, err := runArtifactCLI(t, directory, "inspect", digest)
+	require.Error(t, err)
+	require.Empty(t, output, "provider-open failure must not emit a fabricated CLI receipt")
+	mux := http.NewServeMux()
+	webapi.RegisterManifestRoutes(mux, directory, nil)
+	for _, scenario := range []struct {
+		digest string
+		status int
+	}{
+		{digest, http.StatusServiceUnavailable},
+		{"not-a-digest", http.StatusBadRequest},
+		{strings.Repeat("A", 64), http.StatusBadRequest},
+	} {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/manifests/"+scenario.digest, nil))
+		require.Equal(t, scenario.status, response.Code)
+		var receipt artifactmanifest.Receipt
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &receipt))
+		require.Equal(t, scenario.digest, receipt.ManifestSHA256)
+		require.Equal(t, "unknown", receipt.Publication)
+		require.Equal(t, "unverified", receipt.Integrity)
+		require.Empty(t, receipt.Attempt)
+		require.NotNil(t, receipt.Artifacts)
+		require.Empty(t, receipt.Artifacts)
+		require.NotEmpty(t, receipt.Diagnostics)
+		require.NotContains(t, response.Body.String(), directory)
+	}
+	_, err = os.Stat(filepath.Join(directory, ".waza-artifacts"))
+	require.ErrorIs(t, err, os.ErrNotExist, "inspection must not create the unavailable store")
+}
+
 func artifactCLIFixture(t *testing.T) (string, string, artifactmanifest.Manifest, []byte) {
 	t.Helper()
 	directory := t.TempDir()

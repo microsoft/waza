@@ -186,23 +186,44 @@ test.describe("Lab immutable manifest publication", () => {
   });
 
   for (const scenario of [
-    { status: 404, code: "missing_object", message: "Upload the declared object and retry; no result has been verified." },
-    { status: 503, code: "storage_error", message: "Storage could not be read or committed. Check operator diagnostics and retry without replacing evidence." },
+    { status: 404, publication: "unfinalized" as const, code: "missing_object", message: "Upload the declared object and retry; no result has been verified." },
+    { status: 503, publication: "unknown" as const, code: "storage_error", message: "Immutable store is unavailable. Select an existing private store; no legacy result was substituted." },
   ]) {
     test(`shows an inspectable ${scenario.status} receipt without fabricating artifacts or attempt`, async ({ page }) => {
       const value = receipt({
-        publication: "unfinalized", integrity: "unverified", artifacts: [],
+        publication: scenario.publication, integrity: "unverified", artifacts: [],
         diagnostics: [{ code: scenario.code, message: scenario.message }],
       });
       delete value.attempt;
       await page.route("**/api/v1/manifests/*", (route) => route.fulfill({ status: scenario.status, json: value }));
       await inspect(page);
-      await expect(result(page).locator("dd")).toHaveText([digest, "Not available", "unfinalized", "unverified", String(scenario.status)]);
+      await expect(result(page).locator("dd")).toHaveText([digest, "Not available", scenario.publication, "unverified", String(scenario.status)]);
       await expect(result(page)).toContainText("No artifact declarations available.");
       await expect(result(page).getByRole("listitem")).toHaveText(`${scenario.code}: ${scenario.message}`);
       await expect(panel(page).getByRole("alert")).toHaveCount(0);
     });
   }
+
+  test("unreadable marker clears previous success but preserves independently verified artifacts", async ({ page }) => {
+    let reads = 0;
+    await page.route("**/api/v1/manifests/*", (route) => route.fulfill(reads++ === 0 ? {
+      json: receipt(),
+    } : {
+      status: 503,
+      json: receipt({
+        publication: "unknown", integrity: "failed",
+        diagnostics: [{ code: "storage_error", message: "Storage could not be read or committed. Check operator diagnostics and retry without replacing evidence." }],
+      }),
+    }));
+    await inspect(page);
+    await expect(result(page).locator("dd").nth(2)).toHaveText("finalized");
+    await inspect(page);
+    await expect(result(page).locator("dd").nth(2)).toHaveText("unknown");
+    await expect(result(page).locator("dd").nth(3)).toHaveText("failed");
+    await expect(result(page).locator("dd").last()).toHaveText("503");
+    await expect(result(page).getByRole("row").nth(1).getByRole("cell").first()).toHaveText("verified");
+    await expect(result(page)).not.toContainText("Publication: finalized");
+  });
 
   test("rejects invalid digest entry locally without requesting or retaining old evidence", async ({ page }) => {
     let reads = 0;
@@ -225,6 +246,9 @@ test.describe("Lab immutable manifest publication", () => {
     { name: "null artifacts", body: JSON.stringify({ ...receipt(), artifacts: null }) },
     { name: "null attempt", body: JSON.stringify({ ...receipt(), attempt: null }) },
     { name: "invalid publication", body: JSON.stringify({ ...receipt(), publication: "published" }) },
+    { name: "missing publication", body: JSON.stringify({ ...receipt(), publication: undefined }) },
+    { name: "null publication", body: JSON.stringify({ ...receipt(), publication: null }) },
+    { name: "unknown publication success", body: JSON.stringify(receipt({ publication: "unknown" })) },
     { name: "execution attestation", body: JSON.stringify({ ...receipt(), verification: "execution-attested" }) },
     { name: "unknown property", body: JSON.stringify({ ...receipt(), provider_url: privateLocation }) },
     { name: "wrong digest", body: JSON.stringify({ ...receipt(), manifest_sha256: nextDigest }) },

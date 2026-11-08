@@ -143,10 +143,15 @@ silently rewriting declarations or markers.
 every call. It verifies canonical stored manifest bytes, sizes, hashes, and
 declared-context consistency. It does not trust cached receipts or metadata
 alone. Missing blobs, corrupt content, terminal mismatches, and storage errors
-fail closed. A missing final marker leaves publication `unfinalized`; complete
+fail closed. An observed missing final marker leaves publication `unfinalized`; complete
 content can still have `integrity: "verified"`. A matching marker can report
 publication `finalized` alongside failed integrity if a later read finds bad
-content. Consumers must check both fields and diagnostics.
+content. Publication is `unknown` when no usable marker observation was obtained,
+including invalid digest, unavailable store, unreadable or malformed marker,
+mixed missing/read failures, or an ambiguous finalization write. This does not
+mean that no marker exists. Independent content or provider-close failures do
+not erase a marker state that was actually observed. Consumers must check both
+fields and diagnostics; `unknown` is never a successful inspection.
 
 ## CLI and dashboard
 
@@ -330,6 +335,7 @@ claim native-platform coverage merely because a filesystem API exists.
 | `publication_conflict` | Preserve the differing marker. It is not an attempt-ownership decision; investigate corruption or competing publication without replacing evidence. |
 | `invalid_declaration` | Correct original JSON/schema/bounds; use a full lowercase digest. Do not coerce missing/null fields into defaults. |
 | `storage_error` | Check root/container existence, permissions, credentials, cancellation, and hard-link support. A failed response is not proof that nothing committed. |
+| `unknown` publication | No usable marker observation is available, or a write may have committed despite its error. Preserve evidence and retry inspection of the same digest/backend; do not infer absence or overwrite. |
 | `unfinalized` with verified integrity | All content passed verification but no final marker exists. Finalize explicitly. |
 | `.pending-*` residue | Expected retained staging, not proof of a completed result. Preserve it; no automatic cleanup is performed. |
 
@@ -352,6 +358,10 @@ publication is needed. If inspection itself fails, commitment remains unknown.
   not converted by inventing identity, billing, or execution evidence.
 - Read-only API/Lab inspection reports content integrity and declared-context
   consistency. It neither changes the terminal outcome nor adds live assurance.
+- Receipt `publication` remains a required string and includes `unknown` for
+  unobserved state. Receipt consumers must accept that error state without
+  treating it as success or converting it to absent/null. Declaration schema
+  `1.0`, legacy results, and terminal versions are unchanged.
 - Finalization is per manifest; attempt identity ownership remains a separate
   ledger concern. Operators must account for retained local staging and recover
   ambiguous commits through inspection.

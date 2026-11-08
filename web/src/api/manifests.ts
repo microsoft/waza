@@ -4,7 +4,7 @@ import { parseStrictJSON } from "../lib/strictJson";
 export interface ManifestReceipt {
   manifest_sha256: string;
   attempt?: string;
-  publication: "unfinalized" | "finalized" | "conflict";
+  publication: "unknown" | "unfinalized" | "finalized" | "conflict";
   integrity: "unverified" | "verified" | "failed";
   verification: "content-and-declared-context-only";
   artifacts: {
@@ -52,7 +52,7 @@ const validateReceipt = new Ajv2020({ strict: false }).compile<ManifestReceipt>(
   properties: {
     manifest_sha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
     attempt: { type: "string", pattern: "^attempt-[0-9a-f]{64}$" },
-    publication: { enum: ["unfinalized", "finalized", "conflict"] },
+    publication: { enum: ["unknown", "unfinalized", "finalized", "conflict"] },
     integrity: { enum: ["unverified", "verified", "failed"] },
     verification: { const: "content-and-declared-context-only" },
     artifacts: {
@@ -119,7 +119,8 @@ export async function inspectManifest(digest: string, signal: AbortSignal): Prom
     throw new ManifestInspectionError("Manifest API returned a malformed receipt.");
   }
   if (!validateReceipt(value) || value.manifest_sha256 !== digest ||
-      (response.status === 200 && (value.integrity !== "verified" || value.publication === "conflict")) ||
+      (response.status === 200 && (value.integrity !== "verified" ||
+        (value.publication !== "finalized" && value.publication !== "unfinalized"))) ||
       (response.status !== 200 && value.integrity === "verified")) {
     throw new ManifestInspectionError("Manifest API returned an invalid or inconsistent receipt.");
   }

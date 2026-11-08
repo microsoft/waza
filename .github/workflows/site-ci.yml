@@ -68,6 +68,7 @@ jobs:
               - 'version.txt'
               - 'registry.json'
               - 'go.mod'
+              - 'cmd/waza/cmd_serve.go'
               - 'internal/embedded/**'
               - 'internal/models/outcome.go'
               - 'internal/models/schema_version.go'

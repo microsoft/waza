@@ -97,11 +97,59 @@ func TestAzureNativeInterruptedConditionalCommitRecovers(t *testing.T) {
 	}
 	transport.failCommittedPut = errors.New("connection interrupted after server commit")
 	receipt, err := store.Finalize(context.Background(), digest)
-	if err == nil || receipt.Integrity == "verified" {
+	if err == nil || receipt.Integrity == "verified" || receipt.Publication != "unknown" {
 		t.Fatalf("lost Azure response became success: %+v %v", receipt, err)
 	}
 	receipt, err = store.Finalize(context.Background(), digest)
 	if err != nil || receipt.Publication != "finalized" || receipt.Integrity != "verified" {
 		t.Fatalf("conditional SDK recovery failed: %+v %v", receipt, err)
+	}
+}
+
+func TestAzurePublicationCloseFailuresPreserveObservedMarker(t *testing.T) {
+	for _, object := range []string{"blob-", "final-"} {
+		t.Run(object, func(t *testing.T) {
+			transport := &fakeAzure{objects: make(map[string][]byte)}
+			armed := false
+			var body *faultBody
+			injected := errors.New("injected response close failure")
+			backend := azureBackend(t, responseFault{inner: transport, alter: func(response *http.Response) {
+				if armed && strings.Contains(response.Request.URL.Path, "/"+object) {
+					body = &faultBody{Reader: response.Body, closeErr: injected}
+					response.Body = body
+				}
+			}})
+			store := NewStore(backend)
+			m, terminal := publicationFixture(t)
+			wire, err := Encode(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest, err := store.Create(context.Background(), wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Put(context.Background(), m.Artifacts[0], terminal); err != nil {
+				t.Fatal(err)
+			}
+			before, err := store.Finalize(context.Background(), digest)
+			if err != nil || before.Publication != "finalized" || before.Integrity != "verified" {
+				t.Fatalf("control did not finalize actual content: %+v %v", before, err)
+			}
+			armed = true
+			receipt, err := store.Inspect(context.Background(), digest)
+			want := "finalized"
+			if object == "final-" {
+				want = "unknown"
+			}
+			if !errors.Is(err, injected) || receipt.Publication != want || receipt.Integrity != "failed" ||
+				body == nil || !body.closed {
+				t.Fatalf("failed close invented or erased marker observation: %+v %v", receipt, err)
+			}
+			completed, err := store.ReadCompleted(context.Background(), digest)
+			if !errors.Is(err, injected) || completed != nil {
+				t.Fatalf("failed close returned completed source: %+v %v", completed, err)
+			}
+		})
 	}
 }
