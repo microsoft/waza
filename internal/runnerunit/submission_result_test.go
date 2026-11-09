@@ -9,7 +9,39 @@ import (
 
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
+	"github.com/microsoft/waza/internal/runnerterminal"
 )
+
+func TestSubmissionResultRejectsOriginalInvalidTerminalUTF8(t *testing.T) {
+	request := fixture(t)
+	originalTask := request.Input.Task
+	request.Input.Task = strings.Replace(originalTask, "- hello", "- impossible-output-control", 1)
+	if originalTask == request.Input.Task {
+		t.Fatal("terminal error fixture did not change actual grader input")
+	}
+	result, err := NewService(nil).Submit(t.Context(), submissionWire(t, request, nil), submissionBackend(t), SubmissionHooks{})
+	if err != nil || len(result.Terminal.Diagnostics) == 0 {
+		t.Fatalf("fixture did not produce actual failed-check diagnostics: %+v %v", result, err)
+	}
+	result.Terminal.Diagnostics[0].Message = "\uFFFD"
+	if _, err := EncodeSubmissionResult(result); err != nil {
+		t.Fatalf("genuine valid replacement character rejected: %v", err)
+	}
+	result.Terminal.Diagnostics[0].Message = string([]byte{0xff})
+	if _, err := runnerterminal.Encode(*result.Terminal, result.Reservation.Binding.TerminalBinding()); err == nil {
+		t.Fatal("invalid original terminal control was not selected")
+	}
+	normalized, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseSubmissionResult(normalized); err != nil {
+		t.Fatalf("fixture did not demonstrate pre-validation UTF-8 normalization: %v", err)
+	}
+	if data, err := EncodeSubmissionResult(result); data != nil || err == nil {
+		t.Fatalf("wrapper repaired invalid original terminal UTF-8: %s %v", data, err)
+	}
+}
 
 func TestSubmissionResultCodecChecksActualProducerAndSourceContext(t *testing.T) {
 	backend := submissionBackend(t)

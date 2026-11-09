@@ -38,17 +38,19 @@ When declared, `execution-attempt.json` must match the original reservation's
 digest, byte length and JSON media type during completion and reuse admission.
 Legacy manifests without that optional artifact remain readable. Reused receipts
 check caller/source context while allowing the documented ordinal difference;
-captured and historical reports preserve dynamic grader-detail numeric tokens
-exactly. Nested transcript argument decoding still uses the legacy event decoder
-and can round large integers; full transcript numeric fidelity remains a blocker.
+captured and historical reports preserve dynamic numeric tokens in grader details
+and nested transcript arguments exactly. This uses explicit evidence decoding;
+ordinary JSON readers retain their intentional legacy float64 representation.
 Reuse also pins the original reservation and completion bytes through the final
 source read used to publish its decision, including for legacy manifests without
 the optional reservation artifact. A coherent sidecar replacement is not the
 same admitted source.
 
-Review also identified pre-validation UTF-8 normalization and potentially large
-unnecessary default-path report allocations for further assessment. This preview
-does not claim those broader review concerns are resolved.
+Submission and checkpoint result writers validate the original typed terminal
+before marshaling, so invalid UTF-8 cannot become an admitted replacement
+character. A genuine valid replacement character remains valid diagnostic text.
+Potentially large unnecessary default-path report allocations still require
+assessment; this preview does not claim that broader concern is resolved.
 
 ```mermaid
 sequenceDiagram
