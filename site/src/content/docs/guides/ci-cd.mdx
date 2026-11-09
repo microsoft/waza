@@ -177,7 +177,12 @@ of hosted release execution or performance-target attainment.
 
 Go discovery uses the existing shard `.all`/`.selected` inventories. Top-level
 tests, nested tests and packages have separate observed/executed/pass/fail/skip
-counts. `top_level_seconds` sums only top-level target durations, never their
+counts. Complete Go admission requires a bounded, unique discovery inventory
+containing every selected target; a shard may select a proper subset. The root
+ordinary capture sidecars `coverage.txt.all`, `coverage.txt.selected` and
+`coverage.txt.evidence.json` are ignored generated outputs so they do not mark a
+subsequently built release binary's source dirty. Unrelated files remain visible.
+`top_level_seconds` sums only top-level target durations, never their
 overlapping subtests; it is **not** wall-clock latency and parallel top-level
 tests can overlap. Playwright discovery is a separate `--list` operation, not
 another test run. Each browser result retains its retry index, so a final pass

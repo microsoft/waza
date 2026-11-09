@@ -17,6 +17,7 @@ const env = { GITHUB_REPOSITORY: "microsoft/waza", GITHUB_WORKFLOW: "Go Build an
 const browserReport = (data, env, discovery, runtime = { go: "go version go1.26.4 linux/amd64" }) => parseBrowserReport(data, env, discovery, runtime);
 const parseGo = (events, selection = {}) => {
   const report = Object.assign(goReport(env, { go: "go version go1.26.4 linux/amd64" }), selection), parser = goParser(report);
+  if (Array.isArray(selection.selected) && !Object.hasOwn(selection, "discovered")) report.discovered = [...selection.selected];
   for (const event of events) parser.accept(typeof event === "string" ? event : JSON.stringify(event));
   const result = parser.finish();
   result.execution_exit = result.counts.packages.fail ? 1 : 0;
@@ -35,6 +36,52 @@ test("Go keeps top-level, subtest, package counts and non-overlapping units sepa
   assert.deepEqual(report.counts.top_level, { observed: 1, executed: 1, pass: 1, fail: 0, skip: 0, unfinished: 0 });
   assert.equal(report.counts.subtests.skip, 1);
   assert.equal(report.packages[0].seconds, 3);
+});
+test("production Go capture preserves clean release VCS metadata without hiding unrelated files", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-release-vcs-"));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  const source = path.join(dir, "source");
+  fs.mkdirSync(source);
+  const scripts = path.join(source, ".github", "scripts");
+  fs.mkdirSync(scripts, { recursive: true });
+  for (const name of ["ci_go_test_capture.sh", "ci-evidence.cjs", "ci-evidence-cache.cjs", "release_binary_check.sh"]) {
+    fs.copyFileSync(path.join(__dirname, name), path.join(scripts, name));
+  }
+  fs.copyFileSync(path.join(__dirname, "..", "..", ".gitignore"), path.join(source, ".gitignore"));
+  for (const [name, content] of [
+    ["go.mod", "module example.test/ci-release-vcs\n\ngo 1.26\n"],
+    ["main.go", "package main\nfunc main() {}\n"],
+    ["main_test.go", 'package main\nimport "testing"\nfunc TestNoProvider(t *testing.T) {}\n'],
+  ]) fs.writeFileSync(path.join(source, name), content);
+  const execute = (binary, args, environment = {}, expected = 0) => {
+    const result = spawnSync(binary, args, { cwd: source, env: { ...process.env, ...environment },
+      encoding: "utf8", timeout: 120000, maxBuffer: LIMITS.bytes });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, expected, `${binary} ${args.join(" ")}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout.trim();
+  };
+  execute("git", ["init", "-q"]);
+  execute("git", ["add", "."]);
+  execute("git", ["-c", "commit.gpgsign=false", "-c", "user.name=CI fixture",
+    "-c", "user.email=ci-fixture@example.invalid", "commit", "-qm", "fixture"]);
+  const sha = execute("git", ["rev-parse", "HEAD"]);
+  const environment = { ...env, GITHUB_SHA: sha, CI_EVIDENCE_COLD_REQUESTED: "false" };
+  assert.equal(execute("git", ["status", "--porcelain"]), "");
+  execute("bash", [path.join(scripts, "ci_go_test_capture.sh"), "all", "coverage.txt"], environment);
+  const report = JSON.parse(fs.readFileSync(path.join(source, "coverage.txt.evidence.json"), "utf8"));
+  assert.equal(report.complete, true);
+  assert.equal(report.counts.top_level.pass, 1);
+  for (const name of ["coverage.txt", "coverage.txt.all", "coverage.txt.selected", "coverage.txt.evidence.json"]) {
+    assert.ok(fs.statSync(path.join(source, name)).size > 0, name);
+  }
+  const binary = path.join(dir, process.platform === "win32" ? "waza.exe" : "waza");
+  execute("go", ["build", "-o", binary, "."]);
+  execute("bash", [path.join(scripts, "release_binary_check.sh"), binary], environment);
+  assert.equal(execute("git", ["status", "--porcelain"]), "");
+  fs.writeFileSync(path.join(source, "unrelated-user-file.txt"), "not generated evidence\n");
+  execute("go", ["build", "-o", binary, "."]);
+  execute("bash", [path.join(scripts, "release_binary_check.sh"), binary], environment, 1);
+  assert.ok(execute("git", ["status", "--porcelain"]).includes("unrelated-user-file.txt"));
 });
 test("Go malformed/truncated/cancelled/missing duration/duplicates cannot be complete", () => {
   for (const [events, diagnostic] of [
@@ -788,6 +835,11 @@ test("verified complete Go reports require selected target and count integrity w
     (report) => { report.targets[0].top_level = false; },
     (report) => { report.selected = []; },
     (report) => { report.selected.push(report.selected[0]); },
+    (report) => { report.discovered = null; },
+    (report) => { report.discovered = []; },
+    (report) => { report.discovered.push(report.discovered[0]); },
+    (report) => { delete report.discovered; },
+    (report) => { report.discovered = ["example/p::TestOther"]; },
     (report) => { report.packages = []; },
     (report) => {
       report.packages = [];
@@ -811,6 +863,9 @@ test("verified complete Go reports require selected target and count integrity w
     assert.notDeepEqual(report, good, "mutation must change actual producer output");
     inspect(report, false, false);
   }
+  const subset = structuredClone(good);
+  subset.discovered.push("example/p::TestOther");
+  inspect(subset, true, true);
   const mismatch = produce([
     event("start"), event("run", "TestB"), event("pass", "TestB", 2), event("pass", null, 3),
   ]);
@@ -850,6 +905,7 @@ test("production report processing limits charge valid and invalid bodies at 99,
   const report = parseGo(successful);
   report.identity.source_sha = run.head_sha;
   report.selected = ["example/p::TestA"];
+  report.discovered = [...report.selected];
   const fixture = artifactFixture(report, {}, "go-run");
   const invalid = archive({ ...report, schema: 2 }, "coverage.txt.evidence.json");
   const probe = (count, pattern, budget = { compressed: 0, expanded: 0, reports: 0 }) => {

@@ -140,9 +140,14 @@ function completeGoTargets(report) {
       packages.size !== report.packages.length || report.targets.some((target) => !packages.has(target.package))) return false;
   const top = report.targets.filter((target) => target.top_level);
   const actual = new Set(top.map((target) => report.inventory_scope === "names" ? target.name : `${target.package}::${target.name}`));
-  if (!Array.isArray(report.selected) || report.selected.length > LIMITS.targets ||
+  if (!Array.isArray(report.discovered) || report.discovered.length > LIMITS.targets ||
+      report.discovered.some((target) => !text(target))) return false;
+  const discovered = new Set(report.discovered);
+  if (discovered.size !== report.discovered.length ||
+      !Array.isArray(report.selected) || report.selected.length > LIMITS.targets ||
       report.selected.some((target) => !text(target)) ||
       new Set(report.selected).size !== report.selected.length ||
+      report.selected.some((target) => !discovered.has(target)) ||
       actual.size !== report.selected.length || report.selected.some((target) => !actual.has(target))) return false;
   return [["top_level", top], ["subtests", report.targets.filter((target) => !target.top_level)], ["packages", report.packages]]
     .every(([scope, items]) => Object.entries(targetCounts(items))
