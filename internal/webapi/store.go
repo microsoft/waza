@@ -152,7 +152,6 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	}
 
 	return RunSummary{
-		skillRecorded:   o.SkillTested == "" && o.HasSkillTested(),
 		ID:              o.RunID,
 		Spec:            o.BenchName,
 		Model:           o.Setup.ModelID,
@@ -169,10 +168,18 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 		Duration:        float64(o.Digest.DurationMs) / 1000.0,
 		Timestamp:       o.Timestamp,
 		Source:          "local",
-		Skill:           o.SkillTested,
+		Skill:           recordedSkill(o),
 		Repetitions:     o.Setup.RunsPerTest,
 		WeightedScore:   weightedScore,
 	}
+}
+
+func recordedSkill(o *models.EvaluationOutcome) *string {
+	if !o.HasSkillTested() {
+		return nil
+	}
+	skill := o.SkillTested
+	return &skill
 }
 
 // aiCreditAccumulator averages authoritative AI-credit totals across the runs
@@ -474,6 +481,10 @@ func projectRunSnapshot(runs map[string]*models.EvaluationOutcome) (map[string]R
 }
 
 func cloneRunSummary(summary RunSummary) RunSummary {
+	if summary.Skill != nil {
+		skill := *summary.Skill
+		summary.Skill = &skill
+	}
 	summary.AICredits = cloneFloat64(summary.AICredits)
 	summary.WeightedScore = cloneFloat64(summary.WeightedScore)
 	if summary.ModelUsage != nil {
