@@ -86,6 +86,14 @@ bytes still have distinct manifest digests. A capture callback may return that
 same artifact but cannot substitute another reservation. Raw `report.json`
 publication is rejected; category-scoped capture belongs to the evidence layer.
 
+Service-level regressions publish an original execution before exercising
+reserved-name collisions with invalid bytes, another execution's valid
+reservation, and incorrect media types. They reread the original reservation,
+completion, manifest, and artifact bytes to prove none were overwritten. An
+identical original reservation duplicate remains valid without adding a second
+manifest entry. These are direct embedding-service controls, not public CLI,
+API, or Lab delivery evidence.
+
 The immutable distinct decision is recorded before runtime construction.
 `Ledger.HasDistinctDecision` distinguishes reservation-only state from an
 execution that may already have run, even if a crash prevented completion.
