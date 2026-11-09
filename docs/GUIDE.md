@@ -125,7 +125,8 @@ git lfs pull
 make build VERSION=0.40.0
 ```
 
-Later local builds reuse the locked dashboard dependencies while
+For source checkouts that include the dashboard dependency cache (not the
+pinned v0.40.0 checkout above), later builds reuse locked dependencies while
 `web/package.json` and `web/package-lock.json` are unchanged. If
 `web/node_modules` becomes stale or corrupt, restore it with:
 
