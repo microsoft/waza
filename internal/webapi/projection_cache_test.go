@@ -175,6 +175,7 @@ func TestFileStoreProjectionCacheDoesNotLeakMutableData(t *testing.T) {
 		t.Fatal(err)
 	}
 	first[0].ID = "mutated"
+	*first[0].Skill = "mutated"
 	*first[0].AICredits = 99
 	*first[0].WeightedScore = 99
 	first[0].ModelUsage[0].Model = "mutated"
@@ -184,7 +185,7 @@ func TestFileStoreProjectionCacheDoesNotLeakMutableData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second[0].ID != "run" || *second[0].AICredits != 1.25 ||
+	if second[0].ID != "run" || *second[0].Skill != "perf-sweep" || *second[0].AICredits != 1.25 ||
 		*second[0].WeightedScore != 0.75 || second[0].ModelUsage[0].Model != "gpt-5" ||
 		*second[0].ModelUsage[0].AICredits != 1.25 {
 		t.Fatalf("cached list leaked caller mutations: %+v", second[0])
