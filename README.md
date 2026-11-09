@@ -29,6 +29,8 @@ The unreleased [logical execution-attempt embedding API](docs/EXECUTION_ATTEMPTS
 adds immutable reservations and explicit verified reuse without changing
 `runner run`. Public submission commands and Lab lineage integration remain
 pending; this is not available in installed v0.40.1 artifacts.
+The [checkpoint embedding preview](docs/EXECUTION_CHECKPOINTS.md) adds compatible
+whole-unit recovery; its public CLI/API/Lab integration is also pending.
 
 **v0.40.0 adds** bounded
 runner/text execution, selected AgentV assertion conversion, task-level MCP

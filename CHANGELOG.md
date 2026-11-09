@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Checkpoint embedding API (unreleased partial #765)** - Recover immutable
+  before-unit/finalized-unit checkpoints and compatibility-checked restore atop
+  the attempt core. Finalized restore reuses the original terminal; before-unit
+  restore rejects a recorded dispatch even without completion, preventing
+  uncertain execution from silently rerunning. Public CLI/API/Lab and full
+  production-CLI/platform acceptance remain pending. See
+  [checkpoint contracts and migration limits](docs/EXECUTION_CHECKPOINTS.md).
+
 - **Logical execution-attempt embedding API (unreleased partial #764)** - Recover
   strict attempt/completion/submission sidecars, exclusive retained creators,
   append-only parent and duplicate decisions, and original-source verified reuse.

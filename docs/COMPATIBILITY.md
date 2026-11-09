@@ -11,6 +11,11 @@ is additive. Its attempt, completion, and submission sidecars have independent
 ordinals, manifest v1, or ordinary `runner run` retry behavior. No historical
 reservation, ownership, or billing evidence is synthesized.
 
+The [checkpoint embedding preview](EXECUTION_CHECKPOINTS.md) uses independently
+versioned checkpoint sidecars. It admits only whole-unit boundaries, exact
+runner/configuration compatibility, and original-source recovery. An absent
+completion does not authorize rerunning an original recorded dispatch.
+
 This is the offline preservation gate for #658 and the additive work under
 #657. The contract is intended existing v1 behavior, not a new assurance
 feature. The baseline is commit `04e7b4c6d593555834e71221227326c63274a921`;
