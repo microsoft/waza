@@ -56,7 +56,8 @@ fi
 		cmd := exec.CommandContext(t.Context(), tool, args...)
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "PATH="+filepath.Join(root, "tools")+string(os.PathListSeparator)+os.Getenv("PATH"),
-			"WAZA_BUILD_CALLS="+calls, "PLATFORM=linux/amd64", "WAZA_FAIL_INSTALL=0")
+			"WAZA_BUILD_CALLS="+calls, "PLATFORM=linux/amd64", "WAZA_FAIL_INSTALL=0",
+			"OUTPUT_DIR="+filepath.Join(root, "bin"), "REQUIRE_RELEASE_ADMISSION=0")
 		if fail {
 			cmd.Env = append(cmd.Env, "WAZA_FAIL_INSTALL=1")
 		}
@@ -84,6 +85,10 @@ fi
 	run(false, "make", "--no-print-directory", "build")
 	if count("npm ci --silent") != 1 || count("npm run build") != 1 || count("go build ") != 1 {
 		t.Fatal("clean make build must install, build the dashboard, then compile Go")
+	}
+	if data, err := os.ReadFile(calls); err != nil ||
+		!strings.HasPrefix(string(data), "npm ci --silent\nnpm run build\ngo build ") {
+		t.Fatalf("dependency preparation must precede dashboard and Go builds: %s (%v)", data, err)
 	}
 	if _, err := os.Stat(stamp); err != nil {
 		t.Fatal("successful install must publish its stamp:", err)
