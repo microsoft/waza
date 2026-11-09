@@ -845,6 +845,75 @@ func checkTriggers(source []byte, want workflowTriggers) error {
 	return nil
 }
 
+// Evaluate only the literal expressions admitted by checkCanonicalGoWorkflow,
+// rather than approximating arbitrary GitHub Actions expression semantics.
+func goConcurrencyGroup(group, workflow, event, ref, runID string) string {
+	scope := runID
+	if event == "pull_request" {
+		scope = ref
+	}
+	return strings.NewReplacer(
+		"${{ github.workflow }}", workflow,
+		"${{ github.event_name }}", event,
+		"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", scope,
+	).Replace(group)
+}
+
+func TestGoWorkflowConcurrency(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCanonicalGoWorkflow(source); err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Name        string `yaml:"name"`
+		Concurrency struct {
+			Group  string `yaml:"group"`
+			Cancel string `yaml:"cancel-in-progress"`
+		} `yaml:"concurrency"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	if workflow.Name != "Go Build and Test" {
+		t.Fatalf("unexpected workflow identity %q", workflow.Name)
+	}
+	runs := []struct {
+		name, workflow, event, ref, runID, wantGroup string
+	}{
+		{"PR old commit", workflow.Name, "pull_request", "refs/pull/829/merge", "100", "Go Build and Test-pull_request-refs/pull/829/merge"},
+		{"PR new commit", workflow.Name, "pull_request", "refs/pull/829/merge", "101", "Go Build and Test-pull_request-refs/pull/829/merge"},
+		{"different PR", workflow.Name, "pull_request", "refs/pull/830/merge", "102", "Go Build and Test-pull_request-refs/pull/830/merge"},
+		{"other PR workflow", "Web CI", "pull_request", "refs/pull/829/merge", "103", "Web CI-pull_request-refs/pull/829/merge"},
+		{"push old run", workflow.Name, "push", "refs/heads/main", "104", "Go Build and Test-push-104"},
+		{"push same commit again", workflow.Name, "push", "refs/heads/main", "105", "Go Build and Test-push-105"},
+		{"push same ref as PR", workflow.Name, "push", "refs/pull/829/merge", "106", "Go Build and Test-push-106"},
+		{"release publication", "Release", "push", "refs/heads/main", "107", "Release-push-107"},
+		{"manual publication", "Publish Runner Reference Image", "workflow_dispatch", "refs/heads/main", "108", "Publish Runner Reference Image-workflow_dispatch-108"},
+	}
+	for i, older := range runs {
+		t.Run(older.name, func(t *testing.T) {
+			group := goConcurrencyGroup(workflow.Concurrency.Group, older.workflow, older.event, older.ref, older.runID)
+			if group != older.wantGroup {
+				t.Fatalf("group = %q; want %q", group, older.wantGroup)
+			}
+			for j, newer := range runs {
+				if i == j {
+					continue
+				}
+				incomingGroup := goConcurrencyGroup(workflow.Concurrency.Group, newer.workflow, newer.event, newer.ref, newer.runID)
+				cancel := newer.event == "pull_request"
+				wantCancel := (i == 0 && j == 1) || (i == 1 && j == 0)
+				if got := cancel && group == incomingGroup; got != wantCancel {
+					t.Errorf("%s supersedes %s = %v; want %v", newer.name, older.name, got, wantCancel)
+				}
+			}
+		})
+	}
+}
+
 // Selection is deliberately limited to the exact, literal branch/type filters
 // admitted by checkTriggers, not a general GitHub Actions glob interpreter.
 func selects(triggers workflowTriggers, event, branch, action string) bool {
@@ -928,6 +997,9 @@ func TestCanonicalGoWorkflow(t *testing.T) {
 	}
 	for _, mutation := range [][2]string{
 		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
+		{"${{ github.workflow }}-", ""},
+		{"${{ github.event_name }}-", ""},
+		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "go-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}"},
 		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
 		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.run_id }}"},
 		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.event_name == 'pull_request' && github.ref || github.sha }}"},
