@@ -241,3 +241,117 @@ func TestLabMissingEmptyArchiveKeepsRefreshing(t *testing.T) {
 		})
 	}
 }
+
+func TestLabRefreshRecoversCallerMutatedTranscript(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		t.Run(strconv.FormatBool(configured), func(t *testing.T) {
+			dir := t.TempDir()
+			data := []byte(`{"eval_id":"cached","skill":"recorded","summary":{"total_tests":1,"weighted_score":0},
+							"tasks":[{"test_id":"task","stats":{"avg_weighted_score":0},
+							"runs":[{"transcript":[{"type":"tool.execution_start","tool_name":"bash","tool_call_id":"call",
+							"arguments":{"nested":[{"value":"recorded","null":null,"empty":[]}],"false":false,"zero":0}}]}]}]}`)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.json"), data, 0o600))
+			var store RunStore
+			if configured {
+				store = NewStorageAdapter(storage.NewDashboardLocalStore(dir), "local")
+			} else {
+				store = NewDashboardFileStore(dir)
+			}
+			mux := http.NewServeMux()
+			RegisterRoutes(mux, store)
+			before := labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String()
+			detail, err := store.GetRun("cached")
+			require.NoError(t, err)
+			require.Len(t, detail.Tasks, 1)
+			require.Len(t, detail.Tasks[0].Transcript, 1)
+			args, ok := detail.Tasks[0].Transcript[0].Arguments.(map[string]any)
+			require.True(t, ok)
+			items, ok := args["nested"].([]any)
+			require.True(t, ok)
+			require.Len(t, items, 1)
+			record, ok := items[0].(map[string]any)
+			require.True(t, ok)
+			record["value"] = "caller-mutated"
+			mutated := labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String()
+			require.Contains(t, mutated, "caller-mutated", "setup must exercise the production projection's shared nested data")
+			for range 2 {
+				runs := labRefreshRuns(t, mux, "/api/v1/lab/runs")
+				require.Len(t, runs, 1)
+				require.Equal(t, "recorded", runs[0].Skill)
+				require.NotNil(t, runs[0].WeightedScore)
+				require.Zero(t, *runs[0].WeightedScore)
+				require.JSONEq(t, before, labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String())
+			}
+		})
+	}
+}
+
+func BenchmarkLabResultRefresh300(b *testing.B) {
+	dir := b.TempDir()
+	totalBytes := 0
+	for i := range 300 {
+		outcome := labRefreshOutcome("run-"+strconv.Itoa(i), 0.75)
+		// Recorded task/run payloads exercise parse, summary projection, adapter
+		// downloads, sorting and response encoding, not only the storage helper.
+		outcome.TestOutcomes[0].Runs[0].Validations = map[string]models.GraderResults{
+			"grader": {Name: "grader", Type: models.GraderKindText, Passed: true, Score: 1,
+				Details: map[string]any{"nested": []any{map[string]any{"value": "recorded", "null": nil}}}},
+		}
+		data, err := json.Marshal(outcome)
+		require.NoError(b, err)
+		totalBytes += len(data)
+		require.NoError(b, os.WriteFile(filepath.Join(dir, outcome.RunID+".json"), data, 0o600))
+	}
+	for _, configured := range []bool{false, true} {
+		backend := "file-store"
+		if configured {
+			backend = "local-adapter"
+		}
+		for _, cached := range []bool{false, true} {
+			mode := "uncached"
+			if cached {
+				mode = "dashboard-cache"
+			}
+			b.Run(backend+"/"+mode, func(b *testing.B) {
+				var store RunStore
+				if configured {
+					local := storage.NewLocalStore(dir)
+					if cached {
+						local = storage.NewDashboardLocalStore(dir)
+					}
+					store = NewStorageAdapter(local, "local")
+				} else {
+					file := NewFileStore(dir)
+					if cached {
+						file = NewDashboardFileStore(dir)
+					}
+					store = file
+				}
+				mux := http.NewServeMux()
+				RegisterRoutes(mux, store)
+				poll := func() *httptest.ResponseRecorder {
+					rec := httptest.NewRecorder()
+					mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/lab/runs", nil))
+					require.Equal(b, http.StatusOK, rec.Code)
+					return rec
+				}
+				check := func(rec *httptest.ResponseRecorder) {
+					var runs []RunSummary
+					require.NoError(b, json.Unmarshal(rec.Body.Bytes(), &runs))
+					require.Len(b, runs, 300)
+				}
+				check(poll())
+				b.ReportAllocs()
+				b.ResetTimer()
+				var last *httptest.ResponseRecorder
+				for range b.N {
+					last = poll()
+				}
+				b.StopTimer()
+				check(last)
+				b.ReportMetric(300, "files/op")
+				b.ReportMetric(float64(totalBytes), "artifact-bytes/op")
+			})
+		}
+	}
+}

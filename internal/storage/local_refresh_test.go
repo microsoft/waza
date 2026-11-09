@@ -10,8 +10,177 @@ import (
 	"testing"
 	"time"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/stretchr/testify/require"
 )
+
+func nestedJSONRecord(t *testing.T, value any) map[string]any {
+	t.Helper()
+	items, ok := value.([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	record, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	return record
+}
+
+func TestLocalStoreReloadIsolatesCallerMutation(t *testing.T) {
+	for _, dashboard := range []bool{false, true} {
+		for _, presence := range []string{"omitted", "null", "zero"} {
+			t.Run(strconv.FormatBool(dashboard)+"/"+presence, func(t *testing.T) {
+				score := ""
+				skill := ""
+				switch presence {
+				case "null":
+					score = `"weighted_score":null,`
+					skill = `"skill":null,`
+				case "zero":
+					score = `"weighted_score":0,`
+					skill = `"skill":"",`
+				}
+				statsScore := ""
+				if presence != "omitted" {
+					value := "null"
+					if presence == "zero" {
+						value = "0"
+					}
+					statsScore = `"avg_weighted_score":` + value + `,`
+				}
+				data := []byte(`{` + skill + `"eval_id":"cached","summary":{` + score + `"statistics":{"is_significant":false}},
+					"metadata":{"nested":[{"value":"recorded","null":null,"empty":[]}],"zero":0,"false":false},
+					"tasks":[{"test_id":"task","stats":{` + statsScore + `"is_significant":false},
+					"runs":[{"validations":{"grader":{"details":{"nested":[{"value":"recorded"}]}}},
+					"transcript":[{"type":"tool.execution_start","tool_call_id":"call","tool_name":"bash","arguments":{"nested":[{"value":"recorded"}]}},
+					{"type":"future.event","arguments":{"nested":[{"value":"recorded"}]}}],
+					"session_digest":{"usage":{"ai_credits":0,"model_metrics":{"model":{"ai_credits":0}}}}}]}],
+					"baseline_outcome":{"eval_id":"baseline","summary":{}}
+				}`)
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.json"), data, 0o600))
+				store := NewLocalStore(dir)
+				if dashboard {
+					store = NewDashboardLocalStore(dir)
+				}
+				before, err := store.Download(t.Context(), "cached")
+				require.NoError(t, err)
+				require.Equal(t, "1.4", before.SchemaVersion, "legacy reader default must survive")
+				require.Equal(t, presence == "zero", before.HasSkillTested())
+				require.Equal(t, presence == "zero", before.Digest.HasWeightedScore())
+				require.Equal(t, presence == "zero", before.TestOutcomes[0].Stats.HasAvgWeightedScore())
+				wire, err := json.Marshal(before)
+				require.NoError(t, err)
+				var fields map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(wire, &fields))
+				var summary, stats map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(fields["summary"], &summary))
+				require.JSONEq(t, `{"is_significant":false}`, string(summary["statistics"]))
+				statsWire, err := json.Marshal(before.TestOutcomes[0].Stats)
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(statsWire, &stats))
+				require.JSONEq(t, `false`, string(stats["is_significant"]))
+				if presence == "zero" {
+					require.JSONEq(t, `""`, string(fields["skill"]))
+					require.JSONEq(t, `0`, string(summary["weighted_score"]))
+					require.JSONEq(t, `0`, string(stats["avg_weighted_score"]))
+				} else {
+					require.NotContains(t, fields, "skill")
+					require.NotContains(t, summary, "weighted_score")
+					require.NotContains(t, stats, "avg_weighted_score")
+				}
+				require.JSONEq(t, `{"nested":[{"value":"recorded","null":null,"empty":[]}],"zero":0,"false":false}`, string(fields["metadata"]))
+
+				before.SkillTested = "caller-mutated"
+				nestedJSONRecord(t, before.Metadata["nested"])["value"] = "caller-mutated"
+				run := &before.TestOutcomes[0].Runs[0]
+				nestedJSONRecord(t, run.Validations["grader"].Details["nested"])["value"] = "caller-mutated"
+				start, ok := run.Transcript[0].Data.(*copilot.ToolExecutionStartData)
+				require.True(t, ok, "exercise the typed SDK transcript payload")
+				args, ok := start.Arguments.(map[string]any)
+				require.True(t, ok)
+				nestedJSONRecord(t, args["nested"])["value"] = "caller-mutated"
+				raw, ok := run.Transcript[1].Data.(*copilot.RawSessionEventData)
+				require.True(t, ok)
+				recordedRaw := bytes.Clone(raw.Raw)
+				raw.Raw[0] = '!'
+				*run.SessionDigest.Usage.AICredits = 42
+				*run.SessionDigest.Usage.ModelMetrics["model"].AICredits = 42
+				*before.TestOutcomes[0].Stats.IsSignificant = true //nolint:staticcheck // Exercise historical recorded-false pointer ownership.
+				before.BaselineOutcome.SkillTested = "caller-mutated"
+
+				for range 2 {
+					require.NoError(t, store.Reload())
+					after, err := store.Download(t.Context(), "cached")
+					require.NoError(t, err)
+					afterWire, err := json.Marshal(after)
+					require.NoError(t, err)
+					require.JSONEq(t, string(wire), string(afterWire), "refresh must recover the recorded artifact, including private presence flags and nested values")
+					afterRaw, ok := after.TestOutcomes[0].Runs[0].Transcript[1].Data.(*copilot.RawSessionEventData)
+					require.True(t, ok)
+					require.Equal(t, recordedRaw, []byte(afterRaw.Raw), "private cache must retain unprojected raw transcript data too")
+					require.NotSame(t, before, after)
+				}
+			})
+		}
+	}
+}
+
+func TestDashboardResultSnapshotDoesNotOwnRetainedCache(t *testing.T) {
+	dir := t.TempDir()
+	data, err := json.Marshal(makeOutcome("cached", "recorded", "mock-model", 1, 1))
+	require.NoError(t, err)
+	path := filepath.Join(dir, "cached.json")
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+	cache := NewDashboardResultCache()
+	results, files, err := ReadLocalResultsForDashboard(dir, nil, cache)
+	require.NoError(t, err)
+	results["cached"].SkillTested = "caller-mutated"
+	delete(results, "cached")
+	results, _, err = ReadLocalResultsForDashboard(dir, files, cache)
+	require.NoError(t, err)
+	require.Equal(t, "recorded", results["cached"].SkillTested)
+	require.NoError(t, os.Remove(path))
+	results, _, err = ReadLocalResultsForDashboard(dir, files, cache)
+	require.NoError(t, err)
+	require.Empty(t, results)
+	require.Empty(t, cache.entries, "successful refresh bounds retention to currently admitted files")
+}
+
+func TestDashboardResultCacheConcurrentSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte(`{"eval_id":"cached","metadata":{"nested":[{"value":"recorded"}]}}`)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.json"), data, 0o600))
+	cache := NewDashboardResultCache()
+	_, files, err := ReadLocalResultsForDashboard(dir, nil, cache)
+	require.NoError(t, err)
+	for i := range 8 {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			t.Parallel()
+			for range 3 {
+				results, _, err := ReadLocalResultsForDashboard(dir, files, cache)
+				require.NoError(t, err)
+				nested := nestedJSONRecord(t, results["cached"].Metadata["nested"])
+				require.Equal(t, "recorded", nested["value"])
+				nested["value"] = "caller-mutated"
+			}
+		})
+	}
+}
+
+func TestDashboardResultCacheNilUsesOrdinaryReader(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte(`{"eval_id":"cached","skill":"recorded"}`)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.json"), data, 0o600))
+	results, files, err := ReadLocalResultsForDashboard(dir, nil, nil)
+	require.NoError(t, err)
+	results["cached"].SkillTested = "caller-mutated"
+	results, _, err = ReadLocalResultsForDashboard(dir, files, nil)
+	require.NoError(t, err)
+	require.Equal(t, "recorded", results["cached"].SkillTested)
+	results, files, err = ReadLocalResultsForDashboard("", nil, NewDashboardResultCache())
+	require.NoError(t, err)
+	require.Empty(t, results)
+	require.Empty(t, files)
+}
 
 func TestLocalStoreMissingEmptyDirectoryRemainsEmpty(t *testing.T) {
 	store := NewLocalStore(filepath.Join(t.TempDir(), "not-created"))
@@ -136,7 +305,8 @@ func TestDashboardLocalStoreDetectsSameSizeChangeWithRestoredMtime(t *testing.T)
 	require.NoError(t, store.Reload())
 	unchanged, err := store.Download(t.Context(), "cached")
 	require.NoError(t, err)
-	require.Same(t, loadedBefore, unchanged, "unchanged content should reuse the parsed outcome")
+	require.NotSame(t, loadedBefore, unchanged, "refresh snapshots must not expose the retained parsed outcome")
+	require.Equal(t, loadedBefore, unchanged)
 
 	require.NoError(t, os.WriteFile(path, afterData, 0o600))
 	require.NoError(t, os.Chtimes(path, mtime, mtime))

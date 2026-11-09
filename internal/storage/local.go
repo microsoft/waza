@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -194,7 +195,9 @@ type dashboardResultCacheEntry struct {
 
 // DashboardResultCache retains parsed local result artifacts for dashboard
 // refreshes. Content digests, rather than timestamps and sizes, determine reuse.
+// Retained outcomes are private; each refresh returns a detached snapshot.
 type DashboardResultCache struct {
+	mu      sync.Mutex
 	entries map[string]dashboardResultCacheEntry
 }
 
@@ -204,12 +207,15 @@ func NewDashboardResultCache() *DashboardResultCache {
 }
 
 // ReadLocalResultsForDashboard refreshes a dashboard snapshot while reusing
-// parsed outcomes whose file content is unchanged. Cache replacement is
-// transactional with the result snapshot.
+// parsed outcomes whose file content is unchanged. Returned outcomes never alias
+// retained state. Cache replacement is transactional with the result snapshot.
 func ReadLocalResultsForDashboard(dir string, previousFiles map[string]struct{}, cache *DashboardResultCache) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
 	if cache == nil {
 		return ReadLocalResults(dir, previousFiles)
 	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
 	next := make(map[string]dashboardResultCacheEntry)
 	results, files, err := readLocalResultsWithLoader(dir, previousFiles, filepath.WalkDir, func(path string, known bool) (*models.EvaluationOutcome, error) {
 		data, err := readLocalResultData(path, known)
@@ -217,15 +223,23 @@ func ReadLocalResultsForDashboard(dir string, previousFiles map[string]struct{},
 			return nil, err
 		}
 		digest := sha256.Sum256(data)
-		if entry, ok := cache.entries[path]; ok && entry.digest == digest {
-			next[path] = entry
-			return entry.outcome, nil
+		entry, ok := cache.entries[path]
+		if !ok || entry.digest != digest {
+			outcome, err := parseLocalResult(path, data, known)
+			if err != nil || outcome == nil {
+				return outcome, err
+			}
+			entry = dashboardResultCacheEntry{digest: digest, outcome: outcome}
 		}
-		outcome, err := parseLocalResult(path, data, known)
-		if err != nil || outcome == nil {
-			return outcome, err
+		snapshot, err := cloneDashboardValue(reflect.ValueOf(entry.outcome))
+		if err != nil {
+			return nil, fmt.Errorf("isolating dashboard results artifact %q: %w", path, err)
 		}
-		next[path] = dashboardResultCacheEntry{digest: digest, outcome: outcome}
+		outcome, ok := snapshot.Interface().(*models.EvaluationOutcome)
+		if !ok {
+			return nil, fmt.Errorf("isolating dashboard results artifact %q: unexpected snapshot type %s", path, snapshot.Type())
+		}
+		next[path] = entry
 		return outcome, nil
 	})
 	if err != nil {
