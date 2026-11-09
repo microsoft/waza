@@ -34,6 +34,12 @@ decision, invokes no engine or publication observer, and returns the original
 terminal without changing its ordinal, failure, cancellation, or exit code.
 Historical usage is not new invocation billing; missing usage is unavailable.
 
+When declared, `execution-attempt.json` must match the original reservation's
+digest, byte length and JSON media type during completion and reuse admission.
+Legacy manifests without that optional artifact remain readable. Reused receipts
+check caller/source context while allowing the documented ordinal difference;
+captured and historical reports preserve dynamic numeric tokens exactly.
+
 ```mermaid
 sequenceDiagram
     participant Caller

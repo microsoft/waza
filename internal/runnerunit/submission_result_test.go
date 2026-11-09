@@ -39,7 +39,7 @@ func TestSubmissionResultCodecChecksActualProducerAndSourceContext(t *testing.T)
 			t.Fatalf("actual source declaration lost on strict read: %+v %v", parsed, err)
 		}
 	}
-	for _, control := range []string{"reuse-new-calls", "retag-terminal", "reservation-hash", "manifest-source", "caller-work", "distinct-id", "original-binding-run", "original-binding-work"} {
+	for _, control := range []string{"reuse-new-calls", "retag-terminal", "reservation-hash", "manifest-source", "caller-work", "distinct-id", "original-binding-run", "original-binding-work", "caller-mode", "caller-graders", "caller-task"} {
 		t.Run(control, func(t *testing.T) {
 			data := reusedBytes
 			if control == "distinct-id" {
@@ -68,6 +68,12 @@ func TestSubmissionResultCodecChecksActualProducerAndSourceContext(t *testing.T)
 			case "original-binding-work":
 				result.Reservation.Binding.Identity.Trial = "trial-" + strings.Repeat("0", 64)
 				result.Terminal.Identity.Trial = result.Reservation.Binding.Identity.Trial
+			case "caller-mode":
+				result.Decision.Binding.ExecutionMode = "copilot"
+			case "caller-graders":
+				result.Decision.Binding.GraderIDs = []string{"different-grader"}
+			case "caller-task":
+				result.Decision.Binding.Selection.Task = "different-task"
 			}
 			mutated, err := json.Marshal(result)
 			if err != nil || bytes.Equal(mutated, data) {

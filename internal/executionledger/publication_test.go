@@ -20,6 +20,89 @@ import (
 	"github.com/microsoft/waza/internal/runnerunit"
 )
 
+func TestCompletionRejectsAnotherExecutionReservationArtifact(t *testing.T) {
+	ctx := t.Context()
+	request, err := os.ReadFile("../../examples/runner/unit.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(runnerunit.SubmissionRequest{
+		Kind: "waza.execution-submission", SchemaVersion: "1.0", Request: request,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend, err := artifactmanifest.OpenLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := backend.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	calls := 0
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		calls++
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	original, err := service.Submit(ctx, data, backend, runnerunit.SubmissionHooks{})
+	if err != nil || original.Completion == nil || calls != 1 {
+		t.Fatalf("actual original execution fixture failed: %+v %v", original, err)
+	}
+	ledger, err := executionledger.New(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := ledger.Reserve(ctx, original.Reservation.Binding, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserved, err := ledger.Reservation(other)
+	if err != nil || reserved.Attempt.ExecutionID == original.Reservation.ExecutionID {
+		t.Fatalf("fixture did not reserve independent execution: %+v %v", reserved, err)
+	}
+	if completed, err := ledger.Complete(ctx, other, original.Completion.ManifestDigest); completed != nil ||
+		!errors.Is(err, executionledger.ErrContext) {
+		t.Errorf("different execution adopted original reservation artifact: %+v %v", completed, err)
+	}
+	completion, err := executionledger.EncodeCompletion(executionledger.Completion{
+		Kind: "waza.execution-completion", SchemaVersion: "1.0",
+		ExecutionID: reserved.Attempt.ExecutionID, ReservationDigest: reserved.Digest,
+		ManifestDigest: original.Completion.ManifestDigest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace, err := artifactmanifest.NewNamespace(backend, artifactmanifest.ExecutionLedgerNamespaceV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an existing inconsistent completion, independently of Complete.
+	if _, err := namespace.Create(ctx, "completion/"+reserved.Attempt.ExecutionID, completion); err != nil {
+		t.Fatal(err)
+	}
+	source := executionattempt.Source{ExecutionID: reserved.Attempt.ExecutionID, ManifestDigest: original.Completion.ManifestDigest}
+	if completed, err := ledger.ReadCompleted(ctx, source); completed != nil || !errors.Is(err, executionledger.ErrContext) {
+		t.Errorf("read admitted contradictory reservation artifact: %+v %v", completed, err)
+	}
+	data, err = json.Marshal(runnerunit.SubmissionRequest{
+		Kind: "waza.execution-submission", SchemaVersion: "1.0", Request: request,
+		Policy: &runnerunit.SubmissionPolicy{Mode: "reuse", Source: &source},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused, err := service.Submit(ctx, data, backend, runnerunit.SubmissionHooks{})
+	if err == nil || reused.Status != "submission_error" || reused.Decision != nil || calls != 1 {
+		t.Errorf("production reuse admitted contradictory lineage: %+v calls=%d %v", reused, calls, err)
+	}
+	source.ExecutionID = original.Reservation.ExecutionID
+	if _, err := ledger.ReadCompleted(ctx, source); err != nil {
+		t.Fatalf("original immutable completion was damaged: %v", err)
+	}
+}
+
 func TestPureReuseAdmissionRetainsPublishedFailure(t *testing.T) {
 	ctx := context.Background()
 	data, err := os.ReadFile("../../examples/runner/unit.json")

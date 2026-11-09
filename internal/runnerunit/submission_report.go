@@ -9,11 +9,31 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-func cloneSubmissionReport(original Report, canonical []byte) (Report, error) {
-	var detached Report
-	decoder := json.NewDecoder(bytes.NewReader(canonical))
+type exactSubmissionObservation models.RunResult
+
+func (observation *exactSubmissionObservation) UnmarshalJSON(data []byte) error {
+	return (*models.RunResult)(observation).UnmarshalJSONExact(data)
+}
+
+func decodeSubmissionReport(data []byte) (Report, error) {
+	type fields Report
+	var wire struct {
+		fields
+		Observation *exactSubmissionObservation `json:"observation"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	if err := decoder.Decode(&detached); err != nil {
+	if err := decoder.Decode(&wire); err != nil {
+		return Report{}, err
+	}
+	report := Report(wire.fields)
+	report.Observation = (*models.RunResult)(wire.Observation)
+	return report, nil
+}
+
+func cloneSubmissionReport(original Report, canonical []byte) (Report, error) {
+	detached, err := decodeSubmissionReport(canonical)
+	if err != nil {
 		return Report{}, fmt.Errorf("copying observed submission report: %w", err)
 	}
 	detached.failure, detached.boundary = original.failure, original.boundary
