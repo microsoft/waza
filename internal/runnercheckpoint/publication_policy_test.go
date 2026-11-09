@@ -121,11 +121,46 @@ func TestOriginalCompletionDuringFreshChildReservationBlocksBeforeFactory(t *tes
 	if err == nil || original.BeforeDigest == "" || factories != 0 {
 		t.Fatalf("control did not preserve original live creator before execution: %+v, %v", original, err)
 	}
-	// A separate real producer supplies matching native content; the retained
-	// creator authorizes declared-context completion, not runtime attestation.
+	// A separate real producer supplies matching native terminal content.
+	// Bind a new manifest to the original reservation, not the other execution.
 	other, err := service.Submit(context.Background(), fixture(t), store, Hooks{})
 	if err != nil || other.Submission.Completion == nil || factories != 1 {
 		t.Fatalf("independent native content control did not complete: %+v, %v", other, err)
+	}
+	originalReservation, err := originalOwner.Reservation(originalCreator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publications := artifactmanifest.NewStore(store)
+	publication, err := publications.ReadCompleted(context.Background(), other.Submission.Completion.ManifestDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebound := false
+	for i, artifact := range publication.Manifest.Artifacts {
+		if artifact.Name == "execution-attempt.json" {
+			artifact.SHA256 = originalReservation.Digest
+			artifact.SizeBytes = int64(len(originalReservation.Bytes))
+			if err := publications.Put(context.Background(), artifact, originalReservation.Bytes); err != nil {
+				t.Fatal(err)
+			}
+			publication.Manifest.Artifacts[i] = artifact
+			rebound = true
+		}
+	}
+	if !rebound {
+		t.Fatal("actual producer did not declare its reservation artifact")
+	}
+	manifest, err := artifactmanifest.Encode(publication.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := publications.Create(context.Background(), manifest)
+	if err != nil || digest == other.Submission.Completion.ManifestDigest {
+		t.Fatalf("original-bound completion fixture did not change manifest: %s %v", digest, err)
+	}
+	if _, err := publications.Finalize(context.Background(), digest); err != nil {
+		t.Fatal(err)
 	}
 	rejected, err := service.Resume(context.Background(), fixture(t), store, original.BeforeDigest, Hooks{
 		Submission: runnerunit.SubmissionHooks{
@@ -135,7 +170,7 @@ func TestOriginalCompletionDuringFreshChildReservationBlocksBeforeFactory(t *tes
 				if reservation.Attempt.Parent == nil || reservation.Attempt.Parent.ExecutionID != original.Submission.Reservation.ExecutionID {
 					t.Fatal("control did not occur in the exact fresh retry child reservation")
 				}
-				completed, err := originalOwner.Complete(ctx, originalCreator, other.Submission.Completion.ManifestDigest)
+				completed, err := originalOwner.Complete(ctx, originalCreator, digest)
 				if err != nil {
 					return err
 				}
