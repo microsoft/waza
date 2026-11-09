@@ -254,7 +254,47 @@ func VerifyCollectionSources(ctx context.Context, sources []CapturedSource) (Ver
 	if len(sources) == 0 || len(sources) > collectionSourceEntries {
 		return VerifiedCollectionSources{}, fmt.Errorf("native collection requires a bounded nonempty source inventory")
 	}
-	verified := make([]CapturedSource, len(sources))
+	verified := make([]verifiedCollectionSource, len(sources))
+	total := 0
+	last := ""
+	for i, source := range sources {
+		sourceLimit := 16 << 20
+		if source.Executable {
+			sourceLimit = CollectionExecutableBytes
+		}
+		if source.Path <= last || len(source.Path) > collectionPathBytes || len(source.Bytes) > sourceLimit || !filepath.IsLocal(source.Path) ||
+			filepath.ToSlash(filepath.Clean(source.Path)) != source.Path || strings.Contains(source.Path, "\\") {
+			return VerifiedCollectionSources{}, fmt.Errorf("invalid retained native source inventory")
+		}
+		if len(source.Bytes) > collectionSourceBytes-total {
+			return VerifiedCollectionSources{}, fmt.Errorf("native inputs exceed bounded inventory")
+		}
+		total += len(source.Bytes)
+		content := []byte(source.Bytes)
+		if source.Digest != releasepolicy.SourceDigest(content) {
+			return VerifiedCollectionSources{}, fmt.Errorf("invalid retained native source inventory")
+		}
+		verified[i] = verifiedCollectionSource{
+			Executable: source.Executable,
+			Path:       source.Path,
+			Bytes:      content,
+			Digest:     source.Digest,
+		}
+		last = source.Path
+	}
+	return VerifiedCollectionSources{sources: verified}, nil
+}
+
+// VerifyOwnedCollectionSources validates source bytes already detached from
+// external callers. The verified inventory takes ownership of those buffers.
+func VerifyOwnedCollectionSources(ctx context.Context, sources []OwnedCapturedSource) (VerifiedCollectionSources, error) {
+	if err := ctx.Err(); err != nil {
+		return VerifiedCollectionSources{}, err
+	}
+	if len(sources) == 0 || len(sources) > collectionSourceEntries {
+		return VerifiedCollectionSources{}, fmt.Errorf("native collection requires a bounded nonempty source inventory")
+	}
+	verified := make([]verifiedCollectionSource, len(sources))
 	total := 0
 	last := ""
 	for i, source := range sources {
@@ -264,14 +304,14 @@ func VerifyCollectionSources(ctx context.Context, sources []CapturedSource) (Ver
 		}
 		if source.Path <= last || len(source.Path) > collectionPathBytes || len(source.Bytes) > sourceLimit || !filepath.IsLocal(source.Path) ||
 			filepath.ToSlash(filepath.Clean(source.Path)) != source.Path || strings.Contains(source.Path, "\\") ||
-			source.Digest != releasepolicy.SourceDigest([]byte(source.Bytes)) {
+			source.Digest != releasepolicy.SourceDigest(source.Bytes) {
 			return VerifiedCollectionSources{}, fmt.Errorf("invalid retained native source inventory")
 		}
 		if len(source.Bytes) > collectionSourceBytes-total {
 			return VerifiedCollectionSources{}, fmt.Errorf("native inputs exceed bounded inventory")
 		}
 		total += len(source.Bytes)
-		verified[i] = source
+		verified[i] = verifiedCollectionSource(source)
 		last = source.Path
 	}
 	return VerifiedCollectionSources{sources: verified}, nil

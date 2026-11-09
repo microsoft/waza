@@ -179,6 +179,10 @@ func TestReleaseLastBuilderAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	makefile, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
 	checker := filepath.Join(t.TempDir(), "checker")
 	compile := exec.CommandContext(t.Context(), "go", "build", "-o", checker, "./release-dashboard-check")
 	compile.Env = append(os.Environ(), "GOOS=", "GOARCH=", "GOPROXY=off", "GOSUMDB=off")
@@ -195,7 +199,8 @@ func TestReleaseLastBuilderAdmission(t *testing.T) {
 			dir, _, _, _ := publicationRepository(t)
 			files := map[string]string{
 				"go.mod": "module builder.fixture\n\ngo 1.26.4\n", "cmd/waza/main.go": "package main\nvar version string\nfunc main(){}\n",
-				".gitignore": "bin/\n", "web/dist/index.html": "<script src='/assets/a.js'></script><link rel='stylesheet' href='/assets/a.css'>",
+				".gitignore": "bin/\nweb/node_modules/\n", "web/dist/index.html": "<script src='/assets/a.js'></script><link rel='stylesheet' href='/assets/a.css'>",
+				"web/package.json": "{}\n", "web/package-lock.json": "{}\n",
 				"web/dist/favicon.svg": "<svg/>", "web/dist/assets/a.js": "export {};", "web/dist/assets/a.css": "body{}",
 			}
 			for path, content := range files {
@@ -205,6 +210,7 @@ func TestReleaseLastBuilderAdmission(t *testing.T) {
 				writeReleaseFile(t, filepath.Join(dir, path), []byte(content))
 			}
 			writeReleaseFile(t, filepath.Join(dir, "build.sh"), build)
+			writeReleaseFile(t, filepath.Join(dir, "Makefile"), makefile)
 			for _, name := range []string{"release_source_check.sh", "release_binary_check.sh"} {
 				content, err := os.ReadFile(name)
 				if err != nil {
@@ -225,7 +231,7 @@ func TestReleaseLastBuilderAdmission(t *testing.T) {
 			}
 			writeReleaseFile(t, filepath.Join(bin, "npm"), []byte(`#!/bin/bash
 set -euo pipefail
-if [ "$1" = ci ]; then exit 0; fi
+if [ "$1" = ci ]; then mkdir -p node_modules; exit 0; fi
 test "$1" = run
 test "$2" = build
 printf build > ../bin/npm-build-ran
