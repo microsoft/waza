@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       fail-threshold:
-        description: 'Minimum pass rate threshold (0-1)'
+        description: 'Minimum success rate threshold (0-1)'
         required: false
         type: number
         default: 0.8
@@ -17,16 +17,21 @@ on:
         required: false
         type: number
       output-format:
-        description: 'Output format (json, markdown, github)'
+        description: 'CLI display format (default or github-comment)'
         required: false
         type: string
-        default: 'json'
+        default: 'default'
+      waza-version:
+        description: 'Exact published standalone Waza version'
+        required: false
+        type: string
+        default: '0.41.0'
     outputs:
       pass-rate:
-        description: 'Overall pass rate'
+        description: 'Overall success rate (legacy output name)'
         value: ${{ jobs.eval.outputs.pass_rate }}
       composite-score:
-        description: 'Composite score'
+        description: 'Aggregate score (legacy output name)'
         value: ${{ jobs.eval.outputs.composite_score }}
       status:
         description: 'Eval status (success/failure)'
@@ -40,45 +45,65 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
-      pass_rate: ${{ steps.run-eval.outputs.pass_rate }}
-      composite_score: ${{ steps.run-eval.outputs.composite_score }}
-      status: ${{ steps.run-eval.outputs.status }}
+      pass_rate: ${{ steps.validate.outputs.success_rate }}
+      composite_score: ${{ steps.validate.outputs.aggregate_score }}
+      status: ${{ steps.validate.outputs.status }}
     
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.11'
-      
-      - name: Install waza
+      - name: Install exact published Waza binary
+        env:
+          WAZA_VERSION: ${{ inputs.waza-version }}
         run: |
-          pip install waza
+          if [[ ! "$WAZA_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::waza-version must be an exact numeric release such as 0.41.0"
+            exit 1
+          fi
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/install-waza-release.sh" \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" "$WAZA_VERSION"
+
+      - name: Verify Waza binary
+        run: waza --version
       
       - name: Run Evaluation
         id: run-eval
+        env:
+          EVAL_PATH: ${{ inputs.eval-path }}
+          OUTPUT_FORMAT: ${{ inputs.output-format }}
+          TRIALS: ${{ inputs.trials }}
         run: |
-          waza run "${{ inputs.eval-path }}" \
-            --output results.json \
-            --format json \
-            ${{ inputs.trials && format('--trials {0}', inputs.trials) || '' }} \
-            --fail-threshold ${{ inputs.fail-threshold }}
-          
-          # Extract outputs
-          echo "pass_rate=$(jq -r '.summary.pass_rate' results.json)" >> $GITHUB_OUTPUT
-          echo "composite_score=$(jq -r '.summary.composite_score' results.json)" >> $GITHUB_OUTPUT
-          
-          if [ "$(jq -r '.summary.pass_rate >= ${{ inputs.fail-threshold }}' results.json)" = "true" ]; then
-            echo "status=success" >> $GITHUB_OUTPUT
-          else
-            echo "status=failure" >> $GITHUB_OUTPUT
-          fi
+          rm -f -- results.json
+          command=(waza run "$EVAL_PATH" --output results.json --format "$OUTPUT_FORMAT")
+          case "$TRIALS" in
+            ''|0) ;;
+            *[!0-9]*)
+              echo "::error::trials must be a non-negative integer"
+              exit 1
+              ;;
+            *) command+=(--trials "$TRIALS") ;;
+          esac
+          set +e
+          "${command[@]}"
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
       
-      - name: Generate Summary
+      - name: Validate result artifact and generate summary
+        id: validate
         if: always()
+        env:
+          MIN_SUCCESS_RATE: ${{ inputs.fail-threshold }}
+          RUN_EXIT_CODE: ${{ steps.run-eval.outputs.exit_code }}
+          WAZA_VERSION: ${{ inputs.waza-version }}
         run: |
-          waza report results.json --format github >> $GITHUB_STEP_SUMMARY
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/validate-waza-result.sh" \
+            -o "$RUNNER_TEMP/validate-waza-result.sh"
+          bash "$RUNNER_TEMP/validate-waza-result.sh" results.json "$MIN_SUCCESS_RATE" "$RUN_EXIT_CODE"
       
       - name: Upload Results
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -86,3 +111,14 @@ jobs:
         with:
           name: eval-results
           path: results.json
+          if-no-files-found: error
+
+      - name: Enforce evaluation status
+        if: always()
+        env:
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+          EVALUATION_STATUS: ${{ steps.validate.outputs.status }}
+        run: |
+          if [ "$VALIDATION_OUTCOME" != "success" ] || [ "$EVALUATION_STATUS" != "success" ]; then
+            exit 1
+          fi
