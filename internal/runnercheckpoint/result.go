@@ -11,6 +11,7 @@ import (
 	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/jsonutil"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
@@ -74,6 +75,15 @@ func ParseResult(data []byte) (*Result, error) {
 // EncodeResult validates declarations only. The public transport must separately
 // apply the shared capture/privacy policy before calling this codec.
 func EncodeResult(result Result) ([]byte, error) {
+	if result.Submission != nil && result.Submission.Terminal != nil {
+		var binding *runnerterminal.Binding
+		if result.Submission.Reservation != nil {
+			binding = result.Submission.Reservation.Binding.TerminalBinding()
+		}
+		if _, err := runnerterminal.Encode(*result.Submission.Terminal, binding); err != nil {
+			return nil, err
+		}
+	}
 	data, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("encoding checkpoint result: %w", err)

@@ -103,6 +103,8 @@ rollback, inferred crash durability, or deletion of partial evidence.
 Raw core results can contain original source metadata. They are not approved
 public disclosure responses. Public endpoints must compose the evidence owner's
 capture policy before encoding them; that integration remains separately owned.
+The checkpoint result writer validates the original typed terminal before
+marshaling, rejecting invalid UTF-8 rather than admitting normalized text.
 
 ## Migration and validation limits
 
