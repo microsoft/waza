@@ -9,9 +9,14 @@ const { captureReceipt, contracts, producerTitle } = require('./pr-completeness.
 const root = path.resolve(__dirname, '../..');
 const planWorkflow = fs.readFileSync(path.join(root, '.github/workflows/pr-completeness-plan.yml'), 'utf8');
 const admissionWorkflow = fs.readFileSync(path.join(root, '.github/workflows/pr-completeness-admission.yml'), 'utf8');
-const planCommand = planWorkflow.match(/^        run: (node .+)$/m)?.[1];
-const admissionCommand = admissionWorkflow.match(/^        run: \|\n((?:          .+\n)+)/m)?.[1].replace(/^          /gm, '');
-assert.ok(planCommand && admissionCommand, 'execute actual production workflow commands, not handwritten substitutes');
+function workflowCommands(planSource, admissionSource) {
+  const planCommand = planSource.replace(/\r\n/g, '\n').match(/^        run: (node .+)$/m)?.[1];
+  const admissionCommand = admissionSource.replace(/\r\n/g, '\n')
+    .match(/^        run: \|\n((?:          .+\n)+)/m)?.[1].replace(/^          /gm, '');
+  assert.ok(planCommand && admissionCommand, 'execute actual production workflow commands, not handwritten substitutes');
+  return { planCommand, admissionCommand };
+}
+const commands = workflowCommands(planWorkflow, admissionWorkflow);
 
 function browser(title = 'selected assertion', file = 'feature.spec.ts') {
   return {
@@ -23,7 +28,7 @@ function browser(title = 'selected assertion', file = 'feature.spec.ts') {
   };
 }
 
-function fixture(t, changed = 'AGENTS.md', retarget = false) {
+function fixture(t, changed = 'AGENTS.md', retarget = false, selectedCommands = commands) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'waza-admission-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const write = (file, value) => {
@@ -98,7 +103,7 @@ func main() {
   const run = (command) => spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', command], {
     cwd: directory, env, encoding: 'utf8',
   });
-  const planned = run(planCommand);
+  const planned = run(selectedCommands.planCommand);
   assert.equal(planned.status, 0, planned.stderr);
   const plan = JSON.parse(fs.readFileSync(path.join(directory, 'runner/pr-completeness-plan/plan.json')));
   const outputs = JSON.parse(planned.stdout);
@@ -135,7 +140,7 @@ func main() {
     json('pr.json', input.currentPR);
     env.WAZA_COMPLETENESS_NEEDS = JSON.stringify(input.needs);
     alterFiles(input, env);
-    const outcome = run(admissionCommand);
+    const outcome = run(selectedCommands.admissionCommand);
     const resultFile = path.join(env.RUNNER_TEMP, 'pr-completeness-result/result.json');
     return { ...outcome, input, result: fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile)) : undefined };
   };
@@ -168,6 +173,19 @@ test('real plan and admission callers validate a stacked merge and expose legiti
   assert.equal(retarget.plan.source.action, 'edited');
   assert.equal(retarget.plan.source.base_changed, true);
   assert.equal(retarget.admit().status, 0, 'a genuine base-retarget-shaped event must remain alternative-valid');
+  const lfPlan = planWorkflow.replace(/\r\n/g, '\n');
+  const lfAdmission = admissionWorkflow.replace(/\r\n/g, '\n');
+  const crlfPlan = lfPlan.replace(/\n/g, '\r\n');
+  const crlfAdmission = lfAdmission.replace(/\n/g, '\r\n');
+  assert.notEqual(crlfPlan, lfPlan, 'the CRLF control must change actual production workflow bytes');
+  assert.notEqual(crlfAdmission, lfAdmission, 'the admission workflow must also contain CRLF');
+  const lfCommands = workflowCommands(lfPlan, lfAdmission);
+  const crlfCommands = workflowCommands(crlfPlan, crlfAdmission);
+  assert.deepEqual(crlfCommands, lfCommands);
+  const crlf = fixture(t, 'AGENTS.md', false, crlfCommands);
+  const crlfResult = crlf.admit();
+  assert.equal(crlfResult.status, 0, crlfResult.stderr);
+  assert.equal(crlfResult.result.scopes.go, 'validated');
 });
 
 test('all-family caller consumes individual native and actual-producer browser receipt controls', (t) => {
@@ -305,7 +323,7 @@ test('downloaded artifact layout and ambiguous JSON cannot bypass admission', (t
     assert.equal(result.result, undefined, kind);
   }
   const preservedPlan = fs.readFileSync(path.join(control.env.RUNNER_TEMP, 'pr-completeness-plan/plan.json'));
-  const repeatedPlan = control.run(planCommand);
+  const repeatedPlan = control.run(commands.planCommand);
   assert.equal(repeatedPlan.status, 1, 'existing plan directory cannot be overwritten');
   assert.deepEqual(fs.readFileSync(path.join(control.env.RUNNER_TEMP, 'pr-completeness-plan/plan.json')), preservedPlan);
   const occupied = control.admit(() => {}, (_, env) => {

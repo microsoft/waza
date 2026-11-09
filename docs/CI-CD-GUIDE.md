@@ -101,6 +101,8 @@ are none, existing workflow defaults are unchanged, and reusable calls cannot
 raise the caller's permission ceiling. Tokens are never written to plans,
 dependency inputs, receipts, results or summaries. A missing token or an API
 permission denial fails admission rather than falling back to ambient credentials.
+Both reusable checkouts explicitly disable credential persistence: subsequent
+Git operations only read the local tested merge and its parents.
 The production interpreter then independently
 revalidates event/run/attempt identity, the tested merge and its full path list.
 A completed evaluation writes `result.json` and a family-by-family summary,

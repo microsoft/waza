@@ -105,7 +105,7 @@ func checkAdmissionWorkflow(source []byte, mode string) error {
 		switch step.Name {
 		case "Checkout tested merge and both parents":
 			checkout = strings.HasPrefix(step.Uses, "actions/checkout@") &&
-				reflect.DeepEqual(step.With, map[string]string{"fetch-depth": "2"})
+				reflect.DeepEqual(step.With, map[string]string{"fetch-depth": "2", "persist-credentials": "false"})
 		case "Setup Node":
 			node = strings.HasPrefix(step.Uses, "actions/setup-node@") &&
 				reflect.DeepEqual(step.With, map[string]string{"node-version": "24"})
@@ -168,6 +168,8 @@ func TestCompletenessAdmissionWorkflowSource(t *testing.T) {
 		for _, mutation := range []struct{ old, replacement string }{
 			{"fetch-depth: 2", "fetch-depth: 1"},
 			{"fetch-depth: 2", "fetch-depth: 2\n          ref: main"},
+			{"persist-credentials: false", "persist-credentials: true"},
+			{"persist-credentials: false", "# credential persistence guard removed"},
 			{"timeout-minutes:", "if: false\n    timeout-minutes:"},
 			{"shell: bash", "shell: pwsh"},
 			{"shell: bash", "if: false\n        shell: bash"},
