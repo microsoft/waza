@@ -2,11 +2,56 @@ package runnerunit
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
 )
+
+func TestHistoricalSourceAndSnapshotPreserveLargeObservationNumbers(t *testing.T) {
+	backend := submissionBackend(t)
+	request := fixture(t)
+	service := NewService(nil)
+	var report Report
+	original, err := service.Submit(t.Context(), submissionWire(t, request, nil), backend, SubmissionHooks{
+		Artifacts: func(_ context.Context, _ *executionledger.Ledger, _ executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+			report = snapshot.ObservedReport
+			return nil, nil
+		},
+	})
+	if err != nil || report.Observation == nil || len(report.Observation.Validations) == 0 {
+		t.Fatalf("fixture did not produce actual grader observations: %+v %v", original, err)
+	}
+	const large = "9007199254740993"
+	for name, grade := range report.Observation.Validations {
+		grade.Details = map[string]any{"large": json.Number(large)}
+		report.Observation.Validations[name] = grade
+	}
+	raw, err := reportBytes(report)
+	if err != nil || !bytes.Contains(raw, []byte(large)) {
+		t.Fatalf("historical fixture lost authored numeric token: %s %v", raw, err)
+	}
+	detached, err := cloneSubmissionReport(report, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied, err := reportBytes(detached)
+	if err != nil || !bytes.Equal(raw, copied) {
+		t.Errorf("capture snapshot changed numeric evidence: %s %v", copied, err)
+	}
+	source := publishSubmissionReport(t, backend, original, raw)
+	request.Selection.Attempt++
+	reused, err := service.Submit(t.Context(), submissionWire(t, request, &SubmissionPolicy{Mode: "reuse", Source: &source}), backend, SubmissionHooks{})
+	if err != nil || reused.Status != "reused" || reused.EngineCalls != 0 {
+		t.Fatalf("valid exact historical report could not be reused: %+v %v", reused, err)
+	}
+	reused.Report = raw
+	if _, err := EncodeSubmissionResult(reused); err != nil {
+		t.Fatalf("receipt rejected valid exact historical report: %v", err)
+	}
+}
 
 func TestSubmissionReportSnapshotPreservesProducerPresenceAndOriginalBinding(t *testing.T) {
 	for _, control := range []string{"unavailable", "known-empty", "no-observation"} {

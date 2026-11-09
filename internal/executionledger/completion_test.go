@@ -140,6 +140,44 @@ func TestCompletionOriginalContextAndHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Run("declared_reservation_artifact_metadata", func(t *testing.T) {
+		for _, control := range []string{"original", "digest", "size", "media"} {
+			t.Run(control, func(t *testing.T) {
+				completion, reservation, data := completionContext(t)
+				manifest, err := artifactmanifest.Parse(data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				artifact := artifactmanifest.Artifact{
+					Name: "execution-attempt.json", SHA256: artifactmanifest.Hash(reservation),
+					SizeBytes: int64(len(reservation)), MediaType: "application/json",
+				}
+				switch control {
+				case "digest":
+					artifact.SHA256 = strings.Repeat("0", 64)
+				case "size":
+					artifact.SizeBytes++
+				case "media":
+					artifact.MediaType = "text/plain"
+				}
+				manifest.Artifacts = append(manifest.Artifacts, artifact)
+				data, err = artifactmanifest.Encode(*manifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				completion.ManifestDigest = artifactmanifest.Hash(data)
+				err = ValidateContext(completion, reservation, data)
+				if control == "original" {
+					if err != nil {
+						t.Fatal(err)
+					}
+				} else if !errors.Is(err, ErrContext) {
+					t.Fatalf("contradictory %s metadata admitted: %v", control, err)
+				}
+			})
+		}
+	})
+
 	t.Run("reuse_across_declared_ordinals_keeps_original_source", func(t *testing.T) {
 		completion, reservation, manifest := completionContext(t)
 		completionBytes, err := EncodeCompletion(completion)

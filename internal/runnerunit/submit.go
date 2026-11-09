@@ -86,8 +86,8 @@ func validateSourceReport(data []byte, source *executionledger.CompletedExecutio
 	if _, err := jsonutil.Parse(data); err != nil {
 		return err
 	}
-	var report Report
-	if err := json.Unmarshal(data, &report); err != nil {
+	report, err := decodeSubmissionReport(data)
+	if err != nil {
 		return err
 	}
 	canonical, err := reportBytes(report)

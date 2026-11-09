@@ -84,8 +84,8 @@ func validateSubmissionResult(result Submission) error {
 				return fmt.Errorf("distinct decision contradicts original owned reservation")
 			}
 		case "reuse":
-			if result.Decision.Source.ExecutionID != result.Reservation.ExecutionID {
-				return fmt.Errorf("reuse decision contradicts original execution source")
+			if err := executionledger.ValidateReuseBinding(*result.Decision, *result.Reservation); err != nil {
+				return err
 			}
 		}
 	}

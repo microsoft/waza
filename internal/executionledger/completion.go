@@ -126,6 +126,13 @@ func admitContext(completion Completion, reservationBytes, manifestBytes []byte)
 		artifactmanifest.Hash(manifestBytes) != completion.ManifestDigest {
 		return nil, fmt.Errorf("%w: manifest bytes or digest differ", ErrContext)
 	}
+	for _, artifact := range manifest.Artifacts {
+		if artifact.Name == "execution-attempt.json" &&
+			(artifact.SHA256 != completion.ReservationDigest || artifact.SizeBytes != int64(len(reservationBytes)) ||
+				artifact.MediaType != "application/json") {
+			return nil, fmt.Errorf("%w: declared execution-attempt artifact contradicts original reservation", ErrContext)
+		}
+	}
 	original, source := attempt.Binding, manifest.Binding
 	if original.Identity != source.Identity || original.Selection != source.Selection ||
 		original.ExecutionMode != source.ExecutionMode || !slices.Equal(original.GraderIDs, source.GraderIDs) {
@@ -160,6 +167,22 @@ func ValidateReuseContext(decision executionattempt.Decision, reservationBytes, 
 	attempt, err := admitContext(*completion, reservationBytes, manifestBytes)
 	if err != nil {
 		return err
+	}
+	return ValidateReuseBinding(decision, *attempt)
+}
+
+// ValidateReuseBinding checks caller/source compatibility without requiring
+// manifest bytes. Only the native attempt ordinal and its identity may differ.
+func ValidateReuseBinding(decision executionattempt.Decision, attempt executionattempt.Attempt) error {
+	if _, err := executionattempt.EncodeDecision(decision); err != nil {
+		return fmt.Errorf("%w: decision: %w", ErrContext, err)
+	}
+	if _, err := executionattempt.EncodeAttempt(attempt); err != nil {
+		return fmt.Errorf("%w: reservation: %w", ErrContext, err)
+	}
+	if decision.Policy != "reuse" || decision.Outcome != "reused" || decision.Source == nil ||
+		decision.Source.ExecutionID != attempt.ExecutionID {
+		return fmt.Errorf("%w: decision does not reuse the original execution", ErrContext)
 	}
 	caller, source := decision.Binding, attempt.Binding
 	graders := slices.Clone(caller.GraderIDs)
