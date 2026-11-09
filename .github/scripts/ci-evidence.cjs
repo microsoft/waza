@@ -539,14 +539,15 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
   const retained = new Map();
   for (const attempt of attempts) {
     const unique = new Map();
+    let jobsValid = true;
     for (const job of attempt.jobs) {
-        if (!Number.isSafeInteger(job.id)) { diagnostic(report, "job-id-unavailable"); continue; }
-        if (job.run_id !== run.id || job.head_sha !== run.head_sha) diagnostic(report, "job-source-unverified");
-        if (unique.has(job.id)) { diagnostic(report, "duplicate-job-in-attempt"); continue; }
+        if (!job || !Number.isSafeInteger(job.id)) { jobsValid = false; diagnostic(report, "job-id-unavailable"); continue; }
+        if (job.run_id !== run.id || job.head_sha !== run.head_sha) { jobsValid = false; diagnostic(report, "job-source-unverified"); }
+        if (unique.has(job.id)) { jobsValid = false; diagnostic(report, "duplicate-job-in-attempt"); continue; }
       unique.set(job.id, job);
       if (retained.has(job.id)) {
         const original = retained.get(job.id);
-        if (original.started_at !== text(job.started_at) || original.completed_at !== text(job.completed_at) || original.conclusion !== text(job.conclusion)) diagnostic(report, "retained-job-conflict");
+        if (original.started_at !== text(job.started_at) || original.completed_at !== text(job.completed_at) || original.conclusion !== text(job.conclusion)) { jobsValid = false; diagnostic(report, "retained-job-conflict"); }
         if (!original.seen_in_attempts.includes(attempt.number)) original.seen_in_attempts.push(attempt.number);
       }
       else retained.set(job.id, {
@@ -565,7 +566,7 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
     const queueDelay = seconds(attempt.created_at, attempt.started_at);
     const timestampsComplete = attempt.number !== 1 || queueDelay !== null;
     if (!timestampsComplete) diagnostic(report, "first-attempt-timestamps-unavailable");
-    const complete = jobs.length > 0 && durations.every((duration) => duration !== null) && jobs.every((job) => job.status === "completed") && attempt.complete && timestampsComplete;
+    const complete = jobsValid && jobs.length > 0 && durations.every((duration) => duration !== null) && jobs.every((job) => job.status === "completed") && attempt.complete && timestampsComplete;
     const fresh = jobs.filter((job) => job.run_attempt === attempt.number);
     const freshComplete = complete && fresh.length > 0 && jobs.every((job) => Number.isSafeInteger(job.run_attempt));
     report.attempts.push({

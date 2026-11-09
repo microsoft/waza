@@ -602,6 +602,8 @@ test("production Actions totals withhold job integrity failures but preserve unr
     [[[{ ...good, run_id: 11 }]], "job-source-unverified"],
     [[[good, good]], "duplicate-job-in-attempt"],
     [[[good, { ...good, id: 1.5 }]], "job-id-unavailable"],
+    [[[good, { ...good, id: undefined }]], "job-id-unavailable"],
+    [[[good, null]], "job-id-unavailable"],
     [[[good], [job(1, "03", "05", "success", 2)]], "retained-job-conflict"],
     [[[job(1, "01", null)]], "job-metadata-incomplete"],
   ]) {
@@ -609,6 +611,9 @@ test("production Actions totals withhold job integrity failures but preserve unr
     assert.ok(report.jobs.length > 0, "control must retain an observed job");
     assert.ok(report.diagnostics.includes(diagnostic), diagnostic);
     assert.equal(report.runner_elapsed_minutes_by_os["ubuntu-latest"], null, diagnostic);
+    assert.equal(report.attempts.at(-1).complete, false, diagnostic);
+    assert.equal(report.attempts.at(-1).observed_job_span_seconds, null, diagnostic);
+    assert.equal(report.attempts.at(-1).retained_job_span_seconds, null, diagnostic);
   }
   const pagination = collect([[good]], { incomplete: true });
   assert.ok(pagination.diagnostics.includes("jobs-pagination-incomplete"));
@@ -628,6 +633,9 @@ test("production Actions totals withhold job integrity failures but preserve unr
     const report = collect(lists, { artifacts });
     for (const code of diagnostics) assert.ok(report.diagnostics.includes(code), code);
     assert.equal(report.runner_elapsed_minutes_by_os["ubuntu-latest"], expected);
+    assert.equal(report.attempts[0].complete, true);
+    assert.equal(report.attempts[0].observed_job_span_seconds, expected * 60);
+    assert.equal(report.attempts[0].retained_job_span_seconds, expected * 60);
   }
 });
 test("production Actions artifact totals distinguish observed empty inventory from unavailable evidence", () => {
