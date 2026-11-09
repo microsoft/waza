@@ -131,6 +131,9 @@ test('runner identity fixtures trigger consumer validation and publication witho
   const releaseLinks = read('site/e2e/documentation-links.spec.ts');
   assert.equal((releaseLinks.match(/if \(process\.env\.WAZA_REFRESH_DOCS_MEDIA === '1'\) \{\s+await page\.screenshot/g) ?? []).length, 2,
     'mixed release navigation assertions must not write documentation media in routine tests');
+  assert.match(read('web/e2e/runner-negotiation.spec.ts'),
+    /if \(outcome === "evaluation_failure" && process\.env\.WAZA_REFRESH_DOCS_MEDIA === "1"\)/,
+    'mixed terminal export assertions must not write documentation media in routine tests');
   assert.match(read('web/playwright.config.ts'), /testDir: "\.\/e2e"/);
   assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
   assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));

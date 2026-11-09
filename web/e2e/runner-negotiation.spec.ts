@@ -437,7 +437,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       const path = await artifact.path();
       expect(path).not.toBeNull();
       expect(JSON.parse(readFileSync(path!, "utf8"))).toEqual(envelope);
-      if (outcome === "evaluation_failure") {
+      if (outcome === "evaluation_failure" && process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
         await page.setViewportSize({ width: 1440, height: 1600 });
         const screenshot = "../docs/images/dashboard-lab-terminal.png";
         await page.getByRole("region", { name: "Runner terminal outcome" }).screenshot({ path: screenshot, animations: "disabled" });
