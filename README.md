@@ -2437,6 +2437,8 @@ See [AGENTS.md](AGENTS.md) for coding guidelines.
 - Update docs when changing CLI surface
 - Re-run dashboard projection benchmarks after changing result listing or summary preparation:
   `go test ./internal/webapi -run '^$' -bench '^BenchmarkPerfSweepWebAPI/(list-runs-warm|summary-warm|runs-handler-warm)$' -benchmem`
+- Re-run native dashboard JSON encoding benchmarks after changing response DTOs:
+  `go test ./internal/webapi -run '^$' -bench '^BenchmarkMarshalRunSummaries5000$' -benchmem`
 
 ## Legacy Python Implementation
 
