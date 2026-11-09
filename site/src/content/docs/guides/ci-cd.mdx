@@ -252,6 +252,8 @@ by runner OS label, and source-bound artifact bytes. New-job span excludes
 earlier retained jobs. Job span is the observed critical-path
 envelope, not a reconstructed dependency DAG. Retry-request queue time is
 unavailable: the original creation timestamp must not be reused for retries.
+Job attempts must be positive safe integers no later than the queried attempt;
+valid jobs retained from earlier attempts remain admissible.
 Missing or duplicate job IDs, unverified job sources, conflicting retained jobs,
 or incomplete job pagination withhold the affected attempt's span metrics.
 Elapsed runner-minutes and artifact bytes are **not billed cost**.

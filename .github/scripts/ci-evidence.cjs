@@ -542,12 +542,13 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
     let jobsValid = true;
     for (const job of attempt.jobs) {
         if (!job || !Number.isSafeInteger(job.id)) { jobsValid = false; diagnostic(report, "job-id-unavailable"); continue; }
+        if (!Number.isSafeInteger(job.run_attempt) || job.run_attempt < 1 || job.run_attempt > attempt.number) { jobsValid = false; diagnostic(report, "job-attempt-unavailable"); }
         if (job.run_id !== run.id || job.head_sha !== run.head_sha) { jobsValid = false; diagnostic(report, "job-source-unverified"); }
         if (unique.has(job.id)) { jobsValid = false; diagnostic(report, "duplicate-job-in-attempt"); continue; }
       unique.set(job.id, job);
       if (retained.has(job.id)) {
         const original = retained.get(job.id);
-        if (original.started_at !== text(job.started_at) || original.completed_at !== text(job.completed_at) || original.conclusion !== text(job.conclusion)) { jobsValid = false; diagnostic(report, "retained-job-conflict"); }
+        if (original.run_attempt !== job.run_attempt || original.started_at !== text(job.started_at) || original.completed_at !== text(job.completed_at) || original.conclusion !== text(job.conclusion)) { jobsValid = false; diagnostic(report, "retained-job-conflict"); }
         if (!original.seen_in_attempts.includes(attempt.number)) original.seen_in_attempts.push(attempt.number);
       }
       else retained.set(job.id, {

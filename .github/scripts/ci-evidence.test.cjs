@@ -597,6 +597,10 @@ test("production Actions totals withhold job integrity failures but preserve unr
   const known = collect([[good]]);
   assert.equal(known.complete, true);
   assert.equal(known.runner_elapsed_minutes_by_os["ubuntu-latest"], 1);
+  const retained = collect([[good], [good, job(2, "03", "04", "success", 2)]]);
+  assert.equal(retained.complete, true);
+  assert.equal(retained.attempts[1].observed_job_span_seconds, 60);
+  assert.equal(retained.attempts[1].retained_job_span_seconds, 180);
   for (const [lists, diagnostic] of [
     [[[{ ...good, head_sha: "b".repeat(40) }]], "job-source-unverified"],
     [[[{ ...good, run_id: 11 }]], "job-source-unverified"],
@@ -604,7 +608,10 @@ test("production Actions totals withhold job integrity failures but preserve unr
     [[[good, { ...good, id: 1.5 }]], "job-id-unavailable"],
     [[[good, { ...good, id: undefined }]], "job-id-unavailable"],
     [[[good, null]], "job-id-unavailable"],
+    ...[0, -1, 1.5, 2, "1", null, undefined, Number.MAX_SAFE_INTEGER + 1].map((attempt) =>
+      [[[{ ...good, run_attempt: attempt }]], "job-attempt-unavailable"]),
     [[[good], [job(1, "03", "05", "success", 2)]], "retained-job-conflict"],
+    [[[good], [{ ...good, run_attempt: 2 }]], "retained-job-conflict"],
     [[[job(1, "01", null)]], "job-metadata-incomplete"],
   ]) {
     const report = collect(lists);
@@ -636,6 +643,29 @@ test("production Actions totals withhold job integrity failures but preserve unr
     assert.equal(report.attempts[0].complete, true);
     assert.equal(report.attempts[0].observed_job_span_seconds, expected * 60);
     assert.equal(report.attempts[0].retained_job_span_seconds, expected * 60);
+  }
+});
+test("production job attempt validation withholds baseline eligibility without dropping observations", () => {
+  const report = parseGo(successful, { selected: ["example/p::TestA"], inventory_scope: "qualified" });
+  report.identity.source_sha = run.head_sha;
+  const fixture = artifactFixture(report, {}, "go-run");
+  for (const attempt of [1, 0, 1.5, 2]) {
+    const observed = collectObservations(fixture.id, (endpoint) => {
+      const response = fixture.api(endpoint);
+      return endpoint.includes("/jobs") ? { ...response, jobs: response.jobs.map((item) => ({ ...item, run_attempt: attempt })) } : response;
+    }, () => fixture.zip);
+    assert.equal(observed.reports.length, 1);
+    const grouped = trends(observed.reports);
+    assert.equal(grouped.cohorts[0].observations.length, 1);
+    assert.equal(grouped.cohorts[0].eligible.length, attempt === 1 ? 1 : 0, String(attempt));
+    assert.equal(historyProposal(observed.reports).targets.length, attempt === 1 ? 1 : 0);
+    assert.equal(observed.metadata.complete, attempt === 1);
+    assert.equal(observed.metadata.jobs.length, 1);
+    assert.equal(observed.metadata.jobs[0].run_attempt, attempt);
+    if (attempt !== 1) {
+      assert.equal(observed.metadata.attempts[0].observed_job_span_seconds, null);
+      assert.equal(observed.metadata.attempts[0].retained_job_span_seconds, null);
+    }
   }
 });
 test("production Actions artifact totals distinguish observed empty inventory from unavailable evidence", () => {
