@@ -686,6 +686,107 @@ test("production Actions artifact totals distinguish observed empty inventory fr
     assert.ok(!JSON.stringify(report).includes("private-"), mode);
   }
 });
+test("production Actions artifact inventories require unique positive identities and stable pagination totals", async (t) => {
+  const artifacts = Array.from({ length: 102 }, (_, index) => ({
+    id: index + 1, name: "artifact", size_in_bytes: index + 1,
+    workflow_run: { id: run.id, head_sha: run.head_sha },
+  }));
+  const apiFor = (pages, totals) => (endpoint) => {
+    if (endpoint.includes("/artifacts")) {
+      const page = Number(/[?&]page=([0-9]+)/.exec(endpoint)[1]) - 1;
+      return { total_count: totals[Math.min(page, totals.length - 1)], artifacts: pages[page] || [] };
+    }
+    if (endpoint.includes("/jobs")) return { total_count: 1, jobs: [job(1, "01", "02")] };
+    if (endpoint.includes("/attempts/")) return { run_started_at: "2026-11-07T10:01:00Z" };
+    return { ...run, run_attempt: 1 };
+  };
+  const first = artifacts.slice(0, 100);
+  const overlap = apiFor([first, [artifacts[99]]], [101, 101]);
+  const cases = [
+    ["distinct", [first, [artifacts[100]]], [101, 101], 5151, null],
+    ["overlap", [first, [artifacts[99]]], [101, 101], null, "duplicate-artifact-id"],
+    ["same-page duplicate", [[artifacts[0], artifacts[0]]], [2], null, "duplicate-artifact-id"],
+    ["growing total", [first, artifacts.slice(100)], [101, 102], null, "artifacts-total-count-changed"],
+    ["shrinking total", [first, []], [101, 100], null, "artifacts-total-count-changed"],
+    ["negative total", [[]], [-1], null, "artifacts-api-invalid"],
+    ["oversized page", [artifacts.slice(0, 101)], [101], null, "artifacts-api-invalid"],
+    ["null row", [first, [null]], [101, 101], null, "artifact-id-unavailable"],
+  ];
+  for (const id of [undefined, null, 0, -1, 1.5, "101", Number.MAX_SAFE_INTEGER + 1]) {
+    cases.push([`invalid ID ${id}`, [first, [{ ...artifacts[100], id }]], [101, 101], null, "artifact-id-unavailable"]);
+  }
+  for (const [label, pages, totals, bytes, diagnostic] of cases) {
+    const report = collectActions("10", apiFor(pages, totals));
+    assert.equal(report.artifact_bytes, bytes, label);
+    assert.equal(report.complete, diagnostic === null, label);
+    assert.equal(report.attempts[0].complete, true, "independent job evidence remains valid");
+    if (diagnostic) assert.ok(report.diagnostics.includes(diagnostic), label);
+    else {
+      assert.deepEqual(report.diagnostics, []);
+      assert.equal(report.artifacts.length, 101);
+      assert.equal(new Set(report.artifacts.map((artifact) => artifact.id)).size, 101);
+    }
+  }
+  const unstableJobs = collectActions("10", (endpoint) => {
+    if (!endpoint.includes("/jobs")) return apiFor([[]], [0])(endpoint);
+    const firstPage = endpoint.endsWith("page=1");
+    return { total_count: firstPage ? 101 : 100,
+      jobs: firstPage ? Array.from({ length: 100 }, (_, index) => job(index + 1, "01", "02")) : [] };
+  });
+  assert.ok(unstableJobs.diagnostics.includes("jobs-total-count-changed"));
+  assert.equal(unstableJobs.attempts[0].complete, false);
+  assert.equal(unstableJobs.attempts[0].observed_job_span_seconds, null);
+  assert.equal(unstableJobs.artifact_bytes, 0, "job pagination does not erase the observed empty artifact inventory");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "waza-artifact-pages-"));
+  t.after(() => fs.rmSync(directory, { recursive: true }));
+  const output = path.join(directory, "actions.json");
+  const exitCode = process.exitCode;
+  try {
+    await main(["actions", "10", output], overlap);
+    assert.equal(process.exitCode, 1);
+  } finally { process.exitCode = exitCode; }
+  const saved = JSON.parse(fs.readFileSync(output, "utf8"));
+  assert.equal(saved.complete, false);
+  assert.equal(saved.artifact_bytes, null);
+  assert.equal(saved.artifacts.length, 101, "retain observed rows rather than silently deduplicating");
+});
+test("production artifact pagination withholds baseline eligibility without dropping readable test observations", () => {
+  const report = parseGo(successful, { selected: ["example/p::TestA"], inventory_scope: "qualified" });
+  report.identity.source_sha = run.head_sha;
+  const fixture = artifactFixture(report, {}, "go-run");
+  const bound = fixture.api("repos/microsoft/waza/actions/runs/10/artifacts").artifacts[0];
+  const artifacts = [bound, ...Array.from({ length: 101 }, (_, index) => ({
+    ...bound, id: 1000 + index, name: "unrelated",
+  }))];
+  for (const mode of ["distinct", "overlap", "growing", "shrinking", "invalid"]) {
+    let artifactCalls = 0, downloads = 0;
+    const observed = collectObservations("10", (endpoint) => {
+      if (!endpoint.includes("/artifacts")) return fixture.api(endpoint);
+      const page = Number(/[?&]page=([0-9]+)/.exec(endpoint)[1]);
+      artifactCalls++;
+      if (page === 1) return { total_count: 101, artifacts: artifacts.slice(0, 100) };
+      return {
+        total_count: mode === "growing" ? 102 : mode === "shrinking" ? 100 : 101,
+        artifacts: mode === "overlap" ? [artifacts[99]] : mode === "growing" ? artifacts.slice(100) :
+          mode === "shrinking" ? [] : mode === "invalid" ? [{ ...artifacts[100], id: null }] : [artifacts[100]],
+      };
+    }, (id) => {
+      downloads++;
+      assert.equal(id, fixture.artifactID);
+      return fixture.zip;
+    });
+    assert.equal(artifactCalls, 2, mode);
+    assert.equal(downloads, 1, mode);
+    assert.equal(observed.reports.length, 1, mode);
+    const grouped = trends(observed.reports);
+    assert.equal(grouped.cohorts.length, 1, mode);
+    assert.equal(grouped.cohorts[0].observations.length, 1, mode);
+    assert.equal(grouped.cohorts[0].eligible.length, mode === "distinct" ? 1 : 0, mode);
+    assert.equal(historyProposal(observed.reports).targets.length, mode === "distinct" ? 1 : 0, mode);
+    assert.equal(observed.metadata.complete, mode === "distinct", mode);
+    if (mode !== "distinct") assert.equal(observed.metadata.artifact_bytes, null, mode);
+  }
+});
 function archive(report, name = "coverage-native-0.txt.evidence.json", options = {}) {
   const content = Buffer.isBuffer(report) ? report : Buffer.from(JSON.stringify(report));
   const data = options.deflate ? deflateRawSync(content) : content, filename = Buffer.from(name);

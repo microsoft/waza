@@ -591,12 +591,20 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
   const stepDurations = report.jobs.flatMap((job) => job.steps || []).map((step) => step.seconds);
   report.longest_observed_step_seconds = stepDurations.length ? Math.max(...stepDurations.filter((duration) => duration !== null)) : null;
   if (!Number.isFinite(report.longest_observed_step_seconds)) report.longest_observed_step_seconds = null;
-  report.artifact_bytes = artifactsComplete && !diagnostics.some((code) => code.startsWith("artifacts-")) && artifacts.every((artifact) => artifact.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha && number(artifact.size_in_bytes) !== null) ? artifacts.reduce((sum, artifact) => sum + artifact.size_in_bytes, 0) : null;
+  const artifactIDs = new Set();
   for (const artifact of artifacts) {
-    const bound = artifact.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha;
-    report.artifacts.push({ id: artifact.id ?? null, name: text(artifact.name), source_bound: bound, expired: typeof artifact.expired === "boolean" ? artifact.expired : null, bytes: bound ? number(artifact.size_in_bytes) : null, digest: text(artifact.digest) });
+    if (!Number.isSafeInteger(artifact?.id) || artifact.id < 1) {
+      artifactsComplete = false;
+      diagnostic(report, "artifact-id-unavailable");
+    } else if (artifactIDs.has(artifact.id)) {
+      artifactsComplete = false;
+      diagnostic(report, "duplicate-artifact-id");
+    } else artifactIDs.add(artifact.id);
+    const bound = artifact?.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha;
+    report.artifacts.push({ id: artifact?.id ?? null, name: text(artifact?.name), source_bound: bound, expired: typeof artifact?.expired === "boolean" ? artifact.expired : null, bytes: bound ? number(artifact.size_in_bytes) : null, digest: text(artifact?.digest) });
     if (!bound) diagnostic(report, "artifact-source-unverified");
   }
+  report.artifact_bytes = artifactsComplete && !diagnostics.some((code) => code.startsWith("artifacts-")) && artifacts.every((artifact) => artifact.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha && number(artifact.size_in_bytes) !== null) ? artifacts.reduce((sum, artifact) => sum + artifact.size_in_bytes, 0) : null;
   if (!report.attempts.length || report.attempts.some((attempt) => !attempt.complete)) diagnostic(report, "attempts-incomplete");
   if (!report.source_sha || !report.event || !report.workflow || run.status !== "completed") diagnostic(report, "run-metadata-incomplete");
   if (report.jobs.some((job) => job.elapsed_seconds === null || job.steps === null)) diagnostic(report, "job-metadata-incomplete");
@@ -614,13 +622,15 @@ function collectActions(runID, api = (endpoint) => JSON.parse(command("gh", ["ap
   if (!run || run.repository?.full_name !== "microsoft/waza" || String(run.id) !== String(runID)) return summarizeActions({ id: Number(runID) }, [], [], ["run-source-invalid"], false);
   function pages(endpoint, field) {
     const items = [];
-    let complete = false;
+    let complete = false, total = null;
     for (let page = 1; page <= LIMITS.pages; page++) {
       let result;
       try { result = api(`${endpoint}?per_page=100&page=${page}`); } catch { diagnostics.push(`${field}-api-failed`); break; }
-      if (!result || !Array.isArray(result[field]) || !Number.isSafeInteger(result.total_count)) { diagnostics.push(`${field}-api-invalid`); break; }
+      if (!result || !Array.isArray(result[field]) || result[field].length > 100 || !Number.isSafeInteger(result.total_count) || result.total_count < 0) { diagnostics.push(`${field}-api-invalid`); break; }
       items.push(...result[field]);
-      if (items.length >= result.total_count) { complete = items.length === result.total_count; break; }
+      if (total !== null && total !== result.total_count) { diagnostics.push(`${field}-total-count-changed`); break; }
+      total = result.total_count;
+      if (items.length >= total) { complete = items.length === total; break; }
     }
     if (!complete) diagnostics.push(`${field}-pagination-incomplete`);
     return { items, complete };
