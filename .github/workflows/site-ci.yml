@@ -4,7 +4,7 @@ name: Site Build
 #
 # This workflow always runs on pull requests targeting main so it can be
 # used as a required status check without deadlocking non-site PRs. A
-# path-filter step detects whether site files actually changed; if not,
+# path-filter step detects whether documentation or its guard inputs changed; if not,
 # the expensive build is skipped and the job reports success. The Pages
 # deploy workflow (.github/workflows/pages.yml) still handles the actual
 # deploy on push to main.
@@ -28,6 +28,7 @@ on:
       - 'Makefile'
       - 'web/**'
       - '.github/workflows/site-ci.yml'
+      - '.github/workflows/web-ci.yml'
       - '.github/workflows/docker-ci.yml'
       - '.github/workflows/publish-runner-reference.yml'
       - '.github/workflows/verify-runner-reference.yml'
@@ -76,7 +77,13 @@ jobs:
               - 'internal/runnerunit/testdata/**'
               - 'internal/runnerterminal/testdata/**'
               - 'schemas/**'
+              - 'web/package.json'
+              - 'web/playwright.config.ts'
+              - 'web/e2e/screenshots.spec.ts'
+              - 'web/e2e/release-screenshots.spec.ts'
+              - 'web/e2e/runner-negotiation.spec.ts'
               - '.github/workflows/site-ci.yml'
+              - '.github/workflows/web-ci.yml'
               - '.github/workflows/docker-ci.yml'
               - '.github/workflows/publish-runner-reference.yml'
               - '.github/workflows/verify-runner-reference.yml'

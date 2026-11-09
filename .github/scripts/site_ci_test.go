@@ -17,7 +17,9 @@ var siteFilterPaths = []string{
 	"cmd/waza/cmd_serve.go",
 	"internal/embedded/**", "internal/models/outcome.go", "internal/models/schema_version.go",
 	"internal/runneridentity/testdata/**", "internal/runnerunit/testdata/**", "internal/runnerterminal/testdata/**",
-	"schemas/**", ".github/workflows/site-ci.yml", ".github/workflows/docker-ci.yml",
+	"schemas/**", "web/package.json", "web/playwright.config.ts",
+	"web/e2e/screenshots.spec.ts", "web/e2e/release-screenshots.spec.ts", "web/e2e/runner-negotiation.spec.ts",
+	".github/workflows/site-ci.yml", ".github/workflows/web-ci.yml", ".github/workflows/docker-ci.yml",
 	".github/workflows/publish-runner-reference.yml", ".github/workflows/verify-runner-reference.yml", ".github/workflows/pages.yml",
 }
 
@@ -29,7 +31,7 @@ var exampleFilterPaths = []string{
 var sitePushPaths = []string{
 	"site/**", "docs/**", "examples/interop/**", "README.md", "CHANGELOG.md", "version.txt", "registry.json",
 	"cmd/waza/**", "internal/**", "schemas/**", "go.mod", "go.sum", "Makefile", "web/**",
-	".github/workflows/site-ci.yml", ".github/workflows/docker-ci.yml", ".github/workflows/publish-runner-reference.yml",
+	".github/workflows/site-ci.yml", ".github/workflows/web-ci.yml", ".github/workflows/docker-ci.yml", ".github/workflows/publish-runner-reference.yml",
 	".github/workflows/verify-runner-reference.yml", ".github/workflows/pages.yml",
 }
 
@@ -154,6 +156,9 @@ func TestSiteWorkflowParallelChecks(t *testing.T) {
 		{"push-path-regression", "      - 'examples/interop/**'\n", ""},
 		{"example-filter-regression", "              - 'examples/interop/**'\n", ""},
 		{"site-filter-regression", "              - 'internal/models/outcome.go'\n", ""},
+		{"missing-dashboard-media-input", "              - 'web/package.json'\n", ""},
+		{"missing-dashboard-workflow-push", "      - '.github/workflows/web-ci.yml'\n", ""},
+		{"broad-dashboard-site-selection", "              - 'web/package.json'\n", "              - 'web/**'\n"},
 		{"missing-push-build", "needs.changes.outputs.site == 'true' || github.event_name == 'push'", "needs.changes.outputs.site == 'true'"},
 		{"missing-push-examples", "needs.changes.outputs.examples == 'true' || github.event_name == 'push'", "needs.changes.outputs.examples == 'true'"},
 		{"unstable-check-name", "name: Build site\n    needs:", "name: Browser build\n    needs:"},

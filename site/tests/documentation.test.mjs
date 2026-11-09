@@ -12,6 +12,11 @@ const catalogInputs = {
   schema: 'schemas/eval.schema.json',
   catalogs: ['README.md', 'site/src/content/docs/guides/graders.mdx'],
 };
+const dashboardMediaInputs = [
+  'web/package.json', 'web/playwright.config.ts',
+  'web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',
+  'web/e2e/runner-negotiation.spec.ts', '.github/workflows/web-ci.yml',
+];
 const embeddedTargets = ['darwin_amd64', 'darwin_arm64', 'linux_amd64', 'linux_arm64', 'windows_amd64', 'windows_arm64'];
 const embeddedFiles = embeddedTargets.flatMap((target) => [
   `internal/embedded/zcopilot_${target}.go`,
@@ -228,9 +233,29 @@ function assertSiteDiscovery(workflow, inputs) {
   assert.equal(scripts['test:docs'], 'node --test tests/documentation.test.mjs');
 }
 
-test('every catalog, release and Docker workflow input enables PR site checks and the main push workflow', () => {
+test('every catalog, release, Docker and dashboard media input enables PR site checks and the main push workflow', () => {
   assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
-    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml', serveCommandInput]);
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, ...dashboardMediaInputs,
+      '.github/workflows/docker-ci.yml', serveCommandInput]);
+});
+
+test('dashboard media guard discovery rejects removal from either production selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertSiteDiscovery(workflow, dashboardMediaInputs);
+  const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
+  assert.ok(site, 'PR site filter must exist');
+  assert.doesNotMatch(site, /'web\/\*\*'/, 'unrelated dashboard changes must not select Site guards');
+  for (const input of dashboardMediaInputs) {
+    for (const [selector, line, diagnostic] of [
+      ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+      ['main push', input.startsWith('web/') ? "      - 'web/**'\n" : `      - '${input}'\n`,
+        /main push gate excludes documentation input/],
+    ]) {
+      const mutated = workflow.replace(line, '');
+      assert.notEqual(mutated, workflow, `${input}: ${selector} mutation must remove the actual selector`);
+      assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, `${input}: ${selector}`);
+    }
+  }
 });
 
 test('serve flag source selects site checks and selector omissions fail closed', () => {
@@ -288,7 +313,7 @@ function assertSiteParallelChecks(workflow) {
   assert.match(jobs.changes, /site: \$\{\{ steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
   assert.match(jobs.changes, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
   assert.match(jobs.changes, /uses: dorny\/paths-filter@/);
-  assert.doesNotMatch(jobs.changes, /npm|playwright/, 'change detection must not wait for browser or example work');
+  assert.doesNotMatch(jobs.changes, /^\s+(?:-\s+)?run:/m, 'change detection must not execute browser or example work');
   for (const [id, name] of [['build', 'Build site'], ['examples', 'Offline documentation examples']]) {
     assert.ok(jobs[id], `${id} job must exist`);
     assert.match(jobs[id], /^\s+needs: \[changes\]$/m, `${id} must depend only on successful change detection`);
@@ -312,6 +337,9 @@ test('site browser checks and offline examples wait only for short change detect
     ['    needs: [changes]\n    if: ${{ !cancelled() }}',
       '    needs: [changes, examples]\n    if: ${{ !cancelled() }}', /build must depend only/],
     ['    timeout-minutes: 5', '    timeout-minutes: 15', /timeout-minutes: 5/],
+    ['      - name: Detect site changes\n',
+      '      - run: npm --prefix site run build\n\n      - name: Detect site changes\n',
+      /change detection must not execute/],
     ['site: ${{ steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
     ["if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'",
       "if: needs.build.outputs.examples == 'true' || github.event_name == 'push'", /examples condition must consume/],
