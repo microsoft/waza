@@ -441,7 +441,18 @@ func TestRunCommand_ReporterJUnitGradingFailure(t *testing.T) {
 		t.Run(fmt.Sprintf("writeFailure=%t", writeFailure), func(t *testing.T) {
 			resetRunGlobals()
 			t.Cleanup(resetRunGlobals)
-			specPath := createFailingTestSpec(t, "mock")
+			specPath := createTestSpec(t, "mock")
+			spec, err := os.ReadFile(specPath)
+			require.NoError(t, err)
+			spec = append(spec, []byte(`
+graders:
+  - type: text
+    name: must-contain-never-match
+    config:
+      regex_match:
+        - "NEVER_MATCH_VALUE_12345"
+`)...)
+			require.NoError(t, os.WriteFile(specPath, spec, 0o644))
 			dir := t.TempDir()
 			junitFile := filepath.Join(dir, "results.xml")
 			if writeFailure {
@@ -452,7 +463,7 @@ func TestRunCommand_ReporterJUnitGradingFailure(t *testing.T) {
 			cmd.SetArgs([]string{specPath, "--output", outputFile, "--reporter", "junit:" + junitFile})
 			cmd.SetOut(io.Discard)
 			cmd.SetErr(io.Discard)
-			err := cmd.Execute()
+			err = cmd.Execute()
 			require.Error(t, err)
 			var failure *TestFailureError
 			require.ErrorAs(t, err, &failure)
@@ -462,6 +473,8 @@ func TestRunCommand_ReporterJUnitGradingFailure(t *testing.T) {
 			var outcome models.EvaluationOutcome
 			require.NoError(t, json.Unmarshal(data, &outcome))
 			require.Len(t, outcome.TestOutcomes, 1)
+			assert.Equal(t, 1, outcome.Digest.Failed)
+			assert.Zero(t, outcome.Digest.Errors)
 			if writeFailure {
 				assert.Contains(t, err.Error(), "failed to write JUnit XML")
 				var pathErr *os.PathError
@@ -470,7 +483,7 @@ func TestRunCommand_ReporterJUnitGradingFailure(t *testing.T) {
 				data, readErr := os.ReadFile(junitFile)
 				require.NoError(t, readErr)
 				assert.Contains(t, string(data), "<failure")
-				assert.Contains(t, string(data), "test-task-001")
+				assert.Contains(t, string(data), `name="Test Task"`)
 			}
 		})
 	}
