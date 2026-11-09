@@ -453,6 +453,8 @@ only after `Wait` joins their copy
 goroutines. An empty-stderr exit or a test's total duration does not establish a
 protocol failure. Retain fresh production-CLI execution and existing deadlines
 while diagnosing startup delays; a diagnostic-only pass is not a root-cause fix.
+Compiled adapter admission controls record the same setup, process-start, wait,
+and context phases while retaining their 15-second invocation deadline.
 
 ## Documentation Requirements
 
