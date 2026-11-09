@@ -6,10 +6,10 @@ with [Concepts](../site/src/content/docs/concepts.mdx) and the
 need repository, CLI or MCP evaluation without a `SKILL.md`.
 
 This tutorial starts with **mock harness checks**, not agent-quality claims.
-Preflight and new evidence features require upcoming main; published standalone
-`v0.38.10` (October 9, 2026) is separate. Follow the
-[complete source-build procedure](../README.md#install-from-source), including
-Git LFS, Go 1.26+, Make, Node.js, npm and generated dashboard assets.
+Preflight and the evidence features described here were introduced in
+`v0.39.0` and remain available in published standalone `v0.40.0`.
+See [release availability](../site/src/content/docs/reference/releases.mdx)
+or the [complete source-build procedure](../README.md#install-from-source).
 
 ## 1. Create a project and skill
 

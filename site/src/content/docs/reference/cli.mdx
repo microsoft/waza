@@ -5,8 +5,10 @@ description: Complete reference for all waza commands and flags.
 
 Complete reference for all `waza` CLI commands and their options.
 
-**Version boundary (October 26, 2026):** published standalone `v0.39.1`
-fixes `waza dev SKILL.md` file targets and retains the v0.39.0 scenario flags, preflight,
+**Version boundary (November 4, 2026):** published standalone `v0.40.0`
+adds the bounded runner/text and selected AgentV assertion adapter, task-level
+MCP mocks, program-grader context, host lifecycle evidence and Lab conversations.
+It retains the `waza dev SKILL.md` file-target fix and v0.39.0 scenario flags, preflight,
 selected-file evidence/regrade, assurance profiles, controlled policy commands
 and `serve --lab`. Install the release or run `waza update`; a source build is
 optional. Explicit opt-in and platform restrictions remain; see the
@@ -103,6 +105,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 |------|-------|------|---------|-------------|
 | `--context-dir` | `-c` | string | `./fixtures` | Fixtures directory path |
 | `--output` | `-o` | string | | Save results JSON to file |
+| `--runner-compat` | | bool | false | Added in v0.40.0: route one compatible inline mock/text suite through runner 1.0, retaining local results and exits; unsupported mappings/flags fail. |
 | `--output-dir` | `-d` | string | | Directory for structured output; each run creates a UTC-timestamped subdirectory of the specified directory. Mutually exclusive with `--output`. |
 | `--verbose` | `-v` | bool | false | Detailed progress output |
 | `--parallel` | | bool | false | Run tasks concurrently |
@@ -921,6 +924,37 @@ waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml \
   --format github-actions
 ```
 
+<span id="waza-interop-source-build-preview"></span>
+
+## waza interop (v0.40.0)
+
+Offline stdin/stdout conversion of **one selected AgentV `contains` assertion**,
+not an upstream task or suite:
+
+```bash
+# From the repository root, using a binary built from this source.
+adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
+waza interop import --adapter "$adapter" --test contains-check --assertion 1 \
+  < internal/interop/testdata/agentv/suite.yaml > one-native-grader.yaml
+waza interop export --adapter "$adapter" < one-native-grader.yaml
+```
+
+`--adapter` requires the exact pin. Import requires an exact `--test` ID and
+1-based `--assertion` index, outputs one native grader mapping, and explicitly
+diagnoses excluded suite semantics. Export accepts one named text grader with
+exactly one `contains_cs` check and outputs one AgentV assertion. Unknown fields
+on the selected assertion/native grader fail; no silent grader substitution.
+Unknown versions, malformed/ambiguous YAML and invalid selections return exit 2.
+These pre-output failures emit no converted stdout. Delivery failures can leave
+partial output; a broken pipe may terminate the process instead of returning
+exit 2. Discard output from failed commands. Shell redirection can create or
+truncate a file before failure.
+Input is bounded to 4 MiB; no providers, scripts, reference reads or model calls.
+
+See [External Assertion Interoperability](/waza/guides/external-interoperability/)
+for supported fields, licensing, upstream oracle evidence and acceptance gaps.
+AgentEvals-spec, Harbor, ASSERT and whole-suite AgentV imports are unsupported.
+
 ## waza migrate
 
 Check or migrate a public schema artifact.
@@ -929,16 +963,17 @@ Check or migrate a public schema artifact.
 waza migrate <file>
 ```
 
-Legacy eval/task/result defaults remain `1.4`. Compatible legacy YAML evals use
+Legacy eval/result input and reader defaults remain `1.4`; task YAML has no
+independent version field. Compatible legacy YAML evals use
 the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
 their artifact shape, including custom `.json` filenames.
 
-This legacy input/reader policy is separate from new result emission: current
-evaluations and regrades write results `1.7`. Task YAML has no independent version
-field. Historical result versions and missing reliability metadata are preserved
+This legacy input/reader policy is separate from new result emission: evaluations
+and regrades from current source write results `1.9` (v0.40.0 writes `1.8`; published `v0.39.1` writes
+`1.7`). Historical result versions and missing reliability metadata are preserved
 when reading/re-saving; migration does not upgrade them.
-Compatibility reports select the current version by artifact type: eval `1.4`
-or result writer `1.7`. Missing/`1.4` result versions are explicitly labeled as
+Compatibility reports select the executing binary's current version by artifact
+type: eval `1.4` or, for current source, result writer `1.9`. Missing/`1.4` result versions are explicitly labeled as
 the legacy reader default alongside the current writer version, not rewritten.
 
 A present `scenario` header requires a nonblank native string and exact schema
@@ -992,8 +1027,8 @@ waza coverage [root]
 
 ### Coverage Levels
 
-- **Full**: Skill or agent has an `eval.yaml`/`eval.yml` with tasks (via `tasks:` or `tasks_from:`) and at least 2 distinct grader types.
-- **Partial**: Skill or agent has an `eval.yaml`/`eval.yml` but fewer than 2 grader types or no tasks.
+- **Full**: Skill or agent has an `eval.yaml`/`eval.yml` with at least one active task discovered through `tasks:` or selected through `tasks_from:`, and at least 2 distinct grader types.
+- **Partial**: Skill or agent has an `eval.yaml`/`eval.yml` but fewer than 2 grader types or no selected tasks. Unmatched task patterns and empty CSV selections count as zero tasks.
 - **Missing**: No `eval.yaml`/`eval.yml` found for the skill or agent.
 
 **Note**: Coverage now reports both `SKILL.md` (skills) and `.agent.md` (custom agents) files. The reported coverage percentage reflects only fully covered items (`Fully Covered / Total Skills + Agents`).
@@ -1573,7 +1608,14 @@ waza session view <session-file>
 
 ## waza runner
 
-**Source-build preview:** inspect supported runner versions/capabilities and
+`runner adapt --eval <file> --task <file> --run-key <key> --shard <key>
+--task-id <id> --trial 1 --attempt 1` captures a compatible local mock/text suite
+offline as request JSON. `--timeout-ms` optionally asserts its effective timeout.
+To preserve local result JSON instead, use `run <file> --runner-compat --output
+<file>`. See [local compatibility and migration](../../guides/runner-compatibility/)
+for the exact supported profile, rejected flags and before/after examples.
+
+**Available in v0.40.0:** inspect supported runner versions/capabilities and
 check compatibility without starting an eval or model:
 
 ```bash
@@ -1588,11 +1630,20 @@ The `negotiate` command takes one JSON request on stdin and writes one
 unsupported version/capability, 6 means invalid request, and 2 means output
 failure. These are negotiation exits, not new meanings for local `waza run`.
 `validate` checks a complete captured request without a runtime; `run` executes
-exactly one mock/text attempt with no discovery, cache or retries. The receipt
-is `waza.runner-unit`, not the later terminal envelope. Unit-command exits:
-0 ready/completed with passing checks, 1 completed with failing checks,
-2 execution/input/output failure, 5 incompatible runner requirements,
-6 invalid selection. Native execution is unavailable even with paid consent.
+exactly one inline text attempt with no discovery, cache or retries.
+Mock requests require `inline.mock-text`; production Copilot/text requests
+require `inline.copilot-text`, an explicit model and `allow_paid_execution: true`.
+Both disable ambient skills; Copilot/text also denies all tools. Validate
+`examples/runner/copilot-unit.json` offline before explicitly running it
+(each dispatch may incur charges). General native file/tool/skill workflows
+remain unsupported. The receipt
+is `waza.runner-unit` for offline validation, and `waza.runner-terminal` for run.
+Run exits: 0 success, 1 failed checks, 2 infrastructure/output failure,
+3 cancellation, 4 timeout, 5 incompatible runner requirements,
+6 invalid input. Paid consent alone does not enable an unsupported profile.
+See [terminal outcomes, schema and migration](../../guides/runner-terminal/).
+For a local image build and exact mock/text stdin/stdout invocation, see the
+[local runner container reference](../../guides/runner-container/).
 Admitted receipts carry `identity` version `sha256-waza-c14n-v1`, canonical input
 digest and logical lineage; validation alone derives it without execution.
 Save stdout with `> validation.json`; identity is not proof of execution or
@@ -1601,7 +1652,7 @@ See [Runner contract, schemas, API and migration](../../guides/runner-contract/)
 
 ## waza serve
 
-The source-build preview also exposes negotiation and exact-unit validation/run through HTTP.
+Standalone v0.40.0 also exposes negotiation and exact-unit validation/run through HTTP.
 See [Runner contract and API](../../guides/runner-contract/) for routes and schemas.
 
 Start the interactive dashboard.
@@ -1630,7 +1681,6 @@ waza serve
 | `--results-dir` | Directory to scan for saved result artifacts (default: `.`) |
 | `--no-browser` | Print the dashboard URL without opening a browser |
 | `--tcp` | TCP address for JSON-RPC (e.g., `:9000`) |
-| `--stdio` | Use stdin/stdout for piping |
 
 ### Examples
 
@@ -1657,7 +1707,7 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 | `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
-The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Main currently uses `github.com/github/copilot-sdk/go` v1.0.24 with bundled CLI 1.0.101; published standalone `v0.38.10` uses v1.0.15. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
+The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Standalone v0.40.0 uses `github.com/github/copilot-sdk/go` v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
 ## Graders
 
@@ -1834,6 +1884,15 @@ waza models --json
 | `0` | Success |
 | `1` | One or more tasks failed |
 | `2` | Configuration or runtime error |
+
+For `run`, an operational execution or grader error takes precedence over
+completed failed judgments: the task is `error`, contributes to `summary.errors`,
+and exits `2` after saving requested completed results. A passing trial does not
+erase another trial's operational error. Completed negative judgments remain
+`failed` and exit `1`; skipped trials remain neutral. This precedence also applies
+across baseline passes, models, and skills. Regrading valid frozen output can
+replace a failed judge setup with a new verdict without changing execution
+billing; historical readers do not rewrite old classifications.
 
 ## Global Flags
 

@@ -7,6 +7,11 @@ Waza's compatibility corpus characterizes existing v1 behavior before additive
 workflow features change it. It is not a new assurance policy and does not
 change command defaults, graders, skill discovery, or exit behavior.
 
+The source-build [local runner compatibility mode](../runner-compatibility/)
+adds explicit `run --runner-compat` routing and offline `runner adapt` for the
+documented mock/text subset. It does not convert or deprecate other local
+commands; unsupported mappings fail with migration guidance.
+
 ## Three recorded examples
 
 The [compatibility examples](https://github.com/microsoft/waza/tree/main/examples/compatibility)

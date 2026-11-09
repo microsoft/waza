@@ -1,0 +1,14 @@
+id: selected
+name: Selected task
+description: Frozen local mock/text control
+inputs:
+  prompt: hello
+expected:
+  output_contains: [hello]
+  output_not_contains: [forbidden]
+  output_contains_any: [hello, alternative]
+graders:
+  - name: task-text
+    type: text
+    config:
+      regex_match: ["^Mock response for: hello"]

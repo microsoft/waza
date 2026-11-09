@@ -137,7 +137,7 @@ func TestPrepareAndAdmitAreEngineFreeAndDetached(t *testing.T) {
 }
 
 func TestRecordRejectsUnsupportedEvidenceAndContradictoryGrades(t *testing.T) {
-	for _, name := range []string{"runtime version", "extra capture", "nontext grader", "zero weight", "unscoped check", "passed failed check", "private event id", "private nested id", "private hyphen id", "private punctuation id"} {
+	for _, name := range []string{"runtime version", "extra capture", "host lifecycle capture", "nontext grader", "zero weight", "unscoped check", "passed failed check", "private event id", "private nested id", "private hyphen id", "private punctuation id"} {
 		t.Run(name, func(t *testing.T) {
 			_, _, admitted, record := fixture(t)
 			switch name {
@@ -145,6 +145,8 @@ func TestRecordRejectsUnsupportedEvidenceAndContradictoryGrades(t *testing.T) {
 				record.Summary.Runtime.ModelVersion = "invented"
 			case "extra capture":
 				record.ActualRow.Run.SnapshotPath = "invented"
+			case "host lifecycle capture":
+				record.ActualRow.Run.HostLifecycle = &models.HostLifecycle{ModelTurns: []models.ModelTurn{}, Shells: []models.ShellLifecycle{}}
 			case "nontext grader", "zero weight":
 				grade := record.ActualRow.Run.Validations["check"]
 				if name == "nontext grader" {
@@ -177,6 +179,9 @@ func TestRecordRejectsUnsupportedEvidenceAndContradictoryGrades(t *testing.T) {
 			}
 			_, err := DecodeRecord(encoded(t, record), admitted)
 			require.Error(t, err)
+			if name == "host lifecycle capture" {
+				require.ErrorContains(t, err, "cannot certify extra capture")
+			}
 		})
 	}
 }
@@ -243,7 +248,7 @@ func TestTapeDigestsPreserveRawNumberTokens(t *testing.T) {
 }
 
 func TestPrepareRejectsUnsupportedInputs(t *testing.T) {
-	for _, name := range []string{"nil policy", "unrestricted", "callback", "custom tool", "skills", "ephemeral", "workspace capture", "session", "traversal", "workdir alias", "workdir dot", "duplicate", "negative timeout", "missing source", "source alias", "source directory", "symlink", "cancel"} {
+	for _, name := range []string{"nil policy", "unrestricted", "callback", "custom tool", "skills", "ephemeral", "workspace capture", "workspace capture paths", "session", "traversal", "workdir alias", "workdir dot", "duplicate", "negative timeout", "missing source", "source alias", "source directory", "symlink", "cancel"} {
 		t.Run(name, func(t *testing.T) {
 			directory := t.TempDir()
 			require.NoError(t, os.WriteFile(directory+"/eval.yaml", []byte("source"), 0o600))
@@ -273,6 +278,8 @@ func TestPrepareRejectsUnsupportedInputs(t *testing.T) {
 				req.EphemeralSession = true
 			case "workspace capture":
 				req.SkipWorkspaceCapture = false
+			case "workspace capture paths":
+				req.WorkspaceCapturePaths = []string{"output.txt"}
 			case "session":
 				req.SessionID = "resume"
 			case "traversal":

@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -65,6 +66,48 @@ func TestResponderLoopReplyThenStop(t *testing.T) {
 	require.NotNil(t, rr.Responder)
 	require.Equal(t, models.ResponderOutcomeStopped, rr.Responder.Outcome)
 	require.Equal(t, 1, rr.Responder.FollowupsSent)
+}
+
+func TestResponderLoopExecutionFailureDoesNotCountFailedReply(t *testing.T) {
+	for _, completedReplies := range []int{0, 1} {
+		t.Run(map[int]string{0: "first_reply", 1: "after_completed_reply"}[completedReplies], func(t *testing.T) {
+			engine := &errorOnCallEngine{errOnCall: completedReplies + 2}
+			runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{
+				Config: models.Config{TimeoutSec: 30},
+			}, config.WithSpecDir(t.TempDir())), engine, WithSkipGraders())
+			runner.newClassifier = func(models.ResponderConfig, string) responderClassifier {
+				return &scriptedClassifier{decisions: []responder.Decision{{Kind: responder.DecisionReply, Answer: "continue"}}}
+			}
+			run := runner.executeRun(t.Context(), &models.TestCase{Stimulus: models.TaskStimulus{
+				Message: "execute", Responder: &models.ResponderConfig{Instructions: "provide defaults", MaxFollowups: 3},
+			}}, 1)
+			raw, err := json.Marshal(run)
+			require.NoError(t, err)
+			var saved models.RunResult
+			require.NoError(t, json.Unmarshal(raw, &saved))
+			require.Equal(t, models.StatusError, saved.Status)
+			require.NotNil(t, saved.Responder)
+			require.Equal(t, models.ResponderOutcomeError, saved.Responder.Outcome)
+			require.Equal(t, completedReplies, saved.Responder.FollowupsSent)
+			require.Equal(t, completedReplies+2, engine.callCount)
+		})
+	}
+}
+
+func TestResponderLoopSetupFailureDoesNotCountUnexecutedReply(t *testing.T) {
+	engine := &errorOnCallEngine{errOnCall: 1}
+	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}, config.WithSpecDir(t.TempDir())), engine)
+	runner.newClassifier = func(models.ResponderConfig, string) responderClassifier {
+		return &scriptedClassifier{decisions: []responder.Decision{{Kind: responder.DecisionReply, Answer: "continue"}}}
+	}
+	resp := &execution.ExecutionResponse{Success: true}
+	info := runner.executeResponderLoop(t.Context(), &models.TestCase{Stimulus: models.TaskStimulus{
+		Responder: &models.ResponderConfig{Instructions: "provide defaults", MaxFollowups: 1},
+	}}, nil, resp, nil, runner.newClassifier(models.ResponderConfig{}, ""))
+	require.Equal(t, models.ResponderOutcomeError, info.Outcome)
+	require.Contains(t, info.Reason, "follow-up request requires its initial attempt request")
+	require.Zero(t, info.FollowupsSent)
+	require.Zero(t, engine.callCount)
 }
 
 func TestResponderLoopAbstainMarksError(t *testing.T) {

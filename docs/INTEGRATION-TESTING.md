@@ -17,7 +17,7 @@ This guide explains how to run real integration tests using the GitHub Copilot S
 
    Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it and its runtime assets to a versioned directory in the local user cache on first use (or under `COPILOT_HOME/cache` when set). Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary. Set `COPILOT_CLI_INSTALL_VERBOSE=1` to diagnose installation failures.
 
-   When updating the Copilot SDK, run `go generate ./internal/embedded/generate` to regenerate all platform bundles. Commit the generated Go files, licenses, and LFS-tracked `.zst` and runtime-assets `.tgz` files, and remove obsolete versioned artifacts. Verify each target with `go tool bundler -check-only -output internal/embedded -platform <os>/<arch>` and run `go test ./internal/embedded/...` to check installation, failure handling, and SDK startup without model calls.
+   When updating the Copilot SDK, run `go generate ./internal/embedded/generate` to regenerate all platform bundles. The SDK tag determines its compatible CLI version from `nodejs/package.json`; for example, SDK v1.0.28 pins CLI v1.0.105. Keep the generated bundles and the native startup test's `status.Version` assertion aligned with that pairing. The generator has six Go OS/architecture targets; each Linux target also emits the musl companions, for eight runtime platform sets. Commit the generated Go files, six license files, and LFS-tracked `.zst` and runtime-assets `.tgz` files, and remove obsolete versioned artifacts. Run `go tool bundler -check-only -output internal/embedded -platform <os>/<arch>` for each Go target to check embedded CLI-version metadata; this does not execute or integrity-check the bundle payloads. Run `git lfs fsck` to verify local LFS object hashes, then run `go test ./internal/embedded/...` on native CI runners for the supported platforms claimed; these checks are not substitutes for one another.
 
 ## Configuration
 
@@ -93,6 +93,12 @@ tasks:
 ```
 
 Responses are matched in order. Use `match` for exact full-argument fixtures, `match_schema` for JSON Schema matching, and `match_regex` for per-field regular expressions. Unknown tools or unmatched calls fail with a clear MCP tool error so missing fixtures do not pass silently.
+
+**Added in v0.40.0:** A task YAML can also declare `mcp_mocks`; published
+`v0.39.1` does not apply task-level mocks. A task entry replaces the eval mock
+with the same name for that task only and a new name adds a mock; other eval
+mocks still apply. Put a case-specific response in the task that needs it rather
+than in `eval.yaml`, where every task would receive it.
 
 ### Hermetic CLI Command Mocks
 
