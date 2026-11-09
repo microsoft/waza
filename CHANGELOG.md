@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Logical execution-attempt embedding API (unreleased partial #764)** - Recover
+  strict attempt/completion/submission sidecars, exclusive retained creators,
+  append-only parent and duplicate decisions, and original-source verified reuse.
+  New submissions bind exact reservation bytes into their immutable manifest,
+  including concurrent executions with identical terminal output. Reuse makes
+  no new engine calls and preserves original failures and native ordinals.
+  CLI/API/Lab integration and full release acceptance remain pending; this is
+  not a published feature. See [contracts and migration limits](docs/EXECUTION_ATTEMPTS.md).
+
 - **Immutable artifact publication (v0.41 source preview)** - Add manifest schema
   `1.0` and `artifact create/upload/finalize/inspect` with conditional local and
   Azure object creation, canonical content addressing, current-byte verification,

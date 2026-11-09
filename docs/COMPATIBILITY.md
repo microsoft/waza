@@ -5,6 +5,12 @@ workflows. See [External evaluation interoperability](INTEROPERABILITY.md) for
 the assertion-only AgentV preview, exact version pin, oracle evidence, rejected
 lossy mappings and unsupported whole-suite semantics.
 
+The unreleased [logical execution-attempt embedding API](EXECUTION_ATTEMPTS.md)
+is additive. Its attempt, completion, and submission sidecars have independent
+`1.0` versions; they do not change legacy result readers, runner request
+ordinals, manifest v1, or ordinary `runner run` retry behavior. No historical
+reservation, ownership, or billing evidence is synthesized.
+
 This is the offline preservation gate for #658 and the additive work under
 #657. The contract is intended existing v1 behavior, not a new assurance
 feature. The baseline is commit `04e7b4c6d593555834e71221227326c63274a921`;

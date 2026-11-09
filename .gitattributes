@@ -29,3 +29,6 @@ internal/interop/testdata/agentv/assertions.ts -text
 internal/interop/testdata/agentv/LICENSE -text
 # Immutable manifest vectors are exact-byte hash and serialization oracles.
 internal/artifactmanifest/testdata/** -text
+# Attempt and completion fixtures are exact-byte canonical writer oracles.
+internal/executionattempt/testdata/** -text
+internal/executionledger/testdata/** -text
