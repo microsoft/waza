@@ -542,6 +542,7 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
     let jobsValid = true;
     for (const job of attempt.jobs) {
         if (!job || !Number.isSafeInteger(job.id)) { jobsValid = false; diagnostic(report, "job-id-unavailable"); continue; }
+        if (job.id < 1) { jobsValid = false; diagnostic(report, "job-id-unavailable"); }
         if (!Number.isSafeInteger(job.run_attempt) || job.run_attempt < 1 || job.run_attempt > attempt.number) { jobsValid = false; diagnostic(report, "job-attempt-unavailable"); }
         if (job.run_id !== run.id || job.head_sha !== run.head_sha) { jobsValid = false; diagnostic(report, "job-source-unverified"); }
         if (unique.has(job.id)) { jobsValid = false; diagnostic(report, "duplicate-job-in-attempt"); continue; }

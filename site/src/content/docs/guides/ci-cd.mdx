@@ -254,7 +254,9 @@ envelope, not a reconstructed dependency DAG. Retry-request queue time is
 unavailable: the original creation timestamp must not be reused for retries.
 Job attempts must be positive safe integers no later than the queried attempt;
 valid jobs retained from earlier attempts remain admissible.
-Missing or duplicate job IDs, unverified job sources, conflicting retained jobs,
+Job IDs must be positive safe integers. Nonpositive integer IDs remain readable
+but cannot supply complete aggregates or eligible baseline/history samples.
+Invalid or duplicate job IDs, unverified job sources, conflicting retained jobs,
 or incomplete job pagination withhold the affected attempt's span metrics.
 Elapsed runner-minutes and artifact bytes are **not billed cost**.
 An observed, complete empty artifact inventory records zero bytes. An inventory

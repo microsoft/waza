@@ -605,6 +605,8 @@ test("production Actions totals withhold job integrity failures but preserve unr
     [[[{ ...good, head_sha: "b".repeat(40) }]], "job-source-unverified"],
     [[[{ ...good, run_id: 11 }]], "job-source-unverified"],
     [[[good, good]], "duplicate-job-in-attempt"],
+    [[[good, { ...good, id: 0 }]], "job-id-unavailable"],
+    [[[good, { ...good, id: -1 }]], "job-id-unavailable"],
     [[[good, { ...good, id: 1.5 }]], "job-id-unavailable"],
     [[[good, { ...good, id: undefined }]], "job-id-unavailable"],
     [[[good, null]], "job-id-unavailable"],
@@ -645,26 +647,32 @@ test("production Actions totals withhold job integrity failures but preserve unr
     assert.equal(report.attempts[0].retained_job_span_seconds, expected * 60);
   }
 });
-test("production job attempt validation withholds baseline eligibility without dropping observations", () => {
+test("production job identity validation withholds baseline eligibility without dropping observations", () => {
   const report = parseGo(successful, { selected: ["example/p::TestA"], inventory_scope: "qualified" });
   report.identity.source_sha = run.head_sha;
   const fixture = artifactFixture(report, {}, "go-run");
-  for (const attempt of [1, 0, 1.5, 2]) {
+  for (const [field, value, valid] of [
+    ["run_attempt", 1, true], ["run_attempt", 0, false],
+    ["run_attempt", 1.5, false], ["run_attempt", 2, false],
+    ["id", 1, true], ["id", Number.MAX_SAFE_INTEGER, true],
+    ["id", 0, false], ["id", -1, false],
+  ]) {
     const observed = collectObservations(fixture.id, (endpoint) => {
       const response = fixture.api(endpoint);
-      return endpoint.includes("/jobs") ? { ...response, jobs: response.jobs.map((item) => ({ ...item, run_attempt: attempt })) } : response;
+      return endpoint.includes("/jobs") ? { ...response, jobs: response.jobs.map((item) => ({ ...item, [field]: value })) } : response;
     }, () => fixture.zip);
     assert.equal(observed.reports.length, 1);
     const grouped = trends(observed.reports);
     assert.equal(grouped.cohorts[0].observations.length, 1);
-    assert.equal(grouped.cohorts[0].eligible.length, attempt === 1 ? 1 : 0, String(attempt));
-    assert.equal(historyProposal(observed.reports).targets.length, attempt === 1 ? 1 : 0);
-    assert.equal(observed.metadata.complete, attempt === 1);
+    assert.equal(grouped.cohorts[0].eligible.length, valid ? 1 : 0, `${field}:${value}`);
+    assert.equal(historyProposal(observed.reports).targets.length, valid ? 1 : 0);
+    assert.equal(observed.metadata.complete, valid);
     assert.equal(observed.metadata.jobs.length, 1);
-    assert.equal(observed.metadata.jobs[0].run_attempt, attempt);
-    if (attempt !== 1) {
+    assert.equal(observed.metadata.jobs[0][field], value);
+    if (!valid) {
       assert.equal(observed.metadata.attempts[0].observed_job_span_seconds, null);
       assert.equal(observed.metadata.attempts[0].retained_job_span_seconds, null);
+      assert.equal(observed.metadata.runner_elapsed_minutes_by_os["ubuntu-latest"], null);
     }
   }
 });
