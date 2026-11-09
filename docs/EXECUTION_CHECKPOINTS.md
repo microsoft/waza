@@ -44,6 +44,13 @@ live-worker exclusion is not implemented. Decision discovery must be complete;
 truncation, malformed records, mixed missing/I/O errors, or unknown publication
 fail closed rather than proving absence.
 
+The current implementation also uses global bounded discovery for fresh
+before-unit publication, so a shared namespace beyond the provider's 1,000-record
+listing limit rejects new checkpoint submissions before runtime construction.
+This is an unresolved scaling blocker, not a supported unlimited submission
+contract. A retained pre-dispatch admission or provider-owned per-execution
+lookup must replace that fresh-publication scan without weakening recovery checks.
+
 ## Compatibility and restore
 
 `executioncheckpoint.ForRequest` binds the actual runner revision, request,
