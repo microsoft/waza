@@ -59,6 +59,12 @@ noncanonical wire encodings, invalid source context, present-but-unverified
 completion, and stale before checkpoints are rejected without repairing source
 bytes.
 
+Finalized restore pins the original reservation and completion through the
+actual source read used to publish the reuse decision, then checks the returned
+sidecars before reporting restored progress. Result codecs also bind source work
+to the actual reused reservation or fresh retry child. These checks do not make
+the provider reads or cross-object writes a transaction.
+
 A finalized restore returns the original terminal outcome and ordinal, including
 failure or cancellation. `restored_units: 1` and `remaining_work: 0` describe the
 one supported exact unit, not an entire evaluation or fleet. Failed or unavailable

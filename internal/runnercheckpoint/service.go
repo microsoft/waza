@@ -147,7 +147,8 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 		}
 		return s.submit(ctx, request, backend, hooks, result, checkSource)
 	case executioncheckpoint.FinalizedUnit:
-		if _, err := executioncheckpoint.ReadStoredFinalized(ctx, ledger, *checkpoint, current); err != nil {
+		original, err := executioncheckpoint.ReadStoredFinalized(ctx, ledger, *checkpoint, current)
+		if err != nil {
 			result.fail("checkpoint_finalized_source_rejected")
 			return result, err
 		}
@@ -163,7 +164,18 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 			result.fail("submission_encoding_failed")
 			return result, err
 		}
-		submission, err := s.runner.Submit(ctx, wire, backend, hooks.Submission)
+		submissionHooks := hooks.Submission
+		submissionHooks.ReuseAdmission = func(ctx context.Context, source *executionledger.CompletedExecution) error {
+			if err := executioncheckpoint.ValidateContext(*checkpoint, source.Reservation.Attempt.Binding,
+				source.Reservation.Bytes, source.CompletionBytes, source.Publication.ManifestBytes); err != nil {
+				return err
+			}
+			if hooks.Submission.ReuseAdmission != nil {
+				return hooks.Submission.ReuseAdmission(ctx, source)
+			}
+			return nil
+		}
+		submission, err := s.runner.Submit(ctx, wire, backend, submissionHooks)
 		result.Submission, result.Status, result.ExitCode = &submission, submission.Status, submission.ExitCode
 		if err != nil {
 			result.fail("checkpoint_reuse_failed")
@@ -172,6 +184,17 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 		result.CompatibilityResult = "compatible"
 		restored, remaining := 1, 0
 		result.RestoredUnits, result.RemainingWork = &restored, &remaining
+		reservation, reservationErr := executionattempt.EncodeAttempt(*submission.Reservation)
+		completion, completionErr := executionledger.EncodeCompletion(*submission.Completion)
+		if err := errors.Join(reservationErr, completionErr); err != nil ||
+			!bytes.Equal(reservation, original.Reservation.Bytes) || !bytes.Equal(completion, original.CompletionBytes) {
+			result.Status, result.ExitCode = "submission_error", 2
+			result.Submission.Status, result.Submission.ExitCode = result.Status, result.ExitCode
+			result.CompatibilityResult = "unavailable"
+			result.RestoredUnits, result.RemainingWork = nil, nil
+			result.fail("checkpoint_returned_source_invalid")
+			return result, fmt.Errorf("returned reuse differs from original admitted sidecars: %w", errors.Join(executioncheckpoint.ErrContext, err))
+		}
 		return result, nil
 	default:
 		result.fail("checkpoint_boundary_invalid")

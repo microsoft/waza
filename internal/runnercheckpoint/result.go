@@ -103,6 +103,10 @@ func validateResult(result Result) error {
 	if _, err := runnerunit.EncodeSubmissionResult(*submission); err != nil {
 		return err
 	}
+	if result.Source != nil && submission.Reservation != nil &&
+		result.Source.Compatibility.Work != submission.Reservation.Logical.Work {
+		return fmt.Errorf("checkpoint source work contradicts the actual submission reservation")
+	}
 	if result.Status == "checkpoint_error" {
 		if submission.Status != "completed" {
 			return fmt.Errorf("checkpoint publication failure must preserve its actual completed submission")

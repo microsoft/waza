@@ -4,16 +4,151 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 )
+
+func TestFinalizedResumePinsHistoricalSidecarsThroughReuseDecision(t *testing.T) {
+	ctx := t.Context()
+	directory := t.TempDir()
+	store, err := artifactmanifest.OpenLocal(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	factories := 0
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		factories++
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	wire := fixture(t)
+	produced, err := service.Submit(ctx, wire, store, Hooks{})
+	if err != nil || produced.Submission.Completion == nil || factories != 1 {
+		t.Fatalf("actual terminal producer failed: %+v %v", produced, err)
+	}
+	owner, err := executionledger.New(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := owner.Reserve(ctx, produced.Submission.Reservation.Binding, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserved, err := owner.Reservation(creator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publications := artifactmanifest.NewStore(store)
+	publication, err := publications.ReadCompleted(ctx, produced.Submission.Completion.ManifestDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Legacy manifests may omit the optional execution-attempt artifact.
+	artifacts := []artifactmanifest.Artifact{}
+	for _, artifact := range publication.Manifest.Artifacts {
+		if artifact.Name != "execution-attempt.json" {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	if len(artifacts) != len(publication.Manifest.Artifacts)-1 {
+		t.Fatal("legacy fixture did not remove the actual reservation artifact")
+	}
+	publication.Manifest.Artifacts = artifacts
+	manifest, err := artifactmanifest.Encode(publication.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := publications.Create(ctx, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := publications.Finalize(ctx, digest); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := owner.Complete(ctx, creator, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := runnerunit.ParseSubmission(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := executioncheckpoint.PublishFinalized(ctx, store, owner, creator, request.Request, service.revision, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := owner.Reserve(ctx, reserved.Attempt.Binding, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentReservation, err := owner.Reservation(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace, err := artifactmanifest.NewNamespace(store, artifactmanifest.ExecutionLedgerNamespaceV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, truncated, err := namespace.ListUnverified(ctx)
+	if err != nil || truncated {
+		t.Fatal("fixture cannot inspect complete decision inventory", err)
+	}
+	admissions := 0
+	result, err := service.Resume(ctx, wire, store, checkpoint, Hooks{Submission: runnerunit.SubmissionHooks{
+		ReuseAdmission: func(ctx context.Context, source *executionledger.CompletedExecution) error {
+			admissions++
+			changed := source.Reservation.Attempt
+			changed.Parent = &executionattempt.Parent{ExecutionID: parentReservation.Attempt.ExecutionID, Relationship: "retry"}
+			reservation, err := executionattempt.EncodeAttempt(changed)
+			if err != nil {
+				return err
+			}
+			updated := source.Completion
+			updated.ReservationDigest = artifactmanifest.Hash(reservation)
+			completion, err := executionledger.EncodeCompletion(updated)
+			if err != nil {
+				return err
+			}
+			for kind, data := range map[string][]byte{"reservation": reservation, "completion": completion} {
+				path := filepath.Join(directory, artifactmanifest.ExecutionLedgerNamespaceV1+"-"+kind+"-"+reserved.Attempt.ExecutionID)
+				if err := os.Chmod(path, 0o600); err != nil {
+					return err
+				}
+				if err := os.WriteFile(path, data, 0o600); err != nil {
+					return err
+				}
+			}
+			changedSource, err := owner.ReadCompleted(ctx, executionattempt.Source{ExecutionID: reserved.Attempt.ExecutionID, ManifestDigest: digest})
+			if err != nil || bytes.Equal(changedSource.CompletionBytes, completed.CompletionBytes) {
+				t.Fatal("mutation did not preserve valid but changed historical sidecars", err)
+			}
+			return nil
+		},
+	}})
+	if err == nil || admissions != 1 || factories != 1 || result.Status != "submission_error" ||
+		result.RestoredUnits != nil || result.RemainingWork != nil || result.Submission == nil ||
+		result.Submission.Decision != nil {
+		t.Fatalf("changed source authorized a recovery decision or success: %+v admissions=%d %v", result, admissions, err)
+	}
+	after, truncated, err := namespace.ListUnverified(ctx)
+	if err != nil || truncated || len(after) != len(before) {
+		t.Fatalf("rejected recovery changed immutable decision inventory: %v %v", after, err)
+	}
+}
 
 func TestCheckpointAdapterRetainsActualProtectedPublicationAndReuseAdmission(t *testing.T) {
 	store := backend(t)

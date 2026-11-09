@@ -57,6 +57,14 @@ func TestResultCodecAdmitsActualProductionOperationShapes(t *testing.T) {
 		t.Fatal("actual compatibility rejection control did not expose field names")
 	}
 	results := []Result{completed, reused, stale, paused, child, publicationFailed, incompatible}
+	for _, changed := range []Result{reused, child} {
+		source := *changed.Source
+		source.Compatibility.Work = "trial-" + strings.Repeat("e", 64)
+		changed.Source = &source
+		if _, err := EncodeResult(changed); err == nil {
+			t.Fatal("result codec admitted a different source work for reuse or fresh child")
+		}
+	}
 	for i, original := range results {
 		data, err := EncodeResult(original)
 		if err != nil {
@@ -90,7 +98,7 @@ func TestResultCodecRejectsNearMissWireAndCoherentSourceSubstitution(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, control := range []string{"null-progress", "omitted-progress", "string-progress", "wrong-new-calls", "wrong-status", "unknown", "duplicate", "retag-source"} {
+	for _, control := range []string{"null-progress", "omitted-progress", "string-progress", "wrong-new-calls", "wrong-status", "unknown", "duplicate", "retag-source", "source-work"} {
 		t.Run(control, func(t *testing.T) {
 			changed := bytes.Clone(data)
 			switch control {
@@ -112,6 +120,15 @@ func TestResultCodecRejectsNearMissWireAndCoherentSourceSubstitution(t *testing.
 				copy := reused
 				source := *reused.Source
 				source.ReservationDigest = strings.Repeat("e", 64)
+				copy.Source = &source
+				changed, err = json.Marshal(copy)
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "source-work":
+				copy := reused
+				source := *reused.Source
+				source.Compatibility.Work = "trial-" + strings.Repeat("e", 64)
 				copy.Source = &source
 				changed, err = json.Marshal(copy)
 				if err != nil {
