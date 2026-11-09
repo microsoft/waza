@@ -214,6 +214,13 @@ typed diagnostics, not local filesystem paths or provider URLs.
 
 ## Backend guarantees and limitations
 
+The browser regression in `web/e2e/runner-negotiation.spec.ts` exercises the
+embedded Lab against the real Go server: it runs the mock runner, publishes its
+original terminal bytes through the artifact CLI, and inspects missing uploads,
+verified unfinalized content, repeated finalization, malformed and conflicting
+markers, and later artifact corruption. It does not substitute API receipts or
+claim live execution evidence.
+
 ### Separate raw execution-ledger namespace
 
 `NewNamespace(backend, ExecutionLedgerNamespaceV1)` accepts only the
