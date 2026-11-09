@@ -230,24 +230,20 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 			}
 			gradeErrors = append(gradeErrors, fmt.Errorf("grading task %q: %w", tc.TestID, gradeErr))
 		}
-		if evidenceRequested {
-			result.Status = models.StatusPassed
-			if gradeErr != nil {
-				result.Status = models.StatusError
+		status := orchestration.OverallStatus(gradedRuns)
+		if gradeErr != nil {
+			status = models.StatusError
+		} else if status == models.StatusError {
+			gradeErrors = append(gradeErrors, fmt.Errorf("grading task %q: recorded execution errors remain; inspect the saved run diagnostics", tc.TestID))
+		}
+		if evidenceRequested || status == models.StatusError {
+			result.Status = status
+			if status == models.StatusError {
 				result.Error = "Task grading failed; no complete verdict is available."
-			} else if !result.Passed {
-				result.Status = models.StatusFailed
 			}
 		}
 		taskResults[tc.TestID] = result
 
-		status := models.StatusPassed
-		if !result.Passed {
-			status = models.StatusFailed
-		}
-		if gradeErr != nil {
-			status = models.StatusError
-		}
 		cachedEvidence := cachedByTask[tc.TestID] && slices.ContainsFunc(gradedRuns, func(run models.RunResult) bool {
 			return run.Evidence != nil || run.JudgeEvidence != nil || len(run.PromptJudging) > 0
 		})
@@ -286,7 +282,7 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 	if len(taskResults) > 0 {
 		output.OverallScore = overallSum / float64(len(taskResults))
 	}
-	if evidenceRequested {
+	if evidenceRequested || len(gradeErrors) > 0 {
 		output.Status = models.StatusPassed
 		if len(gradeErrors) > 0 {
 			output.Status = models.StatusError
@@ -304,7 +300,7 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 		}
 		return nil
 	}
-	if !evidenceRequested {
+	if !evidenceRequested && len(gradeErrors) == 0 {
 		if err := writeSummary(); err != nil {
 			return err
 		}
@@ -334,7 +330,7 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 		}
 	}
 
-	if evidenceRequested {
+	if evidenceRequested || len(gradeErrors) > 0 {
 		gradeErrors = append(gradeErrors, writeSummary())
 	}
 	return errors.Join(gradeErrors...)
@@ -497,7 +493,9 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 		Transcript:         run.Transcript,
 		Session:            &run.SessionDigest,
 		ToolEvents:         run.ToolEvents,
+		HostLifecycle:      run.HostLifecycle,
 		CommandInvocations: run.CommandInvocations,
+		UserInputRequests:  models.UserInputRecordsOf(run.UserInputRequests),
 		DurationMS:         run.DurationMs,
 		SessionID:          run.SessionDigest.SessionID,
 		WorkspaceDir:       workspace,

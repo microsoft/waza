@@ -26,6 +26,88 @@ import (
 )
 
 func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
+	testRecoveryCommandMockDelayCancellationWithFullStderr(t, unix.Poll)
+}
+
+func TestRecoveryCommandMockDelayCancellationWithFullStderrInterruptedPoll(t *testing.T) {
+	calls := 0
+	successes := 0
+	testRecoveryCommandMockDelayCancellationWithFullStderr(t, func(fds []unix.PollFd, timeout int) (int, error) {
+		calls++
+		if calls%2 == 1 {
+			return -1, unix.EINTR
+		}
+		n, err := unix.Poll(fds, timeout)
+		if err == nil {
+			successes++
+		}
+		return n, err
+	})
+	require.GreaterOrEqual(t, calls, 6)
+	require.Equal(t, 3, successes, "all three actual child scenarios must complete their interrupted setup probe")
+}
+
+func recoveryPollNow(fds []unix.PollFd, poll func([]unix.PollFd, int) (int, error)) (int, error) {
+	for range 32 {
+		n, err := poll(fds, 0)
+		if !errors.Is(err, unix.EINTR) {
+			return n, err
+		}
+	}
+	return 0, fmt.Errorf("poll remained interrupted after 32 attempts: %w", unix.EINTR)
+}
+
+func TestRecoveryPollNow(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		interrupts int
+		result     int
+		err        error
+		wantErr    error
+		wantCalls  int
+	}{
+		{name: "nonwritable", wantCalls: 1},
+		{name: "writable is not hidden", result: 1, wantCalls: 1},
+		{name: "interrupted then nonwritable", interrupts: 1, wantCalls: 2},
+		{name: "last permitted probe succeeds", interrupts: 31, wantCalls: 32},
+		{name: "interrupted then writable", interrupts: 1, result: 1, wantCalls: 2},
+		{name: "unexpected error", err: unix.EBADF, wantErr: unix.EBADF, wantCalls: 1},
+		{name: "unexpected error after interruption", interrupts: 1, err: unix.EBADF, wantErr: unix.EBADF, wantCalls: 2},
+		{name: "interrupt storm is bounded", interrupts: 32, wantErr: unix.EINTR, wantCalls: 32},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader, writer, err := os.Pipe()
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, writer.Close())
+				require.NoError(t, reader.Close())
+			})
+			fds := []unix.PollFd{{Fd: int32(writer.Fd()), Events: unix.POLLOUT}}
+			original := append([]unix.PollFd(nil), fds...)
+			calls := 0
+			n, err := recoveryPollNow(fds, func(actual []unix.PollFd, timeout int) (int, error) {
+				require.Equal(t, original, actual)
+				require.Zero(t, timeout, "every retry must remain a nonblocking readiness probe")
+				calls++
+				if calls <= test.interrupts {
+					return -1, fmt.Errorf("interrupted probe: %w", unix.EINTR)
+				}
+				return test.result, test.err
+			})
+			require.ErrorIs(t, err, test.wantErr)
+			require.Equal(t, test.result, n)
+			require.Equal(t, test.wantCalls, calls)
+			_, err = writer.Write([]byte("retained"))
+			require.NoError(t, err, "retry failure must not close caller-owned descriptors")
+			data := make([]byte, len("retained"))
+			_, err = io.ReadFull(reader, data)
+			require.NoError(t, err)
+			require.Equal(t, "retained", string(data))
+		})
+	}
+}
+
+func testRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T, poll func([]unix.PollFd, int) (int, error)) {
 	binary := buildRecoveryCLI(t)
 	for _, test := range []struct {
 		name   string
@@ -92,7 +174,7 @@ func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
 			}
 			require.Positive(t, filled)
 			fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}}
-			n, err := unix.Poll(fds, 0)
+			n, err := recoveryPollNow(fds, poll)
 			require.NoError(t, err)
 			require.Zero(t, n, "inherited stderr must be non-writable before starting the shim")
 			require.NoError(t, unix.SetNonblock(fd, false))
@@ -375,7 +457,7 @@ func TestRecoveryCommandMockPassThroughOutput(t *testing.T) {
 				if blocked {
 					require.EventuallyWithT(t, func(collect *assert.CollectT) {
 						fds := []unix.PollFd{{Fd: int32(emit.Fd()), Events: unix.POLLOUT}}
-						n, err := unix.Poll(fds, 0)
+						n, err := recoveryPollNow(fds, unix.Poll)
 						assert.NoError(collect, err)
 						assert.Zero(collect, n)
 					}, 5*time.Second, 10*time.Millisecond, "inherited host stderr must be full before signaling")
@@ -563,7 +645,7 @@ func TestRecoveryCommandMockOutput(t *testing.T) {
 					require.Equal(t, payload[:len(prefix)], string(prefix))
 					require.EventuallyWithT(t, func(collect *assert.CollectT) {
 						fds := []unix.PollFd{{Fd: int32(emit.Fd()), Events: unix.POLLOUT}}
-						n, err := unix.Poll(fds, 0)
+						n, err := recoveryPollNow(fds, unix.Poll)
 						assert.NoError(collect, err)
 						assert.Zero(collect, n)
 					}, 5*time.Second, 10*time.Millisecond,

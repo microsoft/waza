@@ -21,6 +21,11 @@ permissions:
   pull-requests: write
 
 jobs:
+  validation:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-validation.yml
+
   # ──────────────────────────────────────────────
   # Shared: Extract and validate the release version
   # ──────────────────────────────────────────────
@@ -54,7 +59,7 @@ jobs:
 
   build-cli:
     name: CLI ${{ matrix.os }}/${{ matrix.arch }}
-    needs: setup-version
+    needs: [setup-version, validation]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -78,6 +83,11 @@ jobs:
         with:
           lfs: true
 
+      - name: Require exact validated source
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -85,15 +95,22 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Setup Node.js (for web UI build)
-        if: hashFiles('web/package.json') != ''
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
+      - name: Download dashboard checker dependency
+        run: go mod download golang.org/x/net golang.org/x/sys
+
       - name: Build Web UI
-        if: hashFiles('web/package.json') != ''
         working-directory: web
         run: npm ci && npm run build
+
+      - name: Require built dashboard output
+        run: GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check
+
+      - name: Require clean packaged source
+        run: bash .github/scripts/release_source_check.sh
 
       - name: Build Binary
         env:
@@ -112,18 +129,22 @@ jobs:
             -o "${BINARY_NAME}" \
             ./cmd/waza
 
+          bash .github/scripts/release_binary_check.sh "${BINARY_NAME}"
+          printf '%s\n' "$GITHUB_SHA" > "${BINARY_NAME}.source-sha.txt"
+          sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
           echo "Built ${BINARY_NAME}"
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cli-waza-${{ matrix.os }}-${{ matrix.arch }}
-          path: waza-${{ matrix.os }}-${{ matrix.arch }}*
+          path: |
+            waza-${{ matrix.os }}-${{ matrix.arch }}*
           if-no-files-found: error
 
   release-cli:
     name: Release CLI
-    needs: [setup-version, build-cli]
+    needs: [setup-version, build-cli, validation]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -142,7 +163,27 @@ jobs:
       - name: Generate SHA256 Checksums
         working-directory: artifacts
         run: |
-          sha256sum * > checksums.txt
+          expected=(
+            waza-linux-amd64
+            waza-linux-arm64
+            waza-darwin-amd64
+            waza-darwin-arm64
+            waza-windows-amd64.exe
+            waza-windows-arm64.exe
+          )
+          for binary in "${expected[@]}"; do
+            source="${binary}.source-sha.txt"
+            digest="${binary}.sha256"
+            test -f "$binary"
+            test -f "$source"
+            test -f "$digest"
+            source_sha="$(cat "$source")"
+            test "$source_sha" = "$GITHUB_SHA"
+            recorded_digest="$(cat "$digest")"
+            actual_digest="$(sha256sum "$binary")"
+            test "$recorded_digest" = "$actual_digest"
+          done
+          sha256sum "${expected[@]}" > checksums.txt
           echo "Generated checksums:"
           cat checksums.txt
 
@@ -151,6 +192,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ needs.setup-version.outputs.tag }}"
+          bash .github/scripts/release_tag_check.sh "$TAG"
           upload_release_assets() {
             gh release upload "$TAG" artifacts/* \
               --repo "${{ github.repository }}" \
@@ -161,6 +203,7 @@ jobs:
             upload_release_assets
           elif ! gh release create "$TAG" artifacts/* \
               --repo "${{ github.repository }}" \
+              --verify-tag --target "$GITHUB_SHA" \
               --title "Waza $TAG" \
               --generate-notes; then
             if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
@@ -177,7 +220,7 @@ jobs:
 
   release-extension:
     name: Release Extension
-    needs: setup-version
+    needs: [setup-version, validation]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -190,6 +233,11 @@ jobs:
           fetch-depth: 0
           lfs: true
 
+      - name: Require exact validated source
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -197,15 +245,22 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Setup Node.js (for web UI build)
-        if: hashFiles('web/package.json') != ''
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
+      - name: Download dashboard checker dependency
+        run: go mod download golang.org/x/net golang.org/x/sys
+
       - name: Build Web UI
-        if: hashFiles('web/package.json') != ''
         working-directory: web
         run: npm ci && npm run build
+
+      - name: Require built dashboard output
+        run: GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check
+
+      - name: Require clean packaged source
+        run: bash .github/scripts/release_source_check.sh
 
       - name: Install Azure Developer CLI
         uses: Azure/setup-azd@0b7e3a35ab00f2eee7080c845eb39c3f0ebfa553 # v2.4.0
@@ -216,21 +271,67 @@ jobs:
       - name: Install azd Extensions Developer Kit
         run: azd extension install microsoft.azd.extensions --source azd
 
-      # ── Sync version files FIRST so all azd commands see the correct version ──
-      - name: Sync Version Files
+      - name: Verify selected Extensions Kit contract
         run: |
-          echo "$VERSION" > version.txt
-          sed -i "s/^version: .*/version: $VERSION/" extension.yaml
-          echo "Synced version.txt and extension.yaml to $VERSION"
+          kit_info="$(azd x version)" || {
+            printf '%s\n' "$kit_info" >&2
+            exit 1
+          }
+          printf '%s\n' "$kit_info"
+          kit_version="$(printf '%s\n' "$kit_info" | sed -n 's/^Version: //p')"
+          if [ "$kit_version" != "0.14.0" ]; then
+            echo "Unverified Extensions Kit version: $kit_version. Review its release and publish contracts before publication." >&2
+            exit 1
+          fi
+
+      # Target metadata must already belong to the validated commit.
+      - name: Sync Version Files
+        shell: bash
+        run: |
+          file_version="$(cat version.txt)"
+          extension_version="$(sed -n -e 's/^version:[[:space:]]*//p' extension.yaml | sed -e 's/[[:space:]]\{1,\}#.*$//' -e 's/[[:space:]]*$//')"
+          case "$extension_version" in
+            "\"$VERSION\""|"'$VERSION'") extension_version="$VERSION" ;;
+          esac
+          if [ "$file_version" != "$VERSION" ] || [ "$extension_version" != "$VERSION" ]; then
+            echo "Commit version.txt and extension.yaml for $VERSION before tagging; publication does not repair validated source." >&2
+            exit 1
+          fi
 
       # ── Build & pack ──
       - name: Build Extension
+        env:
+          REQUIRE_RELEASE_ADMISSION: '1'
         run: azd x build --all --skip-install
 
       - name: Pack Extension
         run: azd x pack -o ./artifacts
 
+      - name: Record extension artifact provenance
+        run: |
+          test -d artifacts
+          shopt -s nullglob
+          packages=(artifacts/*.zip artifacts/*.tar.gz)
+          test "${#packages[@]}" -gt 0
+          for package in "${packages[@]}"; do
+            test -f "$package"
+          done
+          {
+            printf 'source_sha=%s\n' "$GITHUB_SHA"
+            sha256sum "${packages[@]}"
+          } > artifacts/release-provenance.txt
+
       # ── Release & publish ──
+      - name: Create exact extension tag exclusively
+        run: |
+          extension_tag="azd-ext-microsoft-azd-waza_${VERSION}"
+          created_sha="$(gh api --method POST "repos/${{ github.repository }}/git/refs" \
+            -f "ref=refs/tags/$extension_tag" -f "sha=$GITHUB_SHA" --jq '.object.sha')" || {
+            echo "Cannot create exclusive extension tag $extension_tag. Inspect existing refs and permissions; no existing tag was replaced." >&2
+            exit 1
+          }
+          test "$created_sha" = "$GITHUB_SHA"
+
       - name: Release Extension
         run: |
           azd x release \
@@ -241,6 +342,21 @@ jobs:
             --artifacts "./artifacts/*.zip,./artifacts/*.tar.gz" \
             --confirm
 
+      - name: Require package-only extension release
+        run: |
+          asset_names="$(gh release view "azd-ext-microsoft-azd-waza_${VERSION}" \
+            --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
+          test -n "$asset_names"
+          while IFS= read -r asset; do
+            case "$asset" in
+              *.zip|*.tar.gz) ;;
+              *)
+                echo "Nonpackage extension asset $asset. Inspect partial publication before retrying; assets were not deleted." >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$asset_names"
+
       - name: Publish Extension
         run: |
           azd x publish \
@@ -248,6 +364,12 @@ jobs:
             --version "$VERSION" \
             --artifacts "./artifacts/*.zip,./artifacts/*.tar.gz" \
             --registry ./registry.json
+
+      - name: Publish Extension Provenance
+        run: |
+          gh release upload "azd-ext-microsoft-azd-waza_${VERSION}" \
+            artifacts/release-provenance.txt \
+            --repo "${{ github.repository }}"
 
       # ── Commit version + registry changes back via PR ──
       # Enterprise policy blocks GITHUB_TOKEN from creating PRs.
@@ -260,35 +382,50 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Delete existing remote branch if it exists (handle retries)
-          git push origin --delete "$BRANCH" 2>/dev/null || true
-
           git checkout -b "$BRANCH"
           git add registry.json version.txt extension.yaml
-          git commit -m "chore: Update registry and sync versions for v${VERSION}"
-          git push origin "$BRANCH"
+          git commit -m "chore: Update registry and sync versions for v${VERSION}" \
+            -m "Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>"
+          # The empty expected value permits creation only, never replacement.
+          push_receipt="$(git push --porcelain --force-with-lease="refs/heads/$BRANCH:" origin "HEAD:refs/heads/$BRANCH")" || {
+            echo "Cannot create exclusive registry-sync branch $BRANCH. Existing or concurrently created refs were not replaced; inspect publication state before retrying." >&2
+            exit 1
+          }
+          if ! printf '%s\n' "$push_receipt" | awk -F '\t' -v ref="HEAD:refs/heads/$BRANCH" \
+            '$1 == "*" && $2 == ref && $3 == "[new branch]" {created++} END {if (created != 1) exit 1}'; then
+            echo "Registry-sync branch creation was not confirmed. An up-to-date competing ref is not owned by this invocation; inspect without replacing it." >&2
+            exit 1
+          fi
 
-          # Try to create PR — if enterprise blocks GITHUB_TOKEN PR creation,
-          # log the branch URL and succeed so the release doesn't fail.
-          PR_URL=$(gh pr create \
+          PR_BODY="$(mktemp)"
+          trap 'rm -f "$PR_BODY"' EXIT
+          awk -v version="$VERSION" -v sha="$GITHUB_SHA" \
+            -v run="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" '
+            $0 == "## Summary" { print; print "\nRegistry synchronization for extension v" version ". Packages and provenance were published by [this workflow](" run ") from " sha "."; next }
+            $0 == "## Related issue" { print; print "\nRelease metadata synchronization; no issue is automatically closed."; next }
+            $0 == "- Scope:" { print "- Scope: Generated registry and already-admitted target version metadata."; next }
+            $0 == "- Key files changed:" { print "- Key files changed: registry.json; version.txt and extension.yaml only if staged changes exist."; next }
+            $0 == "- Important decisions:" { print "- Important decisions: Exclusive branch creation; no existing branch was replaced."; next }
+            $0 == "- Follow-ups or known gaps:" { print "- Follow-ups or known gaps: Normal independent review, workflow approval, and current-head CI remain required."; next }
+            $0 == "- [ ] CI/CD or release change" { print "- [x] CI/CD or release change"; next }
+            $0 == "- [ ] Manual validation completed:" { print "- [ ] Manual validation completed: Not performed by this automated registry-sync job; release admission does not prove this generated PR passed CI."; next }
+            $0 == "- Risk level: Low / Medium / High" { print "- Risk level: Medium"; next }
+            $0 == "- Rollback plan:" { print "- Rollback plan: Inspect existing public release and registry state before a reviewed corrective PR; do not delete source refs."; next }
+            $0 == "## Notes for reviewers" { print; print "\nVerify registry URLs and digests against the published packages. Approving workflow execution is not code approval."; next }
+            { print }
+          ' .github/PULL_REQUEST_TEMPLATE.md > "$PR_BODY"
+
+          if PR_URL="$(gh pr create \
             --title "chore: Release v${VERSION} — registry and version sync" \
-            --body "## Release v${VERSION}
-
-          Automated update from the [Release](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow.
-
-          ### Changes
-          - Updated \`registry.json\` with artifacts for extension version **${VERSION}**
-          - Synced \`version.txt\` and \`extension.yaml\` to **${VERSION}**
-
-          > **Note:** Merge this PR to complete the release." \
+            --body-file "$PR_BODY" \
             --base main \
-            --head "$BRANCH" 2>&1) || true
-
-          if echo "$PR_URL" | grep -q "github.com"; then
+            --head "$BRANCH")"; then
             echo "✅ Created PR: $PR_URL"
             echo "Release PR requires normal review and passing CI before merge."
             echo "A maintainer must select 'Approve workflows to run' on the PR to start its CI."
           else
-            echo "⚠️ Could not create PR (enterprise restriction). Branch pushed: release/v${VERSION}"
+            printf '%s\n' "$PR_URL" >&2
+            echo "Could not create PR. The registry-sync branch was created, but PR creation failed." >&2
             echo "   Create PR manually: https://github.com/${{ github.repository }}/compare/main...release/v${VERSION}"
+            exit 1
           fi

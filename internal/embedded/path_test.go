@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestPath(t *testing.T) {
 		require.NotNil(t, pong)
 		status, err := client.GetStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, "1.0.101", status.Version)
+		require.Equal(t, "1.0.105", status.Version)
 		schemaBytes, err := os.ReadFile(filepath.Join(filepath.Dir(path), "schemas", "session-events.schema.json"))
 		require.NoError(t, err)
 		var schema struct {
@@ -102,7 +103,14 @@ func TestPath(t *testing.T) {
 			require.NoError(t, err)
 			ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 			defer cancel()
-			output, err := exec.CommandContext(ctx, executable, "-test.run=^TestPath$", "-test.v").CombinedOutput()
+			command := exec.CommandContext(ctx, executable, "-test.run=^TestPath$", "-test.v")
+			// This test exercises the bundled offline protocol fixture, not the production runtime path.
+			for _, assignment := range os.Environ() {
+				if !strings.HasPrefix(assignment, "COPILOT_CLI_PATH=") {
+					command.Env = append(command.Env, assignment)
+				}
+			}
+			output, err := command.CombinedOutput()
 			require.NoError(t, err, "%s", output)
 			t.Logf("%s", output)
 		})

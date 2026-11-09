@@ -28,9 +28,9 @@
     },
     "validation": {"enum": ["not_checked", "invalid", "valid"]},
     "adjacent_work_selected": {"const": false},
-    "execution_mode": {"const": "mock"},
+    "execution_mode": {"enum": ["mock", "copilot"]},
     "engine_calls": {"type": "integer", "minimum": 0, "maximum": 1},
-    "observation": {"type": "object", "description": "Original RunResult from this mock attempt, not a versioned terminal result. No archive reader is provided."},
+    "observation": {"type": "object", "description": "Original RunResult from this attempt, not aggregate metric evidence or a versioned terminal result. No archive reader is provided."},
     "diagnostics": {
       "type": "array",
       "items": {
