@@ -7,8 +7,44 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNativeJSONMatchesFrozenEndpointResponses(t *testing.T) {
+	dir := t.TempDir()
+	outcome := projectionCacheOutcome("recorded")
+	outcome.TestOutcomes = outcome.TestOutcomes[:1]
+	outcome.Digest.TotalTests = 1
+	outcome.Digest.Succeeded = 1
+	outcome.Digest.Failed = 0
+	outcome.SkillTested = ""
+	outcome.Setup.JudgeModel = "judge-model"
+	outcome.Digest.WeightedScore = 0
+	outcome.Digest.Usage.AICredits = utils.Ptr(0.0)
+	outcome.Digest.Usage.ModelMetrics = map[string]models.ModelUsage{
+		"model": {InputTokens: 7, AICredits: utils.Ptr(0.0)},
+	}
+	outcome.TestOutcomes[0].Stats = &models.TestStats{AvgWeightedScore: 0}
+	writeOutcomeFile(t, filepath.Join(dir, "recorded.json"), *outcome)
+	for _, configured := range []bool{false, true} {
+		mux := labRefreshMux(t, dir, configured)
+		for _, tc := range []struct {
+			fixture, endpoint string
+		}{
+			{"native-json-runs.json", "/api/runs"},
+			{"native-json-runs.json", "/api/v1/lab/runs"},
+			{"native-json-detail.json", "/api/runs/recorded"},
+		} {
+			// Captured from main 0b9ca05 before replacing the custom marshalers.
+			expected, err := os.ReadFile(filepath.Join("testdata", "native-json", tc.fixture))
+			require.NoError(t, err)
+			rec := labRefreshRequest(t, mux, tc.endpoint, http.StatusOK)
+			require.JSONEq(t, string(expected), rec.Body.String(), tc.endpoint)
+		}
+	}
+}
 
 func TestRecordedSkillPresenceFromDiskToAPI(t *testing.T) {
 	for _, configured := range []bool{false, true} {
