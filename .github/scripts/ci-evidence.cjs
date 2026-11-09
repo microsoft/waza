@@ -529,7 +529,7 @@ function browserInventory(data) {
   return sorted(ids);
 }
 
-function summarizeActions(run, attempts, artifacts, diagnostics = []) {
+function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsComplete = true) {
   const report = { schema: 1, kind: "actions", observed_at: new Date().toISOString(), test_content: "not-loaded; metadata-only", repository: "microsoft/waza", run_id: run.id ?? null, run_attempt: number(run.run_attempt), source_sha: text(run.head_sha), event: text(run.event), workflow: text(run.name), workflow_id: run.workflow_id ?? null, final_conclusion: text(run.conclusion), diagnostics: [...diagnostics], attempts: [], jobs: [], artifacts: [] };
   const retained = new Map();
   for (const attempt of attempts) {
@@ -585,7 +585,7 @@ function summarizeActions(run, attempts, artifacts, diagnostics = []) {
   const stepDurations = report.jobs.flatMap((job) => job.steps || []).map((step) => step.seconds);
   report.longest_observed_step_seconds = stepDurations.length ? Math.max(...stepDurations.filter((duration) => duration !== null)) : null;
   if (!Number.isFinite(report.longest_observed_step_seconds)) report.longest_observed_step_seconds = null;
-  report.artifact_bytes = artifacts.length && !diagnostics.some((code) => code.startsWith("artifacts-")) && artifacts.every((artifact) => artifact.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha && number(artifact.size_in_bytes) !== null) ? artifacts.reduce((sum, artifact) => sum + artifact.size_in_bytes, 0) : null;
+  report.artifact_bytes = artifactsComplete && !diagnostics.some((code) => code.startsWith("artifacts-")) && artifacts.every((artifact) => artifact.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha && number(artifact.size_in_bytes) !== null) ? artifacts.reduce((sum, artifact) => sum + artifact.size_in_bytes, 0) : null;
   for (const artifact of artifacts) {
     const bound = artifact.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha;
     report.artifacts.push({ id: artifact.id ?? null, name: text(artifact.name), source_bound: bound, expired: typeof artifact.expired === "boolean" ? artifact.expired : null, bytes: bound ? number(artifact.size_in_bytes) : null, digest: text(artifact.digest) });
@@ -604,8 +604,8 @@ function collectActions(runID, api = (endpoint) => JSON.parse(command("gh", ["ap
   const prefix = `repos/microsoft/waza/actions/runs/${runID}`;
   const diagnostics = [], attempts = [], artifacts = [];
   let run;
-  try { run = api(prefix); } catch { return summarizeActions({ id: Number(runID) }, [], [], ["run-api-failed"]); }
-  if (!run || run.repository?.full_name !== "microsoft/waza" || String(run.id) !== String(runID)) return summarizeActions({ id: Number(runID) }, [], [], ["run-source-invalid"]);
+  try { run = api(prefix); } catch { return summarizeActions({ id: Number(runID) }, [], [], ["run-api-failed"], false); }
+  if (!run || run.repository?.full_name !== "microsoft/waza" || String(run.id) !== String(runID)) return summarizeActions({ id: Number(runID) }, [], [], ["run-source-invalid"], false);
   function pages(endpoint, field) {
     const items = [];
     let complete = false;
@@ -631,8 +631,9 @@ function collectActions(runID, api = (endpoint) => JSON.parse(command("gh", ["ap
     }
     if (run.run_attempt > LIMITS.attempts) diagnostics.push("attempt-cap");
   }
-  artifacts.push(...pages(`${prefix}/artifacts`, "artifacts").items);
-  return summarizeActions(run, attempts, artifacts, diagnostics);
+  const inventory = pages(`${prefix}/artifacts`, "artifacts");
+  artifacts.push(...inventory.items);
+  return summarizeActions(run, attempts, artifacts, diagnostics, inventory.complete);
 }
 
 function cohort(report) {

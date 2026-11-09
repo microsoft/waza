@@ -248,6 +248,9 @@ earlier retained jobs. Job span is the observed critical-path
 envelope, not a reconstructed dependency DAG. Retry-request queue time is
 unavailable: the original creation timestamp must not be reused for retries.
 Elapsed runner-minutes and artifact bytes are **not billed cost**.
+An observed, complete empty artifact inventory records zero bytes. An inventory
+that was not queried, failed, or remained incomplete records unavailable bytes,
+not zero; unrelated job diagnostics do not erase an observed artifact total.
 
 Collection is capped at 10 attempts and 10 pages of 100 records per
 jobs/artifacts endpoint. An API failure, cap, missing timestamp or unverified

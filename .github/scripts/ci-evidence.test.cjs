@@ -583,6 +583,54 @@ test("production Actions totals withhold job integrity failures but preserve unr
     assert.equal(report.runner_elapsed_minutes_by_os["ubuntu-latest"], expected);
   }
 });
+test("production Actions artifact totals distinguish observed empty inventory from unavailable evidence", () => {
+  const good = job(1, "01", "02");
+  const artifact = { id: 100, name: "artifact", size_in_bytes: 0,
+    workflow_run: { id: run.id, head_sha: run.head_sha } };
+  const collect = (mode) => {
+    let artifactCalls = 0;
+    const report = collectActions("10", (endpoint) => {
+      if (endpoint.includes("/artifacts")) {
+        artifactCalls++;
+        if (mode === "api-failed") throw new Error("private-api-failure");
+        if (mode === "api-invalid") return { total_count: 0, artifacts: null };
+        if (mode === "incomplete") return { total_count: 1, artifacts: [] };
+        if (mode === "zero-byte") return { total_count: 1, artifacts: [artifact] };
+        if (mode === "populated") return { total_count: 1, artifacts: [{ ...artifact, size_in_bytes: 42 }] };
+        if (mode === "unbound") return { total_count: 1, artifacts: [{ ...artifact, workflow_run: { id: 11, head_sha: run.head_sha } }] };
+        return { total_count: 0, artifacts: [] };
+      }
+      if (endpoint.includes("/jobs")) {
+        if (mode === "jobs-failed") throw new Error("private-job-failure");
+        return { total_count: 1, jobs: [good] };
+      }
+      if (endpoint.includes("/attempts/")) return { run_started_at: good.started_at };
+      if (mode === "run-failed") throw new Error("private-run-failure");
+      return { ...run, run_attempt: 1, ...(mode === "run-unbound" ? { id: 11 } : {}) };
+    });
+    return { report, artifactCalls };
+  };
+  for (const [mode, expected, complete, diagnostic] of [
+    ["empty", 0, true, null],
+    ["zero-byte", 0, true, null],
+    ["populated", 42, true, null],
+    ["jobs-failed", 0, false, "jobs-api-failed"],
+    ["api-failed", null, false, "artifacts-api-failed"],
+    ["api-invalid", null, false, "artifacts-api-invalid"],
+    ["incomplete", null, false, "artifacts-pagination-incomplete"],
+    ["unbound", null, false, "artifact-source-unverified"],
+    ["run-failed", null, false, "run-api-failed"],
+    ["run-unbound", null, false, "run-source-invalid"],
+  ]) {
+    const { report, artifactCalls } = collect(mode);
+    assert.equal(report.artifact_bytes, expected, mode);
+    assert.equal(report.complete, complete, mode);
+    if (diagnostic) assert.ok(report.diagnostics.includes(diagnostic), mode);
+    else assert.deepEqual(report.diagnostics, [], mode);
+    assert.equal(artifactCalls > 0, !mode.startsWith("run-"), mode);
+    assert.ok(!JSON.stringify(report).includes("private-"), mode);
+  }
+});
 function archive(report, name = "coverage-native-0.txt.evidence.json", options = {}) {
   const content = Buffer.isBuffer(report) ? report : Buffer.from(JSON.stringify(report));
   const data = options.deflate ? deflateRawSync(content) : content, filename = Buffer.from(name);
