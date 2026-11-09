@@ -1,4 +1,27 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+test('attempt preview links serve exact independent sidecar schemas below the deployed base', async ({ page, request }) => {
+  await page.goto('/waza/guides/immutable-artifacts/');
+  await expect(page.getByRole('heading', { name: 'Logical attempts: embedding preview', exact: true })).toBeVisible();
+  for (const [label, filename] of [
+    ['attempt/decision schema', 'execution-attempt-1.0.schema.json'],
+    ['completion schema', 'execution-completion-1.0.schema.json'],
+    ['submission schema', 'execution-submission-1.0.schema.json'],
+    ['submission-result schema', 'execution-submission-result-1.0.schema.json'],
+  ]) {
+    const link = page.getByRole('link', { name: label, exact: true });
+    const href = await link.getAttribute('href');
+    expect(href).not.toBeNull();
+    const url = new URL(href!, page.url());
+    expect(url.pathname).toBe(`/waza/schemas/${filename}`);
+    const response = await request.get(url.toString());
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-type']).toMatch(/^application\/(?:schema\+)?json(?:;|$)/);
+    const original = JSON.parse(readFileSync(new URL(`../../schemas/${filename}`, import.meta.url), 'utf8'));
+    expect(await response.json()).toEqual(original);
+  }
+});
 
 test('terminal guide navigation, all outcome examples, schema and actual Lab screenshot retain /waza', async ({ page, request }) => {
   await page.goto('/waza/reference/cli/');
