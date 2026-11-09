@@ -258,7 +258,8 @@ Elapsed runner-minutes and artifact bytes are **not billed cost**.
 An observed, complete empty artifact inventory records zero bytes. An inventory
 that was not queried, failed, or remained incomplete records unavailable bytes,
 not zero; unrelated job diagnostics do not erase an observed artifact total.
-Artifact IDs must be unique positive integers. Overlapping pages, invalid IDs,
+Artifact IDs must be unique positive safe integers; byte sizes and their sum
+must be nonnegative safe integers. Overlapping pages, invalid metadata,
 or changing pagination totals withhold the aggregate and baseline eligibility;
 readable test observations remain available as ineligible evidence.
 

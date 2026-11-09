@@ -711,9 +711,15 @@ test("production Actions artifact inventories require unique positive identities
     ["negative total", [[]], [-1], null, "artifacts-api-invalid"],
     ["oversized page", [artifacts.slice(0, 101)], [101], null, "artifacts-api-invalid"],
     ["null row", [first, [null]], [101, 101], null, "artifact-id-unavailable"],
+    ["zero bytes", [[{ ...artifacts[0], size_in_bytes: 0 }]], [1], 0, null],
+    ["largest exact byte count", [[{ ...artifacts[0], size_in_bytes: Number.MAX_SAFE_INTEGER }]], [1], Number.MAX_SAFE_INTEGER, null],
+    ["unsafe aggregate", [[{ ...artifacts[0], size_in_bytes: Number.MAX_SAFE_INTEGER }, { ...artifacts[1], size_in_bytes: 1 }]], [2], null, "artifact-bytes-overflow"],
   ];
   for (const id of [undefined, null, 0, -1, 1.5, "101", Number.MAX_SAFE_INTEGER + 1]) {
     cases.push([`invalid ID ${id}`, [first, [{ ...artifacts[100], id }]], [101, 101], null, "artifact-id-unavailable"]);
+  }
+  for (const size of [undefined, null, -1, 0.5, "1", Number.MAX_SAFE_INTEGER + 1]) {
+    cases.push([`invalid size ${size}`, [[{ ...artifacts[0], size_in_bytes: size }]], [1], null, "artifact-size-unavailable"]);
   }
   for (const [label, pages, totals, bytes, diagnostic] of cases) {
     const report = collectActions("10", apiFor(pages, totals));
@@ -723,8 +729,8 @@ test("production Actions artifact inventories require unique positive identities
     if (diagnostic) assert.ok(report.diagnostics.includes(diagnostic), label);
     else {
       assert.deepEqual(report.diagnostics, []);
-      assert.equal(report.artifacts.length, 101);
-      assert.equal(new Set(report.artifacts.map((artifact) => artifact.id)).size, 101);
+      assert.equal(report.artifacts.length, pages.flat().length);
+      assert.equal(new Set(report.artifacts.map((artifact) => artifact.id)).size, pages.flat().length);
     }
   }
   const unstableJobs = collectActions("10", (endpoint) => {
@@ -758,7 +764,7 @@ test("production artifact pagination withholds baseline eligibility without drop
   const artifacts = [bound, ...Array.from({ length: 101 }, (_, index) => ({
     ...bound, id: 1000 + index, name: "unrelated",
   }))];
-  for (const mode of ["distinct", "overlap", "growing", "shrinking", "invalid"]) {
+  for (const mode of ["distinct", "overlap", "growing", "shrinking", "invalid", "fractional", "overflow"]) {
     let artifactCalls = 0, downloads = 0;
     const observed = collectObservations("10", (endpoint) => {
       if (!endpoint.includes("/artifacts")) return fixture.api(endpoint);
@@ -768,7 +774,8 @@ test("production artifact pagination withholds baseline eligibility without drop
       return {
         total_count: mode === "growing" ? 102 : mode === "shrinking" ? 100 : 101,
         artifacts: mode === "overlap" ? [artifacts[99]] : mode === "growing" ? artifacts.slice(100) :
-          mode === "shrinking" ? [] : mode === "invalid" ? [{ ...artifacts[100], id: null }] : [artifacts[100]],
+          mode === "shrinking" ? [] : mode === "invalid" ? [{ ...artifacts[100], id: null }] :
+            mode === "fractional" || mode === "overflow" ? [{ ...artifacts[100], size_in_bytes: mode === "fractional" ? 0.5 : Number.MAX_SAFE_INTEGER }] : [artifacts[100]],
       };
     }, (id) => {
       downloads++;

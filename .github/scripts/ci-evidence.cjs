@@ -592,6 +592,7 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
   report.longest_observed_step_seconds = stepDurations.length ? Math.max(...stepDurations.filter((duration) => duration !== null)) : null;
   if (!Number.isFinite(report.longest_observed_step_seconds)) report.longest_observed_step_seconds = null;
   const artifactIDs = new Set();
+  let artifactBytes = 0;
   for (const artifact of artifacts) {
     if (!Number.isSafeInteger(artifact?.id) || artifact.id < 1) {
       artifactsComplete = false;
@@ -600,11 +601,19 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
       artifactsComplete = false;
       diagnostic(report, "duplicate-artifact-id");
     } else artifactIDs.add(artifact.id);
+    const bytes = Number.isSafeInteger(artifact?.size_in_bytes) && artifact.size_in_bytes >= 0 ? artifact.size_in_bytes : null;
+    if (bytes === null) {
+      artifactsComplete = false;
+      diagnostic(report, "artifact-size-unavailable");
+    } else if (!Number.isSafeInteger(artifactBytes + bytes)) {
+      artifactsComplete = false;
+      diagnostic(report, "artifact-bytes-overflow");
+    } else artifactBytes += bytes;
     const bound = artifact?.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha;
-    report.artifacts.push({ id: artifact?.id ?? null, name: text(artifact?.name), source_bound: bound, expired: typeof artifact?.expired === "boolean" ? artifact.expired : null, bytes: bound ? number(artifact.size_in_bytes) : null, digest: text(artifact?.digest) });
+    report.artifacts.push({ id: artifact?.id ?? null, name: text(artifact?.name), source_bound: bound, expired: typeof artifact?.expired === "boolean" ? artifact.expired : null, bytes: bound ? bytes : null, digest: text(artifact?.digest) });
     if (!bound) diagnostic(report, "artifact-source-unverified");
   }
-  report.artifact_bytes = artifactsComplete && !diagnostics.some((code) => code.startsWith("artifacts-")) && artifacts.every((artifact) => artifact.workflow_run?.id === run.id && artifact.workflow_run?.head_sha === run.head_sha && number(artifact.size_in_bytes) !== null) ? artifacts.reduce((sum, artifact) => sum + artifact.size_in_bytes, 0) : null;
+  report.artifact_bytes = artifactsComplete && !diagnostics.some((code) => code.startsWith("artifacts-")) && report.artifacts.every((artifact) => artifact.source_bound) ? artifactBytes : null;
   if (!report.attempts.length || report.attempts.some((attempt) => !attempt.complete)) diagnostic(report, "attempts-incomplete");
   if (!report.source_sha || !report.event || !report.workflow || run.status !== "completed") diagnostic(report, "run-metadata-incomplete");
   if (report.jobs.some((job) => job.elapsed_seconds === null || job.steps === null)) diagnostic(report, "job-metadata-incomplete");
