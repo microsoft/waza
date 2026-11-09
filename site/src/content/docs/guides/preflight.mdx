@@ -195,9 +195,29 @@ SKILL.md/agent/cwd/directory discovery precedence and report requested
 allowlist/deny-all as unresolved, never proof of enforcement or observed behavior.
 
 Command-mock fixtures resolve from the eval directory. Task `command_mocks`
-replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
-server declarations. MCP fixture responses and matchers are parsed without
-starting a mock. External schema references are not fetched.
+replaces eval mocks, including explicit `[]`. Task `mcp_mocks` replace only the
+same-named eval MCP mocks and are listed as dependencies of their task. A task
+mock that fails to decode, such as an invalid matcher, is reported as
+`task.configuration` with its task file; fixture and admission failures are
+reported as `mock.mcp` with the task file and task id. When a task cannot be
+decoded offline, for example because a matcher references an external schema,
+its MCP mocks are still checked for executor, schema version, names and fixtures.
+Same-name MCP mocks shadow live server declarations in the phase that uses those
+mocks. A live server that every inspected task mocks is not inspected only when
+no eval-level trigger phase needs it. Likewise, an eval MCP mock that every task
+replaces is reported as `mock.mcp_replaced`, omitted from dependencies, and its
+fixtures left unread only when no trigger phase needs it; its inline tool
+declarations are still validated.
+
+Trigger tests use eval-level MCP mocks and live servers, not task replacements.
+Their dependencies are retained even when every task supplies its own mock.
+Retention does not unshadow a live server covered by an eval-level mock.
+The mock executor synthesizes successfully parsed trigger tests without MCP.
+If trigger discovery or parsing fails, preflight conservatively retains eval-level
+dependencies and reports independent diagnostics instead of assuming they are
+unused. `waza run` applies the same dependency rule to the tasks selected to run.
+MCP fixture responses and matchers are parsed
+without starting a mock. External schema references are not fetched.
 Fixture and inline `input_schema` must be a JSON object when supplied; strings, numbers,
 booleans and arrays are invalid. Omitting it retains the default tool schema.
 Input schemas are checked independently of response matchers: an unavailable
