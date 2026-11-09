@@ -68,6 +68,12 @@ bytes still have distinct manifest digests. A capture callback may return that
 same artifact but cannot substitute another reservation. Raw `report.json`
 publication is rejected; category-scoped capture belongs to the evidence layer.
 
+The immutable distinct decision is recorded before runtime construction.
+`Ledger.HasDistinctDecision` distinguishes reservation-only state from an
+execution that may already have run, even if a crash prevented completion.
+Truncated or invalid decision discovery cannot establish absence. This is not
+a lock: recovery must separately establish that the original worker has stopped.
+
 No reservation/completion/publication transaction, lease, crash durability,
 worker liveness, authenticated execution provenance, or exactly-once guarantee
 is implied. A storage error can leave immutable partial objects. Preserve
