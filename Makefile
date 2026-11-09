@@ -1,5 +1,5 @@
 # Waza Build System
-.PHONY: all build build-web clean test test-compat lint fmt install help
+.PHONY: all build build-web clean test test-compat test-compat-inventory test-compat-prereqs lint fmt install help
 
 # Build configuration
 BINARY_NAME=waza
@@ -8,6 +8,7 @@ GO_FILES=$(shell find . -name '*.go' -not -path './vendor/*' -not -path './*/nod
 GO_PACKAGES=$(shell go list ./... | grep -v '/node_modules')
 VERSION?=0.1.0
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
+COMPAT_PACKAGES=./cmd/waza/... ./internal/models ./internal/validation ./internal/graders/... ./internal/execution ./internal/orchestration ./internal/commandmock ./internal/mcpmock ./internal/cache ./internal/snapshot ./internal/registry ./internal/skill ./internal/checks ./internal/quality ./internal/responder ./internal/trigger ./internal/adversarial ./internal/scoring ./internal/workspace ./internal/webapi
 
 # Default target
 all: fmt lint build test
@@ -29,11 +30,17 @@ test: build-web
 	@go tool cover -func=coverage.out | tail -1
 
 # Run the offline corpus without building or installing frontend dependencies.
-test-compat:
-	@echo "Running offline compatibility corpus and package-owned preservation tests..."
+test-compat-prereqs:
 	@for tool in git node; do command -v "$$tool" >/dev/null 2>&1 || { echo "test-compat requires $$tool on PATH; no grader family may be silently skipped"; exit 1; }; done
 	@python3 --version >/dev/null 2>&1 || python --version >/dev/null 2>&1 || { echo "test-compat requires working python3 or python on PATH; no grader family may be silently skipped"; exit 1; }
-	@ENABLE_COPILOT_TESTS=false NO_COLOR=1 TZ=UTC LC_ALL=C go test -count=1 ./cmd/waza/... ./internal/models ./internal/validation ./internal/graders/... ./internal/execution ./internal/orchestration ./internal/commandmock ./internal/mcpmock ./internal/cache ./internal/snapshot ./internal/registry ./internal/skill ./internal/checks ./internal/quality ./internal/responder ./internal/trigger ./internal/adversarial ./internal/scoring ./internal/workspace ./internal/webapi
+
+test-compat-inventory: test-compat-prereqs
+	@echo "Compatibility packages subsumed by the uncached ordinary Go suite:"
+	@printf '  %s\n' $(COMPAT_PACKAGES)
+
+test-compat: test-compat-prereqs
+	@echo "Running offline compatibility corpus and package-owned preservation tests..."
+	@ENABLE_COPILOT_TESTS=false NO_COLOR=1 TZ=UTC LC_ALL=C go test -count=1 $(COMPAT_PACKAGES)
 
 # Run linter
 lint:
@@ -71,6 +78,7 @@ help:
 	@echo "  build    - Compile the binary"
 	@echo "  test     - Run all tests with coverage"
 	@echo "  test-compat - Run offline v1 compatibility corpus (see docs/COMPATIBILITY.md)"
+	@echo "  test-compat-inventory - Check prerequisites and list compatibility packages"
 	@echo "  lint     - Run golangci-lint"
 	@echo "  fmt      - Format Go code and tidy modules"
 	@echo "  install  - Install binary to GOPATH"

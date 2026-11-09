@@ -14,14 +14,16 @@ Running waza evaluations in CI/CD allows you to:
 
 ## Waza repository native checks and stacked PRs
 
-Waza's `go-ci.yml` and `squad-ci.yml` run on pull requests targeting any
-base branch, including feature branches used by stacked PRs. Both retain the
-`opened`, `synchronize`, and `reopened` activity types (the GitHub defaults in
-`go-ci.yml`, explicit in `squad-ci.yml`), without PR branch or path filters.
-Push triggers remain restricted to `main`/`develop` in `go-ci.yml` and
-`dev`/`insider` in `squad-ci.yml`.
+Waza's single `go-ci.yml` workflow runs on pull requests targeting any base
+branch, including feature branches used by stacked PRs. It retains the
+`opened`, `synchronize`, and `reopened` default activity types without PR branch
+or path filters. Push triggers cover `main`, `develop`, `dev`, and `insider`.
+The former `squad-ci.yml` duplicated the same validation and has been removed.
+Superseded PR runs are cancelled within the same workflow/event/ref. Push
+validations use independent run-ID groups, so they neither serialize nor replace
+pending push runs. Release publication is not cancelled by that PR policy.
 
-These are ordinary `pull_request` workflows with `contents: read`, not
+This is an ordinary `pull_request` workflow with `contents: read`, not
 `pull_request_target` or release/dispatch workflows. The existing `Lint`,
 `ubuntu-latest`, and `windows-latest` jobs, four native Linux shards, exhaustive
 test-selection/coverage verification, and pinned lint-schema checks remain
@@ -32,18 +34,242 @@ PR head following a qualifying PR event. Existing runs are not retroactively
 scheduled. Keep the stack and branch protection intact, and obtain current-head
 native Linux/Windows results and independent approvals before merging.
 
-Both lint jobs run the trigger regression test. Run it locally with
+The lint job runs the trigger regression test. Run it locally with
 `go test -count=1 -v ./.github/scripts`; it checks default and feature-base
-selection, excluded activity types, unchanged push filters, and mutations of the
+selection, excluded activity types, the union of prior push branches, and mutations of the
 actual workflow sources. Shard and lint failure-handling checks remain
 `bash .github/scripts/go_test_shard_test.sh` and
 `bash .github/scripts/lint_test.sh`.
+
+The four native Linux shards use deterministic longest-first duration balancing.
+`.github/scripts/go_test_shard_durations.tsv` records observed top-level
+race/atomic durations and their source run. Update it from top-level test results,
+not overlapping subtest times. Timing history affects placement only: discovery
+still determines the complete inventory, new tests receive the median historical
+duration, and removed tests are never resurrected. Python 3 (provided by the
+Ubuntu runner) computes the plan. Every shard still retains its 30-minute test
+deadline, atomic coverage, full discovery inventory, and selected test names;
+the aggregate gate verifies identical inventories and exactly-once selection.
+
+Squad Release and Squad Insider Release run remaining-package validation in
+parallel with these shards. Publication waits for both branches to succeed,
+verifies all five coverage profiles and native selection, and downloads the
+binary produced by the validated build rather than rebuilding it. Failed,
+cancelled, skipped, or missing evidence must prevent publication.
+
+Site change detection is a short prerequisite job. Site browser validation and
+offline documentation examples then run independently. Dashboard Chromium tests
+use two CI workers at file granularity; serial process-backed suites retain their
+ordering, and all tests still run with zero retries in dashboard CI.
 
 The Docker dashboard build also consumes `examples/runner/unit.json`, the
 captured request imported by Lab selection validation. Keep its explicit
 `.dockerignore` admission, web-builder `COPY`, and Docker workflow path trigger
 in sync. `go test -count=1 ./.github/scripts` checks these build inputs; an
 actual Docker build is still required to verify container packaging.
+
+## Proposed PR completeness gate
+
+Issue #900 adds an **additive gate, not a replacement for native Go checks**.
+The applicability and receipt controls are under implementation; the reusable
+workflow routing and current-head adoption evidence are not yet active. Do not
+require `PR completeness` in a ruleset until the migration below is reviewed and
+its actual workflow executions are verified.
+
+The proposed ordinary-PR entrypoint is the existing Go workflow, with local
+reusable calls to the existing auxiliary validators. This avoids cross-run
+`needs` assumptions and duplicate ordinary-PR suites. Non-PR triggers remain
+separate. The initial applicability matrix is subject to production-input and
+full-diff review:
+
+| Validation | Changed inputs |
+|---|---|
+| Go, lint, native Linux shards and Windows | Every ordinary PR, preserving the existing native gates. |
+| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, and runner examples. |
+| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config and lockfile content read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
+| Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
+| Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
+| Docker image and native runner contracts | Container/context files, `.gitattributes` LFS checkout rules for embedded assets, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |
+| Squad tools on Linux and Windows | Squad state, skills/agent definitions, PR requirements, casting `.gitattributes`, and Ralph/Squad tooling scripts. |
+| Pinned judge runtime on Linux and macOS | Embedded runtime, execution/graders/judge evidence/models, their repository package dependency closure (including filesystem admission, snapshot readers, schema loading, events, config, skills/tokens and compiled test helpers), root schemas, modules and `.gitattributes`. |
+
+Workflow and completeness-interpreter changes select the affected gate families.
+The initial production documentation prebuild input trace observed 210 distinct
+repository paths, not 210 content reads. Besides the three content inputs
+`Makefile`, `web/playwright.config.ts` and `web/package-lock.json`, it found
+existence/stat checks for `web/e2e/runner-negotiation.spec.ts`, linked
+`.squad/model-policy.md`, `DEMO-SCRIPT.md`, `LICENSE`, `meet-the-squad.md`,
+`internal/interop/testdata/agentv/PROVENANCE.md` and the runner compatibility
+eval/task fixtures. These exact file inputs select site validation.
+Eleven additional linked files and three directory targets are covered by the
+existing containment-aware `examples/` root match. The root deliberately
+over-selects descendant edits: the documentation checks consume directory
+existence, not every descendant's content. Actual Git addition, deletion and
+rename controls cover file leaves, including removal of a consumed directory's
+last tracked leaf; a Git directory path is never fabricated.
+
+That historical trace predates the serve-flag documentation guard. Its new
+content input, `cmd/waza/cmd_serve.go`, selects site validation through an exact
+leaf match; the guard's CLI reference and dashboard guide inputs are already
+covered by `site/`. The incoming workflow and Go site-filter inventories retain
+the same exact serve-source leaf. This integration traces the added declaration
+and reader inputs, not a new complete prebuild-input census.
+
+Instruction-only `AGENTS.md` edits retain the existing exemption from expensive
+site/chat auxiliary suites. Documentation link checks also observe its
+existence/type, so deletion or type replacement remains a known coverage gap
+under this exemption. No status-aware wire extension or separate cheap job is
+implemented here; this matrix does not claim unconditional coverage of all
+210 observed inputs or a future base's input closure.
+Explicit `not_applicable` is different from absent, failed or skipped evidence.
+
+GoLint selection controls resolve declarative `GOFLAGS` with workflow, job and
+step precedence, retaining original YAML node types. The effective value must
+be omitted or a literal empty string; a higher-precedence literal empty value
+may override a lower unsafe value. Nonempty flags and unprovable expressions
+cannot establish execution of the full controls. Explicit
+`continue-on-error: false` is valid; true or dynamic values are not.
+
+The same ordinary execution helper resolves typed shell declarations from
+workflow `defaults.run.shell`, job defaults and the selected step, in that order.
+Omission preserves the runner's implicit Bash; an explicit higher-precedence
+literal can override an unsafe lower value, while explicit empty/null values do
+not fall back. Supported forms are `bash`, `bash -e {0}`,
+`bash -e -o pipefail {0}` and
+`bash --noprofile --norc -e -o pipefail {0}`. Other/custom shells, expressions,
+non-string values and aliases cannot establish this Bash-only execution contract.
+Shared ordinary offline checks apply the same resolution to their required
+steps; argv-recorder and failure controls execute the resolved runner-shaped
+script invocation rather than assuming a hard-coded shell.
+This policy is scoped to the existing Bash-script callers, not generic Windows
+PowerShell/CMD workflows. Linux omission keeps implicit Bash; these Windows
+callers need their existing explicit Bash defaults rather than treating the
+runner's implicit PowerShell as Bash. The intentionally Linux-only inventory
+step is not shell-validated as Windows execution, and unrelated optional steps
+do not acquire a new shell restriction.
+
+The existing required Windows job also selects the two hidden shell-control
+families explicitly, since ordinary `go test ./...` omits `.github/scripts`.
+The Windows-only step runs `TestCompletenessGoLintShellExecution` and
+`TestOrdinaryShellOverridesAndDisabledPaths` uncached and verbose with a
+five-minute Go deadline, after Node and the rejecting runtime are ready.
+Its Bash pipeline propagates command failures, normalizes only terminal CRLF,
+and requires both named top-level RUN/PASS records with no skipped controls.
+The subsequent runtime-marker check covers this step too. The Linux job skips
+this Windows-only step while its existing GoLint package selection remains
+unchanged. Static selection regressions are not native Windows execution:
+that evidence requires the current-head Windows job to actually run and pass
+the selected families.
+
+The ordinary source record binds the immutable event's PR head, base SHA/ref and
+tested merge SHA, plus the actual caller workflow, workflow run and attempt.
+Receipt capture reconstructs those fields from the runner event/environment and
+compares them with the plan; it does not use the plan itself as proof of caller
+identity. Both callable selection and receipt capture independently compare
+the plan's complete path inventory with the actual tested merge. Changed paths come from the
+complete NUL-delimited Git diff against that base, including old and new names
+for renames. Discovery requires both merge parents; malformed or unavailable
+source cannot become an empty path list. Every participating checkout needs
+both merge parents, including receipt-producing jobs. A feature/stack base is valid and must
+not be silently replaced with `main`.
+
+Transfer the full plan as a same-run, attempt-qualified artifact. Only its
+artifact name and small applicability flags belong in job outputs; the callable
+`pr_completeness_plan` string identifies that artifact, not an embedded JSON
+manifest. This avoids passing a potentially large changed-path inventory through
+job-output or environment limits. Consumers must download from the current run
+and validate the artifact's source and complete paths before selection.
+
+Each applicable job must provide its initial checkout commit, final checked-out
+SHA and successful command outcomes/conclusions. Matrix members are enumerated
+individually, not collapsed into last-writer-wins outputs. Browser receipts
+require actual nonempty Chromium results with zero retries: both the selected
+project's configured retry limit and each result's recorded retry index must be
+zero. Missing retry evidence is unavailable. These fields follow the repository's
+[locked Playwright 1.64.1 JSON reporter](https://github.com/microsoft/playwright/blob/v1.64.1/packages/playwright/src/reporters/json.ts).
+The one intentional
+ordinary-dashboard skip is the actual-producer assurance case; that exact case
+must pass in Offline Grader Assurance with its real exported reports. Receipt
+capture retains required outcomes and case results, not unrelated action outputs
+or browser logs. This is workflow-execution evidence, not independent attestation
+or a performance/model-quality claim.
+
+Site's single compound `chat` step runs private-chat controls, chat Chromium and
+unavailable-service Chromium in an `&&` chain. Its outcome covers that entire
+chain, not independently observed outcomes for each subcommand. The two browser
+reports remain required, but the receipt must not invent a separate
+`chat_unavailable` or private-chat step outcome.
+
+Final admission additionally requires a fresh PR API snapshot matching the
+tested PR number, open state, repository, head SHA and base SHA/ref. Missing
+API evidence or a head/base change during validation makes every scope
+unavailable; independent command failures are still reported. The workflow
+must fetch and check that snapshot immediately before evaluation. This is a
+point-in-time check, not a guarantee that the PR cannot change afterward;
+merge-time verification remains required.
+
+The final `evaluate` CLI independently repeats the actual caller and tested
+merge admission used by selection and receipt capture. A complete passing input
+from another event, run, attempt or merge cannot supply ordinary completeness
+success, and an omitted changed path is rejected. The exported pure `evaluate`
+API remains offline; executing the CLI requires the runner event and checkout.
+
+Body/title-only PR edits must use **distinct check names and concurrency** and
+must not publish ordinary completeness success or cancel active validation.
+Base-retarget edits require new head/base/tested-merge validation. Pushes and
+manual cold/performance observations must not create a skipped or successful
+ordinary `PR completeness` context. Docker's separately admitted edited-body
+benchmark is not a completeness prerequisite or a substitute for normal image
+and native-runner proof.
+
+The retarget classifier follows the [pinned Octokit edited-event contract](https://github.com/octokit/webhooks/blob/aa80c24a3f55354465b8b1438d33dd5602956d0d/payload-schemas/api.github.com/pull_request/edited.schema.json):
+both old base `ref.from` and `sha.from` are required. The current base ref must
+differ; different branches at the same SHA remain valid. An arbitrary nonempty
+change object is not retarget evidence, and unknown shapes fail closed. The
+local event fixtures remain synthetic controls: schema verification does not
+replace genuine retarget-event execution before adoption.
+
+### Administrator migration plan
+
+1. Review the final source and applicability matrix, including the admitted
+   Docker measurement interface and CI capture changes. Preserve `Lint`,
+   `ubuntu-latest`, `windows-latest`, `license/cla`, native five-profile coverage
+   verification, source identity and current independent-review requirements.
+2. Verify genuine current-head ordinary PR runs for production, documentation,
+   unrelated-prose and feature-base cases. Inspect actual jobs, command outcomes,
+   all matrix members and selected browser cases, not just the summary color.
+   Verify base-retarget events refresh proof and body-only edits cannot replace
+   it. Manual observation runs are not this admission cohort.
+3. Exercise failures, missing dependencies/receipts, path omissions, failed
+   detection, nested skips, retries and source/attempt/base mismatches through
+   the production caller and actual workflow-source mutation controls. Confirm
+   each prevents ordinary completeness success.
+4. Re-read active branch rules and obtain explicit administrator authorization
+   for an additive `PR completeness` requirement from the verified GitHub Actions
+   source. Do not rename/remove legacy requirements or self-approve the change.
+   This implementation does not write repository protection settings.
+5. After authorized adoption, recheck current heads and stacked-base behavior.
+   Missing or pending checks block admission; do not treat a fallback, bypass or
+   manually dispatched cohort as passing ordinary validation.
+
+Bounded local controls use `node --test .github/scripts/pr-completeness.test.cjs`
+with the repository's Node 22.18+ or 24+ runtime. Trigger-parser and offline
+runtime import-closure controls use
+`go test -count=1 ./.github/scripts -run '^Test(WorkflowTriggerTypedInputs|CompletenessRuntimeImportClosure)$'`.
+The closure control parses the selected Linux AMD64 and macOS ARM64 source
+imports with the workflow's race tag, including compiled execution test helpers
+and excluding inactive build tags; it does not compile or execute either
+platform's runtime probe.
+`TestCompletenessProductionCLIControls` runs all 16 Node controls through the
+Go test package already selected unconditionally by Linux GoLint. It requires
+the full passing TAP inventory with zero failures, cancellations or skips;
+missing Node is a failure. `TestCompletenessControlsSelectedByGoLint` rejects
+omitted-package, echo-only, skipped-step and narrowed-test workflow mutations.
+The Git fixture retains rename, deletion, stack and helper-omission coverage on
+Windows; only its literal newline filename uses a portable alternative there.
+No native Windows execution is claimed from local Unix controls.
+These checks do not by themselves prove GitHub routing, native platforms, browser
+execution or ruleset adoption.
 
 ## Prerequisites
 

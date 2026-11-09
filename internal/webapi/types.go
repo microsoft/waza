@@ -77,6 +77,7 @@ type TaskResult struct {
 	GraderResults      []GraderResult              `json:"graderResults"`
 	DependencyModes    []models.DependencyMode     `json:"dependencyModes,omitempty"`
 	CommandInvocations []models.CommandInvocation  `json:"commandInvocations,omitempty"`
+	UserInputRequests  *[]models.UserInputRecord   `json:"userInputRequests,omitempty"`
 	Transcript         []TranscriptEventResponse   `json:"transcript,omitempty"`
 	SessionDigest      *SessionDigestResponse      `json:"sessionDigest,omitempty"`
 	Responder          *ResponderInfoResponse      `json:"responder,omitempty"`

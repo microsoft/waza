@@ -30,6 +30,11 @@ graders:
       contains: ["hello"]
 `
 
+// nativeUserInputEval enables native SDK questions, which native snapshots
+// cannot reproduce and must reject.
+var nativeUserInputEval = strings.Replace(strings.Replace(snapshotEval, `schemaVersion: "1.0"`, "schemaVersion: \"2.0\"\nscenario: native-questions", 1),
+	"  executor: copilot-sdk\n", "  executor: copilot-sdk\n  native_user_input: true\n", 1)
+
 const snapshotTask = `id: task
 name: task-name
 inputs:
@@ -232,6 +237,9 @@ func TestPrepareUnsupportedInputs(t *testing.T) {
 		{"resource_alias_without_instructions", snapshotEval, "id: task\ninputs: {prompt: hello, files: [{path: ./missing.txt}]}\n"},
 		{"fixture_alias_without_instructions", snapshotEval, "id: task\ninputs: {prompt: hello, context: {fixture: ./context/missing.txt}}\n"},
 		{"native_skipped_resource", snapshotEval, "id: task\ninputs: {prompt: hello, files: [{path: input..txt}]}\n"},
+		{"native_user_input_script", nativeUserInputEval, snapshotTask + "user_input_responses: [{answer: a}]\n"},
+		{"native_user_input_empty_script", nativeUserInputEval, snapshotTask + "user_input_responses: []\n"},
+		{"native_user_input_flag", nativeUserInputEval, snapshotTask},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -242,6 +250,9 @@ func TestPrepareUnsupportedInputs(t *testing.T) {
 			require.Error(t, err)
 			if strings.HasSuffix(tc.name, "_without_instructions") {
 				require.ErrorContains(t, err, "noncanonical rooted path")
+			}
+			if strings.HasPrefix(tc.name, "native_user_input") {
+				require.ErrorContains(t, err, "unsupported native")
 			}
 		})
 	}
