@@ -39,6 +39,10 @@ digest, byte length and JSON media type during completion and reuse admission.
 Legacy manifests without that optional artifact remain readable. Reused receipts
 check caller/source context while allowing the documented ordinal difference;
 captured and historical reports preserve dynamic numeric tokens exactly.
+Reuse also pins the original reservation and completion bytes through the final
+source read used to publish its decision, including for legacy manifests without
+the optional reservation artifact. A coherent sidecar replacement is not the
+same admitted source.
 
 ```mermaid
 sequenceDiagram
