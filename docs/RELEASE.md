@@ -86,6 +86,11 @@ The canonical manifest binds repository, source SHA, run ID/attempt, every file'
 size and SHA256; its own digest travels independently through step, job, and
 reusable-workflow outputs, not through a trusted value read from the download.
 
+The handoff helper and filesystem checker share one HTML/URL validator.
+Inventory verification therefore accepts the same relative URLs and root-preserving
+base elements, ignores comments and inert template/noscript content, and checks
+resolved references without normalizing or rewriting the packaged bytes.
+
 Consumers export their artifact directory from `$RUNNER_TEMP` through
 `$GITHUB_ENV` before downloading; runner paths are not valid job-level `env`
 expressions. The independent producer manifest digest remains job-level input.

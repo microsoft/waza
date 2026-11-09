@@ -29,7 +29,17 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 				}
 				writeReleaseFile(t, filepath.Join(sources, name), content)
 			}
-			writeReleaseFile(t, filepath.Join(dir, "go.mod"), []byte("module dashboard.fixture\n\ngo 1.26.4\n\nrequire (\n\tgolang.org/x/net v0.61.0\n\tgolang.org/x/sys v0.49.0\n)\n"))
+			shared := filepath.Join("internal", "dashboarddocument", "document.go")
+			content, err := os.ReadFile(shared)
+			if err != nil {
+				t.Fatal(err)
+			}
+			destination := filepath.Join(dir, ".github", "scripts", shared)
+			if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeReleaseFile(t, destination, content)
+			writeReleaseFile(t, filepath.Join(dir, "go.mod"), []byte("module github.com/microsoft/waza\n\ngo 1.26.4\n\nrequire (\n\tgolang.org/x/net v0.61.0\n\tgolang.org/x/sys v0.49.0\n)\n"))
 			sum, err := os.ReadFile("../../go.sum")
 			if err != nil {
 				t.Fatal(err)

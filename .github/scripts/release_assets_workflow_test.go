@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -243,10 +244,24 @@ exec "$(dirname "$0")/$program" "$@"
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, state := range []string{"valid", "alternative-valid", "dirty-before-pack", "missing-before-pack", "missing-artifact", "wrong-sha", "stale-manifest-source", "wrong-run", "wrong-attempt",
+	for _, state := range []string{"valid", "alternative-valid", "relative-assets", "root-base", "comment-reference", "inert-reference", "symlink-root", "dirty-before-pack", "missing-before-pack", "missing-artifact", "wrong-sha", "stale-manifest-source", "wrong-run", "wrong-attempt",
 		"wrong-digest", "missing-digest", "digest-mismatch", "missing-member", "truncated", "dirty-equal-source", "dirty-after-install"} {
 		t.Run(state, func(t *testing.T) {
 			dir := t.TempDir()
+			if state == "symlink-root" {
+				if runtime.GOOS == "windows" {
+					t.Skip("symlink fixture requires POSIX unprivileged symlink creation")
+				}
+				alias := filepath.Join(t.TempDir(), "workspace")
+				if err := os.Symlink(dir, alias); err != nil {
+					t.Fatal(err)
+				}
+				dir = alias
+			}
+			dir, err := filepath.EvalSymlinks(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
 			for path, content := range map[string]string{
 				".gitignore":       "artifact/\nweb/dist/assets/\nbin/\n",
 				"go.mod":           "module fixture.test/dashboard\n\ngo 1.26.4\n",
@@ -257,6 +272,23 @@ exec "$(dirname "$0")/$program" "$@"
 				"web/dist/favicon.svg": "<svg/>", "web/dist/assets/index-abcdefgh.js": "export {};",
 				"web/dist/assets/index-abcdefgh.css": "body{}",
 			} {
+				if path == "web/dist/index.html" {
+					original := content
+					switch state {
+					case "relative-assets":
+						content = strings.ReplaceAll(content, "'/assets/", "'./assets/")
+						content = strings.ReplaceAll(content, "src='./assets/index-abcdefgh.js'", "src=./assets/index-abcdefgh.js")
+					case "root-base":
+						content = "<base href='/'>" + content
+					case "comment-reference":
+						content = "<!-- <script src='/assets/missing.js'></script> -->" + content
+					case "inert-reference":
+						content = "<template><script src='/assets/missing.js'></script></template><noscript><link rel='stylesheet' href='https://invalid.example/missing.css'></noscript>" + content
+					}
+					if (state == "relative-assets" || state == "root-base" || state == "comment-reference" || state == "inert-reference") && content == original {
+						t.Fatal("alternative HTML fixture did not change")
+					}
+				}
 				if state == "alternative-valid" {
 					content = strings.ReplaceAll(content, "index-abcdefgh", "app-12345678")
 					path = strings.ReplaceAll(path, "index-abcdefgh", "app-12345678")
@@ -366,7 +398,9 @@ exec "$(dirname "$0")/$program" "$@"
 			}
 			env = append(env, "RELEASE_DASHBOARD_MANIFEST_SHA256="+digest)
 			output, err = run("install", env)
-			valid := state == "valid" || state == "alternative-valid" || state == "dirty-after-install"
+			valid := state == "valid" || state == "alternative-valid" || state == "dirty-after-install" ||
+				state == "relative-assets" || state == "root-base" || state == "comment-reference" ||
+				state == "inert-reference" || state == "symlink-root"
 			if (err == nil) != valid {
 				t.Fatalf("production install %s: %v\n%s", state, err, output)
 			}

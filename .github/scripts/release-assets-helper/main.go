@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/microsoft/waza/.github/scripts/internal/dashboarddocument"
 	"github.com/microsoft/waza/internal/rootedfile"
 )
 
@@ -55,7 +55,6 @@ var (
 	digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	numberPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
 	bundlePattern = regexp.MustCompile(`^assets/[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.(js|css)$`)
-	referenceRE   = regexp.MustCompile(`(?i)\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 )
 
 func (id identity) validate(checkout string) error {
@@ -398,26 +397,17 @@ func (snap snapshot) validate() error {
 		return errors.New("dashboard requires nonempty hashed JS and CSS bundles")
 	}
 	var referencedJS, referencedCSS bool
-	for _, match := range referenceRE.FindAllSubmatch(index, -1) {
-		value := string(match[1])
-		if value == "" {
-			value = string(match[2])
-		}
-		ref, err := url.Parse(value)
-		if err != nil || ref.IsAbs() || ref.Host != "" {
-			return fmt.Errorf("index reference %q must be a local asset", value)
-		}
-		if ref.Path == "" {
-			continue
-		}
-		name := strings.TrimPrefix(ref.Path, "/")
+	if err := dashboarddocument.CheckReferences(index, func(name string) error {
 		if !safePath(name) || len(snap.data[name]) == 0 {
-			return fmt.Errorf("index reference %q has no nonempty inventory file", value)
+			return fmt.Errorf("index reference %q has no nonempty inventory file", name)
 		}
 		if bundlePattern.MatchString(name) {
 			referencedJS = referencedJS || strings.HasSuffix(name, ".js")
 			referencedCSS = referencedCSS || strings.HasSuffix(name, ".css")
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if !referencedJS || !referencedCSS {
 		return errors.New("index must reference hashed JS and CSS inventory files")
