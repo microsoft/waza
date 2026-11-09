@@ -482,22 +482,41 @@ jobs:
       
       - name: Install waza
         run: |
-          curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-          echo "$HOME/bin" >> $GITHUB_PATH
+          curl -fsSL \
+            https://raw.githubusercontent.com/microsoft/waza/v0.41.0/.github/scripts/install-waza-release.sh \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" 0.41.0
       
       - name: Run evaluations (${{ matrix.model }})
+        id: run-eval
+        continue-on-error: true
         run: |
+          rm -f -- "results-${{ matrix.model }}.json"
           waza run \
             --model "${{ matrix.model }}" \
             --output "results-${{ matrix.model }}.json" \
             --verbose
+
+      - name: Validate result contract
+        id: validate
+        if: always()
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/microsoft/waza/v0.41.0/.github/scripts/validate-waza-result.sh \
+            -o "$RUNNER_TEMP/validate-waza-result.sh"
+          run_exit=1
+          if [ "${{ steps.run-eval.outcome }}" = success ]; then run_exit=0; fi
+          bash "$RUNNER_TEMP/validate-waza-result.sh" \
+            "results-${{ matrix.model }}.json" 0 "$run_exit"
       
       - name: Upload results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: results-${{ matrix.model }}
           path: results-${{ matrix.model }}.json
           retention-days: 30
+          if-no-files-found: error
       
       - name: Comment PR with results
         if: github.event_name == 'pull_request'
@@ -512,7 +531,46 @@ jobs:
               repo: context.repo.repo,
               body: `### Eval Results: ${{ matrix.model }}\n\nΓ£à **Passed:** ${results.summary.succeeded}\nΓ¥î **Failed:** ${results.summary.failed}`
             });
+
+      - name: Enforce evaluation status
+        if: always()
+        env:
+          RUN_OUTCOME: ${{ steps.run-eval.outcome }}
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+          EVALUATION_STATUS: ${{ steps.validate.outputs.status }}
+        run: |
+          if [ "$RUN_OUTCOME" != "success" ] || [ "$VALIDATION_OUTCOME" != "success" ] || [ "$EVALUATION_STATUS" != "success" ]; then
+            exit 1
+          fi
 ```
+
+Removing the old result before execution prevents a stale file from satisfying
+the artifact step. Treat a missing or incomplete result as a workflow failure,
+including when the CLI itself fails; upload the fresh artifact with `if: always()`
+before re-emitting the evaluation failure.
+
+Workflow success requires all configured trials and every recorded final and
+checkpoint grader to pass, without grader evaluation errors or failed/stopped
+checkpoints. Contradictory task/run success statuses remain diagnostic evidence,
+not successful workflow outputs.
+
+The shared validator is shipped with v0.41.0; publish that release before
+using these cross-repository examples. Repository automatic checks build the
+checked-out Go source with real dashboard assets, use the mock code-explainer
+suite and a rejecting Copilot runtime, and do not download a mutable release.
+An omitted context override leaves fixture resolution to the eval spec; an
+explicit override is forwarded unchanged (including nonexistent paths, which
+the CLI must report rather than silently ignore).
+
+The repository's `waza-eval.yml` uploads the selected JSON separately, including
+explicit hidden output paths. It stages only the exact regular result file in a
+fresh directory, preserving the basename, so custom paths are not upload patterns.
+Missing files, symlink results, or staging failures fail the workflow rather than
+uploading stale paths. Optional non-hidden transcripts use the
+`<artifact-name>-transcripts` artifact, so transcripts cannot substitute for the
+result and hidden transcript files are not newly exposed.
+An empty or hidden-only optional transcript selection is ignored; missing required
+JSON evidence still fails the workflow.
 
 ### Recurring Regression Loop (Scheduled)
 
