@@ -2,7 +2,7 @@
 
 **Status:** Active requirements; original skill-platform plan retained below, not a shipping checklist
 **Version:** 1.0  
-**Last Updated:** 2026-10-15
+**Last Updated:** 2026-11-04
 **Owner:** @spboyer  
 **Source:** [Squad Proposal](https://github.com/spboyer/azure-mcp-v-skills/blob/main/squad-proposal.md)
 
@@ -15,11 +15,12 @@ custom agents. Repository, CLI and MCP scenarios provide a workflow-first path;
 `SKILL.md` and `.agent.md` context remain supported. See
 [Concepts](../site/src/content/docs/concepts.mdx) for the learning order.
 
-Upcoming main increments include recorded reliability, opt-in dashboard Lab,
+Features introduced in `v0.39.0` and retained in published standalone
+`v0.40.0` include recorded reliability, opt-in dashboard Lab,
 selected evidence/regrade, conservative release policies with an offline mock
 default and a separately selected bounded Copilot SDK collector, and bounded
-authored-case assurance with explicitly selected calibration. Stable standalone `v0.38.10` was published
-October 9, 2026; these main features are not declared part of it.
+authored-case assurance with explicitly selected calibration. See the
+[release availability matrix](../site/src/content/docs/reference/releases.mdx).
 This document does not assert current CI is green or announce a release.
 Scenario evals support finite MCP/CLI fault sequences and report configured
 dependency modes. These fixtures test agent behavior, not real CLI/server
@@ -31,15 +32,55 @@ human-labelled corpus, sandbox enforcement and default paid calibration are
 The historical skill-specific requirements below remain product context, not
 authority to infer current native grader keys or completed feature scope.
 
-The v0.40.0 runner preview adds offline version/capability negotiation (#757)
-and one exact captured mock/text task/trial/attempt through CLI and HTTP (#758).
+The v0.40.0 runner adds offline version/capability negotiation (#757)
+and one exact captured inline text task/trial/attempt through CLI and HTTP (#758).
+The additive `inline.copilot-text` profile uses a private production SDK runtime,
+explicit model and paid opt-in, disabled skills and deny-all tools. Both exact
+profiles accept validated eval metrics as uncomputed, identity-bound metadata;
+terminal success claims only the selected attempt, not aggregate values,
+metric-threshold decisions or whole-evaluation success. Existing metric-free
+mock/text requests and the mock-only local adapter remain unchanged; the adapter
+still rejects nonempty metrics. General native
+file/tool/skill workflows and live-provider conformance remain out of scope.
 Admitted receipts carry deterministic logical identities and their derivation
 version (#759). Live Lab displays input-derived lineage and pre-execution
-selection validation without launching a runtime.
+selection validation without launching a runtime. The explicit **Run selected unit**
+action consumes the same producer's terminal outcome, exit category, boundary,
+identity and diagnostics and exports the response (#760).
 The exact path bypasses discovery, cache and retries; local commands/artifacts
-are unchanged. Native execution, terminal envelopes, compatibility
-adapters and the container reference remain unavailable under #754.
+are unchanged. CLI/HTTP execution emits a schema-checked terminal envelope with
+seven stable exit categories. The bounded local compatibility adapter (#761)
+captures exact legacy sources offline and routes explicit `run --runner-compat`
+through the service's unchanged mock-only profile while writing result schema 1.8
+and retaining local 0/1/2 exits. Historical 1.7 results remain readable.
+Unsupported mappings fail with migration guidance; ordinary
+local defaults and historical artifact readers remain available. No Lab change
+is required: adaptation introduces no new runtime status or evidence.
+The [local container foundation](../site/src/content/docs/guides/runner-container.mdx)
+builds and tests the existing mock/text profile with local input/output (#762);
+the separately published Linux AMD64 native reference has passed anonymous
+digest-pinned mock and bundled-native synthetic-provider controls. See its
+[source, digest and acceptance evidence](../site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence).
+It adds no Lab status surface. General native file/tool/skill workflows and full
+external task/suite interoperability remain outstanding under #754.
+Exact-unit execution/shutdown deadlines and cancellation do not resolve the
+broader legacy multi-trial timeout issue [#865](https://github.com/microsoft/waza/issues/865),
+addressed separately by the later timeout/persistence fix
+[#870](https://github.com/microsoft/waza/pull/870). That fix is post-v0.40.0 source behavior,
+not included in the published v0.40.0 artifacts. Standalone publication, extension/registry
+availability and acceptance of a public image digest are separate gates.
+See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
+
+External-schema interoperability (#789) remains partial. The v0.40.0
+adapter projects one explicitly selected, commit-pinned AgentV case-sensitive
+`contains` assertion to a single native text grader and exports the same
+single-check subset. Conversion is offline and reports excluded task, provider,
+fixture and sibling-assertion semantics. A retained upstream fixture and runnable
+assertion oracle cover positive and negative production-CLI decisions without
+inference. Whole-task/suite import, AgentEvals-spec/Harbor/ASSERT support and full
+evidence/provenance round trips are not delivered. See the
+[verified interoperability matrix](INTEROPERABILITY.md).
 
 ### The Problem
 
@@ -63,7 +104,7 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
-Portable evaluation evidence (#663): independently versioned manifest `1.0` in ordinary snapshot `1.1`, retaining legacy task semantics and historical result versions while new results use `1.7`, records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
+Portable evaluation evidence (#663): independently versioned manifest `1.0` in ordinary snapshot `1.1`, retaining legacy task semantics and historical result versions while current source writes results `1.9` (published `v0.39.1` writes `1.7`), records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
 
 Capture sanitizes typed JSON and structural sensitive keys before serialization, preserves numeric lexical tokens, rejects opaque bytes/unsafe identifiers/keys/duplicate or trailing JSON/excessive nesting, and isolates rule-match counters (including selected files). Pattern matching is not a confidentiality proof. Reviewed agent-visible UTF-8 regular-file capture is explicitly allow-listed, excludes evaluator-only files/credentials, bounded (1 MiB/file, 10 MiB total by default), private, non-overwriting, and supported only on Linux/macOS. Allow-listing is not authorization proof. Partial capture and publication failure have safe unavailable states; there is no automatic export/upload/path fetch.
 
@@ -88,6 +129,14 @@ fail closed. Task-level CLI mock lists preserve replacement semantics, including
 transcript/checkpoint evidence. Results schema `1.7` records per-run configured
 dependency modes (`live` or `mocked`); this describes configuration, not proof
 of invocation. There is no recorded-replay mode.
+
+Scenario evals can opt in with `config.native_user_input` to answer native Copilot
+SDK user-input requests, using task `user_input_responses`. Waza registers `OnUserInputRequest` on the initial and
+every resumed session of a trial, uses entries (an `answer` plus an optional
+`question` regex) strictly in order, and fails closed on unexpected or unused entries. Results
+schema `1.9` records each request in `runs[].user_input_requests`. A task's
+adaptive responder answers questions the script does not match. This is
+distinct from MCP `ask_user` mocks and does not support structured elicitation.
 
 The private `internal/faultsequence` groundwork provides cross-process step
 reservation and cancellable, overflow-checked delays for the CLI shim. State

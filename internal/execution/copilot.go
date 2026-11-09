@@ -32,11 +32,107 @@ import (
 // session-start hang apart from a genuinely long-running turn that timed out.
 var errFirstEventTimeout = errors.New("no first session event within first-event timeout")
 
+var sendCancellationGrace = 2 * time.Second
+
+type sendAndWaitResult struct {
+	event *copilot.SessionEvent
+	err   error
+}
+
+func sendAndWaitBounded(
+	ctx context.Context,
+	session CopilotSession,
+	options copilot.MessageOptions,
+	forceStop func(),
+) (*copilot.SessionEvent, bool, bool, error) {
+	done := make(chan sendAndWaitResult, 1)
+	go func() {
+		event, err := session.SendAndWait(ctx, options)
+		done <- sendAndWaitResult{event: event, err: err}
+	}()
+
+	select {
+	case result := <-done:
+		return result.event, false, false, errors.Join(ctx.Err(), result.err)
+	case <-ctx.Done():
+	}
+
+	timer := time.NewTimer(sendCancellationGrace)
+	defer timer.Stop()
+	select {
+	case result := <-done:
+		return result.event, false, false, errors.Join(ctx.Err(), result.err)
+	case <-timer.C:
+	}
+
+	forceDone := make(chan struct{})
+	go func() {
+		defer close(forceDone)
+		forceStop()
+	}()
+	timer.Reset(sendCancellationGrace)
+	select {
+	case result := <-done:
+		select {
+		case <-forceDone:
+			return result.event, false, false, errors.Join(ctx.Err(), result.err)
+		case <-timer.C:
+			return result.event, false, true, errors.Join(ctx.Err(), result.err)
+		}
+	case <-timer.C:
+		return nil, true, true, ctx.Err()
+	}
+}
+
+func disconnectBounded(ctx context.Context, session CopilotSession, forceStop func()) (bool, bool, error) {
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Disconnect()
+	}()
+
+	select {
+	case err := <-done:
+		return false, false, errors.Join(ctx.Err(), err)
+	case <-ctx.Done():
+	}
+
+	timer := time.NewTimer(sendCancellationGrace)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return false, false, errors.Join(ctx.Err(), err)
+	case <-timer.C:
+	}
+
+	forceDone := make(chan struct{})
+	go func() {
+		defer close(forceDone)
+		forceStop()
+	}()
+	timer.Reset(sendCancellationGrace)
+	select {
+	case err := <-done:
+		select {
+		case <-forceDone:
+			return false, false, errors.Join(ctx.Err(), err)
+		case <-timer.C:
+			return false, true, errors.Join(ctx.Err(), err)
+		}
+	case <-timer.C:
+		return true, true, ctx.Err()
+	}
+}
+
 // CopilotEngine integrates with GitHub Copilot SDK
 type CopilotEngine struct {
 	defaultModelID string
 
-	client CopilotClient
+	clientMu sync.RWMutex
+	// Replacement startup is serialized, but waiting requests can cancel.
+	// Retirement uses clientMu only and never waits on replacement I/O.
+	clientRefreshMu  initializationMutex
+	client           CopilotClient
+	sharedClientOpts *SharedClientOptions
 
 	// ownsClient is true when this engine constructed its own copilot client
 	// and is therefore responsible for stopping it during Shutdown. When
@@ -46,16 +142,23 @@ type CopilotEngine struct {
 	// command must call [ShutdownSharedClient] to actually stop it.
 	ownsClient bool
 
-	startOnce sync.Once
+	startMu      initializationMutex
+	startErr     error
+	authComplete atomic.Bool
 
 	workspacesMu  sync.Mutex
 	workspaces    []string      // workspaces to clean up at Shutdown
 	gitResources  []GitResource // git resources to clean up before workspace removal
 	keepWorkspace bool          // when true, skip workspace cleanup on shutdown
 
-	// sessions maps session IDs to copilotSessions
-	sessions   map[string]CopilotSession
-	sessionsMu sync.Mutex
+	// Persistent sessions stay bound to the client generation that created
+	// them, even if later new sessions refresh to a replacement shared client.
+	sessions       map[string]CopilotSession
+	sessionClients map[string]CopilotClient
+	sessionsMu     sync.Mutex
+	// Active disconnects exclude shutdown-usage fallback. Abandoned ones retain
+	// their count because this engine no longer joins their completion.
+	unfinishedDisconnects map[string]int
 
 	// collectors tracks usage collectors by session ID so we can read
 	// shutdown-event usage after client.Stop() fires session.shutdown events.
@@ -63,12 +166,15 @@ type CopilotEngine struct {
 	usageCollectorsMu   sync.RWMutex
 	usageMetricsTimeout time.Duration
 
-	commandMocksMu      sync.Mutex
-	commandMockSessions map[string]*commandmock.Session
-	disableCommandMocks bool
+	commandMocksMu          sync.Mutex
+	commandMockSessions     map[string]*commandmock.Session
+	disableCommandMocks     bool
+	disableAmbientDiscovery bool
 
 	shutdownOnce sync.Once
 	shutdownErr  error
+
+	retired atomic.Bool // current client generation cannot admit new sessions
 
 	provider    customProviderConfig
 	diagnostics *diagnosticState
@@ -171,12 +277,17 @@ type CopilotEngineBuilder struct {
 }
 
 type CopilotEngineBuilderOptions struct {
+	// Custom clients must unblock Start on lifetime-context cancellation or
+	// implement ForceStop(). A healthy client's context outlives Initialize.
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) CopilotClient
 	// OwnClient selects a fresh production client instead of SharedClient.
 	OwnClient bool
 	// DisableCommandMocks omits the shim registry and rejects command mocks.
 	// Requires OwnClient or a supplied NewCopilotClient factory.
 	DisableCommandMocks bool
+	// DisableAmbientDiscovery disables ambient instructions/configuration,
+	// file hooks, shared retrieval/memory and host git context for these sessions.
+	DisableAmbientDiscovery bool
 	// DiagnosticObserver enables sanitized, failure-retaining lifecycle diagnostics.
 	// Calls are serialized outside engine state locks. Observers must not reenter
 	// engine lifecycle methods (including Execute, Initialize, DeleteSession, Shutdown).
@@ -198,6 +309,7 @@ type CopilotEngineBuilderOptions struct {
 // Both owned paths stop their client during Shutdown.
 func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilderOptions) *CopilotEngineBuilder {
 	var client CopilotClient
+	var sharedOpts *SharedClientOptions
 	ownsClient := false
 	provider := providerFromEnv()
 	cliArgs := modelCLIArgs()
@@ -219,7 +331,9 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 		ownsClient = true
 	} else if options == nil || options.NewCopilotClient == nil {
 		// Production: share one SDK process across all engines + graders.
-		client = SharedClient(SharedClientOptions{CLIArgs: cliArgs})
+		opts := SharedClientOptions{CLIArgs: cliArgs}
+		client = SharedClient(opts)
+		sharedOpts = &opts
 	} else {
 		copilotOptions := &copilot.ClientOptions{
 			// workspace is set at the session level, instead of at the client.
@@ -236,14 +350,19 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 
 	builder := &CopilotEngineBuilder{
 		engine: &CopilotEngine{
-			defaultModelID:      defaultModelID,
-			ownsClient:          ownsClient,
-			provider:            provider,
-			commandMockSessions: make(map[string]*commandmock.Session),
-			disableCommandMocks: disableCommandMocks,
+			defaultModelID:          defaultModelID,
+			ownsClient:              ownsClient,
+			sharedClientOpts:        sharedOpts,
+			provider:                provider,
+			commandMockSessions:     make(map[string]*commandmock.Session),
+			disableCommandMocks:     disableCommandMocks,
+			disableAmbientDiscovery: options != nil && options.DisableAmbientDiscovery,
 		},
 	}
 
+	if ownsClient {
+		client = manageStartup(client)
+	}
 	builder.engine.client = client
 	if options != nil && options.DiagnosticObserver != nil {
 		builder.engine.diagnostics = &diagnosticState{
@@ -285,7 +404,7 @@ func (b *CopilotEngineBuilder) Build() *CopilotEngine {
 // prompt graders) can use this to avoid spawning a fresh SDK process per
 // invocation. Callers must NOT call Stop() on the returned client.
 func (e *CopilotEngine) CopilotClient() CopilotClient {
-	return e.client
+	return e.currentClient()
 }
 
 // SetKeepWorkspace enables or disables workspace preservation on shutdown.
@@ -298,53 +417,55 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 	if e.diagnostics != nil {
 		return e.initializeDiagnostic(ctx)
 	}
-	var startErr error
+	if e.provider.err != nil {
+		return fmt.Errorf("copilot failed to start: %w", e.provider.err)
+	}
+	authenticated := e.authComplete.Load()
+	if authenticated && e.startErr != nil {
+		return fmt.Errorf("copilot failed to start: %w", e.startErr)
+	}
+	client := e.currentClient()
+	if err := client.Start(ctx); err != nil {
+		return fmt.Errorf("copilot failed to start: %w", err)
+	}
 
-	e.startOnce.Do(func() {
-		if e.provider.err != nil {
-			startErr = e.provider.err
-			return
+	if err := e.startMu.lock(ctx); err != nil {
+		if authenticated {
+			return nil
 		}
-
-		// NOTE: we _have_ to use context.Background() - the copilot SDK is using exec.CommandContext() to run
-		// the background process which means we _cannot_ cancel the context passed to this function or else
-		// it'll kill the copilot process.
-		// Tracking here: https://github.com/github/copilot-sdk/issues/668
-		startErr = e.client.Start(context.Background())
-
-		if startErr != nil {
-			return
+		return fmt.Errorf("copilot failed to start: %w", err)
+	}
+	defer e.startMu.unlock()
+	if !e.authComplete.Load() {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("copilot failed to start: %w", err)
 		}
-
 		// BYOK mode: a custom provider redirects model traffic away from
 		// GitHub Copilot MaaS, so the Copilot auth check is irrelevant.
 		if e.provider.enabled() {
-			return
+			e.authComplete.Store(true)
+			return nil
 		}
 
-		authStatusResp, err := e.client.GetAuthStatus(ctx)
-
+		authStatusResp, err := client.GetAuthStatus(ctx)
+		if ctx.Err() != nil {
+			return fmt.Errorf("copilot failed to start: %w", ctx.Err())
+		}
 		if err != nil {
-			if e.ownsClient {
-				_ = e.client.Stop()
-			}
-
-			startErr = fmt.Errorf("failed to get copilot authentication status. Use any installed instance of copilot CLI and run \"copilot login\" before using this command: %w", err)
-			return
+			e.startErr = fmt.Errorf("failed to get copilot authentication status. Use any installed instance of copilot CLI and run \"copilot login\" before using this command: %w", err)
+		} else if authStatusResp == nil || !authStatusResp.IsAuthenticated {
+			e.startErr = fmt.Errorf("copilot is not authenticated. Use any installed instance of copilot CLI and run \"copilot login\" before using this command")
 		}
-
-		if !authStatusResp.IsAuthenticated {
-			if e.ownsClient {
-				_ = e.client.Stop()
+		if e.startErr != nil && e.ownsClient {
+			if err := client.Stop(); err != nil {
+				e.startErr = errors.Join(e.startErr, fmt.Errorf("failed to stop unauthenticated Copilot client: %w", err))
 			}
-
-			startErr = fmt.Errorf("copilot is not authenticated. Use any installed instance of copilot CLI and run \"copilot login\" before using this command")
-			return
 		}
-	})
+		e.authComplete.Store(true)
+	}
 
-	if startErr != nil {
-		return fmt.Errorf("copilot failed to start: %w", startErr)
+	if e.startErr != nil {
+		return fmt.Errorf("copilot failed to start: %w", e.startErr)
 	}
 
 	return nil
@@ -352,11 +473,75 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 
 // ListModels returns the available models from the Copilot backend.
 func (e *CopilotEngine) ListModels(ctx context.Context) ([]copilot.ModelInfo, error) {
-	return e.client.ListModels(ctx)
+	return e.currentClient().ListModels(ctx)
 }
 
 func (e *CopilotEngine) validateReasoningEffort(ctx context.Context, modelID, effort string) error {
-	return validateReasoningEffort(ctx, e.client, modelID, effort, e.provider.enabled())
+	return validateReasoningEffort(ctx, e.currentClient(), modelID, effort, e.provider.enabled())
+}
+
+func (e *CopilotEngine) currentClient() CopilotClient {
+	e.clientMu.RLock()
+	defer e.clientMu.RUnlock()
+	return e.client
+}
+
+func (e *CopilotEngine) clientForRequest(ctx context.Context, sessionID string) (CopilotClient, error) {
+	if sessionID != "" {
+		e.sessionsMu.Lock()
+		client := e.sessionClients[sessionID]
+		e.sessionsMu.Unlock()
+		if client != nil {
+			return client, nil
+		}
+	}
+
+	if err := e.clientRefreshMu.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer e.clientRefreshMu.unlock()
+	if !e.retired.Load() {
+		return e.currentClient(), nil
+	}
+	if e.ownsClient || e.sharedClientOpts == nil {
+		return nil, errors.New("copilot client retired after unresponsive cleanup")
+	}
+	oldClient := e.currentClient()
+	client := SharedClient(*e.sharedClientOpts)
+	if client == oldClient {
+		return nil, errors.New("copilot shared client retirement did not produce a replacement")
+	}
+	if err := e.initializeReplacementClient(ctx, client); err != nil {
+		return nil, err
+	}
+	e.clientMu.Lock()
+	e.client = client
+	e.retired.Store(false)
+	e.clientMu.Unlock()
+	return client, nil
+}
+
+func (e *CopilotEngine) initializeReplacementClient(ctx context.Context, client CopilotClient) error {
+	if e.provider.err != nil {
+		return fmt.Errorf("copilot failed to start replacement client: %w", e.provider.err)
+	}
+	if err := client.Start(ctx); err != nil {
+		return fmt.Errorf("copilot failed to start replacement client: %w", err)
+	}
+	if e.provider.enabled() {
+		return nil
+	}
+	auth, err := client.GetAuthStatus(ctx)
+	if ctx.Err() != nil {
+		return fmt.Errorf("copilot failed to start replacement client: %w", ctx.Err())
+	}
+	if err != nil {
+		return fmt.Errorf("copilot failed to authenticate replacement client: %w", err)
+	}
+	if auth == nil || !auth.IsAuthenticated {
+		return errors.New("copilot replacement client is not authenticated")
+	}
+	return nil
 }
 
 func validateReasoningEffort(ctx context.Context, client CopilotClient, modelID, effort string, customProvider bool) error {
@@ -392,16 +577,23 @@ func validateReasoningEffort(ctx context.Context, client CopilotClient, modelID,
 
 // Execute runs a test with Copilot SDK
 func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error) {
-	if e.diagnostics != nil {
-		return e.executeDiagnostic(ctx, req)
-	}
-	return e.execute(ctx, req)
-}
-
-func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil req was passed to CopilotEngine.Execute")
 	}
+	if e.diagnostics != nil {
+		if e.retired.Load() {
+			return nil, errors.New("copilot client retired after unresponsive cleanup")
+		}
+		return e.executeDiagnostic(ctx, req)
+	}
+	client, err := e.clientForRequest(ctx, req.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	return e.execute(ctx, req, client)
+}
+
+func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, client CopilotClient) (*ExecutionResponse, error) {
 	if e.disableCommandMocks && len(req.CommandMocks) != 0 {
 		return nil, fmt.Errorf("command mocks are disabled for this Copilot engine")
 	}
@@ -414,7 +606,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := e.validateReasoningEffort(ctx, modelID, req.ReasoningEffort); err != nil {
+	if err := validateReasoningEffort(ctx, client, modelID, req.ReasoningEffort, e.provider.enabled()); err != nil {
 		return nil, err
 	}
 
@@ -506,25 +698,43 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if preToolUseHook != nil {
 		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
+	userInputRejectionMark := req.UserInput.rejectionCount()
+	var enableAmbientDiscovery *bool
+	var skipAmbientRetrieval *bool
+	var memory *copilot.MemoryConfiguration
+	if e.disableAmbientDiscovery {
+		enableAmbientDiscovery = copilot.Bool(false)
+		skipAmbientRetrieval = copilot.Bool(true)
+		memory = &copilot.MemoryConfiguration{Enabled: false}
+	}
 
 	if req.SessionID == "" {
 		// Create session with updated API
-		session, err = e.client.CreateSession(ctx, &copilot.SessionConfig{
+		session, err = client.CreateSession(ctx, &copilot.SessionConfig{
 			Model:           modelID,
 			ReasoningEffort: req.ReasoningEffort,
 			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			OnUserInputRequest:  req.UserInput.Handler(),
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
-			SkillDirectories: skillDirs,
-			EnableSkills:     enableSkills,
-			WorkingDirectory: workingDir,
-			SystemMessage:    systemMessage,
-			Streaming:        streamingPtr(req.Streaming),
-			MCPServers:       req.MCPServers,
-			Provider:         e.provider.sessionConfig(),
+			SkillDirectories:                   skillDirs,
+			EnableSkills:                       enableSkills,
+			WorkingDirectory:                   workingDir,
+			SystemMessage:                      systemMessage,
+			Streaming:                          streamingPtr(req.Streaming),
+			MCPServers:                         req.MCPServers,
+			Provider:                           e.provider.sessionConfig(),
+			EnableConfigDiscovery:              enableAmbientDiscovery,
+			EnableFileHooks:                    enableAmbientDiscovery,
+			EnableOnDemandInstructionDiscovery: enableAmbientDiscovery,
+			SkipCustomInstructions:             skipAmbientRetrieval,
+			SkipEmbeddingRetrieval:             skipAmbientRetrieval,
+			EnableSessionStore:                 enableAmbientDiscovery,
+			EnableHostGitOperations:            enableAmbientDiscovery,
+			Memory:                             memory,
 		})
 
 		if err != nil {
@@ -535,23 +745,32 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			return nil, fmt.Errorf("failed to create session: %w", err)
 		}
 	} else {
-		session, err = e.client.ResumeSessionWithOptions(ctx, req.SessionID, &copilot.ResumeSessionConfig{
+		session, err = client.ResumeSessionWithOptions(ctx, req.SessionID, &copilot.ResumeSessionConfig{
 			Model:           modelID,
 			ReasoningEffort: req.ReasoningEffort,
 			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			OnUserInputRequest:  req.UserInput.Handler(),
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
 			// these are the directory for the skill itself.
-			SkillDirectories: skillDirs,
-			EnableSkills:     enableSkills,
-			WorkingDirectory: workingDir,
-			SystemMessage:    systemMessage,
-			Streaming:        streamingPtr(req.Streaming),
-			MCPServers:       req.MCPServers,
-			Provider:         e.provider.sessionConfig(),
+			SkillDirectories:                   skillDirs,
+			EnableSkills:                       enableSkills,
+			WorkingDirectory:                   workingDir,
+			SystemMessage:                      systemMessage,
+			Streaming:                          streamingPtr(req.Streaming),
+			MCPServers:                         req.MCPServers,
+			Provider:                           e.provider.sessionConfig(),
+			EnableConfigDiscovery:              enableAmbientDiscovery,
+			EnableFileHooks:                    enableAmbientDiscovery,
+			EnableOnDemandInstructionDiscovery: enableAmbientDiscovery,
+			SkipCustomInstructions:             skipAmbientRetrieval,
+			SkipEmbeddingRetrieval:             skipAmbientRetrieval,
+			EnableSessionStore:                 enableAmbientDiscovery,
+			EnableHostGitOperations:            enableAmbientDiscovery,
+			Memory:                             memory,
 		})
 
 		if err != nil {
@@ -593,21 +812,89 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			e.diagnostics.mu.Unlock()
 		}()
 	}
+	sessionAbandoned := false
+	var resp *ExecutionResponse
+	cleanupBaseCtx := ctx
+	sendCtx := ctx
+	cancelSendCtx := func(error) {}
+	cancelSkillCtx := func() {}
+	var canceledForSkill atomic.Bool
 	defer func() {
+		defer cancelSkillCtx()
+		defer cancelSendCtx(nil)
+		defer func() {
+			if resp != nil && cleanupBaseCtx.Err() != nil {
+				resp.ExecutionSucceeded = false
+			}
+			if resp != nil && resp.Success && cleanupBaseCtx.Err() != nil {
+				resp.Success = false
+				resp.ErrorMsg = fmt.Sprintf("trial canceled during cleanup: %v", cleanupBaseCtx.Err())
+				if op := operationFrom(cleanupBaseCtx); op != nil {
+					op.report(StageDisconnect, CodeCleanup, sessionID)
+				}
+			}
+		}()
+		if sessionAbandoned {
+			slog.Warn("abandoned unresponsive Copilot session after force stop", "sessionID", sessionID)
+			return
+		}
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
-		if err := session.Disconnect(); err != nil {
+		cleanupParent := sendCtx
+		if canceledForSkill.Load() {
+			cleanupParent = cleanupBaseCtx
+		}
+		e.sessionsMu.Lock()
+		if e.unfinishedDisconnects == nil {
+			e.unfinishedDisconnects = make(map[string]int)
+		}
+		e.unfinishedDisconnects[sessionID]++
+		e.sessionsMu.Unlock()
+		abandoned, retireClient, err := disconnectBounded(cleanupParent, session, func() {
+			e.forceStopClient(client)
+		})
+		if !abandoned {
+			e.sessionsMu.Lock()
+			e.unfinishedDisconnects[sessionID]--
+			if e.unfinishedDisconnects[sessionID] == 0 {
+				delete(e.unfinishedDisconnects, sessionID)
+			}
+			e.sessionsMu.Unlock()
+		}
+		if retireClient {
+			e.retireClient(client)
+		}
+		if abandoned {
+			slog.Warn("abandoned Copilot session after disconnect exceeded cancellation grace", "sessionID", sessionID)
+		}
+		if err != nil {
 			if op := operationFrom(ctx); op != nil {
 				op.report(StageDisconnect, CodeCleanup, sessionID)
 			} else {
 				slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
 			}
 		}
+		if resp != nil && (err != nil || abandoned) && !canceledForSkill.Load() {
+			cleanupErr := err
+			if cleanupErr == nil {
+				cleanupErr = errors.New("session cleanup abandoned after cancellation grace")
+			}
+			resp.Success = false
+			cleanupMsg := fmt.Sprintf("session teardown failed: %v", cleanupErr)
+			if resp.ErrorMsg == "" {
+				resp.ErrorMsg = cleanupMsg
+			} else {
+				resp.ErrorMsg += "\n" + cleanupMsg
+			}
+		}
+		if abandoned {
+			return
+		}
 		if req.EphemeralSession && req.SessionID == "" {
-			deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
+			deleteCtx, cancelDelete := cleanupContext(cleanupParent, 30*time.Second)
 			defer cancelDelete()
-			if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
+			if err := client.DeleteSession(deleteCtx, sessionID); err != nil {
 				if op := operationFrom(ctx); op != nil {
 					e.diagnostics.mu.Lock()
 					e.diagnostics.pending[sessionID] = true
@@ -639,15 +926,14 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// can abort SendAndWait as soon as a skill invocation event arrives. This
 	// lets trigger tests terminate early once the skill fires, rather than
 	// waiting for the agent to finish its full turn.
-	var canceledForSkill atomic.Bool
 	if req.CancelOnSkillInvocation {
 		var cancelSkill context.CancelFunc
 		ctx, cancelSkill = context.WithCancel(ctx)
+		cancelSkillCtx = cancelSkill
 		eventsCollector.SetOnSkillInvoked(func(_ SkillInvocation) {
 			canceledForSkill.Store(true)
 			cancelSkill()
 		})
-		defer cancelSkill() // no-op if already called, ensures cleanup
 	}
 
 	// Event handler — NOT deferred for unsubscribe because we need to receive
@@ -711,8 +997,12 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		if e.sessions == nil {
 			e.sessions = make(map[string]CopilotSession)
 		}
+		if e.sessionClients == nil {
+			e.sessionClients = make(map[string]CopilotClient)
+		}
 		if e.diagnostics == nil || req.SessionID == "" || e.sessions[sessionID] != nil {
 			e.sessions[sessionID] = session
+			e.sessionClients[sessionID] = client
 		}
 		e.sessionsMu.Unlock()
 	}
@@ -731,11 +1021,12 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// event arrives in time, and disarm it the moment the first event lands (the
 	// turn has started; the overall deadline governs the rest) or SendAndWait
 	// returns for any other reason.
-	sendCtx := ctx
+	sendCtx = ctx
 	stopFirstEventWatchdog := func() {}
 	if req.FirstEventTimeout > 0 {
 		var cancelFirst context.CancelCauseFunc
 		sendCtx, cancelFirst = context.WithCancelCause(ctx)
+		cancelSendCtx = func(err error) { cancelFirst(err) }
 		timer := time.AfterFunc(req.FirstEventTimeout, func() {
 			cancelFirst(errFirstEventTimeout)
 		})
@@ -745,7 +1036,6 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		stopFirstEventWatchdog = func() {
 			stopWatchdog.Do(func() {
 				timer.Stop()
-				cancelFirst(nil)
 				close(watchdogDone)
 			})
 		}
@@ -763,10 +1053,20 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	// Send prompt with updated API
-	_, err = session.SendAndWait(sendCtx, copilot.MessageOptions{
+	userInputCtx, cancelUserInput := context.WithCancel(sendCtx)
+	releaseUserInput := req.UserInput.BindTurn(userInputCtx)
+	var retireClient bool
+	_, sessionAbandoned, retireClient, err = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
+	}, func() {
+		e.forceStopClient(client)
 	})
+	cancelUserInput()
+	releaseUserInput()
+	if retireClient {
+		e.retireClient(client)
+	}
 	stopFirstEventWatchdog()
 	finishEvents()
 
@@ -776,7 +1076,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// If the context was canceled because we detected a skill invocation
 		// (CancelOnSkillInvocation), that's not an error — it's expected early
 		// termination. We clear the error so the response reports success.
-		if canceledForSkill.Load() && ctx.Err() == context.Canceled {
+		if canceledForSkill.Load() && ctx.Err() == context.Canceled && cleanupBaseCtx.Err() == nil {
 			if op := operationFrom(ctx); op != nil {
 				op.report(StageExecute, CodeExpectedSkillCancellation, sessionID)
 			}
@@ -786,6 +1086,9 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			// Surface a distinct, actionable error rather than the opaque
 			// context-canceled / deadline message SendAndWait returns.
 			err = fmt.Errorf("session start timeout: no first turn within %s (engine launched but produced no events): %w", req.FirstEventTimeout, errFirstEventTimeout)
+			errMsg = err.Error()
+		} else if errors.Is(sendCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("trial timed out: %w", context.DeadlineExceeded)
 			errMsg = err.Error()
 		} else {
 			// errors that are returned inline, as part of the conversation, also come back
@@ -808,8 +1111,18 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// The deferred session.Disconnect() may modify or restore workspace files,
 	// so we snapshot them now to guarantee graders see the agent's changes.
 	var workspaceFiles map[string][]byte
+	var workspaceCaptureErr error
+	var workspaceCaptureError string
 	if !req.SkipWorkspaceCapture {
-		workspaceFiles = captureWorkspaceFiles(workspaceDir)
+		workspaceFiles, workspaceCaptureErr = captureWorkspaceFiles(workspaceDir, req.WorkspaceCapturePaths)
+		if workspaceCaptureErr != nil {
+			workspaceCaptureError = workspaceCaptureErr.Error()
+			if errMsg == "" {
+				errMsg = workspaceCaptureError
+			} else {
+				errMsg += "; " + workspaceCaptureError
+			}
+		}
 	}
 	var judgeFiles *models.JudgeFileCapture
 	if req.CaptureJudgeFiles != nil {
@@ -817,7 +1130,15 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	// Build response
-	e.captureUsage(ctx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
+	e.captureUsage(sendCtx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
+	if err == nil && sendCtx.Err() != nil && (!canceledForSkill.Load() || cleanupBaseCtx.Err() != nil) {
+		if errors.Is(sendCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("trial timed out during cleanup: %w", context.DeadlineExceeded)
+		} else {
+			err = fmt.Errorf("trial canceled during cleanup: %w", sendCtx.Err())
+		}
+		errMsg = err.Error()
+	}
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
 	var finalOutput string
@@ -833,29 +1154,42 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		skillInvocations = append([]SkillInvocation(nil), eventsCollector.SkillInvocations...)
 		toolCalls = eventsCollector.ToolCalls()
 	}()
-	resp := &ExecutionResponse{
-		FinalOutput:        finalOutput,
-		Events:             copilotevents.FromSDK(collectedEvents),
-		ModelID:            modelID,
-		SkillInvocations:   skillInvocations,
-		DurationMs:         duration.Milliseconds(),
-		ToolCalls:          toolCalls,
-		ErrorMsg:           errMsg,
-		Success:            err == nil,
-		WorkspaceDir:       workspaceDir,
-		WorkspaceFiles:     workspaceFiles,
-		JudgeFiles:         judgeFiles,
-		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
-		SessionID:          sessionID,
-		Usage:              usage,
-		UsageIsCumulative:  true,
-		UsageRevision:      usageRevision,
+	resp = &ExecutionResponse{
+		FinalOutput:           finalOutput,
+		Events:                copilotevents.FromSDK(collectedEvents),
+		ModelID:               modelID,
+		SkillInvocations:      skillInvocations,
+		DurationMs:            duration.Milliseconds(),
+		ToolCalls:             toolCalls,
+		ErrorMsg:              errMsg,
+		Success:               err == nil && workspaceCaptureErr == nil,
+		ExecutionSucceeded:    err == nil,
+		WorkspaceDir:          workspaceDir,
+		WorkspaceFiles:        workspaceFiles,
+		WorkspaceCaptureError: workspaceCaptureError,
+		WorkspaceCaptureCause: workspaceCaptureErr,
+		JudgeFiles:            judgeFiles,
+		CommandInvocations:    commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
+		UserInputRequests:     req.UserInput.Records(),
+		SessionID:             sessionID,
+		Usage:                 usage,
+		UsageIsCumulative:     true,
+		UsageRevision:         usageRevision,
+	}
+
+	if rejected := req.UserInput.rejectionsSince(userInputRejectionMark); rejected != nil {
+		resp.ExecutionSucceeded = false
+		if resp.Success {
+			resp.Success = false
+			resp.ErrorMsg = rejected.Error()
+		}
 	}
 
 	if req.ToolPolicy != nil {
 		resp.ToolPolicyMode = string(req.ToolPolicy.Mode)
 	}
 	if denials := policyRecorder.snapshot(); len(denials) > 0 {
+		resp.ExecutionSucceeded = false
 		resp.ToolPolicyDenials = denials
 		for _, d := range denials {
 			if e.diagnostics != nil {
@@ -878,6 +1212,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 // error.
 func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 	e.shutdownOnce.Do(func() {
+		e.cancelPendingStartup()
 		if e.diagnostics != nil {
 			e.shutdownErr = e.shutdownDiagnostic(ctx)
 		} else {
@@ -887,14 +1222,48 @@ func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 	return e.shutdownErr
 }
 
+// ForceStop interrupts the SDK transport when bounded cleanup cannot make
+// progress after cancellation.
+func (e *CopilotEngine) ForceStop() {
+	e.forceStopTransport()
+}
+
+func (e *CopilotEngine) forceStopTransport() {
+	e.forceStopClient(e.currentClient())
+}
+
+func (e *CopilotEngine) forceStopClient(client CopilotClient) {
+	if !e.ownsClient {
+		return
+	}
+	if force, ok := client.(interface{ ForceStop() }); ok {
+		force.ForceStop()
+	}
+}
+
+func (e *CopilotEngine) retireClient(client CopilotClient) {
+	e.clientMu.Lock()
+	defer e.clientMu.Unlock()
+	current := e.client == client
+	if current {
+		e.retired.Store(true)
+	}
+	if !e.ownsClient {
+		retireSharedClient(client)
+	}
+}
+
 func (e *CopilotEngine) doShutdown(ctx context.Context) error {
-	sessions := func() map[string]CopilotSession {
+	sessions, sessionClients := func() (map[string]CopilotSession, map[string]CopilotClient) {
 		e.sessionsMu.Lock()
 		defer e.sessionsMu.Unlock()
 		s := e.sessions
+		c := e.sessionClients
 		e.sessions = nil
-		return s
+		e.sessionClients = nil
+		return s, c
 	}()
+	currentClient := e.currentClient()
 
 	for id, session := range sessions {
 		e.usageCollectorsMu.RLock()
@@ -903,7 +1272,11 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 		if !collector.hasMetrics() {
 			e.captureShutdownUsage(ctx, id, session, collector)
 		}
-		if err := e.client.DeleteSession(ctx, id); err != nil {
+		client := sessionClients[id]
+		if client == nil {
+			client = currentClient
+		}
+		if err := client.DeleteSession(ctx, id); err != nil {
 			slog.Debug("failed to delete session", "sessionID", id, "error", err)
 		}
 	}
@@ -914,7 +1287,7 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 	// the top-level command stops it via [ShutdownSharedClient]. See
 	// docs/design/135-improve-concurrency.md (R2).
 	if e.ownsClient {
-		if err := e.client.Stop(); err != nil {
+		if err := currentClient.Stop(); err != nil {
 			return fmt.Errorf("failed to stop client: %w", err)
 		}
 	}
@@ -969,12 +1342,12 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
-	defer cancel()
-	metrics, err := session.UsageMetrics(ctx)
+	metricsCtx, cancelMetrics := cleanupContext(parent, timeout)
+	metrics, err := session.UsageMetrics(metricsCtx)
+	cancelMetrics()
 	if err == nil && metrics != nil {
 		collector.SetMetrics(metrics)
-		if op := operationFrom(ctx); op != nil {
+		if op := operationFrom(parent); op != nil {
 			reportUsageObservation(op, StageUsageMetrics, sessionID, collector.Observation())
 		}
 		return
@@ -982,7 +1355,7 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if err == nil {
 		err = errors.New("empty usage metrics response")
 	}
-	if op := operationFrom(ctx); op != nil {
+	if op := operationFrom(parent); op != nil {
 		op.report(StageUsageMetrics, CodeUsageMissingOrPartial, sessionID)
 	} else {
 		slog.Warn("final usage metrics unavailable; using session events", "sessionID", sessionID, "error", err)
@@ -990,19 +1363,53 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	if !final {
 		return
 	}
-	e.captureShutdownUsage(context.WithoutCancel(parent), sessionID, session, collector)
+	fallbackCtx, cancelFallback := cleanupContext(parent, 30*time.Second)
+	defer cancelFallback()
+	e.captureShutdownUsage(fallbackCtx, sessionID, session, collector)
+}
+
+func cleanupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	grace := sendCancellationGrace
+	if parent.Err() != nil && timeout > 2*grace {
+		timeout = 2 * grace
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	stopParent := context.AfterFunc(parent, func() {
+		timer := time.NewTimer(grace)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			cancel()
+		case <-ctx.Done():
+		}
+	})
+	return ctx, func() {
+		stopParent()
+		cancel()
+	}
 }
 
 func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {
+	e.sessionsMu.Lock()
+	unfinished := e.unfinishedDisconnects[sessionID] > 0
+	e.sessionsMu.Unlock()
+	if unfinished {
+		if op := operationFrom(ctx); op != nil {
+			op.report(StageShutdownUsage, CodeUsageMissingOrPartial, sessionID)
+		} else {
+			slog.Warn("shutdown usage unavailable: disconnect not joined", "sessionID", sessionID)
+		}
+		return
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var shutdown *copilot.SessionShutdownData
 	var err error
 	if op := operationFrom(ctx); op != nil {
 		if reporter, ok := session.(interface {
-			shutdownUsageDiagnostic(context.Context, func(DiagnosticCode)) (*copilot.SessionShutdownData, error)
+			shutdownUsageDiagnostic(context.Context, func(DiagnosticCode), bool) (*copilot.SessionShutdownData, error)
 		}); ok {
-			shutdown, err = reporter.shutdownUsageDiagnostic(ctx, func(code DiagnosticCode) { op.report(StageShutdownUsage, code, sessionID) })
+			shutdown, err = reporter.shutdownUsageDiagnostic(ctx, func(code DiagnosticCode) { op.report(StageShutdownUsage, code, sessionID) }, !e.disableAmbientDiscovery)
 		} else {
 			shutdown, err = session.ShutdownUsage(ctx)
 			if err != nil {
@@ -1018,7 +1425,11 @@ func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID stri
 		reportUsageObservation(op, StageShutdownUsage, sessionID, collector.Observation())
 		return
 	}
-	shutdown, err = session.ShutdownUsage(ctx)
+	if wrapper, ok := session.(*copilotSessionWrapper); ok {
+		shutdown, err = wrapper.shutdownUsage(ctx, nil, !e.disableAmbientDiscovery)
+	} else {
+		shutdown, err = session.ShutdownUsage(ctx)
+	}
 	if err != nil {
 		slog.Warn("shutdown usage unavailable", "sessionID", sessionID, "error", err)
 		return
@@ -1091,7 +1502,11 @@ func (e *CopilotEngine) deleteSession(ctx context.Context, sessionID string) err
 	}
 	e.sessionsMu.Lock()
 	session := e.sessions[sessionID]
+	client := e.sessionClients[sessionID]
 	e.sessionsMu.Unlock()
+	if client == nil {
+		client = e.currentClient()
+	}
 	e.usageCollectorsMu.RLock()
 	collector := e.usageCollectors[sessionID]
 	e.usageCollectorsMu.RUnlock()
@@ -1101,12 +1516,13 @@ func (e *CopilotEngine) deleteSession(ctx context.Context, sessionID string) err
 	// Delete the remote session first; only drop local tracking on success so a
 	// failed remote delete leaves the session registered for shutdown cleanup
 	// rather than leaking it and losing usage collection.
-	if err := e.client.DeleteSession(ctx, sessionID); err != nil {
+	if err := client.DeleteSession(ctx, sessionID); err != nil {
 		return err
 	}
 
 	e.sessionsMu.Lock()
 	delete(e.sessions, sessionID)
+	delete(e.sessionClients, sessionID)
 	e.sessionsMu.Unlock()
 
 	return nil
@@ -1222,36 +1638,6 @@ func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []Resource
 	}
 
 	return workspaceDir, nil
-}
-
-// captureWorkspaceFiles reads all files from the workspace directory into memory,
-// preserving the post-execution state. This is called before session.Disconnect()
-// to ensure graders see the agent's modifications even if the SDK restores the
-// workspace to its pre-execution state during disconnect.
-// Keys are forward-slash-separated paths relative to dir for cross-platform consistency.
-func captureWorkspaceFiles(dir string) map[string][]byte {
-	if dir == "" {
-		return nil
-	}
-
-	files := make(map[string][]byte)
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(dir, path)
-		if relErr != nil {
-			return nil
-		}
-		content, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return nil
-		}
-		// Normalize to forward slashes so map keys match eval YAML paths on all platforms.
-		files[filepath.ToSlash(rel)] = content
-		return nil
-	})
-	return files
 }
 
 func joinStrings(parts []string) string {

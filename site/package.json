@@ -23,13 +23,13 @@
     "refresh:docs-media": "WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.42.6",
-    "astro": "^7.4.1",
+    "@astrojs/starlight": "^0.42.8",
+    "astro": "^7.4.2",
     "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
-    "typescript": "6.0.3"
+    "typescript": "7.0.2"
   },
   "overrides": {
     "esbuild": "0.28.1"

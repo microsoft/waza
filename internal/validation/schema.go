@@ -81,13 +81,19 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 	var spec struct {
 		Tasks         []string `yaml:"tasks"`
 		SchemaVersion string   `yaml:"schemaVersion"`
+		Scenario      string   `yaml:"scenario"`
 		Config        struct {
-			Executor string `yaml:"executor"`
+			Executor        string `yaml:"executor"`
+			NativeUserInput bool   `yaml:"native_user_input"`
 		} `yaml:"config"`
 	}
 	if yamlErr := yaml.Unmarshal(data, &spec); yamlErr != nil {
 		evalErrs = append(evalErrs, fmt.Sprintf("yaml 'tasks' parse: %v", yamlErr))
 		return evalErrs, nil, nil
+	}
+	nativeConfig := models.Config{EngineType: spec.Config.Executor, NativeUserInput: spec.Config.NativeUserInput}
+	if nativeErr := nativeConfig.ValidateNativeUserInput(spec.SchemaVersion); nativeErr != nil {
+		evalErrs = append(evalErrs, nativeErr.Error())
 	}
 
 	// Now walk the set of tasks referenced by the eval.yaml and validate each one.
@@ -117,8 +123,21 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 				var task models.TestCase
 				if decodeErr := yaml.Unmarshal(taskData, &task); decodeErr != nil {
 					errs = append(errs, fmt.Sprintf("parsing task: %v", decodeErr))
-				} else if executorErr := task.ValidateForExecutor(spec.Config.Executor); executorErr != nil {
-					errs = append(errs, executorErr.Error())
+				} else {
+					if executorErr := task.ValidateForExecutor(spec.Config.Executor); executorErr != nil {
+						errs = append(errs, executorErr.Error())
+					}
+					if inputErr := models.ValidateTaskUserInput(nativeConfig, &task); inputErr != nil {
+						errs = append(errs, inputErr.Error())
+					}
+					if nameErr := models.ValidateMCPMockNames(task.MCPMocks); nameErr != nil {
+						errs = append(errs, nameErr.Error())
+					}
+					if len(task.MCPMocks) > 0 {
+						if versionErr := models.ValidateMCPMocksSchemaVersion(&models.EvalSpec{SchemaVersion: version, Scenario: spec.Scenario}); versionErr != nil {
+							errs = append(errs, versionErr.Error())
+						}
+					}
 				}
 			}
 			if len(errs) > 0 {

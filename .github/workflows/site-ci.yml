@@ -15,7 +15,10 @@ on:
     paths:
       - 'site/**'
       - 'docs/**'
+      - 'examples/interop/**'
       - 'README.md'
+      - 'CHANGELOG.md'
+      - 'version.txt'
       - 'registry.json'
       - 'cmd/waza/**'
       - 'internal/**'
@@ -25,6 +28,9 @@ on:
       - 'Makefile'
       - 'web/**'
       - '.github/workflows/site-ci.yml'
+      - '.github/workflows/docker-ci.yml'
+      - '.github/workflows/publish-runner-reference.yml'
+      - '.github/workflows/verify-runner-reference.yml'
       - '.github/workflows/pages.yml'
   pull_request:
     branches: [main]
@@ -38,11 +44,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build site
+  changes:
+    name: Detect site and example changes
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     outputs:
+      site: ${{ steps.filter.outputs.site }}
       examples: ${{ steps.filter.outputs.examples }}
     steps:
       - name: Checkout
@@ -57,16 +64,27 @@ jobs:
               - 'site/**'
               - 'docs/**'
               - 'README.md'
+              - 'CHANGELOG.md'
+              - 'version.txt'
               - 'registry.json'
+              - 'go.mod'
+              - 'cmd/waza/cmd_serve.go'
+              - 'internal/embedded/**'
               - 'internal/models/outcome.go'
+              - 'internal/models/schema_version.go'
               - 'internal/runneridentity/testdata/**'
               - 'internal/runnerunit/testdata/**'
+              - 'internal/runnerterminal/testdata/**'
               - 'schemas/**'
               - '.github/workflows/site-ci.yml'
+              - '.github/workflows/docker-ci.yml'
+              - '.github/workflows/publish-runner-reference.yml'
+              - '.github/workflows/verify-runner-reference.yml'
               - '.github/workflows/pages.yml'
             examples:
               - 'site/**'
               - 'docs/**'
+              - 'examples/interop/**'
               - 'README.md'
               - 'registry.json'
               - 'cmd/waza/**'
@@ -78,33 +96,48 @@ jobs:
               - 'web/**'
               - '.github/workflows/site-ci.yml'
 
+  build:
+    name: Build site
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require successful change detection
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+        run: test "$CHANGES_RESULT" = success
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Setup Node
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.22.0'
+          node-version: '24'
           cache: npm
           cache-dependency-path: site/package-lock.json
 
       - name: Install dependencies
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm ci
 
       - name: Build site
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm run build
 
       - name: Typecheck chat and test public metadata
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm run test:chat-types && npm run test:chat-metadata && npm run test:chat-contract
 
       - name: Install Chromium for site regression tests
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npx --no-install playwright install --with-deps chromium
 
       - name: Test site
         id: tests
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm run test:e2e -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/site
         env:
           CI: 'true'
@@ -112,12 +145,8 @@ jobs:
 
       - name: Test optional chat with mocked service and bot protection
         id: chat-tests
-        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        run: |
-          cd site
-          npm run test:private-chat
-          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-report.json npm run test:chat -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat
-          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-unavailable-report.json npm run test:chat-unavailable -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat-unavailable
+        if: needs.changes.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npm run test:private-chat && PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-report.json npm run test:chat -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat && PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-unavailable-report.json npm run test:chat-unavailable -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat-unavailable
         env:
           CI: 'true'
 
@@ -130,13 +159,13 @@ jobs:
           if-no-files-found: error
 
       - name: Skip (no site changes)
-        if: steps.filter.outputs.site != 'true' && github.event_name == 'pull_request'
+        if: needs.changes.outputs.site != 'true' && github.event_name == 'pull_request'
         run: echo "No site/** changes detected — skipping site build."
 
   examples:
     name: Offline documentation examples
-    needs: build
-    if: needs.build.outputs.examples == 'true' || github.event_name == 'push'
+    needs: [changes]
+    if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -163,7 +192,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.22.0'
+          node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
 

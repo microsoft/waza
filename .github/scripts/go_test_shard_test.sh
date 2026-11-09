@@ -2,6 +2,7 @@
 set -euo pipefail
 
 scripts="$(cd "$(dirname "$0")" && pwd)"
+python3 "$scripts/go_test_shard_plan_test.py"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/waza-shard-test.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 mkdir "$scratch/bin" "$scratch/reports"
@@ -62,6 +63,15 @@ for shard in 0 1 2 3; do
 done
 printf 'mode: atomic\nexample.go:1.1,2.1 1 1\n' > "$scratch/reports/coverage.txt"
 bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
+
+cp "$INVENTORY" "$scratch/order-inventory"
+LC_ALL=C sort -r "$INVENTORY" -o "$INVENTORY"
+for shard in 0 1 2 3; do
+  bash "$scripts/go_test_shard.sh" "$shard" "$scratch/reordered-profile"
+  cmp "$scratch/reports/coverage-native-$shard.txt.all" "$scratch/reordered-profile.all"
+  cmp "$scratch/reports/coverage-native-$shard.txt.selected" "$scratch/reordered-profile.selected"
+done
+cp "$scratch/order-inventory" "$INVENTORY"
 
 expect_status 7 env LIST_STATUS=7 bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
 expect_status 9 env TEST_STATUS=9 bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"

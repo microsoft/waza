@@ -238,6 +238,35 @@ func TestCacheKey_TriggerSkillRoutingChangesKey(t *testing.T) {
 	assert.NotEqual(t, withoutRouting, withRouting)
 }
 
+func TestCacheKey_UserInputResponsesChangeKey(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test"},
+		Config:       models.Config{ModelID: "gpt-4", EngineType: "copilot-sdk", TimeoutSec: 300},
+	}
+	answer, other := "staging", "prod"
+	variants := []*[]models.UserInputResponseConfig{
+		nil,
+		{},
+		{{Answer: &answer}},
+		{{Question: "Deploy where.*", Answer: &answer}},
+		{{Question: "Deploy where.*", Answer: &other}},
+		{{Question: "Deploy", Answer: &answer}},
+	}
+	seen := make(map[string]int, len(variants))
+	for i, responses := range variants {
+		task := &models.TestCase{TestID: "test-1", Stimulus: models.TaskStimulus{Message: "Test"}, UserInputResponses: responses}
+		key, err := CacheKey(spec, task, "")
+		require.NoError(t, err)
+		repeat, err := CacheKey(spec, task, "")
+		require.NoError(t, err)
+		require.Equal(t, key, repeat)
+		if previous, ok := seen[key]; ok {
+			t.Fatalf("user_input_responses variant %d reused the cache key of variant %d", i, previous)
+		}
+		seen[key] = i
+	}
+}
+
 func TestCacheKey_DifferentFixturesChangesKey(t *testing.T) {
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},

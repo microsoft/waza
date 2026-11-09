@@ -1472,7 +1472,11 @@ test.describe("Real dashboard lab", () => {
         aiCredits: 0,
       },
     ]);
+    const resultsLoaded = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/v1/lab/runs" && response.ok(),
+    );
     await page.goto("/#/lab");
+    await resultsLoaded;
     await expect(
       page.locator(".lab-metrics").getByText("0.0%", { exact: true }),
     ).toHaveCount(2);

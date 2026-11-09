@@ -13,7 +13,7 @@ import (
 
 func TestArtifactVersionSeparation(t *testing.T) {
 	require.Equal(t, "1.4", CurrentSchemaVersion)
-	require.Equal(t, "1.7", CurrentResultSchemaVersion)
+	require.Equal(t, "1.9", CurrentResultSchemaVersion)
 	require.Equal(t, "2.0", ScenarioSchemaVersion)
 	require.Equal(t, "1.4", defaultSchemaVersion(""))
 
@@ -25,7 +25,7 @@ func TestArtifactVersionSeparation(t *testing.T) {
 		{"legacy-forward-minor", "skill: reader\nschemaVersion: \"1.5\"\n", "1.5", ""},
 		{"scenario", "scenario: inventory\nschemaVersion: \"2.0\"\n", "2.0", ""},
 		{"scenario-with-result-version", "scenario: inventory\nschemaVersion: \"1.5\"\n", "", "scenario requires"},
-		{"scenario-with-current-result-version", "scenario: inventory\nschemaVersion: \"1.7\"\n", "", "scenario requires"},
+		{"scenario-with-current-result-version", "scenario: inventory\nschemaVersion: \"1.9\"\n", "", "scenario requires"},
 		{"scenario-without-version", "scenario: inventory\n", "", "scenario requires"},
 		{"scenario-future-minor", "scenario: inventory\nschemaVersion: \"2.1\"\n", "", "scenario requires"},
 		{"legacy-with-scenario-version", "skill: reader\nschemaVersion: \"2.0\"\n", "", "schema major"},
@@ -70,7 +70,7 @@ func TestArtifactVersionSeparation(t *testing.T) {
 }
 
 func TestHistoricalResultVersionsSurviveWriterVersionBump(t *testing.T) {
-	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.5", "1.6", "1.7", "1.99"} {
+	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.99"} {
 		t.Run("version="+version, func(t *testing.T) {
 			outcome, err := ParseEvaluationOutcome([]byte(minimalOutcomeJSON(version)), "historical.json")
 			require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestDependencyModesRoundTripInCurrentResultVersion(t *testing.T) {
 		} `json:"tasks"`
 	}
 	require.NoError(t, json.Unmarshal(data, &wire))
-	require.Equal(t, "1.7", wire.SchemaVersion)
+	require.Equal(t, CurrentResultSchemaVersion, wire.SchemaVersion)
 	require.Equal(t, []DependencyMode{
 		{Kind: "mcp", Name: "inventory", Mode: "mocked"},
 		{Kind: "cli", Name: "az", Mode: "mocked"},
@@ -170,4 +170,46 @@ func TestDependencyModesRoundTripInCurrentResultVersion(t *testing.T) {
 	restored, err := ParseEvaluationOutcome(data, "dependency-modes.json")
 	require.NoError(t, err)
 	require.Equal(t, wire.Tasks[0].Runs[0].DependencyModes, restored.TestOutcomes[0].Runs[0].DependencyModes)
+}
+
+func TestHostLifecyclePresenceRoundTripsInCurrentResultVersion(t *testing.T) {
+	exitCode := int64(0)
+	for _, tc := range []struct {
+		name      string
+		lifecycle *HostLifecycle
+		wire      string
+	}{
+		{"unavailable", nil, ""},
+		{"observed without shells", &HostLifecycle{ModelTurns: []ModelTurn{}, Shells: []ShellLifecycle{}}, `{"model_turns":[],"shells":[]}`},
+		{"exit code zero", &HostLifecycle{ModelTurns: []ModelTurn{}, Shells: []ShellLifecycle{{ShellID: "s", Calls: []ShellToolCall{},
+			Exits: []ShellExitEvent{{Source: ShellExitSourceNotification, Kind: "shell_completed", ExitCode: &exitCode, Index: 1}}}}},
+			`{"model_turns":[],"shells":[{"shell_id":"s","calls":[],"exits":[{"source":"system.notification","kind":"shell_completed","exit_code":0,"index":1}]}]}`},
+		{"exit code unreported", &HostLifecycle{ModelTurns: []ModelTurn{}, Shells: []ShellLifecycle{{ShellID: "s", Calls: []ShellToolCall{},
+			Exits: []ShellExitEvent{{Source: ShellExitSourceNotification, Kind: "shell_completed", Index: 1}}}}},
+			`{"model_turns":[],"shells":[{"shell_id":"s","calls":[],"exits":[{"source":"system.notification","kind":"shell_completed","index":1}]}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome := EvaluationOutcome{RunID: "lifecycle", TestOutcomes: []TestOutcome{{
+				TestID: "task", Runs: []RunResult{{RunNumber: 1, HostLifecycle: tc.lifecycle}},
+			}}}
+			data, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			var wire struct {
+				SchemaVersion string `json:"schemaVersion"`
+				Tasks         []struct {
+					Runs []map[string]json.RawMessage `json:"runs"`
+				} `json:"tasks"`
+			}
+			require.NoError(t, json.Unmarshal(data, &wire))
+			require.Equal(t, CurrentResultSchemaVersion, wire.SchemaVersion)
+			raw, present := wire.Tasks[0].Runs[0]["host_lifecycle"]
+			require.Equal(t, tc.lifecycle != nil, present)
+			if present {
+				require.JSONEq(t, tc.wire, string(raw))
+			}
+			restored, err := ParseEvaluationOutcome(data, "lifecycle.json")
+			require.NoError(t, err)
+			require.Equal(t, tc.lifecycle, restored.TestOutcomes[0].Runs[0].HostLifecycle)
+		})
+	}
 }
