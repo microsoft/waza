@@ -62,6 +62,9 @@ jobs:
     needs: [setup-version, validation]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_DASHBOARD_ARTIFACT: ${{ runner.temp }}/release-dashboard
+      RELEASE_DASHBOARD_MANIFEST_SHA256: ${{ needs.validation.outputs.dashboard-manifest-sha256 }}
     strategy:
       matrix:
         include:
@@ -94,17 +97,17 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: go.sum
 
-      - name: Setup Node.js (for web UI build)
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Download exact-source dashboard
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          node-version: '22'
+          name: release-dashboard-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-dashboard
 
       - name: Download dashboard checker dependency
         run: go mod download golang.org/x/net golang.org/x/sys
 
-      - name: Build Web UI
-        working-directory: web
-        run: npm ci && npm run build
+      - name: Install exact-source dashboard
+        run: bash .github/scripts/release_dashboard_handoff.sh install
 
       - name: Require built dashboard output
         run: GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check
@@ -226,6 +229,8 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.setup-version.outputs.version }}
+      RELEASE_DASHBOARD_ARTIFACT: ${{ runner.temp }}/release-dashboard
+      RELEASE_DASHBOARD_MANIFEST_SHA256: ${{ needs.validation.outputs.dashboard-manifest-sha256 }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -244,17 +249,17 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: go.sum
 
-      - name: Setup Node.js (for web UI build)
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Download exact-source dashboard
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          node-version: '22'
+          name: release-dashboard-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-dashboard
 
       - name: Download dashboard checker dependency
         run: go mod download golang.org/x/net golang.org/x/sys
 
-      - name: Build Web UI
-        working-directory: web
-        run: npm ci && npm run build
+      - name: Install exact-source dashboard
+        run: bash .github/scripts/release_dashboard_handoff.sh install
 
       - name: Require built dashboard output
         run: GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check

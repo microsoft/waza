@@ -16,9 +16,13 @@ OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/bin}"
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"
 
-# Build web dashboard
-echo "Building web dashboard..."
-(cd "$SCRIPT_DIR/web" && npm ci --silent && npm run build)
+if [ "${REQUIRE_RELEASE_ADMISSION:-}" = "1" ] &&
+   { [ -n "${RELEASE_DASHBOARD_ARTIFACT:-}" ] || [ -n "${RELEASE_DASHBOARD_MANIFEST_SHA256:-}" ]; }; then
+    bash .github/scripts/release_dashboard_handoff.sh verify-installed
+else
+    echo "Building web dashboard..."
+    (cd "$SCRIPT_DIR/web" && npm ci --silent && npm run build)
+fi
 
 if [ "${REQUIRE_RELEASE_ADMISSION:-}" = "1" ]; then
     GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check
