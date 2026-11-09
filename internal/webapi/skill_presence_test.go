@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -41,7 +42,10 @@ func TestNativeJSONMatchesFrozenEndpointResponses(t *testing.T) {
 			expected, err := os.ReadFile(filepath.Join("testdata", "native-json", tc.fixture))
 			require.NoError(t, err)
 			rec := labRefreshRequest(t, mux, tc.endpoint, http.StatusOK)
-			require.JSONEq(t, string(expected), rec.Body.String(), tc.endpoint)
+			var compactExpected, compactActual bytes.Buffer
+			require.NoError(t, json.Compact(&compactExpected, expected))
+			require.NoError(t, json.Compact(&compactActual, rec.Body.Bytes()))
+			require.Equal(t, compactExpected.String(), compactActual.String(), tc.endpoint)
 		}
 	}
 }
