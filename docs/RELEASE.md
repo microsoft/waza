@@ -86,6 +86,10 @@ The canonical manifest binds repository, source SHA, run ID/attempt, every file'
 size and SHA256; its own digest travels independently through step, job, and
 reusable-workflow outputs, not through a trusted value read from the download.
 
+Consumers export their artifact directory from `$RUNNER_TEMP` through
+`$GITHUB_ENV` before downloading; runner paths are not valid job-level `env`
+expressions. The independent producer manifest digest remains job-level input.
+
 All six CLI consumers and the azd consumer retain success-only dependencies on
 the entire validation workflow. They download only that named same-run artifact,
 verify the independent digest and observed checkout identity, and install only

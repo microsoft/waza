@@ -2182,7 +2182,7 @@ func validateTagRelease(source []byte) error {
 		return fmt.Errorf("tag validation, builders and publishers must retain success-only dependency admission")
 	}
 	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Require exact validated source",
-		"Setup Go Environment", "Download exact-source dashboard", "Download dashboard checker dependency",
+		"Setup Go Environment", "Set dashboard artifact path", "Download exact-source dashboard", "Download dashboard checker dependency",
 		"Install exact-source dashboard", "Require built dashboard output", "Require clean packaged source",
 		"Build Binary", "Upload Binary Artifact"}); err != nil {
 		return err
@@ -2192,7 +2192,7 @@ func validateTagRelease(source []byte) error {
 		return err
 	}
 	if err := orderedReleaseSteps(extension, []string{"Checkout Repository", "Require exact validated source",
-		"Setup Go Environment", "Download exact-source dashboard", "Download dashboard checker dependency",
+		"Setup Go Environment", "Set dashboard artifact path", "Download exact-source dashboard", "Download dashboard checker dependency",
 		"Install exact-source dashboard", "Require built dashboard output", "Require clean packaged source",
 		"Verify selected Extensions Kit contract",
 		"Sync Version Files", "Build Extension", "Pack Extension",

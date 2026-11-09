@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -17,14 +18,31 @@ import (
 const dashboardArtifactPath = "${{ runner.temp }}/release-dashboard"
 const dashboardArtifactName = "release-dashboard-${{ github.sha }}-${{ github.run_attempt }}"
 const dashboardManifestOutput = "${{ needs.validation.outputs.dashboard-manifest-sha256 }}"
+const dashboardConsumerPathSetup = `echo "RELEASE_DASHBOARD_ARTIFACT=$RUNNER_TEMP/release-dashboard" >> "$GITHUB_ENV"`
+
+var releaseExpressions = regexp.MustCompile(`\$\{\{(?s:.*?)\}\}`)
+var releaseExpressionStrings = regexp.MustCompile(`'(?:[^']|'')*'`)
+var releaseRuntimeContexts = regexp.MustCompile(`(^|[^[:alnum:]_.])(runner|env|steps|job)\s*(\.|\[)`)
 
 func validateReleaseDashboardConsumer(job releaseJob) error {
 	steps := releaseSteps(job)
 	download := steps["Download exact-source dashboard"]
-	if job.Env["RELEASE_DASHBOARD_ARTIFACT"] != dashboardArtifactPath ||
+	for key, value := range job.Env {
+		for _, expression := range releaseExpressions.FindAllString(value, -1) {
+			expression = releaseExpressionStrings.ReplaceAllString(expression, "''")
+			expression = strings.Join(strings.Fields(expression), "")
+			if releaseRuntimeContexts.MatchString(expression) {
+				return fmt.Errorf("job-level env %s cannot use runtime-only contexts", key)
+			}
+		}
+	}
+	if _, present := job.Env["RELEASE_DASHBOARD_ARTIFACT"]; present {
+		return fmt.Errorf("dashboard artifact path must be exported at step scope")
+	}
+	if steps["Set dashboard artifact path"].Run != dashboardConsumerPathSetup ||
 		job.Env["RELEASE_DASHBOARD_MANIFEST_SHA256"] != dashboardManifestOutput ||
 		!strings.HasPrefix(download.Uses, "actions/download-artifact@") ||
-		!reflect.DeepEqual(download.With, map[string]string{"name": dashboardArtifactName, "path": dashboardArtifactPath}) ||
+		!reflect.DeepEqual(download.With, map[string]string{"name": dashboardArtifactName, "path": "${{ env.RELEASE_DASHBOARD_ARTIFACT }}"}) ||
 		steps["Install exact-source dashboard"].Run != "bash .github/scripts/release_dashboard_handoff.sh install" ||
 		steps["Require built dashboard output"].Run != releaseDashboardCheck {
 		return fmt.Errorf("consumer must install same-run/source/attempt dashboard with independent producer digest and semantic admission")
@@ -40,6 +58,67 @@ func validateReleaseDashboardConsumer(job releaseJob) error {
 		}
 	}
 	return nil
+}
+
+func TestReleaseDashboardConsumerPathScope(t *testing.T) {
+	source := readReleaseWorkflow(t, "release.yml")
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"build-cli", "release-extension"} {
+		t.Run(name, func(t *testing.T) {
+			job := workflow.Jobs[name]
+			dir := t.TempDir()
+			output := filepath.Join(dir, "github-env")
+			writeReleaseFile(t, output, []byte("EXISTING=retained\n"))
+			runnerTemp := filepath.Join(dir, "runner temp")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", releaseSteps(job)["Set dashboard artifact path"].Run)
+			cmd.Env = append(os.Environ(), "RUNNER_TEMP="+runnerTemp, "GITHUB_ENV="+output)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("actual path setup: %v\n%s", err, out)
+			}
+			content, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(content) != "EXISTING=retained\nRELEASE_DASHBOARD_ARTIFACT="+runnerTemp+"/release-dashboard\n" {
+				t.Fatalf("path export must append actual runtime path, got %q", content)
+			}
+			for _, value := range []string{
+				"${{ runner.temp }}/release-dashboard",
+				"${{runner['temp']}}/release-dashboard",
+				"${{ format('{0}/release-dashboard', runner . temp) }}",
+			} {
+				head, tail, found := strings.Cut(string(source), "  "+name+":\n")
+				if !found {
+					t.Fatal("consumer job missing from source")
+				}
+				binding := "      RELEASE_DASHBOARD_MANIFEST_SHA256: " + dashboardManifestOutput
+				tail = strings.Replace(tail, binding, binding+"\n      INVALID_CONTEXT: "+value, 1)
+				changed := []byte(head + "  " + name + ":\n" + tail)
+				var mutated releaseWorkflow
+				if err := yaml.Unmarshal(changed, &mutated); err != nil {
+					t.Fatal(err)
+				}
+				if mutated.Jobs[name].Env["INVALID_CONTEXT"] != value {
+					t.Fatal("mutation did not reach actual consumer job env")
+				}
+				if err := validateTagRelease(changed); err == nil || !strings.Contains(err.Error(), "job-level env") {
+					t.Fatalf("actual source admitted runtime context in job env: %v", err)
+				}
+			}
+			alternative := job
+			alternative.Env = make(map[string]string, len(job.Env)+1)
+			for key, value := range job.Env {
+				alternative.Env[key] = value
+			}
+			alternative.Env["VALID_SCOPE"] = "${{ format('runner.temp', needs.runner.outputs.path) }}"
+			if err := validateReleaseDashboardConsumer(alternative); err != nil {
+				t.Fatalf("literal or nested property confused with runner context: %v", err)
+			}
+		})
+	}
 }
 
 func validateReleaseDashboardProducer(source []byte) error {
@@ -86,6 +165,9 @@ func TestReleaseDashboardWorkflowHandoff(t *testing.T) {
 	if err := validateReleaseDashboardProducer(producer); err != nil {
 		t.Fatal(err)
 	}
+	if err := validateTagRelease(consumers); err != nil {
+		t.Fatal(err)
+	}
 	for _, mutation := range []struct{ old, new string }{
 		{"${{ jobs.build-test.outputs.dashboard-manifest-sha256 }}", "unbound"},
 		{"${{ steps.dashboard.outputs.manifest_sha256 }}", "unbound"},
@@ -114,6 +196,11 @@ func TestReleaseDashboardWorkflowHandoff(t *testing.T) {
 	for _, mutation := range []struct{ old, new string }{
 		{dashboardManifestOutput, "unbound"},
 		{dashboardArtifactName, "release-dashboard-other-source"},
+		{dashboardConsumerPathSetup, "':'"},
+		{"name: Set dashboard artifact path", "name: Missing path setup"},
+		{"path: ${{ env.RELEASE_DASHBOARD_ARTIFACT }}", "path: /unbound-artifact"},
+		{"      RELEASE_DASHBOARD_MANIFEST_SHA256: " + dashboardManifestOutput,
+			"      RELEASE_DASHBOARD_ARTIFACT: " + dashboardArtifactPath + "\n      RELEASE_DASHBOARD_MANIFEST_SHA256: " + dashboardManifestOutput},
 		{"run: bash .github/scripts/release_dashboard_handoff.sh install", "run: npm ci && npm run build"},
 		{"name: release-dashboard-${{ github.sha }}-${{ github.run_attempt }}", "name: release-dashboard-${{ github.sha }}-${{ github.run_attempt }}\n          run-id: '123'"},
 	} {
