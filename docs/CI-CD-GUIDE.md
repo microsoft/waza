@@ -279,6 +279,35 @@ execution or ruleset adoption.
 
 ## Installation in CI
 
+The retained reusable workflows pin standalone Waza v0.41.0 and download
+the release-owned installer and validator from that tag. Publish v0.41.0
+before using them from another repository. Checks in the Waza repository build
+the exact checkout with real dashboard assets instead of installing a mutable
+release. The copied skills workflow keeps `eval/eval.yaml` for consumers; its
+repository check uses `examples/code-explainer/eval.yaml` with the mock executor
+and a verified rejecting Copilot runtime.
+
+Workflow results must contain unique task IDs, valid trial records and the full
+configured trial inventory for passed tasks. Summary counts and success rate
+must agree with task statuses. Workflow success also requires every recorded
+final and checkpoint grader to pass, no recorded grader evaluation errors, and
+no failed or stopped checkpoint; task/run status alone is not sufficient.
+Failed/skipped/error or contradictory artifacts remain available
+for diagnostics, but cannot become a successful workflow output. An omitted
+context override leaves fixture resolution to the eval spec; explicit context
+and output paths are forwarded unchanged.
+
+The automatic/reusable `waza-eval.yml` result artifact contains only the selected
+JSON file, including explicitly chosen hidden names or directories. It copies
+the exact regular file into a fresh staging directory, preserving its basename;
+custom paths are not interpreted as upload patterns. Missing files, symlink
+results, or staging failures fail the workflow instead of uploading stale paths.
+Optional non-hidden transcripts are uploaded separately under `<artifact-name>-transcripts`;
+an empty or hidden-only transcript selection is ignored.
+transcripts cannot substitute for missing result evidence. The skills example's
+dispatch input is empty by default so its resolver selects the correct repository
+or consumer fixture path.
+
 ### GitHub Actions
 
 ```yaml
@@ -327,19 +356,20 @@ jobs:
 
       - name: Check results
         run: |
-          PASS_RATE=$(jq '.summary.pass_rate' results.json)
-          echo "Pass Rate: $PASS_RATE"
-          if (( $(echo "$PASS_RATE < 0.8" | bc -l) )); then
-            echo "❌ Pass rate below threshold"
+          SUCCESS_RATE=$(jq -er '.summary.success_rate | numbers' results.json)
+          echo "Success rate: $SUCCESS_RATE"
+          if ! jq -e '.summary.success_rate >= 0.8' results.json >/dev/null; then
+            echo "❌ Success rate below threshold"
             exit 1
           fi
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: eval-results
           path: results.json
+          if-no-files-found: error
 ```
 
 ### Multi-Model Comparison
@@ -377,10 +407,11 @@ jobs:
           COPILOT_SDK_TOKEN: ${{ secrets.COPILOT_SDK_TOKEN }}
 
       - name: Upload results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: eval-results-${{ matrix.model }}
           path: results-${{ matrix.model }}.json
+          if-no-files-found: error
 ```
 
 ### Baseline Comparison
@@ -465,10 +496,11 @@ steps:
       COPILOT_SDK_TOKEN: $(COPILOT_SDK_TOKEN)
 
   - script: |
-      PASS_RATE=$(jq '.summary.pass_rate' results.json)
-      echo "Pass Rate: $PASS_RATE"
-      if (( $(echo "$PASS_RATE < 0.8" | bc -l) )); then
-        echo "##vso[task.logissue type=error]Pass rate below threshold"
+      set -euo pipefail
+      SUCCESS_RATE=$(jq -er '.summary.success_rate | numbers' results.json)
+      echo "Success rate: $SUCCESS_RATE"
+      if ! jq -e '.summary.success_rate >= 0.8' results.json >/dev/null; then
+        echo "##vso[task.logissue type=error]Success rate below threshold"
         exit 1
       fi
     displayName: Check results
@@ -543,7 +575,7 @@ copilot auth login
 ### 1. Cache Results for Faster CI
 
 ```yaml
-- uses: actions/cache@v3
+- uses: actions/cache@v4
   with:
     path: |
       .waza-cache
@@ -567,15 +599,16 @@ Use JSON queries to enforce quality gates:
 #!/bin/bash
 set -e
 
-PASS_RATE=$(jq '.summary.pass_rate' results.json)
-MIN_PASS_RATE=0.85
+SUCCESS_RATE=$(jq -er '.summary.success_rate | numbers' results.json)
+MIN_SUCCESS_RATE=0.85
 
-if (( $(echo "$PASS_RATE < $MIN_PASS_RATE" | bc -l) )); then
-  echo "❌ Pass rate $PASS_RATE is below minimum $MIN_PASS_RATE"
+if ! jq -e --argjson minimum "$MIN_SUCCESS_RATE" \
+  '.summary.success_rate >= $minimum' results.json >/dev/null; then
+  echo "❌ Success rate $SUCCESS_RATE is below minimum $MIN_SUCCESS_RATE"
   exit 1
 fi
 
-echo "✅ Pass rate $PASS_RATE meets threshold"
+echo "✅ Success rate $SUCCESS_RATE meets threshold"
 ```
 
 ### 3. Run Tasks in Parallel for Speed
@@ -612,10 +645,11 @@ Only run specific tasks to save time:
 
 - name: Upload logs
   if: failure()
-  uses: actions/upload-artifact@v3
+  uses: actions/upload-artifact@v4
   with:
     name: session-logs
     path: logs/
+    if-no-files-found: error
 ```
 
 ### 6. Post Results as PR Comment
@@ -630,8 +664,9 @@ Only run specific tasks to save time:
       const results = JSON.parse(fs.readFileSync('results.json', 'utf8'));
       const comment = `
 ## Evaluation Results
-- **Pass Rate:** ${(results.summary.pass_rate * 100).toFixed(1)}%
-- **Tasks Passed:** ${results.summary.tasks_passed}/${results.summary.tasks_total}
+- **Success Rate:** ${(results.summary.success_rate * 100).toFixed(1)}%
+- **Tasks Succeeded:** ${results.summary.succeeded}/${results.summary.total_tests}
+- **Aggregate Score:** ${results.summary.aggregate_score.toFixed(3)}
 - **Duration:** ${results.summary.duration_ms}ms
       `;
       github.rest.issues.createComment({
@@ -676,30 +711,55 @@ jobs:
 ### Exit Codes
 
 - **`0`** — Evaluation passed (all tasks met thresholds)
-- **`1`** — Evaluation failed (one or more tasks below threshold)
-- **`2`** — Configuration or runtime error
+- **`1`** — Evaluation failed its grading or quality threshold
+- **`2`** — Configuration, startup, or operational task/run error. A result file
+  may still be saved; inspect its task and run statuses for diagnostics.
 
 ### Result JSON Structure
 
 ```json
 {
-  "summary": {
-    "eval_name": "my-skill-eval",
-    "status": "passed",
-    "pass_rate": 0.95,
-    "tasks_passed": 19,
-    "tasks_total": 20,
-    "duration_ms": 5000,
-    "timestamp": "2025-01-20T10:30:00Z"
+  "schemaVersion": "1.9",
+  "eval_id": "01JEXAMPLE",
+  "skill": "my-skill",
+  "eval_name": "my-skill-eval",
+  "timestamp": "2026-11-06T10:30:00Z",
+  "config": {
+    "runs_per_test": 1,
+    "model_id": "claude-sonnet-4-20250514",
+    "engine_type": "copilot-sdk",
+    "timeout_sec": 300
   },
+  "summary": {
+    "total_tests": 1,
+    "succeeded": 1,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "success_rate": 1,
+    "aggregate_score": 0,
+    "weighted_score": 0,
+    "min_score": 0,
+    "max_score": 0,
+    "std_dev": 0,
+    "duration_ms": 5000
+  },
+  "metrics": {},
   "tasks": [
     {
-      "id": "task-001",
-      "name": "Example Task",
+      "test_id": "task-001",
+      "display_name": "Example Task",
       "status": "passed",
-      "score": 1.0,
-      "duration_ms": 250,
-      "trials": 1
+      "runs": [
+        {
+          "run_number": 1,
+          "attempts": 1,
+          "status": "passed",
+          "duration_ms": 5000,
+          "validations": {},
+          "final_output": "Example explanation."
+        }
+      ]
     }
   ]
 }
@@ -768,8 +828,8 @@ waza run evals/my-skill/eval.yaml \
 ```yaml
 - name: Check score before release
   run: |
-    SCORE=$(jq '.summary.pass_rate' results.json)
-    if (( $(echo "$SCORE < 0.95" | bc -l) )); then
+    SCORE=$(jq -er '.summary.success_rate | numbers' results.json)
+    if ! jq -e '.summary.success_rate >= 0.95' results.json >/dev/null; then
       echo "❌ Score $SCORE requires approval"
       exit 1
     fi
