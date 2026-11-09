@@ -106,14 +106,32 @@ fi
 	}
 	for i, name := range []string{"package.json", "package-lock.json"} {
 		manifest := filepath.Join(root, "web", name)
+		old := time.Now().Add(-3 * time.Hour)
+		installed := old.Add(time.Hour)
+		changed := installed.Add(time.Hour)
+		for _, input := range []string{"package.json", "package-lock.json"} {
+			if err := os.Chtimes(filepath.Join(root, "web", input), old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chtimes(stamp, installed, installed); err != nil {
+			t.Fatal(err)
+		}
 		write(filepath.Join("web", name), "{\"changed\":true}\n", 0o600)
-		old := time.Now().Add(-time.Hour)
-		if err := os.Chtimes(stamp, old, old); err != nil {
+		if err := os.Chtimes(manifest, changed, changed); err != nil {
 			t.Fatal(err)
 		}
 		m, err := os.Stat(manifest)
-		if err != nil || !m.ModTime().After(old) {
+		if err != nil || !m.ModTime().After(installed) {
 			t.Fatalf("manifest invalidation setup failed: %v", err)
+		}
+		other := "package.json"
+		if name == other {
+			other = "package-lock.json"
+		}
+		unchanged, err := os.Stat(filepath.Join(root, "web", other))
+		if err != nil || !unchanged.ModTime().Before(installed) {
+			t.Fatalf("non-selected manifest must not invalidate the cache: %v", err)
 		}
 		mustRun("make", "--no-print-directory", "web-deps")
 		if count("npm ci --silent") != i+2 {
