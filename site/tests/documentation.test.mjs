@@ -434,12 +434,12 @@ test('concepts distinguish repeated trials from discarded retry outputs', () => 
 });
 
 test('release articles are linked from Releases and retain their existing screenshot assets', () => {
-  for (const slug of ['v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
+  for (const slug of ['v0-41-0', 'v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
     const article = read(`site/src/content/docs/releases/${slug}.mdx`);
     assert.ok(read('site/astro.config.mjs').includes(`slug: 'releases/${slug}'`));
     assert.ok(read('site/src/content/docs/reference/releases.mdx').includes(`](../../releases/${slug}/)`));
     const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
-    assert.equal(screenshots.length, slug.startsWith('v0-40-') ? 0 : 3, slug);
+    assert.equal(screenshots.length, /^v0-(?:40|41)-/.test(slug) ? 0 : 3, slug);
     for (const [, source] of screenshots) {
       assert.match(source, /^\/images\/.+\.png$/);
       assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);

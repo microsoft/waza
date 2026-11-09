@@ -27,6 +27,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This is post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts.
   The documented process-lifetime and trusted-output-directory limitations remain.
 
+## [0.41.0] - Unreleased
+
+**Draft preparation only; publication pending.** This provisional inventory is
+limited to merged source from published v0.40.1
+(`e0c251df896bee4e0f9b38a693a6105bf7eadd19`) through
+`6750ff6115b3a98a5609bd751227bca629839a9c`. It is not the final release scope.
+Existing Unreleased entries above are preserved verbatim; the inventory below
+is derived independently from source. The published baseline is not an ancestor
+of this main commit: hotfix parity must be reconciled before release.
+No v0.41.0 tag, assets, date, or registry availability is asserted.
+See the [pending release article](site/src/content/docs/releases/v0-41-0.mdx)
+for finalization requirements.
+
+### Added
+
+- **Native question callbacks** - Opt-in native SDK questions use scripted task
+  answers and the adaptive responder, recording actual question requests in
+  result schema `1.9`; unexpected questions fail instead of receiving a default
+  answer ([#818](https://github.com/microsoft/waza/pull/818)).
+
+### Changed
+
+- **Local dashboard projections** - Cache run-list and summary projections per
+  successfully loaded local snapshot, retaining defensive copies and refresh
+  behavior ([#858](https://github.com/microsoft/waza/pull/858)).
+- **Dashboard JSON encoding** - Use native JSON encoding for run summaries and
+  details while preserving absent versus explicitly empty recorded skills
+  ([#857](https://github.com/microsoft/waza/pull/857)).
+- **Native capture readers** - Reduce repeated source-buffer conversions and
+  reconstruction work in native capture readers while retaining validation and
+  ownership boundaries ([#833](https://github.com/microsoft/waza/pull/833)).
+- **Local dashboard builds** - Reuse locked dashboard dependencies when manifests
+  are unchanged; `make web-deps-force` explicitly restores dependencies
+  ([#837](https://github.com/microsoft/waza/pull/837)).
+- **Other bounded optimizations** - Reuse case-local assurance evidence
+  resolution, defer token initialization for metadata-only skill parsing,
+  compile grader-owned tool regexes once, and lazy-load dashboard routes
+  ([#855](https://github.com/microsoft/waza/pull/855),
+  [#831](https://github.com/microsoft/waza/issues/831),
+  [#848](https://github.com/microsoft/waza/issues/848),
+  [#827](https://github.com/microsoft/waza/pull/827)). No release-wide measured
+  performance target is claimed.
+- **CI and release admission** - Consolidate Go validation, harden offline
+  runtime guards and shard inventories, require exact-source release evidence,
+  and add rooted asset-handoff and completeness foundation controls
+  ([#889](https://github.com/microsoft/waza/pull/889),
+  [#901](https://github.com/microsoft/waza/issues/901),
+  [#834](https://github.com/microsoft/waza/pull/834),
+  [#910](https://github.com/microsoft/waza/pull/910),
+  [#933](https://github.com/microsoft/waza/pull/933),
+  [#934](https://github.com/microsoft/waza/pull/934),
+  [#829](https://github.com/microsoft/waza/pull/829)). Foundation controls are
+  not completion of the remaining asset/completeness integration.
+- **Dependencies** - Update dashboard React Query to `5.105.3`, Lucide to
+  `1.68.0`, Vite React plugin to `6.2.1`, site Starlight to `0.42.8`, and retain
+  the provenance v4 publication contract
+  ([#916](https://github.com/microsoft/waza/pull/916),
+  [#923](https://github.com/microsoft/waza/pull/923),
+  [#920](https://github.com/microsoft/waza/pull/920),
+  [#918](https://github.com/microsoft/waza/pull/918),
+  [#912](https://github.com/microsoft/waza/pull/912)).
+- **Documentation and registry** - Record already-published v0.40.x availability,
+  synchronize the v0.40.1 registry, retain performance-sensitive engineering
+  guidance, and remove the unsupported `serve --stdio` example
+  ([#883](https://github.com/microsoft/waza/pull/883),
+  [#888](https://github.com/microsoft/waza/pull/888),
+  [#908](https://github.com/microsoft/waza/pull/908),
+  [#907](https://github.com/microsoft/waza/pull/907),
+  [#932](https://github.com/microsoft/waza/pull/932)). These are not new
+  v0.41.0 artifact availability.
+
+### Fixed
+
+- **Reusable evaluation workflows** - Replace removed Python CLI invocations
+  with pinned standalone Go CLI installation and validate complete saved results
+  before accepting evaluation outcomes
+  ([#909](https://github.com/microsoft/waza/pull/909)).
+- **Timeout, cleanup, and operational errors** - Preserve completed results and
+  partial recovery after trial timeout, join force-stop cleanup within its
+  existing bound, and keep operational grader errors distinct from ordinary
+  assertion failures
+  ([#870](https://github.com/microsoft/waza/pull/870),
+  [#883](https://github.com/microsoft/waza/pull/883),
+  [#925](https://github.com/microsoft/waza/pull/925)). Existing process-lifetime,
+  trusted-output-directory, and unresolved native-platform limits remain.
+- **Workspace capture** - Bound workspace capture and retain explicit
+  diagnostics for unavailable or incomplete captured evidence
+  ([#830](https://github.com/microsoft/waza/pull/830)).
+
 ## [0.40.1] - 2026-11-06
 
 The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.1)
@@ -772,6 +861,7 @@ pip install waza
 - Progress bar now shows 100% on completion
 
 [Unreleased]: https://github.com/microsoft/waza/compare/v0.40.1...HEAD
+[0.41.0]: https://github.com/microsoft/waza/compare/e0c251df896bee4e0f9b38a693a6105bf7eadd19...6750ff6115b3a98a5609bd751227bca629839a9c
 [0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
 [0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5
 [0.38.4]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.3...azd-ext-microsoft-azd-waza_0.38.4
