@@ -345,10 +345,31 @@ func (l *Ledger) Distinct(ctx context.Context, capability Creator) (*executionat
 }
 
 func (l *Ledger) Reuse(ctx context.Context, binding artifactmanifest.Binding, source executionattempt.Source, names ...string) (*executionattempt.Decision, *CompletedExecution, error) {
+	return l.reuse(ctx, binding, source, nil, nil, names...)
+}
+
+// ReusePinned requires the final source read used by the decision to retain
+// independently admitted sidecars, rather than only the manifest reference.
+func (l *Ledger) ReusePinned(ctx context.Context, binding artifactmanifest.Binding, source executionattempt.Source,
+	reservation, completion []byte, names ...string,
+) (*executionattempt.Decision, *CompletedExecution, error) {
+	if len(reservation) == 0 || len(completion) == 0 {
+		return nil, nil, fmt.Errorf("%w: pinned reuse requires both original sidecars", ErrContext)
+	}
+	return l.reuse(ctx, binding, source, bytes.Clone(reservation), bytes.Clone(completion), names...)
+}
+
+func (l *Ledger) reuse(ctx context.Context, binding artifactmanifest.Binding, source executionattempt.Source,
+	reservation, completion []byte, names ...string,
+) (*executionattempt.Decision, *CompletedExecution, error) {
 	binding.GraderIDs = slices.Clone(binding.GraderIDs)
 	completed, err := l.ReadCompleted(ctx, source, names...)
 	if err != nil {
 		return nil, nil, err
+	}
+	if reservation != nil && (!bytes.Equal(reservation, completed.Reservation.Bytes) ||
+		!bytes.Equal(completion, completed.CompletionBytes)) {
+		return nil, nil, fmt.Errorf("%w: reuse source sidecars changed after admission", ErrContext)
 	}
 	decision, err := l.decision(ctx, binding, "reuse", "", &source, completed)
 	if err != nil {

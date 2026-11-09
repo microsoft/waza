@@ -211,13 +211,14 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 				return result, err
 			}
 		}
+		reservationBytes, completionBytes := bytes.Clone(source.Reservation.Bytes), bytes.Clone(source.CompletionBytes)
 		if hooks.ReuseAdmission != nil {
 			if err := hooks.ReuseAdmission(ctx, source); err != nil {
 				result.fail("source_disclosure_denied", err)
 				return result, err
 			}
 		}
-		decision, verified, err := ledger.Reuse(ctx, binding, *policy.Source, names...)
+		decision, verified, err := ledger.ReusePinned(ctx, binding, *policy.Source, reservationBytes, completionBytes, names...)
 		if err != nil {
 			result.fail("reuse_not_admitted", err)
 			return result, err
