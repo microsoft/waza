@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -105,6 +106,67 @@ func TestVerifiedCollectionSourcesFreezeValidatedDescriptors(t *testing.T) {
 	sources[0].Digest.SHA256 = strings.Repeat("a", 64)
 	_, err = VerifyCollectionSources(t.Context(), sources)
 	require.ErrorContains(t, err, "invalid retained native source inventory")
+}
+
+func TestOwnedCollectionSourcesTransferValidatedBuffers(t *testing.T) {
+	content := []byte("owned evaluator bytes")
+	owned, err := VerifyOwnedCollectionSources(t.Context(), []OwnedCapturedSource{{
+		Path: "evaluator", Bytes: content, Digest: releasepolicy.SourceDigest(content), Executable: true,
+	}})
+	require.NoError(t, err)
+	require.Same(t, &content[0], &owned.sources[0].Bytes[0])
+
+	copied, err := VerifyCollectionSources(t.Context(), []CapturedSource{{
+		Path: "evaluator", Bytes: string(content), Digest: releasepolicy.SourceDigest(content), Executable: true,
+	}})
+	require.NoError(t, err)
+	require.NotSame(t, &content[0], &copied.sources[0].Bytes[0], "caller-owned descriptors must remain detached")
+}
+
+func TestRejectedCollectionInputsDoNotCopyPayloads(t *testing.T) {
+	payload := strings.Repeat("x", 64<<10)
+	tooMany := make([]CapturedSource, collectionSourceEntries+1)
+	for i := range tooMany {
+		tooMany[i] = CapturedSource{Path: fmt.Sprintf("source-%05d", i), Bytes: payload}
+	}
+	allocations := testing.AllocsPerRun(1, func() {
+		_, err := VerifyCollectionSources(t.Context(), tooMany)
+		require.ErrorContains(t, err, "bounded nonempty source inventory")
+	})
+	require.Less(t, allocations, float64(20), "rejected inventory must not detach source payloads")
+
+	_, admitted, req, _, _ := collectionFixture(t)
+	mismatched := make([]CapturedSource, 256)
+	for i := range mismatched {
+		mismatched[i] = CapturedSource{Path: fmt.Sprintf("source-%05d", i), Bytes: payload}
+	}
+	binding, err := admitted.Binding()
+	require.NoError(t, err)
+	baseline := testing.AllocsPerRun(1, func() {
+		err := MatchSnapshot(t.Context(), admitted, binding.Key, req, nil)
+		require.ErrorContains(t, err, "does not admit collection preparation")
+	})
+	allocations = testing.AllocsPerRun(1, func() {
+		err := MatchSnapshot(t.Context(), admitted, binding.Key, req, mismatched)
+		require.ErrorContains(t, err, "does not admit collection preparation")
+	})
+	require.LessOrEqual(t, allocations, baseline+128, "rejected match must not detach source payloads")
+}
+
+func TestInvalidFirstDigestDoesNotCopyLaterPayloads(t *testing.T) {
+	payload := strings.Repeat("x", 4<<20)
+	digest := releasepolicy.SourceDigest([]byte(payload))
+	sources := []CapturedSource{{Path: "a", Digest: models.EvidenceDigest{Encoding: "source-bytes", SHA256: strings.Repeat("0", 64)}}}
+	for _, path := range []string{"b", "c", "d", "e"} {
+		sources = append(sources, CapturedSource{Path: path, Bytes: payload, Digest: digest})
+	}
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := VerifyCollectionSources(t.Context(), sources)
+	runtime.ReadMemStats(&after)
+	require.ErrorContains(t, err, "invalid retained native source inventory")
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), "invalid first digest must reject before later payloads are detached")
 }
 
 func BenchmarkCollectionDescriptorAdmission81MiB(b *testing.B) {
