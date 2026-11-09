@@ -50,8 +50,12 @@ export default defineConfig({
 
 						{ label: 'Controlled comparisons', slug: 'guides/controlled-comparisons' },
 						{ label: 'Preserving Existing Workflows', slug: 'guides/compatibility' },
+						{ label: 'External Assertion Interoperability', slug: 'guides/external-interoperability' },
 						{ label: 'Runner Contract & API', slug: 'guides/runner-contract' },
 						{ label: 'Runner Logical Identities', slug: 'guides/runner-identities' },
+						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },
+						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },
+						{ label: 'Local Runner Container', slug: 'guides/runner-container' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },
 						{ label: 'Validators & Graders', slug: 'guides/graders' },
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },
@@ -79,6 +83,8 @@ export default defineConfig({
 							label: 'Releases',
 							items: [
 								{ label: 'Overview & downloads', slug: 'reference/releases' },
+								{ label: 'Waza v0.40.1', slug: 'releases/v0-40-1' },
+								{ label: 'Waza v0.40.0', slug: 'releases/v0-40-0' },
 								{ label: 'Waza v0.39.0', slug: 'releases/v0-39-0' },
 								{ label: 'Introducing Dashboard Lab', slug: 'releases/dashboard-lab' },
 							],

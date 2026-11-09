@@ -136,9 +136,9 @@ func loadSourceFixtureDir(resolved *SourceConfig, dir string) error {
 		if filepath.Ext(path) != ".json" {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		data, err := readFixtureFile(path)
 		if err != nil {
-			return err
+			return fmt.Errorf("read MCP mock source fixture %q: %w", path, err)
 		}
 		typedData := stripSourceSequences(data)
 		// Capture fragments first, but use exactly the native typed recognition:

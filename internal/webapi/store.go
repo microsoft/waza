@@ -318,6 +318,10 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			tr.Prompt = promptFromRun(run)
 			tr.DependencyModes = append([]models.DependencyMode(nil), run.DependencyModes...)
 			tr.CommandInvocations = append([]models.CommandInvocation(nil), run.CommandInvocations...)
+			if run.UserInputRequests != nil {
+				records := append([]models.UserInputRecord{}, *run.UserInputRequests...)
+				tr.UserInputRequests = &records
+			}
 			if tr.Duration == 0 {
 				tr.Duration = float64(run.DurationMs) / 1000.0
 			}

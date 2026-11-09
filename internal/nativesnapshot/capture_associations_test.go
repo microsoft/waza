@@ -18,7 +18,8 @@ import (
 func TestG2CaptureOldIdentityAndRootFreeReconstruction(t *testing.T) {
 	for _, name := range []string{"file", "directory", "empty_directory", "default_context",
 		"relative_context", "task_context", "absolute_task_context", "disabled_prompt", "numeric_extremes", "empty_lock", "missing_literal",
-		"zero_first_timeout", "ordered_instructions", "ordered_golden_tasks", "nil_inventory", "root_deleted", "multi_role_prompt"} {
+		"zero_first_timeout", "ordered_instructions", "ordered_golden_tasks", "nil_inventory", "root_deleted", "multi_role_prompt",
+		"historical_null_metrics"} {
 		t.Run(name, func(t *testing.T) {
 			base, locations := fixture(t)
 			for _, prefix := range []string{"baseline", "candidate"} {
@@ -70,6 +71,8 @@ func TestG2CaptureOldIdentityAndRootFreeReconstruction(t *testing.T) {
 					task = "id: task\ninputs: {prompt: hello}\n"
 				case "multi_role_prompt":
 					task = "id: task\ninputs: {prompt_file: task.yaml}\n"
+				case "historical_null_metrics":
+					write(t, base, prefix+"/eval.yaml", snapshotEval+"\nmetrics: null\n")
 				}
 				write(t, base, prefix+"/tasks/task.yaml", task)
 			}

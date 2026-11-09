@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/models"
@@ -54,6 +55,42 @@ func TestLoadTestCasesFromCSV_TemplateResolution(t *testing.T) {
 	assert.Len(t, cases, 2)
 	assert.Equal(t, "Explain Go", cases[0].Stimulus.Message)
 	assert.Equal(t, "Explain Rust", cases[1].Stimulus.Message)
+}
+
+func TestRunBenchmarkCSVJobIDMatchesEachModelEvaluationID(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeCSV(t, tmpDir, "data.csv", "id,prompt\nA,evaluation {{.JobID}}\n")
+	now := time.Date(2026, 11, 6, 15, 0, 0, 0, time.UTC)
+
+	var runIDs []string
+	for _, modelID := range []string{"model-a", "model-b"} {
+		spec := &models.EvalSpec{
+			TasksFrom: "data.csv",
+			Config: models.Config{
+				EngineType:     "mock",
+				ModelID:        modelID,
+				TrialsPerTask:  1,
+				TimeoutSec:     30,
+				DisabledSkills: []string{"*"},
+			},
+		}
+		engine := &trackingEngine{}
+		runner := NewEvalRunner(
+			config.NewEvalConfig(spec, config.WithSpecDir(tmpDir)),
+			engine,
+			WithSkipGraders(),
+			WithClock(func() time.Time { return now }),
+		)
+
+		outcome, err := runner.RunBenchmark(t.Context())
+		require.NoError(t, err)
+		require.NotEmpty(t, outcome.RunID)
+		require.Len(t, engine.calls, 1)
+		assert.Equal(t, "evaluation "+outcome.RunID, engine.calls[0].Message)
+		runIDs = append(runIDs, outcome.RunID)
+	}
+
+	assert.NotEqual(t, runIDs[0], runIDs[1], "each model evaluation must receive a distinct ID")
 }
 
 func TestLoadTestCasesFromCSV_RangeFiltering(t *testing.T) {
