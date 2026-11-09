@@ -32,3 +32,9 @@ func TestOpenWindowsStableRegularDirectoryAndMissing(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenPathWindowsRejectsStableDirectory(t *testing.T) {
+	file, err := OpenPath(t.TempDir())
+	require.ErrorContains(t, err, "regular file")
+	require.Nil(t, file)
+}

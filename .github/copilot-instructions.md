@@ -168,7 +168,7 @@ Format only changed Go files with `gofmt -w`, then use the
 [change-specific check matrix](../AGENTS.md#regression-evidence-and-required-checks).
 Do not pass `./...` to `gofmt`; it is a Go package pattern, not a filesystem path.
 Run real lint: `make lint` can return success without running it when the binary
-is missing. Both CI lint jobs must retain the checksum-pinned schema validation
+is missing. The canonical Go CI lint job must retain the checksum-pinned schema validation
 in `.github/scripts/lint.sh`.
 
 For dashboard/site changes, build and execute the applicable Chromium suites;

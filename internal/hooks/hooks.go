@@ -6,7 +6,13 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+// hookWaitDelay bounds how long a hook may keep its output pipes open after it
+// exits or is canceled, for example through a background descendant. After it,
+// the pipes are closed and the hook returns.
+var hookWaitDelay = 5 * time.Second
 
 // HookConfig defines a single hook command.
 type HookConfig struct {
@@ -56,8 +62,15 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 	if h.WorkingDirectory != "" {
 		cmd.Dir = h.WorkingDirectory
 	}
+	cmd.WaitDelay = hookWaitDelay
+	configureHookProcess(cmd)
 
 	output, err := cmd.CombinedOutput()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The hook exited successfully but a descendant still held its output.
+		fmt.Printf("[WARN] hook %s[%d] left a background process holding its output; continuing\n", name, index)
+		err = nil
+	}
 
 	if r.Verbose && len(output) > 0 {
 		fmt.Printf("[hook:%s] %s\n", name, string(output))
