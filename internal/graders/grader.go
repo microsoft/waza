@@ -61,8 +61,15 @@ type Context struct {
 	// legacy SessionDigest.ToolCalls only has typed built-in fields.
 	ToolEvents []models.ToolEvent
 
+	// HostLifecycle holds model-turn and host shell evidence; nil means unavailable.
+	HostLifecycle *models.HostLifecycle
+
 	// CommandInvocations holds sanitized arguments for mocked CLI calls.
 	CommandInvocations []models.CommandInvocation
+
+	// UserInputRequests holds native SDK user-input requests and the
+	// scripted answers (or rejections) recorded for this run.
+	UserInputRequests []models.UserInputRecord
 
 	// SkillInvocations is a chronological list of skills invoked during the session.
 	// Used by the skill_invocation grader to verify orchestration workflows.

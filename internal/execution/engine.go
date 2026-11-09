@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,11 @@ type ExecutionRequest struct {
 	// detected, avoiding unnecessary wait for the agent to finish its full turn.
 	CancelOnSkillInvocation bool
 
+	// WorkspaceCapturePaths lists grader-relevant files that must be preserved
+	// even when they are inside an otherwise excluded metadata or dependency
+	// directory. Missing paths remain absent rather than failing capture.
+	WorkspaceCapturePaths []string `json:"WorkspaceCapturePaths,omitempty"`
+
 	// ToolPolicy is the resolved tool-capability boundary derived from the
 	// target .agent.md `tools:` declaration (see [NewToolPolicy]). Nil means
 	// no policy was resolved and preserves the pre-existing unrestricted
@@ -131,6 +137,11 @@ type ExecutionRequest struct {
 	// both the native SDK session tool configuration and a fail-closed
 	// OnPermissionRequest wrapper.
 	ToolPolicy *ToolPolicy
+
+	// UserInput scripts answers to native SDK user-input requests. Nil leaves
+	// OnUserInputRequest unregistered. Callers share one script across the
+	// initial and resumed turns of a run so order is preserved.
+	UserInput *UserInputScript `json:"-"`
 }
 
 // ResourceFile represents a file resource
@@ -170,11 +181,20 @@ type ExecutionResponse struct {
 	ToolCalls        []models.ToolCall
 	ErrorMsg         string
 	Success          bool
-	WorkspaceDir     string            // Path to workspace directory (for file grading)
-	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
-	JudgeFiles       *models.JudgeFileCapture
-	SessionID        string // Copilot session ID
-	Usage            *models.UsageStats
+	// ExecutionSucceeded records agent execution success independently of
+	// workspace capture. It is runtime-only, not part of saved response bytes.
+	ExecutionSucceeded bool              `json:"-"`
+	WorkspaceDir       string            // Path to workspace directory (for file grading)
+	WorkspaceFiles     map[string][]byte // Post-execution workspace file contents captured before session disconnect
+	// WorkspaceCaptureError is set when bounded post-execution capture could
+	// not produce a complete snapshot. Runners must not grade this response.
+	WorkspaceCaptureError string
+	// WorkspaceCaptureCause retains the safe diagnostic's typed cause at
+	// runtime. It is never serialized into response or artifact bytes.
+	WorkspaceCaptureCause error `json:"-"`
+	JudgeFiles            *models.JudgeFileCapture
+	SessionID             string // Copilot session ID
+	Usage                 *models.UsageStats
 	// UsageIsCumulative distinguishes a session snapshot from per-execution
 	// usage. Engines that report per-turn usage leave this false.
 	UsageIsCumulative bool
@@ -191,6 +211,21 @@ type ExecutionResponse struct {
 	// unrestricted or no tool was ever denied.
 	ToolPolicyDenials  []ToolPolicyDenial
 	CommandInvocations []models.CommandInvocation
+	// UserInputRequests is the cumulative record of native user-input
+	// requests handled by [ExecutionRequest.UserInput].
+	UserInputRequests []models.UserInputRecord
+}
+
+// CaptureFailure returns the runtime diagnostic, or the recorded string for
+// responses without a runtime cause (including historical/custom engines).
+func (r *ExecutionResponse) CaptureFailure() error {
+	if r.WorkspaceCaptureError == "" {
+		return nil
+	}
+	if r.WorkspaceCaptureCause != nil {
+		return r.WorkspaceCaptureCause
+	}
+	return errors.New(r.WorkspaceCaptureError)
 }
 
 // CommandMockFinalizer collects task-level command records and checks expected

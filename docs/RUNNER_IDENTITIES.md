@@ -1,9 +1,9 @@
 # Deterministic runner identities
 
-This page specifies the **unreleased** `sha256-waza-c14n-v1` identity ABI in
+This page specifies the **v0.40.0** `sha256-waza-c14n-v1` identity ABI in
 `internal/runneridentity` and its production integration for
-[#759](https://github.com/microsoft/waza/issues/759). This source preview does not
-announce the [v0.40.0 release](https://github.com/microsoft/waza/issues/754).
+[#759](https://github.com/microsoft/waza/issues/759). See the
+[v0.40.0 release](https://github.com/microsoft/waza/releases/tag/v0.40.0) for standalone artifacts.
 The [negotiation contract](RUNNER_CONTRACT.md) is a separate boundary.
 The [site guide](../site/src/content/docs/guides/runner-identities.mdx) is the
 canonical user-facing normalization, lineage and migration reference.
@@ -238,8 +238,8 @@ node internal/runnerunit/testdata/identity-reference.mjs
 NO_COLOR=1 go test ./internal/runnerunit ./cmd/waza -run 'Test.*(Identity|Identities)' -count=1
 ```
 
-The next #760 layer owns terminal schema/emission/exit mapping, not this receipt.
-It must use this canonical type and already-derived optional value after
+The separate #760 layer, also included in v0.40.0, owns terminal
+schema/emission/exit mapping, not this receipt. It uses this canonical type and already-derived optional value after
 successful exact admission; it must not derive again from observations or
 invent identity on rejection. No persistence, archive ingestion, reconciliation,
 remote scheduling, terminal writer or terminal version is implemented here.
