@@ -67,6 +67,12 @@ fi
 		}
 		return err
 	}
+	mustRun := func(tool string, args ...string) {
+		t.Helper()
+		if err := run(false, tool, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
 	count := func(prefix string) int {
 		t.Helper()
 		data, err := os.ReadFile(calls)
@@ -82,7 +88,7 @@ fi
 		return n
 	}
 	stamp := filepath.Join(root, "web", "node_modules", ".waza-deps-stamp")
-	run(false, "make", "--no-print-directory", "build")
+	mustRun("make", "--no-print-directory", "build")
 	if count("npm ci --silent") != 1 || count("npm run build") != 1 || count("go build ") != 1 {
 		t.Fatal("clean make build must install, build the dashboard, then compile Go")
 	}
@@ -93,8 +99,8 @@ fi
 	if _, err := os.Stat(stamp); err != nil {
 		t.Fatal("successful install must publish its stamp:", err)
 	}
-	run(false, "make", "--no-print-directory", "build")
-	run(false, "bash", "build.sh")
+	mustRun("make", "--no-print-directory", "build")
+	mustRun("bash", "build.sh")
 	if count("npm ci --silent") != 1 || count("npm run build") != 3 || count("go build ") != 3 {
 		t.Fatal("unchanged Make and shell builds must reuse dependencies but still build real outputs")
 	}
@@ -109,7 +115,7 @@ fi
 		if err != nil || !m.ModTime().After(old) {
 			t.Fatalf("manifest invalidation setup failed: %v", err)
 		}
-		run(false, "make", "--no-print-directory", "web-deps")
+		mustRun("make", "--no-print-directory", "web-deps")
 		if count("npm ci --silent") != i+2 {
 			t.Fatalf("%s change must force a locked reinstall", name)
 		}
@@ -121,8 +127,8 @@ fi
 		t.Fatalf("failed install must not leave a successful stamp: %v", err)
 	}
 	before := count("npm ci --silent")
-	run(false, "make", "--no-print-directory", "web-deps")
-	run(false, "make", "--no-print-directory", "web-deps-force")
+	mustRun("make", "--no-print-directory", "web-deps")
+	mustRun("make", "--no-print-directory", "web-deps-force")
 	if count("npm ci --silent") != before+2 {
 		t.Fatal("missing dependencies and explicit recovery must both reinstall")
 	}
