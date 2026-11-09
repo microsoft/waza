@@ -165,6 +165,58 @@ type recordFault struct {
 	read   func(context.Context, string) ([]byte, error)
 }
 
+func TestReusePinnedRejectsChangedHistoricalSidecars(t *testing.T) {
+	ctx := t.Context()
+	ledger, _, directory, binding := ownerFixture(t)
+	creator, reserved := reserveFixture(t, ledger, binding)
+	digest := ownerPublication(t, ledger, binding, true)
+	completed, err := ledger.Complete(ctx, creator, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := executionattempt.Source{ExecutionID: reserved.Attempt.ExecutionID, ManifestDigest: digest}
+	if _, _, err := ledger.ReusePinned(ctx, binding, source, reserved.Bytes, completed.CompletionBytes); err != nil {
+		t.Fatalf("unchanged historical sidecars rejected: %v", err)
+	}
+	_, parent := reserveFixture(t, ledger, binding)
+	changed := reserved.Attempt
+	changed.Parent = &executionattempt.Parent{ExecutionID: parent.Attempt.ExecutionID, Relationship: "retry"}
+	reservation, err := executionattempt.EncodeAttempt(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := completed.Completion
+	updated.ReservationDigest = artifactmanifest.Hash(reservation)
+	completion, err := EncodeCompletion(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for kind, data := range map[string][]byte{"reservation": reservation, "completion": completion} {
+		path := filepath.Join(directory, artifactmanifest.ExecutionLedgerNamespaceV1+"-"+kind+"-"+source.ExecutionID)
+		if err := os.Chmod(path, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := ledger.ReadCompleted(ctx, source); err != nil {
+		t.Fatalf("mutation did not retain valid historical source context: %v", err)
+	}
+	before, truncated, err := ledger.records.ListUnverified(ctx)
+	if err != nil || truncated {
+		t.Fatal("fixture cannot inspect complete decision inventory", err)
+	}
+	decision, reused, err := ledger.ReusePinned(ctx, binding, source, reserved.Bytes, completed.CompletionBytes)
+	if !errors.Is(err, ErrContext) || decision != nil || reused != nil {
+		t.Fatalf("changed historical sidecars authorized reuse: %+v %+v %v", decision, reused, err)
+	}
+	after, truncated, err := ledger.records.ListUnverified(ctx)
+	if err != nil || truncated || len(after) != len(before) {
+		t.Fatalf("rejected pinned reuse published a decision: %v %v", after, err)
+	}
+}
+
 func (f recordFault) Create(ctx context.Context, key string, data []byte) (bool, error) {
 	if f.create != nil {
 		return f.create(ctx, key, data)
