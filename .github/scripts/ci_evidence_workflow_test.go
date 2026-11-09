@@ -377,27 +377,23 @@ func checkOrdinaryEvidence(source []byte, name string) error {
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
-	isRelease := name == "squad-release.yml" || name == "squad-insider-release.yml"
-	permission := "read"
-	if isRelease {
-		permission = "write"
-	}
-	if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != permission {
-		return fmt.Errorf("%s: evidence must preserve existing %s contents permissions", name, permission)
+	isRelease := name == "release-validation.yml"
+	if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != "read" {
+		return fmt.Errorf("%s: evidence must preserve existing read contents permissions", name)
 	}
 	jobs := []string{"validate"}
 	if name == "go-ci.yml" {
 		jobs = []string{"build-and-test", "build-and-test-windows"}
 	} else if isRelease {
-		jobs = []string{"build-test"}
-		if workflow.Jobs["build-test"].Permissions["contents"] != "read" {
-			return fmt.Errorf("release evidence must remain in the read-only validation job")
-		}
+		jobs = []string{"build-test", "windows-test"}
 	}
 	for _, id := range jobs {
 		job := workflow.Jobs[id]
 		steps := releaseSteps(job)
 		execute, upload := steps["Execute Tests"], steps["Retain sanitized Go execution evidence"]
+		if isRelease && id == "windows-test" {
+			execute = steps["Execute complete Windows tests"]
+		}
 		if job.TimeoutMinutes != 60 || execute.ID != "ci_tests" ||
 			execute.Env["GO_CACHE_HIT"] != "${{ steps.go.outputs.cache-hit }}" ||
 			execute.Env["NODE_CACHE_HIT"] != "${{ steps.node.outputs.cache-hit }}" {
@@ -445,7 +441,7 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 	if err := checkBrowserEvidence(browser); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"go-ci.yml", "squad-preview.yml", "squad-release.yml", "squad-insider-release.yml"} {
+	for _, name := range []string{"go-ci.yml", "squad-preview.yml", "release-validation.yml"} {
 		source, err := os.ReadFile(filepath.Join("..", "workflows", name))
 		if err != nil {
 			t.Fatal(err)
@@ -466,6 +462,24 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 			changed := strings.Replace(string(source), mutation[0], mutation[1], 1)
 			if changed == string(source) || checkOrdinaryEvidence([]byte(changed), name) == nil {
 				t.Fatalf("%s: ordinary evidence mutation admitted: %s", name, mutation[0])
+			}
+		}
+		if name == "release-validation.yml" {
+			start := strings.Index(string(source), "\n  windows-test:")
+			if start < 0 {
+				t.Fatal("canonical release Windows branch is missing")
+			}
+			for _, mutation := range [][2]string{
+				{"        id: ci_tests\n", ""},
+				{"        id: node\n", ""},
+				{"GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}", "GO_CACHE_HIT: false"},
+				{"if: always() && steps.ci_tests.outcome", "if: success() && steps.ci_tests.outcome"},
+				{"path: coverage.txt.evidence.json", "path: coverage.txt*"},
+			} {
+				changed := string(source[:start]) + strings.Replace(string(source[start:]), mutation[0], mutation[1], 1)
+				if changed == string(source) || checkOrdinaryEvidence([]byte(changed), name) == nil {
+					t.Fatalf("Windows release evidence mutation admitted: %s", mutation[0])
+				}
 			}
 		}
 	}

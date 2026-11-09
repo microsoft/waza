@@ -55,10 +55,10 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range []string{"push", "pull_request"} {
-		if !slices.Contains(triggers[event]["paths"], "examples/runner/unit.json") {
+		if !slices.Contains(triggers[event].Filters["paths"], "examples/runner/unit.json") {
 			t.Errorf("%s must select changes to the runner example", event)
 		}
-		if !slices.Contains(triggers[event]["paths"], "examples/runner/container/**") {
+		if !slices.Contains(triggers[event].Filters["paths"], "examples/runner/container/**") {
 			t.Errorf("%s must select changes to nested runner container inputs", event)
 		}
 		for _, path := range []string{
@@ -66,7 +66,7 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 			".github/scripts/testdata/runner-runtime/**",
 			".github/scripts/testdata/native-bundle-probe/**",
 		} {
-			if !slices.Contains(triggers[event]["paths"], path) {
+			if !slices.Contains(triggers[event].Filters["paths"], path) {
 				t.Errorf("%s must select native container input %s", event, path)
 			}
 		}
@@ -119,10 +119,10 @@ func checkDockerRunnerBranches(source []byte) error {
 	if err != nil {
 		return err
 	}
-	if !slices.Equal(triggers["push"]["branches"], []string{"main"}) {
+	if !slices.Equal(triggers["push"].Filters["branches"], []string{"main"}) {
 		return fmt.Errorf("Docker pushes must remain limited to main")
 	}
-	if !slices.Equal(triggers["pull_request"]["branches"], []string{
+	if !slices.Equal(triggers["pull_request"].Filters["branches"], []string{
 		"main",
 	}) {
 		return fmt.Errorf("Docker pull requests must select main only")

@@ -24,7 +24,7 @@ test("installed Playwright producer matches locked versions and emits discovery/
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-browser-"));
   t.after(() => fs.rmSync(dir, { recursive: true }));
   fs.writeFileSync(path.join(dir, "playwright.config.cjs"), `module.exports={testDir:".",workers:1,retries:0,projects:[{name:"chromium"}],reporter:"json"};\n`);
-  fs.writeFileSync(path.join(dir, "contract.spec.cjs"), `const {test,expect}=require(${JSON.stringify(modulePath)});\ntest("pass",()=>expect(1).toBe(1));\ntest.skip("skip",()=>{});\ntest("fail",()=>expect("SECRET").toBe("other"));\n`);
+  fs.writeFileSync(path.join(dir, "contract.spec.cjs"), `const {test,expect}=require(${JSON.stringify(modulePath)});\ntest("pass",()=>expect(1).toBe(1));\ntest.skip("skip",()=>{});\ntest("fail",()=>expect("SECRET").toBe("other"));\ntest.fail("expected failure",()=>expect(1).toBe(2));\n`);
   const execute = (file, args) => spawnSync(process.execPath, [path.join(modulePath, "cli.js"), "test", "--config", path.join(dir, "playwright.config.cjs"), "--project=chromium", "--retries=0", "--reporter=json", ...args], {
     cwd: dir, env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(dir, file) }, encoding: "utf8", timeout: 60000,
   });
@@ -43,17 +43,18 @@ test("installed Playwright producer matches locked versions and emits discovery/
   assert.equal(go.status, 0, go.stderr);
   const report = browserReport(data, outcomes, inventory, { go: go.stdout.trim() });
   assert.equal(report.complete, true, JSON.stringify(report.diagnostics));
-  assert.equal(report.counts.selected, 3);
-  assert.equal(report.counts.executed, 2);
+  assert.equal(report.counts.selected, 4);
+  assert.equal(report.counts.executed, 3);
   assert.equal(report.counts.pass, 1);
   assert.equal(report.counts.fail, 1);
   assert.equal(report.counts.skip, 1);
+  assert.equal(report.result_counts.fail, 2, "expected failures remain recorded terminal evidence");
   assert.ok(!JSON.stringify(report).includes("SECRET"));
   const output = path.join(dir, "sanitized.json");
   const cli = spawnSync(process.execPath, [path.join(__dirname, "ci-evidence.cjs"), "browser", reportInput, output, discoveryInput], { cwd: dir, env: outcomes, encoding: "utf8" });
   assert.equal(cli.status, 0, cli.stderr);
   const saved = fs.readFileSync(output, "utf8");
-  assert.equal(JSON.parse(saved).counts.selected, 3);
+  assert.equal(JSON.parse(saved).counts.selected, 4);
   assert.equal(JSON.parse(saved).execution_outcome, "failure");
   assert.equal(JSON.parse(saved).identity.go, go.stdout.trim(), "CLI captures the actual effective Go runtime, not a configured default");
   assert.equal(JSON.parse(saved).complete, true, "fully observed test failure is complete evidence, not an incomplete execution");
