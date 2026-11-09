@@ -164,6 +164,18 @@ test.describe("Runner negotiation through the real Go API", () => {
     const terminalDigest = createHash("sha256").update(executed.stdout).digest("hex");
 
     // Load the Go-embedded build, not the preview UI or intercepted receipts.
+    const index = await page.request.get(base);
+    expect(index.status()).toBe(200);
+    const html = await index.text();
+    expect(html).toBe(readFileSync(resolve("dist/index.html"), "utf8"));
+    const references = [...html.matchAll(/(?:src|href)="(\/assets\/[a-zA-Z0-9._-]+\.(?:js|css))"/g)];
+    expect(references.length).toBeGreaterThan(0);
+    for (const reference of references) {
+      const path = reference[1]!;
+      const response = await page.request.get(`${base}${path}`);
+      expect(response.status(), path).toBe(200);
+      expect(await response.body(), path).toEqual(readFileSync(resolve("dist", path.slice(1))));
+    }
     await page.goto(`${base}/#/lab/runner`);
     const panel = page.getByRole("region", { name: "Manifest publication inspection" });
     const receipt = panel.getByRole("status", { name: "Manifest inspection receipt" });
