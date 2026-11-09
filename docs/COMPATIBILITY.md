@@ -11,6 +11,11 @@ is additive. Its attempt, completion, and submission sidecars have independent
 ordinals, manifest v1, or ordinary `runner run` retry behavior. No historical
 reservation, ownership, or billing evidence is synthesized.
 
+Explicit exact-evidence readers preserve nested transcript argument numbers.
+Ordinary `RunResult` JSON decoding intentionally retains legacy float64 values.
+Typed submission/checkpoint writers reject invalid original terminal UTF-8
+before JSON marshaling can normalize it.
+
 The [checkpoint embedding preview](EXECUTION_CHECKPOINTS.md) uses independently
 versioned checkpoint sidecars. It admits only whole-unit boundaries, exact
 runner/configuration compatibility, and original-source recovery. An absent

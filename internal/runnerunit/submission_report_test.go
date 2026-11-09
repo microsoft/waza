@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -25,6 +26,12 @@ func TestHistoricalSourceAndSnapshotPreserveLargeObservationNumbers(t *testing.T
 		t.Fatalf("fixture did not produce actual grader observations: %+v %v", original, err)
 	}
 	const large = "9007199254740993"
+	report.Observation.Transcript = []models.TranscriptEvent{{
+		SessionEvent: copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{
+			ToolCallID: "numeric", ToolName: "numeric",
+			Arguments: map[string]any{"nested": []any{json.Number(large)}},
+		}},
+	}}
 	for name, grade := range report.Observation.Validations {
 		grade.Details = map[string]any{"large": json.Number(large)}
 		report.Observation.Validations[name] = grade

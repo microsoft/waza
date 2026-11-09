@@ -48,6 +48,15 @@ func ParseSubmissionResult(data []byte) (*Submission, error) {
 }
 
 func EncodeSubmissionResult(result Submission) ([]byte, error) {
+	if result.Terminal != nil {
+		var binding *runnerterminal.Binding
+		if result.Reservation != nil {
+			binding = result.Reservation.Binding.TerminalBinding()
+		}
+		if _, err := runnerterminal.Encode(*result.Terminal, binding); err != nil {
+			return nil, err
+		}
+	}
 	data, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("encoding submission result: %w", err)
