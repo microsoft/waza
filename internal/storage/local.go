@@ -242,6 +242,7 @@ func readLocalResultsWithLoader(
 	load func(string, bool) (*models.EvaluationOutcome, error),
 ) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
 	results := make(map[string]*models.EvaluationOutcome)
+	resultPaths := make(map[string]string)
 	files := make(map[string]struct{})
 	if dir == "" {
 		return results, files, nil
@@ -274,6 +275,9 @@ func readLocalResultsWithLoader(
 		}
 		_, known := previousFiles[path]
 		if d.IsDir() {
+			if path != dir && d.Name() == ".partial" {
+				return fs.SkipDir
+			}
 			if known {
 				return fmt.Errorf("previously loaded results artifact %q is now a directory", path)
 			}
@@ -299,7 +303,12 @@ func readLocalResultsWithLoader(
 			outcome.RunID = strings.TrimSuffix(filepath.ToSlash(relPath), ".json")
 		}
 
+		if existingPath, ok := resultPaths[outcome.RunID]; ok {
+			return fmt.Errorf("duplicate eval_id %q in result artifacts %q and %q",
+				outcome.RunID, existingPath, path)
+		}
 		results[outcome.RunID] = outcome
+		resultPaths[outcome.RunID] = path
 		files[path] = struct{}{}
 		return nil
 	})

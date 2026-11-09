@@ -16,6 +16,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
@@ -46,21 +47,21 @@ func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
 		return encoded.Bytes()
 	}
 	html := *base
-	html.Input.Task = strings.Replace(html.Input.Task, "prompt: hello", "prompt: hello "+strings.Repeat("<>&", 250_000), 1)
+	html.Input.Task = strings.ReplaceAll(html.Input.Task, "hello", "hello "+strings.Repeat("<>&", 200_000))
 	htmlWire := encode(html)
 	htmlIdentity, err := runneridentity.DeriveJSON(htmlWire)
 	require.NoError(t, err)
 	for _, control := range []string{"ordinary", "html", "less-than", "partially-escaped", "near-limit", "at-limit", "over-limit", "escaped-over-limit"} {
 		t.Run(control, func(t *testing.T) {
 			request := *base
-			prompt := strings.Repeat("<>&", 250_000)
+			prompt := strings.Repeat("<>&", 200_000)
 			switch control {
 			case "ordinary":
-				prompt = strings.Repeat("abc", 250_000)
+				prompt = strings.Repeat("abc", 200_000)
 			case "less-than":
-				prompt = strings.Repeat("<", 750_000)
+				prompt = strings.Repeat("<", 600_000)
 			}
-			request.Input.Task = strings.Replace(request.Input.Task, "prompt: hello", "prompt: hello "+prompt, 1)
+			request.Input.Task = strings.ReplaceAll(request.Input.Task, "hello", "hello "+prompt)
 			require.NotEqual(t, base.Input.Task, request.Input.Task)
 			body := encode(request)
 			require.Len(t, body, len(htmlWire), "HTML and ordinary controls must have identical original wire sizes")
@@ -111,6 +112,8 @@ func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
 					t.Run(action+"/"+transport, func(t *testing.T) {
 						before := factories.Load()
 						var report runnerunit.Report
+						var terminal runnerterminal.Envelope
+						var raw []byte
 						if transport == "cli" {
 							command := newRunnerCommandWithService(service)
 							command.SetArgs([]string{action})
@@ -119,9 +122,8 @@ func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
 							var output bytes.Buffer
 							command.SetOut(&output)
 							executeErr := command.Execute()
-							decoder := json.NewDecoder(&output)
-							require.NoError(t, decoder.Decode(&report))
-							require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
+							raw = bytes.Clone(output.Bytes())
+							decodeRunnerResponse(t, action, raw, &report, &terminal)
 							if rejected {
 								exit, ok := errors.AsType[*ExitCodeError](executeErr)
 								require.True(t, ok)
@@ -133,7 +135,7 @@ func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
 							response, err := server.Client().Post(server.URL+"/api/v1/runner/"+action, "application/json", bytes.NewReader(body))
 							require.NoError(t, err)
 							defer func() { require.NoError(t, response.Body.Close()) }()
-							if rejected {
+							if rejected && action == "validate" {
 								require.Equal(t, http.StatusBadRequest, response.StatusCode)
 								var failure struct {
 									Error string `json:"error"`
@@ -143,12 +145,28 @@ func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
 								require.Equal(t, before, factories.Load())
 								return
 							}
-							require.Equal(t, http.StatusOK, response.StatusCode)
-							require.NoError(t, json.NewDecoder(response.Body).Decode(&report))
+							status := http.StatusOK
+							if rejected {
+								status = http.StatusRequestEntityTooLarge
+							}
+							require.Equal(t, status, response.StatusCode)
+							raw, err = io.ReadAll(response.Body)
+							require.NoError(t, err)
+							decodeRunnerResponse(t, action, raw, &report, &terminal)
 						}
+						decoder := json.NewDecoder(bytes.NewReader(raw))
+						require.NoError(t, decoder.Decode(new(json.RawMessage)))
+						require.ErrorIs(t, decoder.Decode(new(any)), io.EOF, "one public result only")
 						require.Equal(t, original, body, "public calls must not mutate original wire")
 						require.False(t, report.AdjacentWork)
 						if rejected {
+							if action == "run" {
+								_, err := runnerterminal.Validate(raw, nil)
+								require.NoError(t, err)
+								require.Equal(t, runnerterminal.InvalidInput, terminal.Outcome)
+								require.Equal(t, 6, terminal.ExitCode)
+								require.NotEmpty(t, terminal.Diagnostics)
+							}
 							require.Equal(t, "rejected", report.Status)
 							require.Equal(t, 6, report.ExitCode())
 							require.Nil(t, report.Identity)
@@ -164,13 +182,19 @@ func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
 						require.Equal(t, "valid", report.Validation)
 						require.Zero(t, report.ExitCode())
 						if action == "run" {
+							_, err := runnerterminal.Validate(raw, &runnerterminal.Binding{
+								Selection: request.Selection, Identity: expected, GraderIDs: []string{"_output_contains"},
+							})
+							require.NoError(t, err)
+							require.Equal(t, runnerterminal.Success, terminal.Outcome)
+							require.Empty(t, terminal.Diagnostics)
 							require.Equal(t, "completed", report.Status)
 							require.Equal(t, int32(1), factories.Load()-before)
 							require.Equal(t, 1, report.Calls)
 							require.NotNil(t, report.Observation)
 							require.Equal(t, models.StatusPassed, report.Observation.Status)
-							require.Contains(t, report.Observation.FinalOutput, "hello "+prompt)
-							require.Nil(t, report.Observation.Usage)
+							require.Equal(t, []runnerterminal.Verdict{{Identifier: "_output_contains", Passed: true}},
+								terminal.Observation.Validations, "the actual response must pass the full authored prompt expectation")
 						} else {
 							require.Equal(t, "ready", report.Status)
 							require.Equal(t, before, factories.Load())
@@ -235,17 +259,24 @@ func TestRunnerIdentityFrozenCLIHTTP(t *testing.T) {
 					// A grader failure is still a completed attempt and carries identity.
 					err = command.Execute()
 					var cli runnerunit.Report
-					require.NoError(t, json.Unmarshal(output.Bytes(), &cli))
-					if cli.ExitCode() == 0 {
+					var terminal runnerterminal.Envelope
+					code := decodeRunnerResponse(t, action, output.Bytes(), &cli, &terminal)
+					if code == 0 {
 						require.NoError(t, err)
 					} else {
-						require.Error(t, err)
+						exit, ok := errors.AsType[*ExitCodeError](err)
+						require.True(t, ok)
+						require.Equal(t, code, exit.Code)
 					}
 					response, err := server.Client().Post(server.URL+"/api/v1/runner/"+action, "application/json", bytes.NewReader(body))
 					require.NoError(t, err)
 					require.Equal(t, http.StatusOK, response.StatusCode)
 					var api runnerunit.Report
-					require.NoError(t, json.NewDecoder(response.Body).Decode(&api))
+					var raw json.RawMessage
+					decoder := json.NewDecoder(response.Body)
+					require.NoError(t, decoder.Decode(&raw))
+					require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
+					require.Equal(t, code, decodeRunnerResponse(t, action, raw, &api, &terminal))
 					require.NoError(t, response.Body.Close())
 					for _, report := range []runnerunit.Report{cli, api} {
 						require.Equal(t, &tc.Identity, report.Identity)

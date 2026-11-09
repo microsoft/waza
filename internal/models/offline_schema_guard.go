@@ -85,19 +85,28 @@ func guardOfflineModelSchemas(data []byte, task bool, validate func(string, Grad
 			errs = append(errs, fmt.Errorf("grader %q: %w", declaration.Identifier, err))
 		}
 	}
-	if !task {
-		for _, mock := range document.MCPMocks {
-			for _, tool := range mock.Tools {
-				for _, response := range tool.Responses {
-					if err := ValidateMCPMockResponseWithLoader(response, schemaloader.Offline{}); err != nil {
-						errs = append(errs, err)
-					}
+	if task {
+		// Report duplicate or missing names even when an external matcher schema
+		// blocks the full decode that would otherwise run TestCase.Validate.
+		names := make([]MCPMockConfig, len(document.MCPMocks))
+		for i, mock := range document.MCPMocks {
+			names[i] = MCPMockConfig{Name: mock.Name}
+		}
+		if err := ValidateMCPMockNames(names); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for _, mock := range document.MCPMocks {
+		for _, tool := range mock.Tools {
+			for _, response := range tool.Responses {
+				if err := ValidateMCPMockResponseWithLoader(response, schemaloader.Offline{}); err != nil {
+					errs = append(errs, err)
 				}
 			}
 		}
 	}
 	_, external := schemaloader.ClassifyError(errors.Join(errs...))
-	if external && !task {
+	if external {
 		for _, mock := range document.MCPMocks {
 			for name, tool := range mock.Tools {
 				if err := ValidateMCPInputSchemaOffline(tool.InputSchema, "mock-input-schema.json"); err != nil {
