@@ -2435,6 +2435,8 @@ See [AGENTS.md](AGENTS.md) for coding guidelines.
 - Go CI is required: `Build and Test Go Implementation` and `Lint Go Code` must pass
 - Add tests for new features
 - Update docs when changing CLI surface
+- Re-run dashboard projection benchmarks after changing result listing or summary preparation:
+  `go test ./internal/webapi -run '^$' -bench '^BenchmarkPerfSweepWebAPI/(list-runs-warm|summary-warm|runs-handler-warm)$' -benchmem`
 
 ## Legacy Python Implementation
 
