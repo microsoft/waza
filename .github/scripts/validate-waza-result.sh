@@ -86,9 +86,28 @@ fi
 
 IFS=$'\t' read -r success_rate aggregate_score total_tests succeeded failed errors skipped all_runs_passed < <(
   jq -r '
+    def graders_passed:
+      if . == null then true
+      elif type != "object" then false
+      else all(.[];
+        type == "object" and .passed == true and
+        (.details.evaluation_errors |
+          . == null or (type == "array" and length == 0)))
+      end;
+    def checkpoints_passed:
+      if . == null then true
+      elif type != "array" then false
+      else all(.[];
+        type == "object" and .status == "passed" and
+        (.stopped == null or .stopped == false) and
+        (.validations | graders_passed))
+      end;
     [.summary.success_rate, .summary.aggregate_score, .summary.total_tests,
      .summary.succeeded, .summary.failed, .summary.errors, .summary.skipped,
-     (all(.tasks[].runs[]; .status == "passed"))]
+     (all(.tasks[].runs[];
+       .status == "passed" and
+       (.validations | graders_passed) and
+       (.checkpoints | checkpoints_passed)))]
     | @tsv
   ' < "$result_file"
 )
@@ -136,5 +155,5 @@ fi
 if [ "$run_exit_code" -ne 0 ]; then
   echo "::error::Waza evaluation exited with code $run_exit_code" >&2
 elif [ "$status" != "success" ]; then
-  echo "::error::Evaluation has no fully graded task inventory or success rate $success_rate is below required minimum $min_success_rate" >&2
+  echo "::error::Evaluation lacks a fully passing task/trial/grader/checkpoint inventory or success rate $success_rate is below required minimum $min_success_rate" >&2
 fi

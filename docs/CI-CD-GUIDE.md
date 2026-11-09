@@ -289,7 +289,10 @@ and a verified rejecting Copilot runtime.
 
 Workflow results must contain unique task IDs, valid trial records and the full
 configured trial inventory for passed tasks. Summary counts and success rate
-must agree with task statuses. Failed/skipped/error artifacts remain available
+must agree with task statuses. Workflow success also requires every recorded
+final and checkpoint grader to pass, no recorded grader evaluation errors, and
+no failed or stopped checkpoint; task/run status alone is not sufficient.
+Failed/skipped/error or contradictory artifacts remain available
 for diagnostics, but cannot become a successful workflow output. An omitted
 context override leaves fixture resolution to the eval spec; explicit context
 and output paths are forwarded unchanged.

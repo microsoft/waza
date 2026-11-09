@@ -298,6 +298,12 @@ config:
   parallel: false
   executor: mock
   model: test-model
+graders:
+  - type: text
+    name: must-pass
+    config:
+      regex_match:
+        - ".+"
 tasks:
   - "tasks/*.yaml"
 `,
@@ -354,6 +360,17 @@ tasks:
 			workspace := t.TempDir()
 			require.NoError(t, os.Mkdir(filepath.Join(workspace, "tasks"), 0o700))
 			taskYAML := "id: workflow-task\nname: Workflow task\ninputs:\n  prompt: Explain this code\n"
+			if tt.name == "passing grading" {
+				taskYAML += `  follow_up_prompts: [Continue explaining]
+checkpoints:
+  - after_turn: 1
+    graders:
+      - type: text
+        name: checkpoint-pass
+        config:
+          regex_match: [".+"]
+`
+			}
 			if tt.name == "task runtime error" {
 				taskYAML += "instruction_files:\n  - missing-workflow-instruction.md\n"
 			}
@@ -403,6 +420,14 @@ tasks:
 			runs := jsonItems(t, task["runs"])
 			require.Len(t, runs, 1, "production fixture must contain a real trial")
 			trial := jsonObject(t, runs[0])
+			if tt.name == "passing grading" {
+				require.Equal(t, true, jsonObject(t, jsonObject(t, trial["validations"])["must-pass"])["passed"])
+				checkpoints := jsonItems(t, trial["checkpoints"])
+				require.Len(t, checkpoints, 1)
+				checkpoint := jsonObject(t, checkpoints[0])
+				require.Equal(t, "passed", checkpoint["status"])
+				require.Equal(t, true, jsonObject(t, jsonObject(t, checkpoint["validations"])["checkpoint-pass"])["passed"])
+			}
 			if tt.name == "completed failing grading" {
 				require.Equal(t, "failed", task["status"])
 				require.Equal(t, "failed", trial["status"])
@@ -418,6 +443,62 @@ tasks:
 				require.Equal(t, float64(0), grading["score"])
 				if details, present := grading["details"]; present {
 					require.Empty(t, jsonObject(t, details)["evaluation_errors"])
+				}
+			}
+			if tt.name == "passing grading" {
+				for _, mutation := range []struct {
+					name   string
+					change func(map[string]any)
+				}{
+					{"failed final grader", func(run map[string]any) {
+						jsonObject(t, jsonObject(t, run["validations"])["must-pass"])["passed"] = false
+					}},
+					{"missing final grader verdict", func(run map[string]any) {
+						delete(jsonObject(t, jsonObject(t, run["validations"])["must-pass"]), "passed")
+					}},
+					{"null final grader verdict", func(run map[string]any) {
+						jsonObject(t, jsonObject(t, run["validations"])["must-pass"])["passed"] = nil
+					}},
+					{"final grader evaluation error", func(run map[string]any) {
+						jsonObject(t, jsonObject(t, run["validations"])["must-pass"])["details"] =
+							map[string]any{"evaluation_errors": []any{"grader exception"}}
+					}},
+					{"failed checkpoint status", func(run map[string]any) {
+						jsonObject(t, jsonItems(t, run["checkpoints"])[0])["status"] = "failed"
+					}},
+					{"failed checkpoint grader", func(run map[string]any) {
+						checkpoint := jsonObject(t, jsonItems(t, run["checkpoints"])[0])
+						jsonObject(t, jsonObject(t, checkpoint["validations"])["checkpoint-pass"])["passed"] = false
+					}},
+					{"checkpoint grader evaluation error", func(run map[string]any) {
+						checkpoint := jsonObject(t, jsonItems(t, run["checkpoints"])[0])
+						jsonObject(t, jsonObject(t, checkpoint["validations"])["checkpoint-pass"])["details"] =
+							map[string]any{"evaluation_errors": []any{"checkpoint exception"}}
+					}},
+					{"stopped checkpoint", func(run map[string]any) {
+						jsonObject(t, jsonItems(t, run["checkpoints"])[0])["stopped"] = true
+					}},
+				} {
+					t.Run(mutation.name, func(t *testing.T) {
+						changed := cloneJSONMap(t, produced)
+						changedTask := jsonObject(t, jsonItems(t, changed["tasks"])[0])
+						mutation.change(jsonObject(t, jsonItems(t, changedTask["runs"])[0]))
+						changedData, marshalErr := json.Marshal(changed)
+						require.NoError(t, marshalErr)
+						require.NotEqual(t, string(data), string(changedData))
+						scratch := t.TempDir()
+						path := filepath.Join(scratch, "diagnostic.json")
+						require.NoError(t, os.WriteFile(path, changedData, 0o600))
+						githubOutput := filepath.Join(scratch, "github-output")
+						check := exec.Command("bash", "validate-waza-result.sh", path, "0", "0")
+						check.Env = append(os.Environ(), "GITHUB_OUTPUT="+githubOutput)
+						output, err := check.CombinedOutput()
+						require.NoError(t, err, string(output))
+						recorded, err := os.ReadFile(githubOutput)
+						require.NoError(t, err)
+						require.Contains(t, string(recorded), "status=failure")
+						require.NotContains(t, string(recorded), "status=success")
+					})
 				}
 			}
 			if tt.name == "task runtime error" {

@@ -315,6 +315,11 @@ the artifact step. Treat a missing or incomplete result as a workflow failure,
 including when the CLI itself fails; upload the fresh artifact with `if: always()`
 before re-emitting the evaluation failure.
 
+Workflow success requires all configured trials and every recorded final and
+checkpoint grader to pass, without grader evaluation errors or failed/stopped
+checkpoints. Contradictory task/run success statuses remain diagnostic evidence,
+not successful workflow outputs.
+
 The shared validator is shipped with v0.41.0; publish that release before
 using these cross-repository examples. Repository automatic checks build the
 checked-out Go source with real dashboard assets, use the mock code-explainer
