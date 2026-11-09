@@ -1,0 +1,32 @@
+[
+  {
+    "id": "recorded",
+    "spec": "representative",
+    "model": "gpt-5",
+    "judgeModel": "judge-model",
+    "outcome": "passed",
+    "passCount": 1,
+    "taskCount": 1,
+    "tokens": 1200,
+    "premiumRequests": 0,
+    "aiCredits": 0,
+    "modelUsage": [
+      {
+        "model": "model",
+        "aiCredits": 0,
+        "inputTokens": 7,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "outputTokens": 0
+      }
+    ],
+    "cost": 0.3,
+    "costSource": "estimate",
+    "duration": 120,
+    "timestamp": "2026-11-02T12:00:00Z",
+    "source": "local",
+    "repetitions": 2,
+    "weightedScore": 0,
+    "skill": ""
+  }
+]
