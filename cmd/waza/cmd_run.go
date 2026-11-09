@@ -738,21 +738,17 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 		}
 	}
 
-	if lastErr != nil {
-		return allResults, lastErr
-	}
-
 	// Write reporter outputs for the last model result
 	if len(allResults) > 0 {
 		last := allResults[len(allResults)-1]
 		if last.outcome != nil {
 			if err := writeReporters(last.outcome); err != nil {
-				return allResults, err
+				return allResults, errors.Join(lastErr, err)
 			}
 		}
 	}
 
-	return allResults, nil
+	return allResults, lastErr
 }
 
 func shutdownSharedClientAfterRun(parent context.Context) error {

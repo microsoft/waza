@@ -1554,3 +1554,10 @@ If tasks fail validation unexpectedly:
 ---
 
 **Happy evaluating! 🚀**
+
+### Reports for failed evaluations
+
+Use `waza run eval.yaml --output results.json --reporter junit:results.xml`
+to save JSON and JUnit XML, including when a completed evaluation fails grading.
+The command retains its nonzero exit status; if writing the report also fails,
+the returned error includes both the grading failure and the write error.

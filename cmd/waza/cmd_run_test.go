@@ -436,6 +436,46 @@ func TestRunCommand_ReporterJUnit(t *testing.T) {
 	assert.Contains(t, content, "test-eval")
 }
 
+func TestRunCommand_ReporterJUnitGradingFailure(t *testing.T) {
+	for _, writeFailure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("writeFailure=%t", writeFailure), func(t *testing.T) {
+			resetRunGlobals()
+			t.Cleanup(resetRunGlobals)
+			specPath := createFailingTestSpec(t, "mock")
+			dir := t.TempDir()
+			junitFile := filepath.Join(dir, "results.xml")
+			if writeFailure {
+				require.NoError(t, os.Mkdir(junitFile, 0o755))
+			}
+			outputFile := filepath.Join(dir, "results.json")
+			cmd := newRunCommand()
+			cmd.SetArgs([]string{specPath, "--output", outputFile, "--reporter", "junit:" + junitFile})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err := cmd.Execute()
+			require.Error(t, err)
+			var failure *TestFailureError
+			require.ErrorAs(t, err, &failure)
+			assert.Contains(t, err.Error(), "benchmark completed:")
+			data, readErr := os.ReadFile(outputFile)
+			require.NoError(t, readErr)
+			var outcome models.EvaluationOutcome
+			require.NoError(t, json.Unmarshal(data, &outcome))
+			require.Len(t, outcome.TestOutcomes, 1)
+			if writeFailure {
+				assert.Contains(t, err.Error(), "failed to write JUnit XML")
+				var pathErr *os.PathError
+				assert.ErrorAs(t, err, &pathErr)
+			} else {
+				data, readErr := os.ReadFile(junitFile)
+				require.NoError(t, readErr)
+				assert.Contains(t, string(data), "<failure")
+				assert.Contains(t, string(data), "test-task-001")
+			}
+		})
+	}
+}
+
 func TestRunCommand_ReporterFlagParsed(t *testing.T) {
 	cmd := newRunCommand()
 	require.NoError(t, cmd.ParseFlags([]string{
