@@ -112,6 +112,58 @@ description: multi-skill exit-code fixture
 		assertExceededWorkspaceReport(t, stdout)
 		require.Contains(t, string(stderr), "one or more skills have files exceeding token limits")
 	})
+
+	t.Run("strict mixed read failure and budget excess exits two", func(t *testing.T) {
+		workspace := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workspace, ".waza.yaml"), []byte(`paths:
+  skills: skills
+tokens:
+  limits:
+    defaults:
+      "*.md": 1
+`), 0o600))
+		for _, name := range []string{"good-skill", "bad-skill"} {
+			dir := filepath.Join(workspace, "skills", name)
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(
+				"---\nname: "+name+"\ndescription: mixed-error fixture\n---\n# More than one token\n"), 0o600))
+		}
+		require.NoError(t, os.Symlink("absent.md", filepath.Join(workspace, "skills", "bad-skill", "dangling.md")))
+		for _, strict := range []bool{false, true} {
+			args := []string{"tokens", "check", "--format", "json"}
+			wantCode := 0
+			if strict {
+				args = append(args, "--strict")
+				wantCode = 2
+			}
+			stdout, stderr, code := run(t, workspace, args...)
+			require.Equal(t, wantCode, code)
+			require.Contains(t, string(stderr), "bad-skill")
+			require.Contains(t, string(stderr), "dangling.md")
+			var report struct {
+				Skills []struct {
+					Skill         string `json:"skill"`
+					ExceededCount int    `json:"exceededCount"`
+					Error         string `json:"error"`
+				} `json:"skills"`
+			}
+			require.NoError(t, json.Unmarshal(stdout, &report))
+			require.Len(t, report.Skills, 2)
+			require.ElementsMatch(t, []string{"good-skill", "bad-skill"},
+				[]string{report.Skills[0].Skill, report.Skills[1].Skill})
+			for _, skill := range report.Skills {
+				switch skill.Skill {
+				case "good-skill":
+					require.Equal(t, 1, skill.ExceededCount)
+					require.Empty(t, skill.Error)
+				case "bad-skill":
+					require.Contains(t, skill.Error, "dangling.md")
+				default:
+					t.Fatalf("unexpected skill %q", skill.Skill)
+				}
+			}
+		}
+	})
 }
 
 func assertExceededTokenReport(t *testing.T, data []byte) {

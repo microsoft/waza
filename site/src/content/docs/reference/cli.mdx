@@ -1163,6 +1163,9 @@ See the **[Token Limits guide](../../guides/token-limits/)** for configuration d
 Budget checks are advisory (exit 0) unless `--strict` is supplied. Strict
 over-budget checks exit 1, including multi-skill workspace checks; invalid
 input or runtime errors exit 2. A strict check within budget still exits 0.
+If a strict batch has both a budget excess and an unreadable skill, exit 2
+takes precedence over the budget-only exit 1. Advisory batch warnings retain
+their existing behavior.
 
 Configure per-file limits in `.waza.yaml`:
 

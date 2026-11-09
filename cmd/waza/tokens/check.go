@@ -295,6 +295,7 @@ func runCheckBatch(cmd *cobra.Command, skills []workspace.SkillInfo, format stri
 	anyExceeded := false
 
 	var skillReports []skillCheckReport
+	var checkErrors []error
 
 	for i, si := range skills {
 		if format == "table" {
@@ -308,6 +309,7 @@ func runCheckBatch(cmd *cobra.Command, skills []workspace.SkillInfo, format stri
 
 		results, err := computeCheckResults(si.Dir, nil, computeWorkspaceRelPrefix(workspaceRoot, si.Dir), cmd.ErrOrStderr())
 		if err != nil {
+			checkErrors = append(checkErrors, fmt.Errorf("checking skill %q: %w", si.Name, err))
 			fmt.Fprintf(cmd.ErrOrStderr(), "  ⚠️  %s: %s\n", si.Name, err) //nolint:errcheck
 			if format == "json" {
 				skillReports = append(skillReports, skillCheckReport{
@@ -361,6 +363,9 @@ func runCheckBatch(cmd *cobra.Command, skills []workspace.SkillInfo, format stri
 	if strict && anyExceeded {
 		cmd.SilenceErrors = true
 		cmd.SilenceUsage = true
+		if len(checkErrors) > 0 {
+			return errors.Join(checkErrors...)
+		}
 		return &clierrors.ExitCodeError{
 			Code: 1,
 			Err:  errors.New("one or more skills have files exceeding token limits"),
