@@ -113,6 +113,14 @@ func (j *Joined) Binding() (nativetask.Admission, error) {
 // existing snapshot identities; the canonical snapshot independently binds all
 // CLIENT fields, declarations, discoveries, roles and path associations.
 func detachedSources(ctx context.Context, snapshotJSON []byte, retained map[releasepolicy.Arm][]source) (map[releasepolicy.Arm][]source, error) {
+	return validatedSources(ctx, snapshotJSON, retained, true)
+}
+
+func ownedSources(ctx context.Context, snapshotJSON []byte, retained map[releasepolicy.Arm][]source) (map[releasepolicy.Arm][]source, error) {
+	return validatedSources(ctx, snapshotJSON, retained, false)
+}
+
+func validatedSources(ctx context.Context, snapshotJSON []byte, retained map[releasepolicy.Arm][]source, detach bool) (map[releasepolicy.Arm][]source, error) {
 	var snapshots map[releasepolicy.Arm]armSnapshot
 	if err := json.Unmarshal(snapshotJSON, &snapshots); err != nil {
 		return nil, err
@@ -142,9 +150,11 @@ func detachedSources(ctx context.Context, snapshotJSON []byte, retained map[rele
 				!slices.Equal(entry.Roles, identity.Roles) {
 				return nil, fmt.Errorf("native join retained source identity changed")
 			}
-			result[arm] = append(result[arm], source{
-				Path: entry.Path, Roles: slices.Clone(entry.Roles), Bytes: bytes.Clone(entry.Bytes), Digest: entry.Digest,
-			})
+			if detach {
+				entry.Roles = slices.Clone(entry.Roles)
+				entry.Bytes = bytes.Clone(entry.Bytes)
+			}
+			result[arm] = append(result[arm], entry)
 			last = entry.Path
 		}
 	}

@@ -149,6 +149,7 @@ func BenchmarkReadCollectionCaptureActualExecutable(b *testing.B) {
 	require.NoError(b, err)
 	raw, err := captured.Marshal(b.Context())
 	require.NoError(b, err)
+	b.Logf("capture wire: %d bytes", len(raw))
 	b.SetBytes(int64(len(raw)))
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -156,6 +157,24 @@ func BenchmarkReadCollectionCaptureActualExecutable(b *testing.B) {
 		retained, err := ReadCollectionCapture(b.Context(), raw)
 		require.NoError(b, err)
 		require.NotNil(b, retained)
+	}
+}
+
+func TestOwnedProjectionValidationRetainsDetachedCaptureBuffers(t *testing.T) {
+	_, locations := fixture(t)
+	capture, err := prepareProjectionCapture(collectionContext(t.Context()), locations)
+	require.NoError(t, err)
+	input, err := projectionInput(t.Context(), capture)
+	require.NoError(t, err)
+	owned, err := validateOwnedProjectionInput(collectionContext(t.Context()), input)
+	require.NoError(t, err)
+	detached, err := validateProjectionInput(collectionContext(t.Context()), input)
+	require.NoError(t, err)
+
+	for _, arm := range []releasepolicy.Arm{releasepolicy.Baseline, releasepolicy.Candidate} {
+		require.NotEmpty(t, input.sources[arm])
+		require.Same(t, &input.sources[arm][0].Bytes[0], &owned.sources[arm][0].Bytes[0])
+		require.NotSame(t, &input.sources[arm][0].Bytes[0], &detached.sources[arm][0].Bytes[0])
 	}
 }
 
