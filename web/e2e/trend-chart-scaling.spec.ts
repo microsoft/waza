@@ -30,7 +30,7 @@ async function mockRuns(page: Page, runs: ReturnType<typeof makeRuns>) {
 test("large trend histories keep bounded DOM and exact endpoint tooltips", async ({
   page,
 }) => {
-  const count = 2000;
+  const count = 5000;
   await mockRuns(page, makeRuns(count));
 
   await page.goto("/#/trends");
@@ -60,7 +60,7 @@ test("large trend histories keep bounded DOM and exact endpoint tooltips", async
   );
   await page.mouse.move(box!.x + box!.width - 16, box!.y + box!.height / 2);
   await expect(page.getByTestId("trend-tooltip").first()).toHaveText(
-    /^80%\s*3\/25$/,
+    /^50%\s*7\/28$/,
   );
 });
 
@@ -78,39 +78,39 @@ test("two-point midpoint ties select the earlier point", async ({ page }) => {
   );
 });
 
-test("dense flat histories paint the last marker center above earlier outlines", async ({
-  page,
-}) => {
-  const count = 5000;
-  await mockRuns(page, makeRuns(count, () => 50));
-  await page.goto("/#/trends");
+for (const count of [1, 5000]) {
+  test(`${count}-run flat histories retain visible marker centers`, async ({
+    page,
+  }) => {
+    await mockRuns(page, makeRuns(count, () => 50));
+    await page.goto("/#/trends");
 
-  const chart = page.getByTestId("trend-points").first().locator("xpath=..");
-  await expect(chart).toBeVisible();
-  const pixel = await chart.evaluate(async (svg) => {
-    const source = svg.cloneNode(true) as SVGSVGElement;
-    const { width, height } = svg.getBoundingClientRect();
-    source.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    source.setAttribute("width", String(width));
-    source.setAttribute("height", String(height));
-    const image = new Image();
-    const loaded = new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("failed to rasterize trend SVG"));
-    });
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
-      new XMLSerializer().serializeToString(source),
-    )}`;
-    await loaded;
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("2D canvas is unavailable");
-    context.drawImage(image, 0, 0, width, height);
-    return Array.from(
-      context.getImageData(Math.round(width - 16), 94, 1, 1).data,
-    );
+    const chart = page.getByTestId("trend-points").first().locator("xpath=..");
+    await expect(chart).toBeVisible();
+    const pixel = await chart.evaluate(async (svg, pointCount) => {
+      const source = svg.cloneNode(true) as SVGSVGElement;
+      const { width, height } = svg.getBoundingClientRect();
+      source.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      source.setAttribute("width", String(width));
+      source.setAttribute("height", String(height));
+      const image = new Image();
+      const loaded = new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("failed to rasterize trend SVG"));
+      });
+      image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+        new XMLSerializer().serializeToString(source),
+      )}`;
+      await loaded;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("2D canvas is unavailable");
+      context.drawImage(image, 0, 0, width, height);
+      const pointX = pointCount === 1 ? 56 + (width - 56 - 16) / 2 : width - 16;
+      return Array.from(context.getImageData(Math.round(pointX), 94, 1, 1).data);
+    }, count);
+    expect(pixel).toEqual([59, 130, 246, 255]);
   });
-  expect(pixel).toEqual([59, 130, 246, 255]);
-});
+}
