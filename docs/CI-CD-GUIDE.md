@@ -76,6 +76,55 @@ workflow routing and current-head adoption evidence are not yet active. Do not
 require `PR completeness` in a ruleset until the migration below is reviewed and
 its actual workflow executions are verified.
 
+### Reusable plan/admission boundary (not activated)
+
+`pr-completeness-plan.yml` and `pr-completeness-admission.yml` expose the
+same-run transport boundary without adding another runnable PR workflow. They
+have only `workflow_call` triggers. No current Go caller invokes them, so this
+layer does **not** publish an enforceable completeness result on ordinary PRs.
+
+The plan job checks out the tested merge with both parents, invokes the existing
+source/path interpreter, uploads only `plan.json`, and exports the attempt-bound
+artifact name and small applicability flags. The admission job consumes that
+artifact plus the caller's full `toJSON(needs)` dependency inventory. It downloads
+individual same-run, same-attempt receipt artifacts without merging their
+directories. The adapter rejects wrong filenames, extra files, ambiguous JSON,
+artifact-name disagreements and non-regular leaves; the existing interpreter
+rejects missing receipts and unsuccessful dependencies/required commands.
+These are checks of the downloaded workflow evidence, not a race-resistant
+filesystem confinement or independent attestation guarantee.
+
+Only after assembling local evidence does admission read the current PR using
+the job's read-only GitHub token. `contents: read` permits checkout; admission
+also declares `pull-requests: read` for this fresh snapshot. Other permissions
+are none, existing workflow defaults are unchanged, and reusable calls cannot
+raise the caller's permission ceiling. Tokens are never written to plans,
+dependency inputs, receipts, results or summaries. A missing token or an API
+permission denial fails admission rather than falling back to ambient credentials.
+The production interpreter then independently
+revalidates event/run/attempt identity, the tested merge and its full path list.
+A completed evaluation writes `result.json` and a family-by-family summary,
+including visible `not_applicable` scopes. A rejected evaluation retains its
+diagnostics and exits nonzero. API, decoding or source-admission failure exits
+nonzero without inventing a passing result; a result artifact may be unavailable.
+
+The concrete caller controls execute the `run` commands extracted from these
+production workflows against real local merge commits and downloaded-artifact
+layouts, with a rejecting/offline PR API executable fixture. Authored successful
+receipts in these controls prove the admission interface, **not** that any hosted
+suite, native platform or browser actually ran.
+
+The next upper integration layer must first add genuine source-bound receipt
+interfaces to Go (including all four native shards and coverage gate), dashboard,
+site/examples and Docker. It must include the new admission adapter and controls
+in the applicability map, route metadata/retarget events and concurrency safely,
+wire the plan outputs into actual reusable producers, and call admission with
+`always()` and every required direct dependency. Only then can standalone ordinary
+PR triggers be consolidated without duplicate full-suite execution. Preserve the
+existing auxiliary receipt interfaces, current native Go gates and separate
+non-PR validation. Do not adopt a ruleset requirement before that wiring and the
+genuine current-head migration evidence below exist.
+
 The proposed ordinary-PR entrypoint is the existing Go workflow, with local
 reusable calls to the existing auxiliary validators. This avoids cross-run
 `needs` assumptions and duplicate ordinary-PR suites. Non-PR triggers remain
