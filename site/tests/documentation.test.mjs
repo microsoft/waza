@@ -452,6 +452,24 @@ test('release articles are linked from Releases and retain their existing screen
   assert.match(article, /Fixture-backed native-profile view/);
 });
 
+test('pending release separates source readiness, historical metadata and released-consumer completion', () => {
+  const article = read('site/src/content/docs/releases/v0-41-0.mdx');
+  const before = article.split('### Before selecting a release candidate')[1]?.split('### After publication: released-consumer completion')[0];
+  const after = article.split('### After publication: released-consumer completion')[1];
+  assert.ok(before && after, 'both ordered readiness stages must be present');
+  assert.doesNotMatch(before, /#902/);
+  assert.match(after, /#902 released-consumer validation/);
+  assert.match(after, /installer, binary, and checksums are published/);
+  assert.match(after, /does not waive #902/);
+  assert.match(article, /0\.39\.1` in `version\.txt` and `extension\.yaml`/);
+  assert.match(article, /not a new verification of binary provenance/);
+  assert.match(article, /applies prospectively to v0\.41\.0/);
+  assert.match(article, /reference\/releases\/#capabilities-introduced-in-v0390/);
+  const changelog = read('CHANGELOG.md');
+  assert.match(changelog, /historical v0\.40\.1 tags retain `0\.39\.1`/);
+  assert.match(changelog, /post-publication released-consumer\s+completion requirement \(#902\)/);
+});
+
 test('v0.40.1 article owns hotfix detail while the homepage leads with the product', () => {
   const homepage = read('site/src/content/docs/index.mdx');
   const intro = homepage.split('## What can waza do?')[0];

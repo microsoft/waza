@@ -16,6 +16,14 @@ This preview compares the verified published v0.40.1 source
 preparation base `6750ff6115b3a98a5609bd751227bca629839a9c`.
 Both the standalone `v0.40.1` and extension
 `azd-ext-microsoft-azd-waza_0.40.1` tags resolve to that baseline.
+Both historical tags retain **`0.39.1` in `version.txt` and `extension.yaml`**.
+The [historical release-source explanation](../../reference/releases/#capabilities-introduced-in-v0390)
+documents tag-injected linker version `0.40.1` for the published binaries despite
+those older manifests. These immutable tags remain valid source-comparison
+anchors, not a new verification of binary provenance or proof that their
+manifest mismatch was corrected. The exact-matching target metadata contract
+applies prospectively to v0.41.0; it does not rewrite historical tags.
+
 The [source comparison](https://github.com/microsoft/waza/compare/e0c251df896bee4e0f9b38a693a6105bf7eadd19...6750ff6115b3a98a5609bd751227bca629839a9c)
 is not a linear release history: the published baseline is **not an ancestor**
 of this main commit. A direct tree comparison and patch-equivalence review are
@@ -156,7 +164,10 @@ frontier work are not release evidence.
 
 ## Finalize only after the remaining admissions
 
-This draft remains incomplete. Before selecting a release candidate:
+This draft remains incomplete. Pre-release readiness and post-publication
+completion are separate stages.
+
+### Before selecting a release candidate
 
 - Reconcile the merged inventory after the remaining release-scope PRs land,
   refresh the immutable comparison and changelog, settle the final scope, and
@@ -173,8 +184,7 @@ This draft remains incomplete. Before selecting a release candidate:
   [#839](https://github.com/microsoft/waza/issues/839),
   [#904](https://github.com/microsoft/waza/issues/904), and
   [#935](https://github.com/microsoft/waza/issues/935); specialist isolation
-  [#841](https://github.com/microsoft/waza/issues/841); released consumer proof
-  [#902](https://github.com/microsoft/waza/issues/902); and measured targets
+  [#841](https://github.com/microsoft/waza/issues/841); and measured targets
   [#825](https://github.com/microsoft/waza/issues/825).
 - Integrate [#929](https://github.com/microsoft/waza/pull/929) on current main
   and refresh its integration evidence. The
@@ -196,5 +206,15 @@ Target versions, changelog, and matching dashboard metadata must be committed
 before tagging; publication never repairs source.
 The preparation branch must not reserve `release/v0.41.0`: the workflow creates
 that branch only after publication for registry synchronization.
+
+### After publication: released-consumer completion
+
+After the actual v0.41.0 installer, binary, and checksums are published,
+complete [#902 released-consumer validation](https://github.com/microsoft/waza/issues/902)
+against those released artifacts and the validator in the consuming repository.
+This remains required release-completion evidence, **not a prerequisite for
+selecting the release candidate**. Publication alone does not establish consumer
+acceptance, and this sequencing does not waive #902.
+
 Only after actual CLI and extension artifacts exist should availability,
 download links, the publication date, and this article's pending status change.

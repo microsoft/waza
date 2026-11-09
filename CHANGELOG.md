@@ -36,9 +36,15 @@ limited to merged source from published v0.40.1
 Existing Unreleased entries above are preserved verbatim; the inventory below
 is derived independently from source. The published baseline is not an ancestor
 of this main commit: hotfix parity must be reconciled before release.
+Both historical v0.40.1 tags retain `0.39.1` in `version.txt` and
+`extension.yaml`; the [release reference](site/src/content/docs/reference/releases.mdx)
+explains the tag-injected binary version. These immutable tags anchor source
+comparison, not a new binary-provenance verification. Exact target metadata is
+required prospectively for v0.41.0; old tags are not rewritten.
 No v0.41.0 tag, assets, date, or registry availability is asserted.
 See the [pending release article](site/src/content/docs/releases/v0-41-0.mdx)
-for finalization requirements.
+for pre-release readiness and the separate post-publication released-consumer
+completion requirement (#902).
 
 ### Added
 
