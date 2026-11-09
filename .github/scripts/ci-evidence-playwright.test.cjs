@@ -58,6 +58,22 @@ test("installed Playwright producer matches locked versions and emits discovery/
   assert.equal(JSON.parse(saved).identity.go, go.stdout.trim(), "CLI captures the actual effective Go runtime, not a configured default");
   assert.equal(JSON.parse(saved).complete, true, "fully observed test failure is complete evidence, not an incomplete execution");
   assert.ok(!saved.includes("SECRET"), "production CLI artifact must omit the sensitive sentinel");
+  for (const retry of [1, 0.5]) {
+    const invalid = structuredClone(data);
+    const result = invalid.suites[0].specs[0].tests[0].results[0];
+    assert.equal(result.retry, 0, "locked reporter must actually emit the initial attempt");
+    result.retry = retry;
+    const invalidInput = path.join(dir, "invalid-retry-input.json");
+    const invalidOutput = path.join(dir, "invalid-retry-output.json");
+    fs.writeFileSync(invalidInput, JSON.stringify(invalid));
+    const rejected = spawnSync(process.execPath, [path.join(__dirname, "ci-evidence.cjs"), "browser", invalidInput, invalidOutput, discoveryInput], { cwd: dir, env: outcomes, encoding: "utf8" });
+    assert.equal(rejected.status, 0, rejected.stderr);
+    const retained = JSON.parse(fs.readFileSync(invalidOutput, "utf8"));
+    assert.equal(retained.complete, false);
+    assert.ok(retained.diagnostics.includes("browser-retry-invalid"));
+    assert.equal(retained.targets[0].results[0].retry, retry, "diagnostics retain, rather than fabricate, missing initial evidence");
+    assert.ok(!JSON.stringify(retained).includes("SECRET"));
+  }
   const missingOutput = path.join(dir, "missing-go.json");
   const missing = spawnSync(process.execPath, [path.join(__dirname, "ci-evidence.cjs"), "browser", reportInput, missingOutput, discoveryInput], { cwd: dir, env: { ...outcomes, PATH: dir }, encoding: "utf8" });
   assert.equal(missing.status, 0, missing.stderr);

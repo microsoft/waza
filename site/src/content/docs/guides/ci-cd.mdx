@@ -181,7 +181,9 @@ counts. `top_level_seconds` sums only top-level target durations, never their
 overlapping subtests; it is **not** wall-clock latency and parallel top-level
 tests can overlap. Playwright discovery is a separate `--list` operation, not
 another test run. Each browser result retains its retry index, so a final pass
-cannot replace a recorded initial failure. A no-browser producer contract test
+cannot replace a recorded initial failure. Missing, fractional, duplicate or
+nonconsecutive retry indices make the evidence incomplete; indices must start
+at zero. A no-browser producer contract test
 checks the current installed Playwright reporter using tiny pass/fail/skip
 controls before the real suite.
 Go execution and collector process exits are recorded separately from emitted
@@ -329,6 +331,9 @@ and remains charged when either fails. Deflate output is limited to its declared
 expanded size; dishonest size declarations are rejected, not decoded against the
 larger per-file cap.
 Complete Go artifacts must supply bounded, typed target rows consumed by history.
+Complete browser artifacts also require bounded result rows with recorded
+durations, consecutive retry indices, matching discovered/selected inventories,
+consistent project/retry policy, and recomputed target/result counts.
 Malformed reports are rejected individually without discarding other available
 observations. Unavailable schema 1 partial targets remain unavailable, not
 fabricated empty arrays.

@@ -611,6 +611,104 @@ function verified(report, overrides = {}, family = report.kind === "playwright" 
   const fixture = artifactFixture(report, overrides, family);
   return collectObservations(fixture.id, fixture.api, () => fixture.zip);
 }
+test("browser retry inventories require consecutive integer attempts beginning at zero", () => {
+  for (const retries of [[1], [-1], [0.5], [0, 2], [0, 0], [1, 0]]) {
+    const data = browser();
+    data.suites[0].specs[0].tests[0].results = retries.map((retry) => ({ retry, status: "passed", duration: 10 }));
+    const report = browserReport(data, env, browserInventory(data));
+    assert.equal(report.complete, false, JSON.stringify(retries));
+    assert.ok(report.diagnostics.includes("browser-retry-invalid"), JSON.stringify(retries));
+  }
+  const data = browser();
+  data.config.projects[0].retries = 1;
+  const target = data.suites[0].specs[0].tests[0];
+  target.status = "flaky";
+  target.results = [{ retry: 0, status: "failed", duration: 0 }, { retry: 1, status: "passed", duration: 10 }];
+  const report = browserReport(data, env, browserInventory(data));
+  assert.equal(report.complete, true, JSON.stringify(report.diagnostics));
+  assert.equal(report.counts.first_attempt_failures, 1);
+  assert.equal(report.policy.retries, null, "configured retries cannot become a retry-disabled sample");
+});
+test("verified complete Playwright reports require measured rows, inventory and count integrity", () => {
+  const produce = () => {
+    const data = browser();
+    const report = browserReport(data, { ...env, BROWSER_DISCOVERY_OUTCOME: "success", BROWSER_EXECUTION_OUTCOME: "success" }, browserInventory(data));
+    report.identity.source_sha = run.head_sha;
+    return report;
+  };
+  const inspect = (report, admitted, eligible) => {
+    const snapshot = structuredClone(report);
+    const observed = verified(report);
+    assert.equal(observed.reports.length, admitted ? 1 : 0);
+    assert.deepEqual(report, snapshot, "admission must not repair or reinterpret recorded evidence");
+    const grouped = trends(observed.reports);
+    assert.equal(grouped.cohorts.reduce((sum, cohort) => sum + cohort.eligible.length, 0), eligible ? 1 : 0);
+    assert.deepEqual(historyProposal(observed.reports).targets, [], "browser timings never enter Go placement history");
+    if (!admitted) assert.ok(observed.diagnostics.includes("evidence-artifact-invalid-or-unverified"));
+  };
+  const good = produce();
+  assert.equal(good.complete, true);
+  assert.equal(good.counts.executed, 1);
+  inspect(good, true, true);
+  const mutations = [
+    (report) => { report.targets = null; },
+    (report) => { report.targets = []; },
+    (report) => { report.targets[0] = null; },
+    (report) => { report.targets.push(structuredClone(report.targets[0])); },
+    (report) => { report.targets[0].project = "missing"; },
+    (report) => { report.targets[0].status = "unknown"; },
+    (report) => { report.targets[0].status = "expected"; report.targets[0].results[0].status = "failed"; },
+    (report) => { report.targets[0].results = []; },
+    (report) => { report.targets[0].results = null; },
+    (report) => { report.targets[0].results[0] = null; },
+    (report) => { delete report.targets[0].results[0].seconds; },
+    (report) => { report.targets[0].results[0].seconds = -1; },
+    (report) => { report.targets[0].results[0].seconds = "0"; },
+    (report) => { report.targets[0].results[0].retry = 1; },
+    (report) => { report.targets[0].results[0].retry = 0.5; },
+    (report) => { report.targets[0].results[0].status = "interrupted"; },
+    (report) => { report.targets[0].results.push({ retry: 1, status: "passed", seconds: 0 }); },
+    (report) => { report.selected = []; },
+    (report) => { report.selected.push(report.selected[0]); },
+    (report) => { report.discovered = null; },
+    (report) => { report.discovered = []; },
+    (report) => { report.discovered.push(report.discovered[0]); },
+    (report) => { report.discovered = ["chromium::other"]; },
+    (report) => { report.counts = null; },
+    (report) => { report.result_counts = null; },
+    (report) => { report.runner_seconds = null; },
+    (report) => { report.policy.projects = []; },
+    (report) => { report.policy.projects[0].retries = 1; },
+    (report) => { report.policy.workers = 0; },
+  ];
+  for (const field of Object.keys(good.counts)) mutations.push((report) => { report.counts[field]++; });
+  for (const field of Object.keys(good.result_counts)) mutations.push((report) => { report.result_counts[field]++; });
+  for (const mutate of mutations) {
+    const report = structuredClone(good);
+    mutate(report);
+    assert.notDeepEqual(report, good, "mutation must change actual sanitized producer evidence");
+    inspect(report, false, false);
+  }
+  const partial = { ...good, complete: false, diagnostics: ["execution-unavailable"], targets: null };
+  inspect(partial, true, false);
+  const zero = produce();
+  zero.targets[0].results[0].seconds = 0;
+  zero.runner_seconds = 0;
+  inspect(zero, true, true);
+  for (const [status, expected, actual, counts, resultCounts] of [
+    ["unexpected", "passed", "failed", { pass: 0, fail: 1, first_attempt_failures: 1 }, { pass: 0, fail: 1 }],
+    ["skipped", "skipped", "skipped", { executed: 0, pass: 0, skip: 1 }, { pass: 0, skip: 1 }],
+    ["expected", "failed", "failed", { pass: 0, first_attempt_failures: 1 }, { pass: 0, fail: 1 }],
+  ]) {
+    const report = produce();
+    Object.assign(report.targets[0], { status, expected_status: expected });
+    report.targets[0].results[0].status = actual;
+    Object.assign(report.counts, counts);
+    Object.assign(report.result_counts, resultCounts);
+    report.execution_outcome = status === "unexpected" ? "failure" : "success";
+    inspect(report, true, false);
+  }
+});
 test("verified complete Go reports require selected target and count integrity without repairing incomplete evidence", () => {
   const produce = (events = successful, selection = {
     selected: ["example/p::TestA"], inventory_scope: "qualified",

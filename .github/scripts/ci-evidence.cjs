@@ -389,6 +389,63 @@ function browserOutcomes(report, env) {
 function knownGoVersion(version) {
   return text(version) !== null && /^go version (?:go\d+\.\d+(?:\.\d+)?(?:beta\d+|rc\d+)?|devel go\d+\.\d+(?:-[^\r\n]+)?)(?: X:\S+)? [a-z0-9_]+\/[a-z0-9_]+$/.test(version);
 }
+function browserCounts(targets) {
+  return {
+    selected: targets.length, executed: targets.filter((target) => target.results.some((result) => result.status !== "skipped")).length,
+    pass: targets.filter((target) => target.status === "expected" && target.expected_status === "passed").length,
+    fail: targets.filter((target) => target.status === "unexpected").length,
+    skip: targets.filter((target) => target.status === "skipped").length,
+    flaky: targets.filter((target) => target.status === "flaky").length,
+    first_attempt_failures: targets.filter((target) => target.results.some((result) => result.retry === 0 && ["failed", "timedOut"].includes(result.status))).length,
+  };
+}
+function browserResultCounts(results) {
+  return {
+    observed: results.length,
+    pass: results.filter((result) => result.status === "passed").length,
+    fail: results.filter((result) => ["failed", "timedOut"].includes(result.status)).length,
+    skip: results.filter((result) => result.status === "skipped").length,
+    interrupted: results.filter((result) => result.status === "interrupted").length,
+  };
+}
+function completeBrowserTargets(report) {
+  const record = (value) => value && typeof value === "object" && !Array.isArray(value);
+  const policy = report.policy;
+  if (!Array.isArray(report.targets) || !report.targets.length || report.targets.length > LIMITS.targets ||
+      number(report.runner_seconds) === null || !record(policy) ||
+      !Number.isSafeInteger(policy.workers) || policy.workers <= 0 ||
+      !Array.isArray(policy.projects) || !policy.projects.length || policy.projects.length > LIMITS.targets ||
+      !policy.projects.every((project) => record(project) && text(project.id) && text(project.name) &&
+        Number.isSafeInteger(project.retries) && project.retries >= 0) ||
+      policy.retries !== (policy.projects.every((project) => project.retries === 0) ? 0 : null)) return false;
+  const projects = new Map(policy.projects.map((project) => [project.id, project]));
+  if (projects.size !== policy.projects.length) return false;
+  const keys = new Set();
+  let resultCount = 0;
+  for (const target of report.targets) {
+    if (!record(target) || !text(target.id) || !text(target.project) || !projects.has(target.project) ||
+        !["expected", "unexpected", "flaky", "skipped"].includes(target.status) ||
+        !["passed", "failed", "skipped"].includes(target.expected_status) ||
+        !Array.isArray(target.results) || !target.results.length ||
+        target.results.length > projects.get(target.project).retries + 1 ||
+        (resultCount += target.results.length) > LIMITS.targets ||
+        !target.results.every((result, index) => record(result) && result.retry === index &&
+          ["passed", "failed", "timedOut", "skipped"].includes(result.status) && number(result.seconds) !== null)) return false;
+    const key = `${target.project}::${target.id}`;
+    if (keys.has(key)) return false;
+    keys.add(key);
+    const executed = target.results.filter((result) => result.status !== "skipped");
+    const expected = executed.filter((result) => result.status === target.expected_status).length;
+    const status = !executed.length ? "skipped" : expected === executed.length ? "expected" : expected === 0 ? "unexpected" : "flaky";
+    if (target.status !== status) return false;
+  }
+  if (![report.selected, report.discovered].every((inventory) => Array.isArray(inventory) &&
+      inventory.length === keys.size && new Set(inventory).size === inventory.length &&
+      inventory.every((key) => text(key) && keys.has(key)))) return false;
+  return [[report.counts, browserCounts(report.targets)],
+    [report.result_counts, browserResultCounts(report.targets.flatMap((target) => target.results))]]
+    .every(([actual, expected]) => record(actual) && Object.entries(expected).every(([key, count]) => actual[key] === count));
+}
 function browserReport(data, env = process.env, discovery = null, runtime = {}) {
   const report = base("playwright", env, { go: knownGoVersion(runtime.go) ? runtime.go : null, source_sha: text(runtime.source_sha) });
   if (runtime.go == null) diagnostic(report, "go-runtime-unavailable");
@@ -426,7 +483,7 @@ function browserReport(data, env = process.env, discovery = null, runtime = {}) 
             const status = text(result.status), duration = number(result.duration), retry = number(result.retry);
             if (!["passed", "failed", "timedOut", "skipped", "interrupted"].includes(status)) diagnostic(report, "browser-status-invalid");
             if (duration === null) diagnostic(report, "duration-unavailable");
-            if (retry === null || target.results.some((item) => item.retry === retry)) diagnostic(report, "browser-retry-invalid");
+            if (retry !== target.results.length) diagnostic(report, "browser-retry-invalid");
             if (status === "interrupted") diagnostic(report, "browser-interrupted");
             target.results.push({ status, seconds: duration === null ? null : duration / 1000, retry });
           }
@@ -445,25 +502,12 @@ function browserReport(data, env = process.env, discovery = null, runtime = {}) 
     const discoveredSet = new Set(discovery);
     if (report.selected.some((item) => !discoveredSet.has(item)) || discovery.some((item) => !ids.has(item))) diagnostic(report, "selection-execution-mismatch");
   }
-  report.counts = {
-    selected: ids.size, executed: report.targets.filter((target) => target.results.some((result) => result.status !== "skipped")).length,
-    pass: report.targets.filter((target) => target.status === "expected" && target.expected_status === "passed").length,
-    fail: report.targets.filter((target) => target.status === "unexpected").length,
-    skip: report.targets.filter((target) => target.status === "skipped").length,
-    flaky: report.targets.filter((target) => target.status === "flaky").length,
-    first_attempt_failures: report.targets.filter((target) => target.results.some((result) => result.retry === 0 && ["failed", "timedOut"].includes(result.status))).length,
-  };
-  const results = report.targets.flatMap((target) => target.results);
-  report.result_counts = {
-    observed: results.length,
-    pass: results.filter((result) => result.status === "passed").length,
-    fail: results.filter((result) => ["failed", "timedOut"].includes(result.status)).length,
-    skip: results.filter((result) => result.status === "skipped").length,
-    interrupted: results.filter((result) => result.status === "interrupted").length,
-  };
+  report.counts = browserCounts(report.targets);
+  report.result_counts = browserResultCounts(report.targets.flatMap((target) => target.results));
   report.runner_seconds = number(data?.stats?.duration) === null ? null : data.stats.duration / 1000;
   if (report.runner_seconds === null) diagnostic(report, "duration-unavailable");
   browserOutcomes(report, env);
+  if (!report.diagnostics.length && !completeBrowserTargets(report)) diagnostic(report, "browser-measurements-invalid");
   report.complete = report.diagnostics.length === 0;
   return report;
 }
@@ -664,7 +708,8 @@ function collectObservations(runID, api, download = (id) => {
         report.diagnostics.every((code) => text(code) !== null);
       const selectedValid = Array.isArray(report.selected) || (partial && report.selected == null);
       const policyValid = (report.policy && typeof report.policy === "object" && !Array.isArray(report.policy)) || (partial && report.policy == null);
-      const targetsValid = report.kind !== "go" || report.complete !== true || completeGoTargets(report);
+      const targetsValid = report.complete !== true ||
+        (report.kind === "go" ? completeGoTargets(report) : completeBrowserTargets(report));
       const cacheObservationValid = !Object.hasOwn(report, "cache_observation") ||
         cacheObservation.validObservation(report.cache_observation, report.identity || {}, report.cache || {}) ||
         (partial && report.cache_observation === null);
