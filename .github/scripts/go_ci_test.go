@@ -59,7 +59,11 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 			if len(literal) < 4 || !slices.Equal(literal[:3], []string{"go", "test", "-count=1"}) {
 				return fmt.Errorf("expected literal uncached Go test command")
 			}
-			for _, arg := range literal[3:] {
+			packages := literal[3:]
+			if len(packages) > 0 && packages[0] == "-v" {
+				packages = packages[1:]
+			}
+			for _, arg := range packages {
 				if !strings.HasPrefix(arg, "./") {
 					return fmt.Errorf("expected only literal package arguments after -count=1, got %q", arg)
 				}
@@ -118,22 +122,25 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 	if err := check(source); err != nil {
 		t.Fatal(err)
 	}
+	if err := check([]byte(strings.Replace(string(source), "go test -count=1 -v", "go test -count=1", 1))); err != nil {
+		t.Fatalf("helper selection must also admit an unfiltered nonverbose command: %v", err)
+	}
 	for _, tc := range []struct{ name, before, after string }{
 		{"missing-package", " ./.github/scripts/release-assets-helper", ""},
-		{"echo-only", "run: go test -count=1 ./.github/scripts", "run: echo go test -count=1 ./.github/scripts"},
+		{"echo-only", "run: go test -count=1 -v ./.github/scripts", "run: echo go test -count=1 -v ./.github/scripts"},
 		{"skipped-step", "- name: Test Go workflow trigger selection\n        run:", "- name: Test Go workflow trigger selection\n        if: false\n        run:"},
-		{"run-value", "-count=1 ./.github/scripts", "-count=1 -run '^$' ./.github/scripts"},
-		{"run-equals", "-count=1 ./.github/scripts", "-count=1 -run=^$ ./.github/scripts"},
-		{"list-value", "-count=1 ./.github/scripts", "-count=1 -list '.' ./.github/scripts"},
-		{"list-equals", "-count=1 ./.github/scripts", "-count=1 -list=. ./.github/scripts"},
-		{"skip-value", "-count=1 ./.github/scripts", "-count=1 -skip '.' ./.github/scripts"},
-		{"skip-equals", "-count=1 ./.github/scripts", "-count=1 -skip=. ./.github/scripts"},
-		{"args-value", "-count=1 ./.github/scripts", "-count=1 -args -test.run '^$' ./.github/scripts"},
-		{"args-equals", "-count=1 ./.github/scripts", "-count=1 -args=-test.run=^$ ./.github/scripts"},
-		{"exec-value", "-count=1 ./.github/scripts", "-count=1 -exec echo ./.github/scripts"},
-		{"exec-equals", "-count=1 ./.github/scripts", "-count=1 -exec=echo ./.github/scripts"},
+		{"run-value", "-count=1 -v ./.github/scripts", "-count=1 -v -run '^$' ./.github/scripts"},
+		{"run-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -run=^$ ./.github/scripts"},
+		{"list-value", "-count=1 -v ./.github/scripts", "-count=1 -v -list '.' ./.github/scripts"},
+		{"list-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -list=. ./.github/scripts"},
+		{"skip-value", "-count=1 -v ./.github/scripts", "-count=1 -v -skip '.' ./.github/scripts"},
+		{"skip-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -skip=. ./.github/scripts"},
+		{"args-value", "-count=1 -v ./.github/scripts", "-count=1 -v -args -test.run '^$' ./.github/scripts"},
+		{"args-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -args=-test.run=^$ ./.github/scripts"},
+		{"exec-value", "-count=1 -v ./.github/scripts", "-count=1 -v -exec echo ./.github/scripts"},
+		{"exec-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -exec=echo ./.github/scripts"},
 		{"late-run", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper -run=^$"},
-		{"count-override", "-count=1 ./.github/scripts", "-count=1 -count=0 ./.github/scripts"},
+		{"count-override", "-count=1 -v ./.github/scripts", "-count=1 -v -count=0 ./.github/scripts"},
 		{"failure-mask", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper || true"},
 		{"pipeline-mask", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper | true"},
 		{"duplicate-helper", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper ./.github/scripts/release-assets-helper"},
@@ -156,7 +163,7 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, before, after string }{
 		{"package-order", "./.github/scripts ./.github/scripts/publish-runner-reference-guard", "./.github/scripts/publish-runner-reference-guard ./.github/scripts"},
-		{"additional-package", "-count=1 ./.github/scripts", "-count=1 ./internal/models ./.github/scripts"},
+		{"additional-package", "-count=1 -v ./.github/scripts", "-count=1 -v ./internal/models ./.github/scripts"},
 		{"workflow-empty-goflags", "jobs:\n", "env:\n  GOFLAGS: ''\njobs:\n"},
 		{"job-empty-overrides-workflow", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: ''\n"},
 		{"step-empty-overrides-job", "- name: Test Go workflow trigger selection\n", "- name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: ''\n"},

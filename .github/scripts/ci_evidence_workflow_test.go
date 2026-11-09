@@ -183,7 +183,7 @@ func TestCIEvidenceLintVisibilityContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const command = "go test -count=1 -v ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
+	const command = "go test -count=1 -v ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard ./.github/scripts/release-assets-helper"
 	check := func(source []byte) error {
 		var workflow releaseWorkflow
 		if err := yaml.Unmarshal(source, &workflow); err != nil {
