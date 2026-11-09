@@ -21,7 +21,8 @@ if [ "${REQUIRE_RELEASE_ADMISSION:-}" = "1" ] &&
     bash .github/scripts/release_dashboard_handoff.sh verify-installed
 else
     echo "Building web dashboard..."
-    (cd "$SCRIPT_DIR/web" && npm ci --silent && npm run build)
+    make --no-print-directory web-deps
+    (cd "$SCRIPT_DIR/web" && npm run build)
 fi
 
 if [ "${REQUIRE_RELEASE_ADMISSION:-}" = "1" ]; then
