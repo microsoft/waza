@@ -1,0 +1,63 @@
+{
+  "id": "recorded",
+  "spec": "representative",
+  "model": "gpt-5",
+  "judgeModel": "judge-model",
+  "outcome": "passed",
+  "passCount": 1,
+  "taskCount": 1,
+  "tokens": 1200,
+  "premiumRequests": 0,
+  "aiCredits": 0,
+  "modelUsage": [
+    {
+      "model": "model",
+      "aiCredits": 0,
+      "inputTokens": 7,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "outputTokens": 0
+    }
+  ],
+  "cost": 0.3,
+  "costSource": "estimate",
+  "duration": 120,
+  "timestamp": "2026-11-02T12:00:00Z",
+  "source": "local",
+  "repetitions": 2,
+  "weightedScore": 0,
+  "skill": "",
+  "tasks": [
+    {
+      "id": "task-00",
+      "name": "Task 00",
+      "prompt": "Review the representative project and report the result.",
+      "outcome": "passed",
+      "score": 0,
+      "weightedScore": 0,
+      "duration": 6,
+      "graderResults": [
+        {
+          "name": "quality",
+          "type": "text",
+          "passed": true,
+          "score": 1,
+          "weight": 1,
+          "message": "passed"
+        }
+      ],
+      "sessionDigest": {
+        "totalTurns": 0,
+        "toolCallCount": 4,
+        "tokensIn": 1000,
+        "tokensOut": 200,
+        "tokensTotal": 1200,
+        "toolsUsed": [
+          "view",
+          "rg"
+        ],
+        "errors": []
+      }
+    }
+  ]
+}
