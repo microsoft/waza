@@ -96,6 +96,14 @@ of terminal pass and execution attestation. This is unreleased source behavior,
 not publication or full current-head acceptance.
 See [aggregation contracts and migration](MANIFEST_AGGREGATION.md).
 
+The #765 source preview adds protected checkpoint create/resume in the CLI,
+HTTP API and Lab. Lab displays original outcomes, retry/reuse references and
+explicitly unavailable progress, and downloads the unchanged protected result.
+Finalized restore preserves the original terminal with zero new calls;
+before-unit restore requires a stopped original worker and a fresh retry child.
+This does not complete #764 ordered lineage, native-platform acceptance or the
+v0.41 release. See [checkpoint guarantees and limits](EXECUTION_CHECKPOINTS.md).
+
 External-schema interoperability (#789) remains partial. The v0.40.0
 adapter projects one explicitly selected, commit-pinned AgentV case-sensitive
 `contains` assertion to a single native text grader and exports the same
