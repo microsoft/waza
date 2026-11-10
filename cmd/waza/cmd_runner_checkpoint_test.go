@@ -135,13 +135,17 @@ func TestCheckpointPublicCLIRejectsBeforeProvider(t *testing.T) {
 			}
 
 			directory := t.TempDir() + "/must-not-open"
-			result, _ := runCheckpointCLI(t, service, revision, directory, wire, args...)
+			result, diagnostic := runCheckpointCLI(t, service, revision, directory, wire, args...)
 			require.Equal(t, "rejected", result.Status)
 			require.Nil(t, result.Submission)
 			require.Zero(t, factories)
 			if control == "missing-revision" {
 				require.Equal(t, 1, revisions)
 				require.Equal(t, "checkpoint_build_incompatible", result.Diagnostics[0].Code)
+				require.Contains(t, diagnostic, "checkpoint build admission: private-build-metadata-control")
+				encoded, err := runnercheckpoint.EncodeResult(result)
+				require.NoError(t, err)
+				require.NotContains(t, string(encoded), "private-build-metadata-control")
 			} else {
 				require.Zero(t, revisions)
 			}
