@@ -103,8 +103,13 @@ rollback, inferred crash durability, or deletion of partial evidence.
 Raw core results can contain original source metadata. They are not approved
 public disclosure responses. Public endpoints must compose the evidence owner's
 capture policy before encoding them; that integration remains separately owned.
-The checkpoint result writer validates the original typed terminal before
-marshaling, rejecting invalid UTF-8 rather than admitting normalized text.
+The checkpoint result writer validates the original nested submission, including
+its reservation, decision and terminal, before marshaling. Invalid UTF-8 is
+rejected rather than normalized into apparently valid text.
+
+Submission and both recovery adapters avoid HTML escaping of admitted request
+JSON. Literal `<`, `>` and `&` in captured inputs do not expand solely because
+the adapter wraps the request; original request-size bounds still apply.
 
 ## Migration and validation limits
 

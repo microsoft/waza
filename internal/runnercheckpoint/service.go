@@ -159,7 +159,7 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 			return result, fmt.Errorf("%w: finalized-unit must reuse its exact original source, not execute a distinct unit", ErrPolicy)
 		}
 		request.Policy = &runnerunit.SubmissionPolicy{Mode: "reuse", Source: &source}
-		wire, err := json.Marshal(request)
+		wire, err := encodeSubmissionRequest(request)
 		if err != nil {
 			result.fail("submission_encoding_failed")
 			return result, err
@@ -202,16 +202,27 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 	}
 }
 
+func encodeSubmissionRequest(request *runnerunit.SubmissionRequest) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(request); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
+}
+
 func (s *Service) submit(ctx context.Context, request *runnerunit.SubmissionRequest,
 	backend artifactmanifest.Backend, hooks Hooks, result Result,
 	checkSource func(context.Context, *executionledger.Ledger) error,
 ) (Result, error) {
 	original := bytes.Clone(request.Request)
-	wire, err := json.Marshal(request)
+	wire, err := encodeSubmissionRequest(request)
 	if err != nil {
 		result.fail("submission_encoding_failed")
 		return result, err
 	}
+
 	var owner *executionledger.Ledger
 	var creator executionledger.Creator
 	submissionHooks := hooks.Submission

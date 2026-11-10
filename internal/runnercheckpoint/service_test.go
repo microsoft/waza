@@ -15,9 +15,74 @@ import (
 	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 )
+
+func TestLargeUnescapedRequestSurvivesSubmitAndBothRecoveryBoundaries(t *testing.T) {
+	wrapper, err := runnerunit.ParseSubmission(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := runnercontract.Parse(wrapper.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalTask := request.Input.Task
+	request.Input.Task = strings.Replace(originalTask, "prompt: hello", "prompt: "+strings.Repeat("<>&", 270000), 1)
+	if request.Input.Task == originalTask {
+		t.Fatal("large HTML-character control did not change actual prompt")
+	}
+	encode := func(value any) []byte {
+		t.Helper()
+		var buffer bytes.Buffer
+		encoder := json.NewEncoder(&buffer)
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(value); err != nil {
+			t.Fatal(err)
+		}
+		return bytes.TrimSpace(buffer.Bytes())
+	}
+	wrapper.Request = encode(request)
+	wire := encode(wrapper)
+	inflated, err := json.Marshal(wrapper)
+	if err != nil || len(wire) >= runnerunit.MaxSubmissionBytes || len(inflated) <= runnerunit.MaxSubmissionBytes {
+		t.Fatalf("fixture did not straddle only adapter escaping limit: raw=%d escaped=%d %v", len(wire), len(inflated), err)
+	}
+	if _, err := runnerunit.ParseSubmission(wire); err != nil {
+		t.Fatalf("original wire is not admitted: %v", err)
+	}
+	store := backend(t)
+	factories := 0
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		factories++
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	completed, err := service.Submit(t.Context(), wire, store, Hooks{})
+	if err != nil || completed.Submission == nil || completed.Submission.Completion == nil ||
+		completed.BeforeDigest == "" || completed.FinalizedDigest == "" || factories != 1 {
+		t.Fatalf("accepted prompt failed in checkpoint adapter: %+v %v", completed, err)
+	}
+	reused, err := service.Resume(t.Context(), wire, store, completed.FinalizedDigest, Hooks{})
+	if err != nil || reused.Status != "reused" || reused.Submission.EngineCalls != 0 || factories != 1 ||
+		reused.Submission.Reservation.ExecutionID != completed.Submission.Reservation.ExecutionID {
+		t.Fatalf("large finalized checkpoint was not reused unchanged: %+v %v", reused, err)
+	}
+	paused, err := service.Submit(t.Context(), wire, store, Hooks{
+		Published: func(context.Context, Reference) error { return errors.New("stop before dispatch") },
+	})
+	if err == nil || paused.BeforeDigest == "" || factories != 1 {
+		t.Fatalf("before-unit fixture did not stop before engine: %+v %v", paused, err)
+	}
+	child, err := service.Resume(t.Context(), wire, store, paused.BeforeDigest, Hooks{})
+	if err != nil || child.Submission.Completion == nil || child.Submission.EngineCalls != 1 || factories != 2 ||
+		child.Submission.Reservation.ExecutionID == paused.Submission.Reservation.ExecutionID ||
+		child.Submission.Reservation.Parent == nil ||
+		child.Submission.Reservation.Parent.ExecutionID != paused.Submission.Reservation.ExecutionID {
+		t.Fatalf("large before-unit checkpoint failed fresh-child recovery: %+v %v", child, err)
+	}
+}
 
 func fixture(t *testing.T) []byte {
 	t.Helper()

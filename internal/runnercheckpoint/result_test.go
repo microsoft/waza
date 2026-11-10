@@ -9,9 +9,38 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnerterminal"
 )
+
+func TestResultRejectsOriginalInvalidReservationUTF8(t *testing.T) {
+	result, err := adapter(t, nil).Submit(t.Context(), fixture(t), backend(t), Hooks{
+		Published: func(context.Context, Reference) error { return errors.New("stop with reservation") },
+	})
+	if err == nil || result.Submission == nil || result.Submission.Reservation == nil ||
+		result.Submission.Decision != nil || result.Submission.Terminal != nil {
+		t.Fatalf("fixture did not produce actual reservation-only result: %+v %v", result, err)
+	}
+	result.Submission.Reservation.Binding.Selection.Task = "\uFFFD"
+	if _, err := EncodeResult(result); err != nil {
+		t.Fatalf("valid replacement-character reservation rejected: %v", err)
+	}
+	result.Submission.Reservation.Binding.Selection.Task = string([]byte{0xff})
+	if _, err := executionattempt.EncodeAttempt(*result.Submission.Reservation); err == nil {
+		t.Fatal("invalid original reservation control was not selected")
+	}
+	normalized, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseResult(normalized); err != nil {
+		t.Fatalf("fixture did not demonstrate original reservation normalization: %v", err)
+	}
+	if raw, err := EncodeResult(result); raw != nil || err == nil {
+		t.Fatalf("checkpoint wrapper normalized invalid original reservation: %s %v", raw, err)
+	}
+}
 
 func TestResultRejectsOriginalInvalidTerminalUTF8(t *testing.T) {
 	service := adapter(t, nil)
