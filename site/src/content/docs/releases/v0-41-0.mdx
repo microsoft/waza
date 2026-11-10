@@ -30,7 +30,40 @@ of this main commit. A direct tree comparison and patch-equivalence review are
 required, not just a local tag sort or a truncated shallow log.
 There are 31 main-side commits outside the published baseline's ancestry; one
 is the already-shipped JavaScript-grader patch, not a new feature.
-Later source work is not silently included.
+Later source work is recorded separately below rather than silently included in
+that initial comparison.
+
+### Subsequent merged source
+
+The verified merged-source frontier now includes
+`ccea36772e22c04504ac198b72c84f873c3710b5`. This is a preparation snapshot,
+not the final release candidate or publication evidence.
+
+- Three demonstrated v0.40.1 contracts are restored: strict token-budget
+  process exits, lifecycle-hook input rendering and cache identity, and
+  relative adversarial artifact directories
+  ([#953](https://github.com/microsoft/waza/pull/953)). Production controls
+  compare the published source, unchanged main and restored behavior; this
+  does not assert blanket parity for every historical hotfix.
+- Workspace staging reuses prepared resource directories, and model-attribution
+  event handling reduces repeated allocations
+  ([#861](https://github.com/microsoft/waza/pull/861),
+  [#863](https://github.com/microsoft/waza/pull/863)). These changes do not
+  establish release-wide performance targets or complete root-staging follow-up
+  [#950](https://github.com/microsoft/waza/issues/950).
+- Release-fixture cleanup fails explicitly if termination fails while still
+  restoring fixture assets
+  ([#955](https://github.com/microsoft/waza/pull/955)). Native hidden-checker
+  execution remains separate evidence, not implied by this correction.
+- Dashboard ESLint is updated to `10.14.0`
+  ([#922](https://github.com/microsoft/waza/pull/922)).
+- Opt-in immutable artifact manifests add content-addressed publication,
+  conditional Local/Azure finalization, verified completed-byte reads,
+  CLI/API inspection and a production-backed Lab view
+  ([#930](https://github.com/microsoft/waza/pull/930)). Content verification is
+  not execution attestation, and unknown publication state is not completion.
+  This foundation does not complete separately owned attempt, checkpoint,
+  lifecycle, evidence or aggregation work.
 
 ### Answer native questions without inventing user intent
 
@@ -144,7 +177,7 @@ cross-repository consumer acceptance.
   [#932](https://github.com/microsoft/waza/pull/932)).
   This does not publish v0.41.0.
 
-## Reconcile the published hotfix baseline before release
+## Preserve the published hotfix baseline
 
 The [v0.40.1 article](../v0-40-1/) already covers selected-task coverage, strict
 token-budget exits, grouping, hooks, saved-run identities, artifact paths,
@@ -154,9 +187,11 @@ changes. The JavaScript grader fix has a patch-equivalent main commit
 The other seven hotfix commits are outside the initial main ancestry. Direct
 tree comparison identifies differences in strict token exit handling, hook
 templating, and relative adversarial artifact paths, among other baseline
-surfaces. **This draft does not claim that main preserves all v0.40.1 fixes.**
-Source owners must reconcile the full hotfix set and obtain production-caller
-regressions before a release candidate is admitted.
+surfaces. The three demonstrated contract regressions were subsequently
+restored in merged #953 with production-caller regressions and native
+Linux/Windows validation. **This draft does not claim that main preserves all
+v0.40.1 fixes.** The final candidate must retain those regressions and the
+remaining baseline reconciliation.
 Existing Unreleased changelog entries are preserved verbatim; their presence
 alone is not proof of inclusion since the published baseline.
 Unmerged work, predicted performance, native-platform results, and runtime
@@ -171,12 +206,14 @@ completion are separate stages.
 
 - Reconcile the merged inventory after the remaining release-scope PRs land,
   refresh the immutable comparison and changelog, settle the final scope, and
-  explicitly resolve the divergent v0.40.1 hotfix baseline above.
-- Resolve the separate cleanup-summary and real native Windows evidence for
+  retain the restored contracts and resolve the remaining divergent v0.40.1
+  hotfix baseline above.
+- Retain the merged cleanup-summary correction and resolve real native Windows evidence for
   [#899](https://github.com/microsoft/waza/issues/899), the recovery ownership
   and platform block for [#768](https://github.com/microsoft/waza/issues/768)
-  and [#766](https://github.com/microsoft/waza/issues/766), and the foundation,
-  assets, and gates tracked by [#930](https://github.com/microsoft/waza/pull/930).
+  and [#766](https://github.com/microsoft/waza/issues/766). Preserve the merged
+  manifest foundation and its source-bound asset/API coverage from
+  [#930](https://github.com/microsoft/waza/pull/930).
 - Complete the independently owned
   [#764](https://github.com/microsoft/waza/issues/764),
   [#765](https://github.com/microsoft/waza/issues/765), and

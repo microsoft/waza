@@ -48,6 +48,11 @@ completion requirement (#902).
 
 ### Added
 
+- **Immutable artifact manifests** - Add opt-in content-addressed publication,
+  conditional Local/Azure finalization, verified completed-byte reads and
+  CLI/API/Lab inspection (#930). Unknown is not completion; integrity
+  verification is not execution attestation or the separately owned
+  attempt/checkpoint/lifecycle/aggregation feature set.
 - **Native question callbacks** - Opt-in native SDK questions use scripted task
   answers and the adaptive responder, recording actual question requests in
   result schema `1.9`; unexpected questions fail instead of receiving a default
@@ -55,6 +60,12 @@ completion requirement (#902).
 
 ### Changed
 
+- **Subsequent merged preparation scope** - Through source
+  `ccea36772e22c04504ac198b72c84f873c3710b5`, reuse staged resource directories
+  and reduce model-attribution event allocations (#861, #863), and update
+  dashboard ESLint to `10.14.0` (#922). These additions are separate from the
+  initial bounded inventory above; no release-wide performance target or final
+  publication is claimed.
 - **Local dashboard projections** - Cache run-list and summary projections per
   successfully loaded local snapshot, retaining defensive copies and refresh
   behavior ([#858](https://github.com/microsoft/waza/pull/858)).
@@ -106,6 +117,13 @@ completion requirement (#902).
 
 ### Fixed
 
+- **Restored published contracts** - Restore the three demonstrated v0.40.1
+  regressions in strict token-budget exits, lifecycle-hook inputs/cache identity,
+  and relative adversarial artifact directories (#953). This is not a blanket
+  assertion of parity for every historical hotfix.
+- **Release fixture cleanup** - Fail explicitly on termination failure while
+  continuing fixture-asset restoration (#955); native hidden-checker execution
+  remains a separate evidence requirement.
 - **Reusable evaluation workflows** - Replace removed Python CLI invocations
   with pinned standalone Go CLI installation and validate complete saved results
   before accepting evaluation outcomes
