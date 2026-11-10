@@ -199,8 +199,12 @@ they are not production CLI/clean-build, live-inference, native Windows, or Lab
 evidence. The root test process skips two Unix permission-denial cases; those
 same compiled cases are separately executed under a non-root identity.
 
-The additional Linux production-process fixture builds the ordinary owning CLI
-from an isolated clean checkout of committed build inputs. A Linux syscall tracer
+The additional Linux production-process fixture discovers the current native
+build inputs with `go list`, including modified/new source and ignored embedded
+assets, verifies their copied bytes, and commits only that snapshot in a private
+test-owned repository. The caller's checkout need not be clean. One ordinary CLI
+build carries the genuine fixture-local revision and is reused across recovery
+controls. A Linux syscall tracer
 stops the unchanged binary when the actual immutable boundary blob becomes visible,
 kills and reaps it, and joins its output-copy goroutines before starting a fresh
 CLI. It does not use a bounded diagnostic write or a wall-clock pause as a barrier.
