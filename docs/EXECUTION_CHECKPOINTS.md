@@ -157,6 +157,9 @@ public disclosure responses. `SubmitCaptured` and `ResumeCaptured` compose the
 evidence owner's shared `ownedsubmission.CaptureHooks` before projection and
 encoding. An incompatible resume can return a source before submission hooks run;
 the wrapper withholds that unapproved source rather than encoding the raw result.
+Capture-denied finalized reuse returns a protected submission error (HTTP 500,
+exit 2) without new engine calls. The HTTP regression checks withheld source and
+terminal data and unchanged original artifact, manifest, sidecar and checkpoint bytes.
 The checkpoint result writer validates the original nested submission, including
 its reservation, decision and terminal, before marshaling. Invalid UTF-8 is
 rejected rather than normalized into apparently valid text. Original
