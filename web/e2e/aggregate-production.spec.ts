@@ -35,7 +35,9 @@ test.describe("Configured production aggregate CLI, server and embedded Lab", ()
     expect(inputs).toHaveLength(1);
     const saved = join(directory, "saved-cli.json");
     const cli = spawnSync(binary, ["aggregate", "--store", join(fixture, "results", ".waza-artifacts"),
-      "--inputs", join(fixture, "inputs.json"), "-o", saved], { cwd: directory, env, timeout: 15_000 });
+      "--inputs", join(fixture, "inputs.json"), "-o", saved], {
+      cwd: directory, env: { ...env, WAZA_NO_UPDATE_CHECK: "" }, timeout: 15_000,
+    });
     expect(cli.error).toBeUndefined();
     expect(cli.status, cli.stderr.toString()).toBe(0);
     expect(await readFile(saved)).toEqual(canonical);
