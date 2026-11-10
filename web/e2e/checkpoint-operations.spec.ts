@@ -116,12 +116,14 @@ test.describe("Protected checkpoint operations in Lab", () => {
     { name: "noncanonical original time", fixture: "reused", mutate: (value: CheckpointOperationResult) => { value.source!.created_at = "2026-11-07T16:00:00.000Z"; } },
     { name: "same digest at different boundaries", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.finalized_checkpoint_sha256 = value.before_checkpoint_sha256; } },
     { name: "mismatched caller identity", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.submission!.caller!.canonical_digest = "0".repeat(64); } },
+    { name: "contradictory original exit", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.exit_code = 1; value.submission!.exit_code = 1; } },
+    { name: "contradictory new call count", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.submission!.engine_calls = 0; } },
   ] as const) {
     test(`rejects ${control.name} without rendering or exporting success`, async ({ page }) => {
       const fixture = fixtures[control.fixture];
       const value = parsed(fixture);
       control.mutate(value);
-      await prepare(page, fixture, JSON.stringify(value));
+      await prepare(page, fixture, JSON.stringify(value), fixture.http_status, String(value.exit_code));
       await run(page, fixture);
       await expect(panel(page).getByRole("alert")).toBeVisible();
       await expect(result(page)).toHaveCount(0);

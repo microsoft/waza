@@ -111,6 +111,11 @@ export function parseCheckpointOperationResult(text: string): CheckpointOperatio
   }
   const binding = submission?.reservation?.binding;
   const terminal = submission?.terminal;
+  if (terminal && submission &&
+      ((submission.status !== "submission_error" && submission.exit_code !== terminal.exit_code) ||
+       (submission.status !== "reused" && submission.engine_calls !== terminal.engine_calls))) {
+    throw new Error("Checkpoint submission contradicts its original terminal outcome or call count.");
+  }
   if (terminal && (!binding || !sameSelection(terminal.selection, binding.selection) ||
       !sameRunnerIdentity(terminal.identity, binding.identity))) {
     throw new Error("Checkpoint terminal contradicts its original reservation.");
