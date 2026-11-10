@@ -1,0 +1,321 @@
+package webapi
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executioncheckpoint"
+	"github.com/microsoft/waza/internal/executionledger"
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/projectconfig"
+	"github.com/microsoft/waza/internal/runnercheckpoint"
+	"github.com/microsoft/waza/internal/runnerunit"
+	"github.com/stretchr/testify/require"
+)
+
+func TestCheckpointConfiguredBackendSharesManifestStore(t *testing.T) {
+	for _, control := range []struct {
+		name   string
+		config *projectconfig.StorageConfig
+		deny   bool
+	}{
+		{"default-local", nil, false},
+		{"enabled-local", &projectconfig.StorageConfig{Enabled: true, Provider: "local"}, false},
+		{"disabled-foreign", &projectconfig.StorageConfig{Provider: "unsupported"}, false},
+		{"enabled-foreign", &projectconfig.StorageConfig{Enabled: true, Provider: "unsupported"}, true},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			directory := t.TempDir()
+			original := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(directory, ".waza-artifacts"), 0o700))
+			t.Chdir(original)
+			backend, closeBackend, err := checkpointBackendFor(directory, control.config)()
+			if control.deny {
+				require.Error(t, err)
+				require.Nil(t, backend)
+				require.Nil(t, closeBackend)
+				return
+			}
+			require.NoError(t, err)
+			data := []byte("configured-checkpoint-store-control")
+			digest := artifactmanifest.Hash(data)
+			created, err := backend.Create(t.Context(), "blob-"+digest, data)
+			require.NoError(t, err)
+			require.True(t, created)
+			require.NoError(t, closeBackend())
+			physical, err := os.ReadFile(filepath.Join(directory, ".waza-artifacts", "blob-"+digest))
+			require.NoError(t, err)
+			require.Equal(t, data, physical)
+			require.NoDirExists(t, filepath.Join(original, ".waza-artifacts"))
+		})
+	}
+}
+
+func checkpointOperationWire(t *testing.T) []byte {
+	t.Helper()
+	raw, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	wire, err := json.Marshal(runnerunit.SubmissionRequest{
+		Kind: "waza.execution-submission", SchemaVersion: "1.0", Request: raw,
+	})
+	require.NoError(t, err)
+	return wire
+}
+
+func postCheckpointOperation(t *testing.T, server *httptest.Server, path string, wire []byte, status int) runnercheckpoint.Result {
+	t.Helper()
+	response, err := server.Client().Post(server.URL+path, "application/json", bytes.NewReader(wire))
+	require.NoError(t, err)
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, status, response.StatusCode, "%s", body)
+	require.Equal(t, 1, bytes.Count(body, []byte{'\n'}))
+	result, err := runnercheckpoint.ParseResult(body)
+	require.NoError(t, err, "%s", body)
+	require.Equal(t, strconv.Itoa(result.ExitCode), response.Header.Get("X-Waza-Exit-Code"))
+	return *result
+}
+
+func TestCheckpointOperationActualHTTPProducerAndFailedRestore(t *testing.T) {
+	directory := t.TempDir()
+	var factories atomic.Int32
+	var revision atomic.Pointer[string]
+	initialRevision, changedRevision := strings.Repeat("c", 40), strings.Repeat("d", 40)
+	revision.Store(&initialRevision)
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		factories.Add(1)
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			return artifactmanifest.OpenBackend(directory, "")
+		},
+		runner: service, revision: func() (string, error) { return *revision.Load(), nil },
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wire := checkpointOperationWire(t)
+	metadata := "http-retained-checkpoint-metadata-control"
+	changed := bytes.Replace(wire, []byte("id: selected"), []byte("id: "+metadata), 1)
+	require.NotEqual(t, wire, changed)
+	wire = changed
+	changed = bytes.Replace(wire, []byte(`"task":"selected"`), []byte(`"task":"`+metadata+`"`), 1)
+	require.NotEqual(t, wire, changed)
+	wire = changed
+	created := postCheckpointOperation(t, server, "/api/v1/checkpoints", wire, http.StatusOK)
+	require.NotNil(t, created.Submission.Completion)
+	require.Equal(t, int32(1), factories.Load())
+	require.Empty(t, created.Submission.Report)
+	original, err := json.Marshal(created.Submission.Terminal)
+	require.NoError(t, err)
+	destination := bytes.Replace(wire, []byte(`"attempt":2`), []byte(`"attempt":3`), 1)
+	require.NotEqual(t, wire, destination)
+	restored := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+created.FinalizedDigest+"/resume", destination, http.StatusOK)
+	require.Equal(t, "reused", restored.Status)
+	require.Zero(t, restored.Submission.EngineCalls)
+	require.Equal(t, int32(1), factories.Load())
+	require.Equal(t, 2, restored.Submission.Terminal.Selection.Attempt)
+	terminal, err := json.Marshal(restored.Submission.Terminal)
+	require.NoError(t, err)
+	require.Equal(t, original, terminal)
+	stale := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+created.BeforeDigest+"/resume", wire, http.StatusConflict)
+	require.True(t, stale.SourceWithheld)
+	require.Nil(t, stale.Source)
+	require.Nil(t, stale.RestoredUnits)
+	revision.Store(&changedRevision)
+	incompatible := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+created.FinalizedDigest+"/resume", wire, http.StatusConflict)
+	require.Equal(t, "incompatible", incompatible.CompatibilityResult)
+	require.Equal(t, []string{"runner_revision"}, incompatible.CompatibilityDifferences)
+	require.True(t, incompatible.SourceWithheld)
+	require.Nil(t, incompatible.Source)
+	encoded, err := json.Marshal(incompatible)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), metadata)
+	require.Equal(t, int32(1), factories.Load())
+}
+
+func TestCheckpointOperationHTTPDeniedReuseWithholdsSourceAndPreservesOriginal(t *testing.T) {
+	directory := t.TempDir()
+	var factories atomic.Int32
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		factories.Add(1)
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	revision := strings.Repeat("c", 40)
+	backend, closeBackend, err := artifactmanifest.OpenBackend(directory, "")
+	require.NoError(t, err)
+	legacy, err := runnercheckpoint.NewService(service, revision)
+	require.NoError(t, err)
+	const private = "original-http-private-terminal-control"
+	input := checkpointOperationWire(t)
+	wire := bytes.Replace(input, []byte("- hello"), []byte("- "+private), 1)
+	require.NotEqual(t, input, wire)
+	for _, replacement := range [][2]string{
+		{"id: selected", "id: " + private},
+		{`"task":"selected"`, `"task":"` + private + `"`},
+	} {
+		changed := bytes.Replace(wire, []byte(replacement[0]), []byte(replacement[1]), 1)
+		require.NotEqual(t, wire, changed)
+		wire = changed
+	}
+	original, err := legacy.Submit(t.Context(), wire, backend, runnercheckpoint.Hooks{})
+	require.NoError(t, err)
+	require.NotEmpty(t, original.FinalizedDigest)
+	require.NotEmpty(t, original.Submission.Terminal.Diagnostics)
+	require.NotEqual(t, "[REDACTED]", original.Submission.Terminal.Diagnostics[0].Message)
+	owner, err := executionledger.New(backend)
+	require.NoError(t, err)
+	source := executionattempt.Source{
+		ExecutionID: original.Submission.Reservation.ExecutionID, ManifestDigest: original.Submission.Completion.ManifestDigest,
+	}
+	before, err := owner.ReadCompleted(t.Context(), source)
+	require.NoError(t, err)
+	var names []string
+	for _, artifact := range before.Publication.Manifest.Artifacts {
+		names = append(names, artifact.Name)
+	}
+	require.NotEmpty(t, names)
+	before, err = owner.ReadCompleted(t.Context(), source, names...)
+	require.NoError(t, err)
+	require.Len(t, before.Publication.ArtifactBytes, len(names))
+	require.Contains(t, string(before.Publication.ArtifactBytes["terminal.json"]), private)
+	checkpointBefore, err := backend.Get(t.Context(), "blob-"+original.FinalizedDigest, executioncheckpoint.MaxBytes)
+	require.NoError(t, err)
+	require.NoError(t, closeBackend())
+
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			return artifactmanifest.OpenBackend(directory, "")
+		},
+		runner: service, revision: func() (string, error) { return revision, nil },
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	denied := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+original.FinalizedDigest+"/resume", wire, http.StatusInternalServerError)
+	require.Equal(t, "submission_error", denied.Status)
+	require.Equal(t, 2, denied.ExitCode)
+	require.True(t, denied.SourceWithheld)
+	require.Nil(t, denied.Source)
+	require.Nil(t, denied.RestoredUnits)
+	require.Nil(t, denied.RemainingWork)
+	require.NotNil(t, denied.Submission)
+	require.Zero(t, denied.Submission.EngineCalls)
+	require.Empty(t, denied.Submission.Report)
+	require.Nil(t, denied.Submission.Terminal)
+	require.Nil(t, denied.Submission.Completion)
+	require.Nil(t, denied.Submission.Reservation)
+	public, err := json.Marshal(denied)
+	require.NoError(t, err)
+	require.NotContains(t, string(public), private)
+	require.Equal(t, int32(1), factories.Load())
+
+	backend, closeBackend, err = artifactmanifest.OpenBackend(directory, "")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, closeBackend()) }()
+	owner, err = executionledger.New(backend)
+	require.NoError(t, err)
+	after, err := owner.ReadCompleted(t.Context(), source, names...)
+	require.NoError(t, err)
+	require.Equal(t, before.Publication.ArtifactBytes, after.Publication.ArtifactBytes)
+	require.Equal(t, before.Publication.ManifestBytes, after.Publication.ManifestBytes)
+	require.Equal(t, before.Reservation.Bytes, after.Reservation.Bytes)
+	require.Equal(t, before.CompletionBytes, after.CompletionBytes)
+	checkpointAfter, err := backend.Get(t.Context(), "blob-"+original.FinalizedDigest, executioncheckpoint.MaxBytes)
+	require.NoError(t, err)
+	require.Equal(t, checkpointBefore, checkpointAfter)
+}
+
+func TestCheckpointOperationHTTPAdmissionPrecedesBuildStorageAndExecution(t *testing.T) {
+	var opens, revisions, factories atomic.Int32
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			opens.Add(1)
+			return nil, nil, errors.New("private-provider-control")
+		},
+		runner: runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+			factories.Add(1)
+			return nil, errors.New("must not construct")
+		}),
+		revision: func() (string, error) {
+			revisions.Add(1)
+			return "", errors.New("private-build-control")
+		},
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	postCheckpointOperation(t, server, "/api/v1/checkpoints", []byte("{}"), http.StatusBadRequest)
+	postCheckpointOperation(t, server, "/api/v1/checkpoints/"+strings.Repeat("A", 64)+"/resume",
+		checkpointOperationWire(t), http.StatusBadRequest)
+	postCheckpointOperation(t, server, "/api/v1/checkpoints",
+		bytes.Repeat([]byte(" "), runnerunit.MaxSubmissionBytes+1), http.StatusRequestEntityTooLarge)
+	require.Zero(t, revisions.Load())
+	result := postCheckpointOperation(t, server, "/api/v1/checkpoints", checkpointOperationWire(t), http.StatusServiceUnavailable)
+	require.Equal(t, "checkpoint_build_incompatible", result.Diagnostics[0].Code)
+	require.Equal(t, int32(1), revisions.Load())
+	require.Zero(t, opens.Load())
+	require.Zero(t, factories.Load())
+}
+
+func TestCheckpointOperationHTTPTrustDenialPrecedesInputAndStorage(t *testing.T) {
+	var opens, revisions atomic.Int32
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			opens.Add(1)
+			return nil, nil, errors.New("must not open")
+		},
+		runner: runnerunit.NewService(nil),
+		revision: func() (string, error) {
+			revisions.Add(1)
+			return strings.Repeat("c", 40), nil
+		},
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	for _, control := range []string{"foreign-host", "foreign-origin", "cross-site"} {
+		t.Run(control, func(t *testing.T) {
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/v1/checkpoints",
+				bytes.NewReader(checkpointOperationWire(t)))
+			require.NoError(t, err)
+			request.Header.Set("Content-Type", "application/json")
+			switch control {
+			case "foreign-host":
+				request.Host = "example.invalid"
+			case "foreign-origin":
+				request.Header.Set("Origin", "https://example.invalid")
+			case "cross-site":
+				request.Header.Set("Sec-Fetch-Site", "cross-site")
+			}
+			response, err := server.Client().Do(request)
+			require.NoError(t, err)
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			require.Equal(t, http.StatusForbidden, response.StatusCode, "%s", body)
+			result, err := runnercheckpoint.ParseResult(body)
+			require.NoError(t, err)
+			require.Equal(t, "operation_http_denied", result.Diagnostics[0].Code)
+			require.Nil(t, result.Submission)
+			require.Equal(t, "6", response.Header.Get("X-Waza-Exit-Code"))
+		})
+	}
+	require.Zero(t, opens.Load())
+	require.Zero(t, revisions.Load())
+}

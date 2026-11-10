@@ -53,7 +53,7 @@ See the independently versioned
 [submission schema](../../schemas/execution-submission-1.0.schema.json), and
 [submission-result schema](../../schemas/execution-submission-result-1.0.schema.json).
 
-### Checkpoint embedding preview
+### Checkpoint public source preview
 
 The source-only checkpoint service supports two whole-unit safe boundaries:
 `before-unit` (fresh retry child, after the original worker has stopped) and
@@ -77,11 +77,69 @@ does **not** mean it can be resumed: before-unit recovery still rejects truncate
 discovery. Mutex waits and blocked providers are not made cancellable by the gate.
 
 No in-flight process, SDK session, partial grader or workspace is restored.
-Protected public commands, Lab controls and clean-production-CLI kill/resume
-evidence remain pending. The
+The source CLI exposes capture-approved checkpoint creation and resume; it is
+not in installed v0.40.1 artifacts. Protected HTTP create/resume operations are
+registered, while Lab integration and production process/platform acceptance
+remain pending. The
 [checkpoint schema](../../schemas/execution-checkpoint-1.0.schema.json) and
 [checkpoint-result schema](../../schemas/runner-checkpoint-result-1.0.schema.json)
 are independently versioned `1.0`; ordinary runner and legacy results are unchanged.
+
+Build the owning CLI from a clean Git tree with VCS stamping enabled. A dirty,
+unstamped, foreign, or unavailable build revision is rejected before store access;
+there is no user-supplied revision override. From the repository root, wrap the
+existing exact-unit example without changing its request:
+
+```bash
+mkdir -m700 .waza-artifacts
+jq -n --slurpfile request examples/runner/unit.json \
+  '{kind:"waza.execution-submission",schema_version:"1.0",request:$request[0]}' \
+  > submission.json
+waza runner checkpoint create --store .waza-artifacts \
+  < submission.json > checkpoint-result.json
+jq '{status,exit_code,before_checkpoint_sha256,finalized_checkpoint_sha256}' \
+  checkpoint-result.json
+```
+
+Stdout is one protected result; boundary/digest progress goes to stderr. Preserve
+the result even on a nonzero exit. To restore the exact finalized source:
+
+```bash
+DIGEST="$(jq -er '.finalized_checkpoint_sha256' checkpoint-result.json)"
+waza runner checkpoint resume "$DIGEST" --store .waza-artifacts \
+  < submission.json > restored-result.json
+jq '{status,exit_code,restored_units,remaining_work,submission}' restored-result.json
+```
+
+A valid finalized restore reports `reused`, `restored_units: 1`,
+`remaining_work: 0`, and zero new submission engine calls. The original terminal
+ordinal and outcome remain unchanged, including failed checks or cancellation.
+Unavailable progress is `null`, never an invented zero.
+
+The dashboard server accepts the same submission at
+`POST /api/v1/checkpoints` and
+`POST /api/v1/checkpoints/{digest}/resume`. Responses use the same protected
+result with `X-Waza-Exit-Code`. Operations require a loopback peer and literal
+loopback Host, same-origin browser metadata, and `application/json`.
+The existing results directory selects `.waza-artifacts`, unless the server has
+an active supported Azure storage configuration. Request JSON cannot choose
+host paths or credentials. Unsupported active providers fail closed; no raw
+checkpoint GET endpoint is available.
+
+For an interrupted **before-unit** source, first stop and join the original
+worker, then pass its original `before_checkpoint_sha256` to the same resume
+command. Resume creates a distinct retry child only when complete discovery
+establishes that no original dispatch or completion exists. A previously
+dispatched source is refused, not replayed. Do not select the before reference
+from an ordinarily completed execution: it is already stale.
+
+| Result | Operator action |
+|---|---|
+| Incompatible build or configuration | Preserve the checkpoint and use its compatible original binary and captured configuration; do not override the revision. |
+| Corrupt, missing, or unverified source | Preserve records and inspect the configured store; do not repair bytes in place. |
+| Stale before-unit source or incomplete discovery | Investigate the original execution. Missing completion does not authorize replay. |
+| `source_withheld: true` | Original-source capture admission did not succeed; no source metadata or terminal was approved for disclosure. |
+| Publication, output, or close failure | Preserve original and partial references. Do not infer completion or receipt from a digest. |
 
 ## Prepare a declaration
 

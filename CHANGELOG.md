@@ -23,8 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before-unit/finalized-unit checkpoints and compatibility-checked restore atop
   the attempt core. Finalized restore reuses the original terminal; before-unit
   restore rejects a recorded dispatch even without completion, preventing
-  uncertain execution from silently rerunning. Public CLI/API/Lab and full
-  production-CLI/platform acceptance remain pending. See
+  uncertain execution from silently rerunning. Source commands `runner checkpoint
+  create` and `runner checkpoint resume` emit capture-approved results; API/Lab
+  integration and full production-CLI/platform acceptance remain pending. See
   [checkpoint contracts and migration limits](docs/EXECUTION_CHECKPOINTS.md).
 
 - **Logical execution-attempt embedding API (unreleased partial #764)** - Recover
