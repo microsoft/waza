@@ -2,14 +2,17 @@ package orchestration
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -28,10 +31,18 @@ func TestRunHookHelperProcess(t *testing.T) {
 		_, err = f.WriteString(args[2] + "\n")
 		require.NoError(t, err)
 		require.NoError(t, f.Close())
+	case "append-marker":
+		f, err := os.OpenFile(args[1], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		require.NoError(t, err)
+		_, err = f.WriteString(args[2] + ":" + args[3] + "\n")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
 	case "copy":
 		data, err := os.ReadFile(args[1])
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(args[2], data, 0o600))
+	case "write-arg":
+		require.NoError(t, os.WriteFile(args[1], []byte(args[2]), 0o600))
 	case "copy-pass":
 		log, err := os.ReadFile(args[4])
 		if !os.IsNotExist(err) {
@@ -78,6 +89,13 @@ func hookCommand(t *testing.T, action string, args ...string) string {
 	return strings.Join(parts, " ")
 }
 
+func hookMarkerCommand(t *testing.T, output, phase, expression string) string {
+	t.Helper()
+	const placeholder = "HOOK_TEMPLATE_EXPRESSION"
+	command := hookCommand(t, "append-marker", output, phase, placeholder)
+	return strings.Replace(command, placeholder, expression, 1)
+}
+
 // writeHookSuite writes an eval whose before_run hook generates the only task
 // file from a staged copy outside the task glob. The hooks log to log.txt.
 func writeHookSuite(t *testing.T, mcpMocks, task string) (*EvalRunner, *admissionEngine, string) {
@@ -120,6 +138,203 @@ func requireHookLog(t *testing.T, log string) {
 	data, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, "before_run\nafter_run\n", strings.ReplaceAll(string(data), "\r\n", "\n"), "setup and teardown each run exactly once")
+}
+
+func TestRunBenchmark_RendersEvalInputsInLifecycleHooks(t *testing.T) {
+	contracts := []struct {
+		name          string
+		schemaVersion string
+		identity      string
+	}{
+		{name: "scenario", schemaVersion: models.ScenarioSchemaVersion, identity: "scenario: synthetic-reply"},
+		{name: "legacy", schemaVersion: "1.4", identity: "skill: echo-dogfood"},
+	}
+	markers := []struct {
+		name       string
+		key        string
+		value      string
+		expression string
+		missing    bool
+		wantErr    string
+	}{
+		{name: "plain", key: "marker", value: "DOGFOOD_VARIABLE", expression: "{{.Vars.marker}}"},
+		{name: "whitespace", key: "marker", value: "DOGFOOD VARIABLE", expression: "{{.Vars.marker}}"},
+		{name: "empty", key: "marker", value: "", expression: "{{.Vars.marker}}"},
+		{name: "spaced-action", key: "marker", value: "DOGFOOD_VARIABLE", expression: "{{ .Vars.marker }}"},
+		{name: "indexed-hyphen", key: "deployment-env", value: "DOGFOOD_VARIABLE", expression: `{{index .Vars "deployment-env"}}`},
+		{name: "indexed-empty", key: "deployment-env", value: "", expression: `{{index .Vars "deployment-env"}}`},
+		{name: "indexed-missing", expression: `{{index .Vars "deployment-env"}}`, missing: true, wantErr: `map has no entry for key "deployment-env"`},
+		{name: "missing", expression: "{{.Vars.marker}}", missing: true, wantErr: `map has no entry for key "marker"`},
+		{name: "invalid-template", expression: "{{.Vars.marker", missing: true, wantErr: "template: parse:"},
+		{name: "zero", key: "marker", value: "0", expression: "{{.Vars.marker}}"},
+		{name: "false", key: "marker", value: "false", expression: "{{.Vars.marker}}"},
+		{name: "quoted-closing-delimiter", key: "marker", value: "DOGFOOD_VARIABLE", expression: `{{printf "{{%s}}" .Vars.marker}}`},
+	}
+	for _, contract := range contracts {
+		for _, marker := range markers {
+			t.Run(contract.name+"/"+marker.name, func(t *testing.T) {
+				dir := t.TempDir()
+				output := filepath.Join(dir, "marker.txt")
+				inputs := "{}"
+				if !marker.missing {
+					inputs = fmt.Sprintf("{%q: %q}", marker.key, marker.value)
+				}
+				eval := fmt.Sprintf(`schemaVersion: %q
+name: hook-variable-repro
+%s
+inputs: %s
+config:
+  executor: mock
+  model: offline
+  trials_per_task: 1
+  timeout_seconds: 5
+tasks: [task.yaml]
+graders: []
+hooks:
+  before_run:
+    - command: '%s'
+      error_on_fail: true
+  before_task:
+    - command: '%s'
+      error_on_fail: true
+  after_task:
+    - command: '%s'
+      error_on_fail: true
+  after_run:
+    - command: '%s'
+      error_on_fail: true
+`, contract.schemaVersion, contract.identity, inputs,
+					hookMarkerCommand(t, output, "before_run", marker.expression),
+					hookMarkerCommand(t, output, "before_task", marker.expression),
+					hookMarkerCommand(t, output, "after_task", marker.expression),
+					hookMarkerCommand(t, output, "after_run", marker.expression))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte(eval), 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`id: smoke
+name: Smoke
+inputs:
+  prompt: Reply with a synthetic marker.
+`), 0o600))
+
+				spec, err := models.LoadEvalSpec(filepath.Join(dir, "eval.yaml"))
+				require.NoError(t, err)
+				runner := NewEvalRunner(
+					config.NewEvalConfig(spec, config.WithSpecDir(dir)),
+					execution.NewMockEngine("offline"),
+					WithSkipGraders(),
+				)
+				outcome, err := runner.RunBenchmark(t.Context())
+				if marker.wantErr != "" {
+					require.ErrorContains(t, err, marker.wantErr)
+					require.Nil(t, outcome)
+					require.NoFileExists(t, output)
+					return
+				}
+				require.NoError(t, err)
+				require.Len(t, outcome.TestOutcomes, 1)
+
+				got, err := os.ReadFile(output)
+				require.NoError(t, err)
+				wantValue := marker.value
+				if marker.name == "quoted-closing-delimiter" {
+					wantValue = "{{" + marker.value + "}}"
+				}
+				require.Equal(t, []byte(
+					"before_run:"+wantValue+"\n"+
+						"before_task:"+wantValue+"\n"+
+						"after_task:"+wantValue+"\n"+
+						"after_run:"+wantValue+"\n",
+				), got)
+			})
+		}
+	}
+}
+
+func TestRunBenchmark_RejectsRenderedEmptyHookCommand(t *testing.T) {
+	for _, command := range []string{"", " \t "} {
+		t.Run(fmt.Sprintf("%q", command), func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"),
+				[]byte("id: empty-command\nname: Empty command\ninputs:\n  prompt: Reply offline.\n"), 0o600))
+			spec := &models.EvalSpec{
+				SpecIdentity: models.SpecIdentity{Name: "empty-hook-command"},
+				SkillName:    "example",
+				Config:       models.Config{EngineType: "mock", ModelID: "offline", TrialsPerTask: 1, TimeoutSec: 5},
+				Tasks:        []string{"task.yaml"},
+				Inputs:       map[string]string{"command": command},
+				Hooks: hooks.HooksConfig{
+					BeforeRun: []hooks.HookConfig{{Command: "{{.Vars.command}}", ErrorOnFail: false}},
+				},
+			}
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)),
+				execution.NewMockEngine("offline"), WithSkipGraders())
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.ErrorContains(t, err, "rendered command is empty")
+			require.Nil(t, outcome)
+		})
+	}
+}
+
+type hookCacheEngine struct {
+	execution.AgentEngine
+	calls int
+}
+
+func (e *hookCacheEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.calls++
+	return e.AgentEngine.Execute(ctx, req)
+}
+
+func TestRunBenchmark_HookContextInvalidatesCachedExecution(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "marker.txt")
+	taskPath := filepath.Join(dir, "task.yaml")
+	require.NoError(t, os.WriteFile(taskPath, []byte("id: cache-task\nname: Cache task\ninputs:\n  prompt: Reply offline.\n"), 0o600))
+	spec := &models.EvalSpec{
+		SchemaVersion: "1.4",
+		SpecIdentity:  models.SpecIdentity{Name: "hook-cache"},
+		SkillName:     "example",
+		Config: models.Config{
+			EngineType: "mock", ModelID: "offline", TrialsPerTask: 1, TimeoutSec: 5,
+		},
+		Tasks:  []string{"task.yaml"},
+		Inputs: map[string]string{"marker": "first"},
+		Hooks: hooks.HooksConfig{
+			BeforeTask: []hooks.HookConfig{{Command: hookMarkerCommand(t, output, "before_task", "{{.Vars.marker}}"), ErrorOnFail: true}},
+		},
+	}
+	resultCache := cache.New(filepath.Join(dir, "cache"))
+	run := func(wantCached bool, wantCalls int) {
+		t.Helper()
+		engine := &hookCacheEngine{AgentEngine: execution.NewMockEngine("offline")}
+		runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)),
+			engine, WithCache(resultCache))
+		outcome, err := runner.RunBenchmark(t.Context())
+		require.NoError(t, err)
+		require.Len(t, outcome.TestOutcomes, 1)
+		task := outcome.TestOutcomes[0]
+		require.Equal(t, "cache-task", task.TestID)
+		require.Equal(t, models.StatusPassed, task.Status)
+		require.Equal(t, wantCached, task.Cached)
+		require.Equal(t, wantCalls, engine.calls)
+		require.Len(t, task.Runs, 1)
+		require.Empty(t, task.Runs[0].ErrorMsg)
+		require.Contains(t, task.Runs[0].FinalOutput, "Mock response for:")
+	}
+	run(false, 1)
+	run(true, 0)
+	spec.Inputs["marker"] = "second"
+	run(false, 1)
+	spec.Hooks.BeforeTask[0].Command = hookMarkerCommand(t, output, "changed", "{{.Vars.marker}}")
+	run(false, 1)
+	run(true, 0)
+	got, err := os.ReadFile(output)
+	require.NoError(t, err)
+	require.Equal(t, "before_task:first\nbefore_task:first\nbefore_task:second\nchanged:second\nchanged:second\n", string(got))
+
+	spec.Hooks = hooks.HooksConfig{}
+	run(false, 1)
+	spec.Inputs["marker"] = "irrelevant-without-hooks"
+	run(true, 0)
 }
 
 const hookHostMock = `mcp_mocks:
