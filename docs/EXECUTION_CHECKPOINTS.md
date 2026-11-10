@@ -154,6 +154,9 @@ work separately from the retained-reservation and provider-validation phases;
 phase timings are diagnostics, not execution or recovery evidence. Publication
 budgets are unchanged. A timeout remains a publication failure: preserve the
 original completion and any reported unverified blob rather than retrying.
+The CLI sends underlying operation errors to bounded operator stderr while
+keeping the public JSON diagnostic sanitized. Conflicting store flags also use
+the single-record JSON rejection path.
 
 ## Migration and validation limits
 
@@ -171,8 +174,10 @@ evidence. The root test process skips two Unix permission-denial cases; those
 same compiled cases are separately executed under a non-root identity.
 
 The additional Linux production-process fixture builds the ordinary owning CLI
-from an isolated clean checkout of committed build inputs. It uses actual blocked
-boundary-progress writes to kill and join the process, then starts a fresh CLI.
+from an isolated clean checkout of committed build inputs. A Linux syscall tracer
+stops the unchanged binary when the actual immutable boundary blob becomes visible,
+kills and reaps it, and joins its output-copy goroutines before starting a fresh
+CLI. It does not use a bounded diagnostic write or a wall-clock pause as a barrier.
 Before restore creates a fresh retry child; finalized success and failed-check
 restore preserve original terminal bytes with zero new calls. A separate actual
 service producer leaves a dispatch without completion; the compiled consumer

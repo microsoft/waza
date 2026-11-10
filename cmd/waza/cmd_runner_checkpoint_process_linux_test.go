@@ -6,11 +6,10 @@ import (
 	"debug/buildinfo"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -195,45 +194,62 @@ func buildCheckpointRecoveryCLI(t *testing.T) string {
 
 func killCheckpointProcessAtBoundary(t *testing.T, binary, directory string, wire []byte, boundary string) (string, *executioncheckpoint.Checkpoint) {
 	t.Helper()
-	reader, writer, err := os.Pipe()
-	require.NoError(t, err)
-	defer reader.Close() //nolint:errcheck
-	defer writer.Close() //nolint:errcheck
-	capacity, err := unix.FcntlInt(writer.Fd(), unix.F_SETPIPE_SZ, 4096)
-	require.NoError(t, err)
-	require.NoError(t, unix.SetNonblock(int(writer.Fd()), false))
-	beforeLine := fmt.Sprintf("checkpoint %s %s\n", executioncheckpoint.BeforeUnit, strings.Repeat("0", 64))
-	padding := capacity
-	if boundary == executioncheckpoint.FinalizedUnit {
-		padding -= len(beforeLine)
-	}
-	require.Positive(t, padding)
-	prefix := bytes.Repeat([]byte("X"), padding)
-	n, err := writer.Write(prefix)
-	require.NoError(t, err)
-	require.Equal(t, padding, n)
+	// Trace the unchanged binary's syscalls, not its bounded diagnostic writer.
+	// The publishing thread cannot return from the immutable link syscall until
+	// this tracer resumes it, so no wall-clock diagnostic timeout is a barrier.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	child := exec.CommandContext(ctx, binary, "runner", "checkpoint", "create", "--store", directory)
-	child.Stdin, child.Stderr = bytes.NewReader(wire), writer
-	var output bytes.Buffer
-	child.Stdout = &output
+	child.SysProcAttr = &syscall.SysProcAttr{Ptrace: true, Setpgid: true}
+	child.Stdin = bytes.NewReader(wire)
+	var output, diagnostic bytes.Buffer
+	child.Stdout, child.Stderr = &output, &diagnostic
 	require.NoError(t, child.Start())
+	reap := func() (syscall.WaitStatus, error) {
+		var final syscall.WaitStatus
+		for {
+			var status syscall.WaitStatus
+			pid, err := syscall.Wait4(-child.Process.Pid, &status, unix.WALL, nil)
+			if errors.Is(err, syscall.ECHILD) {
+				return final, nil
+			}
+			if err != nil {
+				return final, err
+			}
+			if pid == child.Process.Pid && (status.Exited() || status.Signaled()) {
+				final = status
+			}
+		}
+	}
 	joined := false
 	defer func() {
 		if !joined {
 			_ = child.Process.Kill()
+			_, _ = reap()
 			_ = child.Wait()
 		}
 	}()
-	require.NoError(t, writer.Close())
+	var initial syscall.WaitStatus
+	_, err := syscall.Wait4(child.Process.Pid, &initial, 0, nil)
+	require.NoError(t, err)
+	require.True(t, initial.Stopped())
+	require.NoError(t, syscall.PtraceSetOptions(child.Process.Pid, unix.PTRACE_O_TRACESYSGOOD|unix.PTRACE_O_TRACECLONE))
+	require.NoError(t, syscall.PtraceSyscall(child.Process.Pid, 0))
 	var digest string
 	var source *executioncheckpoint.Checkpoint
-	require.NoError(t, waitRecoveryCondition(ctx, func() bool {
-		entries, err := os.ReadDir(directory)
-		if err != nil {
-			return false
+	for source == nil {
+		var status syscall.WaitStatus
+		tid, err := syscall.Wait4(-child.Process.Pid, &status, unix.WALL, nil)
+		require.NoError(t, err)
+		require.NoError(t, ctx.Err())
+		if !status.Stopped() {
+			require.NotEqual(t, child.Process.Pid, tid, "CLI exited before the requested boundary")
+			continue
 		}
+		entries, err := os.ReadDir(directory)
+		require.NoError(t, err)
 		for _, entry := range entries {
 			if !strings.HasPrefix(entry.Name(), "blob-") {
 				continue
@@ -247,40 +263,28 @@ func killCheckpointProcessAtBoundary(t *testing.T, binary, directory string, wir
 				digest, source = artifactmanifest.Hash(data), checkpoint
 			}
 		}
-		if source == nil {
-			return false
+		if source != nil {
+			break
 		}
-		tasks := filepath.Join("/proc", strconv.Itoa(child.Process.Pid), "task")
-		threads, err := os.ReadDir(tasks)
-		if err != nil {
-			return false
+		signal := int(status.StopSignal())
+		if signal == int(syscall.SIGTRAP) || signal == int(syscall.SIGTRAP)|0x80 || signal == int(syscall.SIGSTOP) {
+			signal = 0
 		}
-		for _, thread := range threads {
-			wchan, err := os.ReadFile(filepath.Join(tasks, thread.Name(), "wchan"))
-			if err == nil && strings.HasSuffix(strings.TrimSpace(string(wchan)), "pipe_write") {
-				return true
-			}
-		}
-		return false
-	}), "must observe actual Published stderr write blocked at the requested immutable boundary")
+		require.NoError(t, syscall.PtraceSyscall(tid, signal))
+	}
 	require.NoError(t, child.Process.Kill())
-	waitErr := child.Wait()
+	status, err := reap()
+	require.NoError(t, err)
+	waitErr := child.Wait() // Wait4 reaped the process; Wait still joins owned output-copy goroutines.
 	joined = true
-	var exit *exec.ExitError
-	require.ErrorAs(t, waitErr, &exit)
-	status, ok := exit.Sys().(syscall.WaitStatus)
-	require.True(t, ok)
+	require.ErrorIs(t, waitErr, syscall.ECHILD)
 	require.Equal(t, syscall.SIGKILL, status.Signal())
 	require.Empty(t, output.Bytes(), "killed operation must not have delivered a terminal record")
-	progress, err := io.ReadAll(reader)
-	require.NoError(t, err)
-	require.True(t, bytes.HasPrefix(progress, prefix))
-	progress = progress[padding:]
 	if boundary == executioncheckpoint.BeforeUnit {
-		require.Empty(t, progress)
+		require.Empty(t, diagnostic.Bytes())
 	} else {
 		checkpointDigest := checkpointDigestAtBoundary(t, directory, executioncheckpoint.BeforeUnit)
-		require.Equal(t, fmt.Sprintf("checkpoint %s %s\n", executioncheckpoint.BeforeUnit, checkpointDigest), string(progress))
+		require.Equal(t, fmt.Sprintf("checkpoint %s %s\n", executioncheckpoint.BeforeUnit, checkpointDigest), diagnostic.String())
 	}
 	return digest, source
 }

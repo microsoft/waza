@@ -104,7 +104,7 @@ func TestCheckpointPublicCLIOriginalOutcomeAndStaleResume(t *testing.T) {
 }
 
 func TestCheckpointPublicCLIRejectsBeforeProvider(t *testing.T) {
-	for _, control := range []string{"invalid-input", "over-limit", "missing-revision", "arguments", "invalid-digest", "output-marker-input"} {
+	for _, control := range []string{"invalid-input", "over-limit", "missing-revision", "arguments", "invalid-digest", "output-marker-input", "conflicting-store-flags"} {
 		t.Run(control, func(t *testing.T) {
 			wire := checkpointCLIWire(t)
 			revisions, factories := 0, 0
@@ -130,7 +130,10 @@ func TestCheckpointPublicCLIRejectsBeforeProvider(t *testing.T) {
 				args = append(args, "extra")
 			case "invalid-digest":
 				args = []string{"resume", strings.Repeat("A", 64)}
+			case "conflicting-store-flags":
+				args = append(args, "--azure-container-url", "https://fixture.invalid/container")
 			}
+
 			directory := t.TempDir() + "/must-not-open"
 			result, _ := runCheckpointCLI(t, service, revision, directory, wire, args...)
 			require.Equal(t, "rejected", result.Status)
@@ -146,4 +149,18 @@ func TestCheckpointPublicCLIRejectsBeforeProvider(t *testing.T) {
 			require.True(t, os.IsNotExist(err))
 		})
 	}
+}
+
+func TestCheckpointPublicCLIRetainsPrivateOperationCauseOnlyInDiagnostics(t *testing.T) {
+	digest := strings.Repeat("e", 64)
+	result, diagnostic := runCheckpointCLI(t, runnerunit.NewService(nil),
+		func() (string, error) { return strings.Repeat("c", 40), nil },
+		t.TempDir(), checkpointCLIWire(t), "resume", digest)
+	require.Equal(t, "rejected", result.Status)
+	require.Equal(t, 6, result.ExitCode)
+	require.Contains(t, diagnostic, "checkpoint operation:")
+	require.Contains(t, diagnostic, "reading checkpoint blob "+digest+": missing immutable object")
+	data, err := runnercheckpoint.EncodeResult(result)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), digest)
 }

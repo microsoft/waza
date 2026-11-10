@@ -27,7 +27,6 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 	}
 	cmd.PersistentFlags().StringVar(&directory, "store", ".waza-artifacts", "Existing private local immutable store directory")
 	cmd.PersistentFlags().StringVar(&azureURL, "azure-container-url", "", "Explicit HTTPS Azure container URL using existing credentials")
-	cmd.MarkFlagsMutuallyExclusive("store", "azure-container-url")
 	emit := func(cmd *cobra.Command, result runnercheckpoint.Result) error {
 		data, err := runnercheckpoint.EncodeResult(result)
 		if err != nil {
@@ -40,6 +39,9 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 			Use: action, Short: "Read one captured submission from stdin; emit one protected checkpoint result",
 			SilenceErrors: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
+				if cmd.Flags().Changed("store") && cmd.Flags().Changed("azure-container-url") {
+					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_flags_conflict"))
+				}
 				if (action == "create" && len(args) != 0) || (action == "resume" && len(args) != 1) {
 					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_arguments_invalid"))
 				}
@@ -82,7 +84,11 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 				if closeErr := closeBackend(); closeErr != nil {
 					return &ExitCodeError{Code: 2, Err: errors.Join(err, fmt.Errorf("closing checkpoint store: %w", closeErr))}
 				}
-				return emit(cmd, result)
+				var diagnosticErr error
+				if err != nil {
+					_, diagnosticErr = fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint operation: %v\n", err)
+				}
+				return errors.Join(emit(cmd, result), diagnosticErr)
 			},
 		}
 		if action == "resume" {
