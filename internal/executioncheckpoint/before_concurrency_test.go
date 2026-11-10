@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
-	"github.com/microsoft/waza/internal/executionledger"
 )
 
 func TestBeforePublicationSerializesConcurrentCreatorMutations(t *testing.T) {
