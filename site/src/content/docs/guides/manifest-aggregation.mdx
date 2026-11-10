@@ -66,6 +66,11 @@ estimate or new SDK billing is invented. Explicit recorded zero remains zero;
 missing credits/model attribution remain unavailable. Per-view source labels
 distinguish mock/authored/cached/unknown records from observed live evidence.
 
+If the full serialized report would exceed 32 MiB because of recorded usage,
+`recorded_usage_report_size_unavailable` withholds the entire historical total.
+Membership, diagnostics and the unique execution count remain available; the
+smaller records do not become an unlabeled subset total. Nothing is truncated.
+
 ## Lab and JSON downloads
 
 Open `waza dashboard --lab` with the configured results directory containing its

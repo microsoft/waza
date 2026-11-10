@@ -249,6 +249,24 @@ func Build(ctx context.Context, sources Sources, inputs []Input, limits Limits) 
 	}
 	slices.Sort(report.Usage.Diagnostics)
 	report.Usage.Diagnostics = slices.Compact(report.Usage.Diagnostics)
+	for {
+		wire, err := json.Marshal(report)
+		if err != nil {
+			return report, fmt.Errorf("%w: measuring aggregate report: %w", ErrInvalid, err)
+		}
+		if len(wire) <= MaxReportBytes {
+			break
+		}
+		if report.Usage.Recorded == nil {
+			failures = append(failures, fmt.Errorf("%w: evaluated membership without recorded usage exceeds %d bytes",
+				ErrInvalid, MaxReportBytes))
+			break
+		}
+		report.Usage.State, report.Usage.Recorded = "unavailable", nil
+		report.Usage.Diagnostics = append(report.Usage.Diagnostics, "recorded_usage_report_size_unavailable")
+		slices.Sort(report.Usage.Diagnostics)
+		report.Usage.Diagnostics = slices.Compact(report.Usage.Diagnostics)
+	}
 	if report.State == "conflicting" {
 		failures = append(failures, ErrConflicting)
 	} else if report.State != "complete" {

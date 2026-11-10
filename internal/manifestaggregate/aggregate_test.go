@@ -42,8 +42,8 @@ func publish(t *testing.T, backend *artifactmanifest.Local, change func(*runneru
 
 func TestActualRepeatedExecutionsAndCompatibleViewsAreDeterministic(t *testing.T) {
 	backend, sources, _ := setup(t)
-	first := publish(t, backend, manifestfixture.RecordedZero)
-	second := publish(t, backend, manifestfixture.RecordedZero)
+	first := publish(t, backend, manifestfixture.RecordedNonzero(1))
+	second := publish(t, backend, manifestfixture.RecordedNonzero(2))
 	require.NotEqual(t, first, second, "fresh owners must actually reserve distinct executions")
 	inspection, err := evidencestate.Inspect(t.Context(), backend, first.Evidence)
 	require.NoError(t, err)
@@ -63,7 +63,15 @@ func TestActualRepeatedExecutionsAndCompatibleViewsAreDeterministic(t *testing.T
 	require.Equal(t, "complete", report.Usage.State)
 	require.NotNil(t, report.Usage.Recorded)
 	require.NotNil(t, report.Usage.Recorded.AICredits)
-	require.Zero(t, *report.Usage.Recorded.AICredits)
+	credits := 3.75
+	require.Equal(t, &models.UsageStats{
+		Turns: 3, InputTokens: 33, OutputTokens: 21, CacheReadTokens: 9, CacheWriteTokens: 6,
+		PremiumRequests: 1.5, AICredits: &credits,
+		ModelMetrics: map[string]models.ModelUsage{"fixture-model": {
+			InputTokens: 33, OutputTokens: 21, CacheReadTokens: 9, CacheWriteTokens: 6,
+			RequestCount: 6, RequestCost: .75, AICredits: &credits,
+		}},
+	}, report.Usage.Recorded)
 	require.Equal(t, 2, report.Usage.Executions)
 	wire, err := Encode(*report)
 	require.NoError(t, err)

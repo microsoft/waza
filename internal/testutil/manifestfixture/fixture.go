@@ -81,3 +81,20 @@ func RecordedZero(report *runnerunit.Report) {
 		AICredits: &zero, ModelMetrics: map[string]models.ModelUsage{"fixture-model": {AICredits: &zero}},
 	}
 }
+
+// RecordedNonzero supplies distinct authored counters, not observed SDK billing.
+func RecordedNonzero(factor int) func(*runnerunit.Report) {
+	return func(report *runnerunit.Report) {
+		credits := 1.25 * float64(factor)
+		report.Observation.Usage = &models.UsageStats{
+			Turns: factor, InputTokens: 11 * factor, OutputTokens: 7 * factor,
+			CacheReadTokens: 3 * factor, CacheWriteTokens: 2 * factor,
+			PremiumRequests: .5 * float64(factor), AICredits: &credits,
+			ModelMetrics: map[string]models.ModelUsage{"fixture-model": {
+				InputTokens: 11 * factor, OutputTokens: 7 * factor,
+				CacheReadTokens: 3 * factor, CacheWriteTokens: 2 * factor,
+				RequestCount: 2 * float64(factor), RequestCost: .25 * float64(factor), AICredits: &credits,
+			}},
+		}
+	}
+}

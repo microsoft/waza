@@ -137,6 +137,14 @@ retain their existing IEEE-754 arithmetic; no exact-decimal or derived billing
 claim is added. An empty eligible population and unknown identity/usage remain
 unavailable/null, never an available zero or an unlabeled subset total.
 
+The full serialized Go-escaped UTF-8 report is measured after accounting. If
+recorded usage would push it above 32 MiB, the entire total is withheld with
+`recorded_usage_report_size_unavailable`; all members, diagnostics and the unique
+execution denominator remain unchanged. No model/provider strings are truncated
+and no smaller execution subset becomes the total. If membership without usage
+cannot fit, aggregation returns an explicit size-limit error rather than dropping
+members. Native source limits and the report cap are unchanged.
+
 `Build` returns report plus classified error for evaluated per-input failures.
 `Parse` validates saved wire/accounting only; it is not current source inspection.
 Canonical report bytes and any future storage/publication receipts must remain
