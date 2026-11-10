@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
@@ -48,6 +49,11 @@ func ParseSubmissionResult(data []byte) (*Submission, error) {
 }
 
 func EncodeSubmissionResult(result Submission) ([]byte, error) {
+	for _, diagnostic := range result.Diagnostics {
+		if !utf8.ValidString(diagnostic.Code) || !utf8.ValidString(diagnostic.Message) {
+			return nil, fmt.Errorf("submission result diagnostic is not UTF-8")
+		}
+	}
 	if result.Reservation != nil {
 		if _, err := executionattempt.EncodeAttempt(*result.Reservation); err != nil {
 			return nil, err

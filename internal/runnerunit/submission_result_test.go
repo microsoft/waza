@@ -13,6 +13,28 @@ import (
 	"github.com/microsoft/waza/internal/runnerterminal"
 )
 
+func TestSubmissionResultRejectsOriginalInvalidDiagnosticUTF8(t *testing.T) {
+	result, err := NewService(nil).Submit(t.Context(), []byte("{}"), submissionBackend(t), SubmissionHooks{})
+	if err == nil || result.Status != "rejected" || len(result.Diagnostics) != 1 {
+		t.Fatalf("fixture did not produce actual rejected submission: %+v %v", result, err)
+	}
+	result.Diagnostics[0].Message = "\uFFFD"
+	if _, err := EncodeSubmissionResult(result); err != nil {
+		t.Fatalf("valid replacement-character diagnostic rejected: %v", err)
+	}
+	result.Diagnostics[0].Message = string([]byte{0xff})
+	normalized, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseSubmissionResult(normalized); err != nil {
+		t.Fatalf("fixture did not demonstrate original diagnostic normalization: %v", err)
+	}
+	if raw, err := EncodeSubmissionResult(result); raw != nil || err == nil {
+		t.Fatalf("writer normalized invalid original submission diagnostic: %s %v", raw, err)
+	}
+}
+
 func TestSubmissionResultBindsCallerBeforeDecision(t *testing.T) {
 	result, err := NewService(nil).Submit(t.Context(), submissionWire(t, fixture(t), nil), submissionBackend(t), SubmissionHooks{
 		Reserved: func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error {
