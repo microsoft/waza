@@ -48,6 +48,16 @@ func ParseSubmissionResult(data []byte) (*Submission, error) {
 }
 
 func EncodeSubmissionResult(result Submission) ([]byte, error) {
+	if result.Reservation != nil {
+		if _, err := executionattempt.EncodeAttempt(*result.Reservation); err != nil {
+			return nil, err
+		}
+	}
+	if result.Decision != nil {
+		if _, err := executionattempt.EncodeDecision(*result.Decision); err != nil {
+			return nil, err
+		}
+	}
 	if result.Terminal != nil {
 		var binding *runnerterminal.Binding
 		if result.Reservation != nil {
@@ -77,6 +87,9 @@ func validateSubmissionResult(result Submission) error {
 		}
 		if result.Caller.Run != result.Reservation.Logical.Run || result.Caller.Trial != result.Reservation.Logical.Work {
 			return fmt.Errorf("submission caller and original reservation have different logical work")
+		}
+		if result.Decision == nil && *result.Caller != result.Reservation.Binding.Identity {
+			return fmt.Errorf("submission caller contradicts original reservation before decision")
 		}
 	}
 	if result.Decision != nil {

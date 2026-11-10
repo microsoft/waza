@@ -4,12 +4,158 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runnercontract"
 )
+
+func BenchmarkSubmitReportCapture(b *testing.B) {
+	raw, err := os.ReadFile("../../examples/runner/unit.json")
+	if err != nil {
+		b.Fatal(err)
+	}
+	request, err := runnercontract.Parse(raw)
+	if err != nil {
+		b.Fatal(err)
+	}
+	request.Input.Task = strings.Replace(request.Input.Task, "hello", strings.Repeat("hello", 32<<10), 1)
+	raw, err = json.Marshal(request)
+	if err != nil {
+		b.Fatal(err)
+	}
+	wire, err := json.Marshal(SubmissionRequest{Kind: "waza.execution-submission", SchemaVersion: "1.0", Request: raw})
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, capture := range []bool{false, true} {
+		name := "terminal-only"
+		if capture {
+			name = "detached-report"
+		}
+		b.Run(name, func(b *testing.B) {
+			backend, err := artifactmanifest.OpenLocal(b.TempDir())
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.Cleanup(func() {
+				if err := backend.Close(); err != nil {
+					b.Error(err)
+				}
+			})
+			hooks := SubmissionHooks{}
+			if capture {
+				hooks.Artifacts = func(_ context.Context, _ *executionledger.Ledger, _ executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+					if len(snapshot.Report) < 160<<10 || snapshot.ObservedReport.Observation == nil {
+						b.Fatal("benchmark did not capture the actual large report")
+					}
+					return nil, nil
+				}
+			}
+			if _, err := NewService(nil).Submit(b.Context(), wire, backend, hooks); err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				result, err := NewService(nil).Submit(b.Context(), wire, backend, hooks)
+				if err != nil || result.Status != "completed" || result.EngineCalls != 1 || len(result.Report) != 0 {
+					b.Fatalf("actual submission failed or disclosed raw report: %+v %v", result, err)
+				}
+			}
+		})
+	}
+}
+
+func TestHistoricalSourceRequiresOriginalSelectionAndAdmission(t *testing.T) {
+	for _, control := range []string{"requested-task", "requested-attempt", "missing-requested", "invalid-validation", "incompatible", "adjacent-work", "valid-alternate-ordinal"} {
+		t.Run(control, func(t *testing.T) {
+			backend := submissionBackend(t)
+			request := fixture(t)
+			var report Report
+			original, err := NewService(nil).Submit(t.Context(), submissionWire(t, request, nil), backend, SubmissionHooks{
+				Artifacts: func(_ context.Context, _ *executionledger.Ledger, _ executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+					report = snapshot.ObservedReport
+					return nil, nil
+				},
+			})
+			if err != nil || report.Requested == nil || report.Validation != "valid" ||
+				report.Compatibility.Status != "compatible" || report.AdjacentWork {
+				t.Fatalf("actual source admission control failed: %+v %v", report, err)
+			}
+			base, err := reportBytes(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch control {
+			case "requested-task":
+				report.Requested.Task = "other-task"
+			case "requested-attempt":
+				report.Requested.Attempt++
+			case "missing-requested":
+				report.Requested = nil
+			case "invalid-validation":
+				report.Validation = "invalid"
+			case "incompatible":
+				report.Compatibility.Status = "unsupported_version"
+			case "adjacent-work":
+				report.AdjacentWork = true
+			}
+			raw, err := reportBytes(report)
+			if err != nil || (control != "valid-alternate-ordinal" && bytes.Equal(raw, base)) {
+				t.Fatal("historical mutation did not change actual report")
+			}
+			source := publishSubmissionReport(t, backend, original, raw)
+			records, err := artifactmanifest.NewNamespace(backend, artifactmanifest.ExecutionLedgerNamespaceV1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, truncated, err := records.ListUnverified(t.Context())
+			if err != nil || truncated {
+				t.Fatalf("decision inventory control failed: %v %v", truncated, err)
+			}
+			request.Selection.Attempt++
+			reused, reuseErr := NewService(nil).Submit(t.Context(), submissionWire(t, request, &SubmissionPolicy{Mode: "reuse", Source: &source}), backend, SubmissionHooks{})
+			if control == "valid-alternate-ordinal" {
+				if reuseErr != nil || reused.Status != "reused" || reused.EngineCalls != 0 ||
+					reused.Terminal.Selection.Attempt == request.Selection.Attempt {
+					t.Fatalf("valid historical source lost original ordinal: %+v %v", reused, reuseErr)
+				}
+			} else {
+				if reuseErr == nil || reused.Decision != nil || reused.Status != "submission_error" ||
+					len(reused.Diagnostics) != 1 || reused.Diagnostics[0].Code != "source_report_invalid" {
+					t.Errorf("invalid historical admission became actionable reuse: %+v %v", reused, reuseErr)
+				}
+				after, truncated, err := records.ListUnverified(t.Context())
+				if err != nil || truncated || len(after) != len(before) {
+					t.Errorf("invalid source appended a reuse decision: before=%d after=%d %v", len(before), len(after), err)
+				}
+			}
+			receipt, err := NewService(nil).Submit(t.Context(), submissionWire(t, fixture(t), nil), backend, SubmissionHooks{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt.Report = raw
+			encoded, err := json.Marshal(receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := ParseSubmissionResult(encoded)
+			if control == "valid-alternate-ordinal" {
+				if err != nil {
+					t.Fatalf("valid historical receipt rejected: %v", err)
+				}
+			} else if parsed != nil || err == nil {
+				t.Errorf("receipt decoder accepted invalid historical admission: %+v %v", parsed, err)
+			}
+		})
+	}
+}
 
 func TestHistoricalSourceAndSnapshotPreserveLargeObservationNumbers(t *testing.T) {
 	backend := submissionBackend(t)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,6 +12,98 @@ import (
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/runnerterminal"
 )
+
+func TestSubmissionResultBindsCallerBeforeDecision(t *testing.T) {
+	result, err := NewService(nil).Submit(t.Context(), submissionWire(t, fixture(t), nil), submissionBackend(t), SubmissionHooks{
+		Reserved: func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error {
+			return errors.New("stop before distinct decision")
+		},
+	})
+	if err == nil || result.Reservation == nil || result.Decision != nil || result.Terminal != nil {
+		t.Fatalf("fixture did not stop after reservation: %+v %v", result, err)
+	}
+	base, err := EncodeSubmissionResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"shard", "task", "attempt", "canonical_digest"} {
+		t.Run(field, func(t *testing.T) {
+			mutated, err := ParseSubmissionResult(base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch field {
+			case "shard":
+				mutated.Caller.Shard = "shard-" + strings.Repeat("0", 64)
+			case "task":
+				mutated.Caller.Task = "task-" + strings.Repeat("0", 64)
+			case "attempt":
+				mutated.Caller.Attempt = "attempt-" + strings.Repeat("0", 64)
+			case "canonical_digest":
+				mutated.Caller.CanonicalDigest = strings.Repeat("0", 64)
+			}
+			raw, err := json.Marshal(mutated)
+			if err != nil || bytes.Equal(raw, base) {
+				t.Fatal("partial caller control did not change actual receipt")
+			}
+			if parsed, err := ParseSubmissionResult(raw); parsed != nil || err == nil {
+				t.Fatalf("partial receipt attributed original reservation to another caller: %+v %v", parsed, err)
+			}
+		})
+	}
+}
+
+func TestSubmissionResultRejectsOriginalInvalidSidecarUTF8(t *testing.T) {
+	for _, phase := range []string{"reservation", "decision"} {
+		t.Run(phase, func(t *testing.T) {
+			hooks := SubmissionHooks{
+				Reserved: func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error {
+					return errors.New("stop with reservation")
+				},
+			}
+			if phase == "decision" {
+				hooks.Reserved = nil
+				hooks.Terminal = func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation, runnerterminal.Envelope) error {
+					return errors.New("stop with decision")
+				}
+			}
+			result, err := NewService(nil).Submit(t.Context(), submissionWire(t, fixture(t), nil), submissionBackend(t), hooks)
+			if err == nil || result.Reservation == nil || (result.Decision != nil) != (phase == "decision") {
+				t.Fatalf("fixture did not retain intended sidecar phase: %+v %v", result, err)
+			}
+			result.Terminal = nil
+			setTask := func(task string) {
+				result.Reservation.Binding.Selection.Task = task
+				if result.Decision != nil {
+					result.Decision.Binding.Selection.Task = task
+				}
+			}
+			setTask("\uFFFD")
+			if _, err := EncodeSubmissionResult(result); err != nil {
+				t.Fatalf("valid replacement-character sidecar control rejected: %v", err)
+			}
+			setTask(string([]byte{0xff}))
+			if _, err := executionattempt.EncodeAttempt(*result.Reservation); err == nil {
+				t.Fatal("invalid original reservation control was not selected")
+			}
+			if result.Decision != nil {
+				if _, err := executionattempt.EncodeDecision(*result.Decision); err == nil {
+					t.Fatal("invalid original decision control was not selected")
+				}
+			}
+			normalized, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ParseSubmissionResult(normalized); err != nil {
+				t.Fatalf("fixture did not demonstrate sidecar normalization: %v", err)
+			}
+			if raw, err := EncodeSubmissionResult(result); raw != nil || err == nil {
+				t.Fatalf("wrapper repaired invalid original %s: %s %v", phase, raw, err)
+			}
+		})
+	}
+}
 
 func TestSubmissionResultRejectsOriginalInvalidTerminalUTF8(t *testing.T) {
 	request := fixture(t)
