@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 )
 
 const (
@@ -179,6 +181,9 @@ func (s *DiagnosticScope) prepare(expected *Cursor, payload json.RawMessage) (Pe
 	if s == nil || s.store == nil || s.store.backend == nil || s.store.admit == nil {
 		return Pending{}, ErrUnsupportedBackend
 	}
+	if len(payload) > MaxDiagnosticBytes {
+		return Pending{}, fmt.Errorf("%w: diagnostic payload exceeds %d bytes", ErrInvalid, MaxDiagnosticBytes)
+	}
 	revision := uint32(0)
 	if expected != nil {
 		revision = expected.Revision + 1
@@ -240,7 +245,9 @@ func (s *DiagnosticScope) Commit(ctx context.Context, pending Pending) (WriteRes
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	created, err := s.store.backend.createObject(ctx, pending.Key(), pending.Bytes())
+	// Replaying a lost Azure create response can incorrectly report occupancy.
+	createCtx := policy.WithRetryOptions(ctx, policy.RetryOptions{MaxRetries: -1})
+	created, err := s.store.backend.createObject(createCtx, pending.Key(), pending.Bytes())
 	if err != nil {
 		result.Outcome = DiagnosticUnknown
 		return result, fmt.Errorf("creating diagnostic slot: %w", err)

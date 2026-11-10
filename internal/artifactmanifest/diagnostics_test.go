@@ -8,10 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 )
 
 func diagnosticFixture(t *testing.T, provider string, admit AdmitDiagnostic) (*DiagnosticScope, Backend, *fakeAzure) {
@@ -350,6 +354,98 @@ func TestDiagnosticsAzureLostResponseAndOccupiedReadFailure(t *testing.T) {
 	if !errors.Is(err, ErrOccupied) || !errors.Is(err, lost) || result.Outcome != DiagnosticOccupied ||
 		result.Created != nil || result.ObservedNext != nil {
 		t.Fatalf("occupied read failure lost status/cause: %+v %v", result, err)
+	}
+}
+
+type diagnosticRetryTransport struct {
+	*fakeAzure
+	puts, gets  atomic.Int32
+	failGetOnce atomic.Bool
+	getError    error
+}
+
+func (d *diagnosticRetryTransport) Do(request *http.Request) (*http.Response, error) {
+	switch request.Method {
+	case http.MethodPut:
+		d.puts.Add(1)
+	case http.MethodGet:
+		d.gets.Add(1)
+		if d.failGetOnce.CompareAndSwap(true, false) {
+			return nil, d.getError
+		}
+	}
+	return d.fakeAzure.Do(request)
+}
+
+func TestDiagnosticsAzureDefaultRetriesPreserveUnknown(t *testing.T) {
+	lost := errors.New("default-retry Azure committed response lost")
+	transport := &diagnosticRetryTransport{
+		fakeAzure: &fakeAzure{objects: make(map[string][]byte), failCommittedPut: lost},
+		getError:  errors.New("transient read response lost"),
+	}
+	backend, err := NewAzure("https://offline.invalid/container", offlineCredential{}, &container.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Transport: transport},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewDiagnostics(backend, allowDiagnostic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := store.Scope(Scope{
+		ExecutionID: "exec-" + strings.Repeat("a", 64), ReservationDigest: strings.Repeat("b", 64),
+		InvocationID: "inv-" + strings.Repeat("c", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := prepareDiagnostic(t, scope, nil, `{"event":"requested"}`)
+	result, err := scope.Commit(t.Context(), pending)
+	if !errors.Is(err, lost) || result.Outcome != DiagnosticUnknown || transport.puts.Load() != 1 ||
+		result.Created != nil || result.ObservedNext != nil || !bytes.Equal(result.Pending.Bytes(), pending.Bytes()) {
+		t.Fatalf("diagnostic create was replayed/lost original failure: outcome=%s PUTs=%d err=%v",
+			result.Outcome, transport.puts.Load(), err)
+	}
+	transport.failGetOnce.Store(true)
+	observation, err := scope.Reconcile(t.Context(), result.Pending)
+	if err != nil || observation.Outcome != DiagnosticMatching || observation.Observed == nil ||
+		transport.gets.Load() != 2 || transport.puts.Load() != 1 ||
+		!bytes.Equal(observation.Observed.Bytes, pending.Bytes()) {
+		t.Fatalf("create override changed shared read retries or retried write: observation=%s GETs=%d PUTs=%d err=%v",
+			observation.Outcome, transport.gets.Load(), transport.puts.Load(), err)
+	}
+	result, err = scope.Commit(t.Context(), pending)
+	if !errors.Is(err, ErrOccupied) || result.Outcome != DiagnosticOccupied ||
+		result.ObservedNext == nil || result.Created != nil || transport.puts.Load() != 2 {
+		t.Fatalf("known occupied result changed: outcome=%s PUTs=%d err=%v", result.Outcome, transport.puts.Load(), err)
+	}
+}
+
+func TestDiagnosticsRejectOversizedBeforeCloning(t *testing.T) {
+	var admissions atomic.Int32
+	scope, _, _ := diagnosticFixture(t, "local", func(context.Context, Scope, json.RawMessage) error {
+		admissions.Add(1)
+		return nil
+	})
+	probe := &diagnosticProbe{objectBackend: scope.store.backend}
+	scope.store.backend = probe
+	start := prepareDiagnostic(t, scope, nil, `{}`)
+	payload := bytes.Repeat([]byte("a"), 16<<20)
+	copy(payload, `{"data":"`)
+	copy(payload[len(payload)-2:], `"}`)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	first, firstErr := scope.PrepareStart(payload)
+	next, nextErr := scope.PrepareAdvance(start.Target(), payload)
+	runtime.ReadMemStats(&after)
+	if !errors.Is(firstErr, ErrInvalid) || !errors.Is(nextErr, ErrInvalid) ||
+		first.state != nil || next.state != nil || admissions.Load() != 0 ||
+		probe.reads.Load() != 0 || probe.writes.Load() != 0 {
+		t.Fatalf("oversized input was not rejected by pure prepare: %v %v", firstErr, nextErr)
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated >= 1<<20 {
+		t.Fatalf("rejected 16 MiB payload allocated %d bytes before returning", allocated)
 	}
 }
 

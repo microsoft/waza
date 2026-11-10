@@ -294,6 +294,8 @@ and freeze an opaque `Pending` before any I/O. Payloads are unpadded JSON
 objects; their exact bytes and number tokens are preserved. Recursive original
 UTF-8, surrogate, duplicate-key, and syntax validation applies to preparation
 and every read/readback. The outer envelope has one deterministic encoding.
+Oversized payloads are rejected before copying; the full envelope is then
+checked separately against the same 1 MiB limit.
 Pending accessors and returned records expose detached bytes/cursors; a pending
 write is bound to the exact scoped instance that prepared it.
 
@@ -315,6 +317,9 @@ valid record matching the full scope, target revision, and expected previous
 cursor; foreign or malformed content retains the occupied error and adds a
 conflict/corruption cause. Ambiguous writes and failed/different created
 readbacks return `unknown`, retain `Pending`, and never grant creator attribution.
+Azure retries are disabled for the individual diagnostic create, so a committed
+PUT with a lost response cannot be replayed into misleading occupancy. Shared
+provider retry settings and read retries remain unchanged.
 
 `ReadRevision` is slot-only verification: it proves neither an intact chain nor
 the current lifecycle state. Read-only `Reconcile(ctx, pending)` returns
