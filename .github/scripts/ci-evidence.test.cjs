@@ -581,6 +581,74 @@ test("Actions production collector uses attempt endpoints, bounded pagination an
   assert.ok(capped.diagnostics.includes("jobs-pagination-incomplete"));
   assert.ok(!JSON.stringify(capped).includes("SECRET"));
 });
+test("production Actions step maximum saves a supported 1000-job, 200-step inventory", async (t) => {
+  const jobs = Array.from({ length: 1000 }, (_, index) => {
+    const item = job(index + 1, "01", "31");
+    item.steps = Array.from({ length: 200 }, (_, step) => ({
+      number: step + 1, name: `step-${step + 1}`, conclusion: "success",
+      started_at: item.started_at, completed_at: "2026-11-07T10:02:00Z",
+    }));
+    return item;
+  });
+  jobs[998].steps[198].completed_at = "2026-11-07T10:31:00Z";
+  const pages = [];
+  const api = (endpoint) => {
+    if (endpoint.includes("/jobs")) {
+      const page = Number(/[?&]page=([0-9]+)/.exec(endpoint)[1]);
+      pages.push(page);
+      return { total_count: jobs.length, jobs: jobs.slice((page - 1) * 100, page * 100) };
+    }
+    if (endpoint.includes("/artifacts")) return { total_count: 0, artifacts: [] };
+    if (endpoint.includes("/attempts/")) return { run_started_at: jobs[0].started_at };
+    return { ...run, run_attempt: 1 };
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "waza-step-maximum-"));
+  t.after(() => fs.rmSync(directory, { recursive: true }));
+  const output = path.join(directory, "actions.json");
+  await main(["actions", "10", output], api);
+  const saved = JSON.parse(fs.readFileSync(output, "utf8"));
+  assert.deepEqual(pages, Array.from({ length: 10 }, (_, index) => index + 1));
+  assert.equal(saved.complete, true);
+  assert.deepEqual(saved.diagnostics, []);
+  assert.equal(saved.jobs.length, 1000);
+  assert.ok(saved.jobs.every((item) => item.steps.length === 200));
+  assert.equal(saved.longest_observed_step_seconds, 1800);
+  assert.equal(saved.jobs[998].steps[198].seconds, 1800);
+  assert.equal(saved.jobs.at(-1).steps.at(-1).seconds, 60, "the report retains steps after the maximum");
+});
+test("production Actions step maximum preserves missing, all-null and observed zero in saved reports", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "waza-step-maximum-values-"));
+  t.after(() => fs.rmSync(directory, { recursive: true }));
+  const good = job(1, "01", "02");
+  const known = good.steps[0], unknown = { ...known, completed_at: null };
+  const zero = { ...known, completed_at: known.started_at };
+  for (const [label, steps, maximum, complete] of [
+    ["missing", undefined, null, false],
+    ["null", null, null, false],
+    ["empty", [], null, true],
+    ["all-null", [unknown, { ...unknown, number: 2 }], null, false],
+    ["zero", [zero], 0, true],
+    ["null-and-zero", [unknown, { ...zero, number: 2 }], 0, false],
+    ["null-and-known", [unknown, { ...known, number: 2 }], 60, false],
+  ]) {
+    const output = path.join(directory, `${label}.json`);
+    const exitCode = process.exitCode;
+    try {
+      await main(["actions", "10", output], (endpoint) => {
+        if (endpoint.includes("/jobs")) return { total_count: 1, jobs: [{ ...good, steps }] };
+        if (endpoint.includes("/artifacts")) return { total_count: 0, artifacts: [] };
+        if (endpoint.includes("/attempts/")) return { run_started_at: good.started_at };
+        return { ...run, run_attempt: 1 };
+      });
+      assert.equal(process.exitCode, complete ? exitCode : 1, label);
+    } finally { process.exitCode = exitCode; }
+    const saved = JSON.parse(fs.readFileSync(output, "utf8"));
+    assert.equal(saved.jobs.length, 1, label);
+    assert.equal(saved.jobs[0].steps?.length ?? null, steps?.length ?? null, label);
+    assert.equal(saved.longest_observed_step_seconds, maximum, label);
+    assert.equal(saved.complete, complete, label);
+  }
+});
 test("production Actions totals withhold job integrity failures but preserve unrelated diagnostics and recorded zero", () => {
   const collect = (lists, { artifacts = [], incomplete = false } = {}) => collectActions("10", (endpoint) => {
     if (endpoint.includes("/jobs")) {

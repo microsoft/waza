@@ -591,7 +591,8 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
     report.runner_elapsed_minutes_by_os[os || "unknown"] = inventoryComplete && jobs.every((job) => job.elapsed_seconds !== null) ? jobs.reduce((sum, job) => sum + job.elapsed_seconds / 60, 0) : null;
   }
   const stepDurations = report.jobs.flatMap((job) => job.steps || []).map((step) => step.seconds);
-  report.longest_observed_step_seconds = stepDurations.length ? Math.max(...stepDurations.filter((duration) => duration !== null)) : null;
+  report.longest_observed_step_seconds = stepDurations.reduce((maximum, duration) =>
+    duration !== null && (maximum === null || duration > maximum) ? duration : maximum, null);
   if (!Number.isFinite(report.longest_observed_step_seconds)) report.longest_observed_step_seconds = null;
   const artifactIDs = new Set();
   let artifactBytes = 0;
