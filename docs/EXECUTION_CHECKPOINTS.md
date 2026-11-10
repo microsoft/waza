@@ -44,12 +44,20 @@ live-worker exclusion is not implemented. Decision discovery must be complete;
 truncation, malformed records, mixed missing/I/O errors, or unknown publication
 fail closed rather than proving absence.
 
-The current implementation also uses global bounded discovery for fresh
-before-unit publication, so a shared namespace beyond the provider's 1,000-record
-listing limit rejects new checkpoint submissions before runtime construction.
-This is an unresolved scaling blocker, not a supported unlimited submission
-contract. A retained pre-dispatch admission or provider-owned per-execution
-lookup must replace that fresh-publication scan without weakening recovery checks.
+Fresh before-unit publication uses the invocation-retained creator gate rather
+than global discovery. Copies of that creator share the gate; dispatch and
+completion attempts take it and permanently disallow later before publication,
+even when the provider fails or its outcome is unknown. The gate remains held
+through exact completion-absence and original-creator checks, immutable storage,
+and final checks. It is not serialized or reconstructed from a checkpoint.
+Provider operations receive the caller's context, but mutex waits and blocked
+providers are not made cancellable by the gate.
+
+Publishing a fresh checkpoint beyond the provider's 1,000-record discovery bound
+does **not** establish recoverability. Before-unit recovery still rejects
+truncated global discovery, even for an original that never dispatched. Preserve
+the source and investigate rather than treating successful publication as
+permission to retry. No provider lookup or worker lease was added.
 
 ## Compatibility and restore
 

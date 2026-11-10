@@ -22,22 +22,17 @@ func PublishBefore(ctx context.Context, backend artifactmanifest.Backend, ledger
 	if err != nil {
 		return "", err
 	}
-	if err := requireUncompleted(ctx, ledger, reserved); err != nil {
-		return "", err
-	}
 	checkpoint.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if err := ValidateContext(checkpoint, reserved.Attempt.Binding, reserved.Bytes, nil, nil); err != nil {
 		return "", err
 	}
-	digest, err := Put(ctx, backend, checkpoint)
-	if err != nil {
-		return digest, err
-	}
-	if err := ledger.ValidateCreator(ctx, creator); err != nil {
-		return digest, fmt.Errorf("checkpoint blob %s was stored but original creator validation failed; preserve unverified evidence: %w", digest, err)
-	}
-	if err := requireUncompleted(ctx, ledger, reserved); err != nil {
-		return digest, fmt.Errorf("checkpoint blob %s was stored but the source is no longer admitted before-unit; preserve evidence: %w", digest, err)
+	var digest string
+	if err := ledger.PublishBeforeDispatch(ctx, creator, func(ctx context.Context) error {
+		var err error
+		digest, err = Put(ctx, backend, checkpoint)
+		return err
+	}); err != nil {
+		return digest, fmt.Errorf("before-unit checkpoint publication failed (blob %q may remain); preserve evidence: %w", digest, err)
 	}
 	return digest, nil
 }

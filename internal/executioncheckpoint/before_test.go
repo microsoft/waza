@@ -163,16 +163,30 @@ func TestBeforeCheckpointLateCompletionPreservesBlobButRejectsPublication(t *tes
 		t.Fatal(err)
 	}
 	fault := &checkpointFaultBackend{Backend: backend}
+	namespace, err := artifactmanifest.NewNamespace(backend, artifactmanifest.ExecutionLedgerNamespaceV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion, err := executionledger.EncodeCompletion(executionledger.Completion{
+		Kind: "waza.execution-completion", SchemaVersion: executionledger.Version,
+		ExecutionID: checkpoint.ExecutionID, ReservationDigest: checkpoint.ReservationDigest,
+		ManifestDigest: digest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	joined := false
 	fault.afterRead = func() {
-		if _, err := ledger.Complete(context.Background(), creator, digest); err != nil {
+		// A competing raw provider write bypasses the retained creator gate.
+		// Reentrant Complete here would wait for this same Put to finish.
+		if _, err := namespace.Create(context.Background(), "completion/"+checkpoint.ExecutionID, completion); err != nil {
 			t.Fatal(err)
 		}
 		joined = true
 	}
 	stored, err := PublishBefore(context.Background(), fault, ledger, creator,
 		readFixture(t, "../../examples/runner/unit.json"), checkpoint.Compatibility.RunnerRevision)
-	if !joined || stored == "" || !errors.Is(err, ErrStale) {
+	if !joined || stored == "" || !errors.Is(err, executionledger.ErrContext) {
 		t.Fatalf("late original completion lost its failure or residue locator: %t, %s, %v", joined, stored, err)
 	}
 	if blob, err := Load(context.Background(), backend, stored); blob == nil || err != nil {
