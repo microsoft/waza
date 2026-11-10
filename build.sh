@@ -18,7 +18,13 @@ mkdir -p "$OUTPUT_DIR"
 
 # Build web dashboard
 echo "Building web dashboard..."
-(cd "$SCRIPT_DIR/web" && npm ci --silent && npm run build)
+make --no-print-directory web-deps
+(cd "$SCRIPT_DIR/web" && npm run build)
+
+if [ "${REQUIRE_RELEASE_ADMISSION:-}" = "1" ]; then
+    GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check
+    bash .github/scripts/release_source_check.sh
+fi
 
 # Get Git commit hash and build date
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
@@ -60,6 +66,10 @@ for PLATFORM in "${PLATFORMS[@]}"; do
         -ldflags="-X 'main.version=$VERSION'" \
         -o "$OUTPUT_NAME" \
         ./cmd/waza
+
+    if [ "${REQUIRE_RELEASE_ADMISSION:-}" = "1" ]; then
+        bash .github/scripts/release_binary_check.sh "$OUTPUT_NAME"
+    fi
 
     if [ $? -ne 0 ]; then
         echo "An error occurred while building for $OS/$ARCH"
