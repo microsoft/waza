@@ -49,6 +49,8 @@ same admitted source.
 Submission and checkpoint result writers validate the original typed terminal
 before marshaling, so invalid UTF-8 cannot become an admitted replacement
 character. A genuine valid replacement character remains valid diagnostic text.
+Original submission diagnostic strings are checked before marshaling as well,
+including submissions nested in checkpoint results.
 Original reservation and decision values are also checked by their strict
 encoders before wrapper marshaling. Partial receipts without a decision must
 retain the complete original caller identity. Historical reports must declare
