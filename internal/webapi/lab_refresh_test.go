@@ -277,7 +277,8 @@ func TestLabRefreshRecoversCallerMutatedTranscript(t *testing.T) {
 			for range 2 {
 				runs := labRefreshRuns(t, mux, "/api/v1/lab/runs")
 				require.Len(t, runs, 1)
-				require.Equal(t, "recorded", runs[0].Skill)
+				require.NotNil(t, runs[0].Skill)
+				require.Equal(t, "recorded", *runs[0].Skill)
 				require.NotNil(t, runs[0].WeightedScore)
 				require.Zero(t, *runs[0].WeightedScore)
 				require.JSONEq(t, before, labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String())
