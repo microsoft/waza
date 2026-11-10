@@ -649,6 +649,142 @@ test("production Actions step maximum preserves missing, all-null and observed z
     assert.equal(saved.complete, complete, label);
   }
 });
+test("production Actions retains malformed steps as unavailable alongside valid neighboring jobs", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "waza-malformed-steps-"));
+  t.after(() => fs.rmSync(directory, { recursive: true }));
+  const good = job(1, "01", "03"), neighbor = job(2, "03", "04");
+  const known = good.steps[0], zero = { ...known, number: 3, completed_at: known.started_at };
+  const unavailable = { number: null, name: null, conclusion: null, seconds: null };
+  const cases = [
+    ...[null, undefined, false, 0, "invalid", [], ["invalid"], {}].map((step) =>
+      [step, unavailable]),
+    ...[null, undefined, 0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1].map((number) =>
+      [{ ...known, number }, { number: null, name: known.name, conclusion: known.conclusion, seconds: 120 }]),
+    ...[null, "", [], "invalid\nname"].map((name) =>
+      [{ ...known, name }, { number: 1, name: name === "" ? "" : null, conclusion: known.conclusion, seconds: 120 }]),
+    ...[null, "", {}].map((conclusion) =>
+      [{ ...known, conclusion }, { number: 1, name: known.name, conclusion: conclusion === "" ? "" : null, seconds: 120 }]),
+  ];
+  const oldExit = process.exitCode;
+  try {
+    for (const [step, normalized] of cases) {
+      const input = { ...good, steps: [known, step, zero] }, before = structuredClone(input);
+      const output = path.join(directory, "actions.json");
+      process.exitCode = undefined;
+      await main(["actions", "10", output], (endpoint) => {
+        if (endpoint.includes("/jobs")) return { total_count: 2, jobs: [input, neighbor] };
+        if (endpoint.includes("/artifacts")) return { total_count: 0, artifacts: [] };
+        if (endpoint.includes("/attempts/")) return { run_started_at: good.started_at };
+        return { ...run, run_attempt: 1 };
+      });
+      assert.deepEqual(input, before, "normalization must not mutate supplied API evidence");
+      const saved = JSON.parse(fs.readFileSync(output, "utf8"));
+      assert.equal(process.exitCode, 1);
+      assert.equal(saved.complete, false);
+      assert.ok(saved.diagnostics.includes("step-metadata-invalid"));
+      assert.deepEqual(saved.jobs.map((item) => item.id), [1, 2]);
+      assert.deepEqual(saved.jobs[0].steps[1], normalized, "malformed fields remain unavailable, not fabricated zeros");
+      assert.equal(saved.jobs[0].steps[0].seconds, 120);
+      assert.equal(saved.jobs[0].steps[2].seconds, 0, "preserve an actually recorded zero");
+      assert.equal(saved.jobs[1].steps[0].seconds, 60, "retain the valid neighboring job");
+      assert.equal(saved.longest_observed_step_seconds, 120);
+      assert.equal(saved.runner_elapsed_minutes_by_os["ubuntu-latest"], 3, "independently observed job time remains available");
+      assert.equal(saved.artifact_bytes, 0, "known empty artifact inventory is independent of malformed steps");
+    }
+    for (const [steps, diagnostic] of [
+      [[null], "step-metadata-invalid"],
+      [null, "job-metadata-incomplete"],
+      [[{ ...known, completed_at: null }], "step-duration-unavailable"],
+    ]) {
+      process.exitCode = undefined;
+      const output = path.join(directory, "retained-actions.json");
+      await main(["actions", "10", output], (endpoint) => {
+        if (endpoint.includes("/attempts/1/jobs")) return { total_count: 1, jobs: [good] };
+        if (endpoint.includes("/attempts/2/jobs")) return {
+          total_count: 2, jobs: [{ ...good, steps }, { ...neighbor, run_attempt: 2 }],
+        };
+        if (endpoint.includes("/artifacts")) return { total_count: 0, artifacts: [] };
+        if (endpoint.includes("/attempts/")) return { run_started_at: good.started_at };
+        return run;
+      });
+      const saved = JSON.parse(fs.readFileSync(output, "utf8"));
+      assert.equal(process.exitCode, 1);
+      assert.equal(saved.complete, false);
+      assert.ok(saved.diagnostics.includes(diagnostic), "later malformed observations must not disappear behind retained job identity");
+      assert.deepEqual(saved.jobs.map((item) => item.id), [1, 2]);
+      assert.deepEqual(saved.jobs[0].seen_in_attempts, [1, 2]);
+      assert.equal(saved.jobs[0].steps[0].seconds, 120, "keep the original valid step observation");
+      assert.equal(saved.jobs[1].steps[0].seconds, 60);
+    }
+  } finally { process.exitCode = oldExit; }
+});
+test("production actions trends and history serialize malformed-step diagnostics without losing neighboring observations", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "waza-malformed-step-commands-"));
+  t.after(() => fs.rmSync(directory, { recursive: true }));
+  const report = parseGo(successful, { selected: ["example/p::TestA"], inventory_scope: "qualified" });
+  report.identity.source_sha = run.head_sha;
+  const first = artifactFixture(report, {}, "go-run");
+  const second = artifactFixture({ ...report, identity: { ...report.identity, run_id: "11" } }, {}, "go-run");
+  const known = job(1, "01", "02").steps[0];
+  const oldExit = process.exitCode;
+  try {
+    for (const [label, steps, valid] of [
+      ["null-row", [null], false],
+      ["primitive-row", [false], false],
+      ["array-row", [[]], false],
+      ["invalid-number", [{ ...known, number: "1" }], false],
+      ["missing-steps", undefined, false],
+      ["null-steps", null, false],
+      ["invalid-steps", {}, false],
+      ["valid", [known], true],
+      ["extra-fields", [{ ...known, future_field: "retained" }], true],
+      ["zero", [{ ...known, completed_at: known.started_at }], true],
+      ["skipped", [{ ...known, conclusion: "skipped", started_at: null, completed_at: null }], true],
+      ["empty", [], true],
+    ]) {
+      const api = (endpoint) => {
+        if (endpoint.includes("/runs/11")) return second.api(endpoint);
+        const response = first.api(endpoint);
+        if (!endpoint.includes("/jobs")) return response;
+        const other = { ...job(2, "03", "04"), steps: [{ ...known, number: 2 }] };
+        return { total_count: 2, jobs: [{ ...response.jobs[0], steps }, other] };
+      };
+      const download = (id) => {
+        assert.ok([first.artifactID, second.artifactID].includes(id));
+        return id === first.artifactID ? first.zip : second.zip;
+      };
+      for (const mode of ["actions", "trends", "history"]) {
+        process.exitCode = undefined;
+        const output = path.join(directory, `${label}-${mode}.json`);
+        await main([mode, mode === "actions" ? "10" : "10,11", output], api, download);
+        const saved = JSON.parse(fs.readFileSync(output, "utf8"));
+        assert.equal(process.exitCode, valid ? undefined : 1, `${label}:${mode}`);
+        const metadata = mode === "actions" ? saved : saved.metadata[0];
+        assert.equal(metadata.complete, valid, `${label}:${mode}`);
+        assert.deepEqual(metadata.jobs.map((item) => item.id), [1, 2]);
+        assert.equal(metadata.jobs[1].steps[0].seconds, 60);
+        if (!valid) {
+          const diagnostic = Array.isArray(steps) ? "step-metadata-invalid" : "job-metadata-incomplete";
+          assert.ok(metadata.diagnostics.includes(diagnostic), `${label}:${mode}`);
+          assert.ok(saved.diagnostics.includes(diagnostic), `${label}:${mode}`);
+        } else assert.deepEqual(metadata.diagnostics, []);
+        if (mode === "actions") continue;
+        assert.equal(saved.metadata[1].complete, true, "retain independently valid neighboring run metadata");
+        if (mode === "trends") {
+          assert.equal(saved.cohorts.length, 1);
+          assert.equal(saved.cohorts[0].observations.length, 2, "keep both authenticated test observations");
+          assert.deepEqual(saved.cohorts[0].eligible.map((item) => item.run_id), valid ? ["10", "11"] : ["11"]);
+          assert.equal(saved.cohorts[0].minimum_samples_available, false);
+          assert.equal(saved.cohorts[0].attainment, "not-assessed");
+        } else {
+          assert.equal(saved.targets.length, 1);
+          assert.equal(saved.targets[0].target, "example/p::TestA");
+          assert.deepEqual(saved.targets[0].observations.map((item) => item.run_id), valid ? ["10", "11"] : ["11"]);
+        }
+      }
+    }
+  } finally { process.exitCode = oldExit; }
+});
 test("production Actions totals withhold job integrity failures but preserve unrelated diagnostics and recorded zero", () => {
   const collect = (lists, { artifacts = [], incomplete = false } = {}) => collectActions("10", (endpoint) => {
     if (endpoint.includes("/jobs")) {

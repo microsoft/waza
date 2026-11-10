@@ -259,6 +259,11 @@ but cannot supply complete aggregates or eligible baseline/history samples.
 Invalid or duplicate job IDs, unverified job sources, conflicting retained jobs,
 or incomplete job pagination withhold the affected attempt's span metrics.
 Elapsed runner-minutes and artifact bytes are **not billed cost**.
+Malformed step rows or invalid step numbers, names, or conclusions produce
+explicit incomplete diagnostics, including when a job was retained from an
+earlier attempt. Unavailable step durations remain null rather than zero; valid
+neighboring observations and independent job timings remain readable. Such
+runs cannot contribute eligible baseline/history samples.
 An observed, complete empty artifact inventory records zero bytes. An inventory
 that was not queried, failed, or remained incomplete records unavailable bytes,
 not zero; unrelated job diagnostics do not erase an observed artifact total.

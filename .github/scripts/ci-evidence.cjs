@@ -547,6 +547,18 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
         if (job.run_id !== run.id || job.head_sha !== run.head_sha) { jobsValid = false; diagnostic(report, "job-source-unverified"); }
         if (unique.has(job.id)) { jobsValid = false; diagnostic(report, "duplicate-job-in-attempt"); continue; }
       unique.set(job.id, job);
+      const steps = Array.isArray(job.steps) ? job.steps.map((step) => {
+        const fields = step && typeof step === "object" && !Array.isArray(step) ? step : {};
+        const normalized = {
+          number: Number.isSafeInteger(fields.number) && fields.number > 0 ? fields.number : null,
+          name: text(fields.name), conclusion: text(fields.conclusion),
+          seconds: seconds(fields.started_at, fields.completed_at),
+        };
+        if (normalized.number === null || !normalized.name || !normalized.conclusion) diagnostic(report, "step-metadata-invalid");
+        if (normalized.conclusion !== "skipped" && normalized.seconds === null) diagnostic(report, "step-duration-unavailable");
+        return normalized;
+      }) : null;
+      if (steps === null) diagnostic(report, "job-metadata-incomplete");
       if (retained.has(job.id)) {
         const original = retained.get(job.id);
         if (original.run_attempt !== job.run_attempt || original.started_at !== text(job.started_at) || original.completed_at !== text(job.completed_at) || original.conclusion !== text(job.conclusion)) { jobsValid = false; diagnostic(report, "retained-job-conflict"); }
@@ -558,7 +570,7 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
         status: text(job.status), conclusion: text(job.conclusion),
         started_at: text(job.started_at), completed_at: text(job.completed_at),
         elapsed_seconds: seconds(job.started_at, job.completed_at),
-        steps: Array.isArray(job.steps) ? job.steps.map((step) => ({ number: number(step.number), name: text(step.name), conclusion: text(step.conclusion), seconds: seconds(step.started_at, step.completed_at) })) : null,
+        steps,
       });
     }
     const jobs = [...unique.values()];
@@ -620,7 +632,6 @@ function summarizeActions(run, attempts, artifacts, diagnostics = [], artifactsC
   if (!report.attempts.length || report.attempts.some((attempt) => !attempt.complete)) diagnostic(report, "attempts-incomplete");
   if (!report.source_sha || !report.event || !report.workflow || run.status !== "completed") diagnostic(report, "run-metadata-incomplete");
   if (report.jobs.some((job) => job.elapsed_seconds === null || job.steps === null)) diagnostic(report, "job-metadata-incomplete");
-  if (report.jobs.some((job) => job.steps?.some((step) => step.conclusion !== "skipped" && step.seconds === null))) diagnostic(report, "step-duration-unavailable");
   if (report.jobs.some((job) => job.run_attempt === null)) diagnostic(report, "job-attempt-unavailable");
   report.complete = report.diagnostics.length === 0;
   return report;
