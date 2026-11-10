@@ -51,6 +51,15 @@ before marshaling, so invalid UTF-8 cannot become an admitted replacement
 character. A genuine valid replacement character remains valid diagnostic text.
 Original submission diagnostic strings are checked before marshaling as well,
 including submissions nested in checkpoint results.
+
+Fresh before-dispatch publication holds the invocation's shared creator gate
+through original-reservation and completion-absence checks, immutable writes,
+and final checks. Dispatch and completion attempts take the same gate and
+permanently disallow later before-dispatch publication, even after a failed or
+unknown provider response. Creator copies share that state; it is not serialized
+or reconstructed from evidence. Gate waits and blocked providers are not made
+cancellable by the gate. This is not a worker lease or proof of recoverability:
+recovery still requires complete bounded discovery and a stopped original worker.
 Original reservation and decision values are also checked by their strict
 encoders before wrapper marshaling. Partial receipts without a decision must
 retain the complete original caller identity. Historical reports must declare

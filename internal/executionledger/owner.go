@@ -35,9 +35,10 @@ type Ledger struct {
 type Creator struct{ state *creator }
 
 type creator struct {
-	ledger *Ledger
-	wire   []byte
-	mu     sync.Mutex
+	ledger    *Ledger
+	wire      []byte
+	mu        sync.Mutex
+	attempted bool
 }
 
 type Reservation struct {
@@ -272,6 +273,7 @@ func (l *Ledger) Complete(ctx context.Context, capability Creator, digest string
 	}
 	capability.state.mu.Lock()
 	defer capability.state.mu.Unlock()
+	capability.state.attempted = true
 	if err := l.ValidateCreator(ctx, capability); err != nil {
 		return nil, err
 	}
@@ -334,6 +336,12 @@ func (l *Ledger) decision(ctx context.Context, binding artifactmanifest.Binding,
 }
 
 func (l *Ledger) Distinct(ctx context.Context, capability Creator) (*executionattempt.Decision, error) {
+	if _, err := l.Reservation(capability); err != nil {
+		return nil, err
+	}
+	capability.state.mu.Lock()
+	defer capability.state.mu.Unlock()
+	capability.state.attempted = true
 	if err := l.ValidateCreator(ctx, capability); err != nil {
 		return nil, err
 	}
