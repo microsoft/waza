@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -42,22 +43,20 @@ func TestAggregateProductionConfiguredSourceAndBrowserFixture(t *testing.T) {
 	t.Chdir(t.TempDir())
 	server, err := New(Config{ResultsDir: results, NoBrowser: true, Lab: true})
 	require.NoError(t, err)
-	call := func(body []byte) *httptest.ResponseRecorder {
+	call := func(body []byte) (int, []byte) {
 		t.Helper()
-		response := httptest.NewRecorder()
-		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(body)))
-		return response
+		return callAggregateHTTP(t, server.Handler(), body)
 	}
-	response := call(wire)
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	report, err := manifestaggregate.Parse(response.Body.Bytes())
+	status, body := call(wire)
+	require.Equal(t, http.StatusOK, status, string(body))
+	report, err := manifestaggregate.Parse(body)
 	require.NoError(t, err)
 	require.Equal(t, "complete", report.State)
 	require.Equal(t, 1, report.Counts.VerifiedExecutions, "configured namespace must verify the original execution")
 	require.Equal(t, source.Execution, report.Members[0].Execution)
 	require.Equal(t, "complete", report.Usage.State)
 	require.Equal(t, 1.25, *report.Usage.Recorded.AICredits)
-	canonical := bytes.Clone(response.Body.Bytes())
+	canonical := bytes.Clone(body)
 	for _, control := range []struct {
 		name   string
 		config *projectconfig.StorageConfig
@@ -68,10 +67,9 @@ func TestAggregateProductionConfiguredSourceAndBrowserFixture(t *testing.T) {
 		t.Run(control.name, func(t *testing.T) {
 			configured, err := New(Config{ResultsDir: results, NoBrowser: true, StorageConfig: control.config})
 			require.NoError(t, err)
-			response := httptest.NewRecorder()
-			configured.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(wire)))
-			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-			require.Equal(t, canonical, response.Body.Bytes())
+			status, body := callAggregateHTTP(t, configured.Handler(), wire)
+			require.Equal(t, http.StatusOK, status, string(body))
+			require.Equal(t, canonical, body)
 		})
 	}
 	t.Run("unsupported-active-provider-cannot-use-valid-local-neighbor", func(t *testing.T) {
@@ -79,24 +77,23 @@ func TestAggregateProductionConfiguredSourceAndBrowserFixture(t *testing.T) {
 			Enabled: true, Provider: "unsupported",
 		}})
 		require.NoError(t, err)
-		response := httptest.NewRecorder()
-		configured.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(wire)))
-		require.Equal(t, http.StatusServiceUnavailable, response.Code)
-		require.JSONEq(t, `{"error":"aggregate_store_unavailable"}`, response.Body.String())
+		status, body := callAggregateHTTP(t, configured.Handler(), wire)
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.JSONEq(t, `{"error":"aggregate_store_unavailable"}`, string(body))
 	})
 	inputs = append(inputs, manifestaggregate.Input{Manifest: strings.Repeat("a", 64)})
 	incomplete, err := json.Marshal(inputs)
 	require.NoError(t, err)
-	response = call(incomplete)
-	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
-	report, err = manifestaggregate.Parse(response.Body.Bytes())
+	status, body = call(incomplete)
+	require.Equal(t, http.StatusConflict, status, string(body))
+	report, err = manifestaggregate.Parse(body)
 	require.NoError(t, err)
 	require.Equal(t, "incomplete", report.State)
 	require.Equal(t, 2, report.Counts.Members)
 	require.Equal(t, 1, report.Counts.VerifiedExecutions)
 	require.Nil(t, report.Usage.Recorded)
-	response = call([]byte(`[]`))
-	require.Equal(t, http.StatusBadRequest, response.Code)
+	status, _ = call([]byte(`[]`))
+	require.Equal(t, http.StatusBadRequest, status)
 	if *aggregateProductionFixture != "" {
 		require.NoError(t, os.WriteFile(filepath.Join(directory, "inputs.json"), wire, 0o600))
 		require.NoError(t, os.WriteFile(filepath.Join(directory, "canonical.json"), canonical, 0o600))
@@ -110,11 +107,9 @@ func TestAggregateProductionMissingStoreDoesNotFallBackToWorkingDirectory(t *tes
 	selected := t.TempDir()
 	server, err := New(Config{ResultsDir: selected, NoBrowser: true})
 	require.NoError(t, err)
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates",
-		strings.NewReader(`[{"manifest_sha256":"`+strings.Repeat("a", 64)+`"}]`)))
-	require.Equal(t, http.StatusServiceUnavailable, response.Code)
-	require.JSONEq(t, `{"error":"aggregate_store_unavailable"}`, response.Body.String())
+	status, body := callAggregateHTTP(t, server.Handler(), []byte(`[{"manifest_sha256":"`+strings.Repeat("a", 64)+`"}]`))
+	require.Equal(t, http.StatusServiceUnavailable, status)
+	require.JSONEq(t, `{"error":"aggregate_store_unavailable"}`, string(body))
 	require.NoDirExists(t, filepath.Join(selected, ".waza-artifacts"))
 }
 
@@ -126,12 +121,22 @@ func TestAggregateConfiguredProviderDenialBeforeOpeningOrCredentials(t *testing.
 			webapi.RegisterAggregateRoutes(mux, directory, &projectconfig.StorageConfig{
 				Enabled: true, Provider: provider,
 			})
-			response := httptest.NewRecorder()
-			mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates",
-				strings.NewReader(`[{"manifest_sha256":"`+strings.Repeat("a", 64)+`"}]`)))
-			require.Equal(t, http.StatusServiceUnavailable, response.Code)
-			require.JSONEq(t, `{"error":"aggregate_store_unavailable"}`, response.Body.String())
+			status, body := callAggregateHTTP(t, mux, []byte(`[{"manifest_sha256":"`+strings.Repeat("a", 64)+`"}]`))
+			require.Equal(t, http.StatusServiceUnavailable, status)
+			require.JSONEq(t, `{"error":"aggregate_store_unavailable"}`, string(body))
 			require.NoDirExists(t, filepath.Join(directory, ".waza-artifacts"))
 		})
 	}
+}
+
+func callAggregateHTTP(t *testing.T, handler http.Handler, input []byte) (int, []byte) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	response, err := server.Client().Post(server.URL+"/api/v1/aggregates", "application/json", bytes.NewReader(input))
+	require.NoError(t, err)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	return response.StatusCode, body
 }

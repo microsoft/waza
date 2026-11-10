@@ -78,6 +78,14 @@ existing `.waza-artifacts` store, then select **Runner**. In **Aggregate complet
 digest and optionally its evidence digest per line. The server reads only this
 configured local store; browser input cannot select filesystem paths or providers.
 
+Uploads are limited to 1 MiB and five seconds before opening storage. Stalled
+uploads return HTTP 408 (`aggregate_request_timeout`); cancellation stops
+admission (408 when delivery is still possible). Deadline
+setup/reset failures return 500 (`aggregate_transport_unavailable`), and
+unsupported bounded delivery aborts the connection instead of returning success.
+After admission, evaluation has its separate 30-second budget. Response delivery
+is bounded to five seconds without changing canonical report bytes.
+
 The panel displays composition, profile counts, member state/outcome counts,
 conflicts, omissions, category states, historical usage availability and source
 manifest inspection links. Evaluated incomplete/conflicting HTTP 409 reports stay

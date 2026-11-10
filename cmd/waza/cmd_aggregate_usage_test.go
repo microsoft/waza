@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,16 +42,27 @@ func callAggregateCLI(t *testing.T, directory string, inputs []manifestaggregate
 
 func callAggregateAPI(t *testing.T, directory string, inputs []manifestaggregate.Input) []byte {
 	t.Helper()
+	status, body := postAggregateAPI(t, directory, inputs)
+	require.Equal(t, http.StatusOK, status, string(body))
+	return body
+}
+
+func postAggregateAPI(t *testing.T, directory string, inputs []manifestaggregate.Input) (int, []byte) {
+	t.Helper()
 	wire, err := json.Marshal(inputs)
 	require.NoError(t, err)
 	mux := http.NewServeMux()
 	webapi.RegisterAggregateRoutesWithSources(mux, func() (manifestaggregate.Sources, func() error, error) {
 		return manifestaggregate.OpenLocal(directory)
 	})
-	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(wire)))
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	return response.Body.Bytes()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	response, err := server.Client().Post(server.URL+"/api/v1/aggregates", "application/json", bytes.NewReader(wire))
+	require.NoError(t, err)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	return response.StatusCode, body
 }
 
 func TestAggregateNonzeroUsageDeduplicatesExecutionsAndCompatibleViewsInSavedReport(t *testing.T) {

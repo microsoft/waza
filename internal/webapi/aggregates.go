@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -41,20 +42,53 @@ func RegisterAggregateRoutes(mux *http.ServeMux, resultsDir string, config *proj
 
 func RegisterAggregateRoutesWithSources(mux *http.ServeMux, open AggregateSources) {
 	mux.HandleFunc("POST /api/v1/aggregates", func(w http.ResponseWriter, r *http.Request) {
-		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, artifactmanifest.MaxManifestBytes))
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_aggregate_request"})
+		inputComplete := false
+		emit := func(status int, data []byte) {
+			writeAggregateResponse(w, status, data, inputComplete)
+		}
+		reject := func(status int, code string) {
+			data, err := json.Marshal(map[string]string{"error": code})
+			if err != nil {
+				logRunnerError("encoding aggregate transport error", "error", err)
+				panic(http.ErrAbortHandler)
+			}
+			emit(status, append(data, '\n'))
+		}
+		controller := http.NewResponseController(w)
+		deadline := time.Now().Add(5 * time.Second)
+		if err := controller.SetReadDeadline(deadline); err != nil {
+			logRunnerError("setting aggregate read deadline", "error", err)
+			reject(http.StatusInternalServerError, "aggregate_transport_unavailable")
 			return
 		}
+		if err := controller.SetWriteDeadline(time.Time{}); err != nil {
+			logRunnerError("probing aggregate write deadline", "error", err)
+			reject(http.StatusInternalServerError, "aggregate_transport_unavailable")
+			return
+		}
+		data, inputErr := readRunnerHTTPBody(w, r, artifactmanifest.MaxManifestBytes, deadline)
+		if inputErr != nil {
+			logRunnerError("reading aggregate input", "code", inputErr.Code, "error", inputErr.Err)
+			switch inputErr.Status {
+			case http.StatusRequestTimeout:
+				reject(http.StatusRequestTimeout, "aggregate_request_timeout")
+			case http.StatusInternalServerError:
+				reject(http.StatusInternalServerError, "aggregate_transport_unavailable")
+			default:
+				reject(http.StatusBadRequest, "invalid_aggregate_request")
+			}
+			return
+		}
+		inputComplete = true
 		inputs, err := manifestaggregate.ParseInputs(data)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_aggregate_request"})
+			reject(http.StatusBadRequest, "invalid_aggregate_request")
 			return
 		}
 		sources, closeSources, err := open()
 		if err != nil {
 			slog.Error("aggregate store unavailable", "error", err)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "aggregate_store_unavailable"})
+			reject(http.StatusServiceUnavailable, "aggregate_store_unavailable")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -63,13 +97,13 @@ func RegisterAggregateRoutesWithSources(mux *http.ServeMux, open AggregateSource
 		closeErr := closeSources()
 		if report == nil || closeErr != nil {
 			slog.Error("aggregate evaluation unavailable", "error", errors.Join(buildErr, closeErr))
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "aggregate_evaluation_unavailable"})
+			reject(http.StatusServiceUnavailable, "aggregate_evaluation_unavailable")
 			return
 		}
 		wire, encodeErr := manifestaggregate.Encode(*report)
 		if encodeErr != nil {
 			slog.Error("aggregate encoding failed", "error", encodeErr)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "aggregate_encoding_failed"})
+			reject(http.StatusInternalServerError, "aggregate_encoding_failed")
 			return
 		}
 		status := http.StatusOK
@@ -77,11 +111,32 @@ func RegisterAggregateRoutesWithSources(mux *http.ServeMux, open AggregateSource
 			status = http.StatusConflict
 			slog.Error("aggregate admission incomplete", "error", buildErr)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(status)
-		if _, err := w.Write(wire); err != nil {
-			slog.Error("aggregate response write failed", "error", err)
-		}
+		emit(status, wire)
 	})
+}
+
+func writeAggregateResponse(w http.ResponseWriter, status int, data []byte, inputComplete bool) {
+	if !inputComplete {
+		w.Header().Set("Connection", "close")
+	}
+	controller := http.NewResponseController(w)
+	if err := controller.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		logRunnerError("setting aggregate write deadline; aborting transport without output", "error", err)
+		panic(http.ErrAbortHandler)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	written, err := w.Write(data)
+	if written != len(data) {
+		err = errors.Join(err, io.ErrShortWrite)
+	}
+	if err != nil {
+		logRunnerError("writing aggregate response", "error", err)
+		panic(http.ErrAbortHandler)
+	}
+	if err := controller.Flush(); err != nil {
+		logRunnerError("flushing aggregate response", "error", err)
+		panic(http.ErrAbortHandler)
+	}
 }

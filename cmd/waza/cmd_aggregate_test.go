@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/manifestaggregate"
 	"github.com/microsoft/waza/internal/testutil/manifestfixture"
-	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,18 +58,13 @@ func TestAggregateSavedCLIToPublicAPIReport(t *testing.T) {
 			require.Equal(t, len(control.inputs), report.Counts.Members)
 			require.Equal(t, append(bytes.Clone(saved), '\n'), stdout.Bytes())
 			require.Equal(t, !control.incomplete, report.Usage.Recorded != nil)
-			mux := http.NewServeMux()
-			webapi.RegisterAggregateRoutesWithSources(mux, func() (manifestaggregate.Sources, func() error, error) {
-				return manifestaggregate.OpenLocal(storeDir)
-			})
-			response := httptest.NewRecorder()
-			mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/aggregates", bytes.NewReader(wire)))
+			status, body := postAggregateAPI(t, storeDir, control.inputs)
 			expectedStatus := http.StatusOK
 			if control.incomplete {
 				expectedStatus = http.StatusConflict
 			}
-			require.Equal(t, expectedStatus, response.Code)
-			require.Equal(t, saved, response.Body.Bytes(), "actual CLI saved JSON and API canonical bytes must agree")
+			require.Equal(t, expectedStatus, status)
+			require.Equal(t, saved, body, "actual CLI saved JSON and API canonical bytes must agree")
 			retry := newAggregateCommand()
 			retry.SetOut(&bytes.Buffer{})
 			retry.SetErr(&bytes.Buffer{})

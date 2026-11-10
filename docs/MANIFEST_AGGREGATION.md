@@ -39,6 +39,17 @@ cannot choose paths, credentials, providers or budgets. Lab retains evaluated
 downloads the exact API JSON. Source links inspect manifest receipts, not
 restricted artifact payloads.
 
+HTTP body admission retains the 1 MiB request limit and has a five-second read
+deadline, before any store is opened. A stalled upload returns 408 with
+`aggregate_request_timeout`; cancellation stops admission (408 when delivery is
+still possible). Partial uploads close the connection rather
+than draining indefinitely. Deadline setup/reset failure returns 500 with
+`aggregate_transport_unavailable`. Unsupported bounded delivery aborts the
+transport without an implicit successful response. Successful input admission
+clears its read deadline before the separate 30-second evaluation budget.
+Response delivery is bounded to five seconds and preserves canonical report
+bytes unchanged; a failed/partial delivery is not a report receipt.
+
 Open `waza serve --lab --results-dir RESULTS_DIR`, select **Runner**, then use
 **Aggregate completed public manifests**. The store is
 `RESULTS_DIR/.waza-artifacts`, independent of the server's working directory.
