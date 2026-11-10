@@ -49,8 +49,16 @@ same admitted source.
 Submission and checkpoint result writers validate the original typed terminal
 before marshaling, so invalid UTF-8 cannot become an admitted replacement
 character. A genuine valid replacement character remains valid diagnostic text.
-Potentially large unnecessary default-path report allocations still require
-assessment; this preview does not claim that broader concern is resolved.
+Original reservation and decision values are also checked by their strict
+encoders before wrapper marshaling. Partial receipts without a decision must
+retain the complete original caller identity. Historical reports must declare
+valid exact-unit admission, compatible status, no adjacent work, and both the
+requested and resolved original selection. Alternate-ordinal reuse still
+returns the original selection unchanged.
+
+The terminal-only submission path does not serialize the private rich report.
+Existing publication/artifact hooks that consume it still receive detached
+original snapshots; no public output or capture-policy fallback is introduced.
 
 ```mermaid
 sequenceDiagram

@@ -97,7 +97,9 @@ func validateSourceReport(data []byte, source *executionledger.CompletedExecutio
 	binding := source.Reservation.Attempt.Binding
 	if !bytes.Equal(canonical, data) || report.Kind != "waza.runner-unit" || report.Version != "1.0" ||
 		report.Identity == nil || *report.Identity != binding.Identity ||
+		report.Requested == nil || *report.Requested != binding.Selection ||
 		report.Resolved == nil || *report.Resolved != binding.Selection ||
+		report.Validation != "valid" || report.Compatibility.Status != "compatible" || report.AdjacentWork ||
 		report.Calls != terminal.EngineCalls || (report.Observation == nil) != (terminal.Observation == nil) {
 		return fmt.Errorf("source report contradicts original terminal/binding or canonical writer")
 	}
@@ -291,10 +293,13 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		result.fail("terminal_encoding_failed", err)
 		return result, err
 	}
-	fullReport, err := reportBytes(report)
-	if err != nil {
-		result.fail("report_encoding_failed", err)
-		return result, err
+	var fullReport []byte
+	if hooks.PreparePublication != nil || hooks.Artifacts != nil {
+		fullReport, err = reportBytes(report)
+		if err != nil {
+			result.fail("report_encoding_failed", err)
+			return result, err
+		}
 	}
 	preparedArtifacts := []SubmissionArtifact{}
 	if hooks.PreparePublication != nil {
