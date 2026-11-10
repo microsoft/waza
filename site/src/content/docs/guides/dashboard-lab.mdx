@@ -49,6 +49,8 @@ Edits, new operations and reload errors clear prior results. Synthetic demo mode
 cannot dispatch checkpoint operations.
 Resume source declarations are checked against the requested checkpoint digest
 before display or download; this is declaration linkage, not storage authority.
+Completed resumes require a source; source-withheld failures remain available.
+Create responses cannot contain resume-only source or reuse state.
 
 Creation and before-unit resume execute work and may incur charges when the
 captured Copilot request explicitly consents. Finalized restore reuses the

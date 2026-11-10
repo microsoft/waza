@@ -323,6 +323,12 @@ export async function runCheckpointOperation(
   });
   const json = await response.text();
   const result = await parseCheckpointOperationResult(json);
+  if (action === "create" && (result.source || result.source_withheld || result.status === "reused")) {
+    throw new Error("Checkpoint create response contains resume-only state.");
+  }
+  if (action === "resume" && result.status === "completed" && !result.source) {
+    throw new Error("Checkpoint API returned completed resume without its checkpoint source.");
+  }
   if (action === "resume" && result.source && await checkpointDigest(result.source) !== digest) {
     throw new Error("Checkpoint source contradicts the requested checkpoint digest.");
   }
