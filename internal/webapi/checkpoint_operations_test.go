@@ -16,6 +16,9 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executioncheckpoint"
+	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
@@ -144,6 +147,98 @@ func TestCheckpointOperationActualHTTPProducerAndFailedRestore(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), metadata)
 	require.Equal(t, int32(1), factories.Load())
+}
+
+func TestCheckpointOperationHTTPDeniedReuseWithholdsSourceAndPreservesOriginal(t *testing.T) {
+	directory := t.TempDir()
+	var factories atomic.Int32
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		factories.Add(1)
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	revision := strings.Repeat("c", 40)
+	backend, closeBackend, err := artifactmanifest.OpenBackend(directory, "")
+	require.NoError(t, err)
+	legacy, err := runnercheckpoint.NewService(service, revision)
+	require.NoError(t, err)
+	const private = "original-http-private-terminal-control"
+	input := checkpointOperationWire(t)
+	wire := bytes.Replace(input, []byte("- hello"), []byte("- "+private), 1)
+	require.NotEqual(t, input, wire)
+	for _, replacement := range [][2]string{
+		{"id: selected", "id: " + private},
+		{`"task":"selected"`, `"task":"` + private + `"`},
+	} {
+		changed := bytes.Replace(wire, []byte(replacement[0]), []byte(replacement[1]), 1)
+		require.NotEqual(t, wire, changed)
+		wire = changed
+	}
+	original, err := legacy.Submit(t.Context(), wire, backend, runnercheckpoint.Hooks{})
+	require.NoError(t, err)
+	require.NotEmpty(t, original.FinalizedDigest)
+	require.NotEmpty(t, original.Submission.Terminal.Diagnostics)
+	require.NotEqual(t, "[REDACTED]", original.Submission.Terminal.Diagnostics[0].Message)
+	owner, err := executionledger.New(backend)
+	require.NoError(t, err)
+	source := executionattempt.Source{
+		ExecutionID: original.Submission.Reservation.ExecutionID, ManifestDigest: original.Submission.Completion.ManifestDigest,
+	}
+	before, err := owner.ReadCompleted(t.Context(), source)
+	require.NoError(t, err)
+	var names []string
+	for _, artifact := range before.Publication.Manifest.Artifacts {
+		names = append(names, artifact.Name)
+	}
+	require.NotEmpty(t, names)
+	before, err = owner.ReadCompleted(t.Context(), source, names...)
+	require.NoError(t, err)
+	require.Len(t, before.Publication.ArtifactBytes, len(names))
+	require.Contains(t, string(before.Publication.ArtifactBytes["terminal.json"]), private)
+	checkpointBefore, err := backend.Get(t.Context(), "blob-"+original.FinalizedDigest, executioncheckpoint.MaxBytes)
+	require.NoError(t, err)
+	require.NoError(t, closeBackend())
+
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			return artifactmanifest.OpenBackend(directory, "")
+		},
+		runner: service, revision: func() (string, error) { return revision, nil },
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	denied := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+original.FinalizedDigest+"/resume", wire, http.StatusInternalServerError)
+	require.Equal(t, "submission_error", denied.Status)
+	require.Equal(t, 2, denied.ExitCode)
+	require.True(t, denied.SourceWithheld)
+	require.Nil(t, denied.Source)
+	require.Nil(t, denied.RestoredUnits)
+	require.Nil(t, denied.RemainingWork)
+	require.NotNil(t, denied.Submission)
+	require.Zero(t, denied.Submission.EngineCalls)
+	require.Empty(t, denied.Submission.Report)
+	require.Nil(t, denied.Submission.Terminal)
+	require.Nil(t, denied.Submission.Completion)
+	require.Nil(t, denied.Submission.Reservation)
+	public, err := json.Marshal(denied)
+	require.NoError(t, err)
+	require.NotContains(t, string(public), private)
+	require.Equal(t, int32(1), factories.Load())
+
+	backend, closeBackend, err = artifactmanifest.OpenBackend(directory, "")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, closeBackend()) }()
+	owner, err = executionledger.New(backend)
+	require.NoError(t, err)
+	after, err := owner.ReadCompleted(t.Context(), source, names...)
+	require.NoError(t, err)
+	require.Equal(t, before.Publication.ArtifactBytes, after.Publication.ArtifactBytes)
+	require.Equal(t, before.Publication.ManifestBytes, after.Publication.ManifestBytes)
+	require.Equal(t, before.Reservation.Bytes, after.Reservation.Bytes)
+	require.Equal(t, before.CompletionBytes, after.CompletionBytes)
+	checkpointAfter, err := backend.Get(t.Context(), "blob-"+original.FinalizedDigest, executioncheckpoint.MaxBytes)
+	require.NoError(t, err)
+	require.Equal(t, checkpointBefore, checkpointAfter)
 }
 
 func TestCheckpointOperationHTTPAdmissionPrecedesBuildStorageAndExecution(t *testing.T) {
