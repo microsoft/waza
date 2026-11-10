@@ -22,7 +22,7 @@ import (
 const (
 	Version        = "1.0"
 	MaxInputs      = 128
-	MaxReportBytes = 4 << 20
+	MaxReportBytes = 32 << 20
 )
 
 var (
@@ -135,7 +135,7 @@ func compareInput(a, b Input) int {
 
 // Build evaluates every independent requested member. Incomplete/conflicting
 // admissions return both the full evaluated report and a classified error.
-// Completeness is not a pass verdict: failed/cancelled terminals, privacy
+// Completeness is not a pass verdict: failed/canceled terminals, privacy
 // redaction and supported legacy metadata-only sources can be complete.
 func Build(ctx context.Context, sources Sources, inputs []Input, limits Limits) (*Report, error) {
 	inputs, err := Normalize(inputs)
@@ -221,11 +221,11 @@ func Build(ctx context.Context, sources Sources, inputs []Input, limits Limits) 
 	report.Counts.VerifiedManifests, report.Counts.VerifiedExecutions = len(manifests), len(executions)
 	report.Usage.Executions = len(executions)
 	if usageComplete {
-		report.Usage.State = "complete"
-		report.Usage.Recorded = models.AggregateUsageStats(usageStats)
-		if report.Usage.Recorded == nil {
-			// A nonempty explicitly recorded zero population is still present.
-			report.Usage.Recorded = &models.UsageStats{}
+		recorded, ok := sumRecordedUsage(usageStats)
+		if ok {
+			report.Usage.State, report.Usage.Recorded = "complete", recorded
+		} else {
+			report.Usage.Diagnostics = append(report.Usage.Diagnostics, "recorded_usage_numeric_overflow")
 		}
 	} else {
 		report.Usage.Diagnostics = append(report.Usage.Diagnostics, "complete_historical_usage_unavailable")
@@ -285,11 +285,11 @@ func loadMember(ctx context.Context, sources Sources, backend readOnlyBackend, s
 		member.Diagnostics = append(member.Diagnostics, "execution_and_usage_unavailable_without_sidecar")
 		return member, view{}, true, nil
 	}
-	inspection, categories, err := evidencestate.InspectCategories(ctx, backend, input.Evidence)
-	if err != nil {
-		return fail(err)
-	}
+	inspection, categories, inspectionErr := evidencestate.InspectCategories(ctx, backend, input.Evidence)
 	if inspection.Document == nil || inspection.Document.OriginManifest != input.Manifest {
+		if inspectionErr != nil {
+			return fail(inspectionErr)
+		}
 		return fail(artifactmanifest.ErrConflict)
 	}
 	for _, category := range categories {
@@ -308,6 +308,9 @@ func loadMember(ctx context.Context, sources Sources, backend readOnlyBackend, s
 	slices.SortFunc(member.Categories, func(a, b Category) int {
 		return strings.Compare(string(a.Category), string(b.Category))
 	})
+	if inspectionErr != nil {
+		return fail(inspectionErr)
+	}
 	document := inspection.Document
 	if document.ExecutionSource == nil {
 		member.Diagnostics = append(member.Diagnostics, "execution_identity_unavailable")
@@ -398,7 +401,7 @@ func failureCode(err error) string {
 	case errors.Is(err, artifactmanifest.ErrMissing):
 		return "missing_source"
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return "read_cancelled"
+		return "read_canceled"
 	case errors.Is(err, artifactmanifest.ErrInvalid), errors.Is(err, evidencestate.ErrInvalid), errors.Is(err, executionledger.ErrInvalid):
 		return "unsupported_or_invalid_profile"
 	default:

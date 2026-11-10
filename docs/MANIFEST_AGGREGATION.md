@@ -119,7 +119,9 @@ discovery or creator hydration occurs. One per-build budget bounds object count
 and total object/namespace reads, reserving the full permitted read before I/O.
 Errors retain their reservation because consumed bytes may be unknown. Default
 limits are 128 input references, 4,096 reads, 512 MiB cumulative source reads and
-4 MiB report bytes, in addition to each existing source profile's limits.
+32 MiB report bytes (including worst-case escaped identifiers), in addition to
+each existing source profile's limits. Numeric sum overflow withholds historical
+usage with an explicit diagnostic rather than emitting wrapped counters.
 
 `Build` returns report plus classified error for evaluated per-input failures.
 `Parse` validates saved wire/accounting only; it is not current source inspection.

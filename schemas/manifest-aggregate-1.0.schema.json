@@ -55,8 +55,8 @@
     "codes": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {
       "enum": ["execution_and_usage_unavailable_without_sidecar", "execution_identity_unavailable",
         "cached_historical_usage_excluded", "read_budget_exhausted", "execution_read_capability_unavailable",
-        "conflicting_source", "corrupt_source", "missing_source", "read_cancelled", "unsupported_or_invalid_profile",
-        "source_read_error", "incompatible_recorded_usage", "complete_historical_usage_unavailable"]
+        "conflicting_source", "corrupt_source", "missing_source", "read_canceled", "unsupported_or_invalid_profile",
+        "source_read_error", "incompatible_recorded_usage", "complete_historical_usage_unavailable", "recorded_usage_numeric_overflow"]
     }},
     "input": {
       "type": "object", "additionalProperties": false, "required": ["manifest_sha256"],

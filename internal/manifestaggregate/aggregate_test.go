@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -275,7 +276,7 @@ func TestOriginalCancellationRemainsVisibleWithoutInvalidatingAdmission(t *testi
 	terminal.Outcome = runnerterminal.Canceled
 	terminal.ExitCode, _ = terminal.Outcome.ExitCode()
 	terminal.FailureBoundary = "shutdown"
-	terminal.Diagnostics = []runnerterminal.Diagnostic{{Code: "cancelled", Message: "Synthetic original cancellation"}}
+	terminal.Diagnostics = []runnerterminal.Diagnostic{{Code: "cancellation", Message: "Synthetic original cancellation"}}
 	terminalBytes, err := runnerterminal.Encode(*terminal, manifest.Binding.TerminalBinding())
 	require.NoError(t, err)
 	// This authored terminal-only source deliberately has no execution sidecar;
@@ -294,7 +295,7 @@ func TestOriginalCancellationRemainsVisibleWithoutInvalidatingAdmission(t *testi
 	report, err := Build(t.Context(), sources, []Input{{Manifest: digest}, input}, DefaultLimits())
 	require.NoError(t, err)
 	require.Equal(t, "complete", report.State)
-	require.Equal(t, 1, report.Counts.MemberOutcomes["cancelled"])
+	require.Equal(t, 1, report.Counts.MemberOutcomes[string(runnerterminal.Canceled)])
 	require.Equal(t, 1, report.Counts.MemberOutcomes["success"])
 	require.Equal(t, 1, report.Counts.VerifiedExecutions)
 	require.Nil(t, report.Usage.Recorded)
@@ -318,6 +319,35 @@ func TestNamespaceDenialNeverFallsBackToProviderOrOrdinal(t *testing.T) {
 	require.Nil(t, report.Usage.Recorded)
 }
 
+func TestRecordedUsageOverflowWithholdsTotalThroughPublicSources(t *testing.T) {
+	backend, sources, _ := setup(t)
+	makeUsage := func(report *runnerunit.Report) {
+		manifestfixture.RecordedZero(report)
+		report.Observation.Usage.InputTokens = math.MaxInt
+	}
+	first, second := publish(t, backend, makeUsage), publish(t, backend, makeUsage)
+	report, err := Build(t.Context(), sources, []Input{first, second}, DefaultLimits())
+	require.NoError(t, err, "source admission remains complete independently of unavailable arithmetic")
+	require.Equal(t, "complete", report.State)
+	require.Equal(t, 2, report.Counts.VerifiedExecutions)
+	require.Equal(t, "unavailable", report.Usage.State)
+	require.Nil(t, report.Usage.Recorded)
+	require.Contains(t, report.Usage.Diagnostics, "recorded_usage_numeric_overflow")
+	_, err = Encode(*report)
+	require.NoError(t, err)
+}
+
+func TestNonemptyRecordedZeroIsNotAnAbsentPopulation(t *testing.T) {
+	usage, ok := sumRecordedUsage([]*models.UsageStats{{}})
+	require.True(t, ok)
+	require.NotNil(t, usage)
+	require.Nil(t, usage.AICredits, "missing credits are not invented as zero")
+	require.Zero(t, usage.InputTokens)
+	absent, ok := sumRecordedUsage(nil)
+	require.False(t, ok)
+	require.Nil(t, absent)
+}
+
 func TestStrictInputAndReportWirePresence(t *testing.T) {
 	digest := strings.Repeat("a", 64)
 	for _, input := range []string{
@@ -336,14 +366,19 @@ func TestStrictInputAndReportWirePresence(t *testing.T) {
 	require.NoError(t, err)
 	wire, err := Encode(*report)
 	require.NoError(t, err)
+	object := func(value map[string]any, key string) map[string]any {
+		result, ok := value[key].(map[string]any)
+		require.True(t, ok)
+		return result
+	}
 	for _, mutation := range []func(map[string]any){
 		func(value map[string]any) { value["schema_version"] = "2.0" },
-		func(value map[string]any) { value["counts"].(map[string]any)["input_members"] = 0 },
+		func(value map[string]any) { object(value, "counts")["input_members"] = 0 },
 		func(value map[string]any) {
-			value["usage"].(map[string]any)["recorded_historical_usage"] = map[string]any{}
+			object(value, "usage")["recorded_historical_usage"] = map[string]any{}
 		},
-		func(value map[string]any) { value["usage"].(map[string]any)["recorded_historical_usage"] = false },
-		func(value map[string]any) { delete(value["usage"].(map[string]any), "recorded_historical_usage") },
+		func(value map[string]any) { object(value, "usage")["recorded_historical_usage"] = false },
+		func(value map[string]any) { delete(object(value, "usage"), "recorded_historical_usage") },
 	} {
 		var value map[string]any
 		require.NoError(t, json.Unmarshal(wire, &value))

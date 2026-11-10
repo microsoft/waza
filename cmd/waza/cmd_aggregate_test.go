@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -99,8 +100,45 @@ func TestAggregateOutputRejectsLeafSymlinkAndKeepsExistingBytes(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Skipf("symlink creation unavailable: %v", err)
 	}
+
 	require.Error(t, writeAggregateOutput(link, []byte("new")))
 	preserved, err := os.ReadFile(target)
 	require.NoError(t, err)
 	require.Equal(t, "unchanged", string(preserved))
+}
+
+func TestAggregateDocumentedInputBuilderUsesActualPublicReferences(t *testing.T) {
+	directory := t.TempDir()
+	backend, err := artifactmanifest.OpenLocal(directory)
+	require.NoError(t, err)
+	source := manifestfixture.Publish(t, backend, "../../examples/runner/unit.json", nil, nil)
+	require.NoError(t, backend.Close())
+	document, err := os.ReadFile("../../site/src/content/docs/guides/manifest-aggregation.mdx")
+	require.NoError(t, err)
+	const start = "node --input-type=module <<'JS'\n"
+	require.Equal(t, 1, strings.Count(string(document), start))
+	_, snippet, found := strings.Cut(string(document), start)
+	require.True(t, found)
+	snippet, _, found = strings.Cut(snippet, "\nJS\n")
+	require.True(t, found)
+	builder := exec.Command("node", "--input-type=module", "-e", snippet)
+	builder.Dir = directory
+	builder.Env = append(os.Environ(), "MANIFEST_SHA256="+source.Manifest, "EVIDENCE_SHA256="+source.Evidence)
+	output, err := builder.CombinedOutput()
+	require.NoError(t, err, string(output))
+	created, err := os.ReadFile(filepath.Join(directory, "aggregate-inputs.json"))
+	require.NoError(t, err)
+	inputs, err := manifestaggregate.ParseInputs(created)
+	require.NoError(t, err)
+	require.Equal(t, []manifestaggregate.Input{{Manifest: source.Manifest, Evidence: source.Evidence}}, inputs)
+	builder = exec.Command("node", "--input-type=module", "-e", snippet)
+	builder.Dir = directory
+	builder.Env = append(os.Environ(), "MANIFEST_SHA256="+source.Manifest, "EVIDENCE_SHA256="+source.Evidence)
+	_, err = builder.CombinedOutput()
+	require.Error(t, err, "documented builder must not replace an existing input set")
+	command := newAggregateCommand()
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	command.SetArgs([]string{"--store", directory, "--inputs", filepath.Join(directory, "aggregate-inputs.json")})
+	require.NoError(t, command.Execute(), "copied documentation must work through the actual aggregate command")
 }

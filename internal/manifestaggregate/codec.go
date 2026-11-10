@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/jsonutil"
@@ -84,6 +85,9 @@ func accounting(report Report) error {
 			counts.MemberOutcomes[string(member.Outcome)]++
 		}
 		if member.Binding != nil {
+			if !slices.IsSorted(member.Binding.GraderIDs) {
+				return fail()
+			}
 			manifests[member.Manifest] = true
 			wire, err := json.Marshal(member.Binding)
 			if err != nil {
@@ -119,6 +123,25 @@ func accounting(report Report) error {
 // Encode emits typed field order, lexical reference/profile/code order inherited
 // from Build, sorted JSON map keys, and no newline or self-referential digest.
 func Encode(report Report) ([]byte, error) {
+	for _, member := range report.Members {
+		if member.Binding != nil {
+			for _, text := range append(slices.Clone(member.Binding.GraderIDs), member.Binding.Selection.Shard, member.Binding.Selection.Task) {
+				if !utf8.ValidString(text) {
+					return nil, fmt.Errorf("%w: binding is not UTF-8", ErrInvalid)
+				}
+			}
+		}
+	}
+	if usage := report.Usage.Recorded; usage != nil {
+		if !utf8.ValidString(usage.Provider) || !utf8.ValidString(usage.ProviderHost) {
+			return nil, fmt.Errorf("%w: usage metadata is not UTF-8", ErrInvalid)
+		}
+		for model := range usage.ModelMetrics {
+			if !utf8.ValidString(model) {
+				return nil, fmt.Errorf("%w: usage model is not UTF-8", ErrInvalid)
+			}
+		}
+	}
 	data, err := json.Marshal(report)
 	if err != nil {
 		return nil, err
