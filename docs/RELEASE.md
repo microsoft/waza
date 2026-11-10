@@ -91,6 +91,9 @@ uses the same local regular-file admission; preloads never satisfy entry/style r
 The host-native checker uses the pinned public Go HTML parser, with module
 preparation separate from its offline execution. Ambient cross-compilation
 targets are cleared for the checker, not for the published binary.
+The isolated distribution fixture resolves its checker dependency versions from
+the root module graph using offline, read-only module lookup. Its empty-cache
+negative control must still fail explicitly rather than fetch missing modules.
 DOM roles require an active executable HTML script and enabled non-alternate
 stylesheet with omitted/empty type or `text/css`. Template/noscript descendants,
 comments, raw text, and foreign elements cannot satisfy those roles.
