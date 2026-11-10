@@ -1685,6 +1685,29 @@ Save stdout with `> validation.json`; identity is not proof of execution or
 duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
 See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
 
+### Checkpoint commands (unreleased source preview)
+
+```bash
+waza runner checkpoint create --store .waza-artifacts < submission.json
+waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts < submission.json
+```
+
+Both require one `waza.execution-submission` wrapper on stdin, not a bare runner
+request, and a clean VCS-stamped Waza CLI. `create` accepts no positional
+arguments; `resume` requires one full lowercase SHA-256 checkpoint digest.
+`--store` defaults to `.waza-artifacts`, an existing private local directory.
+Alternatively use `--azure-container-url` with existing authorized credentials;
+it is mutually exclusive with `--store` and does not initiate interactive login.
+
+Stdout is one capture-approved `waza.runner-checkpoint-result` JSON record.
+Stderr reports `checkpoint BOUNDARY DIGEST` after each published checkpoint.
+Finalized restore makes zero new engine calls and preserves original terminal
+exits, including failed checks 1, cancellation 3, and timeout 4. Invalid input
+or rejected restore exits 6; checkpoint publication, storage, and output failures
+exit 2. A reference can survive a failed publication and is not a success claim.
+See the [complete workflow and recovery limits](../../guides/immutable-artifacts/#checkpoint-public-source-preview).
+Installed v0.40.1 artifacts do not contain these commands.
+
 ## waza serve
 
 Standalone v0.40.0 also exposes negotiation and exact-unit validation/run through HTTP.
