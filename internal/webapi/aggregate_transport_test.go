@@ -30,13 +30,13 @@ func TestAggregateHTTPStalledBodyIsBounded(t *testing.T) {
 	defer server.Close()
 	connection, err := net.DialTimeout("tcp", strings.TrimPrefix(server.URL, "http://"), time.Second)
 	require.NoError(t, err)
-	defer connection.Close()
+	defer func() { require.NoError(t, connection.Close()) }()
 	require.NoError(t, connection.SetDeadline(time.Now().Add(8*time.Second)))
 	_, err = fmt.Fprint(connection, "POST /api/v1/aggregates HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n[")
 	require.NoError(t, err)
 	response, err := http.ReadResponse(bufio.NewReader(connection), &http.Request{Method: http.MethodPost})
 	require.NoError(t, err, "stalled input must produce a bounded explicit HTTP failure")
-	defer response.Body.Close()
+	defer func() { require.NoError(t, response.Body.Close()) }()
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusRequestTimeout, response.StatusCode)
@@ -70,7 +70,7 @@ func TestAggregateHTTPRejectedPartialInputDoesNotDrain(t *testing.T) {
 			defer server.Close()
 			connection, err := net.DialTimeout("tcp", strings.TrimPrefix(server.URL, "http://"), time.Second)
 			require.NoError(t, err)
-			defer connection.Close()
+			defer func() { require.NoError(t, connection.Close()) }()
 			require.NoError(t, connection.SetDeadline(time.Now().Add(8*time.Second)))
 			payload := strings.Repeat(" ", artifactmanifest.MaxManifestBytes+1)
 			status, code := http.StatusBadRequest, "invalid_aggregate_request"
@@ -90,7 +90,7 @@ func TestAggregateHTTPRejectedPartialInputDoesNotDrain(t *testing.T) {
 			require.NoError(t, connection.SetReadDeadline(time.Now().Add(2*time.Second)))
 			response, err := http.ReadResponse(bufio.NewReader(connection), &http.Request{Method: http.MethodPost})
 			require.NoError(t, err, "rejected partial input must not wait for the missing byte or five-second read deadline")
-			defer response.Body.Close()
+			defer func() { require.NoError(t, response.Body.Close()) }()
 			body, err := io.ReadAll(response.Body)
 			require.NoError(t, err)
 			require.Equal(t, status, response.StatusCode)
@@ -149,7 +149,7 @@ func (w *aggregateDeadlineFault) FlushError() error {
 	if w.flushError {
 		return errors.New("private flush failure")
 	}
-	w.ResponseRecorder.Flush()
+	w.Flush()
 	return nil
 }
 

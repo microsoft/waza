@@ -59,7 +59,7 @@ func postAggregateAPI(t *testing.T, directory string, inputs []manifestaggregate
 	defer server.Close()
 	response, err := server.Client().Post(server.URL+"/api/v1/aggregates", "application/json", bytes.NewReader(wire))
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { require.NoError(t, response.Body.Close()) }()
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	return response.StatusCode, body

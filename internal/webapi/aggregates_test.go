@@ -27,7 +27,7 @@ func TestAggregateAPIRejectsInvalidInputBeforeOpeningProvider(t *testing.T) {
 		t.Helper()
 		response, err := server.Client().Post(server.URL+"/api/v1/aggregates", "application/json", strings.NewReader(input))
 		require.NoError(t, err)
-		defer response.Body.Close()
+		defer func() { require.NoError(t, response.Body.Close()) }()
 		body, err := io.ReadAll(response.Body)
 		require.NoError(t, err)
 		return response.StatusCode, string(body)
