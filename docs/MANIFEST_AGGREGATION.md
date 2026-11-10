@@ -39,6 +39,16 @@ cannot choose paths, credentials, providers or budgets. Lab retains evaluated
 downloads the exact API JSON. Source links inspect manifest receipts, not
 restricted artifact payloads.
 
+Open `waza serve --lab --results-dir RESULTS_DIR`, select **Runner**, then use
+**Aggregate completed public manifests**. The store is
+`RESULTS_DIR/.waza-artifacts`, independent of the server's working directory.
+Aggregation is disabled in the synthetic demo and active non-local providers
+are rejected without attempting credential discovery.
+
+![Production Lab aggregate of an explicit mock-source fixture](images/manifest-aggregate.png)
+
+The example's usage is authored mock-source data, not observed SDK billing.
+
 **Complete means aggregate admission completed, not that any task passed.**
 Original failed, cancelled and timed-out terminal outcomes remain visible.
 Optional absent sidecars, supported metadata-only manifests and legitimate

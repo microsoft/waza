@@ -10,11 +10,34 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/manifestaggregate"
+	"github.com/microsoft/waza/internal/projectconfig"
 )
 
 // AggregateSources opens explicitly configured read-only capabilities per
 // request. Providers must not construct runtimes or discover worker-local state.
 type AggregateSources func() (manifestaggregate.Sources, func() error, error)
+
+func RegisterAggregateRoutes(mux *http.ServeMux, resultsDir string, config *projectconfig.StorageConfig) {
+	provider := manifestInspectorFor(resultsDir, config)
+	RegisterAggregateRoutesWithSources(mux, func() (manifestaggregate.Sources, func() error, error) {
+		if config != nil && config.Enabled && config.Provider != "" && config.Provider != "local" {
+			return manifestaggregate.Sources{}, nil, errors.New("aggregation does not support the configured active provider")
+		}
+		backend, closeBackend, err := provider.openBackend()
+		if err != nil {
+			return manifestaggregate.Sources{}, nil, err
+		}
+		namespace, err := artifactmanifest.NewNamespace(backend, artifactmanifest.ExecutionLedgerNamespaceV1)
+		if err != nil {
+			return manifestaggregate.Sources{}, nil, errors.Join(err, closeBackend())
+		}
+		reader, err := namespace.Reader(func(read artifactmanifest.ReadBackend) artifactmanifest.ReadBackend { return read })
+		if err != nil {
+			return manifestaggregate.Sources{}, nil, errors.Join(err, closeBackend())
+		}
+		return manifestaggregate.Sources{Objects: backend, Namespace: reader}, closeBackend, nil
+	})
+}
 
 func RegisterAggregateRoutesWithSources(mux *http.ServeMux, open AggregateSources) {
 	mux.HandleFunc("POST /api/v1/aggregates", func(w http.ResponseWriter, r *http.Request) {

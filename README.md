@@ -309,7 +309,8 @@ separate populations. Repeated executions and compatible views are retained;
 missing/conflicting inputs remain in emitted reports and exit nonzero.
 Complete admission is not a passing task or execution attestation. Historical
 usage is unavailable rather than a partial or cached subtotal. Lab's
-**Aggregates** view exposes composition, diagnostics and the exact JSON download.
+**Runner** view's **Aggregate completed public manifests** panel exposes composition,
+diagnostics and the exact JSON download.
 See [worked examples](site/src/content/docs/guides/manifest-aggregation.mdx) and
 [ordering, compatibility and migration](docs/MANIFEST_AGGREGATION.md).
 

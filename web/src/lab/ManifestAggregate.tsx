@@ -81,7 +81,7 @@ function AggregateBuilder() {
         </dl>
         {member.diagnostics.length > 0 && <ul aria-label="Member diagnostics">{member.diagnostics.map((code) => <li key={code}>{code}</li>)}</ul>}
         {member.categories.length > 0 && <div className="lab-table-scroll" tabIndex={0} role="region" aria-label="Aggregate category states">
-          <table><caption>Per-view evidence states, not payloads or assurance</caption>
+          <table className="lab-table"><caption>Per-view evidence states, not payloads or assurance</caption>
             <thead><tr><th scope="col">Category</th><th scope="col">State</th><th scope="col">Source</th><th scope="col">Observed count</th><th scope="col">Verification</th></tr></thead>
             <tbody>{member.categories.map((category) => <tr key={category.category}>
               <th scope="row">{category.category}</th><td>{category.state}</td><td>{category.source}</td>

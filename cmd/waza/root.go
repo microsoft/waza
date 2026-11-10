@@ -85,6 +85,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newRegistryCommand())
 	cmd.AddCommand(newRunnerCommand())
 	cmd.AddCommand(newArtifactCommand())
+	cmd.AddCommand(newAggregateCommand())
 	cmd.AddCommand(newInteropCommand())
 
 	return cmd

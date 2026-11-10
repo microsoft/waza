@@ -73,8 +73,8 @@ smaller records do not become an unlabeled subset total. Nothing is truncated.
 
 ## Lab and JSON downloads
 
-Open `waza dashboard --lab` with the configured results directory containing its
-existing `.waza-artifacts` store, then select **Aggregates**. Enter one manifest
+Open `waza serve --lab --results-dir RESULTS_DIR` with the configured results directory containing its
+existing `.waza-artifacts` store, then select **Runner**. In **Aggregate completed public manifests**, enter one manifest
 digest and optionally its evidence digest per line. The server reads only this
 configured local store; browser input cannot select filesystem paths or providers.
 
@@ -84,6 +84,11 @@ manifest inspection links. Evaluated incomplete/conflicting HTTP 409 reports sta
 visible and downloadable. The JSON download preserves the actual canonical API
 response; transport/malformed responses clear earlier success data instead of
 showing it as current.
+
+![Production Lab aggregate of an explicit mock-source fixture](/waza/images/manifest-aggregate.png)
+
+This producer-backed example contains author-recorded mock usage, not observed
+SDK billing or execution attestation.
 
 The aggregate response limit is 32 MiB of UTF-8 bytes, including escaped
 identifiers. The client checks member-driven admission state (conflicts take
