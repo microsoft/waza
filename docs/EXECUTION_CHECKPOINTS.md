@@ -5,8 +5,8 @@ This unreleased, partial #765 layer builds on the
 provides an embedding service and unreleased source commands
 `runner checkpoint create` and `runner checkpoint resume`. Installed v0.40.1
 artifacts do not contain these commands. Protected HTTP create/resume operations
-are registered; Lab integration, broader native-platform evidence, and full
-#755 acceptance remain pending.
+are registered and consumed by the source Lab. Broader native-platform evidence
+and full #755 acceptance remain pending.
 
 ## Supported boundaries
 
@@ -127,6 +127,15 @@ the existing `RESULTS_DIR/.waza-artifacts` store or its configured Azure provide
 request JSON cannot select host paths or provider locations. Unsupported active
 providers fail closed. No raw checkpoint GET endpoint is exposed.
 
+The source Lab's **Runner contract** page explicitly creates or resumes one unit,
+shows compatibility, source withholding, original terminal outcome/ordinal, retry
+parent or reuse source, and separate new/original engine-call counts. Unknown
+progress stays unavailable; recorded zero stays zero. It downloads the exact
+protected response, not a reconstruction or raw report. Edits, new requests and
+reload failures clear old results; demo mode has no operation inputs.
+Stopping a browser request is not proof of worker termination. This panel is
+not an ordered evaluation-wide attempt history or a whole-evaluation resume UI.
+
 `Put` can return a digest **and an error** if a blob may remain after failure.
 Preserve that reference and inspect it; never treat it as verified publication.
 Finalized checkpoint publication can fail after the original execution completed.
@@ -180,6 +189,7 @@ refuses it without new records. That control does not kill a CLI mid-dispatch.
 These are offline mock-execution controls, not native runtime, LFS installation,
 live inference, dashboard delivery, or Windows execution evidence.
 
-Lab integration, full current-head broad/platform gates and independent review
-remain release blockers. Broad test failures and timed-out lint runs are not
-passing checks even when focused recovery controls pass.
+Ordered evaluation-level lineage, generic protected submissions, full current-head
+broad/platform gates and independent review remain release blockers. Broad test
+failures and timed-out lint runs are not passing checks even when focused recovery
+controls pass.

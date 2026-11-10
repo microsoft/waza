@@ -32,7 +32,8 @@ pending; this is not available in installed v0.40.1 artifacts.
 The [checkpoint embedding preview](docs/EXECUTION_CHECKPOINTS.md) adds compatible
 whole-unit recovery. Its unreleased source CLI adds `runner checkpoint create`
 and `runner checkpoint resume`, with protected HTTP create/resume operations.
-Lab integration and full platform acceptance remain pending.
+The source Lab can create/resume checkpoints and export protected results.
+Ordered evaluation-level lineage and full platform acceptance remain pending.
 
 **v0.40.0 adds** bounded
 runner/text execution, selected AgentV assertion conversion, task-level MCP

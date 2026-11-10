@@ -14,8 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the attempt core. Finalized restore reuses the original terminal; before-unit
   restore rejects a recorded dispatch even without completion, preventing
   uncertain execution from silently rerunning. Source commands `runner checkpoint
-  create` and `runner checkpoint resume` emit capture-approved results; API/Lab
-  integration and full production-CLI/platform acceptance remain pending. See
+  create` and `runner checkpoint resume` emit capture-approved results. Protected
+  HTTP operations and the source Lab preserve original outcomes, unavailable
+  progress, and exact JSON exports without raw source inspection. Linux clean-CLI
+  boundary-kill/fresh-process controls cover offline mock work; full roadmap,
+  native-platform acceptance, and independent approval remain pending. See
   [checkpoint contracts and migration limits](docs/EXECUTION_CHECKPOINTS.md).
 
 - **Logical execution-attempt embedding API (unreleased partial #764)** - Recover

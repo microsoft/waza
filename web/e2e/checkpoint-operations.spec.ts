@@ -1,0 +1,209 @@
+import { expect, test, type Page } from "@playwright/test";
+import { copyFile, readFile } from "node:fs/promises";
+import fixtures from "./fixtures/checkpoint-operations.json" with { type: "json" };
+import type { CheckpointOperationResult } from "../src/api/checkpointResults";
+
+interface Fixture {
+  path: string;
+  request: { request: unknown };
+  admission: unknown;
+  http_status: number;
+  response: string;
+}
+
+function panel(page: Page) {
+  return page.getByRole("region", { name: "Checkpoint creation and recovery" });
+}
+
+function result(page: Page) {
+  return panel(page).getByLabel("Checkpoint operation result", { exact: true });
+}
+
+function parsed(fixture: Fixture): CheckpointOperationResult {
+  return JSON.parse(fixture.response);
+}
+
+async function prepare(page: Page, fixture: Fixture, response = fixture.response, status = fixture.http_status, exit?: string) {
+  const methods: string[] = [];
+  await page.route("**/api/v1/runner/validate", (route) => {
+    expect(route.request().postDataJSON()).toEqual(fixture.request.request);
+    return route.fulfill({ json: fixture.admission });
+  });
+  await page.route("**/api/v1/checkpoints**", (route) => {
+    methods.push(route.request().method());
+    expect(route.request().method()).toBe("POST");
+    expect(new URL(route.request().url()).pathname).toBe(fixture.path);
+    expect(route.request().postDataJSON()).toEqual(fixture.request);
+    return route.fulfill({
+      status, body: response, contentType: "application/json",
+      headers: { "X-Waza-Exit-Code": exit ?? String(parsed(fixture).exit_code) },
+    });
+  });
+  await panel(page).getByRole("textbox", { name: "Captured checkpoint submission (JSON)" }).fill(JSON.stringify(fixture.request, null, 2));
+  if (fixture.path.endsWith("/resume")) {
+    await panel(page).getByRole("textbox", { name: "Checkpoint digest to resume" }).fill(fixture.path.split("/")[4]!);
+  }
+  return methods;
+}
+
+async function run(page: Page, fixture: Fixture) {
+  await panel(page).getByRole("button", {
+    name: fixture.path.endsWith("/resume") ? "Resume checkpoint" : "Create checkpoints and run unit", exact: true,
+  }).click();
+}
+
+test.describe("Protected checkpoint operations in Lab", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [] }));
+    await page.goto("/#/lab/runner");
+  });
+
+  for (const name of ["created", "failed", "reused", "retried", "incompatible", "stale", "checkpoint_error"] as const) {
+    test(`renders and downloads actual protected producer ${name} values`, async ({ page }) => {
+      const fixture = fixtures[name];
+      const methods = await prepare(page, fixture);
+      await run(page, fixture);
+      const value = parsed(fixture);
+      const submission = value.submission;
+      const terminal = submission?.terminal;
+      await expect(result(page).locator("dd")).toHaveText([
+        value.status, String(value.exit_code), value.source?.boundary ?? "Unavailable",
+        value.source_withheld ? "Withheld - capture admission did not succeed"
+          : value.source ? "Admitted original declaration" : "Unavailable",
+        value.source?.created_at ?? "Unavailable", value.compatibility_result,
+        value.compatibility_differences.join(", ") || "None reported",
+        String(value.restored_units ?? "Unavailable"), String(value.remaining_work ?? "Unavailable"),
+        String(submission?.engine_calls ?? "Unavailable"), terminal?.outcome ?? "Unavailable",
+        String(terminal?.engine_calls ?? "Unavailable"), String(terminal?.selection?.attempt ?? "Unavailable"),
+        submission?.reservation?.execution_id ?? "Unavailable", submission?.reservation?.parent?.execution_id ?? "Unavailable",
+        submission?.reservation?.parent?.relationship ?? "Unavailable", submission?.decision?.policy ?? "Unavailable",
+        submission?.decision?.source?.execution_id ?? "Unavailable",
+        value.before_checkpoint_sha256 ?? "Unavailable", value.finalized_checkpoint_sha256 ?? "Unavailable",
+      ]);
+      const download = page.waitForEvent("download");
+      await panel(page).getByRole("button", { name: "Download checkpoint result JSON" }).click();
+      const file = await download;
+      expect(file.suggestedFilename()).toBe("waza-checkpoint-result.json");
+      const path = await file.path();
+      expect(path).not.toBeNull();
+      expect(await readFile(path!, "utf8")).toBe(fixture.response);
+      expect(methods).toEqual(["POST"]);
+      if (name === "reused") {
+        expect(value.exit_code).toBe(1);
+        expect(value.submission?.engine_calls).toBe(0);
+        expect(value.submission?.terminal?.selection?.attempt).toBe(2);
+      }
+      if (name === "retried") {
+        expect(value.source?.boundary).toBe("before-unit");
+        expect(value.submission?.reservation?.parent?.execution_id).toBe(value.source?.execution_id);
+        expect(value.submission?.reservation?.execution_id).not.toBe(value.source?.execution_id);
+        expect(value.submission?.engine_calls).toBe(1);
+        expect(value.submission?.terminal?.selection?.attempt).toBe(3);
+      }
+      if (name === "incompatible" || name === "stale") {
+        expect(value.source).toBeUndefined();
+        expect(value.restored_units).toBeNull();
+        expect(value.remaining_work).toBeNull();
+      }
+    });
+  }
+
+  for (const control of [
+    { name: "raw report", fixture: "created", mutate: (value: CheckpointOperationResult) => Reflect.set(value.submission!, "report", fixtures.created.admission) },
+    { name: "retagged original terminal", fixture: "reused", mutate: (value: CheckpointOperationResult) => { value.submission!.terminal!.selection!.attempt = 3; } },
+    { name: "foreign source execution", fixture: "reused", mutate: (value: CheckpointOperationResult) => { value.source!.execution_id = parsed(fixtures.created).submission!.reservation!.execution_id; } },
+    { name: "invented restored zero", fixture: "incompatible", mutate: (value: CheckpointOperationResult) => { value.restored_units = 0; } },
+    { name: "noncanonical original time", fixture: "reused", mutate: (value: CheckpointOperationResult) => { value.source!.created_at = "2026-11-07T16:00:00.000Z"; } },
+    { name: "same digest at different boundaries", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.finalized_checkpoint_sha256 = value.before_checkpoint_sha256; } },
+    { name: "mismatched caller identity", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.submission!.caller!.canonical_digest = "0".repeat(64); } },
+  ] as const) {
+    test(`rejects ${control.name} without rendering or exporting success`, async ({ page }) => {
+      const fixture = fixtures[control.fixture];
+      const value = parsed(fixture);
+      control.mutate(value);
+      await prepare(page, fixture, JSON.stringify(value));
+      await run(page, fixture);
+      await expect(panel(page).getByRole("alert")).toBeVisible();
+      await expect(result(page)).toHaveCount(0);
+      await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
+    });
+  }
+
+  test("invalid digest never sends admission or operation requests", async ({ page }) => {
+    let requests = 0;
+    await page.route("**/api/v1/checkpoints**", () => { requests++; });
+    await page.route("**/api/v1/runner/validate", () => { requests++; });
+    for (const digest of ["", "A".repeat(64), "a".repeat(63), "a".repeat(64) + " "]) {
+      await panel(page).getByRole("textbox", { name: "Checkpoint digest to resume" }).fill(digest);
+      await panel(page).getByRole("button", { name: "Resume checkpoint", exact: true }).click();
+      await expect(panel(page).getByRole("alert")).toContainText("full lowercase SHA-256");
+    }
+    expect(requests).toBe(0);
+  });
+
+  test("reload failure clears original success and withholds private malformed provider text", async ({ page }) => {
+    const fixture = fixtures.created;
+    await prepare(page, fixture);
+    await run(page, fixture);
+    await expect(result(page)).toBeVisible();
+    await page.route("**/api/v1/checkpoints**", (route) => route.fulfill({
+      status: 503, body: "https://private-provider.example/secret /private/operator/store",
+    }));
+    await run(page, fixture);
+    await expect(panel(page).getByRole("alert")).toBeVisible();
+    await expect(result(page)).toHaveCount(0);
+    await expect(panel(page)).not.toContainText("private-provider");
+    await expect(panel(page)).not.toContainText("/private/operator/store");
+    await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
+  });
+
+  test("editing a pending request aborts old admission without dispatching or resurrecting a result", async ({ page }) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let admissions = 0;
+    let operations = 0;
+    await page.route("**/api/v1/runner/validate", async (route) => {
+      admissions++;
+      await gate;
+      await route.fulfill({ json: fixtures.created.admission });
+    });
+    await page.route("**/api/v1/checkpoints**", () => { operations++; });
+    await run(page, fixtures.created);
+    await expect.poll(() => admissions).toBe(1);
+    await panel(page).getByRole("textbox", { name: "Captured checkpoint submission (JSON)" }).fill(JSON.stringify(fixtures.failed.request));
+    release();
+    await expect(panel(page).getByRole("button", { name: "Create checkpoints and run unit", exact: true })).toBeEnabled();
+    await expect(result(page)).toHaveCount(0);
+    expect(operations).toBe(0);
+  });
+
+  test("header and HTTP contradictions cannot become completed results", async ({ page }) => {
+    for (const [status, exit] of [[200, "6"], [409, "0"]] as const) {
+      await prepare(page, fixtures.created, fixtures.created.response, status, exit);
+      await run(page, fixtures.created);
+      await expect(panel(page).getByRole("alert")).toContainText("transport status contradicts");
+      await expect(result(page)).toHaveCount(0);
+    }
+  });
+
+  test("synthetic demo has no operation inputs or mutable requests", async ({ page }) => {
+    const calls: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/api/v1/checkpoints")) calls.push(request.method());
+    });
+    await page.goto("/#/lab/demo/runner");
+    await expect(panel(page)).toContainText("unavailable in the synthetic demo");
+    await expect(panel(page).getByRole("textbox")).toHaveCount(0);
+    await expect(panel(page).getByRole("button")).toHaveCount(0);
+    expect(calls).toEqual([]);
+  });
+
+  test("records the producer-backed failed-original reuse screenshot", async ({ page }) => {
+    await prepare(page, fixtures.reused);
+    await run(page, fixtures.reused);
+    await expect(result(page)).toContainText("evaluation_failure");
+    const path = "../docs/images/dashboard-lab-checkpoint.png";
+    await panel(page).screenshot({ path, animations: "disabled" });
+    await copyFile(path, "../site/public/images/dashboard-lab-checkpoint.png");
+  });
+});
