@@ -101,6 +101,13 @@ are integration controls, not evidence that a clean production CLI was run.
 Working-directory Git, caller JSON and version-shaped fallback strings are not
 accepted sources of build identity.
 
+The shared CLI input reader accepts an explicit bound for submission wrappers
+(`runnerunit.MaxSubmissionBytes`), including inherited stdin. It retains one
+extra byte so the strict parser can reject oversized input rather than accepting
+a truncated document. Legacy `runner run` and `runner validate` retain their
+original `runnercontract.MaxRequestBytes` bound and stdin cancellation behavior.
+This transport preparation does not expose a public checkpoint operation.
+
 `Put` can return a digest **and an error** if a blob may remain after failure.
 Preserve that reference and inspect it; never treat it as verified publication.
 Finalized checkpoint publication can fail after the original execution completed.
