@@ -168,3 +168,34 @@ func TestCheckpointPublicCLIRetainsPrivateOperationCauseOnlyInDiagnostics(t *tes
 	require.NoError(t, err)
 	require.NotContains(t, string(data), digest)
 }
+
+func TestCheckpointPublicCLIRetainsFlagFailureOnlyInOperatorDiagnostics(t *testing.T) {
+	for _, action := range []string{"create", "resume"} {
+		t.Run(action, func(t *testing.T) {
+			earlyCalls := 0
+			service := runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+				earlyCalls++
+				return nil, errors.New("must not construct")
+			})
+			revision := func() (string, error) {
+				earlyCalls++
+				return strings.Repeat("c", 40), nil
+			}
+			args := []string{action}
+			if action == "resume" {
+				args = append(args, strings.Repeat("e", 64))
+			}
+			const flag = "private-unknown-flag-control"
+			args = append(args, "--"+flag)
+			directory := t.TempDir() + "/must-not-open"
+			result, diagnostic := runCheckpointCLI(t, service, revision, directory, checkpointCLIWire(t), args...)
+			require.Equal(t, "checkpoint_flags_invalid", result.Diagnostics[0].Code)
+			require.Contains(t, diagnostic, "checkpoint flags: unknown flag: --"+flag)
+			require.Zero(t, earlyCalls)
+			require.NoDirExists(t, directory)
+			public, err := runnercheckpoint.EncodeResult(result)
+			require.NoError(t, err)
+			require.NotContains(t, string(public), flag)
+		})
+	}
+}

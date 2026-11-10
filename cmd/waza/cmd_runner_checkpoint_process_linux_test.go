@@ -38,6 +38,34 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 	require.Equal(t, "false", settings["vcs.modified"], "recovery requires an actual clean VCS-stamped CLI; commit source before running this process fixture")
 	require.Len(t, settings["vcs.revision"], 40)
 
+	for _, action := range []string{"create", "resume"} {
+		t.Run(action+"-flag-diagnostics", func(t *testing.T) {
+			directory := filepath.Join(t.TempDir(), "must-not-open")
+			args := []string{"runner", "checkpoint", action}
+			if action == "resume" {
+				args = append(args, strings.Repeat("e", 64))
+			}
+			const flag = "private-unknown-flag-control"
+			args = append(args, "--store", directory, "--"+flag)
+			command := exec.CommandContext(t.Context(), binary, args...)
+			command.Stdin = bytes.NewReader(checkpointCLIWire(t))
+			var output, diagnostic bytes.Buffer
+			command.Stdout, command.Stderr = &output, &diagnostic
+			err := command.Run()
+			exit, ok := errors.AsType[*exec.ExitError](err)
+			require.True(t, ok, "%v", err)
+			require.Equal(t, 6, exit.ExitCode())
+			result, err := runnercheckpoint.ParseResult(output.Bytes())
+			require.NoError(t, err, "%s", output.Bytes())
+			require.Equal(t, exit.ExitCode(), result.ExitCode)
+			require.Equal(t, "checkpoint_flags_invalid", result.Diagnostics[0].Code)
+			require.Equal(t, 1, bytes.Count(output.Bytes(), []byte{'\n'}))
+			require.NotContains(t, output.String(), flag)
+			require.Contains(t, diagnostic.String(), "checkpoint flags: unknown flag: --"+flag)
+			require.NoDirExists(t, directory)
+		})
+	}
+
 	for _, control := range []struct {
 		name, boundary string
 		failedChecks   bool
