@@ -66,6 +66,37 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 		})
 	}
 
+	for _, stage := range []string{"read", "admission"} {
+		t.Run("stdin-"+stage+"-diagnostics", func(t *testing.T) {
+			directory := filepath.Join(t.TempDir(), "must-not-open")
+			command := exec.CommandContext(t.Context(), binary, "runner", "checkpoint", "create", "--store", directory)
+			code, cause := "checkpoint_input_invalid", "unexpected EOF"
+			command.Stdin = bytes.NewReader([]byte("{"))
+			if stage == "read" {
+				input, err := os.Open(t.TempDir())
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, input.Close()) })
+				command.Stdin = input
+				code, cause = "checkpoint_input_unavailable", "is a directory"
+			}
+			var output, diagnostic bytes.Buffer
+			command.Stdout, command.Stderr = &output, &diagnostic
+			err := command.Run()
+			exit, ok := errors.AsType[*exec.ExitError](err)
+			require.True(t, ok, "%v", err)
+			result, err := runnercheckpoint.ParseResult(output.Bytes())
+			require.NoError(t, err, "%s", output.Bytes())
+			require.Equal(t, 6, exit.ExitCode())
+			require.Equal(t, exit.ExitCode(), result.ExitCode)
+			require.Equal(t, code, result.Diagnostics[0].Code)
+			require.Equal(t, 1, bytes.Count(output.Bytes(), []byte{'\n'}))
+			require.Contains(t, diagnostic.String(), "checkpoint input "+stage+":")
+			require.Contains(t, diagnostic.String(), cause)
+			require.NotContains(t, output.String(), cause)
+			require.NoDirExists(t, directory)
+		})
+	}
+
 	for _, control := range []struct {
 		name, boundary string
 		failedChecks   bool

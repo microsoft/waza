@@ -34,6 +34,10 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 		}
 		return emitRunnerOperationJSON(cmd, data, result.ExitCode, result.Status)
 	}
+	rejectWithDiagnostic := func(cmd *cobra.Command, code, stage string, cause error) error {
+		_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint %s: %v\n", stage, cause)
+		return errors.Join(emit(cmd, runnercheckpoint.RejectPublic(code)), diagnosticErr)
+	}
 	for _, action := range []string{"create", "resume"} {
 		unit := &cobra.Command{
 			Use: action, Short: "Read one captured submission from stdin; emit one protected checkpoint result",
@@ -54,15 +58,14 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 				defer stop()
 				data, err := readRunnerInputLimit(ctx, cmd.InOrStdin(), runnerunit.MaxSubmissionBytes)
 				if err != nil {
-					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_input_unavailable"))
+					return rejectWithDiagnostic(cmd, "checkpoint_input_unavailable", "input read", err)
 				}
 				if _, err := runnerunit.ParseSubmission(data); err != nil {
-					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_input_invalid"))
+					return rejectWithDiagnostic(cmd, "checkpoint_input_invalid", "input admission", err)
 				}
 				buildRevision, err := revision()
 				if err != nil {
-					_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint build admission: %v\n", err)
-					return errors.Join(emit(cmd, runnercheckpoint.RejectPublic("checkpoint_build_incompatible")), diagnosticErr)
+					return rejectWithDiagnostic(cmd, "checkpoint_build_incompatible", "build admission", err)
 				}
 				checkpoints, err := runnercheckpoint.NewService(service, buildRevision)
 				if err != nil {
@@ -96,8 +99,7 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 			unit.Use = "resume CHECKPOINT_SHA256"
 		}
 		unit.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
-			_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint flags: %v\n", err)
-			return errors.Join(emit(cmd, runnercheckpoint.RejectPublic("checkpoint_flags_invalid")), diagnosticErr)
+			return rejectWithDiagnostic(cmd, "checkpoint_flags_invalid", "flags", err)
 		})
 		cmd.AddCommand(unit)
 	}
