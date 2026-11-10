@@ -852,7 +852,7 @@ Every adversarial task is marked `golden: true`, so unsafe outcomes also flip `w
 | `--workers` | `0` | Concurrent task workers (`0` = sequential). |
 | `--parallel` | `false` | Enable parallel task execution. |
 | `--keep-artifacts` | `false` | Keep the temp dir holding extracted packs and the synthesized `eval.yaml`. |
-| `--artifacts-dir` | _(temp)_ | Override the artifacts root. Implies `--keep-artifacts`. |
+| `--artifacts-dir` | _(temp)_ | Override the artifacts root (bare relative, `./relative`, or absolute path). Implies `--keep-artifacts`. |
 | `-v`, `--verbose` | `false` | Verbose progress output. |
 
 ### Exit codes
@@ -1159,6 +1159,15 @@ waza tokens check code-explainer
 
 Token limits are resolved in priority order: `.waza.yaml tokens.limits` → `.token-limits.json` (deprecated; migrate to .waza.yaml) → built-in defaults.
 See the **[Token Limits guide](../../guides/token-limits/)** for configuration details, pattern syntax, and migration instructions.
+
+Budget checks are advisory (exit 0) unless `--strict` is supplied. Strict
+over-budget checks exit 1, including multi-skill workspace checks. Invalid
+explicitly selected input, such as a missing file, exits 2. A strict check
+within budget still exits 0.
+If a strict batch has both a budget excess and an unreadable skill, exit 2
+takes precedence over the budget-only exit 1. Per-skill batch read failures
+retain their existing warning-only handling when no strict budget failure is
+selected; those batches can exit 0 even with `--strict`.
 
 Configure per-file limits in `.waza.yaml`:
 

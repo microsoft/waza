@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -132,6 +133,26 @@ func TestCacheKey(t *testing.T) {
 	key2, err := CacheKey(spec, task, tempDir)
 	require.NoError(t, err)
 	assert.Equal(t, key1, key2)
+}
+
+func TestCacheKey_HookInputsChangeKey(t *testing.T) {
+	task := &models.TestCase{TestID: "hook-task", Stimulus: models.TaskStimulus{Message: "go"}}
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "hook-eval"},
+		Config:       models.Config{ModelID: "mock"},
+		Inputs:       map[string]string{"marker": "first"},
+		Hooks: hooks.HooksConfig{
+			BeforeTask: []hooks.HookConfig{{Command: "select {{.Vars.marker}}"}},
+		},
+	}
+
+	first, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+	spec.Inputs["marker"] = "second"
+	second, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+
+	require.NotEqual(t, first, second)
 }
 
 func TestCacheKey_DifferentModelChangesKey(t *testing.T) {
