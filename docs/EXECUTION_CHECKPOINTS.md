@@ -172,7 +172,8 @@ budgets are unchanged. A timeout remains a publication failure: preserve the
 original completion and any reported unverified blob rather than retrying.
 The CLI sends underlying operation errors to bounded operator stderr while
 keeping the public JSON diagnostic sanitized. Conflicting store flags also use
-the single-record JSON rejection path.
+the single-record JSON rejection path. Build-revision admission failures retain
+their actionable cause and rebuild guidance on operator stderr as well.
 
 ## Migration and validation limits
 

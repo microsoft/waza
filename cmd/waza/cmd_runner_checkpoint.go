@@ -61,7 +61,8 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 				}
 				buildRevision, err := revision()
 				if err != nil {
-					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_build_incompatible"))
+					_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint build admission: %v\n", err)
+					return errors.Join(emit(cmd, runnercheckpoint.RejectPublic("checkpoint_build_incompatible")), diagnosticErr)
 				}
 				checkpoints, err := runnercheckpoint.NewService(service, buildRevision)
 				if err != nil {
