@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/schemas"
@@ -24,15 +25,16 @@ import (
 // defaultPrinter is used to format schema validation error messages.
 var defaultPrinter = message.NewPrinter(language.English)
 
-// evalSchema is the compiled JSON Schema for eval.yaml files.
-var evalSchema *jsonschema.Schema
+// Schemas are compiled on first use so commands that do not validate YAML do
+// not pay the compilation cost during process startup.
+var evalSchema = compileSchemaOnce(schemas.EvalSchemaJSON, "eval.schema.json")
 
-// taskSchema is the compiled JSON Schema for task YAML files.
-var taskSchema *jsonschema.Schema
+var taskSchema = compileSchemaOnce(schemas.TaskSchemaJSON, "task.schema.json")
 
-func init() {
-	evalSchema = mustCompileSchema(schemas.EvalSchemaJSON, "eval.schema.json")
-	taskSchema = mustCompileSchema(schemas.TaskSchemaJSON, "task.schema.json")
+func compileSchemaOnce(raw string, name string) func() *jsonschema.Schema {
+	return sync.OnceValue(func() *jsonschema.Schema {
+		return mustCompileSchema(raw, name)
+	})
 }
 
 func mustCompileSchema(raw string, name string) *jsonschema.Schema {
@@ -155,12 +157,12 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 
 // ValidateEvalBytes validates raw YAML bytes against the eval schema.
 func ValidateEvalBytes(data []byte) []string {
-	return validateYAMLBytes(evalSchema, data)
+	return validateYAMLBytes(evalSchema(), data)
 }
 
 // ValidateTaskBytes validates raw YAML bytes against the task schema.
 func ValidateTaskBytes(data []byte) []string {
-	return validateYAMLBytes(taskSchema, data)
+	return validateYAMLBytes(taskSchema(), data)
 }
 
 func validateYAMLBytes(schema *jsonschema.Schema, data []byte) []string {
