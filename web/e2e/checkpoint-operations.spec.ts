@@ -58,7 +58,7 @@ test.describe("Protected checkpoint operations in Lab", () => {
     await page.goto("/#/lab/runner");
   });
 
-  for (const name of ["created", "failed", "reused", "retried", "execution_error", "reused_error", "incompatible", "stale", "checkpoint_error"] as const) {
+  for (const name of ["created", "unicode", "failed", "reused", "retried", "execution_error", "reused_error", "incompatible", "stale", "checkpoint_error"] as const) {
     test(`renders and downloads actual protected producer ${name} values`, async ({ page }) => {
       const fixture = fixtures[name];
       const methods = await prepare(page, fixture);
@@ -112,6 +112,19 @@ test.describe("Protected checkpoint operations in Lab", () => {
     { name: "raw report", fixture: "created", mutate: (value: CheckpointOperationResult) => Reflect.set(value.submission!, "report", fixtures.created.admission) },
     { name: "retagged original terminal", fixture: "reused", mutate: (value: CheckpointOperationResult) => { value.submission!.terminal!.selection!.attempt = 3; } },
     { name: "foreign source execution", fixture: "reused", mutate: (value: CheckpointOperationResult) => { value.source!.execution_id = parsed(fixtures.created).submission!.reservation!.execution_id; } },
+    { name: "foreign source completion digest", fixture: "reused", mutate: (value: CheckpointOperationResult) => { value.source!.completion_digest = "0".repeat(64); } },
+    { name: "foreign distinct execution decision", fixture: "created", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.decision!.execution_id = parsed(fixtures.failed).submission!.reservation!.execution_id;
+    } },
+    { name: "foreign decision caller", fixture: "created", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.decision!.binding.identity.canonical_digest = "0".repeat(64);
+    } },
+    { name: "foreign reuse execution mode", fixture: "reused", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.decision!.binding.execution_mode = "copilot";
+    } },
+    { name: "contradictory observed grading status", fixture: "created", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.terminal!.observation!.validations[0]!.passed = false;
+    } },
     { name: "invented restored zero", fixture: "incompatible", mutate: (value: CheckpointOperationResult) => { value.restored_units = 0; } },
     { name: "noncanonical original time", fixture: "reused", mutate: (value: CheckpointOperationResult) => { value.source!.created_at = "2026-11-07T16:00:00.000Z"; } },
     { name: "same digest at different boundaries", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.finalized_checkpoint_sha256 = value.before_checkpoint_sha256; } },
@@ -125,6 +138,14 @@ test.describe("Protected checkpoint operations in Lab", () => {
       const verdict = { identifier: value.submission!.reservation!.binding.grader_ids[0]!, passed: false };
       value.submission!.terminal!.observation!.validations = [verdict, { ...verdict }];
     } },
+    ...(["created", "checkpoint_error"] as const).flatMap((fixture) => [
+      { name: `${fixture} foreign completion execution`, fixture, mutate: (value: CheckpointOperationResult) => {
+        value.submission!.completion!.execution_id = parsed(fixtures.failed).submission!.reservation!.execution_id;
+      } },
+      { name: `${fixture} foreign completion reservation`, fixture, mutate: (value: CheckpointOperationResult) => {
+        value.submission!.completion!.reservation_digest = "0".repeat(64);
+      } },
+    ]),
   ] as const) {
     test(`rejects ${control.name} without rendering or exporting success`, async ({ page }) => {
       const fixture = fixtures[control.fixture];

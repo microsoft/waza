@@ -27,8 +27,10 @@ interface SubmissionResult {
   engine_calls: number;
   caller?: RunnerIdentity;
   reservation?: {
+    kind: "waza.execution-attempt";
+    schema_version: "1.0";
     execution_id: string;
-    logical: { work: string };
+    logical: { run: string; work: string };
     parent?: { execution_id: string; relationship: "retry" | "branch" };
     binding: {
       identity: RunnerIdentity;
@@ -37,8 +39,21 @@ interface SubmissionResult {
       grader_ids: string[];
     };
   };
-  completion?: { execution_id: string; manifest_digest: string; reservation_digest: string };
-  decision?: { policy: "distinct" | "reuse"; source?: SourceReference };
+  completion?: {
+    kind: "waza.execution-completion";
+    schema_version: "1.0";
+    execution_id: string;
+    manifest_digest: string;
+    reservation_digest: string;
+  };
+  decision?: {
+    policy: "distinct" | "reuse";
+    outcome: string;
+    execution_id?: string;
+    logical: { run: string; work: string };
+    binding: NonNullable<SubmissionResult["reservation"]>["binding"];
+    source?: SourceReference;
+  };
   terminal?: RunnerTerminal;
   diagnostics: { code: string; message: string }[];
 }
@@ -79,6 +94,53 @@ for (const schema of [
 ]) ajv.addSchema(schema);
 const validate = ajv.compile<CheckpointOperationResult>(resultSchema);
 
+async function goJSONDigest(value: object): Promise<string> {
+  const canonical = JSON.stringify(value).replace(
+    /[<>&\u2028\u2029]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+  if (!globalThis.crypto?.subtle) throw new Error("Checkpoint declaration hashing requires browser Web Crypto.");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function sortedGraders(ids: string[]): string[] {
+  const encoder = new TextEncoder();
+  return ids.map((id) => ({ id, bytes: encoder.encode(id) })).sort((a, b) => {
+    for (let index = 0; index < Math.min(a.bytes.length, b.bytes.length); index++) {
+      const difference = a.bytes[index]! - b.bytes[index]!;
+      if (difference) return difference;
+    }
+    return a.bytes.length - b.bytes.length;
+  }).map(({ id }) => id);
+}
+
+function sameGraders(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+async function reservationDigest(reservation: NonNullable<SubmissionResult["reservation"]>): Promise<string> {
+  const { identity, selection, execution_mode, grader_ids } = reservation.binding;
+  // Match executionattempt.EncodeAttempt: typed field order, UTF-8 grader
+  // ordering and compact Go JSON escaping, independent of response key order.
+  return goJSONDigest({
+    kind: reservation.kind, schema_version: reservation.schema_version,
+    logical: { run: reservation.logical.run, work: reservation.logical.work },
+    execution_id: reservation.execution_id,
+    binding: {
+      identity: {
+        version: identity.version, canonical_digest: identity.canonical_digest,
+        run: identity.run, shard: identity.shard, task: identity.task,
+        trial: identity.trial, attempt: identity.attempt,
+      },
+      selection: { shard: selection.shard, task: selection.task, trial: selection.trial, attempt: selection.attempt },
+      execution_mode, grader_ids: sortedGraders(grader_ids),
+    },
+    ...(reservation.parent ? { parent: {
+      execution_id: reservation.parent.execution_id, relationship: reservation.parent.relationship,
+    } } : {}),
+  });
+}
+
 function isCanonicalCheckpointTime(value: string): boolean {
   const match = value.match(/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.[0-9]{0,8}[1-9])?Z$/);
   const seconds = match?.[1];
@@ -89,7 +151,7 @@ function isCanonicalCheckpointTime(value: string): boolean {
 
 // These checks consume protected responses; they do not authorize disclosure
 // or turn declaration-only hashes into runtime or recovery evidence.
-export function parseCheckpointOperationResult(text: string): CheckpointOperationResult {
+export async function parseCheckpointOperationResult(text: string): Promise<CheckpointOperationResult> {
   const value = parseStrictJSON(text);
   if (!validate(value)) throw new Error("Checkpoint API returned an invalid operation result.");
   if (value.source && !isCanonicalCheckpointTime(value.source.created_at)) {
@@ -111,6 +173,37 @@ export function parseCheckpointOperationResult(text: string): CheckpointOperatio
   }
   const binding = submission?.reservation?.binding;
   const terminal = submission?.terminal;
+  const reservation = submission?.reservation;
+  const decision = submission?.decision;
+  if (reservation && binding &&
+      (reservation.logical.run !== binding.identity.run || reservation.logical.work !== binding.identity.trial ||
+       submission?.caller?.run !== reservation.logical.run || submission.caller.trial !== reservation.logical.work ||
+       (!decision && !sameRunnerIdentity(submission.caller, binding.identity)))) {
+    throw new Error("Checkpoint reservation contradicts its original logical work.");
+  }
+  if (decision && reservation && binding) {
+    const caller = decision.binding;
+    if (!sameRunnerIdentity(caller.identity, submission?.caller) ||
+        decision.logical.run !== reservation.logical.run || decision.logical.work !== reservation.logical.work) {
+      throw new Error("Checkpoint decision contradicts its caller or original logical work.");
+    }
+    if (decision.policy === "distinct"
+      ? decision.execution_id !== reservation.execution_id ||
+        !sameRunnerIdentity(caller.identity, binding.identity) || !sameSelection(caller.selection, binding.selection) ||
+        caller.execution_mode !== binding.execution_mode || !sameGraders(caller.grader_ids, binding.grader_ids)
+      : decision.outcome !== "reused" || decision.source?.execution_id !== reservation.execution_id ||
+        (["version", "run", "shard", "task", "trial"] as const).some((key) => caller.identity[key] !== binding.identity[key]) ||
+        caller.selection.shard !== binding.selection.shard || caller.selection.task !== binding.selection.task ||
+        caller.selection.trial !== binding.selection.trial || caller.execution_mode !== binding.execution_mode ||
+        !sameGraders(sortedGraders(caller.grader_ids), binding.grader_ids)) {
+      throw new Error("Checkpoint decision contradicts its original execution binding.");
+    }
+  }
+  if (submission?.completion &&
+      (!submission.reservation || submission.completion.execution_id !== submission.reservation.execution_id ||
+       submission.completion.reservation_digest !== await reservationDigest(submission.reservation))) {
+    throw new Error("Checkpoint completion contradicts its canonical original reservation.");
+  }
   if (terminal && submission &&
       ((submission.status !== "submission_error" && submission.exit_code !== terminal.exit_code) ||
        (submission.status !== "reused" && submission.engine_calls !== terminal.engine_calls))) {
@@ -128,7 +221,9 @@ export function parseCheckpointOperationResult(text: string): CheckpointOperatio
         observed.run_number !== terminal.selection?.trial || observed.attempts !== terminal.selection?.attempt ||
         observed.engine_calls !== terminal.engine_calls || new Set(ids).size !== ids.length ||
         (observed.status !== "error" && ids.length !== binding.grader_ids.length) ||
-        ids.some((id) => !binding.grader_ids.includes(id))) {
+        ids.some((id) => !binding.grader_ids.includes(id)) ||
+        (observed.status !== "error" &&
+         (observed.status === "failed") !== observed.validations.some((verdict) => !verdict.passed))) {
       throw new Error("Checkpoint observation contradicts its original binding.");
     }
   }
@@ -149,6 +244,13 @@ export function parseCheckpointOperationResult(text: string): CheckpointOperatio
         submission.decision?.source?.execution_id !== source.execution_id ||
         submission.decision.source.manifest_digest !== source.manifest_digest) {
       throw new Error("Checkpoint reuse does not retain its exact original source.");
+    }
+    const completion = submission.completion;
+    if (source.completion_digest !== await goJSONDigest({
+      kind: completion.kind, schema_version: completion.schema_version, execution_id: completion.execution_id,
+      reservation_digest: completion.reservation_digest, manifest_digest: completion.manifest_digest,
+    })) {
+      throw new Error("Checkpoint reuse contradicts its canonical original completion.");
     }
   }
   if (value.source?.boundary === "before-unit" && submission?.reservation) {
@@ -191,7 +293,7 @@ export async function runCheckpointOperation(
     signal: AbortSignal.any([signal, AbortSignal.timeout(wrapper.request.timeout_ms + 30_000)]),
   });
   const json = await response.text();
-  const result = parseCheckpointOperationResult(json);
+  const result = await parseCheckpointOperationResult(json);
   if (response.headers.get("X-Waza-Exit-Code") !== String(result.exit_code) ||
       (!response.ok && (result.status === "completed" || result.status === "reused"))) {
     throw new Error("Checkpoint transport status contradicts its operation result.");

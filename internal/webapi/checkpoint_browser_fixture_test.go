@@ -20,6 +20,7 @@ import (
 	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
+	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
@@ -95,6 +96,26 @@ func TestCheckpointBrowserFixturesHaveActualProtectedHTTPProducers(t *testing.T)
 	success := record("created", "/api/v1/checkpoints", wire, http.StatusOK)
 	require.Equal(t, "completed", success.Status)
 	require.Equal(t, 1, success.Submission.EngineCalls)
+
+	unicodeSubmission, err := runnerunit.ParseSubmission(wire)
+	require.NoError(t, err)
+	unicodeRequest, err := runnercontract.Parse(unicodeSubmission.Request)
+	require.NoError(t, err)
+	unicodeRequest.Input.Eval += "graders:\n" +
+		"  - name: \"<>&\\u2028\\u2029\"\n    type: text\n    config:\n      contains: [hello]\n" +
+		"  - name: \"\\uE000\"\n    type: text\n    config:\n      contains: [hello]\n" +
+		"  - name: \"\\U00010000\"\n    type: text\n    config:\n      contains: [hello]\n"
+	unicodeSubmission.Request, err = json.Marshal(unicodeRequest)
+	require.NoError(t, err)
+	unicodeWire, err := json.Marshal(unicodeSubmission)
+	require.NoError(t, err)
+	require.NotEqual(t, wire, unicodeWire)
+	_, err = runnerunit.ParseSubmission(unicodeWire)
+	require.NoError(t, err)
+	unicodeResult := record("unicode", "/api/v1/checkpoints", unicodeWire, http.StatusOK)
+	for _, identifier := range []string{"<>&\u2028\u2029", "\uE000", "\U00010000"} {
+		require.Contains(t, unicodeResult.Submission.Reservation.Binding.GraderIDs, identifier)
+	}
 
 	failedWire := bytes.Replace(wire, []byte("- hello"), []byte("- missing-browser-control"), 1)
 	require.NotEqual(t, wire, failedWire)

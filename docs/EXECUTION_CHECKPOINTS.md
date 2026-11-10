@@ -137,6 +137,9 @@ Contradictory original terminal exits or new engine-call counts are rejected,
 not displayed or exported as successful results.
 Error observations may retain partial or empty grader verdicts; they are not
 reclassified as successfully graded work.
+Completion declarations must match the original execution ID and canonical
+reservation digest before display or download. This checks declaration linkage,
+not storage integrity or execution authority.
 Stopping a browser request is not proof of worker termination. This panel is
 not an ordered evaluation-wide attempt history or a whole-evaluation resume UI.
 
