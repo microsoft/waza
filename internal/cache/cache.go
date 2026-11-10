@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -34,6 +35,7 @@ func New(dir string) *Cache {
 // - model ID
 // - fixture file hashes
 // - the task's effective MCP mocks, with fixture contents resolved
+// - lifecycle hooks and eval inputs when hooks are configured
 // MCP fixtures use fixtureDir as their base; use CacheKeyWithSpecDir when the
 // eval and task resource directories differ.
 func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (string, error) {
@@ -105,6 +107,25 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 	}
 	if _, err := h.Write(gradersJSON); err != nil {
 		return "", err
+	}
+
+	if len(spec.Hooks.BeforeRun)+len(spec.Hooks.AfterRun)+len(spec.Hooks.BeforeTask)+len(spec.Hooks.AfterTask) > 0 {
+		if err := writeString(h, "hook-inputs-v1"); err != nil {
+			return "", err
+		}
+		hookContextJSON, err := json.Marshal(struct {
+			Hooks  hooks.HooksConfig `json:"hooks"`
+			Inputs map[string]string `json:"inputs"`
+		}{
+			Hooks:  spec.Hooks,
+			Inputs: spec.Inputs,
+		})
+		if err != nil {
+			return "", fmt.Errorf("marshaling hook cache context: %w", err)
+		}
+		if _, err := h.Write(hookContextJSON); err != nil {
+			return "", err
+		}
 	}
 
 	// Include task definition
