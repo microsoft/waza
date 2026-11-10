@@ -223,6 +223,108 @@ func TestCaptureWithholdsRestrictedBytesBeforeAnyObjectPersistence(t *testing.T)
 	}
 }
 
+func TestCaptureWithholdsCredentialShapedFreeformKeysBeforePersistence(t *testing.T) {
+	for _, field := range []string{"args", "result", "details"} {
+		for _, restricted := range []bool{false, true} {
+			t.Run(field+map[bool]string{false: "/ordinary", true: "/restricted"}[restricted], func(t *testing.T) {
+				report := capturedMockReport(t)
+				key := "ordinary-field"
+				if restricted {
+					key = "ghp_" + strings.Repeat("x", 40)
+				}
+				nested := map[string]any{"nested": []any{map[string]any{key: "ordinary value"}}}
+				category := Tool
+				event := models.ToolEvent{Turn: 1, Sequence: 1, ToolName: "test", Success: true}
+				switch field {
+				case "args":
+					event.Args = nested
+				case "result":
+					event.Result = nested
+				case "details":
+					category = Grader
+					if len(report.Observation.Validations) == 0 {
+						t.Fatal("production report has no grader to exercise")
+					}
+					for name, grader := range report.Observation.Validations {
+						grader.Details = nested
+						report.Observation.Validations[name] = grader
+					}
+				}
+				report.Observation.ToolEvents = []models.ToolEvent{event}
+				p, err := CaptureReport(report, []Category{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				backend, published := persistCaptureFixture(t, p)
+				_, categories, err := InspectCategories(t.Context(), backend, published.EvidenceSHA256)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found := false
+				for _, result := range categories {
+					if result.Category == category {
+						found = true
+						expected := Present
+						if restricted {
+							expected = Redacted
+						}
+						if result.State != expected {
+							t.Fatalf("freeform key disclosure state: got %s, want %s", result.State, expected)
+						}
+					}
+				}
+				if !found {
+					t.Fatal("inspection omitted the exercised category")
+				}
+				origin, err := artifactmanifest.NewStore(backend).ReadCompleted(t.Context(), published.Document.OriginManifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				retained := false
+				for _, artifact := range origin.Manifest.Artifacts {
+					data, err := backend.Get(t.Context(), "blob-"+artifact.SHA256, artifactmanifest.MaxArtifactBytes)
+					if err != nil {
+						t.Fatal(err)
+					}
+					retained = retained || bytes.Contains(data, []byte(key))
+				}
+				if retained == restricted {
+					t.Fatal("persisted bytes did not honor the freeform key policy")
+				}
+			})
+		}
+	}
+}
+
+func TestEncodeCaptureRejectsOriginalInvalidUTF8Binding(t *testing.T) {
+	for _, field := range []string{"task", "shard", "grader"} {
+		t.Run(field, func(t *testing.T) {
+			p, err := CaptureReport(capturedMockReport(t), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var identifier *string
+			switch field {
+			case "task":
+				identifier = &p.index.Binding.Selection.Task
+			case "shard":
+				identifier = &p.index.Binding.Selection.Shard
+			case "grader":
+				p.index.Binding.GraderIDs = []string{"valid"}
+				identifier = &p.index.Binding.GraderIDs[0]
+			}
+			*identifier = "\ufffd"
+			if _, err := EncodeCapture(p.index); err != nil {
+				t.Fatalf("valid UTF-8 alternative was rejected: %v", err)
+			}
+			*identifier = string([]byte{0xff})
+			if data, err := EncodeCapture(p.index); !errors.Is(err, ErrInvalid) || data != nil {
+				t.Fatal("capture encoder repaired an invalid original binding")
+			}
+		})
+	}
+}
+
 func TestCaptureIndexStrictnessAndCategoryKeyedComparison(t *testing.T) {
 	p, err := CaptureReport(capturedMockReport(t), nil)
 	if err != nil {
