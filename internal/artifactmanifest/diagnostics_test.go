@@ -13,8 +13,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 )
 
@@ -419,6 +421,111 @@ func TestDiagnosticsAzureDefaultRetriesPreserveUnknown(t *testing.T) {
 	if !errors.Is(err, ErrOccupied) || result.Outcome != DiagnosticOccupied ||
 		result.ObservedNext == nil || result.Created != nil || transport.puts.Load() != 2 {
 		t.Fatalf("known occupied result changed: outcome=%s PUTs=%d err=%v", result.Outcome, transport.puts.Load(), err)
+	}
+}
+
+type diagnosticTimeoutTransport struct {
+	*diagnosticRetryTransport
+	commitBeforeTimeout bool
+	deadlineRemaining   time.Duration
+	lost                error
+}
+
+func (d *diagnosticTimeoutTransport) Do(request *http.Request) (*http.Response, error) {
+	if request.Method != http.MethodPut {
+		return d.diagnosticRetryTransport.Do(request)
+	}
+	d.puts.Add(1)
+	deadline, ok := request.Context().Deadline()
+	if !ok {
+		return nil, errors.New("diagnostic PUT has no configured request deadline")
+	}
+	d.deadlineRemaining = time.Until(deadline)
+	if d.commitBeforeTimeout {
+		response, err := d.fakeAzure.Do(request)
+		if err != nil {
+			return nil, err
+		}
+		if err := response.Body.Close(); err != nil {
+			return nil, err
+		}
+	}
+	<-request.Context().Done()
+	return nil, errors.Join(d.lost, request.Context().Err())
+}
+
+func TestDiagnosticsAzureConfiguredTryTimeoutPreservesUnknown(t *testing.T) {
+	for _, committed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("committed=%t", committed), func(t *testing.T) {
+			const tryTimeout = 50 * time.Millisecond
+			lost := errors.New("diagnostic PUT timed out without a response")
+			transport := &diagnosticTimeoutTransport{
+				diagnosticRetryTransport: &diagnosticRetryTransport{
+					fakeAzure: &fakeAzure{objects: make(map[string][]byte)},
+					getError:  errors.New("transient read response lost"),
+				},
+				commitBeforeTimeout: committed,
+				lost:                lost,
+			}
+			var retryDecisions atomic.Int32
+			options := &container.ClientOptions{ClientOptions: azcore.ClientOptions{
+				Transport: transport,
+				Retry: policy.RetryOptions{
+					MaxRetries: 2, TryTimeout: tryTimeout, RetryDelay: time.Millisecond,
+					ShouldRetry: func(_ *http.Response, err error) bool {
+						retryDecisions.Add(1)
+						return err != nil
+					},
+				},
+			}}
+			backend, err := NewAzure("https://offline.invalid/container", offlineCredential{}, options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, err := NewDiagnostics(backend, allowDiagnostic)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope, err := store.Scope(Scope{
+				ExecutionID: "exec-" + strings.Repeat("a", 64), ReservationDigest: strings.Repeat("b", 64),
+				InvocationID: "inv-" + strings.Repeat("c", 64),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pending := prepareDiagnostic(t, scope, nil, `{"event":"requested"}`)
+			ctx := context.Background()
+			result, err := scope.Commit(ctx, pending)
+			if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, lost) ||
+				result.Outcome != DiagnosticUnknown || result.Created != nil || result.ObservedNext != nil ||
+				result.Pending.state != pending.state || !bytes.Equal(result.Pending.Bytes(), pending.Bytes()) ||
+				transport.puts.Load() != 1 || transport.gets.Load() != 0 ||
+				transport.deadlineRemaining <= 0 || transport.deadlineRemaining > tryTimeout ||
+				retryDecisions.Load() != 1 || ctx.Err() != nil {
+				t.Fatalf("configured timeout/options lost: outcome=%s PUTs=%d GETs=%d deadline=%v retry decisions=%d err=%v",
+					result.Outcome, transport.puts.Load(), transport.gets.Load(),
+					transport.deadlineRemaining, retryDecisions.Load(), err)
+			}
+			if options.Retry.MaxRetries != 2 || options.Retry.TryTimeout != tryTimeout ||
+				options.Retry.RetryDelay != time.Millisecond || options.Retry.ShouldRetry == nil {
+				t.Fatal("diagnostic create mutated caller retry options")
+			}
+			transport.failGetOnce.Store(true)
+			observation, err := scope.Reconcile(ctx, result.Pending)
+			if committed {
+				if err != nil || observation.Outcome != DiagnosticMatching || observation.Observed == nil ||
+					!bytes.Equal(observation.Observed.Bytes, pending.Bytes()) {
+					t.Fatalf("timed-out committed write did not reconcile: %+v %v", observation, err)
+				}
+			} else if !errors.Is(err, ErrMissing) || observation.Outcome != DiagnosticMissing || observation.Observed != nil {
+				t.Fatalf("timed-out uncommitted write was not missing: %+v %v", observation, err)
+			}
+			if transport.puts.Load() != 1 || transport.gets.Load() != 2 || retryDecisions.Load() != 3 ||
+				observation.Pending.state != pending.state || result.Outcome != DiagnosticUnknown || result.Created != nil {
+				t.Fatalf("read-only reconcile changed authority/shared retries: PUTs=%d GETs=%d retry decisions=%d",
+					transport.puts.Load(), transport.gets.Load(), retryDecisions.Load())
+			}
+		})
 	}
 }
 

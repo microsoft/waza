@@ -246,7 +246,12 @@ func (s *DiagnosticScope) Commit(ctx context.Context, pending Pending) (WriteRes
 		return result, err
 	}
 	// Replaying a lost Azure create response can incorrectly report occupancy.
-	createCtx := policy.WithRetryOptions(ctx, policy.RetryOptions{MaxRetries: -1})
+	createCtx := ctx
+	if azure, ok := s.store.backend.(*Azure); ok {
+		retry := azure.retryOptions
+		retry.MaxRetries = -1
+		createCtx = policy.WithRetryOptions(ctx, retry)
+	}
 	created, err := s.store.backend.createObject(createCtx, pending.Key(), pending.Bytes())
 	if err != nil {
 		result.Outcome = DiagnosticUnknown

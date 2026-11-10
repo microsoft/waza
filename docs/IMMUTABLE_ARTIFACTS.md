@@ -319,7 +319,10 @@ conflict/corruption cause. Ambiguous writes and failed/different created
 readbacks return `unknown`, retain `Pending`, and never grant creator attribution.
 Azure retries are disabled for the individual diagnostic create, so a committed
 PUT with a lost response cannot be replayed into misleading occupancy. Shared
-provider retry settings and read retries remain unchanged.
+provider retry settings and read retries remain unchanged. The create retains
+the provider's configured per-request `TryTimeout` and other retry options,
+overriding only `MaxRetries`. A timed-out create remains `unknown`, preserves
+its error cause and original pending bytes, and requires read-only reconciliation.
 
 `ReadRevision` is slot-only verification: it proves neither an intact chain nor
 the current lifecycle state. Read-only `Reconcile(ctx, pending)` returns
