@@ -14,6 +14,30 @@ import (
 	"github.com/microsoft/waza/internal/runnerterminal"
 )
 
+func TestResultRejectsOriginalInvalidSubmissionDiagnosticUTF8(t *testing.T) {
+	result, err := adapter(t, nil).Submit(t.Context(), fixture(t), backend(t), Hooks{
+		Published: func(context.Context, Reference) error { return errors.New("stop with reservation") },
+	})
+	if err == nil || result.Submission == nil || len(result.Submission.Diagnostics) == 0 {
+		t.Fatalf("fixture did not produce actual nested failure diagnostics: %+v %v", result, err)
+	}
+	result.Submission.Diagnostics[0].Message = "\uFFFD"
+	if _, err := EncodeResult(result); err != nil {
+		t.Fatalf("valid nested replacement-character diagnostic rejected: %v", err)
+	}
+	result.Submission.Diagnostics[0].Message = string([]byte{0xff})
+	normalized, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseResult(normalized); err != nil {
+		t.Fatalf("fixture did not demonstrate nested diagnostic normalization: %v", err)
+	}
+	if raw, err := EncodeResult(result); raw != nil || err == nil {
+		t.Fatalf("wrapper normalized invalid original nested diagnostic: %s %v", raw, err)
+	}
+}
+
 func TestResultRejectsOriginalInvalidReservationUTF8(t *testing.T) {
 	result, err := adapter(t, nil).Submit(t.Context(), fixture(t), backend(t), Hooks{
 		Published: func(context.Context, Reference) error { return errors.New("stop with reservation") },
