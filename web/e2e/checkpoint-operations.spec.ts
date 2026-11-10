@@ -119,6 +119,11 @@ test.describe("Protected checkpoint operations in Lab", () => {
     { name: "foreign decision caller", fixture: "created", mutate: (value: CheckpointOperationResult) => {
       value.submission!.decision!.binding.identity.canonical_digest = "0".repeat(64);
     } },
+    { name: "paired fresh original attempt retagging", fixture: "created", mutate: (value: CheckpointOperationResult) => {
+      const attempt = "attempt-" + "0".repeat(64);
+      value.submission!.reservation!.binding.identity.attempt = attempt;
+      value.submission!.terminal!.identity!.attempt = attempt;
+    } },
     { name: "foreign reuse execution mode", fixture: "reused", mutate: (value: CheckpointOperationResult) => {
       value.submission!.decision!.binding.execution_mode = "copilot";
     } },

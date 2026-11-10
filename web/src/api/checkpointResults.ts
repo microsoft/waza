@@ -308,8 +308,10 @@ export async function runCheckpointOperation(
     const current = admitted.resolved;
     if (!current || original.shard !== current.shard || original.task !== current.task || original.trial !== current.trial ||
         (result.status !== "reused" && !sameSelection(original, current)) ||
-        !admitted.identity || (["version", "run", "shard", "task", "trial"] as const)
-          .some((key) => admitted.identity?.[key] !== binding.identity[key])) {
+        !admitted.identity || (result.status === "reused"
+          ? (["version", "run", "shard", "task", "trial"] as const)
+            .some((key) => admitted.identity?.[key] !== binding.identity[key])
+          : !sameRunnerIdentity(binding.identity, admitted.identity))) {
       throw new Error("Checkpoint original work contradicts the admitted captured request.");
     }
   }
