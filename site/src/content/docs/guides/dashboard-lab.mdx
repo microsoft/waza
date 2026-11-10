@@ -47,6 +47,8 @@ new/original engine calls. Unknown progress stays unavailable; recorded zero
 stays zero. **Download checkpoint result JSON** saves the exact protected response.
 Edits, new operations and reload errors clear prior results. Synthetic demo mode
 cannot dispatch checkpoint operations.
+Resume source declarations are checked against the requested checkpoint digest
+before display or download; this is declaration linkage, not storage authority.
 
 Creation and before-unit resume execute work and may incur charges when the
 captured Copilot request explicitly consents. Finalized restore reuses the

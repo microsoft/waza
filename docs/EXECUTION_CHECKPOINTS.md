@@ -140,6 +140,8 @@ reclassified as successfully graded work.
 Completion declarations must match the original execution ID and canonical
 reservation digest before display or download. This checks declaration linkage,
 not storage integrity or execution authority.
+Resume source declarations must also hash to the requested checkpoint digest,
+independent of response object-key order, before display or download.
 Stopping a browser request is not proof of worker termination. This panel is
 not an ordered evaluation-wide attempt history or a whole-evaluation resume UI.
 

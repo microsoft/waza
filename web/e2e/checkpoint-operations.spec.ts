@@ -164,6 +164,53 @@ test.describe("Protected checkpoint operations in Lab", () => {
     });
   }
 
+  for (const control of ["same-work checkpoint digest", "canonical source creation time"] as const) {
+    test(`rejects changed ${control} before rendering or downloading`, async ({ page }) => {
+      const fixture = { ...fixtures.reused };
+      const value = parsed(fixture);
+      let response = fixture.response;
+      if (control === "same-work checkpoint digest") {
+        const original = parsed(fixtures.failed);
+        expect(original.submission?.reservation?.execution_id).toBe(value.source?.execution_id);
+        expect(original.submission?.reservation?.logical.work).toBe(value.source?.compatibility.work);
+        expect(original.before_checkpoint_sha256).toMatch(/^[a-f0-9]{64}$/);
+        fixture.path = `/api/v1/checkpoints/${original.before_checkpoint_sha256}/resume`;
+        expect(fixture.path).not.toBe(fixtures.reused.path);
+      } else {
+        const changed = "2010-01-02T03:04:05.123456789Z";
+        expect(value.source!.created_at).not.toBe(changed);
+        value.source!.created_at = changed;
+        response = JSON.stringify(value);
+      }
+      const methods = await prepare(page, fixture, response);
+      await run(page, fixture);
+      await expect(panel(page).getByRole("alert")).toContainText("requested checkpoint digest");
+      await expect(result(page)).toHaveCount(0);
+      await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
+      expect(methods).toEqual(["POST"]);
+    });
+  }
+
+  for (const name of ["reused", "retried"] as const) {
+    test(`admits ${name} source with independently reordered declaration keys`, async ({ page }) => {
+      const fixture = fixtures[name];
+      const response = JSON.stringify(parsed(fixture), (_key, value: unknown) =>
+        value !== null && typeof value === "object" && !Array.isArray(value)
+          ? Object.fromEntries(Object.entries(value).reverse()) : value);
+      expect(response).not.toBe(fixture.response);
+      const methods = await prepare(page, fixture, response);
+      await run(page, fixture);
+      await expect(result(page)).toBeVisible();
+      const download = page.waitForEvent("download");
+      await panel(page).getByRole("button", { name: "Download checkpoint result JSON" }).click();
+      const file = await download;
+      const path = await file.path();
+      expect(path).not.toBeNull();
+      expect(await readFile(path!, "utf8")).toBe(response);
+      expect(methods).toEqual(["POST"]);
+    });
+  }
+
   test("invalid digest never sends admission or operation requests", async ({ page }) => {
     let requests = 0;
     await page.route("**/api/v1/checkpoints**", () => { requests++; });

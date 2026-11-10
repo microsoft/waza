@@ -65,7 +65,17 @@ interface CheckpointDeclaration {
   created_at: string;
   execution_id: string;
   reservation_digest: string;
-  compatibility: { runner_revision: string; work: string };
+  compatibility: {
+    runner_revision: string;
+    request_version: string;
+    identity_version: string;
+    terminal_version: string;
+    manifest_version: string;
+    attempt_version: string;
+    completion_version: string;
+    work: string;
+    request_policy_digest: string;
+  };
   completion_digest?: string;
   manifest_digest?: string;
 }
@@ -138,6 +148,25 @@ async function reservationDigest(reservation: NonNullable<SubmissionResult["rese
     ...(reservation.parent ? { parent: {
       execution_id: reservation.parent.execution_id, relationship: reservation.parent.relationship,
     } } : {}),
+  });
+}
+
+async function checkpointDigest(source: CheckpointDeclaration): Promise<string> {
+  const compatibility = source.compatibility;
+  // Match executioncheckpoint.Encode's typed field order and optional fields.
+  return goJSONDigest({
+    kind: source.kind, schema_version: source.schema_version, boundary: source.boundary,
+    created_at: source.created_at, execution_id: source.execution_id,
+    reservation_digest: source.reservation_digest,
+    compatibility: {
+      runner_revision: compatibility.runner_revision, request_version: compatibility.request_version,
+      identity_version: compatibility.identity_version, terminal_version: compatibility.terminal_version,
+      manifest_version: compatibility.manifest_version, attempt_version: compatibility.attempt_version,
+      completion_version: compatibility.completion_version, work: compatibility.work,
+      request_policy_digest: compatibility.request_policy_digest,
+    },
+    ...(source.completion_digest ? { completion_digest: source.completion_digest } : {}),
+    ...(source.manifest_digest ? { manifest_digest: source.manifest_digest } : {}),
   });
 }
 
@@ -294,6 +323,9 @@ export async function runCheckpointOperation(
   });
   const json = await response.text();
   const result = await parseCheckpointOperationResult(json);
+  if (action === "resume" && result.source && await checkpointDigest(result.source) !== digest) {
+    throw new Error("Checkpoint source contradicts the requested checkpoint digest.");
+  }
   if (response.headers.get("X-Waza-Exit-Code") !== String(result.exit_code) ||
       (!response.ok && (result.status === "completed" || result.status === "reused"))) {
     throw new Error("Checkpoint transport status contradicts its operation result.");
