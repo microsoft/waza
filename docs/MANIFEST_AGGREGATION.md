@@ -57,6 +57,10 @@ Three explicitly named populations must not be interchanged:
    original canonical reservation/completion records match the verified manifest.
    Record-context verification is **not execution attestation**.
 
+The sidecar-selected attempt descriptor must match the original reservation's
+digest, byte length and JSON media type even when it uses a custom artifact
+name. Matching execution ID and binding alone do not establish this association.
+
 All source objects and the terminal are verified by `Store.ReadCompleted`, even
 when evidence-sidecar selection does not retain terminal bytes. Aggregation never
 infers a unique execution from a legacy attempt ordinal or a digest.
@@ -120,8 +124,11 @@ and total object/namespace reads, reserving the full permitted read before I/O.
 Errors retain their reservation because consumed bytes may be unknown. Default
 limits are 128 input references, 4,096 reads, 512 MiB cumulative source reads and
 32 MiB report bytes (including worst-case escaped identifiers), in addition to
-each existing source profile's limits. Numeric sum overflow withholds historical
-usage with an explicit diagnostic rather than emitting wrapped counters.
+each existing source profile's limits. The aggregate client enforces the same
+32 MiB UTF-8 byte limit and saved-report population/state/group accounting.
+Unrelated JSON clients retain their existing parser limit. Numeric sum overflow
+withholds historical usage with an explicit diagnostic rather than emitting
+wrapped counters.
 Recorded usage totals must also stay within JavaScript's exact integer range
 (`0..9007199254740991`) for the JSON/API/Lab contract. An input or sum outside
 that supported range, non-finite arithmetic, or addition that loses an entire

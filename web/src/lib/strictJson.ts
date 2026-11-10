@@ -1,7 +1,7 @@
-export function parseStrictJSON(text: string): unknown {
+export function parseStrictJSON(text: string, maximumLength = 16 * 1024 * 1024): unknown {
   let offset = 0;
   const invalid = () => { throw new Error("Ambiguous or malformed JSON."); };
-  if (text.length > 16 * 1024 * 1024) return invalid();
+  if (text.length > maximumLength) return invalid();
   const space = () => {
     while (text[offset] !== undefined && /[ \t\r\n]/.test(text[offset]!)) offset++;
   };

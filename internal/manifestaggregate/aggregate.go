@@ -319,7 +319,8 @@ func loadMember(ctx context.Context, sources Sources, backend readOnlyBackend, s
 	if sources.Namespace == nil {
 		return fail(fmt.Errorf("%w: namespace read capability unavailable", executionledger.ErrCapability))
 	}
-	if err := verifyExecution(ctx, sources.Namespace, budget, *document.ExecutionSource, publication.ManifestBytes); err != nil {
+	if err := verifyExecution(ctx, sources.Namespace, budget, *document.ExecutionSource,
+		publication.ManifestBytes, publication.Manifest.Artifacts, document.AttemptArtifact); err != nil {
 		return fail(err)
 	}
 	member.Execution = document.ExecutionSource.ExecutionID
@@ -344,7 +345,7 @@ func loadMember(ctx context.Context, sources Sources, backend readOnlyBackend, s
 }
 
 func verifyExecution(ctx context.Context, namespace *artifactmanifest.NamespaceReader, budget *readBudget,
-	source executionattempt.Source, manifest []byte) error {
+	source executionattempt.Source, manifest []byte, artifacts []artifactmanifest.Artifact, selectedAttempt string) error {
 	read := func(key string) ([]byte, error) {
 		return budget.read(ctx, artifactmanifest.MaxNamespaceObjectBytes, func() ([]byte, error) {
 			return namespace.ReadUnverified(ctx, key)
@@ -353,6 +354,13 @@ func verifyExecution(ctx context.Context, namespace *artifactmanifest.NamespaceR
 	reservation, err := read("reservation/" + source.ExecutionID)
 	if err != nil {
 		return err
+	}
+	selected := slices.IndexFunc(artifacts, func(artifact artifactmanifest.Artifact) bool {
+		return artifact.Name == selectedAttempt
+	})
+	if selected < 0 || artifacts[selected].SHA256 != artifactmanifest.Hash(reservation) ||
+		artifacts[selected].SizeBytes != int64(len(reservation)) || artifacts[selected].MediaType != "application/json" {
+		return executionledger.ErrContext
 	}
 	completionBytes, err := read("completion/" + source.ExecutionID)
 	if err != nil {

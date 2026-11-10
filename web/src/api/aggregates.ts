@@ -19,7 +19,10 @@ export interface AggregateReport {
     outcome?: string;
     execution_id?: string;
     binding?: {
-      identity: { run: string; task: string; trial: string; attempt: string };
+      identity: {
+        version: string; canonical_digest: string; run: string; shard: string;
+        task: string; trial: string; attempt: string;
+      };
       selection: { shard: string; task: string; trial: number; attempt: number };
       execution_mode: string;
       grader_ids: string[];
@@ -78,6 +81,32 @@ function referenceKey(input: AggregateInput): string {
   return `${input.manifest_sha256}:${input.evidence_sha256 ?? ""}`;
 }
 
+function sorted(values: string[], compare: (a: string, b: string) => number = (a, b) => a < b ? -1 : a > b ? 1 : 0): boolean {
+  return values.every((value, index) => index === 0 || compare(values[index - 1]!, value) <= 0);
+}
+
+function compareUTF8(a: string, b: string): number {
+  const left = new TextEncoder().encode(a);
+  const right = new TextEncoder().encode(b);
+  for (let index = 0; index < Math.min(left.length, right.length); index++) {
+    if (left[index] !== right[index]) return left[index]! - right[index]!;
+  }
+  return left.length - right.length;
+}
+
+async function bindingProfile(binding: NonNullable<AggregateReport["members"][number]["binding"]>): Promise<string> {
+  const { version, canonical_digest, run, shard, task, trial, attempt } = binding.identity;
+  const selection = binding.selection;
+  // Match the Go typed binding order and encoding/json string escaping.
+  const wire = JSON.stringify({
+    identity: { version, canonical_digest, run, shard, task, trial, attempt },
+    selection: { shard: selection.shard, task: selection.task, trial: selection.trial, attempt: selection.attempt },
+    execution_mode: binding.execution_mode, grader_ids: binding.grader_ids,
+  }).replace(/[<>&\u2028\u2029]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(wire));
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function parseAggregateReferences(text: string): AggregateInput[] {
   const lines = text.trim().split(/\r?\n/);
   if (!text.trim() || lines.length > 128) {
@@ -117,7 +146,11 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
   }
   let value: unknown;
   try {
-    value = parseStrictJSON(text);
+    const maximumBytes = 32 * 1024 * 1024;
+    if (text.length > maximumBytes || new TextEncoder().encode(text).byteLength > maximumBytes) {
+      throw new AggregateError("Aggregate report exceeds its byte limit.");
+    }
+    value = parseStrictJSON(text, maximumBytes);
   } catch {
     throw new AggregateError("Aggregate API returned malformed JSON.");
   }
@@ -126,17 +159,38 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
   const received = value.members.map(referenceKey);
   const memberCounts: Record<string, number> = {};
   const outcomes: Record<string, number> = {};
+  const profiles = new Map<string, string[]>();
+  let state = "complete";
+  let ordered = sorted(value.usage.diagnostics);
   for (const member of value.members) {
     memberCounts[member.state] = (memberCounts[member.state] ?? 0) + 1;
     if (member.outcome) outcomes[member.outcome] = (outcomes[member.outcome] ?? 0) + 1;
+    if (member.state === "conflicting") state = "conflicting";
+    else if (member.state !== "admitted" && state !== "conflicting") state = "incomplete";
+    ordered &&= sorted(member.diagnostics) &&
+      member.categories.every((category, index) => index === 0 || member.categories[index - 1]!.category < category.category);
+    if (member.binding) {
+      ordered &&= sorted(member.binding.grader_ids, compareUTF8);
+      const profile = await bindingProfile(member.binding);
+      const members = profiles.get(profile) ?? [];
+      members.push(referenceKey(member));
+      profiles.set(profile, members);
+    }
   }
+  const expectedGroups = [...profiles.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const actualGroups = value.groups.map((group) => [group.profile_sha256, group.members.map(referenceKey)]);
+  const executions = new Set(value.members.flatMap((member) => member.execution_id ? [member.execution_id] : [])).size;
   const equalCounts = (a: Record<string, number>, b: Record<string, number>) =>
     JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
-  if (JSON.stringify(expected) !== JSON.stringify(received) ||
+  if (!ordered || value.state !== state ||
+      JSON.stringify(expectedGroups) !== JSON.stringify(actualGroups) ||
+      JSON.stringify(expected) !== JSON.stringify(received) ||
       value.counts.input_members !== received.length ||
       !equalCounts(memberCounts, value.counts.member_states) ||
       !equalCounts(outcomes, value.counts.member_outcomes) ||
-      value.counts.unique_verified_execution_records !== new Set(value.members.flatMap((m) => m.execution_id ? [m.execution_id] : [])).size ||
+      value.counts.unique_verified_execution_records !== executions ||
+      value.usage.executions !== executions ||
+      (value.usage.state === "complete" && (executions === 0 || state !== "complete")) ||
       value.counts.unique_verified_manifests !== new Set(value.members.filter((m) => m.binding).map((m) => m.manifest_sha256)).size ||
       (response.status === 200) !== (value.state === "complete")) {
     throw new AggregateError("Aggregate API returned inconsistent membership or population counts.");

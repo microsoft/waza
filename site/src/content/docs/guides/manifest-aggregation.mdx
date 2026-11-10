@@ -80,6 +80,12 @@ visible and downloadable. The JSON download preserves the actual canonical API
 response; transport/malformed responses clear earlier success data instead of
 showing it as current.
 
+The aggregate response limit is 32 MiB of UTF-8 bytes, including escaped
+identifiers. The client checks member-driven admission state (conflicts take
+priority), named populations, display groups and historical-usage completeness
+before showing or downloading a report. A schema-valid but internally inconsistent
+response is not accepted as complete.
+
 ## Compatibility, migration and troubleshooting
 
 Aggregate schema 1.0 is separate from manifest, evidence and result versions.
@@ -87,6 +93,9 @@ Completed manifest/terminal 1.0 sources are supported with or without a sidecar.
 Evidence/capture/attempt/completion 1.0 can qualify original record context.
 Unknown versions are explicit unsupported/invalid inputs; historical mutable
 results are not automatically converted and ownership/usage is never synthesized.
+Custom attempt artifact names are supported only when the selected descriptor
+matches the original reservation bytes; an unchanged execution ID alone is not
+sufficient.
 Ordering is deterministic for the same requested population and observed source
 state, including summation order. Diagnostics contain stable codes, not payloads
 or private provider errors.
