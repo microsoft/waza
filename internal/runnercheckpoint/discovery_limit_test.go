@@ -12,6 +12,7 @@ import (
 	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 )
 
@@ -88,19 +89,19 @@ func (e *dispatchObservedEngine) Execute(ctx context.Context, request *execution
 func TestCheckpointEngineStartsOnlyAfterDispatchDecision(t *testing.T) {
 	var ledger *executionledger.Ledger
 	var executionID string
-	var engine *dispatchObservedEngine
+	factories := 0
 	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
-		engine = &dispatchObservedEngine{AgentEngine: execution.NewMockEngine(config.ModelID), check: func(ctx context.Context) error {
-			if ledger == nil {
-				return errors.New("runtime started before reservation")
-			}
-			started, err := ledger.HasDistinctDecision(ctx, executionID)
-			if err != nil || !started {
-				return fmt.Errorf("runtime started without persisted dispatch decision: %v", err)
-			}
-			return nil
-		}}
-		return engine, nil
+		factories++
+		if ledger == nil {
+			return nil, errors.New("runtime constructed before reservation")
+		}
+		started, err := ledger.HasDistinctDecision(t.Context(), executionID)
+		if err != nil || !started {
+			return nil, fmt.Errorf("runtime constructed without persisted dispatch decision: %v", err)
+		}
+		// The profile requires a concrete mock. Its successful Execute also
+		// requires Initialize, both after this factory observed dispatch.
+		return execution.NewMockEngine(config.ModelID), nil
 	})
 	result, err := service.Submit(t.Context(), fixture(t), backend(t), Hooks{
 		Submission: runnerunit.SubmissionHooks{Reserved: func(_ context.Context, owner *executionledger.Ledger,
@@ -110,7 +111,42 @@ func TestCheckpointEngineStartsOnlyAfterDispatchDecision(t *testing.T) {
 			return nil
 		}},
 	})
-	if err != nil || result.Submission == nil || result.Submission.Completion == nil || engine == nil || engine.calls != 2 {
-		t.Fatalf("actual initialization/execution did not observe dispatch: %+v engine=%+v %v", result, engine, err)
+	raw, encodeErr := EncodeResult(result)
+	if err != nil || encodeErr != nil || result.ExitCode != 0 || result.Submission == nil ||
+		result.Submission.Completion == nil || result.Submission.EngineCalls != 1 || factories != 1 ||
+		result.Submission.Terminal == nil || result.Submission.Terminal.Outcome != runnerterminal.Success ||
+		result.Submission.Terminal.EngineCalls != 1 || result.Submission.Terminal.Observation == nil {
+		t.Fatalf("actual initialized execution did not follow dispatch: result=%s factories=%d err=%v encode=%v", raw, factories, err, encodeErr)
 	}
+}
+
+func TestCheckpointWrappedMockIsRejectedBeforeLifecycle(t *testing.T) {
+	var engine *dispatchObservedEngine
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		engine = &dispatchObservedEngine{AgentEngine: execution.NewMockEngine(config.ModelID), check: func(context.Context) error {
+			t.Error("rejected wrapper unexpectedly reached lifecycle")
+			return errors.New("wrapper lifecycle must not run")
+		}}
+		return engine, nil
+	})
+	store := backend(t)
+	result, err := service.Submit(t.Context(), fixture(t), store, Hooks{})
+	raw, encodeErr := EncodeResult(result)
+	if err != nil || encodeErr != nil || engine == nil || engine.calls != 0 || result.Submission == nil ||
+		result.Submission.Completion == nil || result.Submission.EngineCalls != 0 || result.ExitCode != 2 {
+		t.Fatalf("wrapper admission control did not finalize zero-call startup failure: %s err=%v encode=%v", raw, err, encodeErr)
+	}
+	publication, err := artifactmanifest.NewStore(store).ReadCompleted(t.Context(),
+		result.Submission.Completion.ManifestDigest, "terminal.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := publication.ArtifactBytes["terminal.json"]
+	envelope, err := runnerterminal.Validate(saved, result.Submission.Reservation.Binding.TerminalBinding())
+	if err != nil || envelope.Outcome != runnerterminal.InfrastructureFailure || envelope.FailureBoundary != "startup" ||
+		envelope.EngineCalls != 0 || len(envelope.Diagnostics) != 1 ||
+		envelope.Diagnostics[0].Message != "admitting runtime: inline.mock-text requires a non-nil concrete *execution.MockEngine; factory returned *runnercheckpoint.dispatchObservedEngine" {
+		t.Fatalf("actual saved wrapper diagnostic differs: %s %v", saved, err)
+	}
+	t.Logf("actual saved rejected-wrapper terminal: %s", saved)
 }
