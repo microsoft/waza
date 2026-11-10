@@ -167,12 +167,12 @@ func buildCheckpointRecoveryCLI(t *testing.T) string {
 	require.NoError(t, err)
 	directory := strings.TrimSpace(string(root))
 	diff := exec.CommandContext(t.Context(), "git", "diff", "--exit-code", "HEAD", "--",
-		"cmd", "internal", "schemas", "web", "go.mod", "go.sum")
+		"*.go", "cmd", "internal", "schemas", "web", "docs/graders", "go.mod", "go.sum")
 	diff.Dir = directory
 	log, err := diff.CombinedOutput()
 	require.NoError(t, err, "commit changed build inputs before the clean revision fixture: %s", log)
 	untracked := exec.CommandContext(t.Context(), "git", "ls-files", "--others", "--exclude-standard", "--",
-		"*.go", "go.mod", "go.sum", "schemas/")
+		"*.go", "go.mod", "go.sum", "schemas/", "docs/graders/")
 	untracked.Dir = directory
 	log, err = untracked.CombinedOutput()
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func buildCheckpointRecoveryCLI(t *testing.T) string {
 	snapshot := filepath.Join(t.TempDir(), "source")
 	commands := [][]string{
 		{"clone", "--quiet", "--shared", "--single-branch", "--no-tags", "--no-checkout", directory, snapshot},
-		{"-C", snapshot, "sparse-checkout", "set", "--cone", "cmd", "internal", "schemas", "web"},
+		{"-C", snapshot, "sparse-checkout", "set", "--cone", "cmd", "internal", "schemas", "web", "docs/graders"},
 		{"-C", snapshot, "checkout", "--quiet", "--detach", "HEAD"},
 	}
 	for _, args := range commands {
