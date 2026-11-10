@@ -148,6 +148,23 @@ test('runner identity fixtures trigger consumer validation and publication witho
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
 });
 
+function assertMediaSelection(web, site) {
+  assert.match(web, /testIgnore: process\.env\.WAZA_REFRESH_DOCS_MEDIA === "1"\s*\? \[\]\s*: \["\*\*\/screenshots\.spec\.ts", "\*\*\/release-screenshots\.spec\.ts"\]/);
+  assert.match(site, /testIgnore: \[\s*'chat\.spec\.ts', 'chat-unavailable\.spec\.ts',\s*\.\.\.\(process\.env\.WAZA_REFRESH_DOCS_MEDIA === '1' \? \[\] : \['\*\*\/screenshots\.spec\.ts'\]\),\s*\]/);
+}
+
+test('routine browser discovery excludes only media-only specs and refresh restores them', () => {
+  const web = read('web/playwright.config.ts');
+  const site = read('site/playwright.config.ts');
+  assertMediaSelection(web, site);
+  for (const file of ['screenshots.spec.ts', 'release-screenshots.spec.ts']) {
+    assert.throws(() => assertMediaSelection(web.replace(`"**/${file}"`, '"**/*.spec.ts"'), site));
+  }
+  assert.throws(() => assertMediaSelection(web, site.replace("'**/screenshots.spec.ts'", "'**/*.spec.ts'")));
+  assert.throws(() => assertMediaSelection(web.replace('=== "1"', '!== "1"'), site));
+  assert.throws(() => assertMediaSelection(web, site.replace("=== '1'", "!== '1'")));
+});
+
 function anchors(text) {
   const ids = new Set();
   const counts = new Map();

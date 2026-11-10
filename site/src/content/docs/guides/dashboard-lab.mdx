@@ -376,6 +376,10 @@ npx playwright test e2e/dashboard-lab.spec.ts e2e/dashboard-lab-real.spec.ts --p
 npm run refresh:docs-media -- e2e/screenshots.spec.ts --grep dashboard-lab
 ```
 
+Routine browser discovery excludes screenshot-only specs. The explicit refresh
+command includes them and enables media writes; mixed assertion specs run in
+both modes.
+
 Browser coverage exercises real summaries, arbitrary models, lazy evidence,
 precision, API errors/retries/refresh, stable and legacy IDs, duplicate identities,
 report failures, event replay/deduplication/reconnection, and the isolated demo.
