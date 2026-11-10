@@ -271,6 +271,72 @@ reservation. This raw namespace has no update, delete, lease or cross-object
 transaction. Its append-only guarantees apply to cooperating API writers,
 not adversarial external replacement or durable ownership attestation.
 
+### Separate diagnostic revision slots
+
+The provider-only diagnostics API uses `execution-diagnostics-v1`, independently
+of `execution-ledger-v1` and artifact declarations. It stores
+`kind: "waza.execution-diagnostic"` / `schema_version: "1.0"` envelopes in
+immutable slots numbered 0 through 4095. Each complete envelope is at most
+1 MiB. These are storage limits, not coordination-tool or transfer limits.
+There is no head pointer, listing, implicit retry, overwrite, or cross-object
+transaction.
+
+`NewDiagnostics(backend, admit)` accepts only initialized local/Azure providers
+and requires a nonnil `AdmitDiagnostic(context.Context, Scope,
+json.RawMessage) error` callback. `Scope` binds the execution ID, reservation
+digest, and invocation ID to physical storage names; it does not grant execution
+or observer authority. IDs use `exec-` / `inv-` plus 64 lowercase hex characters,
+and the reservation digest is 64 lowercase hex characters.
+
+`Diagnostics.Scope(scope)` returns a scoped instance. Its pure
+`PrepareStart(payload)` and `PrepareAdvance(expectedCursor, payload)` validate
+and freeze an opaque `Pending` before any I/O. Payloads are unpadded JSON
+objects; their exact bytes and number tokens are preserved. Recursive original
+UTF-8, surrogate, duplicate-key, and syntax validation applies to preparation
+and every read/readback. The outer envelope has one deterministic encoding.
+Pending accessors and returned records expose detached bytes/cursors; a pending
+write is bound to the exact scoped instance that prepared it.
+
+Each `Commit(ctx, pending)` checks current host admission on a detached payload
+before **any provider read or create**, including reading the predecessor.
+Denial, callback mutation, invalid pending/context, and precreate cancellation
+return `not_attempted` with the original pending write and an error. Callback
+I/O and side effects are the host's responsibility, not covered by the
+provider's zero-backend-I/O or rollback guarantees. Admission must check the
+actual current invocation/state and typed, versioned, capture-approved payload;
+prepare-time approval is not sufficient. There is deliberately no allow-all
+default or runtime policy in this provider layer.
+
+Advance verifies the preceding slot against the full expected scope, revision,
+and hash of its exact bytes. Only exclusive creation followed by exact validated
+readback returns `created`. An occupied slot always returns `occupied` and
+`ErrOccupied`, including identical bytes. `ObservedNext` is present only for a
+valid record matching the full scope, target revision, and expected previous
+cursor; foreign or malformed content retains the occupied error and adds a
+conflict/corruption cause. Ambiguous writes and failed/different created
+readbacks return `unknown`, retain `Pending`, and never grant creator attribution.
+
+`ReadRevision` is slot-only verification: it proves neither an intact chain nor
+the current lifecycle state. Read-only `Reconcile(ctx, pending)` returns
+`matching`, `missing`, `conflict`, `invalid`, or `unknown`, with errors for every
+nonmatching outcome. Neither read invokes writer admission or grants authority.
+A matching observation never converts an unknown write into a known creation or
+lifecycle acknowledgement; missing is not proof of no historic/in-flight commit.
+The consumer must validate typed/capture policy and establish a chain to genesis
+within an explicit cumulative budget. Missing/unreadable predecessors and
+exhausted budgets remain unresolved.
+
+This layer does **not** implement #767 runtime cancellation, force-stop/Wait,
+capture projection, observer authorization, or public CLI/API/dashboard surfaces.
+Storage I/O must not share a gate that blocks those independent safety paths.
+An observer's execution/reservation identifies the original **subject**, not
+its authority: a separate host-authorized invocation/capability is required,
+without minting an evaluation reservation or reconstructing the original
+creator. These consumer/runtime acceptance criteria remain separate; this
+provider API is not evidence that they work. Local retained-root staging and
+exclusive publication, Azure conditional creation, and their existing platform,
+residue, and durability limitations apply unchanged.
+
 ### Content-addressed artifact providers
 
 `artifactmanifest.OpenBackend(directory, azureURL)` is the shared runtime
