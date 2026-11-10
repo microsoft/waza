@@ -221,11 +221,11 @@ func Build(ctx context.Context, sources Sources, inputs []Input, limits Limits) 
 	report.Counts.VerifiedManifests, report.Counts.VerifiedExecutions = len(manifests), len(executions)
 	report.Usage.Executions = len(executions)
 	if usageComplete {
-		recorded, ok := sumRecordedUsage(usageStats)
-		if ok {
+		recorded, reason := sumRecordedUsage(usageStats)
+		if reason == "" {
 			report.Usage.State, report.Usage.Recorded = "complete", recorded
 		} else {
-			report.Usage.Diagnostics = append(report.Usage.Diagnostics, "recorded_usage_numeric_overflow")
+			report.Usage.Diagnostics = append(report.Usage.Diagnostics, reason)
 		}
 	} else {
 		report.Usage.Diagnostics = append(report.Usage.Diagnostics, "complete_historical_usage_unavailable")

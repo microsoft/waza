@@ -122,6 +122,13 @@ limits are 128 input references, 4,096 reads, 512 MiB cumulative source reads an
 32 MiB report bytes (including worst-case escaped identifiers), in addition to
 each existing source profile's limits. Numeric sum overflow withholds historical
 usage with an explicit diagnostic rather than emitting wrapped counters.
+Recorded usage totals must also stay within JavaScript's exact integer range
+(`0..9007199254740991`) for the JSON/API/Lab contract. An input or sum outside
+that supported range, non-finite arithmetic, or addition that loses an entire
+positive floating contribution withholds the total. Native floating fields
+retain their existing IEEE-754 arithmetic; no exact-decimal or derived billing
+claim is added. An empty eligible population and unknown identity/usage remain
+unavailable/null, never an available zero or an unlabeled subset total.
 
 `Build` returns report plus classified error for evaluated per-input failures.
 `Parse` validates saved wire/accounting only; it is not current source inspection.

@@ -332,20 +332,129 @@ func TestRecordedUsageOverflowWithholdsTotalThroughPublicSources(t *testing.T) {
 	require.Equal(t, 2, report.Counts.VerifiedExecutions)
 	require.Equal(t, "unavailable", report.Usage.State)
 	require.Nil(t, report.Usage.Recorded)
-	require.Contains(t, report.Usage.Diagnostics, "recorded_usage_numeric_overflow")
+	require.Contains(t, report.Usage.Diagnostics, "recorded_usage_numeric_precision_unavailable")
 	_, err = Encode(*report)
 	require.NoError(t, err)
 }
 
 func TestNonemptyRecordedZeroIsNotAnAbsentPopulation(t *testing.T) {
-	usage, ok := sumRecordedUsage([]*models.UsageStats{{}})
-	require.True(t, ok)
+	usage, reason := sumRecordedUsage([]*models.UsageStats{{}})
+	require.Empty(t, reason)
 	require.NotNil(t, usage)
 	require.Nil(t, usage.AICredits, "missing credits are not invented as zero")
 	require.Zero(t, usage.InputTokens)
-	absent, ok := sumRecordedUsage(nil)
-	require.False(t, ok)
+	absent, reason := sumRecordedUsage(nil)
+	require.Equal(t, "complete_historical_usage_unavailable", reason)
 	require.Nil(t, absent)
+}
+
+func TestIndividuallyValidLargeUsageCannotBecomeRoundedUITotal(t *testing.T) {
+	largeCount := int64(1) << 52
+	if int64(int(largeCount)) != largeCount {
+		t.Skip("large native counter control requires a 64-bit int platform")
+	}
+	for _, control := range []struct {
+		name      string
+		change    func(*models.UsageStats, bool)
+		available bool
+	}{
+		{"safe input counters exceed safe total", func(usage *models.UsageStats, _ bool) {
+			usage.InputTokens = int(largeCount)
+		}, false},
+		{"model counters exceed safe total", func(usage *models.UsageStats, _ bool) {
+			model := usage.ModelMetrics["fixture-model"]
+			model.InputTokens = int(largeCount)
+			usage.ModelMetrics["fixture-model"] = model
+		}, false},
+		{"safe credit values exceed safe total", func(usage *models.UsageStats, _ bool) {
+			value := float64(1 << 52)
+			usage.AICredits = &value
+		}, false},
+		{"positive fractional usage disappears at large magnitude", func(usage *models.UsageStats, second bool) {
+			value := float64(1 << 52)
+			if second {
+				value = 0.25
+			}
+			usage.PremiumRequests = value
+		}, false},
+		{"model request values exceed safe total", func(usage *models.UsageStats, _ bool) {
+			model := usage.ModelMetrics["fixture-model"]
+			model.RequestCount = 1 << 52
+			usage.ModelMetrics["fixture-model"] = model
+		}, false},
+		{"small exact fractions remain supported", func(usage *models.UsageStats, _ bool) {
+			usage.PremiumRequests = 0.125
+		}, true},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			backend, sources, _ := setup(t)
+			inputs := []Input{}
+			for _, second := range []bool{false, true} {
+				input := publish(t, backend, func(report *runnerunit.Report) {
+					manifestfixture.RecordedZero(report)
+					control.change(report.Observation.Usage, second)
+				})
+				_, categories, err := evidencestate.InspectCategories(t.Context(), backend, input.Evidence)
+				require.NoError(t, err)
+				var checked bool
+				for _, category := range categories {
+					if category.Category == evidencestate.Usage {
+						require.Equal(t, evidencestate.Present, category.State)
+						require.NotNil(t, category.Usage)
+						require.LessOrEqual(t, int64(category.Usage.InputTokens), maxJSONInteger)
+						require.LessOrEqual(t, category.Usage.PremiumRequests, float64(maxJSONInteger))
+						require.NotNil(t, category.Usage.AICredits)
+						require.LessOrEqual(t, *category.Usage.AICredits, float64(maxJSONInteger))
+						checked = true
+					}
+				}
+				require.True(t, checked, "every original public record must actually admit present usage")
+				inputs = append(inputs, input)
+			}
+			report, err := Build(t.Context(), sources, inputs, DefaultLimits())
+			require.NoError(t, err, "usage unavailability must not erase otherwise valid input admissions")
+			require.Equal(t, "complete", report.State)
+			require.Equal(t, 2, report.Counts.VerifiedExecutions)
+			if control.available {
+				require.Equal(t, "complete", report.Usage.State)
+				require.NotNil(t, report.Usage.Recorded)
+				require.Equal(t, 0.25, report.Usage.Recorded.PremiumRequests)
+			} else {
+				require.Equal(t, "unavailable", report.Usage.State)
+				require.Nil(t, report.Usage.Recorded)
+				require.Contains(t, report.Usage.Diagnostics, "recorded_usage_numeric_precision_unavailable")
+			}
+			wire, err := Encode(*report)
+			require.NoError(t, err)
+			_, err = Parse(wire)
+			require.NoError(t, err, "the actual emitted report must honor the UI-safe numeric wire schema")
+		})
+	}
+}
+
+func TestZeroEligibleRecordsAndUnknownUsageDoNotCreateZeroTotal(t *testing.T) {
+	backend, sources, _ := setup(t)
+	zero := publish(t, backend, manifestfixture.RecordedZero)
+	absent := publish(t, backend, nil)
+	for _, control := range []struct {
+		name    string
+		inputs  []Input
+		records int
+	}{
+		{"metadata has no eligible record", []Input{{Manifest: zero.Manifest}}, 0},
+		{"known zero cannot exclude unknown usage", []Input{zero, absent}, 2},
+		{"known zero cannot exclude unknown identity view", []Input{zero, {Manifest: absent.Manifest}}, 1},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			report, err := Build(t.Context(), sources, control.inputs, DefaultLimits())
+			require.NoError(t, err)
+			require.Equal(t, len(control.inputs), report.Counts.Members)
+			require.Equal(t, control.records, report.Counts.VerifiedExecutions)
+			require.Equal(t, "unavailable", report.Usage.State)
+			require.Nil(t, report.Usage.Recorded)
+			require.Contains(t, report.Usage.Diagnostics, "complete_historical_usage_unavailable")
+		})
+	}
 }
 
 func TestStrictInputAndReportWirePresence(t *testing.T) {
