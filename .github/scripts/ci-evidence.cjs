@@ -663,6 +663,10 @@ function collectActions(runID, api = (endpoint) => JSON.parse(command("gh", ["ap
     for (let attempt = 1; attempt <= Math.min(run.run_attempt, LIMITS.attempts); attempt++) {
       let metadata = {};
       try { metadata = api(`${prefix}/attempts/${attempt}`); } catch { diagnostics.push("attempt-api-failed"); }
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+        diagnostics.push("attempt-api-invalid");
+        metadata = {};
+      }
       const jobs = pages(`${prefix}/attempts/${attempt}/jobs`, "jobs");
       attempts.push({ number: attempt, jobs: jobs.items, complete: jobs.complete, created_at: null, started_at: metadata.run_started_at });
       // GitHub does not expose retry-request time; original creation is not retry queue time.

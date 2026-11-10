@@ -276,7 +276,12 @@ Collection is capped at 10 attempts and 10 pages of 100 records per
 jobs/artifacts endpoint. An API failure, cap, missing timestamp or unverified
 source produces explicit incomplete evidence; the completed-run collector
 writes the available report and exits nonzero. Expired artifacts can retain
-metadata bytes but their test content is unavailable. Upload steps use
+metadata bytes but their test content is unavailable. Invalid attempt-response
+bodies produce `attempt-api-invalid`, retain unavailable start-time evidence,
+and do not prevent collection of jobs, artifacts, later attempts or other runs.
+Thrown attempt requests retain the separate `attempt-api-failed` diagnostic.
+Readable observations remain ineligible when their run metadata is incomplete.
+Upload steps use
 `always()` where supported; cancellation, timeout, setup failure or runner loss
 can still prevent capture/upload. No cancellation-upload guarantee is made.
 No new workflow, token grant or publication bypass is installed.

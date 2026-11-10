@@ -785,6 +785,124 @@ test("production actions trends and history serialize malformed-step diagnostics
     }
   } finally { process.exitCode = oldExit; }
 });
+test("production attempt responses save unavailable metadata without losing jobs or empty artifacts", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "waza-attempt-responses-"));
+  t.after(() => fs.rmSync(directory, { recursive: true }));
+  const first = job(1, "01", "02"), later = job(2, "03", "04", "success", 2);
+  first.steps.push({ ...first.steps[0], number: 2, completed_at: first.started_at });
+  const oldExit = process.exitCode;
+  try {
+    for (const attempt of [1, 2]) {
+      for (const [label, body, expectedDiagnostic] of [
+        ...[null, undefined, false, true, 0, "invalid", [], [first]].map((body, index) =>
+          [`invalid-${index}`, body, "attempt-api-invalid"]),
+        ["throw", null, "attempt-api-failed"],
+        ["valid", { run_started_at: first.started_at }, null],
+        ["unknown-field", { run_started_at: first.started_at, future_field: true }, null],
+        ["zero-delay", { run_started_at: run.created_at }, null],
+      ]) {
+        process.exitCode = undefined;
+        const output = path.join(directory, "actions.json"), requests = [];
+        await main(["actions", "10", output], (endpoint) => {
+          requests.push(endpoint);
+          if (endpoint.includes("/jobs")) return { total_count: 1, jobs: [endpoint.includes("/attempts/1/") ? first : later] };
+          if (endpoint.includes("/artifacts")) return { total_count: 0, artifacts: [] };
+          if (endpoint.endsWith(`/attempts/${attempt}`)) {
+            if (label === "throw") throw new Error("attempt request failed");
+            return body;
+          }
+          if (endpoint.includes("/attempts/")) return { run_started_at: first.started_at };
+          return run;
+        });
+        const saved = JSON.parse(fs.readFileSync(output, "utf8")), context = `${attempt}:${label}`;
+        assert.equal(process.exitCode, expectedDiagnostic ? 1 : undefined, context);
+        assert.equal(saved.complete, !expectedDiagnostic, context);
+        assert.deepEqual(saved.jobs.map((item) => item.id), [1, 2], context);
+        assert.equal(saved.jobs[0].steps[0].seconds, 60);
+        assert.equal(saved.jobs[0].steps[1].seconds, 0, "recorded zero duration survives unavailable metadata");
+        assert.equal(saved.jobs[1].elapsed_seconds, 60, "remaining attempts are still collected");
+        assert.equal(saved.artifact_bytes, 0, "complete empty artifact inventory remains observed zero");
+        assert.ok(requests.some((endpoint) => endpoint.includes("/artifacts")));
+        if (expectedDiagnostic) {
+          assert.ok(saved.diagnostics.includes(expectedDiagnostic), context);
+          assert.equal(saved.diagnostics.includes("attempt-api-invalid"), label !== "throw", context);
+          assert.equal(saved.attempts[attempt - 1].queue_start_delay_seconds, null);
+          assert.equal(saved.diagnostics.includes("first-attempt-timestamps-unavailable"), attempt === 1);
+        } else {
+          assert.deepEqual(saved.diagnostics, []);
+          assert.equal(saved.attempts[0].queue_start_delay_seconds, label === "zero-delay" && attempt === 1 ? 0 : 60);
+        }
+        assert.equal(saved.attempts[1].queue_start_delay_seconds, null, "never infer retry-request time");
+      }
+    }
+  } finally { process.exitCode = oldExit; }
+});
+test("production attempt response failures retain authenticated neighboring evidence across actions trends and history", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "waza-attempt-response-commands-"));
+  t.after(() => fs.rmSync(directory, { recursive: true }));
+  const report = parseGo(successful, { selected: ["example/p::TestA"], inventory_scope: "qualified" });
+  report.identity.source_sha = run.head_sha;
+  const first = artifactFixture(report, {}, "go-run");
+  const neighbor = artifactFixture({ ...report, identity: { ...report.identity, run_id: "11" } }, {}, "go-run");
+  const oldExit = process.exitCode;
+  try {
+    for (const attempt of [1, 2]) {
+      for (const [label, body, expectedDiagnostic] of [
+        ["null", null, "attempt-api-invalid"],
+        ["primitive", false, "attempt-api-invalid"],
+        ["array", [], "attempt-api-invalid"],
+        ["throw", null, "attempt-api-failed"],
+        ["valid", { run_started_at: job(1, "01", "02").started_at }, null],
+        ["unknown-field", { run_started_at: job(1, "01", "02").started_at, future_field: true }, null],
+        ["zero-delay", { run_started_at: run.created_at }, null],
+      ]) {
+        for (const mode of ["actions", "trends", "history"]) {
+          process.exitCode = undefined;
+          const output = path.join(directory, `${mode}.json`), requested = [], downloaded = [];
+          await main([mode, mode === "actions" ? "10" : "10,11", output], (endpoint) => {
+            requested.push(endpoint);
+            if (endpoint.includes("/runs/11")) return neighbor.api(endpoint);
+            if (endpoint.endsWith(`/attempts/${attempt}`)) {
+              if (label === "throw") throw new Error("attempt request failed");
+              return body;
+            }
+            if (endpoint.includes("/attempts/2/jobs")) return { total_count: 1, jobs: [job(2, "03", "04", "success", 2)] };
+            const value = first.api(endpoint);
+            return endpoint === "repos/microsoft/waza/actions/runs/10" ? { ...value, run_attempt: attempt } : value;
+          }, (id) => {
+            downloaded.push(id);
+            assert.ok([first.artifactID, neighbor.artifactID].includes(id));
+            return id === first.artifactID ? first.zip : neighbor.zip;
+          });
+          const saved = JSON.parse(fs.readFileSync(output, "utf8")), context = `${attempt}:${label}:${mode}`;
+          const metadata = mode === "actions" ? saved : saved.metadata[0];
+          assert.equal(process.exitCode, expectedDiagnostic ? 1 : undefined, context);
+          assert.equal(metadata.complete, !expectedDiagnostic, context);
+          assert.equal(metadata.jobs[0].steps[0].seconds, 60);
+          assert.ok(metadata.artifact_bytes > 0, "source-bound artifact inventory remains readable");
+          if (expectedDiagnostic) {
+            assert.ok(metadata.diagnostics.includes(expectedDiagnostic), context);
+            assert.ok(saved.diagnostics.includes(expectedDiagnostic), context);
+          } else assert.deepEqual(metadata.diagnostics, []);
+          if (mode === "actions") continue;
+          assert.ok(requested.some((endpoint) => endpoint.includes("/runs/11")), context);
+          assert.deepEqual(downloaded, [first.artifactID, neighbor.artifactID], context);
+          assert.equal(saved.metadata[1].complete, true);
+          const eligible = !expectedDiagnostic && attempt === 1 ? ["10", "11"] : ["11"];
+          if (mode === "trends") {
+            assert.equal(saved.cohorts.length, 1);
+            assert.equal(saved.cohorts[0].observations.length, 2, "keep both authenticated observations, including the incomplete run");
+            assert.deepEqual(saved.cohorts[0].eligible.map((item) => item.run_id), eligible, context);
+          } else {
+            assert.equal(saved.targets.length, 1);
+            assert.equal(saved.targets[0].target, "example/p::TestA");
+            assert.deepEqual(saved.targets[0].observations.map((item) => item.run_id), eligible, context);
+          }
+        }
+      }
+    }
+  } finally { process.exitCode = oldExit; }
+});
 test("production Actions totals withhold job integrity failures but preserve unrelated diagnostics and recorded zero", () => {
   const collect = (lists, { artifacts = [], incomplete = false } = {}) => collectActions("10", (endpoint) => {
     if (endpoint.includes("/jobs")) {
