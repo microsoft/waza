@@ -157,7 +157,7 @@ work separately from the retained-reservation and provider-validation phases;
 phase timings are diagnostics, not execution or recovery evidence. Publication
 budgets are unchanged. A timeout remains a publication failure: preserve the
 original completion and any reported unverified blob rather than retrying.
-The CLI sends underlying operation and flag-parsing errors to bounded operator stderr while
+The CLI sends underlying input, build, operation and flag-parsing errors to bounded operator stderr while
 keeping the public JSON diagnostic sanitized. Conflicting store flags also use
 the single-record JSON rejection path. Build-revision admission failures retain
 their actionable cause and rebuild guidance on operator stderr as well.
