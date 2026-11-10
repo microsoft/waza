@@ -90,7 +90,8 @@ func (f *fakeAzure) Do(r *http.Request) (*http.Response, error) {
 			return response(status, []byte("<Error><Code>"+code+"</Code></Error>"))
 		}
 		f.objects[key] = append([]byte(nil), data...)
-		if (strings.HasPrefix(key, "final-") || strings.HasPrefix(key, namespacePrefix)) && f.failCommittedPut != nil {
+		if (strings.HasPrefix(key, "final-") || strings.HasPrefix(key, namespacePrefix) ||
+			strings.HasPrefix(key, DiagnosticsNamespaceV1+"-")) && f.failCommittedPut != nil {
 			err := f.failCommittedPut
 			f.failCommittedPut = nil
 			return nil, err
