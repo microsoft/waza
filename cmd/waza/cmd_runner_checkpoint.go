@@ -95,8 +95,9 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 		if action == "resume" {
 			unit.Use = "resume CHECKPOINT_SHA256"
 		}
-		unit.SetFlagErrorFunc(func(cmd *cobra.Command, _ error) error {
-			return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_flags_invalid"))
+		unit.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+			_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint flags: %v\n", err)
+			return errors.Join(emit(cmd, runnercheckpoint.RejectPublic("checkpoint_flags_invalid")), diagnosticErr)
 		})
 		cmd.AddCommand(unit)
 	}
