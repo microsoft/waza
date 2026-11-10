@@ -1615,6 +1615,25 @@ Render a session timeline from an NDJSON event log.
 waza session view <session-file>
 ```
 
+## waza aggregate
+
+**Unreleased v0.41 source preview.** Aggregate completed public manifests without
+agents or original worker ownership. Explicit existing local stores only.
+
+```bash
+waza aggregate --store .waza-artifacts "$MANIFEST_SHA256" -o aggregate.json
+waza aggregate --store .waza-artifacts --inputs inputs.json -o qualified.json
+```
+
+`--inputs` selects a nonempty JSON reference array (at most 128 manifest/evidence
+pairs), mutually exclusive with positional digests. `--store` defaults to
+`.waza-artifacts`; no ambient provider discovery occurs. `-o, --output`
+exclusively creates a new canonical JSON file. Evaluated incomplete/conflicting
+reports are saved and emitted before a nonzero exit. Existing files are never
+replaced. Complete admission is not terminal success or execution attestation;
+historical usage is unavailable instead of an invented partial total.
+See [worked examples, conflict rules and migration](../../guides/manifest-aggregation/).
+
 ## waza artifact
 
 **Unreleased v0.41 source preview.** Publish and verify immutable artifacts without

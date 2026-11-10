@@ -16,6 +16,15 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 ## Versioned artifacts
 
+The unreleased v0.41 standalone aggregate profile independently uses
+`kind: waza.manifest-aggregate`, exact `schema_version: "1.0"`. Canonical
+reference/profile/diagnostic ordering and three explicitly named populations
+preserve repeated executions and compatible views without synthesizing legacy
+ownership, missing evidence or billing. Failed/cancelled terminal outcomes are
+not aggregate admission failures. Historical mutable results are not converted;
+unsupported supplied source profiles remain explicit.
+See [aggregate compatibility and worked examples](../../guides/manifest-aggregation/).
+
 This table describes standalone v0.40.0. Published standalone
 `v0.39.1` writes results `1.7`; see [release availability](/waza/reference/releases/).
 
