@@ -5,7 +5,7 @@ This unreleased, partial #765 layer builds on the
 provides an embedding service and unreleased source commands
 `runner checkpoint create` and `runner checkpoint resume`. Installed v0.40.1
 artifacts do not contain these commands. Protected HTTP create/resume operations
-are registered; Lab integration, production-process/platform evidence, and full
+are registered; Lab integration, broader native-platform evidence, and full
 #755 acceptance remain pending.
 
 ## Supported boundaries
@@ -170,5 +170,16 @@ they are not production CLI/clean-build, live-inference, native Windows, or Lab
 evidence. The root test process skips two Unix permission-denial cases; those
 same compiled cases are separately executed under a non-root identity.
 
-Protected API/Lab integration, compiled clean-CLI kill/resume cases, all
-current-head broad/platform gates and independent review remain release blockers.
+The additional Linux production-process fixture builds the ordinary owning CLI
+from an isolated clean checkout of committed build inputs. It uses actual blocked
+boundary-progress writes to kill and join the process, then starts a fresh CLI.
+Before restore creates a fresh retry child; finalized success and failed-check
+restore preserve original terminal bytes with zero new calls. A separate actual
+service producer leaves a dispatch without completion; the compiled consumer
+refuses it without new records. That control does not kill a CLI mid-dispatch.
+These are offline mock-execution controls, not native runtime, LFS installation,
+live inference, dashboard delivery, or Windows execution evidence.
+
+Lab integration, full current-head broad/platform gates and independent review
+remain release blockers. Broad test failures and timed-out lint runs are not
+passing checks even when focused recovery controls pass.

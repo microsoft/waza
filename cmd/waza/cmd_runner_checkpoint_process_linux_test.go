@@ -28,7 +28,7 @@ import (
 )
 
 func TestCheckpointProductionProcessRecovery(t *testing.T) {
-	binary := buildRecoveryCLI(t)
+	binary := buildCheckpointRecoveryCLI(t)
 	info, err := buildinfo.ReadFile(binary)
 	require.NoError(t, err)
 	require.Equal(t, "github.com/microsoft/waza/cmd/waza", info.Path)
@@ -159,6 +159,38 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, after, len(before), "stale restore must not create another reservation or decision")
 	})
+}
+
+func buildCheckpointRecoveryCLI(t *testing.T) string {
+	t.Helper()
+	root, err := exec.CommandContext(t.Context(), "git", "rev-parse", "--show-toplevel").Output()
+	require.NoError(t, err)
+	directory := strings.TrimSpace(string(root))
+	diff := exec.CommandContext(t.Context(), "git", "diff", "--exit-code", "HEAD", "--",
+		"cmd", "internal", "schemas", "web", "go.mod", "go.sum")
+	diff.Dir = directory
+	log, err := diff.CombinedOutput()
+	require.NoError(t, err, "commit changed build inputs before the clean revision fixture: %s", log)
+	untracked := exec.CommandContext(t.Context(), "git", "ls-files", "--others", "--exclude-standard", "--",
+		"*.go", "go.mod", "go.sum", "schemas/")
+	untracked.Dir = directory
+	log, err = untracked.CombinedOutput()
+	require.NoError(t, err)
+	require.Empty(t, log, "commit new Go/schema build inputs rather than testing an older HEAD")
+
+	snapshot := filepath.Join(t.TempDir(), "source")
+	commands := [][]string{
+		{"clone", "--quiet", "--shared", "--single-branch", "--no-tags", "--no-checkout", directory, snapshot},
+		{"-C", snapshot, "sparse-checkout", "set", "--cone", "cmd", "internal", "schemas", "web"},
+		{"-C", snapshot, "checkout", "--quiet", "--detach", "HEAD"},
+	}
+	for _, args := range commands {
+		command := exec.CommandContext(t.Context(), "git", append([]string{"-c", "core.hooksPath=/dev/null"}, args...)...)
+		command.Env = append(os.Environ(), "GIT_LFS_SKIP_SMUDGE=1", "GIT_TERMINAL_PROMPT=0")
+		log, err := command.CombinedOutput()
+		require.NoError(t, err, "preparing private clean committed source: %s", log)
+	}
+	return buildRecoveryCLIFromDirectory(t, filepath.Join(snapshot, "cmd", "waza"))
 }
 
 func killCheckpointProcessAtBoundary(t *testing.T, binary, directory string, wire []byte, boundary string) (string, *executioncheckpoint.Checkpoint) {
