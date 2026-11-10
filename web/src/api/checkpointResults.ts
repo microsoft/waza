@@ -326,7 +326,8 @@ export async function runCheckpointOperation(
   if (action === "create" && (result.source || result.source_withheld || result.status === "reused")) {
     throw new Error("Checkpoint create response contains resume-only state.");
   }
-  if (action === "resume" && result.status === "completed" && !result.source) {
+  if (action === "resume" && !result.source &&
+      (result.status === "completed" || (result.submission?.status === "completed" && !result.source_withheld))) {
     throw new Error("Checkpoint API returned completed resume without its checkpoint source.");
   }
   if (action === "resume" && result.source && await checkpointDigest(result.source) !== digest) {
