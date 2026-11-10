@@ -16,7 +16,9 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executioncheckpoint"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
@@ -35,10 +37,14 @@ func TestCheckpointBrowserFixturesHaveActualProtectedHTTPProducers(t *testing.T)
 	var revision atomic.Pointer[string]
 	var failFinal atomic.Bool
 	var failBefore atomic.Bool
+	var factories atomic.Int64
 	initialRevision, changedRevision := strings.Repeat("c", 40), strings.Repeat("d", 40)
 	revision.Store(&initialRevision)
 	mux := http.NewServeMux()
-	service := runnerunit.NewService(nil)
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		factories.Add(1)
+		return execution.NewMockEngine(config.ModelID), nil
+	})
 	RegisterRunnerRoutesWithService(mux, service)
 	registerCheckpointOperationRoutes(mux, checkpointOperations{
 		open: func() (artifactmanifest.Backend, func() error, error) {
@@ -101,6 +107,38 @@ func TestCheckpointBrowserFixturesHaveActualProtectedHTTPProducers(t *testing.T)
 	require.Zero(t, reused.Submission.EngineCalls)
 	require.Equal(t, 1, reused.ExitCode)
 	require.Equal(t, failed.Submission.Terminal, reused.Submission.Terminal)
+
+	// Fail the admitted concrete mock's actual workspace creation, not runtime
+	// admission or a synthetic terminal. Restore every platform's temp setting.
+	var restoreTemp []func()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		value, present := os.LookupEnv(name)
+		t.Setenv(name, filepath.Join(directory, "absent-runtime-temp"))
+		restoreTemp = append(restoreTemp, func() {
+			if present {
+				require.NoError(t, os.Setenv(name, value))
+			} else {
+				require.NoError(t, os.Unsetenv(name))
+			}
+		})
+	}
+	executionFailure := record("execution_error", "/api/v1/checkpoints", wire, http.StatusOK)
+	for _, restore := range restoreTemp {
+		restore()
+	}
+	require.Equal(t, "completed", executionFailure.Status)
+	require.Equal(t, 2, executionFailure.ExitCode)
+	require.Equal(t, "error", executionFailure.Submission.Terminal.Observation.Status)
+	require.Empty(t, executionFailure.Submission.Terminal.Observation.Validations)
+	calls := factories.Load()
+	errorDestination := bytes.Replace(wire, []byte(`"attempt":2`), []byte(`"attempt":3`), 1)
+	require.NotEqual(t, wire, errorDestination)
+	reusedError := record("reused_error", "/api/v1/checkpoints/"+executionFailure.FinalizedDigest+"/resume", errorDestination, http.StatusOK)
+	require.Equal(t, "reused", reusedError.Status)
+	require.Equal(t, 2, reusedError.ExitCode)
+	require.Zero(t, reusedError.Submission.EngineCalls)
+	require.Equal(t, calls, factories.Load())
+	require.Equal(t, executionFailure.Submission.Terminal, reusedError.Submission.Terminal)
 
 	failBefore.Store(true)
 	paused, err := runnercheckpoint.ParseResult(post("/api/v1/checkpoints", wire, http.StatusInternalServerError))

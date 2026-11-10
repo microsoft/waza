@@ -127,7 +127,8 @@ export function parseCheckpointOperationResult(text: string): CheckpointOperatio
         observed.execution_mode !== binding.execution_mode ||
         observed.run_number !== terminal.selection?.trial || observed.attempts !== terminal.selection?.attempt ||
         observed.engine_calls !== terminal.engine_calls || new Set(ids).size !== ids.length ||
-        ids.length !== binding.grader_ids.length || ids.some((id) => !binding.grader_ids.includes(id))) {
+        (observed.status !== "error" && ids.length !== binding.grader_ids.length) ||
+        ids.some((id) => !binding.grader_ids.includes(id))) {
       throw new Error("Checkpoint observation contradicts its original binding.");
     }
   }

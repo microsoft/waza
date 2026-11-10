@@ -58,7 +58,7 @@ test.describe("Protected checkpoint operations in Lab", () => {
     await page.goto("/#/lab/runner");
   });
 
-  for (const name of ["created", "failed", "reused", "retried", "incompatible", "stale", "checkpoint_error"] as const) {
+  for (const name of ["created", "failed", "reused", "retried", "execution_error", "reused_error", "incompatible", "stale", "checkpoint_error"] as const) {
     test(`renders and downloads actual protected producer ${name} values`, async ({ page }) => {
       const fixture = fixtures[name];
       const methods = await prepare(page, fixture);
@@ -118,6 +118,13 @@ test.describe("Protected checkpoint operations in Lab", () => {
     { name: "mismatched caller identity", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.submission!.caller!.canonical_digest = "0".repeat(64); } },
     { name: "contradictory original exit", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.exit_code = 1; value.submission!.exit_code = 1; } },
     { name: "contradictory new call count", fixture: "created", mutate: (value: CheckpointOperationResult) => { value.submission!.engine_calls = 0; } },
+    { name: "unknown error grader", fixture: "execution_error", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.terminal!.observation!.validations = [{ identifier: "unadmitted", passed: false }];
+    } },
+    { name: "duplicate error grader", fixture: "execution_error", mutate: (value: CheckpointOperationResult) => {
+      const verdict = { identifier: value.submission!.reservation!.binding.grader_ids[0]!, passed: false };
+      value.submission!.terminal!.observation!.validations = [verdict, { ...verdict }];
+    } },
   ] as const) {
     test(`rejects ${control.name} without rendering or exporting success`, async ({ page }) => {
       const fixture = fixtures[control.fixture];
