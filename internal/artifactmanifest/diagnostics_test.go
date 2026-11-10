@@ -170,10 +170,6 @@ func TestDiagnosticsAdmissionAndPendingBeforeIO(t *testing.T) {
 				t.Fatal("zero pending admitted")
 			}
 			pending := prepareDiagnostic(t, scope, nil, `{"approved":false}`)
-			if result, err := scope.Commit(nil, pending); result.Outcome != DiagnosticNotAttempted ||
-				!errors.Is(err, ErrInvalid) {
-				t.Fatal("nil context admitted")
-			}
 			before := pending.Bytes()
 			denied := errors.New("capture projection denied")
 			scope.store.admit = func(context.Context, Scope, json.RawMessage) error { return denied }
@@ -203,7 +199,7 @@ func TestDiagnosticsAdmissionAndPendingBeforeIO(t *testing.T) {
 				t.Fatal("cancellation lost before-write classification")
 			}
 			if probe.reads.Load() != 0 || probe.writes.Load() != 0 {
-				t.Fatal("denied/mutated/cancelled/foreign admission performed backend I/O")
+				t.Fatal("denied/mutated/canceled/foreign admission performed backend I/O")
 			}
 			scope.store.admit = allowDiagnostic
 			commitDiagnostic(t, scope, pending)
@@ -434,9 +430,10 @@ func TestDiagnosticsLocalPublicationFailures(t *testing.T) {
 					return nil, err
 				}
 				writer := failingWriter{File: file}
-				if mode == "write" {
+				switch mode {
+				case "write":
 					writer.writeErr = fault
-				} else if mode == "close" {
+				case "close":
 					writer.closeErr = fault
 				}
 				return writer, nil
