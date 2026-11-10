@@ -105,7 +105,8 @@ public disclosure responses. Public endpoints must compose the evidence owner's
 capture policy before encoding them; that integration remains separately owned.
 The checkpoint result writer validates the original nested submission, including
 its reservation, decision and terminal, before marshaling. Invalid UTF-8 is
-rejected rather than normalized into apparently valid text.
+rejected rather than normalized into apparently valid text. Original
+checkpoint-level diagnostic strings are checked before marshaling as well.
 
 Submission and both recovery adapters avoid HTML escaping of admitted request
 JSON. Literal `<`, `>` and `&` in captured inputs do not expand solely because

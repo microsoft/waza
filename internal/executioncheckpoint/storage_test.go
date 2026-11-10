@@ -29,7 +29,7 @@ func localCheckpointStore(t *testing.T) (*artifactmanifest.Local, string) {
 }
 
 func TestCheckpointImmutableBlobPersistence(t *testing.T) {
-	checkpoint, _, _, _, _, _ := checkpointContext(t, false)
+	checkpoint, _, reservation, _, _, _ := checkpointContext(t, false)
 	backend, directory := localCheckpointStore(t)
 	digest, err := Put(context.Background(), backend, checkpoint)
 	if err != nil {
@@ -57,10 +57,17 @@ func TestCheckpointImmutableBlobPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "reservation") || strings.HasPrefix(entry.Name(), "completion") ||
-			strings.HasPrefix(entry.Name(), "decision") || strings.HasPrefix(entry.Name(), "final-") {
+		if strings.HasPrefix(entry.Name(), "final-") {
 			t.Fatalf("checkpoint publication invented authoritative state: %s", entry.Name())
 		}
+	}
+	namespace, err := artifactmanifest.NewNamespace(backend, artifactmanifest.ExecutionLedgerNamespaceV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, truncated, err := namespace.ListUnverified(t.Context())
+	if err != nil || truncated || len(records) != 0 {
+		t.Fatalf("checkpoint blob created authoritative namespace records: %v truncated=%v %v", records, truncated, err)
 	}
 	var wg sync.WaitGroup
 	failures := make(chan error, 8)
@@ -86,6 +93,18 @@ func TestCheckpointImmutableBlobPersistence(t *testing.T) {
 	}
 	if _, err := Load(context.Background(), backend, digest); err != nil {
 		t.Fatalf("original checkpoint lost after distinct publication: %v", err)
+	}
+	records, truncated, err = namespace.ListUnverified(t.Context())
+	if err != nil || truncated || len(records) != 0 {
+		t.Fatalf("repeated checkpoint publication created ledger records: %v truncated=%v %v", records, truncated, err)
+	}
+	key := "reservation/" + checkpoint.ExecutionID
+	if created, err := namespace.Create(t.Context(), key, reservation); !created || err != nil {
+		t.Fatalf("positive ledger-discovery control failed: created=%v %v", created, err)
+	}
+	records, truncated, err = namespace.ListUnverified(t.Context())
+	if err != nil || truncated || len(records) != 1 || records[0] != key {
+		t.Fatalf("namespace assertion did not inspect actual provider records: %v truncated=%v %v", records, truncated, err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
@@ -74,6 +75,11 @@ func ParseResult(data []byte) (*Result, error) {
 // EncodeResult validates declarations only. The public transport must separately
 // apply the shared capture/privacy policy before calling this codec.
 func EncodeResult(result Result) ([]byte, error) {
+	for _, diagnostic := range result.Diagnostics {
+		if !utf8.ValidString(diagnostic.Code) || !utf8.ValidString(diagnostic.Message) {
+			return nil, fmt.Errorf("checkpoint result diagnostic is not UTF-8")
+		}
+	}
 	if result.Submission != nil {
 		if _, err := runnerunit.EncodeSubmissionResult(*result.Submission); err != nil {
 			return nil, err

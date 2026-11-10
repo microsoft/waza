@@ -42,6 +42,28 @@ func TestResultRejectsOriginalInvalidReservationUTF8(t *testing.T) {
 	}
 }
 
+func TestResultRejectsOriginalInvalidDiagnosticUTF8(t *testing.T) {
+	result, err := adapter(t, nil).Submit(t.Context(), []byte("{}"), backend(t), Hooks{})
+	if err == nil || result.Status != "rejected" || len(result.Diagnostics) != 1 {
+		t.Fatalf("fixture did not produce an actual rejected operation: %+v %v", result, err)
+	}
+	result.Diagnostics[0].Message = "\uFFFD"
+	if _, err := EncodeResult(result); err != nil {
+		t.Fatalf("valid replacement-character diagnostic rejected: %v", err)
+	}
+	result.Diagnostics[0].Message = string([]byte{0xff})
+	normalized, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseResult(normalized); err != nil {
+		t.Fatalf("fixture did not demonstrate diagnostic normalization: %v", err)
+	}
+	if raw, err := EncodeResult(result); raw != nil || err == nil {
+		t.Fatalf("checkpoint wrapper normalized original invalid diagnostic: %s %v", raw, err)
+	}
+}
+
 func TestResultRejectsOriginalInvalidTerminalUTF8(t *testing.T) {
 	service := adapter(t, nil)
 	wire := fixture(t)
