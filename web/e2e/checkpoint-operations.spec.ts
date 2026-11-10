@@ -191,21 +191,23 @@ test.describe("Protected checkpoint operations in Lab", () => {
     });
   }
 
-  test("rejects a source-less completed resume before rendering or downloading", async ({ page }) => {
-    const digest = "0".repeat(64);
-    const fixture = { ...fixtures.created, path: `/api/v1/checkpoints/${digest}/resume` };
-    const value = parsed(fixture);
-    expect(value.status).toBe("completed");
-    expect(value.source).toBeUndefined();
-    expect(digest).not.toBe(value.before_checkpoint_sha256);
-    expect(digest).not.toBe(value.finalized_checkpoint_sha256);
-    const methods = await prepare(page, fixture);
-    await run(page, fixture);
-    await expect(panel(page).getByRole("alert")).toContainText("completed resume without its checkpoint source");
-    await expect(result(page)).toHaveCount(0);
-    await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
-    expect(methods).toEqual(["POST"]);
-  });
+  for (const name of ["created", "checkpoint_error"] as const) {
+    test(`rejects a source-less completed ${name} resume before rendering or downloading`, async ({ page }) => {
+      const digest = "0".repeat(64);
+      const fixture = { ...fixtures[name], path: `/api/v1/checkpoints/${digest}/resume` };
+      const value = parsed(fixture);
+      expect(value.submission?.status).toBe("completed");
+      expect(value.source).toBeUndefined();
+      expect(digest).not.toBe(value.before_checkpoint_sha256);
+      expect(digest).not.toBe(value.finalized_checkpoint_sha256);
+      const methods = await prepare(page, fixture);
+      await run(page, fixture);
+      await expect(panel(page).getByRole("alert")).toContainText("completed resume without its checkpoint source");
+      await expect(result(page)).toHaveCount(0);
+      await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
+      expect(methods).toEqual(["POST"]);
+    });
+  }
 
   test("rejects resume-only state replayed as a create response", async ({ page }) => {
     const fixture = { ...fixtures.reused, path: "/api/v1/checkpoints" };
