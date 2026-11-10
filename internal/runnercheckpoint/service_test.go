@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
@@ -59,23 +60,46 @@ func TestLargeUnescapedRequestSurvivesSubmitAndBothRecoveryBoundaries(t *testing
 		factories++
 		return execution.NewMockEngine(config.ModelID), nil
 	})
-	completed, err := service.Submit(t.Context(), wire, store, Hooks{})
+	trace := func(ctx context.Context, phase string, started time.Time) {
+		t.Helper()
+		remaining := "none"
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining = time.Until(deadline).String()
+		}
+		t.Logf("large-request phase=%s elapsed=%s ctx_err=%v deadline_remaining=%s", phase, time.Since(started), ctx.Err(), remaining)
+	}
+	hooks := func(operation string, started time.Time, stopBefore bool) Hooks {
+		return Hooks{Published: func(ctx context.Context, reference Reference) error {
+			trace(ctx, operation+"/"+reference.Boundary, started)
+			if stopBefore {
+				return errors.New("stop before dispatch")
+			}
+			return nil
+		}}
+	}
+	started := time.Now()
+	completed, err := service.Submit(t.Context(), wire, store, hooks("submit", started, false))
+	trace(t.Context(), "submit/return", started)
 	if err != nil || completed.Submission == nil || completed.Submission.Completion == nil ||
 		completed.BeforeDigest == "" || completed.FinalizedDigest == "" || factories != 1 {
 		t.Fatalf("accepted prompt failed in checkpoint adapter: %+v %v", completed, err)
 	}
-	reused, err := service.Resume(t.Context(), wire, store, completed.FinalizedDigest, Hooks{})
+	started = time.Now()
+	reused, err := service.Resume(t.Context(), wire, store, completed.FinalizedDigest, hooks("finalized-resume", started, false))
+	trace(t.Context(), "finalized-resume/return", started)
 	if err != nil || reused.Status != "reused" || reused.Submission.EngineCalls != 0 || factories != 1 ||
 		reused.Submission.Reservation.ExecutionID != completed.Submission.Reservation.ExecutionID {
 		t.Fatalf("large finalized checkpoint was not reused unchanged: %+v %v", reused, err)
 	}
-	paused, err := service.Submit(t.Context(), wire, store, Hooks{
-		Published: func(context.Context, Reference) error { return errors.New("stop before dispatch") },
-	})
+	started = time.Now()
+	paused, err := service.Submit(t.Context(), wire, store, hooks("before-stop", started, true))
+	trace(t.Context(), "before-stop/return", started)
 	if err == nil || paused.BeforeDigest == "" || factories != 1 {
 		t.Fatalf("before-unit fixture did not stop before engine: %+v %v", paused, err)
 	}
-	child, err := service.Resume(t.Context(), wire, store, paused.BeforeDigest, Hooks{})
+	started = time.Now()
+	child, err := service.Resume(t.Context(), wire, store, paused.BeforeDigest, hooks("before-resume", started, false))
+	trace(t.Context(), "before-resume/return", started)
 	if err != nil || child.Submission.Completion == nil || child.Submission.EngineCalls != 1 || factories != 2 ||
 		child.Submission.Reservation.ExecutionID == paused.Submission.Reservation.ExecutionID ||
 		child.Submission.Reservation.Parent == nil ||

@@ -53,15 +53,18 @@ func PublishFinalized(ctx context.Context, backend artifactmanifest.Backend, led
 func creatorDeclaration(ctx context.Context, ledger *executionledger.Ledger, creator executionledger.Creator,
 	request []byte, revision, boundary string,
 ) (Checkpoint, *executionledger.Reservation, error) {
+	started, entryContextErr := time.Now(), ctx.Err()
 	reserved, err := ledger.Reservation(creator)
 	if err != nil {
 		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w", err)
 	}
 	original := bytes.Clone(request)
+	compatibilityStarted := time.Now()
 	compatibility, err := ForRequest(original, revision)
 	if err != nil {
 		return Checkpoint{}, nil, err
 	}
+	compatibilityDone, compatibilityContextErr := time.Now(), ctx.Err()
 	declared, err := runnercontract.Parse(original)
 	if err != nil {
 		return Checkpoint{}, nil, fmt.Errorf("%w: original request selection: %w", ErrContext, err)
@@ -69,6 +72,7 @@ func creatorDeclaration(ctx context.Context, ledger *executionledger.Ledger, cre
 	if declared.Selection != reserved.Attempt.Binding.Selection {
 		return Checkpoint{}, nil, fmt.Errorf("%w: request selection differs from the creator's original native tuple", ErrContext)
 	}
+	selectionDone, selectionContextErr := time.Now(), ctx.Err()
 	identity, err := runneridentity.DeriveJSON(original)
 	if err != nil {
 		return Checkpoint{}, nil, fmt.Errorf("%w: original request identity: %w", ErrContext, err)
@@ -76,8 +80,17 @@ func creatorDeclaration(ctx context.Context, ledger *executionledger.Ledger, cre
 	if *identity != reserved.Attempt.Binding.Identity {
 		return Checkpoint{}, nil, fmt.Errorf("%w: request does not retain the creator's full original identity and native ordinal", ErrContext)
 	}
+	identityDone, identityContextErr := time.Now(), ctx.Err()
 	if err := ledger.ValidateCreator(ctx, creator); err != nil {
-		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w", err)
+		finished := time.Now()
+		deadlineRemainingAtEntry := "none"
+		if deadline, ok := ctx.Deadline(); ok {
+			deadlineRemainingAtEntry = deadline.Sub(started).String()
+		}
+		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w (declaration_elapsed=%s retained_elapsed=%s compatibility_elapsed=%s selection_elapsed=%s identity_elapsed=%s creator_validation_elapsed=%s deadline_remaining_at_entry=%s entry_ctx_err=%v compatibility_ctx_err=%v selection_ctx_err=%v identity_ctx_err=%v final_ctx_err=%v)",
+			err, finished.Sub(started), compatibilityStarted.Sub(started), compatibilityDone.Sub(compatibilityStarted),
+			selectionDone.Sub(compatibilityDone), identityDone.Sub(selectionDone), finished.Sub(identityDone),
+			deadlineRemainingAtEntry, entryContextErr, compatibilityContextErr, selectionContextErr, identityContextErr, ctx.Err())
 	}
 	return Checkpoint{
 		Kind: "waza.execution-checkpoint", SchemaVersion: Version, Boundary: boundary,

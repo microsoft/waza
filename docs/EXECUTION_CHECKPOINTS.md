@@ -120,6 +120,13 @@ Submission and both recovery adapters avoid HTML escaping of admitted request
 JSON. Literal `<`, `>` and `&` in captured inputs do not expand solely because
 the adapter wraps the request; original request-size bounds still apply.
 
+Creator-validation failures retain elapsed declaration phases and context states
+alongside the original error cause. Inspect compatibility, selection and identity
+work separately from the retained-reservation and provider-validation phases;
+phase timings are diagnostics, not execution or recovery evidence. Publication
+budgets are unchanged. A timeout remains a publication failure: preserve the
+original completion and any reported unverified blob rather than retrying.
+
 ## Migration and validation limits
 
 Checkpoint and checkpoint-result sidecars have independent `1.0` versions.

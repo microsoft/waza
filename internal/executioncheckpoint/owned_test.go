@@ -127,6 +127,42 @@ func TestOwnedFinalizedCheckpointRejectsForeignCreatorAndRequestRetag(t *testing
 	}
 }
 
+func TestOwnedFinalizedCheckpointCreatorFailureRetainsPhaseContextAndCause(t *testing.T) {
+	checkpoint, backend, ledger, creator, _, _ := typedCheckpointSource(t, false)
+	request := readFixture(t, "../../examples/runner/unit.json")
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, stop := context.WithDeadline(t.Context(), time.Unix(1, 0))
+	defer stop()
+	for _, control := range []struct {
+		name string
+		ctx  context.Context
+		want error
+	}{
+		{"canceled", canceled, context.Canceled},
+		{"expired", expired, context.DeadlineExceeded},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			digest, err := PublishFinalized(control.ctx, backend, ledger, creator, request,
+				checkpoint.Compatibility.RunnerRevision, checkpoint.ManifestDigest)
+			if digest != "" || !errors.Is(err, control.want) {
+				t.Fatalf("creator failure lost context classification or published a checkpoint: %s %v", digest, err)
+			}
+			for _, phase := range []string{
+				"declaration_elapsed=", "retained_elapsed=", "compatibility_elapsed=",
+				"selection_elapsed=", "identity_elapsed=", "creator_validation_elapsed=",
+				"deadline_remaining_at_entry=", "entry_ctx_err=" + control.want.Error(),
+				"compatibility_ctx_err=" + control.want.Error(), "selection_ctx_err=" + control.want.Error(),
+				"identity_ctx_err=" + control.want.Error(), "final_ctx_err=" + control.want.Error(),
+			} {
+				if !strings.Contains(err.Error(), phase) {
+					t.Fatalf("creator failure omitted phase/context %q: %v", phase, err)
+				}
+			}
+		})
+	}
+}
+
 func TestTypedFinalizedCheckpointRejectsSourceMismatchAndCurrentCorruption(t *testing.T) {
 	checkpoint, _, ledger, _, _, directory := typedCheckpointSource(t, false)
 	current := checkpoint.Compatibility
