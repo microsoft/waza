@@ -2477,6 +2477,14 @@ See [AGENTS.md](AGENTS.md) for coding guidelines.
 - Re-run native dashboard JSON encoding benchmarks after changing response DTOs:
   `go test ./internal/webapi -run '^$' -bench '^BenchmarkMarshalRunSummaries5000$' -benchmem`
 
+Check large-history chart rendering, exact tooltips, and AI Credit availability:
+
+```bash
+cd web
+npm run lint && npm run build
+CI=true npx --no-install playwright test e2e/trend-chart-scaling.spec.ts e2e/ai-credits.spec.ts --project=chromium --retries=0
+```
+
 ## Legacy Python Implementation
 
 The Python implementation has been superseded by the Go CLI. The last Python release is available at [v0.3.2](https://github.com/microsoft/waza/releases/tag/v0.3.2). Starting with v0.4.0-alpha.1, waza is distributed exclusively as pre-built Go binaries.
