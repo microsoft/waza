@@ -352,6 +352,12 @@ def greet(name):
 
 ### Step 4: Run the Evaluation
 
+Eval-level `inputs` also supply lifecycle hook arguments via `{{.Vars.key}}`.
+Arguments preserve whitespace and explicit empty values; missing variables or
+an empty rendered executable fail the hook. Hook configuration and eval inputs
+participate in result cache identity when hooks are configured. See the
+[hook contract and examples](../site/src/content/docs/guides/eval-yaml.mdx#hooks).
+
 Execute the benchmark:
 
 ```bash
