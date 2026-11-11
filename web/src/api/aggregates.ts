@@ -81,6 +81,14 @@ function referenceKey(input: AggregateInput): string {
   return `${input.manifest_sha256}:${input.evidence_sha256 ?? ""}`;
 }
 
+function memberUsageEligible(member: AggregateReport["members"][number]): boolean {
+  return !!member.execution_id && !member.diagnostics.includes("cached_historical_usage_excluded") &&
+    !member.categories.some((category) => category.source === "cached") &&
+    member.categories.some((category) =>
+      category.category === "usage" && category.state === "present" && category.declared_state === "present" &&
+      category.verification === "source-content-and-recorded-usage-shape-only" && category.observed_count === 1);
+}
+
 function sorted(values: string[], compare: (a: string, b: string) => number = (a, b) => a < b ? -1 : a > b ? 1 : 0): boolean {
   return values.every((value, index) => index === 0 || compare(values[index - 1]!, value) <= 0);
 }
@@ -192,7 +200,7 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
       value.counts.unique_verified_execution_records !== executions ||
       value.usage.executions !== executions ||
       (value.usage.state === "complete" && (executions === 0 || state !== "complete" ||
-        value.members.some((member) => !member.execution_id))) ||
+        !value.members.every(memberUsageEligible))) ||
       value.counts.unique_verified_manifests !== new Set(value.members.filter((m) => m.binding).map((m) => m.manifest_sha256)).size ||
       (response.status === 200) !== (value.state === "complete")) {
     throw new AggregateError("Aggregate API returned inconsistent membership or population counts.");

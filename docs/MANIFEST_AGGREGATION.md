@@ -110,9 +110,13 @@ Cached lineage or cached categories, unknown legacy identity, missing usage,
 withheld views or conflicting usage withhold the **whole total**, not a partial
 subtotal. Missing credits/model attribution remain unavailable. Explicit recorded
 zero credits and native zero counters remain zero, not absence.
-Saved-report and client admission also reject a complete usage claim when even
-one member lacks execution identity, including otherwise complete metadata-only
-admission. A nonzero execution count does not make an unknown member eligible.
+Saved-report and client admission also reject a complete usage claim when any
+supplied view lacks execution identity or a verified, present single recorded
+usage observation, or declares cached categories/lineage exclusion. A compatible
+eligible view cannot override another view's exclusion. Complete metadata-only
+admission still retains unavailable/null usage. These checks do not reverify
+saved evidence or require live-only provenance. Optional aggregate credits and
+model attribution may remain absent; absence is unavailable, not recorded zero.
 
 Totals use `models.AggregateUsageStats` in sorted execution-ID order. Mock,
 authored, cached and unknown source labels remain distinguishable per view.

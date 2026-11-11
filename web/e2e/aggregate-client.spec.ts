@@ -36,6 +36,12 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
     inputs: { manifest_sha256: string; evidence_sha256?: string }[];
     canonical: string;
     forged: string;
+    eligibility: {
+      name: string;
+      inputs: { manifest_sha256: string; evidence_sha256?: string }[];
+      canonical: string;
+      forged: string;
+    }[];
   };
   let delayed: { wire: string; delay: number; started?: () => void; closed?: (completed: boolean) => void } | undefined;
 
@@ -104,6 +110,71 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
     await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Download aggregate JSON" })).toHaveCount(0);
     expect(calls).toBe(2);
+  });
+
+  test("rejects producer-backed declared usage exclusions without excluding optional aggregate credits", async ({ page }) => {
+    let response = "";
+    await page.route("**/api/v1/aggregates", (route) => route.fulfill({ contentType: "application/json", body: response }));
+    await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
+    for (const fixture of mixed.eligibility) {
+      const original = JSON.parse(fixture.canonical);
+      expect(original.members.every((member: { execution_id?: string }) => member.execution_id)).toBe(true);
+      const references = fixture.inputs.map((input) =>
+        `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n");
+      await page.getByRole("textbox").fill(references);
+      response = fixture.canonical;
+      await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+      const result = page.getByRole("status", { name: "Evaluated manifest aggregate" });
+      await expect(result).toContainText("Aggregate admission: complete");
+      if (fixture.name === "optional aggregate credits absent") {
+        expect(original.usage.recorded_historical_usage.ai_credits).toBeUndefined();
+        await expect(result.locator("dd").nth(5)).toHaveText("Unavailable");
+      } else if (fixture.name === "optional aggregate attribution absent") {
+        expect(original.usage.recorded_historical_usage.model_metrics).toBeUndefined();
+        await expect(result.locator("dd").nth(5)).toHaveText("1.25");
+      } else if (fixture.name === "recorded zero credits") {
+        expect(original.usage.recorded_historical_usage.ai_credits).toBe(0);
+        await expect(result.locator("dd").nth(5)).toHaveText("0");
+      } else {
+        expect(original.usage.recorded_historical_usage).toBeNull();
+      }
+      const download = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download aggregate JSON" }).click();
+      expect(await readFile((await (await download).path())!)).toEqual(Buffer.from(fixture.canonical));
+      if (fixture.forged) {
+        const forged = JSON.parse(fixture.forged);
+        expect(forged).toEqual({ ...original, usage: forged.usage });
+        response = fixture.forged;
+        await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("inconsistent");
+        await expect(result).toHaveCount(0);
+      }
+    }
+    expect(mixed.eligibility).toHaveLength(6);
+  });
+
+  test("requires a verified single usage observation and honors any cached category", async ({ page }) => {
+    const fixture = mixed.eligibility.find((control) => control.name === "optional aggregate credits absent")!;
+    let response = fixture.canonical;
+    await page.route("**/api/v1/aggregates", (route) => route.fulfill({ contentType: "application/json", body: response }));
+    await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
+    await page.getByRole("textbox").fill(fixture.inputs.map((input) =>
+      `${input.manifest_sha256} ${input.evidence_sha256}`).join("\n"));
+    for (const change of ["missing category", "cached category", "unverified", "empty count", "withheld declaration"]) {
+      const report = JSON.parse(fixture.canonical);
+      const member = report.members[0];
+      const usage = member.categories.find((category: { category: string }) => category.category === "usage");
+      expect(usage.observed_count).toBe(1);
+      if (change === "missing category") member.categories = [];
+      else if (change === "cached category") member.categories[0].source = "cached";
+      else if (change === "unverified") usage.verification = "declared-state-only";
+      else if (change === "empty count") usage.observed_count = 0;
+      else usage.declared_state = "redacted";
+      response = JSON.stringify(report);
+      await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+      await expect(page.getByRole("alert")).toContainText("inconsistent");
+      await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
+    }
   });
 
   test("delayed valid HTTP response outlives the old client deadline and downloads exact bytes", async ({ page }) => {

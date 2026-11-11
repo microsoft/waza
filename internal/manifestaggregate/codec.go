@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/evidencestate"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
@@ -68,7 +69,7 @@ func accounting(report Report) error {
 	manifests, executions := map[string]bool{}, map[string]bool{}
 	profiles := map[string][]Input{}
 	state := "complete"
-	allExecutionsKnown := true
+	allUsageEligible := true
 	for index, member := range report.Members {
 		if index > 0 && compareInput(report.Members[index-1].Input, member.Input) >= 0 {
 			return fail()
@@ -99,9 +100,8 @@ func accounting(report Report) error {
 		}
 		if member.Execution != "" {
 			executions[member.Execution] = true
-		} else {
-			allExecutionsKnown = false
 		}
+		allUsageEligible = allUsageEligible && memberUsageEligible(member)
 		if member.State == "conflicting" {
 			state = "conflicting"
 		} else if member.State != "admitted" && state != "conflicting" {
@@ -117,10 +117,28 @@ func accounting(report Report) error {
 		state != report.State || report.Usage.Executions != len(executions) || !slices.IsSorted(report.Usage.Diagnostics) {
 		return fail()
 	}
-	if report.Usage.State == "complete" && (len(executions) == 0 || state != "complete" || !allExecutionsKnown) {
+	if report.Usage.State == "complete" && (len(executions) == 0 || state != "complete" || !allUsageEligible) {
 		return fail()
 	}
 	return nil
+}
+
+func memberUsageEligible(member Member) bool {
+	if member.Execution == "" || slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
+		return false
+	}
+	present := false
+	for _, category := range member.Categories {
+		if category.Source == evidencestate.Cached {
+			return false
+		}
+		if category.Category == evidencestate.Usage {
+			present = category.State == evidencestate.Present && category.DeclaredState == evidencestate.Present &&
+				category.Verification == "source-content-and-recorded-usage-shape-only" &&
+				category.ObservedCount != nil && *category.ObservedCount == 1
+		}
+	}
+	return present
 }
 
 // Encode emits typed field order, lexical reference/profile/code order inherited

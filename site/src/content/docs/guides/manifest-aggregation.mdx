@@ -65,8 +65,13 @@ admitted, non-cached execution records or null. No partial total, token-price
 estimate or new SDK billing is invented. Explicit recorded zero remains zero;
 missing credits/model attribution remain unavailable. Per-view source labels
 distinguish mock/authored/cached/unknown records from observed live evidence.
-Readers reject a complete usage claim if any member lacks execution identity;
-complete metadata-only admission still retains unavailable/null usage.
+Readers reject a complete usage claim if any supplied view lacks execution
+identity or a verified, present single usage observation, or declares cached
+categories/lineage exclusion. An eligible view cannot override another's
+exclusion. Complete metadata-only admission still retains unavailable/null
+usage. This consistency check is not source reverification or live-only
+attestation. Optional aggregate credits/model attribution may remain absent;
+missing values are unavailable, never recorded zero.
 
 If the full serialized report would exceed 32 MiB because of recorded usage,
 `recorded_usage_report_size_unavailable` withholds the entire historical total.
