@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
+
+	wazatemplate "github.com/microsoft/waza/internal/template"
 )
 
 // hookWaitDelay bounds how long a hook may keep its output pipes open after it
@@ -33,6 +36,7 @@ type HooksConfig struct {
 // Runner executes hook commands at lifecycle points.
 type Runner struct {
 	Verbose bool
+	Vars    map[string]string
 }
 
 // Execute runs all hooks for a given lifecycle point.
@@ -55,7 +59,17 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 		return fmt.Errorf("hook %s[%d]: empty command", name, index)
 	}
 
-	parts := strings.Fields(h.Command)
+	parts := splitTemplateCommand(h.Command)
+	for i, part := range parts {
+		rendered, err := wazatemplate.RenderHook(part, &wazatemplate.Context{Vars: r.Vars})
+		if err != nil {
+			return fmt.Errorf("hook %s[%d]: render command argument %d: %w", name, index, i, err)
+		}
+		parts[i] = rendered
+	}
+	if strings.TrimSpace(parts[0]) == "" {
+		return fmt.Errorf("hook %s[%d]: rendered command is empty", name, index)
+	}
 	//nolint:gosec // hook commands are user-configured in eval YAML, not untrusted input
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 
@@ -106,6 +120,63 @@ func (r *Runner) runHook(ctx context.Context, name string, index int, h HookConf
 	}
 
 	return nil
+}
+
+func splitTemplateCommand(command string) []string {
+	runes := []rune(command)
+	parts := make([]string, 0, len(strings.Fields(command)))
+	var part strings.Builder
+	inTemplate := false
+	inComment := false
+	var quote rune
+	escaped := false
+	for i := 0; i < len(runes); i++ {
+		switch {
+		case !inTemplate && runes[i] == '{' && i+1 < len(runes) && runes[i+1] == '{':
+			inTemplate = true
+			part.WriteString("{{")
+			i++
+		case inTemplate && inComment:
+			part.WriteRune(runes[i])
+			if runes[i] == '*' && i+1 < len(runes) && runes[i+1] == '/' {
+				part.WriteRune('/')
+				i++
+				inComment = false
+			}
+		case inTemplate && quote != 0:
+			part.WriteRune(runes[i])
+			if quote != '`' && runes[i] == '\\' && !escaped {
+				escaped = true
+				continue
+			}
+			if runes[i] == quote && !escaped {
+				quote = 0
+			}
+			escaped = false
+		case inTemplate && runes[i] == '/' && i+1 < len(runes) && runes[i+1] == '*':
+			inComment = true
+			part.WriteString("/*")
+			i++
+		case inTemplate && (runes[i] == '"' || runes[i] == '\'' || runes[i] == '`'):
+			quote = runes[i]
+			part.WriteRune(runes[i])
+		case inTemplate && runes[i] == '}' && i+1 < len(runes) && runes[i+1] == '}':
+			inTemplate = false
+			part.WriteString("}}")
+			i++
+		case !inTemplate && unicode.IsSpace(runes[i]):
+			if part.Len() > 0 {
+				parts = append(parts, part.String())
+				part.Reset()
+			}
+		default:
+			part.WriteRune(runes[i])
+		}
+	}
+	if part.Len() > 0 {
+		parts = append(parts, part.String())
+	}
+	return parts
 }
 
 // isAcceptableExit checks whether exitCode is in the allowed list.

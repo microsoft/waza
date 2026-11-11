@@ -280,12 +280,21 @@ make build
 make test
 # or: go test -v ./...
 
+# Force a clean dashboard dependency reinstall if node_modules is stale or corrupt
+make web-deps-force
+
 # Lint
 golangci-lint run
 
 # Run evaluation
 ./waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 ```
+
+`make build`, `make test`, `make install`, and `bash build.sh` install the locked
+dashboard dependencies on a clean checkout. Later local runs reuse
+`web/node_modules` until `web/package.json` or `web/package-lock.json` changes.
+Use `make web-deps-force` to recover from a stale or corrupt dependency tree.
+CI and release workflows continue to run `npm ci` explicitly on clean checkouts.
 
 ### Testing Requirements
 
@@ -444,6 +453,8 @@ only after `Wait` joins their copy
 goroutines. An empty-stderr exit or a test's total duration does not establish a
 protocol failure. Retain fresh production-CLI execution and existing deadlines
 while diagnosing startup delays; a diagnostic-only pass is not a root-cause fix.
+Compiled adapter admission controls record the same setup, process-start, wait,
+and context phases without changing their existing deadline or exit assertions.
 
 ## Documentation Requirements
 
