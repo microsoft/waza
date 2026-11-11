@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -87,7 +86,7 @@ func RegisterAggregateRoutesWithSources(mux *http.ServeMux, open AggregateSource
 		}
 		sources, closeSources, err := open()
 		if err != nil {
-			slog.Error("aggregate store unavailable", "error", err)
+			logRunnerError("aggregate store unavailable", "error", err)
 			reject(http.StatusServiceUnavailable, "aggregate_store_unavailable")
 			return
 		}
@@ -96,20 +95,20 @@ func RegisterAggregateRoutesWithSources(mux *http.ServeMux, open AggregateSource
 		report, buildErr := manifestaggregate.Build(ctx, sources, inputs, manifestaggregate.DefaultLimits())
 		closeErr := closeSources()
 		if report == nil || closeErr != nil {
-			slog.Error("aggregate evaluation unavailable", "error", errors.Join(buildErr, closeErr))
+			logRunnerError("aggregate evaluation unavailable", "error", errors.Join(buildErr, closeErr))
 			reject(http.StatusServiceUnavailable, "aggregate_evaluation_unavailable")
 			return
 		}
 		wire, encodeErr := manifestaggregate.Encode(*report)
 		if encodeErr != nil {
-			slog.Error("aggregate encoding failed", "error", encodeErr)
+			logRunnerError("aggregate encoding failed", "error", encodeErr)
 			reject(http.StatusInternalServerError, "aggregate_encoding_failed")
 			return
 		}
 		status := http.StatusOK
 		if buildErr != nil {
 			status = http.StatusConflict
-			slog.Error("aggregate admission incomplete", "error", buildErr)
+			logRunnerError("aggregate admission incomplete", "error", buildErr)
 		}
 		emit(status, wire)
 	})

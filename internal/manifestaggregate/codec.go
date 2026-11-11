@@ -68,6 +68,7 @@ func accounting(report Report) error {
 	manifests, executions := map[string]bool{}, map[string]bool{}
 	profiles := map[string][]Input{}
 	state := "complete"
+	allExecutionsKnown := true
 	for index, member := range report.Members {
 		if index > 0 && compareInput(report.Members[index-1].Input, member.Input) >= 0 {
 			return fail()
@@ -98,6 +99,8 @@ func accounting(report Report) error {
 		}
 		if member.Execution != "" {
 			executions[member.Execution] = true
+		} else {
+			allExecutionsKnown = false
 		}
 		if member.State == "conflicting" {
 			state = "conflicting"
@@ -114,7 +117,7 @@ func accounting(report Report) error {
 		state != report.State || report.Usage.Executions != len(executions) || !slices.IsSorted(report.Usage.Diagnostics) {
 		return fail()
 	}
-	if report.Usage.State == "complete" && (len(executions) == 0 || state != "complete") {
+	if report.Usage.State == "complete" && (len(executions) == 0 || state != "complete" || !allExecutionsKnown) {
 		return fail()
 	}
 	return nil

@@ -65,6 +65,8 @@ admitted, non-cached execution records or null. No partial total, token-price
 estimate or new SDK billing is invented. Explicit recorded zero remains zero;
 missing credits/model attribution remain unavailable. Per-view source labels
 distinguish mock/authored/cached/unknown records from observed live evidence.
+Readers reject a complete usage claim if any member lacks execution identity;
+complete metadata-only admission still retains unavailable/null usage.
 
 If the full serialized report would exceed 32 MiB because of recorded usage,
 `recorded_usage_report_size_unavailable` withholds the entire historical total.
@@ -85,6 +87,11 @@ setup/reset failures return 500 (`aggregate_transport_unavailable`), and
 unsupported bounded delivery aborts the connection instead of returning success.
 After admission, evaluation has its separate 30-second budget. Response delivery
 is bounded to five seconds without changing canonical report bytes.
+The aggregate-only client deadline is 50 seconds, covering those phases plus ten
+seconds of headroom while preserving caller cancellation. Source open/close and
+synchronous filesystem I/O are separate constraints, not a universal lifetime
+guarantee. Blocked diagnostic sinks use the existing bounded reporter rather
+than blocking report delivery or accumulating a logger per request.
 
 The panel displays composition, profile counts, member state/outcome counts,
 conflicts, omissions, category states, historical usage availability and source

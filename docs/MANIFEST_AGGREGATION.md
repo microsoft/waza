@@ -49,6 +49,11 @@ transport without an implicit successful response. Successful input admission
 clears its read deadline before the separate 30-second evaluation budget.
 Response delivery is bounded to five seconds and preserves canonical report
 bytes unchanged; a failed/partial delivery is not a report receipt.
+The aggregate client allows 50 seconds: these three phases plus ten seconds of
+headroom. Caller cancellation remains active. This is not a universal server
+lifetime guarantee: source open/close and synchronous filesystem I/O have their
+own constraints. Aggregate diagnostics use the existing bounded reporter;
+a blocked operator sink cannot retain one new logging goroutine per request.
 
 Open `waza serve --lab --results-dir RESULTS_DIR`, select **Runner**, then use
 **Aggregate completed public manifests**. The store is
@@ -105,6 +110,9 @@ Cached lineage or cached categories, unknown legacy identity, missing usage,
 withheld views or conflicting usage withhold the **whole total**, not a partial
 subtotal. Missing credits/model attribution remain unavailable. Explicit recorded
 zero credits and native zero counters remain zero, not absence.
+Saved-report and client admission also reject a complete usage claim when even
+one member lacks execution identity, including otherwise complete metadata-only
+admission. A nonzero execution count does not make an unknown member eligible.
 
 Totals use `models.AggregateUsageStats` in sorted execution-ID order. Mock,
 authored, cached and unknown source labels remain distinguishable per view.

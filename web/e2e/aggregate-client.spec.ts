@@ -31,15 +31,146 @@ function omittedReport(state = "incomplete", memberState = "omitted") {
 test.describe("Actual aggregate fetch, component and download callers", () => {
   let server: ViteDevServer;
   let base: string;
+  let directory: string;
+  let mixed: {
+    inputs: { manifest_sha256: string; evidence_sha256?: string }[];
+    canonical: string;
+    forged: string;
+  };
+  let delayed: { wire: string; delay: number; started?: () => void; closed?: (completed: boolean) => void } | undefined;
 
   test.beforeAll(async () => {
-    server = await createServer({ server: { host: "127.0.0.1", port: 0 } });
+    directory = await mkdtemp(join(tmpdir(), "waza-mixed-aggregate-"));
+    const output = join(directory, "mixed.json");
+    execFileSync("go", ["test", "-count=1", "-run", "^TestMixedIdentityPublicReportFixture$",
+      "./internal/manifestaggregate", "-args", "-aggregate-mixed-identity-fixture-output", output], {
+      cwd: resolve(".."), timeout: 120_000,
+    });
+    mixed = JSON.parse(await readFile(output, "utf8"));
+    server = await createServer({
+      server: { host: "127.0.0.1", port: 0 },
+      plugins: [{
+        name: "aggregate-delayed-http-controls",
+        configureServer(vite) {
+          vite.middlewares.use((request, response, next) => {
+            const control = delayed;
+            if (request.url !== "/api/v1/aggregates" || !control) return next();
+            request.resume();
+            const timer = setTimeout(() => {
+              response.setHeader("Content-Type", "application/json");
+              response.end(control.wire);
+            }, control.delay);
+            response.on("close", () => {
+              clearTimeout(timer);
+              control.closed?.(response.writableFinished);
+            });
+            control.started?.();
+          });
+        },
+      }],
+    });
     await server.listen();
     const address = server.httpServer?.address();
     if (!address || typeof address === "string") throw new Error("Aggregate harness listener unavailable.");
     base = `http://127.0.0.1:${address.port}`;
   });
-  test.afterAll(async () => { await server?.close(); });
+  test.afterAll(async () => {
+    await server?.close();
+    if (directory) await rm(directory, { recursive: true, force: true });
+  });
+
+  test("rejects a producer-backed mixed identity subtotal and clears earlier valid admission", async ({ page }) => {
+    const original = JSON.parse(mixed.canonical);
+    const forged = JSON.parse(mixed.forged);
+    expect(original.members).toHaveLength(2);
+    expect(original.members.filter((member: { execution_id?: string }) => member.execution_id)).toHaveLength(1);
+    expect(forged).toEqual({ ...original, usage: forged.usage });
+    expect(original.usage.recorded_historical_usage).toBeNull();
+    expect(forged.usage.recorded_historical_usage.ai_credits).toBe(1.25);
+    let calls = 0;
+    await page.route("**/api/v1/aggregates", (route) => route.fulfill({
+      contentType: "application/json", body: calls++ === 0 ? mixed.canonical : mixed.forged,
+    }));
+    await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
+    await page.getByRole("textbox").fill(mixed.inputs.map((input) =>
+      `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n"));
+    await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toContainText("Aggregate admission: complete");
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download aggregate JSON" }).click();
+    expect(await readFile((await (await download).path())!)).toEqual(Buffer.from(mixed.canonical));
+    await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("inconsistent");
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Download aggregate JSON" })).toHaveCount(0);
+    expect(calls).toBe(2);
+  });
+
+  test("delayed valid HTTP response outlives the old client deadline and downloads exact bytes", async ({ page }) => {
+    test.setTimeout(60_000);
+    delayed = { wire: mixed.canonical, delay: 36_000 };
+    try {
+      await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
+      await page.getByRole("textbox").fill(mixed.inputs.map((input) =>
+        `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n"));
+      await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+      await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" }))
+        .toContainText("Aggregate admission: complete", { timeout: 40_000 });
+      const download = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download aggregate JSON" }).click();
+      expect(await readFile((await (await download).path())!)).toEqual(Buffer.from(mixed.canonical));
+    } finally {
+      delayed = undefined;
+    }
+  });
+
+  test("caller edits abort actual HTTP and never restore stale aggregate data", async ({ page }) => {
+    let started: (() => void) | undefined;
+    let closed: ((completed: boolean) => void) | undefined;
+    const requestStarted = new Promise<void>((done) => { started = done; });
+    const requestClosed = new Promise<boolean>((done) => { closed = done; });
+    delayed = { wire: mixed.canonical, delay: 60_000, started: () => started?.(), closed: (complete) => closed?.(complete) };
+    try {
+      await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
+      const references = mixed.inputs.map((input) =>
+        `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n");
+      await page.getByRole("textbox").fill(references);
+      await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+      await requestStarted;
+      await page.getByRole("textbox").fill(`${references}\n`);
+      expect(await requestClosed).toBe(false);
+      await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      delayed.delay = 0;
+      await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+      await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toContainText("Aggregate admission: complete");
+    } finally {
+      delayed = undefined;
+    }
+  });
+
+  test("finite client timeout clears previous report and closes actual HTTP", async ({ page }) => {
+    test.setTimeout(75_000);
+    let closed: ((completed: boolean) => void) | undefined;
+    const requestClosed = new Promise<boolean>((done) => { closed = done; });
+    delayed = { wire: mixed.canonical, delay: 0 };
+    try {
+      await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
+      await page.getByRole("textbox").fill(mixed.inputs.map((input) =>
+        `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n"));
+      await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+      await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toContainText("Aggregate admission: complete");
+      delayed = { wire: mixed.canonical, delay: 60_000, closed: (complete) => closed?.(complete) };
+      await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+      await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
+      await expect(page.getByRole("alert")).toContainText("could not be loaded", { timeout: 55_000 });
+      expect(await requestClosed).toBe(false);
+      await expect(page.getByRole("button", { name: "Download aggregate JSON" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Build aggregate", exact: true })).toBeEnabled();
+    } finally {
+      delayed = undefined;
+    }
+  });
 
   test("rejects a matching-count omitted member disguised as complete", async ({ page }) => {
     await page.route("**/api/v1/aggregates", (route) => route.fulfill({ json: omittedReport("complete") }));

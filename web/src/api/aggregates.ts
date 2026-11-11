@@ -135,7 +135,8 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(inputs),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(35_000)]),
+      // 5s admission + 30s evaluation + 5s delivery + 10s client headroom.
+      signal: AbortSignal.any([signal, AbortSignal.timeout(50_000)]),
     });
     text = await response.text();
   } catch {
@@ -190,7 +191,8 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
       !equalCounts(outcomes, value.counts.member_outcomes) ||
       value.counts.unique_verified_execution_records !== executions ||
       value.usage.executions !== executions ||
-      (value.usage.state === "complete" && (executions === 0 || state !== "complete")) ||
+      (value.usage.state === "complete" && (executions === 0 || state !== "complete" ||
+        value.members.some((member) => !member.execution_id))) ||
       value.counts.unique_verified_manifests !== new Set(value.members.filter((m) => m.binding).map((m) => m.manifest_sha256)).size ||
       (response.status === 200) !== (value.state === "complete")) {
     throw new AggregateError("Aggregate API returned inconsistent membership or population counts.");
