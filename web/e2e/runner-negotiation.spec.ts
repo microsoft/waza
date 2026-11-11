@@ -111,6 +111,69 @@ test.describe("Runner negotiation through the real Go API", () => {
       }
   });
 
+  test("Lab parses both checkpoint result versions without treating operation errors as success", async ({ page }) => {
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify({
+      kind: "waza.runner-checkpoint-result",
+      schema_version: "1.1",
+      status: "operation_error",
+      exit_code: 2,
+      error_code: "checkpoint_storage_close_failed",
+      compatibility_result: "unavailable",
+      compatibility_differences: [],
+      restored_units: null,
+      remaining_work: null,
+      diagnostics: [],
+    }));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    const failure = reader.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(failure.getByRole("heading", { name: "Operation error" })).toBeVisible();
+    await expect(failure).toContainText("Operation statusoperation_error");
+    await expect(failure).toContainText("Sanitized error codecheckpoint_storage_close_failed");
+    await expect(failure).not.toContainText("completed");
+
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify({
+      kind: "waza.runner-checkpoint-result",
+      schema_version: "1.0",
+      status: "rejected",
+      exit_code: 6,
+      compatibility_result: "unavailable",
+      compatibility_differences: [],
+      restored_units: null,
+      remaining_work: null,
+      diagnostics: [{ code: "checkpoint_input_invalid", message: "Input was rejected." }],
+    }));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Checkpoint result: rejected");
+  });
+
+  test("Lab verifies retained operation-error source linkage without claiming admission", async ({ page }) => {
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(operationError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    const result = reader.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(result).toContainText("Underlying submission status (not overall operation status)");
+    await expect(result).toContainText("reused (exit 0)");
+    await expect(result).toContainText("Declared source (not independently verified)");
+    await expect(result).not.toContainText("Admitted source");
+
+    const mismatchedExecution = structuredClone(operationError);
+    mismatchedExecution.source.execution_id = `exec-${"0".repeat(64)}`;
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedExecution));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("does not match the retained submission");
+
+    const mismatchedDigest = structuredClone(operationError);
+    mismatchedDigest.source.completion_digest = "0".repeat(64);
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedDigest));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("does not match the retained submission");
+  });
+
   test("built CLI saves every frozen identity through actual stdout redirection", () => {
     expect(identityVectors).toHaveLength(11);
     for (const vector of identityVectors) {
@@ -249,9 +312,11 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(result).toContainText('required capability "inline.native-text" is unavailable; available: negotiation, exact-unit, inline.mock-text, terminal-result, inline.copilot-text');
     await expect(result.locator("dd").nth(5)).toHaveText("None");
     await page.setViewportSize({ width: 1440, height: 1100 });
-    const screenshot = "../docs/images/dashboard-lab-negotiation.png";
-    await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
-    await copyFile(screenshot, "../site/public/images/dashboard-lab-negotiation.png");
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
+      const screenshot = "../docs/images/dashboard-lab-negotiation.png";
+      await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
+      await copyFile(screenshot, "../site/public/images/dashboard-lab-negotiation.png");
+    }
   });
 
   test("clears previous success on edit, rejection and failed reload", async ({ page }) => {
@@ -318,9 +383,11 @@ test.describe("Runner negotiation through the real Go API", () => {
       await expect(lineage).toContainText(value);
     }
     await page.setViewportSize({ width: 1440, height: 1600 });
-    const screenshot = "../docs/images/dashboard-lab-selection.png";
-    await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
-    await copyFile(screenshot, "../site/public/images/dashboard-lab-selection.png");
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
+      const screenshot = "../docs/images/dashboard-lab-selection.png";
+      await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
+      await copyFile(screenshot, "../site/public/images/dashboard-lab-selection.png");
+    }
     const value = JSON.parse(await input.inputValue()) as { selection: { task: string } };
     value.selection.task = "neighbor";
     await input.fill(JSON.stringify(value));
@@ -525,7 +592,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       const path = await artifact.path();
       expect(path).not.toBeNull();
       expect(JSON.parse(readFileSync(path!, "utf8"))).toEqual(envelope);
-      if (outcome === "evaluation_failure") {
+      if (outcome === "evaluation_failure" && process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
         await page.setViewportSize({ width: 1440, height: 1600 });
         const screenshot = "../docs/images/dashboard-lab-terminal.png";
         await page.getByRole("region", { name: "Runner terminal outcome" }).screenshot({ path: screenshot, animations: "disabled" });

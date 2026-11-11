@@ -39,6 +39,8 @@ type FileStore struct {
 	files     map[string]struct{}
 	loaded    bool
 	loadErr   error
+
+	dashboardCache *storage.DashboardResultCache
 }
 
 // NewFileStore creates a FileStore that reads results from dir.
@@ -51,12 +53,29 @@ func NewFileStore(dir string) *FileStore {
 	}
 }
 
+// NewDashboardFileStore creates a FileStore with content-based parse reuse for
+// the dashboard's polling refresh path.
+func NewDashboardFileStore(dir string) *FileStore {
+	store := NewFileStore(dir)
+	store.dashboardCache = storage.NewDashboardResultCache()
+	return store
+}
+
 // load reads all result JSON files from the configured directory.
 func (fs *FileStore) load() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	replacement, files, err := storage.ReadLocalResults(fs.dir, fs.files)
+	var (
+		replacement map[string]*models.EvaluationOutcome
+		files       map[string]struct{}
+		err         error
+	)
+	if fs.dashboardCache != nil {
+		replacement, files, err = storage.ReadLocalResultsForDashboard(fs.dir, fs.files, fs.dashboardCache)
+	} else {
+		replacement, files, err = storage.ReadLocalResults(fs.dir, fs.files)
+	}
 	if err != nil {
 		fs.loadErr = err
 		return err

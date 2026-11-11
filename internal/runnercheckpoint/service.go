@@ -35,6 +35,7 @@ type Result struct {
 	SchemaVersion            string                          `json:"schema_version"`
 	Status                   string                          `json:"status"`
 	ExitCode                 int                             `json:"exit_code"`
+	ErrorCode                string                          `json:"error_code,omitempty"`
 	Submission               *runnerunit.Submission          `json:"submission,omitempty"`
 	Source                   *executioncheckpoint.Checkpoint `json:"source,omitempty"`
 	SourceWithheld           bool                            `json:"source_withheld,omitempty"`
@@ -46,6 +47,13 @@ type Result struct {
 	RemainingWork            *int                            `json:"remaining_work"`
 	Diagnostics              []runnercontract.Diagnostic     `json:"diagnostics"`
 }
+
+const (
+	ErrorCodeBuildUnavailable   = "checkpoint_build_unavailable"
+	ErrorCodeRunnerUnavailable  = "checkpoint_runner_unavailable"
+	ErrorCodeStorageUnavailable = "checkpoint_storage_unavailable"
+	ErrorCodeStorageCloseFailed = "checkpoint_storage_close_failed"
+)
 
 type Service struct {
 	runner   *runnerunit.Service

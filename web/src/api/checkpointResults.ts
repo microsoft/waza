@@ -1,5 +1,6 @@
 import Ajv2020 from "ajv/dist/2020";
 import resultSchema from "../../../schemas/runner-checkpoint-result-1.0.schema.json";
+import operationErrorSchema from "../../../schemas/runner-checkpoint-result-1.1.schema.json";
 import submissionSchema from "../../../schemas/execution-submission-result-1.0.schema.json";
 import checkpointSchema from "../../../schemas/execution-checkpoint-1.0.schema.json";
 import attemptSchema from "../../../schemas/execution-attempt-1.0.schema.json";
@@ -82,9 +83,10 @@ interface CheckpointDeclaration {
 
 export interface CheckpointOperationResult {
   kind: "waza.runner-checkpoint-result";
-  schema_version: "1.0";
-  status: "rejected" | "submission_error" | "checkpoint_error" | "completed" | "reused";
+  schema_version: "1.0" | "1.1";
+  status: "rejected" | "submission_error" | "checkpoint_error" | "completed" | "reused" | "operation_error";
   exit_code: number;
+  error_code?: string;
   submission?: SubmissionResult;
   source?: CheckpointDeclaration;
   source_withheld?: true;
@@ -103,6 +105,7 @@ for (const schema of [
   attemptSchema, completionSchema, submissionSchema, checkpointSchema,
 ]) ajv.addSchema(schema);
 const validate = ajv.compile<CheckpointOperationResult>(resultSchema);
+const validateOperationError = ajv.compile<CheckpointOperationResult>(operationErrorSchema);
 
 async function goJSONDigest(value: object): Promise<string> {
   const canonical = JSON.stringify(value).replace(
@@ -198,11 +201,43 @@ function isCanonicalCheckpointTime(value: string): boolean {
   return Number.isFinite(time) && new Date(time).toISOString() === `${seconds}.000Z`;
 }
 
+async function validateOperationErrorSource(result: CheckpointOperationResult): Promise<void> {
+  if (result.schema_version !== "1.1" || result.status !== "operation_error" || !result.source) return;
+  const { source, submission } = result;
+  const reservation = submission?.reservation;
+  const completion = submission?.completion;
+  if (!reservation || !completion || source.compatibility.work !== reservation.logical.work) {
+    throw new Error("Operation-error source declaration does not match the retained submission.");
+  }
+  if (source.boundary === "before-unit") {
+    if (reservation.parent?.execution_id !== source.execution_id ||
+        reservation.parent?.relationship !== "retry" ||
+        reservation.execution_id === source.execution_id ||
+        source.completion_digest !== undefined || source.manifest_digest !== undefined) {
+      throw new Error("Operation-error source declaration does not match the retained submission.");
+    }
+    return;
+  }
+  if (reservation.execution_id !== source.execution_id ||
+      completion.execution_id !== source.execution_id ||
+      completion.reservation_digest !== source.reservation_digest ||
+      completion.manifest_digest !== source.manifest_digest ||
+      await goJSONDigest({
+        kind: completion.kind, schema_version: completion.schema_version,
+        execution_id: completion.execution_id, reservation_digest: completion.reservation_digest,
+        manifest_digest: completion.manifest_digest,
+      }) !== source.completion_digest) {
+    throw new Error("Operation-error source declaration does not match the retained submission.");
+  }
+}
+
 // These checks consume protected responses; they do not authorize disclosure
 // or turn declaration-only hashes into runtime or recovery evidence.
 export async function parseCheckpointOperationResult(text: string): Promise<CheckpointOperationResult> {
   const value = parseStrictJSON(text);
-  if (!validate(value)) throw new Error("Checkpoint API returned an invalid operation result.");
+  const isOperationError = validateOperationError(value);
+  if (!isOperationError && !validate(value)) throw new Error("Checkpoint API returned an invalid operation result.");
+  if (isOperationError) await validateOperationErrorSource(value);
   if (value.source && !isCanonicalCheckpointTime(value.source.created_at)) {
     throw new Error("Checkpoint API returned a noncanonical source creation time.");
   }
@@ -214,7 +249,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   if (submission && "report" in submission) {
     throw new Error("Checkpoint API returned an unapproved raw report.");
   }
-  if (submission &&
+  if (submission && value.status !== "operation_error" &&
       (value.status === "checkpoint_error"
         ? submission.status !== "completed"
         : value.status !== submission.status || value.exit_code !== submission.exit_code)) {
@@ -280,22 +315,24 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
       value.source.compatibility.work !== submission.reservation.logical.work) {
     throw new Error("Checkpoint source contradicts the actual submission work.");
   }
-  if (value.status === "completed" && value.source?.boundary === "finalized-unit") {
+  if (submission?.status === "completed" && value.source?.boundary === "finalized-unit") {
     throw new Error("Finalized checkpoint work must be reused, not executed again.");
   }
-  if (value.status === "reused") {
+  if (submission?.status === "reused") {
     const source = value.source;
-    if (!source || submission?.engine_calls !== 0 ||
-        submission.reservation?.execution_id !== source.execution_id ||
-        submission.completion?.execution_id !== source.execution_id ||
-        submission.completion.manifest_digest !== source.manifest_digest ||
-        submission.completion.reservation_digest !== source.reservation_digest ||
-        submission.decision?.source?.execution_id !== source.execution_id ||
-        submission.decision.source.manifest_digest !== source.manifest_digest) {
+    const sourceWithheld = value.status === "operation_error" && value.source_withheld === true;
+    if (submission.engine_calls !== 0 || !submission.reservation || !submission.completion ||
+        !submission.decision?.source || (!source && !sourceWithheld) ||
+        (source && (submission.reservation.execution_id !== source.execution_id ||
+          submission.completion.execution_id !== source.execution_id ||
+          submission.completion.manifest_digest !== source.manifest_digest ||
+          submission.completion.reservation_digest !== source.reservation_digest ||
+          submission.decision.source.execution_id !== source.execution_id ||
+          submission.decision.source.manifest_digest !== source.manifest_digest))) {
       throw new Error("Checkpoint reuse does not retain its exact original source.");
     }
     const completion = submission.completion;
-    if (source.completion_digest !== await goJSONDigest({
+    if (source && source.completion_digest !== await goJSONDigest({
       kind: completion.kind, schema_version: completion.schema_version, execution_id: completion.execution_id,
       reservation_digest: completion.reservation_digest, manifest_digest: completion.manifest_digest,
     })) {
@@ -343,7 +380,7 @@ export async function runCheckpointOperation(
   });
   const json = await response.text();
   const result = await parseCheckpointOperationResult(json);
-  if (action === "create" && (result.source || result.source_withheld || result.status === "reused")) {
+  if (action === "create" && (result.source || result.source_withheld || result.submission?.status === "reused")) {
     throw new Error("Checkpoint create response contains resume-only state.");
   }
   if (action === "resume" && !result.source &&
@@ -370,12 +407,13 @@ export async function runCheckpointOperation(
     throw new Error("Checkpoint decision selection contradicts the admitted captured request.");
   }
   const binding = result.submission?.reservation?.binding;
+  const reused = result.status === "reused" || result.submission?.status === "reused";
   if (binding) {
     const original = binding.selection;
     const current = admitted.resolved;
     if (!current || original.shard !== current.shard || original.task !== current.task || original.trial !== current.trial ||
-        (result.status !== "reused" && !sameSelection(original, current)) ||
-        !admitted.identity || (result.status === "reused"
+        (!reused && !sameSelection(original, current)) ||
+        !admitted.identity || (reused
           ? (["version", "run", "shard", "task", "trial"] as const)
             .some((key) => admitted.identity?.[key] !== binding.identity[key])
           : !sameRunnerIdentity(binding.identity, admitted.identity))) {

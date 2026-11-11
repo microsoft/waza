@@ -83,7 +83,9 @@ registered and available in the source Lab. Full native-platform and release
 acceptance remain pending. The
 [checkpoint schema](../../schemas/execution-checkpoint-1.0.schema.json) and
 [checkpoint-result schema](../../schemas/runner-checkpoint-result-1.0.schema.json)
-are independently versioned `1.0`; ordinary runner and legacy results are unchanged.
+and [checkpoint operation error schema](../../schemas/runner-checkpoint-result-1.1.schema.json)
+are independently versioned: `1.0` remains strict for ordinary results, while
+`1.1` is reserved for sanitized operational failures.
 
 Build the owning CLI from a clean Git tree with VCS stamping enabled. A dirty,
 unstamped, foreign, or unavailable build revision is rejected before store access;
@@ -102,7 +104,14 @@ jq '{status,exit_code,before_checkpoint_sha256,finalized_checkpoint_sha256}' \
 ```
 
 Stdout is one protected result; boundary/digest progress goes to stderr. Preserve
-the result even on a nonzero exit. To restore the exact finalized source:
+the result even on a nonzero exit. Store-open or store-close failures use result
+version `1.1`, status `operation_error`, exit code `2`, and a stable `error_code`.
+When close fails after execution, the result retains the capture-approved
+submission, source and checkpoint references while keeping the execution's
+original submission status and exit unchanged. Raw causes stay on operator
+stderr/server logs. Consumers must keep the levels separate: top-level exit `2`
+can coexist with a preserved completed or reused submission's nested exit `0`.
+To restore the exact finalized source:
 
 ```bash
 DIGEST="$(jq -er '.finalized_checkpoint_sha256' checkpoint-result.json)"

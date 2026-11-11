@@ -111,6 +111,11 @@ reflected after a successful scan; unrelated malformed new files remain ignored.
 An uncreated empty results directory remains empty across refreshes. Inaccessible
 new unrelated paths are skipped; failures affecting the root or previously
 admitted artifacts retain explicit errors and the prior snapshot.
+Local refreshes reuse parsed results only when their SHA-256 content digest is
+unchanged. Each successful refresh detaches its snapshot from the retained parse,
+so caller mutations cannot contaminate later refreshes. This in-memory cache is
+limited to the dashboard store's lifetime; ordinary CLI and MCP readers remain
+uncached.
 
 For frontend-only exploration of the synthetic demo, no Go server is needed:
 
@@ -404,8 +409,12 @@ cd web
 npm run build
 npm run lint
 npx playwright test e2e/dashboard-lab.spec.ts e2e/dashboard-lab-real.spec.ts --project=chromium
-npx playwright test e2e/screenshots.spec.ts --project=chromium --grep dashboard-lab
+npm run refresh:docs-media -- e2e/screenshots.spec.ts --grep dashboard-lab
 ```
+
+Routine browser discovery excludes screenshot-only specs. The explicit refresh
+command includes them and enables media writes; mixed assertion specs run in
+both modes.
 
 Browser coverage exercises real summaries, arbitrary models, lazy evidence,
 precision, API errors/retries/refresh, stable and legacy IDs, duplicate identities,

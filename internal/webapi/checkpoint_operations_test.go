@@ -149,6 +149,57 @@ func TestCheckpointOperationActualHTTPProducerAndFailedRestore(t *testing.T) {
 	require.Equal(t, int32(1), factories.Load())
 }
 
+func TestCheckpointOperationHTTPCloseFailurePreservesAdmittedResult(t *testing.T) {
+	directory := t.TempDir()
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	revision := strings.Repeat("c", 40)
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			backend, closeBackend, err := artifactmanifest.OpenBackend(directory, "")
+			if err != nil {
+				return nil, nil, err
+			}
+			return backend, func() error {
+				return errors.Join(closeBackend(), errors.New("private-http-close-control"))
+			}, nil
+		},
+		runner: service, revision: func() (string, error) { return revision, nil },
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wire := checkpointOperationWire(t)
+	created := postCheckpointOperation(t, server, "/api/v1/checkpoints", wire, http.StatusServiceUnavailable)
+	require.Equal(t, "1.1", created.SchemaVersion)
+	require.Equal(t, "operation_error", created.Status)
+	require.Equal(t, runnercheckpoint.ErrorCodeStorageCloseFailed, created.ErrorCode)
+	require.Equal(t, 2, created.ExitCode)
+	require.NotNil(t, created.Submission.Completion)
+	require.NotEmpty(t, created.BeforeDigest)
+	require.NotEmpty(t, created.FinalizedDigest)
+	createdData, err := runnercheckpoint.EncodeResult(created)
+	require.NoError(t, err)
+	require.NotContains(t, string(createdData), "private-http-close-control")
+
+	destination := bytes.Replace(wire, []byte(`"attempt":2`), []byte(`"attempt":3`), 1)
+	require.NotEqual(t, wire, destination)
+	reused := postCheckpointOperation(t, server,
+		"/api/v1/checkpoints/"+created.FinalizedDigest+"/resume", destination, http.StatusServiceUnavailable)
+	require.Equal(t, "operation_error", reused.Status)
+	require.Equal(t, 2, reused.ExitCode)
+	require.Equal(t, runnercheckpoint.ErrorCodeStorageCloseFailed, reused.ErrorCode)
+	require.Equal(t, "reused", reused.Submission.Status)
+	require.Equal(t, 0, reused.Submission.EngineCalls)
+	require.NotNil(t, reused.Source)
+	require.Equal(t, created.Submission.Reservation.ExecutionID, reused.Source.ExecutionID)
+	reusedData, err := runnercheckpoint.EncodeResult(reused)
+	require.NoError(t, err)
+	require.NotContains(t, string(reusedData), "private-http-close-control")
+}
+
 func TestCheckpointOperationHTTPDeniedReuseWithholdsSourceAndPreservesOriginal(t *testing.T) {
 	directory := t.TempDir()
 	var factories atomic.Int32
@@ -260,14 +311,25 @@ func TestCheckpointOperationHTTPAdmissionPrecedesBuildStorageAndExecution(t *tes
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	postCheckpointOperation(t, server, "/api/v1/checkpoints", []byte("{}"), http.StatusBadRequest)
-	postCheckpointOperation(t, server, "/api/v1/checkpoints/"+strings.Repeat("A", 64)+"/resume",
+	invalidInput := postCheckpointOperation(t, server, "/api/v1/checkpoints", []byte("{}"), http.StatusBadRequest)
+	require.Equal(t, "1.0", invalidInput.SchemaVersion)
+	require.Equal(t, "rejected", invalidInput.Status)
+	require.Equal(t, 6, invalidInput.ExitCode)
+	require.Equal(t, "checkpoint_input_invalid", invalidInput.Diagnostics[0].Code)
+	invalidDigest := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+strings.Repeat("A", 64)+"/resume",
 		checkpointOperationWire(t), http.StatusBadRequest)
-	postCheckpointOperation(t, server, "/api/v1/checkpoints",
+	require.Equal(t, "1.0", invalidDigest.SchemaVersion)
+	require.Equal(t, "rejected", invalidDigest.Status)
+	require.Equal(t, 6, invalidDigest.ExitCode)
+	oversized := postCheckpointOperation(t, server, "/api/v1/checkpoints",
 		bytes.Repeat([]byte(" "), runnerunit.MaxSubmissionBytes+1), http.StatusRequestEntityTooLarge)
+	require.Equal(t, "1.0", oversized.SchemaVersion)
+	require.Equal(t, "rejected", oversized.Status)
+	require.Equal(t, 6, oversized.ExitCode)
 	require.Zero(t, revisions.Load())
 	result := postCheckpointOperation(t, server, "/api/v1/checkpoints", checkpointOperationWire(t), http.StatusServiceUnavailable)
-	require.Equal(t, "checkpoint_build_incompatible", result.Diagnostics[0].Code)
+	require.Equal(t, "operation_error", result.Status)
+	require.Equal(t, runnercheckpoint.ErrorCodeBuildUnavailable, result.ErrorCode)
 	require.Equal(t, int32(1), revisions.Load())
 	require.Zero(t, opens.Load())
 	require.Zero(t, factories.Load())

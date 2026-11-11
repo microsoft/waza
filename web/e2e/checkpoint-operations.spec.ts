@@ -23,6 +23,23 @@ function parsed(fixture: Fixture): CheckpointOperationResult {
   return JSON.parse(fixture.response);
 }
 
+function closeFailure(fixture: Fixture): Fixture {
+  const copy = structuredClone(fixture);
+  const operationError = parsed(copy);
+  operationError.schema_version = "1.1";
+  operationError.status = "operation_error";
+  operationError.exit_code = 2;
+  operationError.error_code = "checkpoint_storage_close_failed";
+  operationError.compatibility_result = "unavailable";
+  operationError.compatibility_differences = [];
+  operationError.restored_units = null;
+  operationError.remaining_work = null;
+  operationError.diagnostics = [];
+  copy.response = JSON.stringify(operationError);
+  copy.http_status = 500;
+  return copy;
+}
+
 async function prepare(page: Page, fixture: Fixture, response = fixture.response, status = fixture.http_status, exit?: string) {
   const methods: string[] = [];
   await page.route("**/api/v1/runner/validate", (route) => {
@@ -105,6 +122,44 @@ test.describe("Protected checkpoint operations in Lab", () => {
         expect(value.restored_units).toBeNull();
         expect(value.remaining_work).toBeNull();
       }
+    });
+  }
+
+  test("renders a retained finalized result when closing storage returns a v1.1 operation error", async ({ page }) => {
+    const fixture = closeFailure(fixtures.reused);
+    const methods = await prepare(page, fixture);
+    await run(page, fixture);
+    const rendered = result(page);
+    await expect(rendered).toHaveAttribute("role", "alert");
+    await expect(rendered).toContainText("Sanitized operation errorcheckpoint_storage_close_failed");
+    await expect(rendered).toContainText("New engine calls0");
+    await expect(rendered).toContainText("Original terminal outcome");
+    expect(methods).toEqual(["POST"]);
+  });
+
+  for (const control of [
+    { name: "caller identity", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.caller!.canonical_digest = "0".repeat(64);
+    } },
+    { name: "terminal identity", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.terminal!.identity!.canonical_digest = "0".repeat(64);
+    } },
+    { name: "completion reservation", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.completion!.reservation_digest = "0".repeat(64);
+    } },
+    { name: "decision caller", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.decision!.binding.identity.canonical_digest = "0".repeat(64);
+    } },
+  ]) {
+    test(`rejects a v1.1 operation error with a mismatched ${control.name}`, async ({ page }) => {
+      const fixture = closeFailure(fixtures.reused);
+      const value = parsed(fixture);
+      control.mutate(value);
+      fixture.response = JSON.stringify(value);
+      await prepare(page, fixture);
+      await run(page, fixture);
+      await expect(panel(page).getByRole("alert")).toBeVisible();
+      await expect(result(page)).toHaveCount(0);
     });
   }
 

@@ -21,7 +21,10 @@ import (
 
 // Azure uses single-object conditional PUT, not the legacy overwrite upload.
 // The caller supplies credentials explicitly; construction never signs in.
-type Azure struct{ client *container.Client }
+type Azure struct {
+	client       *container.Client
+	retryOptions policy.RetryOptions
+}
 
 func NewAzure(containerURL string, credential azcore.TokenCredential, options *container.ClientOptions) (*Azure, error) {
 	if err := validateAzureURL(containerURL); err != nil {
@@ -49,7 +52,7 @@ func NewAzure(containerURL string, credential azcore.TokenCredential, options *c
 	if err != nil {
 		return nil, fmt.Errorf("creating immutable Azure client: %w", err)
 	}
-	return &Azure{client: client}, nil
+	return &Azure{client: client, retryOptions: clientOptions.Retry}, nil
 }
 
 func validateAzureURL(containerURL string) error {

@@ -400,6 +400,14 @@ See the [compatibility table and before/after examples](site/src/content/docs/gu
 `waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
 submission.json` admits compatible recovery. These commands require a clean
 VCS-stamped CLI and a captured submission wrapper, not a bare runner request.
+Ordinary results remain strict schema `1.0`; sanitized pre-store and store-close
+operational failures use schema `1.1`, status `operation_error`, exit code `2`,
+and an allowlisted `error_code`. Close failures retain the capture-approved
+submission, source and checkpoint references without changing the submission's
+own status or exit. Raw causes remain operator-only.
+Consumers must keep these levels separate: a store-close failure can have
+top-level exit `2` while the preserved completed or reused submission still has
+nested exit `0`.
 See the [checkpoint workflow and limits](site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
@@ -2486,6 +2494,14 @@ See [AGENTS.md](AGENTS.md) for coding guidelines.
   `go test ./internal/webapi -run '^$' -bench '^BenchmarkPerfSweepWebAPI/(list-runs-warm|summary-warm|runs-handler-warm)$' -benchmem`
 - Re-run native dashboard JSON encoding benchmarks after changing response DTOs:
   `go test ./internal/webapi -run '^$' -bench '^BenchmarkMarshalRunSummaries5000$' -benchmem`
+
+Check large-history chart rendering, exact tooltips, and AI Credit availability:
+
+```bash
+cd web
+npm run lint && npm run build
+CI=true npx --no-install playwright test e2e/trend-chart-scaling.spec.ts e2e/ai-credits.spec.ts --project=chromium --retries=0
+```
 
 ## Legacy Python Implementation
 

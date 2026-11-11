@@ -3,37 +3,48 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 func emitInheritedRunnerJSON(data []byte) error {
-	fd, err := unix.Dup(int(os.Stdout.Fd()))
-	if err != nil {
-		return fmt.Errorf("duplicating runner operation output: %w", err)
-	}
-	output := os.NewFile(uintptr(fd), "runner-operation-output")
-	payload := bytes.Clone(data)
-	result := make(chan error, 1)
-	go func() {
-		written, writeErr := output.Write(payload)
-		if writeErr == nil && written != len(payload) {
-			writeErr = io.ErrShortWrite
+	return writeInheritedRunnerJSON(os.Stdout, data, 5*time.Second)
+}
+
+func writeInheritedRunnerJSON(output *os.File, data []byte, timeout time.Duration) error {
+	if runtime.GOOS == "linux" {
+		if err := writeInheritedRunnerJSONWithDeadline(output, data, timeout); !errors.Is(err, os.ErrNoDeadline) {
+			return err
 		}
-		result <- errors.Join(writeErr, output.Close())
-	}()
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-	select {
-	case err := <-result:
+	}
+
+	// Non-Linux Unix targets may not register inherited descriptors with the
+	// poller or reliably interrupt pipe writes via deadlines.
+	return writeRunnerOperationOutputChild(output, data, timeout)
+}
+
+func writeInheritedRunnerJSONWithDeadline(output *os.File, data []byte, timeout time.Duration) (resultErr error) {
+	if err := output.SetWriteDeadline(time.Now().Add(timeout)); err == nil {
+		defer func() {
+			if err := output.SetWriteDeadline(time.Time{}); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("resetting runner operation output deadline: %w", err))
+			}
+		}()
+		written, err := output.Write(data)
+		if err == nil && written != len(data) {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			return fmt.Errorf("writing runner operation output: %w", err)
+		}
+		return nil
+	} else if errors.Is(err, os.ErrNoDeadline) {
 		return err
-	case <-timer.C:
-		return fmt.Errorf("writing runner operation output: %w", os.ErrDeadlineExceeded)
+	} else {
+		return fmt.Errorf("setting runner operation output deadline: %w", err)
 	}
 }
