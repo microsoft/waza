@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/microsoft/waza/internal/jsonutil"
@@ -34,6 +35,36 @@ func (m *EvidenceManifest) HasUnknownFields() bool { return m.unknownFields }
 func (m *EvidenceManifest) HasInvalidRequiredObjects() bool { return m.invalidRequiredObjects }
 
 func (m *EvidenceManifest) HasInvalidSchema() bool { return m.invalidSchema }
+
+// Clone returns a detached copy that preserves the manifest's private decode
+// flags and retained raw bytes, so cached readers can hand out isolated copies.
+func (m *EvidenceManifest) Clone() *EvidenceManifest {
+	if m == nil {
+		return nil
+	}
+	clone := *m
+	clone.Runtime.SDKVersion = cloneEvidencePointer(m.Runtime.SDKVersion)
+	clone.Runtime.EffectiveModelVersion = cloneEvidencePointer(m.Runtime.EffectiveModelVersion)
+	clone.Runtime.NoSkills = cloneEvidencePointer(m.Runtime.NoSkills)
+	clone.Redaction.AppliedRules = slices.Clone(m.Redaction.AppliedRules)
+	clone.Redaction.Limitations = slices.Clone(m.Redaction.Limitations)
+	clone.Artifacts = slices.Clone(m.Artifacts)
+	for i := range clone.Artifacts {
+		clone.Artifacts[i].ContentDigest = cloneEvidencePointer(m.Artifacts[i].ContentDigest)
+		clone.Artifacts[i].SourceDigest = cloneEvidencePointer(m.Artifacts[i].SourceDigest)
+	}
+	clone.Diagnostics = slices.Clone(m.Diagnostics)
+	clone.unknownRaw = bytes.Clone(m.unknownRaw)
+	return &clone
+}
+
+func cloneEvidencePointer[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
 
 var evidenceManifestSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	return compileEvidenceManifestSchema(schemas.EvidenceManifestSchemaJSON)
