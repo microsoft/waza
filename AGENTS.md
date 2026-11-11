@@ -511,9 +511,13 @@ Documentation must be updated in real-time as features change. This is enforced 
 
 When dashboard UI changes, regenerate screenshots:
 ```bash
-cd web && npx playwright test e2e/screenshots.spec.ts --project=chromium
+cd web && npm run refresh:docs-media
+cd ../site && npm run refresh:docs-media
 ```
-Screenshots are saved to `docs/images/` and referenced throughout documentation.
+These explicit media-refresh commands save screenshots to `docs/images/` and
+`site/public/images/`. Routine browser discovery excludes screenshot-only specs,
+rather than emitting skipped results that fail strict execution receipts. Mixed
+specs retain their assertions without updating tracked media.
 
 Verify every referenced screenshot destination, including its `site/public/`
 copy where used, against the current UI and fixture. Keep the tracked dashboard

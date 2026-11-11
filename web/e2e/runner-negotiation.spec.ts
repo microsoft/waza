@@ -249,9 +249,11 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(result).toContainText('required capability "inline.native-text" is unavailable; available: negotiation, exact-unit, inline.mock-text, terminal-result, inline.copilot-text');
     await expect(result.locator("dd").nth(5)).toHaveText("None");
     await page.setViewportSize({ width: 1440, height: 1100 });
-    const screenshot = "../docs/images/dashboard-lab-negotiation.png";
-    await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
-    await copyFile(screenshot, "../site/public/images/dashboard-lab-negotiation.png");
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
+      const screenshot = "../docs/images/dashboard-lab-negotiation.png";
+      await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
+      await copyFile(screenshot, "../site/public/images/dashboard-lab-negotiation.png");
+    }
   });
 
   test("clears previous success on edit, rejection and failed reload", async ({ page }) => {
@@ -318,9 +320,11 @@ test.describe("Runner negotiation through the real Go API", () => {
       await expect(lineage).toContainText(value);
     }
     await page.setViewportSize({ width: 1440, height: 1600 });
-    const screenshot = "../docs/images/dashboard-lab-selection.png";
-    await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
-    await copyFile(screenshot, "../site/public/images/dashboard-lab-selection.png");
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
+      const screenshot = "../docs/images/dashboard-lab-selection.png";
+      await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
+      await copyFile(screenshot, "../site/public/images/dashboard-lab-selection.png");
+    }
     const value = JSON.parse(await input.inputValue()) as { selection: { task: string } };
     value.selection.task = "neighbor";
     await input.fill(JSON.stringify(value));
@@ -525,7 +529,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       const path = await artifact.path();
       expect(path).not.toBeNull();
       expect(JSON.parse(readFileSync(path!, "utf8"))).toEqual(envelope);
-      if (outcome === "evaluation_failure") {
+      if (outcome === "evaluation_failure" && process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
         await page.setViewportSize({ width: 1440, height: 1600 });
         const screenshot = "../docs/images/dashboard-lab-terminal.png";
         await page.getByRole("region", { name: "Runner terminal outcome" }).screenshot({ path: screenshot, animations: "disabled" });
