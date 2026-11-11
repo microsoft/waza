@@ -191,10 +191,12 @@ func TestRunnerStartupInputWriteBound(t *testing.T) {
 		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
 		require.Zero(t, n)
 		require.Equal(t, before, runnerFDFlags(t, peer))
-		require.NoError(t, reader.SetReadDeadline(time.Now().Add(time.Second)))
-		n, err = reader.Read(make([]byte, 1))
-		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
-		require.Zero(t, n, "an expired-before-write deadline must not admit payload bytes")
+		// duplicateRunnerFD calls reader.Fd(), which leaves the reader blocking so read
+		// deadlines are inert; closing the only writer bounds the read with EOF instead.
+		require.NoError(t, writer.Close())
+		got, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		require.Empty(t, got, "an expired-before-write deadline must not admit payload bytes")
 	})
 	t.Run("retained readers cannot outlive write deadline", func(t *testing.T) {
 		reader, writer, err := os.Pipe()
@@ -261,7 +263,9 @@ func TestRunnerStartupInputWriteBound(t *testing.T) {
 		require.ErrorIs(t, err, errRunnerStartupWriteGuard)
 		require.ErrorIs(t, err, os.ErrClosed)
 		require.Less(t, n, len(payload))
-		require.ErrorIs(t, writer.SetWriteDeadline(time.Now()), os.ErrClosed)
+		// SetWriteDeadline surfaces the unwrapped poll error; Write maps closure to os.ErrClosed.
+		_, err = writer.Write([]byte("x"))
+		require.ErrorIs(t, err, os.ErrClosed)
 	})
 	t.Run("draining reader completes", func(t *testing.T) {
 		reader, writer, err := os.Pipe()
