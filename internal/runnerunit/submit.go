@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
@@ -17,6 +18,7 @@ import (
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // SubmissionHooks are embedding-host callbacks, never caller JSON. Reserved
@@ -82,9 +84,21 @@ func (s *Submission) fail(code string, err error) {
 
 func reportBytes(report Report) ([]byte, error) { return json.Marshal(report) }
 
+var runnerUnitReportSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileSubmissionSchema("runner-unit-1.0.schema.json")
+})
+
 func validateSourceReport(data []byte, source *executionledger.CompletedExecution, terminal *runnerterminal.Envelope) error {
-	if _, err := jsonutil.Parse(data); err != nil {
+	doc, err := jsonutil.Parse(data)
+	if err != nil {
 		return err
+	}
+	schema, err := runnerUnitReportSchema()
+	if err != nil {
+		return err
+	}
+	if err := schema.Validate(doc); err != nil {
+		return fmt.Errorf("source report schema: %w", err)
 	}
 	report, err := decodeSubmissionReport(data)
 	if err != nil {
@@ -117,8 +131,11 @@ func validateSourceReport(data []byte, source *executionledger.CompletedExecutio
 	default:
 		return fmt.Errorf("source report has no admitted terminal execution status")
 	}
-	if report.Observation != nil && (report.Mode != binding.ExecutionMode ||
-		report.Observation.RunNumber != terminal.Observation.RunNumber ||
+	// Pre-runtime failures may omit the mode; any present mode must match.
+	if (report.Mode != "" || report.Observation != nil) && report.Mode != binding.ExecutionMode {
+		return fmt.Errorf("source report execution mode contradicts original reservation")
+	}
+	if report.Observation != nil && (report.Observation.RunNumber != terminal.Observation.RunNumber ||
 		report.Observation.Attempts != terminal.Observation.Attempts ||
 		string(report.Observation.Status) != terminal.Observation.Status ||
 		report.Observation.ErrorMsg != terminal.Observation.ErrorMsg ||
