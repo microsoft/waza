@@ -148,49 +148,10 @@ test.describe("Runner negotiation through the real Go API", () => {
       .toContainText("Checkpoint result: rejected");
   });
 
-  test("Lab verifies retained operation-error source linkage without claiming admission", async ({ page, request }) => {
-    await mkdir(join(directory, "results", ".waza-artifacts"), { recursive: true, mode: 0o700 });
-    const wire = JSON.stringify({
-      kind: "waza.execution-submission",
-      schema_version: "1.0",
-      request: unitExample,
-    });
-    const createdResponse = await request.post(`${base}/api/v1/checkpoints`, {
-      data: wire,
-      headers: { "content-type": "application/json" },
-    });
-    const createdBody = await createdResponse.text();
-    expect(createdResponse.status(), createdBody).toBe(200);
-    const created = JSON.parse(createdBody);
-    const destination = {
-      ...unitExample,
-      selection: { ...unitExample.selection, attempt: unitExample.selection.attempt + 1 },
-    };
-    const resumedResponse = await request.post(
-      `${base}/api/v1/checkpoints/${created.finalized_checkpoint_sha256}/resume`,
-      {
-        data: JSON.stringify({
-          kind: "waza.execution-submission",
-          schema_version: "1.0",
-          request: destination,
-        }),
-        headers: { "content-type": "application/json" },
-      },
+  test("Lab verifies retained operation-error source linkage without claiming admission", async ({ page }) => {
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
     );
-    expect(resumedResponse.status()).toBe(200);
-    const retained = await resumedResponse.json();
-    const operationError = {
-      ...retained,
-      schema_version: "1.1",
-      status: "operation_error",
-      exit_code: 2,
-      error_code: "checkpoint_storage_close_failed",
-      compatibility_result: "unavailable",
-      compatibility_differences: [],
-      restored_units: null,
-      remaining_work: null,
-      diagnostics: [],
-    };
     const reader = page.getByRole("region", { name: "Checkpoint result reader" });
     await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(operationError));
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
