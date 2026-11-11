@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -108,30 +110,69 @@ func TestAggregateDocumentedInputBuilderUsesActualPublicReferences(t *testing.T)
 	require.NoError(t, backend.Close())
 	document, err := os.ReadFile("../../site/src/content/docs/guides/manifest-aggregation.mdx")
 	require.NoError(t, err)
-	const start = "node --input-type=module <<'JS'\n"
-	require.Equal(t, 1, strings.Count(string(document), start))
-	_, snippet, found := strings.Cut(string(document), start)
-	require.True(t, found)
-	snippet, _, found = strings.Cut(snippet, "\nJS\n")
-	require.True(t, found)
-	builder := exec.Command("node", "--input-type=module", "-e", snippet)
-	builder.Dir = directory
-	builder.Env = append(os.Environ(), "MANIFEST_SHA256="+source.Manifest, "EVIDENCE_SHA256="+source.Evidence)
-	output, err := builder.CombinedOutput()
-	require.NoError(t, err, string(output))
-	created, err := os.ReadFile(filepath.Join(directory, "aggregate-inputs.json"))
-	require.NoError(t, err)
-	inputs, err := manifestaggregate.ParseInputs(created)
-	require.NoError(t, err)
-	require.Equal(t, []manifestaggregate.Input{{Manifest: source.Manifest, Evidence: source.Evidence}}, inputs)
-	builder = exec.Command("node", "--input-type=module", "-e", snippet)
-	builder.Dir = directory
-	builder.Env = append(os.Environ(), "MANIFEST_SHA256="+source.Manifest, "EVIDENCE_SHA256="+source.Evidence)
-	_, err = builder.CombinedOutput()
-	require.Error(t, err, "documented builder must not replace an existing input set")
-	command := newAggregateCommand()
-	command.SetOut(&bytes.Buffer{})
-	command.SetErr(&bytes.Buffer{})
-	command.SetArgs([]string{"--store", directory, "--inputs", filepath.Join(directory, "aggregate-inputs.json")})
-	require.NoError(t, command.Execute(), "copied documentation must work through the actual aggregate command")
+	t.Logf("native checkout newline bytes: LF=%d CRLF=%d", bytes.Count(document, []byte("\n")), bytes.Count(document, []byte("\r\n")))
+	normalized := bytes.ReplaceAll(document, []byte("\r\n"), []byte("\n"))
+	for _, ending := range []string{"\n", "\r\n"} {
+		t.Run(fmt.Sprintf("line-ending-%q", ending), func(t *testing.T) {
+			fixture := bytes.ReplaceAll(normalized, []byte("\n"), []byte(ending))
+			require.Equal(t, 1, bytes.Count(fixture, []byte("node --input-type=module <<'JS'"+ending)))
+			require.Equal(t, 1, bytes.Count(fixture, []byte(ending+"JS"+ending)))
+			snippet, err := aggregateInputBuilderScript(string(fixture))
+			require.NoError(t, err)
+			builderDir := t.TempDir()
+			builder := exec.Command("node", "--input-type=module", "-e", snippet)
+			builder.Dir = builderDir
+			builder.Env = append(os.Environ(), "MANIFEST_SHA256="+source.Manifest, "EVIDENCE_SHA256="+source.Evidence)
+			output, err := builder.CombinedOutput()
+			require.NoError(t, err, string(output))
+			created, err := os.ReadFile(filepath.Join(builderDir, "aggregate-inputs.json"))
+			require.NoError(t, err)
+			inputs, err := manifestaggregate.ParseInputs(created)
+			require.NoError(t, err)
+			require.Equal(t, []manifestaggregate.Input{{Manifest: source.Manifest, Evidence: source.Evidence}}, inputs)
+			builder = exec.Command("node", "--input-type=module", "-e", snippet)
+			builder.Dir = builderDir
+			builder.Env = append(os.Environ(), "MANIFEST_SHA256="+source.Manifest, "EVIDENCE_SHA256="+source.Evidence)
+			_, err = builder.CombinedOutput()
+			require.Error(t, err, "documented builder must not replace an existing input set")
+			command := newAggregateCommand()
+			command.SetOut(&bytes.Buffer{})
+			command.SetErr(&bytes.Buffer{})
+			command.SetArgs([]string{"--store", directory, "--inputs", filepath.Join(builderDir, "aggregate-inputs.json")})
+			require.NoError(t, command.Execute(), "copied documentation must work through the actual aggregate command")
+		})
+	}
+}
+
+func aggregateInputBuilderScript(document string) (string, error) {
+	openers := regexp.MustCompile(`(?m)^node --input-type=module <<'JS'\r?\n`).FindAllStringIndex(document, -1)
+	if len(openers) != 1 {
+		return "", fmt.Errorf("expected exactly one documented builder opener")
+	}
+	snippet := document[openers[0][1]:]
+	closing := regexp.MustCompile(`\r?\nJS\r?\n`).FindStringIndex(snippet)
+	if closing == nil {
+		return "", fmt.Errorf("missing documented builder terminator")
+	}
+	return snippet[:closing[0]], nil
+}
+
+func TestAggregateDocumentedInputBuilderBoundaries(t *testing.T) {
+	const opener = "node --input-type=module <<'JS'"
+	for _, ending := range []string{"\n", "\r\n"} {
+		script := "console.log('unchanged');" + ending + "// exact script bytes"
+		document := opener + ending + script + ending + "JS" + ending
+		actual, err := aggregateInputBuilderScript(document)
+		require.NoError(t, err)
+		require.Equal(t, script, actual, "only delimiters may be removed")
+		for _, invalid := range []string{
+			"missing opener" + ending + script + ending + "JS" + ending,
+			document + document,
+			opener + "near-miss" + ending + script + ending + "JS" + ending,
+			opener + ending + script,
+		} {
+			_, err := aggregateInputBuilderScript(invalid)
+			require.Error(t, err)
+		}
+	}
 }
