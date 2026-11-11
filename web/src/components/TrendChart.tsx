@@ -120,10 +120,14 @@ export default function TrendChart({
       plotW > 0
         ? ((mx - PADDING.left) / plotW) * (data.length - 1)
         : 0;
-    const closest = Math.max(
+    const lower = Math.max(
       0,
-      Math.min(data.length - 1, Math.ceil(position - 0.5)),
+      Math.min(data.length - 1, Math.floor(position)),
     );
+    const upper = Math.min(data.length - 1, lower + 1);
+    // Compare rendered distances so float roundoff keeps ties on the earlier point.
+    const closest =
+      Math.abs(toX(upper) - mx) < Math.abs(mx - toX(lower)) ? upper : lower;
 
     const pt = data[closest];
     if (!pt) return;

@@ -78,6 +78,25 @@ test("two-point midpoint ties select the earlier point", async ({ page }) => {
   );
 });
 
+test("multi-point midpoint ties select the earlier point despite roundoff", async ({
+  page,
+}) => {
+  await mockRuns(page, makeRuns(51, (index) => index + 10));
+  await page.goto("/#/trends");
+
+  const chart = page.getByTestId("trend-points").first().locator("xpath=..");
+  await chart.evaluate((svg) => {
+    (svg as SVGSVGElement).style.width = "472px";
+  });
+  await expect
+    .poll(async () => (await chart.boundingBox())?.width)
+    .toBe(472);
+  const box = await chart.boundingBox();
+  // Points 3 and 4 render at x=80 and x=88; x=84 yields position 3.5000000000000004.
+  await page.mouse.move(box!.x + 84, box!.y + box!.height / 2);
+  await expect(page.getByTestId("trend-tooltip").first()).toHaveText(/^13%/);
+});
+
 for (const count of [1, 5000]) {
   test(`${count}-run flat histories retain visible marker centers`, async ({
     page,
