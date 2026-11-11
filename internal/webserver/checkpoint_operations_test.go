@@ -28,13 +28,23 @@ func TestCheckpointProductionRouteAdmissionPrecedesStore(t *testing.T) {
 	})
 	require.NoError(t, err)
 	for _, control := range []struct {
-		name string
-		wire []byte
-		code string
-		http int
+		name           string
+		wire           []byte
+		schemaVersion  string
+		status         string
+		exitCode       int
+		diagnosticCode string
+		errorCode      string
+		http           int
 	}{
-		{"invalid-wrapper", []byte("{}"), "checkpoint_input_invalid", http.StatusBadRequest},
-		{"not-owning-cli-build", wire, "checkpoint_build_incompatible", http.StatusServiceUnavailable},
+		{
+			name: "invalid-wrapper", wire: []byte("{}"), schemaVersion: "1.0", status: "rejected",
+			exitCode: 6, diagnosticCode: "checkpoint_input_invalid", http: http.StatusBadRequest,
+		},
+		{
+			name: "not-owning-cli-build", wire: wire, schemaVersion: "1.1", status: "operation_error",
+			exitCode: 2, errorCode: runnercheckpoint.ErrorCodeBuildUnavailable, http: http.StatusServiceUnavailable,
+		},
 	} {
 		t.Run(control.name, func(t *testing.T) {
 			response, err := httpServer.Client().Post(httpServer.URL+"/api/v1/checkpoints", "application/json", bytes.NewReader(control.wire))
@@ -45,8 +55,17 @@ func TestCheckpointProductionRouteAdmissionPrecedesStore(t *testing.T) {
 			require.Equal(t, control.http, response.StatusCode, "%s", body)
 			result, err := runnercheckpoint.ParseResult(body)
 			require.NoError(t, err)
+			require.Equal(t, control.schemaVersion, result.SchemaVersion)
+			require.Equal(t, control.status, result.Status)
+			require.Equal(t, control.exitCode, result.ExitCode)
 			require.Nil(t, result.Submission)
-			require.Equal(t, control.code, result.Diagnostics[0].Code)
+			if control.diagnosticCode != "" {
+				require.Len(t, result.Diagnostics, 1)
+				require.Equal(t, control.diagnosticCode, result.Diagnostics[0].Code)
+			} else {
+				require.Empty(t, result.Diagnostics)
+				require.Equal(t, control.errorCode, result.ErrorCode)
+			}
 			require.NoDirExists(t, filepath.Join(directory, ".waza-artifacts"))
 		})
 	}

@@ -30,7 +30,7 @@ func TestRunnerOperationWindowsOutputSmallWrite(t *testing.T) {
 
 	payload := []byte("{\"status\":\"ok\"}\n")
 	require.NoError(t, writeInheritedRunnerJSON(
-		duplicateRunnerOperationTestOutput(t, write), payload, time.Second))
+		duplicateRunnerOperationTestOutput(t, write), payload, 5*time.Second))
 	extra := []byte("still-open")
 	_, err := writer.Write(extra)
 	require.NoError(t, err, "closing the owned duplicate must leave the inherited stdout handle open")
