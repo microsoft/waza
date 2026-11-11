@@ -160,16 +160,7 @@ func declareRequest(data []byte, runnerRevision string) (*requestDeclaration, er
 	if err != nil {
 		return nil, fmt.Errorf("%w: request: %w", ErrIncompatible, err)
 	}
-	// Shape validation above already covered the full wire. Negotiate only the
-	// captured declarations, not another copy of a potentially multi-MiB prompt.
-	negotiationWire, err := json.Marshal(runnercontract.NegotiationRequest{
-		SchemaVersion: request.SchemaVersion, Versions: request.Versions,
-		RequiredCapabilities: request.RequiredCapabilities, OptionalCapabilities: request.OptionalCapabilities,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: encoding negotiation: %w", ErrIncompatible, err)
-	}
-	if negotiation := runnercontract.Negotiate(negotiationWire); negotiation.Status != "compatible" {
+	if negotiation := runnercontract.NegotiateValidatedRequest(request); negotiation.Status != "compatible" {
 		return nil, fmt.Errorf("%w: negotiation: %s", ErrIncompatible, negotiation.Status)
 	}
 	identity, err := runneridentity.DeriveJSON(data)

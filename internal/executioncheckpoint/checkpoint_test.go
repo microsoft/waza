@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -258,6 +259,28 @@ func TestRequestDeclarationPreservesFullWireNegotiationAdmission(t *testing.T) {
 		change func(*runnercontract.Request)
 		status string
 	}{
+		{"standard", func(*runnercontract.Request) {}, "compatible"},
+		{"many-versions", func(r *runnercontract.Request) {
+			r.Versions = nil
+			for i := range 65 {
+				r.Versions = append(r.Versions, fmt.Sprintf("%d.0", i+1))
+			}
+		}, "compatible"},
+		{"long-version", func(r *runnercontract.Request) {
+			r.Versions = append(r.Versions, strings.Repeat("9", 33)+".0")
+		}, "compatible"},
+		{"many-optional", func(r *runnercontract.Request) {
+			r.OptionalCapabilities = []string{"negotiation"}
+			for i := range 64 {
+				r.OptionalCapabilities = append(r.OptionalCapabilities, fmt.Sprintf("future-%d", i))
+			}
+		}, "compatible"},
+		{"many-required", func(r *runnercontract.Request) {
+			r.RequiredCapabilities = []string{"exact-unit"}
+			for i := range 64 {
+				r.RequiredCapabilities = append(r.RequiredCapabilities, fmt.Sprintf("future-%d", i))
+			}
+		}, "unsupported_capability"},
 		{"unsupported-version", func(r *runnercontract.Request) { r.Versions = []string{"9.0"} }, "unsupported_version"},
 		{"unsupported-required", func(r *runnercontract.Request) { r.RequiredCapabilities = []string{"future"} }, "unsupported_capability"},
 		{"unsupported-optional", func(r *runnercontract.Request) { r.OptionalCapabilities = []string{"future"} }, "compatible"},
@@ -278,8 +301,32 @@ func TestRequestDeclarationPreservesFullWireNegotiationAdmission(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			} else if !errors.Is(err, ErrIncompatible) {
-				t.Fatalf("projected negotiation changed full-wire admission: %v", err)
+			} else if !errors.Is(err, ErrIncompatible) || !strings.Contains(err.Error(), "negotiation: "+control.status) {
+				t.Fatalf("negotiation changed full-wire admission: %v", err)
+			}
+		})
+	}
+}
+
+func TestRequestDeclarationValidatesFullWireBeforeNegotiation(t *testing.T) {
+	for _, control := range []struct {
+		name   string
+		change func(*runnercontract.Request)
+	}{
+		{"duplicate-versions", func(r *runnercontract.Request) { r.Versions = []string{"1.0", "1.0"} }},
+		{"empty-versions", func(r *runnercontract.Request) { r.Versions = []string{} }},
+		{"duplicate-optional", func(r *runnercontract.Request) { r.OptionalCapabilities = []string{"future", "future"} }},
+		{"invalid-required", func(r *runnercontract.Request) { r.RequiredCapabilities = []string{" bad"} }},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			request, err := runnercontract.Parse(readFixture(t, "../../examples/runner/unit.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			control.change(request)
+			_, err = ForRequest(encodeJSON(t, request), strings.Repeat("a", 40))
+			if !errors.Is(err, ErrIncompatible) || !strings.Contains(err.Error(), ": request: ") {
+				t.Fatalf("malformed full request bypassed wire validation: %v", err)
 			}
 		})
 	}

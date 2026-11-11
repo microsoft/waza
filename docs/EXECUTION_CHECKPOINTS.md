@@ -116,6 +116,12 @@ context. A large accepted prompt must not trigger redundant identity derivation
 inside this budget. Deadline failures retain phase timings and the underlying
 context error; they do not imply that submission admission or execution failed.
 
+Negotiation uses `runnercontract.NegotiateValidatedRequest` only after `Parse`
+validates the original full-request wire. This helper performs capability/version
+selection without reparsing, serializing captured input, or imposing the narrower
+negotiation-only schema's offer limits. It does not validate arbitrary typed
+requests or admit execution; unknown required capabilities still fail negotiation.
+
 Raw core results can contain original source metadata. They are not approved
 public disclosure responses. Public endpoints must compose the evidence owner's
 capture policy before encoding them; that integration remains separately owned.
