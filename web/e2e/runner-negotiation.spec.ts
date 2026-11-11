@@ -149,6 +149,7 @@ test.describe("Runner negotiation through the real Go API", () => {
   });
 
   test("Lab verifies retained operation-error source linkage without claiming admission", async ({ page, request }) => {
+    await mkdir(join(directory, "results", ".waza-artifacts"), { recursive: true, mode: 0o700 });
     const wire = JSON.stringify({
       kind: "waza.execution-submission",
       schema_version: "1.0",
@@ -158,8 +159,9 @@ test.describe("Runner negotiation through the real Go API", () => {
       data: wire,
       headers: { "content-type": "application/json" },
     });
-    expect(createdResponse.status()).toBe(200);
-    const created = await createdResponse.json();
+    const createdBody = await createdResponse.text();
+    expect(createdResponse.status(), createdBody).toBe(200);
+    const created = JSON.parse(createdBody);
     const destination = {
       ...unitExample,
       selection: { ...unitExample.selection, attempt: unitExample.selection.attempt + 1 },
