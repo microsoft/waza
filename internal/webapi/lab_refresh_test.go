@@ -356,3 +356,39 @@ func BenchmarkLabResultRefresh300(b *testing.B) {
 		}
 	}
 }
+
+func TestLabRefreshEvidenceBearingArtifacts(t *testing.T) {
+	manifest := `{"version":"1.0","sha256":"291a3cecd450615b3f14df209e47565f668f0dad298eb69d746a30398353db42",
+		"origin":{"eval_id":"cached","task_id":"task","run_number":1,"attempt_count":1,"prior_attempts":"none"},
+		"runtime":{"waza_version":"","requested_engine":"","requested_model":"","execution_mode":"unknown",
+		"dependency_mode":"unknown","requested_policy":"unknown","verified_enforcement":"unknown","go_version":"go1.26.4",
+		"platform":"darwin/arm64","sdk_version":null,"effective_model_version":null,"no_skills":null,"native_skill_control":"unknown"},
+		"redaction":{"policy":"default","match_count":0,"limitations":["Source digests do not preserve contents."]},
+		"artifacts":[{"id":"workspace","kind":"workspace_state","availability":"not_requested","completeness":"unknown",
+		"reason":"Workspace contents are not preserved by ordinary snapshots."}]`
+	for _, configured := range []bool{false, true} {
+		for _, unknown := range []bool{false, true} {
+			t.Run(strconv.FormatBool(configured)+"/unknown="+strconv.FormatBool(unknown), func(t *testing.T) {
+				evidence := manifest
+				if unknown {
+					evidence += `,"future_field":{"nested":"recorded"}`
+				}
+				evidence += `}`
+				data := []byte(`{"eval_id":"cached","tasks":[{"test_id":"task","runs":[{"run_number":1,"attempts":1,"evidence":` + evidence + `}]}]}`)
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.json"), data, 0o600))
+				mux := labRefreshMux(t, dir, configured)
+				require.Len(t, labRefreshRuns(t, mux, "/api/runs"), 1)
+				before := labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String()
+				var detail RunDetail
+				require.NoError(t, json.Unmarshal([]byte(before), &detail))
+				require.Len(t, detail.Tasks, 1)
+				require.Len(t, detail.Tasks[0].EvidenceRuns, 1)
+				for range 2 {
+					require.Len(t, labRefreshRuns(t, mux, "/api/v1/lab/runs"), 1)
+					require.JSONEq(t, before, labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String())
+				}
+			})
+		}
+	}
+}

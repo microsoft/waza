@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"reflect"
 	"time"
+
+	"github.com/microsoft/waza/internal/models"
 )
 
 // cloneDashboardValue only receives trees decoded from result artifacts, never
 // caller data (which could contain cycles). Struct value copies retain private
 // presence flags; mutable exported fields, including typed SDK data, are detached
-// without invoking lossy JSON marshalers. time.Time's private location is immutable.
+// without invoking lossy JSON marshalers. time.Time's private location is immutable;
+// EvidenceManifest owns its private raw bytes and supplies a native Clone.
 func cloneDashboardValue(value reflect.Value) (reflect.Value, error) {
 	switch value.Kind() {
 	case reflect.Pointer, reflect.Interface:
@@ -29,8 +32,18 @@ func cloneDashboardValue(value reflect.Value) (reflect.Value, error) {
 		}
 		return copy, nil
 	case reflect.Struct:
-		if value.Type() == reflect.TypeFor[time.Time]() {
+		switch value.Type() {
+		case reflect.TypeFor[time.Time]():
 			return value, nil
+		case reflect.TypeFor[models.EvidenceManifest]():
+			if !value.CanInterface() {
+				return reflect.Value{}, fmt.Errorf("cannot isolate unexported %s", value.Type())
+			}
+			manifest, ok := value.Interface().(models.EvidenceManifest)
+			if !ok {
+				return reflect.Value{}, fmt.Errorf("cannot isolate %s", value.Type())
+			}
+			return reflect.ValueOf(*manifest.Clone()), nil
 		}
 		copy := reflect.New(value.Type()).Elem()
 		copy.Set(value)

@@ -371,3 +371,69 @@ func BenchmarkLocalResultRefresh300(b *testing.B) {
 		}
 	})
 }
+
+func dashboardEvidenceResult(t *testing.T, unknown bool) []byte {
+	t.Helper()
+	manifest := `{"version":"1.0","sha256":"291a3cecd450615b3f14df209e47565f668f0dad298eb69d746a30398353db42",
+		"origin":{"eval_id":"cached","task_id":"task","run_number":1,"attempt_count":1,"prior_attempts":"none"},
+		"runtime":{"waza_version":"","requested_engine":"","requested_model":"","execution_mode":"unknown",
+		"dependency_mode":"unknown","requested_policy":"unknown","verified_enforcement":"unknown","go_version":"go1.26.4",
+		"platform":"darwin/arm64","sdk_version":"1.0","effective_model_version":null,"no_skills":false,"native_skill_control":"unknown"},
+		"redaction":{"policy":"default","applied_rules":["rule"],"match_count":0,"limitations":["Source digests do not preserve contents."]},
+		"artifacts":[{"id":"prompt","kind":"prompt","availability":"captured","completeness":"unknown","document":"snapshot","pointer":"/prompt",
+		"content_digest":{"sha256":"15c53b41755b7dbbf631697798b043b1eb429674afb2580b605d468c7f8593b7","encoding":"json-v1"},
+		"reason":"Collector completeness is not certified."}]`
+	if unknown {
+		manifest += `,"future_field":{"nested":"recorded"}`
+	}
+	manifest += `}`
+	return []byte(`{"eval_id":"cached","tasks":[{"test_id":"task","runs":[{"run_number":1,"attempts":1,"evidence":` + manifest + `}]}]}`)
+}
+
+func TestDashboardLocalStoreClonesEvidenceManifest(t *testing.T) {
+	for _, dashboard := range []bool{false, true} {
+		for _, unknown := range []bool{false, true} {
+			t.Run(strconv.FormatBool(dashboard)+"/unknown="+strconv.FormatBool(unknown), func(t *testing.T) {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.json"), dashboardEvidenceResult(t, unknown), 0o600))
+				store := NewLocalStore(dir)
+				if dashboard {
+					store = NewDashboardLocalStore(dir)
+				}
+				before, err := store.Download(t.Context(), "cached")
+				require.NoError(t, err)
+				evidence := before.TestOutcomes[0].Runs[0].Evidence
+				require.NotNil(t, evidence)
+				require.Equal(t, unknown, evidence.HasUnknownFields())
+				wire, err := json.Marshal(before)
+				require.NoError(t, err)
+
+				evidence.Origin.EvalID = "caller-mutated"
+				evidence.Redaction.AppliedRules[0] = "caller-mutated"
+				evidence.Redaction.Limitations[0] = "caller-mutated"
+				*evidence.Runtime.SDKVersion = "caller-mutated"
+				*evidence.Runtime.NoSkills = true
+				evidence.Artifacts[0].ContentDigest.SHA256 = "caller-mutated"
+				if unknown {
+					raw, err := json.Marshal(evidence)
+					require.NoError(t, err)
+					require.Contains(t, string(raw), "future_field", "unknown manifests marshal their retained raw bytes")
+				}
+
+				for range 2 {
+					require.NoError(t, store.Reload())
+					after, err := store.Download(t.Context(), "cached")
+					require.NoError(t, err)
+					afterEvidence := after.TestOutcomes[0].Runs[0].Evidence
+					require.NotSame(t, evidence, afterEvidence)
+					require.Equal(t, unknown, afterEvidence.HasUnknownFields())
+					require.Equal(t, unknown, afterEvidence.HasInvalidSchema())
+					require.False(t, afterEvidence.HasInvalidRequiredObjects())
+					afterWire, err := json.Marshal(after)
+					require.NoError(t, err)
+					require.JSONEq(t, string(wire), string(afterWire))
+				}
+			})
+		}
+	}
+}
