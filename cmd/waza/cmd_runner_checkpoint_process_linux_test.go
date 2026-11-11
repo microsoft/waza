@@ -66,12 +66,15 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 		})
 	}
 
+	invalidInput := []byte("{")
+	_, parserErr := runnerunit.ParseSubmission(invalidInput)
+	require.Error(t, parserErr)
 	for _, stage := range []string{"read", "admission"} {
 		t.Run("stdin-"+stage+"-diagnostics", func(t *testing.T) {
 			directory := filepath.Join(t.TempDir(), "must-not-open")
 			command := exec.CommandContext(t.Context(), binary, "runner", "checkpoint", "create", "--store", directory)
-			code, cause := "checkpoint_input_invalid", "parsing execution submission: invalid JSON object\n"
-			command.Stdin = bytes.NewReader([]byte("{"))
+			code, cause := "checkpoint_input_invalid", parserErr.Error()
+			command.Stdin = bytes.NewReader(invalidInput)
 			if stage == "read" {
 				input, err := os.Open(t.TempDir())
 				require.NoError(t, err)
@@ -91,7 +94,11 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 			require.Equal(t, code, result.Diagnostics[0].Code)
 			require.Equal(t, 1, bytes.Count(output.Bytes(), []byte{'\n'}))
 			require.Contains(t, diagnostic.String(), "checkpoint input "+stage+":")
-			require.Contains(t, diagnostic.String(), cause)
+			if stage == "admission" {
+				require.Contains(t, strings.Split(diagnostic.String(), "\n"), "checkpoint input admission: "+cause)
+			} else {
+				require.Contains(t, diagnostic.String(), cause)
+			}
 			require.NotContains(t, output.String(), cause)
 			require.NoDirExists(t, directory)
 		})
