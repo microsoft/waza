@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -21,6 +23,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
@@ -128,6 +131,96 @@ func TestCheckpointBrowserFixturesHaveActualProtectedHTTPProducers(t *testing.T)
 	require.Zero(t, reused.Submission.EngineCalls)
 	require.Equal(t, 1, reused.ExitCode)
 	require.Equal(t, failed.Submission.Terminal, reused.Submission.Terminal)
+
+	consentSubmission, err := runnerunit.ParseSubmission(destination)
+	require.NoError(t, err)
+	var policyFields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(consentSubmission.Request, &policyFields))
+	for _, field := range []string{"versions", "required_capabilities", "optional_capabilities", "allow_paid_execution"} {
+		for _, presence := range []string{"null", "omitted"} {
+			t.Run(field+"/"+presence, func(t *testing.T) {
+				fields := maps.Clone(policyFields)
+				require.Contains(t, fields, field)
+				if presence == "null" {
+					fields[field] = json.RawMessage("null")
+				} else {
+					delete(fields, field)
+				}
+				data, err := json.Marshal(fields)
+				require.NoError(t, err)
+				require.NotEqual(t, consentSubmission.Request, json.RawMessage(data))
+				_, err = runnercontract.Parse(data)
+				require.Error(t, err)
+				_, err = executioncheckpoint.ForRequest(data, initialRevision)
+				require.Error(t, err)
+			})
+		}
+	}
+	consentRequest, err := runnercontract.Parse(consentSubmission.Request)
+	require.NoError(t, err)
+	originalIdentity, err := runneridentity.DeriveJSON(consentSubmission.Request)
+	require.NoError(t, err)
+	require.False(t, consentRequest.AllowPaidExecution)
+	consentRequest.AllowPaidExecution = true
+	consentSubmission.Request, err = json.Marshal(consentRequest)
+	require.NoError(t, err)
+	consentIdentity, err := runneridentity.DeriveJSON(consentSubmission.Request)
+	require.NoError(t, err)
+	require.Equal(t, originalIdentity, consentIdentity)
+	currentPolicy, err := executioncheckpoint.ForRequest(consentSubmission.Request, initialRevision)
+	require.NoError(t, err)
+	err = executioncheckpoint.ValidateCompatibility(*reused.Source, currentPolicy)
+	var mismatch *executioncheckpoint.CompatibilityError
+	require.ErrorAs(t, err, &mismatch)
+	require.Equal(t, []string{"request_policy_digest"}, mismatch.Fields)
+	consentAdmission := post("/api/v1/runner/validate", consentSubmission.Request, http.StatusOK)
+	require.JSONEq(t, string(fixtures["reused"].Admission), string(consentAdmission))
+	consentWire, err := json.Marshal(consentSubmission)
+	require.NoError(t, err)
+	beforeConsent := factories.Load()
+	consentFailure, err := runnercheckpoint.ParseResult(post("/api/v1/checkpoints/"+failed.FinalizedDigest+"/resume", consentWire, http.StatusConflict))
+	require.NoError(t, err)
+	require.Equal(t, "incompatible", consentFailure.CompatibilityResult)
+	require.Equal(t, []string{"request_policy_digest"}, consentFailure.CompatibilityDifferences)
+	require.True(t, consentFailure.SourceWithheld)
+	require.Nil(t, consentFailure.Source)
+	require.Nil(t, consentFailure.RestoredUnits)
+	require.Nil(t, consentFailure.RemainingWork)
+	require.Equal(t, beforeConsent, factories.Load())
+
+	policySubmission, err := runnerunit.ParseSubmission(failedWire)
+	require.NoError(t, err)
+	policyRequest, err := runnercontract.Parse(policySubmission.Request)
+	require.NoError(t, err)
+	policyRequest.Versions = []string{"1.0", "9.0"}
+	policyRequest.RequiredCapabilities = []string{"exact-unit", "inline.mock-text"}
+	policyRequest.OptionalCapabilities = []string{"A-future", "terminal-result", "z-future"}
+	policySubmission.Request, err = json.Marshal(policyRequest)
+	require.NoError(t, err)
+	originalPolicy, err := executioncheckpoint.ForRequest(policySubmission.Request, initialRevision)
+	require.NoError(t, err)
+	policyWire, err := json.Marshal(policySubmission)
+	require.NoError(t, err)
+	policyOriginal, err := runnercheckpoint.ParseResult(post("/api/v1/checkpoints", policyWire, http.StatusOK))
+	require.NoError(t, err)
+	policyRequest.Selection.Attempt = 3
+	slices.Reverse(policyRequest.Versions)
+	slices.Reverse(policyRequest.RequiredCapabilities)
+	slices.Reverse(policyRequest.OptionalCapabilities)
+	policySubmission.Request, err = json.Marshal(policyRequest)
+	require.NoError(t, err)
+	reorderedPolicy, err := executioncheckpoint.ForRequest(policySubmission.Request, initialRevision)
+	require.NoError(t, err)
+	require.Equal(t, originalPolicy, reorderedPolicy)
+	policyWire, err = json.Marshal(policySubmission)
+	require.NoError(t, err)
+	beforePolicyReuse := factories.Load()
+	policyReuse := record("policy_reordered", "/api/v1/checkpoints/"+policyOriginal.FinalizedDigest+"/resume", policyWire, http.StatusOK)
+	require.Equal(t, "reused", policyReuse.Status)
+	require.Zero(t, policyReuse.Submission.EngineCalls)
+	require.Equal(t, policyOriginal.Submission.Terminal, policyReuse.Submission.Terminal)
+	require.NoError(t, executioncheckpoint.ValidateCompatibility(*policyReuse.Source, reorderedPolicy))
+	require.Equal(t, beforePolicyReuse, factories.Load())
 
 	// Fail the admitted concrete mock's actual workspace creation, not runtime
 	// admission or a synthetic terminal. Restore every platform's temp setting.

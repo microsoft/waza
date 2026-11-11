@@ -113,7 +113,7 @@ async function goJSONDigest(value: object): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function sortedGraders(ids: string[]): string[] {
+function sortedStrings(ids: string[]): string[] {
   const encoder = new TextEncoder();
   return ids.map((id) => ({ id, bytes: encoder.encode(id) })).sort((a, b) => {
     for (let index = 0; index < Math.min(a.bytes.length, b.bytes.length); index++) {
@@ -126,6 +126,26 @@ function sortedGraders(ids: string[]): string[] {
 
 function sameGraders(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+async function requestPolicyDigest(request: object): Promise<string> {
+  const strings = (value: unknown): string[] => {
+    if (!Array.isArray(value) || !value.every((item: unknown) => typeof item === "string")) {
+      throw new Error("Captured checkpoint request has an invalid negotiation policy.");
+    }
+    return sortedStrings(value);
+  };
+  if (!("versions" in request) || !("required_capabilities" in request) ||
+      !("optional_capabilities" in request) || !("allow_paid_execution" in request) ||
+      typeof request.allow_paid_execution !== "boolean") {
+    throw new Error("Captured checkpoint request has an invalid negotiation policy.");
+  }
+  // Match executioncheckpoint.ForRequest's typed policy, without defaulting
+  // absent/null arrays or consent into an apparently compatible declaration.
+  return goJSONDigest({
+    versions: strings(request.versions), required: strings(request.required_capabilities),
+    optional: strings(request.optional_capabilities), paid: request.allow_paid_execution,
+  });
 }
 
 async function reservationDigest(reservation: NonNullable<SubmissionResult["reservation"]>): Promise<string> {
@@ -143,7 +163,7 @@ async function reservationDigest(reservation: NonNullable<SubmissionResult["rese
         trial: identity.trial, attempt: identity.attempt,
       },
       selection: { shard: selection.shard, task: selection.task, trial: selection.trial, attempt: selection.attempt },
-      execution_mode, grader_ids: sortedGraders(grader_ids),
+      execution_mode, grader_ids: sortedStrings(grader_ids),
     },
     ...(reservation.parent ? { parent: {
       execution_id: reservation.parent.execution_id, relationship: reservation.parent.relationship,
@@ -224,7 +244,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
         (["version", "run", "shard", "task", "trial"] as const).some((key) => caller.identity[key] !== binding.identity[key]) ||
         caller.selection.shard !== binding.selection.shard || caller.selection.task !== binding.selection.task ||
         caller.selection.trial !== binding.selection.trial || caller.execution_mode !== binding.execution_mode ||
-        !sameGraders(sortedGraders(caller.grader_ids), binding.grader_ids)) {
+        !sameGraders(sortedStrings(caller.grader_ids), binding.grader_ids)) {
       throw new Error("Checkpoint decision contradicts its original execution binding.");
     }
   }
@@ -333,6 +353,10 @@ export async function runCheckpointOperation(
   if (action === "resume" && result.source && await checkpointDigest(result.source) !== digest) {
     throw new Error("Checkpoint source contradicts the requested checkpoint digest.");
   }
+  if (action === "resume" && result.source && result.compatibility_result === "compatible" &&
+      result.source.compatibility.request_policy_digest !== await requestPolicyDigest(wrapper.request)) {
+    throw new Error("Checkpoint source policy contradicts the admitted captured request.");
+  }
   if (response.headers.get("X-Waza-Exit-Code") !== String(result.exit_code) ||
       (!response.ok && (result.status === "completed" || result.status === "reused"))) {
     throw new Error("Checkpoint transport status contradicts its operation result.");
@@ -340,6 +364,10 @@ export async function runCheckpointOperation(
   const caller = result.submission?.caller;
   if (caller && !sameRunnerIdentity(caller, admitted.identity)) {
     throw new Error("Checkpoint caller contradicts the admitted captured request.");
+  }
+  const decision = result.submission?.decision;
+  if (decision && !sameSelection(decision.binding.selection, admitted.resolved)) {
+    throw new Error("Checkpoint decision selection contradicts the admitted captured request.");
   }
   const binding = result.submission?.reservation?.binding;
   if (binding) {

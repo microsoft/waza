@@ -58,7 +58,7 @@ test.describe("Protected checkpoint operations in Lab", () => {
     await page.goto("/#/lab/runner");
   });
 
-  for (const name of ["created", "unicode", "failed", "reused", "retried", "execution_error", "reused_error", "incompatible", "stale", "checkpoint_error"] as const) {
+  for (const name of ["created", "unicode", "failed", "reused", "retried", "execution_error", "reused_error", "incompatible", "stale", "checkpoint_error", "policy_reordered"] as const) {
     test(`renders and downloads actual protected producer ${name} values`, async ({ page }) => {
       const fixture = fixtures[name];
       const methods = await prepare(page, fixture);
@@ -127,6 +127,13 @@ test.describe("Protected checkpoint operations in Lab", () => {
     { name: "foreign reuse execution mode", fixture: "reused", mutate: (value: CheckpointOperationResult) => {
       value.submission!.decision!.binding.execution_mode = "copilot";
     } },
+    ...(["reused", "reused_error"] as const).map((fixture) => ({
+      name: `${fixture} decision selection attempt`, fixture, mutate: (value: CheckpointOperationResult) => {
+        expect(value.submission!.decision!.binding.selection.attempt).toBe(3);
+        expect(value.submission!.reservation!.binding.selection.attempt).toBe(2);
+        value.submission!.decision!.binding.selection.attempt = 1;
+      },
+    })),
     { name: "contradictory observed grading status", fixture: "created", mutate: (value: CheckpointOperationResult) => {
       value.submission!.terminal!.observation!.validations[0]!.passed = false;
     } },
@@ -163,6 +170,62 @@ test.describe("Protected checkpoint operations in Lab", () => {
       await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
     });
   }
+
+  for (const name of ["reused", "reused_error", "retried"] as const) {
+    test(`rejects ${name} consent-only request change with unchanged work identity`, async ({ page }) => {
+      const fixture = structuredClone(fixtures[name]);
+      expect(fixture.request.request.allow_paid_execution).toBe(false);
+      fixture.request.request.allow_paid_execution = true;
+      expect(fixture.request).not.toEqual(fixtures[name].request);
+      expect(fixture.admission).toEqual(fixtures[name].admission);
+      const methods = await prepare(page, fixture);
+      await run(page, fixture);
+      await expect(panel(page).getByRole("alert")).toContainText("source policy");
+      await expect(result(page)).toHaveCount(0);
+      await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
+      expect(methods).toEqual(["POST"]);
+    });
+  }
+
+  for (const field of ["versions", "required_capabilities", "optional_capabilities", "allow_paid_execution"] as const) {
+    for (const presence of ["null", "omitted"] as const) {
+      test(`rejects ${presence} ${field} despite contradictory ready admission`, async ({ page }) => {
+        const fixture = structuredClone(fixtures.reused);
+        if (presence === "null") Reflect.set(fixture.request.request, field, null);
+        else expect(Reflect.deleteProperty(fixture.request.request, field)).toBe(true);
+        expect(fixture.request).not.toEqual(fixtures.reused.request);
+        const methods = await prepare(page, fixture);
+        await run(page, fixture);
+        await expect(panel(page).getByRole("alert")).toContainText("invalid negotiation policy");
+        await expect(result(page)).toHaveCount(0);
+        await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
+        expect(methods).toEqual(["POST"]);
+      });
+    }
+  }
+
+  test("native reordered policy fixture changes every negotiation array but retains original failed work", async ({ page }) => {
+    const fixture = fixtures.policy_reordered;
+    const request = fixture.request.request;
+    for (const values of [request.versions, request.required_capabilities, request.optional_capabilities]) {
+      expect(values.length).toBeGreaterThan(1);
+      expect(values).not.toEqual([...values].sort());
+    }
+    const value = parsed(fixture);
+    expect(value.compatibility_result).toBe("compatible");
+    expect(value.submission!.engine_calls).toBe(0);
+    expect(value.submission!.reservation!.binding.selection.attempt).toBe(2);
+    expect(value.submission!.decision!.binding.selection.attempt).toBe(3);
+    expect(value.exit_code).toBe(1);
+    await prepare(page, fixture);
+    await run(page, fixture);
+    await expect(result(page)).toBeVisible();
+    const download = page.waitForEvent("download");
+    await panel(page).getByRole("button", { name: "Download checkpoint result JSON" }).click();
+    const path = await (await download).path();
+    expect(path).not.toBeNull();
+    expect(await readFile(path!, "utf8")).toBe(fixture.response);
+  });
 
   for (const control of ["same-work checkpoint digest", "canonical source creation time"] as const) {
     test(`rejects changed ${control} before rendering or downloading`, async ({ page }) => {

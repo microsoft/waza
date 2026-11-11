@@ -142,6 +142,11 @@ reservation digest before display or download. This checks declaration linkage,
 not storage integrity or execution authority.
 Resume source declarations must also hash to the requested checkpoint digest,
 independent of response object-key order, before display or download.
+Compatible resumes also require the native request-policy digest for the current
+versions, required/optional capabilities and explicit paid-execution consent.
+Native-valid reordered policy arrays remain equivalent; consent-only changes
+do not. The decision's full selection must match the admitted current attempt,
+while the reused original reservation and terminal retain their older attempt.
 A completed resume, including a partial publication failure, without a source is
 rejected unless the failure explicitly withholds it. Source-withheld failures remain
 available with their recorded unavailable progress.

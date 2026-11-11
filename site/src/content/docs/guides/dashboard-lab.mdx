@@ -49,6 +49,10 @@ Edits, new operations and reload errors clear prior results. Synthetic demo mode
 cannot dispatch checkpoint operations.
 Resume source declarations are checked against the requested checkpoint digest
 before display or download; this is declaration linkage, not storage authority.
+Compatible resumes also match native negotiation and paid-consent policy;
+reordering capability/version arrays is valid, but changing consent is not.
+The current decision must match the admitted attempt without retagging the
+original reservation or terminal.
 Completed resumes require a source; source-withheld failures remain available.
 This also applies when completed work has an outer publication error.
 Create responses cannot contain resume-only source or reuse state.
