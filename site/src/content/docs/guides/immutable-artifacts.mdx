@@ -109,7 +109,9 @@ version `1.1`, status `operation_error`, exit code `2`, and a stable `error_code
 When close fails after execution, the result retains the capture-approved
 submission, source and checkpoint references while keeping the execution's
 original submission status and exit unchanged. Raw causes stay on operator
-stderr/server logs. To restore the exact finalized source:
+stderr/server logs. Consumers must keep the levels separate: top-level exit `2`
+can coexist with a preserved completed or reused submission's nested exit `0`.
+To restore the exact finalized source:
 
 ```bash
 DIGEST="$(jq -er '.finalized_checkpoint_sha256' checkpoint-result.json)"

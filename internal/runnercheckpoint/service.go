@@ -49,7 +49,6 @@ type Result struct {
 }
 
 const (
-	ErrorCodeInputUnavailable   = "checkpoint_input_unavailable"
 	ErrorCodeBuildUnavailable   = "checkpoint_build_unavailable"
 	ErrorCodeRunnerUnavailable  = "checkpoint_runner_unavailable"
 	ErrorCodeStorageUnavailable = "checkpoint_storage_unavailable"

@@ -311,11 +311,21 @@ func TestCheckpointOperationHTTPAdmissionPrecedesBuildStorageAndExecution(t *tes
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	postCheckpointOperation(t, server, "/api/v1/checkpoints", []byte("{}"), http.StatusBadRequest)
-	postCheckpointOperation(t, server, "/api/v1/checkpoints/"+strings.Repeat("A", 64)+"/resume",
+	invalidInput := postCheckpointOperation(t, server, "/api/v1/checkpoints", []byte("{}"), http.StatusBadRequest)
+	require.Equal(t, "1.0", invalidInput.SchemaVersion)
+	require.Equal(t, "rejected", invalidInput.Status)
+	require.Equal(t, 6, invalidInput.ExitCode)
+	require.Equal(t, "checkpoint_input_invalid", invalidInput.Diagnostics[0].Code)
+	invalidDigest := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+strings.Repeat("A", 64)+"/resume",
 		checkpointOperationWire(t), http.StatusBadRequest)
-	postCheckpointOperation(t, server, "/api/v1/checkpoints",
+	require.Equal(t, "1.0", invalidDigest.SchemaVersion)
+	require.Equal(t, "rejected", invalidDigest.Status)
+	require.Equal(t, 6, invalidDigest.ExitCode)
+	oversized := postCheckpointOperation(t, server, "/api/v1/checkpoints",
 		bytes.Repeat([]byte(" "), runnerunit.MaxSubmissionBytes+1), http.StatusRequestEntityTooLarge)
+	require.Equal(t, "1.0", oversized.SchemaVersion)
+	require.Equal(t, "rejected", oversized.Status)
+	require.Equal(t, 6, oversized.ExitCode)
 	require.Zero(t, revisions.Load())
 	result := postCheckpointOperation(t, server, "/api/v1/checkpoints", checkpointOperationWire(t), http.StatusServiceUnavailable)
 	require.Equal(t, "operation_error", result.Status)

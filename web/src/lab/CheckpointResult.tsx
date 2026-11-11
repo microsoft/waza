@@ -6,11 +6,11 @@ export default function CheckpointResult() {
   const [result, setResult] = useState<CheckpointOperationResult | null>(null);
   const [error, setError] = useState("");
 
-  function parse() {
+  async function parse() {
     setResult(null);
     setError("");
     try {
-      setResult(parseCheckpointOperationResult(wire));
+      setResult(await parseCheckpointOperationResult(wire));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Checkpoint result could not be parsed.");
     }
@@ -46,7 +46,7 @@ export default function CheckpointResult() {
               <dt>Underlying submission status (not overall operation status)</dt>
               <dd>{result.submission.status} (exit {result.submission.exit_code})</dd>
             </>}
-            {result.source && <><dt>Admitted source</dt><dd>{result.source.boundary}: {result.source.execution_id}</dd></>}
+            {result.source && <><dt>Declared source (not independently verified)</dt><dd>{result.source.boundary}: {result.source.execution_id}</dd></>}
             {result.before_checkpoint_sha256 && <><dt>Before checkpoint reference</dt><dd><code>{result.before_checkpoint_sha256}</code></dd></>}
             {result.finalized_checkpoint_sha256 && <><dt>Finalized checkpoint reference</dt><dd><code>{result.finalized_checkpoint_sha256}</code></dd></>}
           </dl>

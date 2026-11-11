@@ -405,6 +405,9 @@ operational failures use schema `1.1`, status `operation_error`, exit code `2`,
 and an allowlisted `error_code`. Close failures retain the capture-approved
 submission, source and checkpoint references without changing the submission's
 own status or exit. Raw causes remain operator-only.
+Consumers must keep these levels separate: a store-close failure can have
+top-level exit `2` while the preserved completed or reused submission still has
+nested exit `0`.
 See the [checkpoint workflow and limits](site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)

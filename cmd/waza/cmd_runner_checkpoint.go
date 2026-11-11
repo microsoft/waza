@@ -70,7 +70,7 @@ func newRunnerCheckpointCommandWithBackend(
 				defer stop()
 				data, err := readRunnerInputLimit(ctx, cmd.InOrStdin(), runnerunit.MaxSubmissionBytes)
 				if err != nil {
-					return operationFailure(cmd, runnercheckpoint.ErrorCodeInputUnavailable, "input read", err)
+					return rejectWithDiagnostic(cmd, "checkpoint_input_unavailable", "input read", err)
 				}
 				if _, err := runnerunit.ParseSubmission(data); err != nil {
 					return rejectWithDiagnostic(cmd, "checkpoint_input_invalid", "input admission", err)

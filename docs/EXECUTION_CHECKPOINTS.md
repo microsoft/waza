@@ -121,6 +121,8 @@ source is fabricated before admission. Save stdout even when the exit is
 nonzero: a close failure after execution preserves the capture-approved
 submission, source and checkpoint references, including the submission's
 original status and exit. Raw causes remain operator-only on stderr/server logs.
+Consumers must treat the levels separately: top-level exit `2` can coexist with
+a preserved completed or reused submission whose nested exit is `0`.
 An output failure exits 2 and is not successful delivery.
 See the [operator workflow](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 

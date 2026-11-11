@@ -1709,6 +1709,8 @@ Store-open/close failures emit result version `1.1` with top-level status
 results remain strict version `1.0`. A close failure after execution preserves
 the capture-approved submission, source and checkpoint references without
 changing the submission's own status/exit. Raw causes remain on operator stderr.
+Treat these levels separately: top-level exit `2` can coexist with a preserved
+completed or reused submission whose nested exit is `0`.
 A reference can survive a failed publication and is not a success claim.
 See the [complete workflow and recovery limits](../../guides/immutable-artifacts/#checkpoint-public-source-preview).
 Installed v0.40.1 artifacts do not contain these commands.

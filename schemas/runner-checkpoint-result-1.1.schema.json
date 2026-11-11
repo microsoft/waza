@@ -13,7 +13,6 @@
     "exit_code": {"const": 2},
     "error_code": {
       "enum": [
-        "checkpoint_input_unavailable",
         "checkpoint_build_unavailable",
         "checkpoint_runner_unavailable",
         "checkpoint_storage_unavailable",

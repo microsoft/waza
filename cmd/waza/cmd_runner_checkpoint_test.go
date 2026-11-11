@@ -217,7 +217,7 @@ func TestCheckpointPublicCLIRetainsFlagFailureOnlyInOperatorDiagnostics(t *testi
 	}
 }
 
-func TestCheckpointPublicCLIRetainsInputFailureOnlyInOperatorDiagnostics(t *testing.T) {
+func TestCheckpointPublicCLIInputAdmissionFailuresRemainRejections(t *testing.T) {
 	invalid := []byte("{")
 	_, parseErr := runnerunit.ParseSubmission(invalid)
 	require.Error(t, parseErr)
@@ -254,13 +254,10 @@ func TestCheckpointPublicCLIRetainsInputFailureOnlyInOperatorDiagnostics(t *test
 				result, err := runnercheckpoint.ParseResult(output.Bytes())
 				require.NoError(t, err)
 				require.Equal(t, exit.Code, result.ExitCode)
-				if stage == "read" {
-					require.Equal(t, "operation_error", result.Status)
-					require.Equal(t, runnercheckpoint.ErrorCodeInputUnavailable, result.ErrorCode)
-					require.Empty(t, result.Diagnostics)
-				} else {
-					require.Equal(t, code, result.Diagnostics[0].Code)
-				}
+				require.Equal(t, "1.0", result.SchemaVersion)
+				require.Equal(t, "rejected", result.Status)
+				require.Equal(t, 6, result.ExitCode)
+				require.Equal(t, code, result.Diagnostics[0].Code)
 				require.Contains(t, diagnostic.String(), "checkpoint input "+stage+":")
 				require.Contains(t, diagnostic.String(), cause.Error())
 				require.NotContains(t, output.String(), cause.Error())

@@ -148,6 +148,69 @@ test.describe("Runner negotiation through the real Go API", () => {
       .toContainText("Checkpoint result: rejected");
   });
 
+  test("Lab verifies retained operation-error source linkage without claiming admission", async ({ page, request }) => {
+    const wire = JSON.stringify({
+      kind: "waza.execution-submission",
+      schema_version: "1.0",
+      request: unitExample,
+    });
+    const createdResponse = await request.post(`${base}/api/v1/checkpoints`, {
+      data: wire,
+      headers: { "content-type": "application/json" },
+    });
+    expect(createdResponse.status()).toBe(200);
+    const created = await createdResponse.json();
+    const destination = {
+      ...unitExample,
+      selection: { ...unitExample.selection, attempt: unitExample.selection.attempt + 1 },
+    };
+    const resumedResponse = await request.post(
+      `${base}/api/v1/checkpoints/${created.finalized_checkpoint_sha256}/resume`,
+      {
+        data: JSON.stringify({
+          kind: "waza.execution-submission",
+          schema_version: "1.0",
+          request: destination,
+        }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+    expect(resumedResponse.status()).toBe(200);
+    const retained = await resumedResponse.json();
+    const operationError = {
+      ...retained,
+      schema_version: "1.1",
+      status: "operation_error",
+      exit_code: 2,
+      error_code: "checkpoint_storage_close_failed",
+      compatibility_result: "unavailable",
+      compatibility_differences: [],
+      restored_units: null,
+      remaining_work: null,
+      diagnostics: [],
+    };
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(operationError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    const result = reader.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(result).toContainText("Underlying submission status (not overall operation status)");
+    await expect(result).toContainText("reused (exit 0)");
+    await expect(result).toContainText("Declared source (not independently verified)");
+    await expect(result).not.toContainText("Admitted source");
+
+    const mismatchedExecution = structuredClone(operationError);
+    mismatchedExecution.source.execution_id = `exec-${"0".repeat(64)}`;
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedExecution));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("does not match the retained submission");
+
+    const mismatchedDigest = structuredClone(operationError);
+    mismatchedDigest.source.completion_digest = "0".repeat(64);
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedDigest));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("does not match the retained submission");
+  });
+
   test("built CLI saves every frozen identity through actual stdout redirection", () => {
     expect(identityVectors).toHaveLength(11);
     for (const vector of identityVectors) {
