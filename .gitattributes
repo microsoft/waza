@@ -32,3 +32,5 @@ internal/artifactmanifest/testdata/** -text
 # Attempt and completion fixtures are exact-byte canonical writer oracles.
 internal/executionattempt/testdata/** -text
 internal/executionledger/testdata/** -text
+# Checkpoint fixtures are exact-byte compatibility and digest oracles.
+internal/executioncheckpoint/testdata/** -text

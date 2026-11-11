@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/runner-checkpoint-result-1.0.schema.json",
+  "title": "Exact-unit checkpoint operation result 1.0",
+  "description": "Invocation and source declarations. Profile admission does not verify storage, restore execution ownership, attest runtime behavior, or authorize disclosure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "status", "exit_code", "compatibility_result", "compatibility_differences", "restored_units", "remaining_work", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.runner-checkpoint-result"},
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["rejected", "submission_error", "checkpoint_error", "completed", "reused"]},
+    "exit_code": {"type": "integer", "minimum": 0, "maximum": 6},
+    "submission": {"$ref": "execution-submission-result-1.0.schema.json"},
+    "source": {"$ref": "execution-checkpoint-1.0.schema.json"},
+    "source_withheld": {"type": "boolean", "const": true, "description": "Original source metadata was withheld because public capture admission did not succeed. This does not change immutable source records."},
+    "before_checkpoint_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "A failed operation may leave only an unverified residue locator."},
+    "finalized_checkpoint_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "A failed operation may leave only an unverified residue locator."},
+    "compatibility_result": {"enum": ["unavailable", "incompatible", "compatible"]},
+    "compatibility_differences": {
+      "type": "array", "maxItems": 9, "uniqueItems": true,
+      "items": {"enum": ["runner_revision", "request_version", "identity_version", "terminal_version", "manifest_version", "attempt_version", "completion_version", "work", "request_policy_digest"]}
+    },
+    "restored_units": {"type": ["integer", "null"], "minimum": 0, "maximum": 1},
+    "remaining_work": {"type": ["integer", "null"], "minimum": 0, "maximum": 1},
+    "diagnostics": {
+      "type": "array", "maxItems": 16,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"},
+          "message": {"type": "string", "minLength": 1, "maxLength": 4096}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["source_withheld"]},
+      "then": {
+        "not": {"required": ["source"]},
+        "properties": {"status": {"enum": ["rejected", "submission_error", "checkpoint_error"]}}
+      }
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["completed", "reused"]}}},
+      "then": {
+        "required": ["submission"],
+        "properties": {"compatibility_result": {"const": "compatible"}, "compatibility_differences": {"maxItems": 0}, "remaining_work": {"const": 0}, "diagnostics": {"maxItems": 0}}
+      },
+      "else": {
+        "properties": {"compatibility_result": {"enum": ["unavailable", "incompatible"]}, "restored_units": {"const": null}, "remaining_work": {"const": null}, "diagnostics": {"minItems": 1}}
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "completed"}}},
+      "then": {"required": ["before_checkpoint_sha256", "finalized_checkpoint_sha256"], "properties": {"restored_units": {"const": 0}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "reused"}}},
+      "then": {
+        "required": ["source"],
+        "properties": {"restored_units": {"const": 1}, "source": {"properties": {"boundary": {"const": "finalized-unit"}}}},
+        "not": {"anyOf": [{"required": ["before_checkpoint_sha256"]}, {"required": ["finalized_checkpoint_sha256"]}]}
+      }
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["checkpoint_error", "submission_error"]}}},
+      "then": {"required": ["submission"], "properties": {"exit_code": {"const": 2}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "rejected"}}},
+      "then": {"properties": {"exit_code": {"minimum": 3}}}
+    },
+    {
+      "if": {"properties": {"compatibility_result": {"const": "incompatible"}}},
+      "then": {
+        "anyOf": [
+          {"required": ["source"]},
+          {"required": ["source_withheld"], "properties": {"source_withheld": {"const": true}}}
+        ],
+        "properties": {"status": {"const": "rejected"}, "compatibility_differences": {"minItems": 1}}
+      },
+      "else": {"properties": {"compatibility_differences": {"maxItems": 0}}}
+    }
+  ]
+}
