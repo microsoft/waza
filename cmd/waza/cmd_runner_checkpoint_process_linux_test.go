@@ -70,7 +70,7 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 		t.Run("stdin-"+stage+"-diagnostics", func(t *testing.T) {
 			directory := filepath.Join(t.TempDir(), "must-not-open")
 			command := exec.CommandContext(t.Context(), binary, "runner", "checkpoint", "create", "--store", directory)
-			code, cause := "checkpoint_input_invalid", "parsing execution submission: invalid JSON object key"
+			code, cause := "checkpoint_input_invalid", "parsing execution submission: invalid JSON object\n"
 			command.Stdin = bytes.NewReader([]byte("{"))
 			if stage == "read" {
 				input, err := os.Open(t.TempDir())
