@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/storage"
 	"github.com/stretchr/testify/require"
 )
@@ -22,13 +21,10 @@ func labRefreshMux(t *testing.T, dir string, configured bool) *http.ServeMux {
 	t.Helper()
 	mux := http.NewServeMux()
 	if configured {
-		cfg := &projectconfig.StorageConfig{Enabled: true}
-		backend, err := storage.NewStore(cfg, dir)
-		require.NoError(t, err)
-		require.IsType(t, &storage.LocalStore{}, backend)
+		backend := storage.NewDashboardLocalStore(dir)
 		RegisterRoutesWithStorage(mux, NewStorageAdapter(backend, "local"), &StorageConfig{Configured: true})
 	} else {
-		RegisterRoutes(mux, NewFileStore(dir))
+		RegisterRoutes(mux, NewDashboardFileStore(dir))
 	}
 	return mux
 }
@@ -243,5 +239,156 @@ func TestLabMissingEmptyArchiveKeepsRefreshing(t *testing.T) {
 			labRefreshRequest(t, mux, "/api/v1/lab/runs", http.StatusInternalServerError)
 			labRefreshRequest(t, mux, "/api/runs/known", http.StatusOK)
 		})
+	}
+}
+
+func TestLabRefreshRecoversCallerMutatedTranscript(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		t.Run(strconv.FormatBool(configured), func(t *testing.T) {
+			dir := t.TempDir()
+			data := []byte(`{"eval_id":"cached","skill":"recorded","summary":{"total_tests":1,"weighted_score":0},
+							"tasks":[{"test_id":"task","stats":{"avg_weighted_score":0},
+							"runs":[{"transcript":[{"type":"tool.execution_start","tool_name":"bash","tool_call_id":"call",
+							"arguments":{"nested":[{"value":"recorded","null":null,"empty":[]}],"false":false,"zero":0}}]}]}]}`)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.json"), data, 0o600))
+			var store RunStore
+			if configured {
+				store = NewStorageAdapter(storage.NewDashboardLocalStore(dir), "local")
+			} else {
+				store = NewDashboardFileStore(dir)
+			}
+			mux := http.NewServeMux()
+			RegisterRoutes(mux, store)
+			before := labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String()
+			detail, err := store.GetRun("cached")
+			require.NoError(t, err)
+			require.Len(t, detail.Tasks, 1)
+			require.Len(t, detail.Tasks[0].Transcript, 1)
+			args, ok := detail.Tasks[0].Transcript[0].Arguments.(map[string]any)
+			require.True(t, ok)
+			items, ok := args["nested"].([]any)
+			require.True(t, ok)
+			require.Len(t, items, 1)
+			record, ok := items[0].(map[string]any)
+			require.True(t, ok)
+			record["value"] = "caller-mutated"
+			mutated := labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String()
+			require.Contains(t, mutated, "caller-mutated", "setup must exercise the production projection's shared nested data")
+			for range 2 {
+				runs := labRefreshRuns(t, mux, "/api/v1/lab/runs")
+				require.Len(t, runs, 1)
+				require.NotNil(t, runs[0].Skill)
+				require.Equal(t, "recorded", *runs[0].Skill)
+				require.NotNil(t, runs[0].WeightedScore)
+				require.Zero(t, *runs[0].WeightedScore)
+				require.JSONEq(t, before, labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String())
+			}
+		})
+	}
+}
+
+func BenchmarkLabResultRefresh300(b *testing.B) {
+	dir := b.TempDir()
+	totalBytes := 0
+	for i := range 300 {
+		outcome := labRefreshOutcome("run-"+strconv.Itoa(i), 0.75)
+		// Recorded task/run payloads exercise parse, summary projection, adapter
+		// downloads, sorting and response encoding, not only the storage helper.
+		outcome.TestOutcomes[0].Runs[0].Validations = map[string]models.GraderResults{
+			"grader": {Name: "grader", Type: models.GraderKindText, Passed: true, Score: 1,
+				Details: map[string]any{"nested": []any{map[string]any{"value": "recorded", "null": nil}}}},
+		}
+		data, err := json.Marshal(outcome)
+		require.NoError(b, err)
+		totalBytes += len(data)
+		require.NoError(b, os.WriteFile(filepath.Join(dir, outcome.RunID+".json"), data, 0o600))
+	}
+	for _, configured := range []bool{false, true} {
+		backend := "file-store"
+		if configured {
+			backend = "local-adapter"
+		}
+		for _, cached := range []bool{false, true} {
+			mode := "uncached"
+			if cached {
+				mode = "dashboard-cache"
+			}
+			b.Run(backend+"/"+mode, func(b *testing.B) {
+				var store RunStore
+				if configured {
+					local := storage.NewLocalStore(dir)
+					if cached {
+						local = storage.NewDashboardLocalStore(dir)
+					}
+					store = NewStorageAdapter(local, "local")
+				} else {
+					file := NewFileStore(dir)
+					if cached {
+						file = NewDashboardFileStore(dir)
+					}
+					store = file
+				}
+				mux := http.NewServeMux()
+				RegisterRoutes(mux, store)
+				poll := func() *httptest.ResponseRecorder {
+					rec := httptest.NewRecorder()
+					mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/lab/runs", nil))
+					require.Equal(b, http.StatusOK, rec.Code)
+					return rec
+				}
+				check := func(rec *httptest.ResponseRecorder) {
+					var runs []RunSummary
+					require.NoError(b, json.Unmarshal(rec.Body.Bytes(), &runs))
+					require.Len(b, runs, 300)
+				}
+				check(poll())
+				b.ReportAllocs()
+				b.ResetTimer()
+				var last *httptest.ResponseRecorder
+				for range b.N {
+					last = poll()
+				}
+				b.StopTimer()
+				check(last)
+				b.ReportMetric(300, "files/op")
+				b.ReportMetric(float64(totalBytes), "artifact-bytes/op")
+			})
+		}
+	}
+}
+
+func TestLabRefreshEvidenceBearingArtifacts(t *testing.T) {
+	manifest := `{"version":"1.0","sha256":"291a3cecd450615b3f14df209e47565f668f0dad298eb69d746a30398353db42",
+		"origin":{"eval_id":"cached","task_id":"task","run_number":1,"attempt_count":1,"prior_attempts":"none"},
+		"runtime":{"waza_version":"","requested_engine":"","requested_model":"","execution_mode":"unknown",
+		"dependency_mode":"unknown","requested_policy":"unknown","verified_enforcement":"unknown","go_version":"go1.26.4",
+		"platform":"darwin/arm64","sdk_version":null,"effective_model_version":null,"no_skills":null,"native_skill_control":"unknown"},
+		"redaction":{"policy":"default","match_count":0,"limitations":["Source digests do not preserve contents."]},
+		"artifacts":[{"id":"workspace","kind":"workspace_state","availability":"not_requested","completeness":"unknown",
+		"reason":"Workspace contents are not preserved by ordinary snapshots."}]`
+	for _, configured := range []bool{false, true} {
+		for _, unknown := range []bool{false, true} {
+			t.Run(strconv.FormatBool(configured)+"/unknown="+strconv.FormatBool(unknown), func(t *testing.T) {
+				evidence := manifest
+				if unknown {
+					evidence += `,"future_field":{"nested":"recorded"}`
+				}
+				evidence += `}`
+				data := []byte(`{"eval_id":"cached","tasks":[{"test_id":"task","runs":[{"run_number":1,"attempts":1,"evidence":` + evidence + `}]}]}`)
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.json"), data, 0o600))
+				mux := labRefreshMux(t, dir, configured)
+				require.Len(t, labRefreshRuns(t, mux, "/api/runs"), 1)
+				before := labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String()
+				var detail RunDetail
+				require.NoError(t, json.Unmarshal([]byte(before), &detail))
+				require.Len(t, detail.Tasks, 1)
+				require.Len(t, detail.Tasks[0].EvidenceRuns, 1)
+				for range 2 {
+					require.Len(t, labRefreshRuns(t, mux, "/api/v1/lab/runs"), 1)
+					require.JSONEq(t, before, labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String())
+				}
+			})
+		}
 	}
 }

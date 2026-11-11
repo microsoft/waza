@@ -148,7 +148,7 @@ test('runtime package and reader/schema helpers select the proof, while adjacent
 
 test('site compound chat outcome covers all three commands without inventing separate step outcomes', () => {
   const workflow = fs.readFileSync(path.resolve(__dirname, '../..', '.github/workflows/site-ci.yml'), 'utf8');
-  assert.match(workflow, /run: cd site && npm run test:private-chat && npm run test:chat -- --project=chromium --retries=0 && npm run test:chat-unavailable -- --project=chromium --retries=0/);
+  assert.ok(workflow.includes('run: cd site && npm run test:private-chat && PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-report.json npm run test:chat -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat && PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-unavailable-report.json npm run test:chat-unavailable -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat-unavailable'));
   assert.equal(contracts.site.units.site.includes('chat'), true);
   assert.equal(contracts.site.units.site.includes('private_chat'), false);
   assert.equal(contracts.site.units.site.includes('chat_unavailable'), false);

@@ -1,6 +1,7 @@
 import { expect, test, type Route } from "@playwright/test";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtemp, mkdir, rm, copyFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, copyFile, writeFile, chmod } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -136,6 +137,97 @@ test.describe("Runner negotiation through the real Go API", () => {
     }
   });
 
+  test("embedded Lab inspects actual CLI publication, unknown markers, conflicts and corruption", async ({ page }) => {
+    const store = join(directory, "results", ".waza-artifacts");
+    await mkdir(store, { mode: 0o700 });
+    const env = { ...process.env, COPILOT_CLI_PATH: "/usr/bin/false", WAZA_NO_UPDATE_CHECK: "1" };
+    const executed = spawnSync(binary, ["runner", "run"], {
+      cwd: directory, input: JSON.stringify(unitExample), env, timeout: 10_000,
+    });
+    expect(executed.error).toBeUndefined();
+    expect(executed.status).toBe(0);
+    const frozenTerminal = readFileSync(new URL("../../internal/artifactmanifest/testdata/publication-terminal.json", import.meta.url));
+    expect(executed.stdout).toEqual(frozenTerminal);
+    const terminalPath = join(directory, "publication-terminal.json");
+    const manifestPath = join(directory, "publication-manifest.json");
+    await writeFile(terminalPath, executed.stdout, { flag: "wx", mode: 0o600 });
+    await copyFile(new URL("../../internal/artifactmanifest/testdata/publication-manifest.json", import.meta.url), manifestPath);
+    const artifact = (...args: string[]) => execFileSync(binary, ["artifact", ...args, "--store", store], {
+      cwd: directory, env, timeout: 10_000,
+    });
+    const declaration = artifact("create", manifestPath);
+    const created: { manifest_sha256: string; publication: string } = JSON.parse(declaration.toString("utf8"));
+    expect(created.publication).toBe("declared");
+    expect(created.manifest_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(artifact("create", manifestPath)).toEqual(declaration);
+    const digest = created.manifest_sha256;
+    const terminalDigest = createHash("sha256").update(executed.stdout).digest("hex");
+
+    // Load the Go-embedded build, not the preview UI or intercepted receipts.
+    const index = await page.request.get(base);
+    expect(index.status()).toBe(200);
+    const html = await index.text();
+    expect(html).toBe(readFileSync(resolve("dist/index.html"), "utf8"));
+    const references = [...html.matchAll(/(?:src|href)="(\/assets\/[a-zA-Z0-9._-]+\.(?:js|css))"/g)];
+    expect(references.length).toBeGreaterThan(0);
+    for (const reference of references) {
+      const path = reference[1]!;
+      const response = await page.request.get(`${base}${path}`);
+      expect(response.status(), path).toBe(200);
+      expect(await response.body(), path).toEqual(readFileSync(resolve("dist", path.slice(1))));
+    }
+    await page.goto(`${base}/#/lab/runner`);
+    const panel = page.getByRole("region", { name: "Manifest publication inspection" });
+    const receipt = panel.getByRole("status", { name: "Manifest inspection receipt" });
+    await panel.getByRole("button", { name: "Find stored manifests" }).click();
+    await panel.getByRole("button", { name: digest, exact: true }).click();
+    const inspect = async (publication: string, integrity: string, status: number, artifactIntegrity: string) => {
+      await panel.getByRole("button", { name: "Inspect manifest", exact: true }).click();
+      await expect(receipt.locator("dd").first()).toHaveText(digest);
+      await expect(receipt.locator("dd").nth(2)).toHaveText(publication);
+      await expect(receipt.locator("dd").nth(3)).toHaveText(integrity);
+      await expect(receipt.locator("dd").nth(4)).toHaveText(String(status));
+      await expect(receipt.getByRole("row")).toHaveCount(2);
+      await expect(receipt.getByRole("row").nth(1).locator("th, td")).toHaveText([
+        "terminal.json", artifactIntegrity, terminalDigest, String(executed.stdout.length), "application/json",
+      ]);
+    };
+    await inspect("unfinalized", "failed", 404, "missing");
+    await expect(receipt).toContainText("missing_object: terminal.json:");
+    const incomplete = spawnSync(binary, ["artifact", "finalize", digest, "--store", store], {
+      cwd: directory, env, encoding: "utf8", timeout: 10_000,
+    });
+    expect(incomplete.error).toBeUndefined();
+    expect(incomplete.status).toBe(2);
+    expect(JSON.parse(incomplete.stdout)).toMatchObject({ publication: "unfinalized", integrity: "failed" });
+
+    artifact("upload", manifestPath, "terminal.json", terminalPath);
+    await inspect("unfinalized", "verified", 200, "verified");
+    const finalized = artifact("finalize", digest);
+    expect(artifact("finalize", digest)).toEqual(finalized);
+    await inspect("finalized", "verified", 200, "verified");
+    await expect(receipt).toContainText("No diagnostics reported.");
+
+    const marker = join(store, `final-${digest}`);
+    await chmod(marker, 0o600);
+    await writeFile(marker, "malformed marker");
+    await inspect("unknown", "failed", 409, "verified");
+    await expect(receipt).toContainText("corrupt_object:");
+    await writeFile(marker, "f".repeat(64));
+    await inspect("conflict", "failed", 409, "verified");
+    await expect(receipt).toContainText("publication_conflict:");
+
+    await writeFile(marker, digest);
+    const blob = join(store, `blob-${terminalDigest}`);
+    await chmod(blob, 0o600);
+    const corrupt = Buffer.from(executed.stdout);
+    corrupt[0] = corrupt[0]! ^ 1;
+    await writeFile(blob, corrupt);
+    await inspect("finalized", "failed", 409, "corrupt");
+    await expect(receipt).toContainText("corrupt_object: terminal.json:");
+    await expect(panel).toContainText("Content and declared context only; not execution attestation.");
+  });
+
   test("downgrades and exposes capabilities without execution", async ({ page }) => {
     await page.getByRole("button", { name: "Check compatibility" }).click();
     const result = page.getByRole("status", { name: "Negotiation result" });
@@ -157,9 +249,11 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(result).toContainText('required capability "inline.native-text" is unavailable; available: negotiation, exact-unit, inline.mock-text, terminal-result, inline.copilot-text');
     await expect(result.locator("dd").nth(5)).toHaveText("None");
     await page.setViewportSize({ width: 1440, height: 1100 });
-    const screenshot = "../docs/images/dashboard-lab-negotiation.png";
-    await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
-    await copyFile(screenshot, "../site/public/images/dashboard-lab-negotiation.png");
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
+      const screenshot = "../docs/images/dashboard-lab-negotiation.png";
+      await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
+      await copyFile(screenshot, "../site/public/images/dashboard-lab-negotiation.png");
+    }
   });
 
   test("clears previous success on edit, rejection and failed reload", async ({ page }) => {
@@ -226,9 +320,11 @@ test.describe("Runner negotiation through the real Go API", () => {
       await expect(lineage).toContainText(value);
     }
     await page.setViewportSize({ width: 1440, height: 1600 });
-    const screenshot = "../docs/images/dashboard-lab-selection.png";
-    await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
-    await copyFile(screenshot, "../site/public/images/dashboard-lab-selection.png");
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
+      const screenshot = "../docs/images/dashboard-lab-selection.png";
+      await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
+      await copyFile(screenshot, "../site/public/images/dashboard-lab-selection.png");
+    }
     const value = JSON.parse(await input.inputValue()) as { selection: { task: string } };
     value.selection.task = "neighbor";
     await input.fill(JSON.stringify(value));
@@ -433,7 +529,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       const path = await artifact.path();
       expect(path).not.toBeNull();
       expect(JSON.parse(readFileSync(path!, "utf8"))).toEqual(envelope);
-      if (outcome === "evaluation_failure") {
+      if (outcome === "evaluation_failure" && process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
         await page.setViewportSize({ width: 1440, height: 1600 });
         const screenshot = "../docs/images/dashboard-lab-terminal.png";
         await page.getByRole("region", { name: "Runner terminal outcome" }).screenshot({ path: screenshot, animations: "disabled" });

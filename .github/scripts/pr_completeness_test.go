@@ -153,8 +153,12 @@ func checkCompletenessControlSelection(source []byte) error {
 		if len(args) < 4 || args[0] != "go" || args[1] != "test" || args[2] != "-count=1" {
 			return fmt.Errorf("GoLint must execute uncached Go controls")
 		}
+		packages := args[3:]
+		if len(packages) > 0 && packages[0] == "-v" {
+			packages = packages[1:]
+		}
 		selected := false
-		for _, argument := range args[3:] {
+		for _, argument := range packages {
 			if !regexp.MustCompile(`^\./[A-Za-z0-9_./-]+$`).MatchString(argument) {
 				return fmt.Errorf("GoLint must not narrow or replace control execution")
 			}
@@ -198,6 +202,9 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 	check := checkCompletenessControlSelection
 	if err := check(source); err != nil {
 		t.Fatal(err)
+	}
+	if err := check([]byte(strings.Replace(string(source), "go test -count=1 -v", "go test -count=1", 1))); err != nil {
+		t.Fatalf("unfiltered nonverbose controls must remain valid: %v", err)
 	}
 	lintHeader := regexp.MustCompile(`(?m)^  lint:\n`).FindIndex(source)
 	if lintHeader == nil {
@@ -285,7 +292,7 @@ func TestCompletenessControlsSelectedByGoLint(t *testing.T) {
 			t.Fatal("higher unsafe GOFLAGS must not inherit lower empty admission")
 		}
 	})
-	withHelper := mutateLint("run: go test -count=1", "run: go test -count=1 ./.github/scripts/release-assets-helper")
+	withHelper := mutateLint(" ./.github/scripts/release-assets-helper", " ./.github/scripts/release-assets-helper ./.github/scripts/future-helper")
 	if err := check(withHelper); err != nil {
 		t.Fatalf("literal future helper package must remain valid: %v", err)
 	}

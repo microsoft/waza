@@ -2,7 +2,10 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: ['chat.spec.ts', 'chat-unavailable.spec.ts'],
+  testIgnore: [
+    'chat.spec.ts', 'chat-unavailable.spec.ts',
+    ...(process.env.WAZA_REFRESH_DOCS_MEDIA === '1' ? [] : ['**/screenshots.spec.ts']),
+  ],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

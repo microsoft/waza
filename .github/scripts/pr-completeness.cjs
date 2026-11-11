@@ -39,7 +39,7 @@ const runtimeInputs = Object.freeze([
   'internal/graders', 'internal/hooks', 'internal/judgeevidence', 'internal/jsonutil',
   'internal/models', 'internal/pathadmission', 'internal/projectconfig', 'internal/requirements',
   'internal/scaffold', 'internal/schemaloader', 'internal/skill', 'internal/snapshot',
-  'internal/statistics', 'internal/testutil/copilotfake', 'internal/tokens', 'internal/utils', 'schemas',
+  'internal/statistics', 'internal/template', 'internal/testutil/copilotfake', 'internal/tokens', 'internal/utils', 'schemas',
 ]);
 
 function requireValue(condition, message) {
