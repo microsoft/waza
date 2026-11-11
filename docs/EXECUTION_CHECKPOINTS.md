@@ -108,6 +108,14 @@ The operation then has `checkpoint_error`, exit 2, while retaining the original
 submission's terminal facts. There is no cross-object transaction, automatic
 rollback, inferred crash durability, or deletion of partial evidence.
 
+Finalized publication retains its separate 10-second budget after the runner
+joins, independent of the original request timeout and cancellation. Compatibility,
+native selection and full identity checks share one original-wire declaration;
+creator validation and immutable persistence still use that bounded publication
+context. A large accepted prompt must not trigger redundant identity derivation
+inside this budget. Deadline failures retain phase timings and the underlying
+context error; they do not imply that submission admission or execution failed.
+
 Raw core results can contain original source metadata. They are not approved
 public disclosure responses. Public endpoints must compose the evidence owner's
 capture policy before encoding them; that integration remains separately owned.

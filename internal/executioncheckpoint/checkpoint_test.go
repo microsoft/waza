@@ -252,6 +252,39 @@ func TestDeclaredCompatibilityMatrix(t *testing.T) {
 	}
 }
 
+func TestRequestDeclarationPreservesFullWireNegotiationAdmission(t *testing.T) {
+	for _, control := range []struct {
+		name   string
+		change func(*runnercontract.Request)
+		status string
+	}{
+		{"unsupported-version", func(r *runnercontract.Request) { r.Versions = []string{"9.0"} }, "unsupported_version"},
+		{"unsupported-required", func(r *runnercontract.Request) { r.RequiredCapabilities = []string{"future"} }, "unsupported_capability"},
+		{"unsupported-optional", func(r *runnercontract.Request) { r.OptionalCapabilities = []string{"future"} }, "compatible"},
+		{"conflicting", func(r *runnercontract.Request) { r.OptionalCapabilities = r.RequiredCapabilities }, "invalid_request"},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			request, err := runnercontract.Parse(readFixture(t, "../../examples/runner/unit.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			control.change(request)
+			wire := encodeJSON(t, request)
+			if response := runnercontract.Negotiate(wire); response.Status != control.status {
+				t.Fatalf("full-wire control negotiation: %+v", response)
+			}
+			_, err = ForRequest(wire, strings.Repeat("a", 40))
+			if control.status == "compatible" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if !errors.Is(err, ErrIncompatible) {
+				t.Fatalf("projected negotiation changed full-wire admission: %v", err)
+			}
+		})
+	}
+}
+
 func TestCompatibilityReportsEveryChangedDimension(t *testing.T) {
 	checkpoint, err := Parse(readFixture(t, "testdata/before-unit.json"))
 	if err != nil {
