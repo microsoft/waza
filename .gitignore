@@ -100,6 +100,9 @@ vendor/
 # Go coverage
 coverage.out
 coverage.txt
+/coverage.txt.all
+/coverage.txt.selected
+/coverage.txt.evidence.json
 coverage.html
 
 # Downloaded tools

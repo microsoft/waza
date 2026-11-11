@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,7 +59,11 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 			if len(literal) < 4 || !slices.Equal(literal[:3], []string{"go", "test", "-count=1"}) {
 				return fmt.Errorf("expected literal uncached Go test command")
 			}
-			for _, arg := range literal[3:] {
+			packages := literal[3:]
+			if len(packages) > 0 && packages[0] == "-v" {
+				packages = packages[1:]
+			}
+			for _, arg := range packages {
 				if !strings.HasPrefix(arg, "./") {
 					return fmt.Errorf("expected only literal package arguments after -count=1, got %q", arg)
 				}
@@ -117,22 +122,25 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 	if err := check(source); err != nil {
 		t.Fatal(err)
 	}
+	if err := check([]byte(strings.Replace(string(source), "go test -count=1 -v", "go test -count=1", 1))); err != nil {
+		t.Fatalf("helper selection must also admit an unfiltered nonverbose command: %v", err)
+	}
 	for _, tc := range []struct{ name, before, after string }{
 		{"missing-package", " ./.github/scripts/release-assets-helper", ""},
-		{"echo-only", "run: go test -count=1 ./.github/scripts", "run: echo go test -count=1 ./.github/scripts"},
+		{"echo-only", "run: go test -count=1 -v ./.github/scripts", "run: echo go test -count=1 -v ./.github/scripts"},
 		{"skipped-step", "- name: Test Go workflow trigger selection\n        run:", "- name: Test Go workflow trigger selection\n        if: false\n        run:"},
-		{"run-value", "-count=1 ./.github/scripts", "-count=1 -run '^$' ./.github/scripts"},
-		{"run-equals", "-count=1 ./.github/scripts", "-count=1 -run=^$ ./.github/scripts"},
-		{"list-value", "-count=1 ./.github/scripts", "-count=1 -list '.' ./.github/scripts"},
-		{"list-equals", "-count=1 ./.github/scripts", "-count=1 -list=. ./.github/scripts"},
-		{"skip-value", "-count=1 ./.github/scripts", "-count=1 -skip '.' ./.github/scripts"},
-		{"skip-equals", "-count=1 ./.github/scripts", "-count=1 -skip=. ./.github/scripts"},
-		{"args-value", "-count=1 ./.github/scripts", "-count=1 -args -test.run '^$' ./.github/scripts"},
-		{"args-equals", "-count=1 ./.github/scripts", "-count=1 -args=-test.run=^$ ./.github/scripts"},
-		{"exec-value", "-count=1 ./.github/scripts", "-count=1 -exec echo ./.github/scripts"},
-		{"exec-equals", "-count=1 ./.github/scripts", "-count=1 -exec=echo ./.github/scripts"},
+		{"run-value", "-count=1 -v ./.github/scripts", "-count=1 -v -run '^$' ./.github/scripts"},
+		{"run-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -run=^$ ./.github/scripts"},
+		{"list-value", "-count=1 -v ./.github/scripts", "-count=1 -v -list '.' ./.github/scripts"},
+		{"list-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -list=. ./.github/scripts"},
+		{"skip-value", "-count=1 -v ./.github/scripts", "-count=1 -v -skip '.' ./.github/scripts"},
+		{"skip-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -skip=. ./.github/scripts"},
+		{"args-value", "-count=1 -v ./.github/scripts", "-count=1 -v -args -test.run '^$' ./.github/scripts"},
+		{"args-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -args=-test.run=^$ ./.github/scripts"},
+		{"exec-value", "-count=1 -v ./.github/scripts", "-count=1 -v -exec echo ./.github/scripts"},
+		{"exec-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -exec=echo ./.github/scripts"},
 		{"late-run", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper -run=^$"},
-		{"count-override", "-count=1 ./.github/scripts", "-count=1 -count=0 ./.github/scripts"},
+		{"count-override", "-count=1 -v ./.github/scripts", "-count=1 -v -count=0 ./.github/scripts"},
 		{"failure-mask", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper || true"},
 		{"pipeline-mask", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper | true"},
 		{"duplicate-helper", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper ./.github/scripts/release-assets-helper"},
@@ -155,7 +163,7 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, before, after string }{
 		{"package-order", "./.github/scripts ./.github/scripts/publish-runner-reference-guard", "./.github/scripts/publish-runner-reference-guard ./.github/scripts"},
-		{"additional-package", "-count=1 ./.github/scripts", "-count=1 ./internal/models ./.github/scripts"},
+		{"additional-package", "-count=1 -v ./.github/scripts", "-count=1 -v ./internal/models ./.github/scripts"},
 		{"workflow-empty-goflags", "jobs:\n", "env:\n  GOFLAGS: ''\njobs:\n"},
 		{"job-empty-overrides-workflow", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: ''\n"},
 		{"step-empty-overrides-job", "- name: Test Go workflow trigger selection\n", "- name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: ''\n"},
@@ -405,61 +413,110 @@ func ordinaryShellArguments(platform string, declarations ...yaml.Node) ([]strin
 }
 
 func ordinaryGoArguments(t *testing.T, command, platform string, packages, shellArguments []string) ([]string, error) {
+	args, _, err := ordinaryGoProbe(t, command, platform, packages, shellArguments)
+	return args, err
+}
+
+func ordinaryGoProbe(t *testing.T, command, platform string, packages, shellArguments []string, captureSource ...[]byte) ([]string, string, error) {
 	t.Helper()
 	scratch := t.TempDir()
 	inventory := filepath.Join(scratch, "packages")
 	arguments := filepath.Join(scratch, "arguments")
+	discovery := filepath.Join(scratch, "discovery")
+	listed := filepath.Join(scratch, "listed")
+	scripts := filepath.Join(scratch, ".github", "scripts")
+	copyCICaptureScripts(t, scripts)
+	if len(captureSource) > 0 {
+		if err := os.WriteFile(filepath.Join(scripts, "ci_go_test_capture.sh"), captureSource[0], 0o600); err != nil {
+			return nil, "", err
+		}
+	}
 	if err := os.WriteFile(inventory, []byte(strings.Join(packages, "\n")+"\n"), 0o600); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	// Execute the workflow shell, but record Go invocations instead of rerunning tests.
 	probe := `#!/usr/bin/env bash
 set -euo pipefail
 case "$1" in
+  version)
+    test "$#" -eq 1
+    echo 'go version go1.26.4 linux/amd64'
+    ;;
   list)
     test "$#" -eq 2
     test "$2" = ./...
+    test ! -e "$WAZA_PACKAGE_LISTED"
+    : > "$WAZA_PACKAGE_LISTED"
     cat "$WAZA_PACKAGE_INVENTORY"
     ;;
   test)
-    test ! -e "$WAZA_TEST_ARGUMENTS"
     shift
-    printf '%s\n' "$@" > "$WAZA_TEST_ARGUMENTS"
+    phase=execution
+    for arg in "$@"; do
+      if [ "$arg" = -list ]; then phase=discovery; fi
+    done
+    captured="$WAZA_TEST_ARGUMENTS"
+    if [ "$phase" = discovery ]; then captured="$WAZA_DISCOVERY_ARGUMENTS"; fi
+    test ! -e "$captured"
+    printf '%s\n' "$@" > "$captured"
+    while [ "$#" -gt 0 ] && [[ "$1" = -* ]]; do
+      if [ "$1" = -list ]; then shift 2; else shift; fi
+    done
+    if [ "$*" = ./... ]; then
+      selected=()
+      while IFS= read -r package; do selected+=("$package"); done < "$WAZA_PACKAGE_INVENTORY"
+    else
+      selected=("$@")
+    fi
+    for package in "${selected[@]}"; do
+      printf '{"Action":"start","Package":"%s"}\n' "$package"
+      if [ "$phase" = discovery ]; then
+        printf '{"Action":"output","Package":"%s","Output":"TestObserved\\n"}\n' "$package"
+      else
+        printf '{"Action":"run","Package":"%s","Test":"TestObserved"}\n' "$package"
+        printf '{"Action":"pass","Package":"%s","Test":"TestObserved","Elapsed":1}\n' "$package"
+      fi
+      printf '{"Action":"pass","Package":"%s","Elapsed":2}\n' "$package"
+    done
     ;;
   *) exit 1 ;;
 esac
 `
 	if err := os.WriteFile(filepath.Join(scratch, "go"), []byte(probe), 0o700); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	script := filepath.Join(scratch, "selection script.sh")
 	if err := os.WriteFile(script, []byte(command), 0o600); err != nil {
-		return nil, fmt.Errorf("write test-selection script: %w", err)
+		return nil, "", fmt.Errorf("write test-selection script: %w", err)
 	}
 	cmd := exec.CommandContext(t.Context(), "bash", append(slices.Clone(shellArguments), script)...)
+	cmd.Dir = scratch
 	cmd.Env = append(os.Environ(),
 		"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"RUNNER_OS="+platform,
+		"CI_EVIDENCE_COLD_REQUESTED=false",
 		"WAZA_PACKAGE_INVENTORY="+inventory,
 		"WAZA_TEST_ARGUMENTS="+arguments,
+		"WAZA_DISCOVERY_ARGUMENTS="+discovery,
+		"WAZA_PACKAGE_LISTED="+listed,
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("%s: executing workflow test-selection probe: %w\n%s", platform, err, output)
+		return nil, "", fmt.Errorf("%s: executing workflow test-selection probe: %w\n%s", platform, err, output)
 	}
 	captured, err := os.ReadFile(arguments)
 	if err != nil {
-		return nil, fmt.Errorf("%s: workflow must execute Go tests: %w", platform, err)
+		return nil, "", fmt.Errorf("%s: workflow must execute Go tests: %w", platform, err)
 	}
-	return strings.Split(strings.TrimSuffix(string(captured), "\n"), "\n"), nil
+	return strings.Split(strings.TrimSuffix(string(captured), "\n"), "\n"), scratch, nil
 }
 
-func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool, shellArguments []string) error {
+func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool, shellArguments []string, captureSource ...[]byte) error {
 	t.Helper()
-	args, err := ordinaryGoArguments(t, command, platform, packages, shellArguments)
+	args, scratch, err := ordinaryGoProbe(t, command, platform, packages, shellArguments, captureSource...)
 	if err != nil {
 		return err
 	}
-	requiredFlags := []string{"-count=1", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
+	requiredFlags := []string{"-count=1", "-json", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
 	var flags, selected []string
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
@@ -485,6 +542,45 @@ func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages
 	slices.Sort(expected)
 	if !slices.Equal(selected, expected) {
 		return fmt.Errorf("%s: Go test packages = %q; want exhaustive ordinary inventory %q", platform, selected, expected)
+	}
+	discovered, err := os.ReadFile(filepath.Join(scratch, "discovery"))
+	if err != nil {
+		return fmt.Errorf("%s: missing separate discovery invocation: %w", platform, err)
+	}
+	discoveryArgs := strings.Split(strings.TrimSuffix(string(discovered), "\n"), "\n")
+	prefix := []string{"-race", "-covermode=atomic", "-json", "-list", "."}
+	if len(discoveryArgs) < len(prefix) || !slices.Equal(discoveryArgs[:len(prefix)], prefix) {
+		return fmt.Errorf("%s: discovery flags = %q; want nonexecuting %q", platform, discoveryArgs, prefix)
+	}
+	discoveryPackages := discoveryArgs[len(prefix):]
+	if slices.Equal(discoveryPackages, []string{"./..."}) {
+		discoveryPackages = slices.Clone(packages)
+	}
+	slices.Sort(discoveryPackages)
+	if !slices.Equal(discoveryPackages, expected) {
+		return fmt.Errorf("%s: discovery packages = %q; want %q", platform, discoveryPackages, expected)
+	}
+	_, listErr := os.Stat(filepath.Join(scratch, "listed"))
+	if sharded && listErr != nil {
+		return fmt.Errorf("%s: remaining selection must use authoritative go list ./...: %w", platform, listErr)
+	}
+	if !sharded && !os.IsNotExist(listErr) {
+		return fmt.Errorf("%s: full execution must preserve root ./... without separate package selection", platform)
+	}
+	reportData, err := os.ReadFile(filepath.Join(scratch, "coverage.txt.evidence.json"))
+	if err != nil {
+		return err
+	}
+	var report struct {
+		Complete      bool
+		DiscoveryExit *int `json:"discovery_exit"`
+		ExecutionExit *int `json:"execution_exit"`
+	}
+	if err := json.Unmarshal(reportData, &report); err != nil {
+		return err
+	}
+	if !report.Complete || report.DiscoveryExit == nil || *report.DiscoveryExit != 0 || report.ExecutionExit == nil || *report.ExecutionExit != 0 {
+		return fmt.Errorf("%s: workflow capture must finalize actual discovery and execution evidence", platform)
 	}
 	return nil
 }
@@ -596,9 +692,8 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 			return fmt.Errorf("%s: compatibility inventory must use the canonical Make target", jobName)
 		}
 		testCommand := commands[required[2]]
-		if strings.Count(testCommand, "go test ") == 0 ||
-			strings.Count(testCommand, "go test -count=1 ") != strings.Count(testCommand, "go test ") {
-			return fmt.Errorf("%s: broad Go tests must be uncached", jobName)
+		if !strings.Contains(testCommand, "bash .github/scripts/ci_go_test_capture.sh ") {
+			return fmt.Errorf("%s: broad Go tests must use the verified uncached capture caller", jobName)
 		}
 		if err := checkOrdinaryTestSelection(t, testCommand, platform, packages, workflowName == "go-ci.yml" && jobName == "build-and-test", shells[required[2]]); err != nil {
 			return fmt.Errorf("%s: %w", jobName, err)
@@ -694,26 +789,21 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 			mutations := [][2]string{
 				{`bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
 				{"make test-compat-inventory", ":"},
-				{"go test -count=1 ", "go test "},
-				{"go test -count=1 ", "go test -count=1 -run '^$' "},
-				{"go test -count=1 ", "go test -count=1 -skip '.' "},
-				{"go test -count=1 ", "go test -count=1 -list '.' "},
-				{"      - name: Execute Tests\n        run:", "      - name: Execute Tests\n        if: false\n        run:"},
+				{"bash .github/scripts/ci_go_test_capture.sh", ":"},
+				{"      - name: Execute Tests\n", "      - name: Execute Tests\n        if: false\n"},
 				{`"$COPILOT_CLI_PATH.invoked"`, `"$COPILOT_CLI_PATH.unchecked"`},
 				{"bash .github/scripts/release_integration_test.sh", "./waza run"},
 			}
 			if name == "go-ci.yml" {
 				mutations = append(mutations,
-					[2]string{`"${selected[@]}"`, "./internal/models"},
-					[2]string{"go list ./...", "go list ./internal/models"},
-					[2]string{"github.com/microsoft/waza/internal/controlledcomparison", "github.com/microsoft/waza/cmd/waza"},
+					[2]string{"ci_go_test_capture.sh remaining", "ci_go_test_capture.sh all"},
+					[2]string{"ci_go_test_capture.sh all", "ci_go_test_capture.sh remaining"},
 					[2]string{"      - name: Integration Test\n        run:", "      - name: Integration Test\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
 					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
 				)
 			}
 			mutations = append(mutations,
-				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./internal/models"},
-				[2]string{"-covermode=atomic ./...", "-covermode=atomic ./cmd/waza"},
+				[2]string{"ci_go_test_capture.sh all coverage.txt", "ci_go_test_capture.sh all unexpected.txt"},
 				[2]string{`if [ -e "$COPILOT_CLI_PATH.invoked" ]; then`, "if true; then"},
 			)
 			message := "Preview Go tests attempted to launch the Copilot runtime."
@@ -732,6 +822,41 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 				if err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages); err == nil {
 					t.Fatalf("mutation was accepted: %s", mutation[0])
 				}
+			}
+		})
+	}
+}
+
+func TestOrdinaryCICaptureRejectsWeakenedDiscoveryExecutionAndInventory(t *testing.T) {
+	packages := []string{
+		"github.com/microsoft/waza/cmd/waza",
+		"github.com/microsoft/waza/internal/controlledcomparison",
+		"github.com/microsoft/waza/internal/models",
+	}
+	source, err := os.ReadFile("ci_go_test_capture.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range [][2]string{
+		{"-count=1 -json", "-json"},
+		{"-count=1 -json", "-count=2 -json"},
+		{"-count=1 -json", "-count=1"},
+		{"-count=1 -json", "-count=1 -run '^$' -json"},
+		{"-count=1 -json", "-count=1 -skip '.' -json"},
+		{"-count=1 -json", "-count=1 -list '.' -json"},
+		{"-race -covermode=atomic -json -list .", "-json -list ."},
+		{"go list ./...", "go list ./internal/models"},
+		{"github.com/microsoft/waza/internal/controlledcomparison", "github.com/microsoft/waza/cmd/waza"},
+		{`"${selected[@]}"`, "./internal/models"},
+	} {
+		t.Run(mutation[0], func(t *testing.T) {
+			changed := strings.Replace(string(source), mutation[0], mutation[1], 1)
+			if changed == string(source) {
+				t.Fatalf("capture mutation did not change source: %s", mutation[0])
+			}
+			command := "bash .github/scripts/ci_go_test_capture.sh remaining coverage.txt"
+			if err := checkOrdinaryTestSelection(t, command, "Linux", packages, true, []string{"-e"}, []byte(changed)); err == nil {
+				t.Fatalf("weakened capture mutation admitted: %s", mutation[0])
 			}
 		})
 	}
@@ -1060,6 +1185,13 @@ func TestGoWorkflowTriggers(t *testing.T) {
 			want := workflowTriggers{
 				"push":         {Mapping: true, Filters: map[string][]string{"branches": tc.pushBranches}},
 				"pull_request": {Filters: tc.prFilters},
+				"workflow_dispatch": {Mapping: true, Inputs: map[string]workflowInput{
+					"cold_observation": {
+						Type: "boolean", Description: "Observe initially empty isolated Linux dependency stores",
+						Default:  workflowLiteral{Present: true, Tag: "!!bool", Value: "false"},
+						Required: workflowLiteral{Present: true, Tag: "!!bool", Value: "false"},
+					},
+				}},
 			}
 			if err := checkTriggers(source, want); err != nil {
 				t.Fatal(err)
@@ -1083,7 +1215,10 @@ func TestGoWorkflowTriggers(t *testing.T) {
 					t.Errorf("push branch=%q selected=%v; want %v", branch, got, want)
 				}
 			}
-			for _, event := range []string{"pull_request_target", "workflow_dispatch", "release"} {
+			if !selects(triggers, "workflow_dispatch", "feature/frozen-source", "") {
+				t.Fatal("declared feature-only opt-in dispatch missing; default-branch activation is a separate prerequisite")
+			}
+			for _, event := range []string{"pull_request_target", "release"} {
 				if selects(triggers, event, "main", "opened") {
 					t.Errorf("unexpected event selected: %s", event)
 				}

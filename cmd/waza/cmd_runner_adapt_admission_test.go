@@ -22,6 +22,7 @@ import (
 
 func adapterProcess(t *testing.T, binary, directory string, input []byte, code int, args ...string) ([]byte, string) {
 	t.Helper()
+	started := time.Now()
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, args...)
@@ -30,8 +31,19 @@ func adapterProcess(t *testing.T, binary, directory string, input []byte, code i
 	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	require.NoError(t, ctx.Err(), "bounded CLI helper did not return: %v; stderr: %s", err, stderr.String())
+	runStarted := time.Now()
+	err := cmd.Start()
+	processStartElapsed, postStartContextErr := time.Since(runStarted), ctx.Err()
+	var waitElapsed time.Duration
+	if err == nil {
+		waitStarted := time.Now()
+		err = cmd.Wait()
+		waitElapsed = time.Since(waitStarted)
+	}
+	contextErr := ctx.Err()
+	t.Logf("adapter CLI args=%q setup_elapsed=%s process_start_elapsed=%s post_start_ctx_err=%v wait_elapsed=%s ctx_err=%v process_state=%v",
+		args, runStarted.Sub(started), processStartElapsed, postStartContextErr, waitElapsed, contextErr, cmd.ProcessState)
+	require.NoError(t, contextErr, "bounded CLI helper did not return: %v; stdout: %s; stderr: %s", err, stdout.String(), stderr.String())
 	if code == 0 {
 		require.NoError(t, err, "%s", stderr.String())
 	} else {

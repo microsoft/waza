@@ -17,7 +17,9 @@ var siteFilterPaths = []string{
 	"cmd/waza/cmd_serve.go",
 	"internal/embedded/**", "internal/models/outcome.go", "internal/models/schema_version.go",
 	"internal/runneridentity/testdata/**", "internal/runnerunit/testdata/**", "internal/runnerterminal/testdata/**",
-	"schemas/**", ".github/workflows/site-ci.yml", ".github/workflows/docker-ci.yml",
+	"schemas/**", "web/package.json", "web/playwright.config.ts",
+	"web/e2e/screenshots.spec.ts", "web/e2e/release-screenshots.spec.ts", "web/e2e/runner-negotiation.spec.ts",
+	".github/workflows/site-ci.yml", ".github/workflows/web-ci.yml", ".github/workflows/docker-ci.yml",
 	".github/workflows/publish-runner-reference.yml", ".github/workflows/verify-runner-reference.yml", ".github/workflows/pages.yml",
 }
 
@@ -29,7 +31,7 @@ var exampleFilterPaths = []string{
 var sitePushPaths = []string{
 	"site/**", "docs/**", "examples/interop/**", "README.md", "CHANGELOG.md", "version.txt", "registry.json",
 	"cmd/waza/**", "internal/**", "schemas/**", "go.mod", "go.sum", "Makefile", "web/**",
-	".github/workflows/site-ci.yml", ".github/workflows/docker-ci.yml", ".github/workflows/publish-runner-reference.yml",
+	".github/workflows/site-ci.yml", ".github/workflows/web-ci.yml", ".github/workflows/docker-ci.yml", ".github/workflows/publish-runner-reference.yml",
 	".github/workflows/verify-runner-reference.yml", ".github/workflows/pages.yml",
 }
 
@@ -103,17 +105,19 @@ func validateSiteWorkflow(source []byte) error {
 		steps["Build site"].Run != "cd site && npm run build" ||
 		steps["Typecheck chat and test public metadata"].Run != "cd site && npm run test:chat-types && npm run test:chat-metadata && npm run test:chat-contract" ||
 		steps["Install Chromium for site regression tests"].Run != "cd site && npx --no-install playwright install --with-deps chromium" ||
-		steps["Test site"].Run != "cd site && npm run test:e2e -- --project=chromium --retries=0" ||
+		steps["Test site"].Run != "cd site && npm run test:e2e -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/site" ||
 		steps["Test site"].ID != "tests" || steps["Test site"].Env["CI"] != "true" ||
-		steps["Test optional chat with mocked service and bot protection"].Run != "cd site && npm run test:private-chat && npm run test:chat -- --project=chromium --retries=0 && npm run test:chat-unavailable -- --project=chromium --retries=0" ||
+		steps["Test site"].Env["PLAYWRIGHT_JSON_OUTPUT_NAME"] != "test-results/site-report.json" ||
+		steps["Test optional chat with mocked service and bot protection"].Run != "cd site && npm run test:private-chat && PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-report.json npm run test:chat -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat && PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-unavailable-report.json npm run test:chat-unavailable -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat-unavailable" ||
+		steps["Test optional chat with mocked service and bot protection"].ID != "chat-tests" ||
 		steps["Test optional chat with mocked service and bot protection"].Env["CI"] != "true" ||
 		steps["Skip (no site changes)"].If != "needs.changes.outputs.site != 'true' && github.event_name == 'pull_request'" {
 		return fmt.Errorf("site job must retain every build, chat, Chromium and non-site PR path")
 	}
 	evidence := steps["Upload site test evidence"]
-	if evidence.If != "always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''" ||
+	if evidence.If != "always() && (steps.tests.outcome != 'skipped' && steps.tests.outcome != '' || steps.chat-tests.outcome != 'skipped' && steps.chat-tests.outcome != '')" ||
 		!strings.HasPrefix(evidence.Uses, "actions/upload-artifact@") ||
-		evidence.With["path"] != "site/test-results/\ndocs/images/site-*.png\n" || evidence.With["if-no-files-found"] != "error" {
+		evidence.With["path"] != "site/test-results/" || evidence.With["if-no-files-found"] != "error" {
 		return fmt.Errorf("site browser evidence must survive failing browser tests")
 	}
 	exampleSteps := releaseSteps(examples)
@@ -152,11 +156,19 @@ func TestSiteWorkflowParallelChecks(t *testing.T) {
 		{"push-path-regression", "      - 'examples/interop/**'\n", ""},
 		{"example-filter-regression", "              - 'examples/interop/**'\n", ""},
 		{"site-filter-regression", "              - 'internal/models/outcome.go'\n", ""},
+		{"missing-dashboard-media-input", "              - 'web/package.json'\n", ""},
+		{"missing-dashboard-workflow-push", "      - '.github/workflows/web-ci.yml'\n", ""},
+		{"broad-dashboard-site-selection", "              - 'web/package.json'\n", "              - 'web/**'\n"},
 		{"missing-push-build", "needs.changes.outputs.site == 'true' || github.event_name == 'push'", "needs.changes.outputs.site == 'true'"},
 		{"missing-push-examples", "needs.changes.outputs.examples == 'true' || github.event_name == 'push'", "needs.changes.outputs.examples == 'true'"},
 		{"unstable-check-name", "name: Build site\n    needs:", "name: Browser build\n    needs:"},
 		{"missing-browser-test", "npm run test:e2e -- --project=chromium --retries=0", "true"},
 		{"ignored-browser-failure", "      - name: Test site\n", "      - name: Test site\n        continue-on-error: true\n"},
+		{"missing-browser-report", "          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/site-report.json\n", ""},
+		{"colliding-chat-reports", "PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-unavailable-report.json", "PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-report.json"},
+		{"colliding-chat-output", "--output=test-results/chat-unavailable", "--output=test-results/chat"},
+		{"ignored-private-chat-failure", "npm run test:private-chat &&", "npm run test:private-chat;"},
+		{"tracked-media-as-evidence", "path: site/test-results/", "path: docs/images/"},
 		{"missing-example-isolation", "      ENABLE_LIVE_COPILOT_TESTS: 'false'\n", ""},
 		{"failed-filter-bypass", `test "$CHANGES_RESULT" = success`, ":"},
 		{"unbound-filter-result", "${{ needs.changes.result }}", "success"},
@@ -185,6 +197,60 @@ func TestSiteWorkflowParallelChecks(t *testing.T) {
 		}
 	}
 	testSiteFilterSelection(t, source)
+}
+
+func TestSiteChatEvidenceFailurePropagation(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "site-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow siteWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	step := releaseSteps(workflow.Jobs["build"])["Test optional chat with mocked service and bot protection"]
+	for _, failure := range []string{"", "test:private-chat", "test:chat", "test:chat-unavailable"} {
+		t.Run("failure="+failure, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, name := range []string{"bin", "site"} {
+				if err := os.Mkdir(filepath.Join(dir, name), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			fixture := `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "$2" "${PLAYWRIGHT_JSON_OUTPUT_NAME:-none}" >> "$CALLS"
+if [ "$2" = "$FAILURE" ]; then exit 29; fi
+`
+			if err := os.WriteFile(filepath.Join(dir, "bin", "npm"), []byte(fixture), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			calls := filepath.Join(dir, "calls")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", step.Run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "PATH="+filepath.Join(dir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"CALLS="+calls, "FAILURE="+failure, "PLAYWRIGHT_JSON_OUTPUT_NAME=")
+			output, err := cmd.CombinedOutput()
+			if (err != nil) != (failure != "") {
+				t.Fatalf("chat failure=%q: %v\n%s", failure, err, output)
+			}
+			data, err := os.ReadFile(calls)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := []string{"test:private-chat|none", "test:chat|test-results/chat-report.json",
+				"test:chat-unavailable|test-results/chat-unavailable-report.json"}
+			for i, line := range expected {
+				if strings.HasPrefix(line, failure+"|") && failure != "" {
+					expected = expected[:i+1]
+					break
+				}
+			}
+			if string(data) != strings.Join(expected, "\n")+"\n" {
+				t.Fatalf("wrong chat commands/report identities after failure=%q:\n%s", failure, data)
+			}
+		})
+	}
 }
 
 func testSiteFilterSelection(t *testing.T, source []byte) {
