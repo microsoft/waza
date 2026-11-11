@@ -117,7 +117,7 @@ test('runner identity fixtures trigger consumer validation and publication witho
   const webUpload = web.match(/- name: Upload dashboard test evidence\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   const siteUpload = site.match(/- name: Upload site test evidence\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   assert.ok(webUpload && siteUpload, 'expected browser evidence upload steps');
-  assert.match(webUpload, /path: web\/test-results\//);
+  assert.match(webUpload, /path: \|\n {12}web\/test-results\/\n {10}include-hidden-files: true\n {10}if-no-files-found: error\n/);
   assert.doesNotMatch(webUpload, /docs\/images|site\/public\/images|web\/dist/);
   assert.match(siteUpload, /path: site\/test-results\//);
   assert.doesNotMatch(siteUpload, /docs\/images|site\/public\/images|site\/dist/);

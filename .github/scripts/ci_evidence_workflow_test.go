@@ -349,8 +349,9 @@ func checkBrowserEvidence(source []byte) error {
 	}
 	ordinaryUpload := steps["Upload dashboard test evidence"]
 	if ordinaryUpload.If != "always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''" ||
-		ordinaryUpload.With["path"] != "web/test-results/\nweb/dist/\ndocs/images/\nsite/public/images/explore/\n" {
-		return fmt.Errorf("ordinary browser artifacts must not include new raw reporter inputs")
+		ordinaryUpload.With["path"] != "web/test-results/\n" ||
+		ordinaryUpload.With["include-hidden-files"] != "true" || ordinaryUpload.With["if-no-files-found"] != "error" {
+		return fmt.Errorf("ordinary browser artifacts must retain only current-run Playwright outputs, fail closed, and exclude raw reporter inputs")
 	}
 	producerTest := steps["Test current browser reporter evidence contract"]
 	if producerTest.If != condition || producerTest.Run != "node --test .github/scripts/ci-evidence-playwright.test.cjs" {
@@ -520,6 +521,9 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 		{"PLAYWRIGHT_JSON_OUTPUT_NAME: .ci-evidence-report.json", "PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json"},
 		{"            web/test-results/\n", "            web/\n"},
 		{"            web/test-results/\n", "            web/test-results/\n            web/.ci-evidence-report.json\n"},
+		{"            web/test-results/\n", "            web/test-results/\n            web/dist/\n"},
+		{"          include-hidden-files: true\n", ""},
+		{"include-hidden-files: true\n          if-no-files-found: error", "include-hidden-files: true\n          if-no-files-found: warn"},
 		{"retention-days: 14", "retention-days: 90"},
 	} {
 		changed := strings.Replace(string(browser), mutation[0], mutation[1], 1)
