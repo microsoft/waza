@@ -15,6 +15,15 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 	if output, err := unit.CombinedOutput(); err != nil {
 		t.Fatalf("explicit checker test discovery: %v\n%s", err, output)
 	}
+	modules := exec.CommandContext(t.Context(), "go", "list", "-mod=readonly", "-m",
+		"-f", "{{.Path}} {{.Version}}", "golang.org/x/net", "golang.org/x/sys")
+	modules.Dir = "../.."
+	modules.Env = append(os.Environ(), "GOOS=", "GOARCH=", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off")
+	requirements, err := modules.CombinedOutput()
+	if err != nil {
+		t.Fatalf("resolve pinned checker dependencies offline: %v\n%s", err, requirements)
+	}
+	fixtureModule := []byte("module github.com/microsoft/waza\n\ngo 1.26.4\n\nrequire (\n" + string(requirements) + ")\n")
 	for _, missing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "host-native", true: "missing-pinned-dependency"}[missing], func(t *testing.T) {
 			dir := t.TempDir()
@@ -39,7 +48,7 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeReleaseFile(t, destination, content)
-			writeReleaseFile(t, filepath.Join(dir, "go.mod"), []byte("module github.com/microsoft/waza\n\ngo 1.26.4\n\nrequire (\n\tgolang.org/x/net v0.61.0\n\tgolang.org/x/sys v0.49.0\n)\n"))
+			writeReleaseFile(t, filepath.Join(dir, "go.mod"), fixtureModule)
 			sum, err := os.ReadFile("../../go.sum")
 			if err != nil {
 				t.Fatal(err)
@@ -140,6 +149,71 @@ exec "$REAL_MV" "$@"
 	}
 	if _, err := os.Stat(filepath.Join(dir, "web", "dist", "source-dist")); !os.IsNotExist(err) {
 		t.Fatalf("original dashboard nested into competing output: %v", err)
+	}
+}
+
+func TestPackagedDashboardRestoresAfterServerExitRace(t *testing.T) {
+	for _, race := range []bool{false, true} {
+		t.Run(map[bool]string{false: "live-server", true: "exit-after-live-probe"}[race], func(t *testing.T) {
+			dir, dist, fixtureDist, bin, script := packagedDashboardFixture(t)
+			marker := filepath.Join(dir, "discovery-complete")
+			barrierLog := filepath.Join(dir, "barrier.log")
+			realFind, err := exec.LookPath("find")
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeReleaseFile(t, filepath.Join(bin, "find"), []byte(`#!/usr/bin/env bash
+set -euo pipefail
+"$REAL_FIND" "$@"
+touch "$BARRIER_MARKER"
+`))
+			barrier := filepath.Join(dir, "barrier.sh")
+			writeReleaseFile(t, barrier, []byte(`kill() {
+  if [ "$1" = -0 ] && [ -f "$BARRIER_MARKER" ]; then
+    builtin kill -0 "$2" || return "$?"
+    printf 'probe-confirmed-live\n' >> "$BARRIER_LOG"
+    if [ "$EXIT_AFTER_PROBE" = true ]; then
+      builtin kill "$2"
+      wait "$2" 2>/dev/null || true
+      printf 'process-exit-joined-before-production-kill\n' >> "$BARRIER_LOG"
+    fi
+    return 0
+  fi
+  builtin kill "$@"
+}
+`))
+			cmd := exec.CommandContext(t.Context(), "bash", script, filepath.Join(bin, "waza"))
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"FIXTURE_DIST="+fixtureDist, "REAL_FIND="+realFind, "BASH_ENV="+barrier,
+				"BARRIER_MARKER="+marker, "BARRIER_LOG="+barrierLog,
+				"EXIT_AFTER_PROBE="+map[bool]string{false: "false", true: "true"}[race])
+			output, runErr := cmd.CombinedOutput()
+			if !strings.Contains(string(output), "embedded production dashboard (1 assets)") {
+				t.Fatalf("fixture did not complete actual HTTP asset checks: %v\n%s", runErr, output)
+			}
+			probes, err := os.ReadFile(barrierLog)
+			if err != nil || !strings.Contains(string(probes), "probe-confirmed-live\n") {
+				t.Fatalf("cleanup did not reach a live process: %v, %q", err, probes)
+			}
+			if race && !strings.Contains(string(probes), "process-exit-joined-before-production-kill\n") {
+				t.Fatalf("process-exit race was not exercised: %q", probes)
+			}
+			if (runErr != nil) != race ||
+				strings.Contains(string(output), "Could not terminate packaged dashboard server") != race {
+				t.Fatalf("cleanup failure must remain explicit, race=%t: %v\n%s", race, runErr, output)
+			}
+			for _, name := range []string{"index.html", "favicon.svg", "assets/app.js"} {
+				want, err := os.ReadFile(filepath.Join(fixtureDist, name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := os.ReadFile(filepath.Join(dist, name))
+				if err != nil || string(got) != string(want) {
+					t.Fatalf("original %s was not restored, race=%t: %v, %q", name, race, err, got)
+				}
+			}
+		})
 	}
 }
 

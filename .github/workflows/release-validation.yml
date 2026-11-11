@@ -33,6 +33,7 @@ jobs:
           test "$source_sha" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
+        id: go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
@@ -48,6 +49,7 @@ jobs:
         run: go mod download golang.org/x/net golang.org/x/sys
 
       - name: Setup Node.js (for web UI build)
+        id: node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -89,15 +91,23 @@ jobs:
         run: go vet ./...
 
       - name: Execute Tests
-        run: |
-          packages="$(go list ./...)"
-          selected=()
-          while IFS= read -r package; do
-            if [ "$package" != github.com/microsoft/waza/internal/controlledcomparison ]; then
-              selected+=("$package")
-            fi
-          done <<< "$packages"
-          go test -v -race -count=1 -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"
+        id: ci_tests
+        env:
+          GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}
+          NODE_CACHE_HIT: ${{ steps.node.outputs.cache-hit }}
+        run: bash .github/scripts/ci_go_test_capture.sh remaining coverage.txt
+
+      - name: Reject tolerated runtime launches
+        run: test ! -e "$COPILOT_CLI_PATH.invoked"
+
+      - name: Retain sanitized Go execution evidence
+        if: always() && steps.ci_tests.outcome != 'skipped' && steps.ci_tests.outcome != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-evidence-go-run-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: coverage.txt.evidence.json
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Build Release Binary
         run: |
@@ -143,12 +153,14 @@ jobs:
           test "$source_sha" = "$GITHUB_SHA"
 
       - name: Setup Go Environment
+        id: go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
 
       - name: Setup Node.js (offline assertion oracle)
+        id: node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -171,12 +183,25 @@ jobs:
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
 
       - name: Execute complete Windows tests
+        id: ci_tests
+        env:
+          GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}
+          NODE_CACHE_HIT: ${{ steps.node.outputs.cache-hit }}
         run: |
-          go test -v -race -count=1 -timeout=30m ./...
+          bash .github/scripts/ci_go_test_capture.sh all coverage.txt
           go test -v -race -count=1 -timeout=5m ./.github/scripts/release-dashboard-check
 
       - name: Reject forbidden Windows runtime launches
         run: test ! -e "$COPILOT_CLI_PATH.invoked"
+
+      - name: Retain sanitized Go execution evidence
+        if: always() && steps.ci_tests.outcome != 'skipped' && steps.ci_tests.outcome != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-evidence-go-run-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: coverage.txt.evidence.json
+          retention-days: 14
+          if-no-files-found: warn
 
   lint:
     name: Release lint
