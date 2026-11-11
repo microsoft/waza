@@ -140,16 +140,32 @@ func Encode(checkpoint Checkpoint) ([]byte, error) {
 // hashed separately. The production caller must also perform semantic admission
 // and supply its actual build revision; these hashes are not runtime attestation.
 func ForRequest(data []byte, runnerRevision string) (Compatibility, error) {
+	declaration, err := declareRequest(data, runnerRevision)
+	if err != nil {
+		return Compatibility{}, err
+	}
+	return declaration.compatibility, nil
+}
+
+type requestDeclaration struct {
+	compatibility Compatibility
+	selection     runnercontract.Selection
+	identity      runneridentity.Identity
+}
+
+// Keep the full identity and selection from the same original-wire validation
+// used for compatibility; creator checks must not parse and canonicalize it again.
+func declareRequest(data []byte, runnerRevision string) (*requestDeclaration, error) {
 	request, err := runnercontract.Parse(data)
 	if err != nil {
-		return Compatibility{}, fmt.Errorf("%w: request: %w", ErrIncompatible, err)
+		return nil, fmt.Errorf("%w: request: %w", ErrIncompatible, err)
 	}
-	if negotiation := runnercontract.Negotiate(data); negotiation.Status != "compatible" {
-		return Compatibility{}, fmt.Errorf("%w: negotiation: %s", ErrIncompatible, negotiation.Status)
+	if negotiation := runnercontract.NegotiateValidatedRequest(request); negotiation.Status != "compatible" {
+		return nil, fmt.Errorf("%w: negotiation: %s", ErrIncompatible, negotiation.Status)
 	}
 	identity, err := runneridentity.DeriveJSON(data)
 	if err != nil {
-		return Compatibility{}, fmt.Errorf("%w: identity: %w", ErrIncompatible, err)
+		return nil, fmt.Errorf("%w: identity: %w", ErrIncompatible, err)
 	}
 	slices.Sort(request.Versions)
 	slices.Sort(request.RequiredCapabilities)
@@ -161,7 +177,7 @@ func ForRequest(data []byte, runnerRevision string) (Compatibility, error) {
 		Paid     bool     `json:"paid"`
 	}{request.Versions, request.RequiredCapabilities, request.OptionalCapabilities, request.AllowPaidExecution})
 	if err != nil {
-		return Compatibility{}, fmt.Errorf("%w: request policy: %w", ErrIncompatible, err)
+		return nil, fmt.Errorf("%w: request policy: %w", ErrIncompatible, err)
 	}
 	compatibility := Compatibility{
 		RunnerRevision: runnerRevision, RequestVersion: request.SchemaVersion,
@@ -172,20 +188,20 @@ func ForRequest(data []byte, runnerRevision string) (Compatibility, error) {
 	}
 	wire, err := json.Marshal(compatibility)
 	if err != nil {
-		return Compatibility{}, fmt.Errorf("%w: encoding compatibility: %w", ErrIncompatible, err)
+		return nil, fmt.Errorf("%w: encoding compatibility: %w", ErrIncompatible, err)
 	}
 	document, err := jsonutil.Parse(wire)
 	if err != nil {
-		return Compatibility{}, fmt.Errorf("%w: parsing compatibility: %w", ErrIncompatible, err)
+		return nil, fmt.Errorf("%w: parsing compatibility: %w", ErrIncompatible, err)
 	}
 	schema, err := checkpointSchema()
 	if err != nil {
-		return Compatibility{}, fmt.Errorf("compiling checkpoint schema: %w", err)
+		return nil, fmt.Errorf("compiling checkpoint schema: %w", err)
 	}
 	if err := schema.Properties["compatibility"].Validate(document); err != nil {
-		return Compatibility{}, fmt.Errorf("%w: compatibility: %w", ErrIncompatible, err)
+		return nil, fmt.Errorf("%w: compatibility: %w", ErrIncompatible, err)
 	}
-	return compatibility, nil
+	return &requestDeclaration{compatibility: compatibility, selection: request.Selection, identity: *identity}, nil
 }
 
 func ValidateCompatibility(checkpoint Checkpoint, current Compatibility) error {

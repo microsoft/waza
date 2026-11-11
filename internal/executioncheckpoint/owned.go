@@ -9,8 +9,6 @@ import (
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
-	"github.com/microsoft/waza/internal/runnercontract"
-	"github.com/microsoft/waza/internal/runneridentity"
 )
 
 // PublishFinalized requires a live creator and its exact original reservation,
@@ -60,24 +58,16 @@ func creatorDeclaration(ctx context.Context, ledger *executionledger.Ledger, cre
 	}
 	original := bytes.Clone(request)
 	compatibilityStarted := time.Now()
-	compatibility, err := ForRequest(original, revision)
+	declaration, err := declareRequest(original, revision)
 	if err != nil {
 		return Checkpoint{}, nil, err
 	}
 	compatibilityDone, compatibilityContextErr := time.Now(), ctx.Err()
-	declared, err := runnercontract.Parse(original)
-	if err != nil {
-		return Checkpoint{}, nil, fmt.Errorf("%w: original request selection: %w", ErrContext, err)
-	}
-	if declared.Selection != reserved.Attempt.Binding.Selection {
+	if declaration.selection != reserved.Attempt.Binding.Selection {
 		return Checkpoint{}, nil, fmt.Errorf("%w: request selection differs from the creator's original native tuple", ErrContext)
 	}
 	selectionDone, selectionContextErr := time.Now(), ctx.Err()
-	identity, err := runneridentity.DeriveJSON(original)
-	if err != nil {
-		return Checkpoint{}, nil, fmt.Errorf("%w: original request identity: %w", ErrContext, err)
-	}
-	if *identity != reserved.Attempt.Binding.Identity {
+	if declaration.identity != reserved.Attempt.Binding.Identity {
 		return Checkpoint{}, nil, fmt.Errorf("%w: request does not retain the creator's full original identity and native ordinal", ErrContext)
 	}
 	identityDone, identityContextErr := time.Now(), ctx.Err()
@@ -95,7 +85,7 @@ func creatorDeclaration(ctx context.Context, ledger *executionledger.Ledger, cre
 	return Checkpoint{
 		Kind: "waza.execution-checkpoint", SchemaVersion: Version, Boundary: boundary,
 		ExecutionID:       reserved.Attempt.ExecutionID,
-		ReservationDigest: reserved.Digest, Compatibility: compatibility,
+		ReservationDigest: reserved.Digest, Compatibility: declaration.compatibility,
 	}, reserved, nil
 }
 
