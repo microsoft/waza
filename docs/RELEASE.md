@@ -66,6 +66,10 @@ before the binary can execute or publish.
 The six CLI matrix binaries and azd packages are release builds from the
 validated source, with recorded digests; they are not the Linux binary exercised
 by offline integration, nor proof of native execution on all six platforms.
+The packaged-dashboard integration restores its original source assets even if
+the server exits between the cleanup liveness check and termination. A failed
+termination still fails the check explicitly; it does not skip restoration or
+prove that a server whose termination was denied has stopped.
 Extension metadata must already match the detected version before building.
 Source lookups, source-record reads, sidecar reads, and binary hashing must each
 succeed before their captured outputs are compared. Matching output from a
@@ -87,6 +91,9 @@ uses the same local regular-file admission; preloads never satisfy entry/style r
 The host-native checker uses the pinned public Go HTML parser, with module
 preparation separate from its offline execution. Ambient cross-compilation
 targets are cleared for the checker, not for the published binary.
+The isolated distribution fixture resolves its checker dependency versions from
+the root module graph using offline, read-only module lookup. Its empty-cache
+negative control must still fail explicitly rather than fetch missing modules.
 DOM roles require an active executable HTML script and enabled non-alternate
 stylesheet with omitted/empty type or `text/css`. Template/noscript descendants,
 comments, raw text, and foreign elements cannot satisfy those roles.
