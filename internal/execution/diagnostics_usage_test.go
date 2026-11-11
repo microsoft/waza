@@ -260,6 +260,55 @@ func TestSessionEventModelObservationNestedBillingEvidence(t *testing.T) {
 	}
 }
 
+func TestSessionEventModelObservationDeduplicatesLargeModelSets(t *testing.T) {
+	event := copilot.SessionEvent{Data: &copilot.SessionShutdownData{
+		ModelMetrics: map[string]copilot.ShutdownModelMetric{
+			"m00": {}, "m01": {}, "m02": {}, "m03": {}, "m04": {},
+			"m05": {}, "m06": {}, "m07": {}, "m08": {}, "m09": {},
+		},
+		AgentMetrics: map[string]copilot.ShutdownAgentMetric{
+			"child": {ModelMetrics: map[string]copilot.ShutdownModelMetric{"m00": {}, "m09": {}}},
+		},
+	}}
+	require.Equal(t, SessionEventModelObservation{
+		Models:         []string{"m00", "m01", "m02", "m03", "m04", "m05", "m06", "m07", "m08", "m09"},
+		EventsObserved: 1,
+		Complete:       true,
+	}, ObserveSessionEventModels(event))
+}
+
+func TestSessionEventModelObservationEighthModelDuplicateAllocations(t *testing.T) {
+	metrics := map[string]copilot.ShutdownModelMetric{
+		"m00": {}, "m01": {}, "m02": {}, "m03": {},
+		"m04": {}, "m05": {}, "m06": {}, "m07": {},
+	}
+	base := copilot.SessionEvent{Data: &copilot.SessionShutdownData{ModelMetrics: metrics}}
+	duplicate := copilot.SessionEvent{Data: &copilot.SessionShutdownData{
+		ModelMetrics: metrics,
+		AgentMetrics: map[string]copilot.ShutdownAgentMetric{
+			"child": {ModelMetrics: map[string]copilot.ShutdownModelMetric{"m00": {}}},
+		},
+	}}
+	var baseline, repeated SessionEventModelObservation
+	baseAllocs := testing.AllocsPerRun(100, func() {
+		baseline = ObserveSessionEventModels(base)
+	})
+	duplicateAllocs := testing.AllocsPerRun(100, func() {
+		repeated = ObserveSessionEventModels(duplicate)
+	})
+	require.Equal(t, SessionEventModelObservation{
+		Models:         []string{"m00", "m01", "m02", "m03", "m04", "m05", "m06", "m07"},
+		EventsObserved: 1,
+		Complete:       true,
+	}, baseline)
+	require.Equal(t, baseline, repeated)
+	require.LessOrEqual(t, duplicateAllocs, baseAllocs, "a duplicate after eight distinct models must not allocate a fallback map")
+
+	collector := NewSessionUsageCollector()
+	collector.On(duplicate)
+	require.Equal(t, baseline, collector.EventModelObservation())
+}
+
 func TestSessionEventModelObservationConcurrentIngestAndGetter(t *testing.T) {
 	c := NewSessionUsageCollector()
 	e := &CopilotEngine{usageCollectors: map[string]*SessionUsageCollector{"session": c}}
