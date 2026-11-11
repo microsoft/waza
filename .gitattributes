@@ -34,3 +34,5 @@ internal/executionattempt/testdata/** -text
 internal/executionledger/testdata/** -text
 # Checkpoint fixtures are exact-byte compatibility and digest oracles.
 internal/executioncheckpoint/testdata/** -text
+# Evidence fixtures are exact-byte canonical writer and digest oracles.
+internal/evidencestate/testdata/** -text

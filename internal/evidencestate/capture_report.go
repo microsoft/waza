@@ -148,8 +148,12 @@ func CaptureReport(report runnerunit.Report, withheld []Category) (*PreparedCapt
 		if run.Validations != nil {
 			payloads[Grader] = run.Validations
 		}
-		if run.Usage != nil {
-			payloads[Usage] = run.Usage
+		usage := run.Usage
+		if usage == nil {
+			usage = run.SessionDigest.Usage
+		}
+		if usage != nil {
+			payloads[Usage] = usage
 		}
 	}
 	for _, category := range []Category{Conversation, Tool, Grader, Reliability, Usage, Provenance} {
@@ -236,8 +240,8 @@ func restrictedCategory(policy *snapshot.Policy, category Category, value any) b
 	// the existing sensitive-key policy; fixed native shapes scan string values.
 	var walk func(any, bool) bool
 	walk = func(v any, freeform bool) bool {
-		if freeform {
-			return !reflect.DeepEqual(v, policy.RedactAny(v))
+		if freeform && !reflect.DeepEqual(v, policy.RedactAny(v)) {
+			return true
 		}
 		switch item := v.(type) {
 		case string:

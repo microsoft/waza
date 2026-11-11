@@ -29,6 +29,8 @@ unavailable or incomplete credit evidence must not become an authoritative zero
 or partial total. `ReadUsage` and `InspectWithUsage` admit actual recorded fields,
 not inferred token prices. Consumers must require present, complete usage before
 including it in authoritative aggregation.
+Capture uses recorded session-digest usage only when the run's top-level usage
+is absent. An explicit top-level zero or incomplete record takes precedence.
 
 ## Pure codecs and current source admission
 
@@ -38,6 +40,8 @@ fields, missing or duplicate categories, and inconsistent state/count/reference
 combinations. `Encode` sorts detached slices without mutating caller data and
 emits compact canonical JSON. The evidence and capture schemas are independently
 embedded in `schemas/`.
+Capture encoding validates the original typed binding before JSON cloning, so
+invalid UTF-8 cannot be silently replaced with a different identity.
 
 `VerifySources` checks caller-provided manifest and artifact bytes, including
 canonical encoding, digests, lengths, membership, terminal binding, and any
@@ -64,6 +68,8 @@ engine again. Nil withholding uses the conservative conversation/tool default;
 an explicit empty list permits recorded content subject to the existing secret
 filter. Regex filtering is not comprehensive disclosure authorization: a host
 must additionally withhold restricted categories.
+Credential-pattern checks include nested freeform object keys as well as values;
+a match withholds the entire category rather than retaining a renamed key.
 
 `ownedsubmission.CaptureHooks` supplies the conservative public-submission
 policy: conversation, tool, and free-text reliability data are withheld before

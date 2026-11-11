@@ -87,6 +87,7 @@ func TestCapturedUsagePreservesNativeZeroAndIncompleteCreditEvidence(t *testing.
 					"recorded-model": {AICredits: &zero},
 				}
 			}
+
 			p, err := CaptureReport(report, []Category{})
 			if err != nil {
 				t.Fatal(err)
@@ -107,6 +108,62 @@ func TestCapturedUsagePreservesNativeZeroAndIncompleteCreditEvidence(t *testing.
 				if category.State != expected || category.Usage == nil || (category.Usage.AICredits != nil) != complete {
 					t.Fatalf("missing/explicit-zero usage evidence was repaired: %+v", category)
 				}
+			}
+		})
+	}
+}
+
+func TestCapturedSessionUsageFallbackPreservesTopLevelPriority(t *testing.T) {
+	credits, zero := 3.25, 0.0
+	recorded := func(value *float64) *models.UsageStats {
+		return &models.UsageStats{
+			AICredits: value,
+			ModelMetrics: map[string]models.ModelUsage{
+				"recorded-model": {AICredits: value},
+			},
+		}
+	}
+	for _, tc := range []struct {
+		name        string
+		top, digest *models.UsageStats
+		state       State
+		credits     *float64
+	}{
+		{"digest recorded", nil, recorded(&credits), Present, &credits},
+		{"top explicit zero", recorded(&zero), recorded(&credits), Present, &zero},
+		{"top incomplete", &models.UsageStats{}, recorded(&credits), Incomplete, nil},
+		{"digest incomplete", nil, &models.UsageStats{}, Incomplete, nil},
+		{"both absent", nil, nil, Unavailable, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := capturedMockReport(t)
+			report.Observation.Usage = tc.top
+			report.Observation.SessionDigest.Usage = tc.digest
+			p, err := CaptureReport(report, []Category{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			backend, published := persistCaptureFixture(t, p)
+			_, categories, err := InspectCategories(t.Context(), backend, published.EvidenceSHA256)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, category := range categories {
+				if category.Category != Usage {
+					continue
+				}
+				found = true
+				if category.State != tc.state || (category.Usage == nil) != (tc.top == nil && tc.digest == nil) {
+					t.Fatalf("usage presence/priority changed: %+v", category)
+				}
+				if category.Usage != nil && ((category.Usage.AICredits == nil) != (tc.credits == nil) ||
+					(tc.credits != nil && *category.Usage.AICredits != *tc.credits)) {
+					t.Fatalf("usage credits changed: %+v", category.Usage)
+				}
+			}
+			if !found {
+				t.Fatal("inspection omitted usage")
 			}
 		})
 	}
