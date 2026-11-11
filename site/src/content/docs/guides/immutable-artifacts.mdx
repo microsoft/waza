@@ -11,6 +11,78 @@ declared bytes, and finalize only after verification. The store verifies content
 and caller-declared context; it does not run an evaluation or attest that it
 happened.
 
+## Logical attempts: embedding preview
+
+The source-only attempt layer separates logical run/work (`Identity.Run` and
+`Identity.Trial`) from a fresh opaque execution ID and the original native
+attempt ordinal. A distinct submission reserves before constructing a runtime.
+Concurrent duplicates create separate immutable attempts, each manifest-bound
+to its exact `execution-attempt.json`; they never silently replace evidence.
+
+Explicit reuse requires the original execution ID and manifest digest, canonical
+reservation/completion records, all declared content, and a verified final
+marker. It returns the unchanged source failure/success and ordinal with zero
+new engine calls. Missing usage remains unavailable; historical usage is not
+billed to the new invocation. Unknown publication is not unfinalized evidence.
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Runner
+    participant Store
+    Caller->>Runner: Distinct captured work
+    Runner->>Store: Exclusive fresh reservation
+    Runner->>Runner: Execute one admitted unit
+    Runner->>Store: Finalize terminal plus original attempt
+    Caller->>Runner: Reuse execution ID and manifest digest
+    Runner->>Store: Verify original records, artifacts and marker
+    Runner-->>Caller: Original terminal; no new execution
+```
+
+Parent relationships are explicit `retry` or `branch` declarations within one
+logical work item. They form a partial order, not a global schedule. Knowing an
+execution ID or reading a record does not grant completion authority.
+
+This is an **embedding API preview**, not a released `runner submit` command or
+Lab lineage view. Public operations, checkpoints, and lifecycle integration
+remain pending. Existing `runner run`, native ordinals, manifest v1, and legacy
+results are unchanged; historical ownership records are not synthesized.
+See the independently versioned
+[attempt/decision schema](../../schemas/execution-attempt-1.0.schema.json),
+[completion schema](../../schemas/execution-completion-1.0.schema.json),
+[submission schema](../../schemas/execution-submission-1.0.schema.json), and
+[submission-result schema](../../schemas/execution-submission-result-1.0.schema.json).
+
+### Checkpoint embedding preview
+
+The source-only checkpoint service supports two whole-unit safe boundaries:
+`before-unit` (fresh retry child, after the original worker has stopped) and
+`finalized-unit` (verified original-source reuse, zero new engine calls).
+Compatibility checks bind the runner revision, independent schema versions and
+captured model/tool/policy configuration before runtime construction.
+
+An old before checkpoint is stale if its original dispatch decision exists,
+even when completion is missing: the original may have executed before a crash.
+Unknown publication, incomplete decision discovery, corrupt state or incompatible
+configuration must not silently rerun it. Operators must separately stop/join
+the original worker; a checkpoint is not a lease or proof of worker death.
+Finalized restore preserves source failures/cancellation and original ordinals.
+
+Fresh checkpoint publication holds the invocation's shared creator gate through
+immutable storage and final checks, without scanning unrelated ledger records.
+Any dispatch/completion attempt permanently closes that before-dispatch gate,
+including failed or unknown provider responses. The gate is not serialized or a
+worker lease. Successful publication beyond the 1,000-record discovery bound
+does **not** mean it can be resumed: before-unit recovery still rejects truncated
+discovery. Mutex waits and blocked providers are not made cancellable by the gate.
+
+No in-flight process, SDK session, partial grader or workspace is restored.
+Protected public commands, Lab controls and clean-production-CLI kill/resume
+evidence remain pending. The
+[checkpoint schema](../../schemas/execution-checkpoint-1.0.schema.json) and
+[checkpoint-result schema](../../schemas/runner-checkpoint-result-1.0.schema.json)
+are independently versioned `1.0`; ordinary runner and legacy results are unchanged.
+
 ## Prepare a declaration
 
 Keep the original dedicated [runner terminal envelope](../runner-terminal/) and
