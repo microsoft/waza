@@ -68,6 +68,7 @@ func accounting(report Report) error {
 	counts := Counts{Members: len(report.Members), MemberStates: map[string]int{}, MemberOutcomes: map[string]int{}}
 	manifests, executions := map[string]bool{}, map[string]bool{}
 	executionManifests := map[string]string{}
+	manifestOutcomes := map[string]string{}
 	profiles := map[string][]Input{}
 	state := "complete"
 	allUsageEligible := true
@@ -85,7 +86,12 @@ func accounting(report Report) error {
 		}
 		counts.MemberStates[member.State]++
 		if member.Outcome != "" {
-			counts.MemberOutcomes[string(member.Outcome)]++
+			outcome := string(member.Outcome)
+			if previous, ok := manifestOutcomes[member.Manifest]; ok && previous != outcome {
+				return fail()
+			}
+			manifestOutcomes[member.Manifest] = outcome
+			counts.MemberOutcomes[outcome]++
 		}
 		if member.Binding != nil {
 			if !slices.IsSorted(member.Binding.GraderIDs) {

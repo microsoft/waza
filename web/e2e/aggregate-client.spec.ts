@@ -136,6 +136,26 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
     await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" }))
       .toContainText("Aggregate admission: complete");
 
+    const conflictingOutcome = JSON.parse(fixture.canonical);
+    const originalOutcome = conflictingOutcome.members[0]!.outcome!;
+    expect(conflictingOutcome.members[1]!.outcome).toBe(originalOutcome);
+    const otherOutcome = originalOutcome === "success" ? "cancelled" : "success";
+    conflictingOutcome.members[1]!.outcome = otherOutcome;
+    const outcomeCounts = conflictingOutcome.counts.member_outcomes as Record<string, number>;
+    const remaining = outcomeCounts[originalOutcome]! - 1;
+    if (remaining === 0) delete outcomeCounts[originalOutcome];
+    else outcomeCounts[originalOutcome] = remaining;
+    outcomeCounts[otherOutcome] = (outcomeCounts[otherOutcome] ?? 0) + 1;
+    response = JSON.stringify(conflictingOutcome);
+    await build.click();
+    await expect(page.getByRole("alert")).toContainText("inconsistent");
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
+
+    response = fixture.canonical;
+    await build.click();
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" }))
+      .toContainText("Aggregate admission: complete");
+
     const forged = JSON.parse(fixture.canonical);
     const target = forged.members[1];
     const previousManifest = target.manifest_sha256 as string;

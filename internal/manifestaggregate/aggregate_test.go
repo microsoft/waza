@@ -86,6 +86,25 @@ func TestActualRepeatedExecutionsAndCompatibleViewsAreDeterministic(t *testing.T
 	parsed, err := Parse(wire)
 	require.NoError(t, err)
 	require.Equal(t, report, parsed)
+
+	inconsistent := *report
+	inconsistent.Members = append([]Member(nil), report.Members...)
+	var changed bool
+	for index := range inconsistent.Members {
+		if inconsistent.Members[index].Manifest == first.Manifest {
+			inconsistent.Members[index].Outcome = runnerterminal.Canceled
+			changed = true
+			break
+		}
+	}
+	require.True(t, changed)
+	inconsistent.Counts.MemberOutcomes = map[string]int{"success": 2, string(runnerterminal.Canceled): 1}
+	forged, err := json.Marshal(inconsistent)
+	require.NoError(t, err)
+	_, err = Parse(forged)
+	require.ErrorIs(t, err, ErrInvalid, "saved reports must not give sidecar views of one manifest different outcomes")
+	_, err = Encode(inconsistent)
+	require.ErrorIs(t, err, ErrInvalid)
 }
 
 func TestMissingCorruptAndUnsupportedSourcesRetainValidNeighbors(t *testing.T) {

@@ -170,9 +170,15 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
   const outcomes: Record<string, number> = {};
   const profiles = new Map<string, string[]>();
   const executionManifests = new Map<string, string>();
+  const manifestOutcomes = new Map<string, string>();
   let state = "complete";
   let ordered = sorted(value.usage.diagnostics);
   for (const member of value.members) {
+    if (member.outcome) {
+      const previousOutcome = manifestOutcomes.get(member.manifest_sha256);
+      if (previousOutcome !== undefined && previousOutcome !== member.outcome) ordered = false;
+      else manifestOutcomes.set(member.manifest_sha256, member.outcome);
+    }
     if (member.execution_id) {
       const previousManifest = executionManifests.get(member.execution_id);
       if (previousManifest !== undefined && previousManifest !== member.manifest_sha256) ordered = false;
