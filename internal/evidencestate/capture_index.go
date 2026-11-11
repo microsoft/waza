@@ -92,6 +92,13 @@ func ParseCapture(data []byte) (*CaptureIndex, error) {
 	if !provenance || capture.TerminalArtifact == CaptureArtifactName {
 		return nil, fmt.Errorf("%w: capture provenance must reference index and original terminal", ErrInvalid)
 	}
+	if err := validateCaptureIndexBinding(capture); err != nil {
+		return nil, err
+	}
+	return &capture, nil
+}
+
+func validateCaptureIndexBinding(capture CaptureIndex) error {
 	// Apply the actual native binding contract, including byte and identifier
 	// bounds, without inventing another identity representation.
 	manifest := artifactmanifest.Manifest{
@@ -102,12 +109,15 @@ func ParseCapture(data []byte) (*CaptureIndex, error) {
 		}},
 	}
 	if _, err := artifactmanifest.Encode(manifest); err != nil {
-		return nil, fmt.Errorf("%w: capture binding: %w", ErrInvalid, err)
+		return fmt.Errorf("%w: capture binding: %w", ErrInvalid, err)
 	}
-	return &capture, nil
+	return nil
 }
 
 func EncodeCapture(capture CaptureIndex) ([]byte, error) {
+	if err := validateCaptureIndexBinding(capture); err != nil {
+		return nil, err
+	}
 	// Clone through JSON so nested record references/proofs remain caller-owned.
 	data, err := json.Marshal(capture)
 	if err != nil {
