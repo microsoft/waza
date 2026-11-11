@@ -287,7 +287,7 @@ func TestCheckpointPublicCLIStoreOpenFailureEmitsOperationError(t *testing.T) {
 			require.Nil(t, result.Submission)
 			require.Nil(t, result.Source)
 			require.Contains(t, diagnostic, "checkpoint store open:")
-			require.NotContains(t, string(mustEncodeCheckpointResult(t, result)), "not-a-directory")
+			require.NotContains(t, mustEncodeCheckpointResult(t, result), "not-a-directory")
 		})
 	}
 }
