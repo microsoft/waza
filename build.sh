@@ -18,7 +18,8 @@ mkdir -p "$OUTPUT_DIR"
 
 # Build web dashboard
 echo "Building web dashboard..."
-(cd "$SCRIPT_DIR/web" && npm ci --silent && npm run build)
+make --no-print-directory web-deps
+(cd "$SCRIPT_DIR/web" && npm run build)
 
 if [ "${REQUIRE_RELEASE_ADMISSION:-}" = "1" ]; then
     GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check

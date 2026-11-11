@@ -125,6 +125,15 @@ git lfs pull
 make build VERSION=0.40.0
 ```
 
+For source checkouts that include the dashboard dependency cache (not the
+pinned v0.40.0 checkout above), later builds reuse locked dependencies while
+`web/package.json` and `web/package-lock.json` are unchanged. If
+`web/node_modules` becomes stale or corrupt, restore it with:
+
+```bash
+make web-deps-force
+```
+
 Verify installation:
 
 ```bash
@@ -342,6 +351,12 @@ def greet(name):
 ```
 
 ### Step 4: Run the Evaluation
+
+Eval-level `inputs` also supply lifecycle hook arguments via `{{.Vars.key}}`.
+Arguments preserve whitespace and explicit empty values; missing variables or
+an empty rendered executable fail the hook. Hook configuration and eval inputs
+participate in result cache identity when hooks are configured. See the
+[hook contract and examples](../site/src/content/docs/guides/eval-yaml.mdx#hooks).
 
 Execute the benchmark:
 
