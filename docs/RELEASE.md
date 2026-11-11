@@ -14,6 +14,33 @@ CI, and fail on its launch marker even if a test tolerates a rejected launch.
 Release Linux and Windows suites disable Go's test-result cache with `-count=1`
 so their successes require fresh execution under the current run's guard.
 
+## Nonpublishing Dashboard Handoff Acceptance
+
+`release-dashboard-acceptance.yml` is a manual-only, two-job control for the
+accepted source `76fe63e71fcf488ce55ef1d8cbe5077a187c197f`, not a publisher or
+general source selector. Its independently reviewed control workflow must first
+land on the default branch. Dispatch and its hosted artifact upload require
+separate authorization; adding the workflow grants neither.
+
+Both jobs check out that immutable source and log the actual workflow-control
+and event SHAs separately. Only original source-admission/handoff subprocesses
+receive the accepted source through `GITHUB_SHA`; repository, hosted run ID and
+attempt remain authentic. One genuine dashboard build is packed and uploaded,
+then a separate runner downloads the exact same-run/source/attempt artifact.
+The manifest digest arrives independently through the producer job output.
+Original install, verification, semantic and clean-source checks must succeed.
+Summaries retain observed tree sizes/digests; the upload action log records
+transport archive bytes separately. Neither is a measured speedup.
+
+The consumer then exercises the original configured azd registry bootstrap and
+requires selected Extensions Kit 0.14.0. No registry override, direct-Kit
+substitute, cloud login, product compilation, packaging or publication occurs.
+Bootstrap failure fails the job/run; an earlier successful transfer step is
+only partial evidence, not full acceptance. The two jobs have 15-minute limits,
+read-only repository permissions and three-day dashboard artifact retention.
+This control does not replace release validation, establish native Windows
+execution, or repeat the retained twelve-product/six-package acceptance.
+
 ## Cutting a Release
 
 Prepare and commit the target `version.txt`, `extension.yaml`, changelog, and
