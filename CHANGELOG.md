@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Immutable artifact publication (v0.41 source preview)** - Add manifest schema
+  `1.0` and `artifact create/upload/finalize/inspect` with conditional local and
+  Azure object creation, canonical content addressing, current-byte verification,
+  and explicit missing/corrupt/conflicting publication diagnostics (#763).
+  Native API and Lab discover persisted declaration pointers separately from
+  mutable results. Finalization is manifest-digest scoped; attempt ownership
+  remains separate. Verification covers bytes and declared context, not execution
+  attestation. Legacy result formats and mutable uploads are unchanged; adoption
+  is opt-in and historical evidence is never synthesized. Local staging is
+  retained; no whole-publication transaction, crash durability, replication or
+  hostile-storage authenticity is claimed. See [migration and recovery](docs/IMMUTABLE_ARTIFACTS.md).
+
 - **Native question callbacks** - Scenario evals can set `config.native_user_input: true` to give the agent the Copilot SDK `ask_user` tool (#818). Questions are answered by task `user_input_responses` (ordered `answer` entries with an optional `question` regex) and then by the task's adaptive responder; anything unexpected fails the run instead of getting a default answer. Results from current source use schema `1.9` and record each question in `runs[].user_input_requests`. Evals without the flag are unchanged.
 
 ### Fixed

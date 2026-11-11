@@ -853,7 +853,7 @@ Every adversarial task is marked `golden: true`, so unsafe outcomes also flip `w
 | `--workers` | `0` | Concurrent task workers (`0` = sequential). |
 | `--parallel` | `false` | Enable parallel task execution. |
 | `--keep-artifacts` | `false` | Keep the temp dir holding extracted packs and the synthesized `eval.yaml`. |
-| `--artifacts-dir` | _(temp)_ | Override the artifacts root. Implies `--keep-artifacts`. |
+| `--artifacts-dir` | _(temp)_ | Override the artifacts root (bare relative, `./relative`, or absolute path). Implies `--keep-artifacts`. |
 | `-v`, `--verbose` | `false` | Verbose progress output. |
 
 ### Exit codes
@@ -1160,6 +1160,15 @@ waza tokens check code-explainer
 
 Token limits are resolved in priority order: `.waza.yaml tokens.limits` → `.token-limits.json` (deprecated; migrate to .waza.yaml) → built-in defaults.
 See the **[Token Limits guide](../../guides/token-limits/)** for configuration details, pattern syntax, and migration instructions.
+
+Budget checks are advisory (exit 0) unless `--strict` is supplied. Strict
+over-budget checks exit 1, including multi-skill workspace checks. Invalid
+explicitly selected input, such as a missing file, exits 2. A strict check
+within budget still exits 0.
+If a strict batch has both a budget excess and an unreadable skill, exit 2
+takes precedence over the budget-only exit 1. Per-skill batch read failures
+retain their existing warning-only handling when no strict budget failure is
+selected; those batches can exit 0 even with `--strict`.
 
 Configure per-file limits in `.waza.yaml`:
 
@@ -1606,6 +1615,32 @@ Render a session timeline from an NDJSON event log.
 ```bash
 waza session view <session-file>
 ```
+
+## waza artifact
+
+**Unreleased v0.41 source preview.** Publish and verify immutable artifacts without
+executing a runner. Create the private local root first:
+
+```bash
+mkdir -m700 .waza-artifacts
+waza artifact create manifest.json --store .waza-artifacts
+waza artifact upload manifest.json terminal terminal.json --store .waza-artifacts
+waza artifact finalize "$DIGEST" --store .waza-artifacts
+waza artifact inspect "$DIGEST" --store .waza-artifacts
+```
+
+`create` returns the canonical manifest digest used as `DIGEST`; `upload` names
+an exact declared artifact. Exit 0 means the selected operation completed;
+invalid input, partial/corrupt/conflicting content, storage and output failures
+exit 2. `inspect` can return a JSON diagnostic receipt and still exit nonzero.
+Publication is `unknown` without a usable marker observation or after an
+ambiguous finalization write; only observed marker absence is `unfinalized`.
+Use `--azure-container-url https://account.blob.core.windows.net/container`
+instead of `--store` for Azure; existing credentials are required and no login
+is launched. `--store` defaults to `.waza-artifacts` and must already exist.
+Neither flag changes legacy mutable result storage. Verification is content and
+declared context only, not admission or execution attestation.
+See [manifest examples, recovery and migration](../../guides/immutable-artifacts/).
 
 ## waza runner
 

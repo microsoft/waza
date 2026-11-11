@@ -15,8 +15,12 @@ cleanup() {
   status=$?
   trap - EXIT
   if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
-    kill "$server_pid"
-    wait "$server_pid" 2>/dev/null || true
+    if kill "$server_pid" 2>/dev/null; then
+      wait "$server_pid" 2>/dev/null || true
+    else
+      echo "Could not terminate packaged dashboard server (PID $server_pid); restoring dashboard and failing." >&2
+      status=1
+    fi
   fi
   if [ -d "$source_dist" ]; then
     if [ ! -e web/dist ]; then
