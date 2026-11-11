@@ -169,9 +169,15 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
   const memberCounts: Record<string, number> = {};
   const outcomes: Record<string, number> = {};
   const profiles = new Map<string, string[]>();
+  const executionManifests = new Map<string, string>();
   let state = "complete";
   let ordered = sorted(value.usage.diagnostics);
   for (const member of value.members) {
+    if (member.execution_id) {
+      const previousManifest = executionManifests.get(member.execution_id);
+      if (previousManifest !== undefined && previousManifest !== member.manifest_sha256) ordered = false;
+      else executionManifests.set(member.execution_id, member.manifest_sha256);
+    }
     memberCounts[member.state] = (memberCounts[member.state] ?? 0) + 1;
     if (member.outcome) outcomes[member.outcome] = (outcomes[member.outcome] ?? 0) + 1;
     if (member.state === "conflicting") state = "conflicting";

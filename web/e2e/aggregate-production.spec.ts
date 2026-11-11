@@ -91,8 +91,10 @@ test.describe("Configured production aggregate CLI, server and embedded Lab", ()
     const path = await downloaded.path();
     expect(path).not.toBeNull();
     expect(await readFile(path!)).toEqual(canonical);
-    for (const path of ["../docs/images/manifest-aggregate.png", "../site/public/images/manifest-aggregate.png"]) {
-      await panel.screenshot({ path, animations: "disabled" });
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
+      for (const path of ["../docs/images/manifest-aggregate.png", "../site/public/images/manifest-aggregate.png"]) {
+        await panel.screenshot({ path, animations: "disabled" });
+      }
     }
   });
 

@@ -5,7 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/evidencestate"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/testutil/manifestfixture"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,5 +58,58 @@ func TestSavedReportAccountingAndWireBoundary(t *testing.T) {
 	_, err = Parse(exact)
 	require.NoError(t, err)
 	_, err = Parse(append(exact, ' '))
+	require.ErrorIs(t, err, ErrInvalid)
+}
+
+func TestSavedReportRejectsExecutionIDsBoundToDifferentManifests(t *testing.T) {
+	backend, sources, _ := setup(t)
+	ctx := t.Context()
+	first := publish(t, backend, manifestfixture.RecordedNonzero(1))
+	second := publish(t, backend, manifestfixture.RecordedNonzero(2))
+	inspection, err := evidencestate.Inspect(ctx, backend, first.Evidence)
+	require.NoError(t, err)
+	view := *inspection.Document
+	view.Lineage = []evidencestate.Lineage{{Manifest: second.Manifest, Relationship: evidencestate.Aggregation}}
+	otherView, err := evidencestate.Publish(ctx, backend, view)
+	require.NoError(t, err)
+	third := Input{Manifest: first.Manifest, Evidence: otherView.EvidenceSHA256}
+
+	report, err := Build(ctx, sources, []Input{first, second, third}, DefaultLimits())
+	require.NoError(t, err)
+	require.Equal(t, 2, report.Counts.VerifiedExecutions)
+	var sameManifestExecution string
+	sameManifestViews := 0
+	for _, member := range report.Members {
+		if member.Manifest == first.Manifest && member.Execution != "" {
+			if sameManifestExecution != "" {
+				require.Equal(t, sameManifestExecution, member.Execution)
+			}
+			sameManifestExecution = member.Execution
+			sameManifestViews++
+		}
+	}
+	require.NotEmpty(t, sameManifestExecution)
+	require.Equal(t, 2, sameManifestViews)
+	require.Len(t, report.Members, 3)
+	require.Equal(t, 3, report.Counts.Members)
+	canonical, err := Encode(*report)
+	require.NoError(t, err, "multiple sidecar views of one manifest remain valid")
+	_, err = Parse(canonical)
+	require.NoError(t, err)
+
+	var forged Report
+	require.NoError(t, json.Unmarshal(canonical, &forged))
+	for index := range forged.Members {
+		if forged.Members[index].Manifest == second.Manifest {
+			forged.Members[index].Execution = sameManifestExecution
+		}
+	}
+	forged.Counts.VerifiedExecutions = 1
+	forged.Usage.Executions = 1
+	contradictory, err := json.Marshal(forged)
+	require.NoError(t, err)
+	_, err = Parse(contradictory)
+	require.ErrorIs(t, err, ErrInvalid)
+	_, err = Encode(forged)
 	require.ErrorIs(t, err, ErrInvalid)
 }

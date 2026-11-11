@@ -112,6 +112,59 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
     expect(calls).toBe(2);
   });
 
+  test("rejects execution IDs bound to different manifests while retaining same-manifest sidecar views", async ({ page }) => {
+    const fixture = mixed.eligibility.find((control) => control.name === "compatible present plus cached view")!;
+    const report = JSON.parse(fixture.canonical);
+    expect(report.members).toHaveLength(2);
+    expect(report.members[0].manifest_sha256).toBe(report.members[1].manifest_sha256);
+    expect(report.members[0].execution_id).toBe(report.members[1].execution_id);
+    let response = fixture.canonical;
+    await page.route("**/api/v1/aggregates", (route) =>
+      route.fulfill({ contentType: "application/json", body: response }));
+    await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
+    const referenceKey = (input: { manifest_sha256: string; evidence_sha256?: string }) =>
+      `${input.manifest_sha256}:${input.evidence_sha256 ?? ""}`;
+    const compareReferences = (
+      left: { manifest_sha256: string; evidence_sha256?: string },
+      right: { manifest_sha256: string; evidence_sha256?: string },
+    ) => referenceKey(left) < referenceKey(right) ? -1 : referenceKey(left) > referenceKey(right) ? 1 : 0;
+    const references = fixture.inputs.map((input) =>
+      `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n");
+    await page.getByRole("textbox").fill(references);
+    const build = page.getByRole("button", { name: "Build aggregate", exact: true });
+    await build.click();
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" }))
+      .toContainText("Aggregate admission: complete");
+
+    const forged = JSON.parse(fixture.canonical);
+    const target = forged.members[1];
+    const previousManifest = target.manifest_sha256 as string;
+    const manifest = `${previousManifest[0] === "a" ? "b" : "a"}${previousManifest.slice(1)}`;
+    const previousKey = referenceKey(target);
+    target.manifest_sha256 = manifest;
+    const replacementKey = referenceKey(target);
+    const inputs = fixture.inputs.map((input) =>
+      referenceKey(input) === previousKey ? { ...input, manifest_sha256: manifest } : input);
+    const renameKey = (input: { manifest_sha256: string; evidence_sha256?: string }) =>
+      referenceKey(input) === previousKey ? { ...input, manifest_sha256: manifest } : input;
+    forged.members.sort(compareReferences);
+    inputs.sort(compareReferences);
+    for (const group of forged.groups) {
+      group.members = group.members.map(renameKey)
+        .sort(compareReferences);
+    }
+    forged.counts.unique_verified_manifests =
+      new Set(forged.members.filter((member: { binding?: unknown }) => member.binding)
+        .map((member: { manifest_sha256: string }) => member.manifest_sha256)).size;
+    expect(replacementKey).not.toBe(previousKey);
+    response = JSON.stringify(forged);
+    await page.getByRole("textbox").fill(inputs.map((input) =>
+      `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n"));
+    await build.click();
+    await expect(page.getByRole("alert")).toContainText("inconsistent");
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
+  });
+
   test("rejects producer-backed declared usage exclusions without excluding optional aggregate credits", async ({ page }) => {
     let response = "";
     await page.route("**/api/v1/aggregates", (route) => route.fulfill({ contentType: "application/json", body: response }));

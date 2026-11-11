@@ -51,7 +51,9 @@ inputs until they appear complete. Existing output files are not replaced.
 counts use this denominator. `unique_verified_manifests` counts current verified
 publications. `unique_verified_execution_records` counts original admitted source
 records, not legacy attempt ordinals. Compatible multiple views remain visible
-but count a record once. Distinct repeated executions are valid, not conflicts.
+but count a record once. A saved report cannot map one execution ID to different
+manifests, while same-manifest views remain valid. Distinct repeated executions
+are valid, not conflicts.
 Different identity/selection/mode/grader profiles remain separate display groups;
 there is no latest winner or pooled quality score.
 

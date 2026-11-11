@@ -67,6 +67,7 @@ func accounting(report Report) error {
 	fail := func() error { return fmt.Errorf("%w: inconsistent population accounting or ordering", ErrInvalid) }
 	counts := Counts{Members: len(report.Members), MemberStates: map[string]int{}, MemberOutcomes: map[string]int{}}
 	manifests, executions := map[string]bool{}, map[string]bool{}
+	executionManifests := map[string]string{}
 	profiles := map[string][]Input{}
 	state := "complete"
 	allUsageEligible := true
@@ -99,6 +100,10 @@ func accounting(report Report) error {
 			profiles[key] = append(profiles[key], member.Input)
 		}
 		if member.Execution != "" {
+			if manifest, ok := executionManifests[member.Execution]; ok && manifest != member.Manifest {
+				return fail()
+			}
+			executionManifests[member.Execution] = member.Manifest
 			executions[member.Execution] = true
 		}
 		allUsageEligible = allUsageEligible && memberUsageEligible(member)

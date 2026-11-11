@@ -96,9 +96,11 @@ sorted grader profile. Different evals/runs/tasks/trials/attempts/modes/profiles
 remain separate. Distinct actual execution records in the same profile are
 valid repeated executions: retain them all, without a latest winner or pooled
 scores. Multiple compatible sidecars/views of one record remain separate members
-but contribute at most one execution. Do not union category disclosure or select
-the most permissive view. Actual incompatible origin/binding/record/usage claims
-produce explicit conflicts; no arbitrary winner is selected.
+but contribute at most one execution. A saved report may not map one execution
+ID to different manifests; multiple views remain valid when they name the same
+manifest. Do not union category disclosure or select the most permissive view.
+Actual incompatible origin/binding/record/usage claims produce explicit
+conflicts; no arbitrary winner is selected.
 
 ### Historical usage, never aggregation billing
 
