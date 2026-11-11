@@ -1703,8 +1703,13 @@ Stdout is one capture-approved `waza.runner-checkpoint-result` JSON record.
 Stderr reports `checkpoint BOUNDARY DIGEST` after each published checkpoint.
 Finalized restore makes zero new engine calls and preserves original terminal
 exits, including failed checks 1, cancellation 3, and timeout 4. Invalid input
-or rejected restore exits 6; checkpoint publication, storage, and output failures
-exit 2. A reference can survive a failed publication and is not a success claim.
+or rejected restore exits 6; checkpoint publication and output failures exit 2.
+Store-open/close failures emit result version `1.1` with top-level status
+`operation_error`, exit code `2`, and a stable sanitized `error_code`; ordinary
+results remain strict version `1.0`. A close failure after execution preserves
+the capture-approved submission, source and checkpoint references without
+changing the submission's own status/exit. Raw causes remain on operator stderr.
+A reference can survive a failed publication and is not a success claim.
 See the [complete workflow and recovery limits](../../guides/immutable-artifacts/#checkpoint-public-source-preview).
 Installed v0.40.1 artifacts do not contain these commands.
 

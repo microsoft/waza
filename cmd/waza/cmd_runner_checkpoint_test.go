@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/iotest"
 
+	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
@@ -32,7 +34,15 @@ func runCheckpointCLI(t *testing.T, service *runnerunit.Service, revision func()
 	directory string, wire []byte, args ...string,
 ) (runnercheckpoint.Result, string) {
 	t.Helper()
-	command := newRunnerCheckpointCommandWithRevision(service, revision)
+	return runCheckpointCLIWithBackend(t, service, revision, artifactmanifest.OpenBackend, directory, wire, args...)
+}
+
+func runCheckpointCLIWithBackend(t *testing.T, service *runnerunit.Service, revision func() (string, error),
+	openBackend func(string, string) (artifactmanifest.Backend, func() error, error),
+	directory string, wire []byte, args ...string,
+) (runnercheckpoint.Result, string) {
+	t.Helper()
+	command := newRunnerCheckpointCommandWithBackend(service, revision, openBackend)
 	command.SetArgs(append(args, "--store", directory))
 	command.SetIn(bytes.NewReader(wire))
 	var output, progress bytes.Buffer
@@ -137,12 +147,17 @@ func TestCheckpointPublicCLIRejectsBeforeProvider(t *testing.T) {
 
 			directory := t.TempDir() + "/must-not-open"
 			result, diagnostic := runCheckpointCLI(t, service, revision, directory, wire, args...)
-			require.Equal(t, "rejected", result.Status)
+			if control == "missing-revision" {
+				require.Equal(t, "operation_error", result.Status)
+				require.Equal(t, runnercheckpoint.ErrorCodeBuildUnavailable, result.ErrorCode)
+			} else {
+				require.Equal(t, "rejected", result.Status)
+			}
 			require.Nil(t, result.Submission)
 			require.Zero(t, factories)
 			if control == "missing-revision" {
 				require.Equal(t, 1, revisions)
-				require.Equal(t, "checkpoint_build_incompatible", result.Diagnostics[0].Code)
+				require.Equal(t, runnercheckpoint.ErrorCodeBuildUnavailable, result.ErrorCode)
 				require.Contains(t, diagnostic, "checkpoint build admission: private-build-metadata-control")
 				encoded, err := runnercheckpoint.EncodeResult(result)
 				require.NoError(t, err)
@@ -239,7 +254,13 @@ func TestCheckpointPublicCLIRetainsInputFailureOnlyInOperatorDiagnostics(t *test
 				result, err := runnercheckpoint.ParseResult(output.Bytes())
 				require.NoError(t, err)
 				require.Equal(t, exit.Code, result.ExitCode)
-				require.Equal(t, code, result.Diagnostics[0].Code)
+				if stage == "read" {
+					require.Equal(t, "operation_error", result.Status)
+					require.Equal(t, runnercheckpoint.ErrorCodeInputUnavailable, result.ErrorCode)
+					require.Empty(t, result.Diagnostics)
+				} else {
+					require.Equal(t, code, result.Diagnostics[0].Code)
+				}
 				require.Contains(t, diagnostic.String(), "checkpoint input "+stage+":")
 				require.Contains(t, diagnostic.String(), cause.Error())
 				require.NotContains(t, output.String(), cause.Error())
@@ -248,4 +269,82 @@ func TestCheckpointPublicCLIRetainsInputFailureOnlyInOperatorDiagnostics(t *test
 			})
 		}
 	}
+}
+
+func TestCheckpointPublicCLIStoreOpenFailureEmitsOperationError(t *testing.T) {
+	for _, control := range []string{"missing", "inaccessible"} {
+		t.Run(control, func(t *testing.T) {
+			parent := t.TempDir()
+			directory := filepath.Join(parent, "missing")
+			if control == "inaccessible" {
+				require.NoError(t, os.WriteFile(directory, []byte("not-a-directory"), 0o600))
+				directory = filepath.Join(directory, "child")
+			}
+			result, diagnostic := runCheckpointCLI(t, runnerunit.NewService(nil),
+				func() (string, error) { return strings.Repeat("c", 40), nil },
+				directory, checkpointCLIWire(t), "create")
+			require.Equal(t, "1.1", result.SchemaVersion)
+			require.Equal(t, "operation_error", result.Status)
+			require.Equal(t, 2, result.ExitCode)
+			require.Equal(t, runnercheckpoint.ErrorCodeStorageUnavailable, result.ErrorCode)
+			require.Nil(t, result.Submission)
+			require.Nil(t, result.Source)
+			require.Contains(t, diagnostic, "checkpoint store open:")
+			require.NotContains(t, string(mustEncodeCheckpointResult(t, result)), "not-a-directory")
+		})
+	}
+}
+
+func TestCheckpointPublicCLICloseFailurePreservesCreateAndFinalizedResume(t *testing.T) {
+	directory := t.TempDir()
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	revision := func() (string, error) { return strings.Repeat("c", 40), nil }
+	wire := checkpointCLIWire(t)
+	created, _ := runCheckpointCLI(t, service, revision, directory, wire, "create")
+	require.Equal(t, "completed", created.Status)
+
+	openWithCloseError := func(directory, azureURL string) (artifactmanifest.Backend, func() error, error) {
+		backend, closeBackend, err := artifactmanifest.OpenBackend(directory, azureURL)
+		if err != nil {
+			return nil, nil, err
+		}
+		return backend, func() error {
+			return errors.Join(closeBackend(), errors.New("private-close-control"))
+		}, nil
+	}
+	closedCreate, diagnostic := runCheckpointCLIWithBackend(t, service, revision, openWithCloseError,
+		directory, wire, "create")
+	require.Equal(t, runnercheckpoint.ErrorCodeStorageCloseFailed, closedCreate.ErrorCode)
+	require.Equal(t, "operation_error", closedCreate.Status)
+	require.Equal(t, 2, closedCreate.ExitCode)
+	require.Contains(t, diagnostic, "checkpoint before-unit "+closedCreate.BeforeDigest+"\n")
+	require.Contains(t, diagnostic, "checkpoint finalized-unit "+closedCreate.FinalizedDigest+"\n")
+	require.Equal(t, created.Submission.Status, closedCreate.Submission.Status)
+	require.Equal(t, created.Submission.ExitCode, closedCreate.Submission.ExitCode)
+	require.Contains(t, diagnostic, "private-close-control")
+	require.NotContains(t, mustEncodeCheckpointResult(t, closedCreate), "private-close-control")
+
+	destination := bytes.Replace(wire, []byte(`"attempt":2`), []byte(`"attempt":3`), 1)
+	require.NotEqual(t, wire, destination)
+	reused, _ := runCheckpointCLI(t, service, revision, directory, destination, "resume", closedCreate.FinalizedDigest)
+	closedReuse, diagnostic := runCheckpointCLIWithBackend(t, service, revision, openWithCloseError,
+		directory, destination, "resume", closedCreate.FinalizedDigest)
+	require.Equal(t, "reused", reused.Submission.Status)
+	require.Equal(t, runnercheckpoint.ErrorCodeStorageCloseFailed, closedReuse.ErrorCode)
+	require.Equal(t, "operation_error", closedReuse.Status)
+	require.Equal(t, 2, closedReuse.ExitCode)
+	require.Equal(t, reused.Submission.Status, closedReuse.Submission.Status)
+	require.Equal(t, reused.Submission.ExitCode, closedReuse.Submission.ExitCode)
+	require.Equal(t, reused.Source, closedReuse.Source)
+	require.Contains(t, diagnostic, "private-close-control")
+	require.NotContains(t, mustEncodeCheckpointResult(t, closedReuse), "private-close-control")
+}
+
+func mustEncodeCheckpointResult(t *testing.T, result runnercheckpoint.Result) string {
+	t.Helper()
+	data, err := runnercheckpoint.EncodeResult(result)
+	require.NoError(t, err)
+	return string(data)
 }

@@ -111,6 +111,43 @@ test.describe("Runner negotiation through the real Go API", () => {
       }
   });
 
+  test("Lab parses both checkpoint result versions without treating operation errors as success", async ({ page }) => {
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify({
+      kind: "waza.runner-checkpoint-result",
+      schema_version: "1.1",
+      status: "operation_error",
+      exit_code: 2,
+      error_code: "checkpoint_storage_close_failed",
+      compatibility_result: "unavailable",
+      compatibility_differences: [],
+      restored_units: null,
+      remaining_work: null,
+      diagnostics: [],
+    }));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    const failure = reader.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(failure.getByRole("heading", { name: "Operation error" })).toBeVisible();
+    await expect(failure).toContainText("Operation statusoperation_error");
+    await expect(failure).toContainText("Sanitized error codecheckpoint_storage_close_failed");
+    await expect(failure).not.toContainText("completed");
+
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify({
+      kind: "waza.runner-checkpoint-result",
+      schema_version: "1.0",
+      status: "rejected",
+      exit_code: 6,
+      compatibility_result: "unavailable",
+      compatibility_differences: [],
+      restored_units: null,
+      remaining_work: null,
+      diagnostics: [{ code: "checkpoint_input_invalid", message: "Input was rejected." }],
+    }));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Checkpoint result: rejected");
+  });
+
   test("built CLI saves every frozen identity through actual stdout redirection", () => {
     expect(identityVectors).toHaveLength(11);
     for (const vector of identityVectors) {

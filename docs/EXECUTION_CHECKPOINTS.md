@@ -113,9 +113,15 @@ Public commands use this wrapper bound, not the bare runner-request bound.
 The CLI accepts the existing private store through `--store` or an explicit Azure
 container through `--azure-container-url`; those flags are mutually exclusive.
 It writes one capture-approved `waza.runner-checkpoint-result` record to stdout
-and boundary/digest progress to stderr. Save stdout even when the exit is nonzero:
-reused failure, cancellation, and timeout preserve their original exit codes.
-An output or storage-close failure exits 2 and is not successful delivery.
+and boundary/digest progress to stderr. Ordinary success, rejection, and
+checkpoint results retain strict schema version `1.0`. Store-open/close
+operational failures use schema version `1.1`, top-level `operation_error`,
+exit code `2`, and an allowlisted sanitized `error_code`; no submission or
+source is fabricated before admission. Save stdout even when the exit is
+nonzero: a close failure after execution preserves the capture-approved
+submission, source and checkpoint references, including the submission's
+original status and exit. Raw causes remain operator-only on stderr/server logs.
+An output failure exits 2 and is not successful delivery.
 See the [operator workflow](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
 The dashboard server registers `POST /api/v1/checkpoints` and

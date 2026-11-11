@@ -3,6 +3,7 @@ import example from "../../../examples/runner/unit.json";
 import { validateRunnerSelection, type RunnerSelectionReport, type WorkSelection } from "../api/runner";
 import { downloadText } from "../lib/export";
 import RunnerTerminal from "./RunnerTerminal";
+import CheckpointResult from "./CheckpointResult";
 
 function tuple(value: WorkSelection | undefined): string {
   return value ? `${value.shard} / ${value.task} / trial ${value.trial} / attempt ${value.attempt}` : "Not resolved";
@@ -51,6 +52,7 @@ export default function RunnerSelection({ demo }: { demo: boolean }) {
             {pending ? "Validating selection..." : "Validate selection"}
           </button>
           <RunnerTerminal key={request} request={request} />
+          <CheckpointResult />
           {error && <p role="alert">{error} No previous selection validation is shown.</p>}
           {result && (
             <div role="status" aria-label="Selection validation result">

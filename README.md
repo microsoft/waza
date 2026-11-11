@@ -32,7 +32,8 @@ pending; this is not available in installed v0.40.1 artifacts.
 The [checkpoint embedding preview](docs/EXECUTION_CHECKPOINTS.md) adds compatible
 whole-unit recovery. Its unreleased source CLI adds `runner checkpoint create`
 and `runner checkpoint resume`, with protected HTTP create/resume operations.
-Lab integration and full platform acceptance remain pending.
+The Lab can inspect captured checkpoint results but does not orchestrate these
+operations; full process/platform acceptance remains pending.
 
 **v0.40.0 adds** bounded
 runner/text execution, selected AgentV assertion conversion, task-level MCP
@@ -399,6 +400,11 @@ See the [compatibility table and before/after examples](site/src/content/docs/gu
 `waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
 submission.json` admits compatible recovery. These commands require a clean
 VCS-stamped CLI and a captured submission wrapper, not a bare runner request.
+Ordinary results remain strict schema `1.0`; sanitized pre-store and store-close
+operational failures use schema `1.1`, status `operation_error`, exit code `2`,
+and an allowlisted `error_code`. Close failures retain the capture-approved
+submission, source and checkpoint references without changing the submission's
+own status or exit. Raw causes remain operator-only.
 See the [checkpoint workflow and limits](site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)

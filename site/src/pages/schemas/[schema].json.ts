@@ -12,6 +12,7 @@ import submission from '../../../../schemas/execution-submission-1.0.schema.json
 import submissionResult from '../../../../schemas/execution-submission-result-1.0.schema.json';
 import checkpoint from '../../../../schemas/execution-checkpoint-1.0.schema.json';
 import checkpointResult from '../../../../schemas/runner-checkpoint-result-1.0.schema.json';
+import checkpointResultV11 from '../../../../schemas/runner-checkpoint-result-1.1.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -28,6 +29,7 @@ export function getStaticPaths() {
     { params: { schema: 'execution-submission-result-1.0.schema' }, props: { schema: submissionResult } },
     { params: { schema: 'execution-checkpoint-1.0.schema' }, props: { schema: checkpoint } },
     { params: { schema: 'runner-checkpoint-result-1.0.schema' }, props: { schema: checkpointResult } },
+    { params: { schema: 'runner-checkpoint-result-1.1.schema' }, props: { schema: checkpointResultV11 } },
   ];
 }
 

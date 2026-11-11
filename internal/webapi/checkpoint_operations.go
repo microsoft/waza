@@ -74,19 +74,19 @@ func registerCheckpointOperationRoutes(mux *http.ServeMux, operations checkpoint
 			revision, err := operations.revision()
 			if err != nil {
 				logRunnerError("checkpoint build admission failed", "error", err)
-				emit(http.StatusServiceUnavailable, runnercheckpoint.RejectPublic("checkpoint_build_incompatible"))
+				emit(http.StatusServiceUnavailable, runnercheckpoint.OperationErrorResult(runnercheckpoint.ErrorCodeBuildUnavailable))
 				return
 			}
 			checkpoints, err := runnercheckpoint.NewService(operations.runner, revision)
 			if err != nil {
 				logRunnerError("checkpoint runner unavailable", "error", err)
-				emit(http.StatusServiceUnavailable, runnercheckpoint.RejectPublic("checkpoint_runner_unavailable"))
+				emit(http.StatusServiceUnavailable, runnercheckpoint.OperationErrorResult(runnercheckpoint.ErrorCodeRunnerUnavailable))
 				return
 			}
 			backend, closeBackend, err := operations.open()
 			if err != nil {
 				logRunnerError("checkpoint immutable storage unavailable", "error", err)
-				emit(http.StatusServiceUnavailable, runnercheckpoint.RejectPublic("checkpoint_storage_unavailable"))
+				emit(http.StatusServiceUnavailable, runnercheckpoint.OperationErrorResult(runnercheckpoint.ErrorCodeStorageUnavailable))
 				return
 			}
 			var result runnercheckpoint.Result
@@ -96,8 +96,8 @@ func registerCheckpointOperationRoutes(mux *http.ServeMux, operations checkpoint
 				result, err = checkpoints.SubmitCaptured(r.Context(), data, backend, runnercheckpoint.Hooks{})
 			}
 			if closeErr := closeBackend(); closeErr != nil {
-				logRunnerError("checkpoint immutable store close failed; result not delivered", "error", errors.Join(err, closeErr))
-				emit(http.StatusServiceUnavailable, runnercheckpoint.RejectPublic("checkpoint_storage_close_failed"))
+				logRunnerError("checkpoint immutable store close failed after operation", "error", errors.Join(err, closeErr))
+				emit(http.StatusServiceUnavailable, runnercheckpoint.WithOperationError(result, runnercheckpoint.ErrorCodeStorageCloseFailed))
 				return
 			}
 			status := http.StatusOK
