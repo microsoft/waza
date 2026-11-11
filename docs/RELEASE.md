@@ -65,7 +65,8 @@ build → GitHub Release → extension publish → registry-sync PR → GitHub P
    and complete digest/source evidence. Missing, failed, cancelled, skipped,
    stale-SHA, or incomplete evidence fails validation.
 2. **setup-version** — Extracts the version from the pushed tag (strips `v`) and validates semver format.
-3. **build-cli** — After validation succeeds, matrix-builds 6 platforms (linux,
+3. **build-cli** — After validation succeeds, installs the validation producer's
+   verified dashboard, then matrix-builds 6 platforms (linux,
    darwin, windows × amd64, arm64). Each binary is accompanied by its SHA256
    digest and exact source SHA.
 4. **release-cli** — Rejects missing or stale matrix evidence, verifies every
@@ -107,8 +108,38 @@ workflow delegation. Changing platform labels cannot substitute for native tests
 Release versions and tags remain bound to their production detector outputs,
 including branch creation and CLI/extension consumers; independently injected
 test versions do not establish that handoff.
-The Linux tested-binary, six CLI matrix builds, and extension builder require
-their real same-run dashboard builds and a shared output check before compiling.
+The validation workflow's Linux `build-test` job is the sole dashboard producer
+for a release source/run. After its genuine `npm ci && npm run build`, semantic
+dashboard and clean-source admission, it packs `web/dist` with the landed
+`release-assets-helper`. A same-run artifact named with the exact source SHA and
+run attempt contains `manifest.json` and the source-relative `web/dist` tree.
+The canonical manifest binds repository, source SHA, run ID/attempt, every file's
+size and SHA256; its own digest travels independently through step, job, and
+reusable-workflow outputs, not through a trusted value read from the download.
+
+The handoff helper and filesystem checker share one HTML/URL validator.
+Inventory verification therefore accepts the same relative URLs and root-preserving
+base elements, ignores comments and inert template/noscript content, and checks
+resolved references without normalizing or rewriting the packaged bytes.
+
+Consumers export their artifact directory from `$RUNNER_TEMP` through
+`$GITHUB_ENV` before downloading; runner paths are not valid job-level `env`
+expressions. The independent producer manifest digest remains job-level input.
+
+All six CLI consumers and the azd consumer retain success-only dependencies on
+the entire validation workflow. They download only that named same-run artifact,
+verify the independent digest and observed checkout identity, and install only
+missing intended assets. Existing tracked index/favicon must match; conflicting,
+extra, truncated, absent or mismatched content fails rather than being repaired.
+The manifest stays outside embedded `dist`. Artifact paths are outside the
+checkout, preserving clean-source admission. Before extension compilation,
+`build.sh` re-verifies the installed inventory against the same manifest and
+repeats semantic/source admission instead of running npm again. Ordinary local
+builds, and standalone release-admission builds without a supplied handoff, keep
+their existing real web build. Supplying only half a handoff fails closed.
+
+The Linux tested-binary, six CLI matrix builds, and extension builder retain
+the shared semantic output check before compiling.
 It requires a nonempty regular index/favicon, JavaScript/CSS bundles, and every
 index-referenced asset, rejecting missing, partial, nonregular, or symlink output.
 Root-relative and relative asset URLs are checked locally; malformed or nonlocal
@@ -160,7 +191,7 @@ the synthetic `https://dashboard.invalid/` origin and root path; `/`, `./`, and
 an empty local base are supported, while supplied hosts/schemes and nested bases
 are rejected. Local asset paths are percent-decoded without changing case;
 query strings and fragments do not become filesystem names.
-The last dashboard build inside `build.sh` repeats release-only admission before
+The final dashboard handoff inside `build.sh` repeats release-only admission before
 extension compilation. Clean tracked and untracked source is checked separately
 from each published binary's actual `vcs.revision` and `vcs.modified=false`
 build metadata. Metadata inspection does not execute cross-platform binaries or
@@ -201,6 +232,16 @@ Validation evidence is scoped to the current workflow run and named with the
 exact `${{ github.sha }}`. Publishers do not search for a same-named check or
 artifact from another run or SHA. Retrying a failed run therefore repeats any
 missing validation/build work and cannot reuse stale evidence.
+Dashboard identity also includes `github.run_attempt`: a partial rerun without
+the matching producer artifact fails closed. Rerun the producer/validation and
+consumers together rather than relabeling a prior-attempt artifact.
+
+This removes repeated dashboard compilation, not a measured release-speed claim.
+Observe cold and warm runs before reporting outcomes: compare summed runner work
+separately from end-to-end release latency, and include producer packing/upload
+and all seven download/verification/install costs. Parallel builds mean less
+summed work need not shorten the release's critical path. No before/after
+performance result is established by the workflow graph or local cross-builds.
 
 CLI release upload replaces assets only after tag and artifact admission. Extension
 release and registry publication remain sequential; if a later step fails after

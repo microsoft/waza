@@ -455,7 +455,7 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 			{"        id: node\n", ""},
 			{"GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}", "GO_CACHE_HIT: false"},
 			{"if: always() && steps.ci_tests.outcome", "if: success() && steps.ci_tests.outcome"},
-			{"${{ github.run_attempt }}", "1"},
+			{"${{ github.run_attempt }}-${{ github.job }}", "1-${{ github.job }}"},
 			{"${{ github.job }}", "fixed-job"},
 			{"path: coverage.txt.evidence.json", "path: coverage.txt*"},
 			{"retention-days: 14", "retention-days: 90"},

@@ -755,7 +755,7 @@ func testReleaseDashboardOutput(t *testing.T, admission, build string) {
 
 func testReleaseDashboardMutations(t *testing.T, source []byte, jobName string, validate func([]byte) error) {
 	t.Helper()
-	for _, mutation := range []struct{ step, field, value string }{
+	mutations := []struct{ step, field, value string }{
 		{"Download dashboard checker dependency", "if", "false"},
 		{"Download dashboard checker dependency", "continue-on-error", "true"},
 		{"Download dashboard checker dependency", "run", ":"},
@@ -775,7 +775,17 @@ func testReleaseDashboardMutations(t *testing.T, source []byte, jobName string, 
 		{"Require clean packaged source", "if", "false"},
 		{"Require clean packaged source", "continue-on-error", "true"},
 		{"Require clean packaged source", "run", ":"},
-	} {
+	}
+	if jobName != "build-test" {
+		mutations = slices.DeleteFunc(mutations, func(mutation struct{ step, field, value string }) bool {
+			return mutation.step == "Build Web UI" || mutation.step == "Setup Node.js (for web UI build)"
+		})
+		mutations = append(mutations, struct{ step, field, value string }{"Install exact-source dashboard", "run", ":"},
+			struct{ step, field, value string }{"Install exact-source dashboard", "if", "false"},
+			struct{ step, field, value string }{"Install exact-source dashboard", "continue-on-error", "true"},
+			struct{ step, field, value string }{"Download exact-source dashboard", "if", "false"})
+	}
+	for _, mutation := range mutations {
 		t.Run("dashboard-mutation-"+jobName+"-"+mutation.step+"-"+mutation.field+"-"+mutation.value, func(t *testing.T) {
 			var wire yaml.Node
 			if err := yaml.Unmarshal(source, &wire); err != nil {
@@ -2122,7 +2132,11 @@ func validateBranchPublisher(source []byte, file string) error {
 
 func validateReleaseDashboard(job releaseJob) error {
 	steps := releaseSteps(job)
-	if !strings.HasPrefix(steps["Setup Node.js (for web UI build)"].Uses, "actions/setup-node@") ||
+	if _, consumer := steps["Install exact-source dashboard"]; consumer {
+		if err := validateReleaseDashboardConsumer(job); err != nil {
+			return err
+		}
+	} else if !strings.HasPrefix(steps["Setup Node.js (for web UI build)"].Uses, "actions/setup-node@") ||
 		steps["Setup Node.js (for web UI build)"].With["node-version"] != "22" ||
 		steps["Build Web UI"].WorkingDirectory != "web" || steps["Build Web UI"].Run != "npm ci && npm run build" ||
 		steps["Require built dashboard output"].Run != releaseDashboardCheck {
@@ -2177,8 +2191,8 @@ func validateTagRelease(source []byte) error {
 		return fmt.Errorf("tag validation, builders and publishers must retain success-only dependency admission")
 	}
 	if err := orderedReleaseSteps(build, []string{"Checkout Repository", "Require exact validated source",
-		"Setup Go Environment", "Setup Node.js (for web UI build)", "Download dashboard checker dependency",
-		"Build Web UI", "Require built dashboard output", "Require clean packaged source",
+		"Setup Go Environment", "Set dashboard artifact path", "Download exact-source dashboard", "Download dashboard checker dependency",
+		"Install exact-source dashboard", "Require built dashboard output", "Require clean packaged source",
 		"Build Binary", "Upload Binary Artifact"}); err != nil {
 		return err
 	}
@@ -2187,8 +2201,8 @@ func validateTagRelease(source []byte) error {
 		return err
 	}
 	if err := orderedReleaseSteps(extension, []string{"Checkout Repository", "Require exact validated source",
-		"Setup Go Environment", "Setup Node.js (for web UI build)", "Download dashboard checker dependency",
-		"Build Web UI", "Require built dashboard output", "Require clean packaged source",
+		"Setup Go Environment", "Set dashboard artifact path", "Download exact-source dashboard", "Download dashboard checker dependency",
+		"Install exact-source dashboard", "Require built dashboard output", "Require clean packaged source",
 		"Verify selected Extensions Kit contract",
 		"Sync Version Files", "Build Extension", "Pack Extension",
 		"Record extension artifact provenance", "Create exact extension tag exclusively", "Release Extension",
