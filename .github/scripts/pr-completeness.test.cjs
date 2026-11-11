@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const test = require('node:test');
-const { applicability, captureReceipt, contracts, createPlan, evaluate, planOutputs, prEventMode, prRouting, producerTitle, runtimeInputs, verifyBrowser } = require('./pr-completeness.cjs');
+const { applicability, captureReceipt, contracts, createPlan, evaluate, planOutputs, prEventMode, prRouting, producerTitle, receiptArtifactName, runtimeInputs, verifyBrowser } = require('./pr-completeness.cjs');
 
 const cli = path.join(__dirname, 'pr-completeness.cjs');
 const consumedLeafInputs = [
@@ -62,6 +62,7 @@ function fixture(paths = ['internal/models/outcome.go', '.squad/routing.md'], ob
     for (const [unit, steps] of Object.entries(contract.units)) {
       const receipt = {
         kind: 'waza.pr-completeness-receipt', schema: 1, family, unit,
+        artifact_name: receiptArtifactName(observedSource, family, unit),
         source: { ...observedSource }, tested_sha: observedSource.tested_sha,
         steps: Object.fromEntries(steps.map((step) => [step, { outcome: 'success', conclusion: 'success' }])),
       };
@@ -252,6 +253,17 @@ test('large complete manifests stay in artifacts, while routing outputs remain b
   assert.throws(() => planOutputs(plan), /Applicability changed/);
 });
 
+test('receipt artifacts are source-attempt and matrix-unit scoped', () => {
+  assert.equal(receiptArtifactName(source, 'assurance', 'assurance'),
+    'pr-completeness-receipt-assurance-assurance-123-1');
+  assert.equal(receiptArtifactName(source, 'tools', 'windows'),
+    'pr-completeness-receipt-tools-windows-123-1');
+  assert.equal(receiptArtifactName({ ...source, run_attempt: '2' }, 'runtime', 'macos'),
+    'pr-completeness-receipt-runtime-macos-123-2');
+  assert.throws(() => receiptArtifactName(source, 'tools', 'unknown'));
+  assert.throws(() => receiptArtifactName({ ...source, run_id: '0' }, 'tools', 'linux'));
+});
+
 test('every applicable dependency fails closed for failure, cancellation, skip, absence and unknown', () => {
   const baseline = fixture();
   assert.equal(evaluate(baseline.plan, baseline.needs, baseline.receipts, baseline.current_pr).passed, true);
@@ -299,6 +311,9 @@ test('missing matrix members, duplicates and mismatched source/attempt/base/actu
   const checkout = structuredClone(baseline);
   checkout.receipts[0].tested_sha = 'd'.repeat(40);
   assert.equal(evaluate(checkout.plan, checkout.needs, checkout.receipts, checkout.current_pr).passed, false);
+  const artifact = structuredClone(baseline);
+  artifact.receipts[0].artifact_name = 'pr-completeness-receipt-go-lint-999-1';
+  assert.equal(evaluate(artifact.plan, artifact.needs, artifact.receipts, artifact.current_pr).passed, false);
   const initial = structuredClone(baseline);
   initial.receipts[0].steps.checkout.outputs.commit = 'd'.repeat(40);
   assert.equal(evaluate(initial.plan, initial.needs, initial.receipts, initial.current_pr).passed, false);
