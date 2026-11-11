@@ -19,10 +19,12 @@ test('grader challenges disclose offline scope and candidate limitations', async
   await expect(page.getByText(/makes zero paid calls and leaves usage\/credits null/)).toBeVisible();
   await expect(page.locator('.sl-markdown-content')).toContainText('Missing or changed pins/cache fail without fetching');
   await expect(page.locator('.sl-markdown-content')).toContainText('Direct API references remain unsupported');
-  await page.screenshot({
-    path: fileURLToPath(new URL('../../docs/images/site-graders.png', import.meta.url)),
-    fullPage: true,
-  });
+  if (process.env.WAZA_REFRESH_DOCS_MEDIA === '1') {
+    await page.screenshot({
+      path: fileURLToPath(new URL('../../docs/images/site-graders.png', import.meta.url)),
+      fullPage: true,
+    });
+  }
 
 });
 

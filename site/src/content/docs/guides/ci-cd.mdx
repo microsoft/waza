@@ -160,6 +160,255 @@ See [Offline Eval Preflight](../preflight/) for diagnostics and limitations.
 
 ## GitHub Actions
 
+### Repository CI performance evidence
+
+Waza's existing native Go shards, ordinary Linux/Windows and preview Go jobs,
+and dashboard Chromium job retain sanitized
+`ci-evidence-*` JSON artifacts for **14 days**, named by run and attempt (and
+native shard or ordinary job). They capture the actual checkout SHA separately from the
+workflow SHA, event, platform, runtime versions, execution policy and observed
+dependency-cache hits. Missing cache outputs stay `null`; configured caching is
+not proof of a hit or miss. No model calls or additional full-suite run are
+added. Native exhaustive inventory and atomic-coverage verification remain
+independent required gates.
+Release remaining-package jobs and their native shards share the guarded
+capture and 14-day retention. This describes the workflow wiring, not proof
+of hosted release execution or performance-target attainment.
+
+Go discovery uses the existing shard `.all`/`.selected` inventories. Top-level
+tests, nested tests and packages have separate observed/executed/pass/fail/skip
+counts. Complete Go admission requires a bounded, unique discovery inventory
+containing every selected target; a shard may select a proper subset. The root
+ordinary capture sidecars `coverage.txt.all`, `coverage.txt.selected` and
+`coverage.txt.evidence.json` are ignored generated outputs so they do not mark a
+subsequently built release binary's source dirty. Unrelated files remain visible.
+`top_level_seconds` sums only top-level target durations, never their
+overlapping subtests; it is **not** wall-clock latency and parallel top-level
+tests can overlap. Playwright discovery is a separate `--list` operation, not
+another test run. Each browser result retains its retry index, so a final pass
+cannot replace a recorded initial failure. Missing, fractional, duplicate or
+nonconsecutive retry indices make the evidence incomplete; indices must start
+at zero. A no-browser producer contract test
+checks the current installed Playwright reporter using tiny pass/fail/skip
+controls before the real suite.
+Go execution and collector process exits are recorded separately from emitted
+test verdicts. A command failure after passing JSON records is not promoted to
+success; late failure without a terminal failing package is explicit incomplete
+evidence. Original command failures still determine the CI exit.
+Finalization failures cannot replace an earlier producer or collector failure.
+Until execution exits are finalized, a Go report remains explicitly incomplete.
+Go test attribute payloads are discarded, not measurements; malformed attributes
+and unknown actions remain diagnostics. A package pass cannot supply missing
+per-test terminal verdicts or timings: those captures remain incomplete.
+Go compiler `ImportPath` records retain build diagnostics in the console, not
+the uploaded report; build failures remain explicit incomplete evidence.
+Browser evidence records the actual discovery and execution step outcomes.
+Failed discovery still attempts sanitized retention, including any available
+inventory; missing execution remains unavailable, not zero. A failing browser
+command with no terminal failure evidence is incomplete, while a fully observed
+test failure remains complete failure evidence. Baselines require successful
+recorded discovery and execution outcomes.
+
+The collectors omit stdout, error messages, stack traces and attachment payloads
+from these new artifacts. Raw Playwright discovery and execution JSON remain
+outside the uploaded test-results directory; only their sanitized report is
+added to retained artifacts. Existing console output and ordinary failure artifacts
+are unchanged. Inputs and individual outputs are bounded to 64 MiB, records to
+1 MiB, and target inventories to 100,000. Malformed/truncated input, missing
+durations, unfinished tests, selection mismatches and cancellations are explicit
+diagnostics with `complete: false`, not invented zero timings or success.
+Once Go report admission reaches its total cap, valid bounded output records
+continue to the console without adding measurements to the incomplete report.
+Capture and discovery forward one bounded console record at a time, waiting for
+write acknowledgment and backpressure drain before reading another record.
+Output errors or premature closure fail the collector; capture saves available
+evidence with explicit diagnostics and `complete: false`.
+Discovery also forwards ordinary package-output diagnostics, not only compiler
+build-output events; discovered test names remain in the inventory. Package
+failures are recorded while the bounded JSON stream drains, so later packages'
+diagnostics survive; failed discovery never publishes an inventory. Hard input
+limits, malformed/truncated records and output errors still reject discovery.
+`collector_seconds` records parser wall time (including input wait for streaming
+Go capture and console backpressure), **not** incremental instrumentation overhead.
+Go `collector_cpu_seconds` observes the collector process's own user/system CPU
+through final report preparation. It excludes child-process startup and artifact
+upload, and is not a claim about added full-pipeline latency.
+
+#### Finalize a completed run without rerunning tests
+
+Automatic job capture cannot observe its own final completion or upload.
+After completion, run this read-only command from the instrumented checkout:
+
+```bash
+node .github/scripts/ci-evidence.cjs actions RUN_ID actions-evidence.json
+```
+
+It reads only `microsoft/waza` Actions metadata through the existing `gh`
+identity. Original attempt failures/cancellations remain visible even if the
+final run is green. Retained job IDs are counted once across retries. The
+report separates first-attempt creation-to-start delay, each attempt's new-job
+span and retained-job span, longest observed step, summed elapsed runner-minutes
+by runner OS label, and source-bound artifact bytes. New-job span excludes
+earlier retained jobs. Job span is the observed critical-path
+envelope, not a reconstructed dependency DAG. Retry-request queue time is
+unavailable: the original creation timestamp must not be reused for retries.
+Job attempts must be positive safe integers no later than the queried attempt;
+valid jobs retained from earlier attempts remain admissible.
+Job IDs must be positive safe integers. Nonpositive integer IDs remain readable
+but cannot supply complete aggregates or eligible baseline/history samples.
+Invalid or duplicate job IDs, unverified job sources, conflicting retained jobs,
+or incomplete job pagination withhold the affected attempt's span metrics.
+Elapsed runner-minutes and artifact bytes are **not billed cost**.
+Malformed step rows or invalid step numbers, names, or conclusions produce
+explicit incomplete diagnostics, including when a job was retained from an
+earlier attempt. Unavailable step durations remain null rather than zero; valid
+neighboring observations and independent job timings remain readable. Such
+runs cannot contribute eligible baseline/history samples.
+An observed, complete empty artifact inventory records zero bytes. An inventory
+that was not queried, failed, or remained incomplete records unavailable bytes,
+not zero; unrelated job diagnostics do not erase an observed artifact total.
+Artifact IDs must be unique positive safe integers; byte sizes and their sum
+must be nonnegative safe integers. Overlapping pages, invalid metadata,
+or changing pagination totals withhold the aggregate and baseline eligibility;
+readable test observations remain available as ineligible evidence.
+
+Collection is capped at 10 attempts and 10 pages of 100 records per
+jobs/artifacts endpoint. An API failure, cap, missing timestamp or unverified
+source produces explicit incomplete evidence; the completed-run collector
+writes the available report and exits nonzero. Expired artifacts can retain
+metadata bytes but their test content is unavailable. Invalid attempt-response
+bodies produce `attempt-api-invalid`, retain unavailable start-time evidence,
+and do not prevent collection of jobs, artifacts, later attempts or other runs.
+Thrown attempt requests retain the separate `attempt-api-failed` diagnostic.
+Readable observations remain ineligible when their run metadata is incomplete.
+Upload steps use
+`always()` where supported; cancellation, timeout, setup failure or runner loss
+can still prevent capture/upload. No cancellation-upload guarantee is made.
+No new workflow, token grant or publication bypass is installed.
+
+#### Opt-in observed cold starts
+
+Existing Go and dashboard workflows declare an optional boolean
+`cold_observation`, defaulting to `false`; reusable native/dashboard calls accept
+the same optional input. Ordinary runs keep their existing cache semantics.
+The Go dispatch declaration is **inactive until separately reviewed default-branch
+activation**. A declaration on a feature branch alone does not authorize or enable
+dispatch. Reusable dashboard capture retains the caller's actual workflow/event;
+called PR validation is not an independent non-PR cold cohort.
+
+This first opt-in implementation supports ephemeral hosted **Linux** runners only:
+remaining Go tests, all four native shards, and dashboard validation. Windows
+continues ordinary caching and reporting; there is no Windows cold-start claim.
+Opt-in disables setup-go restore/save, setup-node's explicit npm cache, and
+setup-node v7 automatic package-manager caching. Disabling actions alone does
+not manufacture a cache miss.
+
+Before dependencies, the rejecting runtime guard, vet or discovery, the producer
+exclusively creates a private invocation root under `RUNNER_TEMP` and empty
+`GOMODCACHE`/`GOCACHE` stores, plus an npm store where applicable. It probes the
+actual Go/npm paths under the candidate environment before publishing
+`GITHUB_ENV`. Ambient stores are neither inspected nor reset. Native shards
+report npm as `not-applicable`. Only complete bound observations produce new
+isolated-store `false` values; unavailable observations remain null, diagnosed
+and ineligible. Existing absent/null/recorded-false reader behavior is preserved.
+
+The optional schema-1 `cache_observation` records `mode: "isolated-empty"`,
+`phase: "before-dependencies"`, Linux scope, disabled restore/save, all applicable
+stores' initial entry counts and actual-path matches, and
+repository/checkout/workflow/run/attempt/job binding. Actual runner
+`ImageOS`/`ImageVersion` and toolchain identity split cohorts when they change.
+Private absolute paths and invocation names are not public evidence or cohort
+keys.
+
+Initialization precedes warming within the job; these are **initial cold-store
+observations, not wholly cold test-only durations**. Populated private stores and
+partial initialization residue remain for ephemeral host teardown, with a
+normalized `RUNNER_TEMP` locator on failure. State/environment write, close,
+ownership and path failures fail explicitly. This is not a rooted race-free,
+transactional, durable or cancellation-cleanup guarantee.
+
+Release and insider validation capture their existing remaining-package command
+once, using the shared nonexecuting discovery and explicit `-count=1` execution.
+They retain sanitized attempt/job artifacts without changing native selection,
+race/atomic coverage, rejecting-runtime checks or publication prerequisites.
+Release capture does not opt release jobs into cold mode. A first genuinely
+eligible public ingestion and three distinct comparable observations remain
+separate prerequisites; neither opt-in configuration nor fixture controls prove
+baseline/history acceptance or timing attainment.
+
+#### Non-blocking trends and reviewed timing history
+
+Finalize up to 10 distinct completed run IDs, without downloading ordinary
+logs or transcript artifacts:
+
+```bash
+node .github/scripts/ci-evidence.cjs trends RUN_ID_1,RUN_ID_2,RUN_ID_3 trends.json
+node .github/scripts/ci-evidence.cjs history RUN_ID_1,RUN_ID_2,RUN_ID_3 history-proposal.json
+```
+
+These commands read only the named sanitized artifacts from `microsoft/waza`,
+verify the GitHub artifact SHA-256 digest and exact single JSON member in memory
+(no archive extraction), and bind run/attempt/workflow source before admitting
+any observation. Local JSON declarations cannot establish this binding.
+Declared event and workflow names must match the authenticated run metadata.
+Missing/expired artifacts, missing server digests and source mismatches are
+unavailable, not eligible samples. The collection is bounded to 100 reports and
+128 MiB aggregate compressed/expanded input; individual expanded files remain
+bounded to 64 MiB. Expanded size is reserved before decompression or JSON parsing
+and remains charged when either fails. Deflate output is limited to its declared
+expanded size; dishonest size declarations are rejected, not decoded against the
+larger per-file cap.
+Complete Go artifacts must supply bounded, typed target rows consumed by history.
+Complete browser artifacts also require bounded result rows with recorded
+durations, consecutive retry indices, matching discovered/selected inventories,
+consistent project/retry policy, and recomputed target/result counts.
+Malformed reports are rejected individually without discarding other available
+observations. Unavailable schema 1 partial targets remain unavailable, not
+fabricated empty arrays.
+Standard pull-request checkout uses GitHub's synthetic merge commit, whereas
+the Actions run API can report the PR source head. These are distinct identities.
+When that binding cannot be established, authenticated artifact observations
+are retained with `checkout_binding: "unavailable-pr-merge"` and the diagnostic
+`pull-request-merge-checkout-binding-unavailable`; they are not invalidated or
+silently assigned the source-head SHA. They cannot supply eligible baseline or
+history samples. This initial collector does not verify historical synthetic
+merge refs.
+Cohorts separate kind, checkout SHA, workflow, event/ref, OS/architecture, exact runtimes, selection,
+execution policy and cache observations. Duplicate run/attempt/job observations
+do not add samples. Eligibility requires complete successful first attempts,
+disabled test-result caching and retries, and observed misses for dependency
+caches. Unknown cache/runtime/source evidence is ineligible.
+Both Go and browser samples require a recognized Go-version response. Invalid
+new probe responses are discarded with diagnostics; historical schema 1 runtime
+values remain unchanged but cannot qualify when missing or unrecognized.
+Three **distinct comparable runs**, not three retries/tests within one run, are necessary before
+assessing any timing target. The initial summary always reports
+`attainment: "not-assessed"`; it installs no hard-fail timing budget.
+Artifact names alone do not authenticate an upload attempt. Runs whose API
+records more than one attempt retain available observations but cannot supply
+eligible baseline/history samples, even if an artifact claims attempt 1.
+
+`history-proposal.json` writer schema 2 retains individual Go top-level
+measurements with exact run/attempt/checkout provenance and verified report-content
+SHA-256. Each observation's `cohort_id` joins to one content-addressed entry in
+`cohorts`; the complete selection is stored once per cohort, not once per target.
+The writer rejects unsupported proposal versions, changed cohort content and
+missing or source-mismatched references before writing. There is no proposal
+import or automatic planner TSV update. Go and browser artifact readers remain
+schema 1; unsupported artifact versions are rejected, not reinterpreted.
+Browser capture observes `go version` and the checkout at the CLI boundary,
+without invoking subprocesses in the browser JSON parser. Browser baselines
+require both observed Go and Playwright versions; missing or invalid Go versions
+remain explicitly ineligible, including in retained schema-1 artifacts.
+Review the complete source-bound artifacts and final Actions report before
+applying a same-cohort refresh to `.github/scripts/go_test_shard_durations.tsv`
+in a normal reviewed change. The canonical planner still uses authoritative
+discovery, longest-first assignment and the median historical duration for
+unknown targets (1 second only with empty history). History never admits or
+removes tests, and this instrumentation does not establish #825/#822 timing
+attainment. Locally authored reports and unverified/expired artifact content
+must not be promoted to execution evidence.
+
 ### Offline challenge assessment
 
 Use `waza assure eval.yaml --references labels.json` as a separate strict

@@ -84,7 +84,7 @@ for (const state of ["passed", "failed", "not_assessed", "insufficient_evidence"
     await expect(page.getByText(/authored-output\/output/)).toBeVisible();
     await expect(page.getByText(/authored_finite_output; scenario/)).toBeVisible();
     expect(requests).toEqual([]);
-    if (state === "failed") {
+    if (state === "failed" && process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
       await page.screenshot({ path: "../docs/images/assurance-report.png", fullPage: true });
     }
   });
@@ -245,7 +245,9 @@ test("calibrated claims require explicit version selection and expose unavailabl
   await expect(page.getByText(/Received event models: unavailable/)).toBeVisible();
   await expect(page.getByText(/Accounting models: unavailable/)).toBeVisible();
   await expect(page.getByText(/Sanitized diagnostics: initialize\/start_failed/)).toBeVisible();
-  await page.screenshot({ path: "../docs/images/assurance-calibrated-report.png", fullPage: true });
+  if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1") {
+    await page.screenshot({ path: "../docs/images/assurance-calibrated-report.png", fullPage: true });
+  }
   await page.getByRole("checkbox", { name: /Explicitly inspect calibrated report 1.1/ }).uncheck();
   await expect(input).toHaveValue("");
   await expect(page.getByRole("heading", { name: /Supplied assessment/ })).toHaveCount(0);

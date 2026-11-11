@@ -24,6 +24,12 @@ on:
       - 'internal/graders/**'
       - 'internal/judgeevidence/**'
       - 'internal/models/**'
+  workflow_call:
+    inputs:
+      pr_completeness_plan:
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -36,7 +42,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            unit: linux
+          - os: macos-latest
+            unit: macos
     env:
       NO_COLOR: '1'
       ENABLE_COPILOT_TESTS: 'false'
@@ -47,11 +57,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+          fetch-depth: 2
+      - name: Download PR completeness plan
+        if: inputs.pr_completeness_plan != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.pr_completeness_plan }}
+          path: ${{ runner.temp }}/pr-completeness-plan
+      - name: Record receipt checkout
+        if: inputs.pr_completeness_plan != ''
+        id: checkout
+        shell: bash
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
       - name: Exercise synthetic-auth loopback inference and adversarial tool controls
+        id: tests
         shell: bash
         run: |
           set -euo pipefail
@@ -64,3 +87,30 @@ jobs:
             echo "::error::The runtime isolation proof was not selected or did not pass."
             exit 1
           fi
+
+      - name: Capture PR completeness receipt
+        if: always() && inputs.pr_completeness_plan != ''
+        id: receipt
+        shell: bash
+        env:
+          WAZA_COMPLETENESS_STEPS: ${{ toJSON(steps) }}
+        run: |
+          receipt_dir="$RUNNER_TEMP/pr-completeness-receipt-${{ matrix.unit }}"
+          mkdir -p "$receipt_dir"
+          printf '%s' "$WAZA_COMPLETENESS_STEPS" > "$receipt_dir/steps.json"
+          node .github/scripts/pr-completeness.cjs receipt \
+            "$RUNNER_TEMP/pr-completeness-plan/plan.json" runtime "${{ matrix.unit }}" \
+            "$receipt_dir/steps.json" > "$receipt_dir/receipt.json"
+          node - "$receipt_dir/receipt.json" >> "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.stdout.write(`artifact_name=${receipt.artifact_name}\n`);
+          NODE
+
+      - name: Upload PR completeness receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/pr-completeness-receipt-${{ matrix.unit }}/receipt.json
+          if-no-files-found: error

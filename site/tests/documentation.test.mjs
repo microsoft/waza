@@ -12,6 +12,11 @@ const catalogInputs = {
   schema: 'schemas/eval.schema.json',
   catalogs: ['README.md', 'site/src/content/docs/guides/graders.mdx'],
 };
+const dashboardMediaInputs = [
+  'web/package.json', 'web/playwright.config.ts',
+  'web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',
+  'web/e2e/runner-negotiation.spec.ts', '.github/workflows/web-ci.yml',
+];
 const embeddedTargets = ['darwin_amd64', 'darwin_arm64', 'linux_amd64', 'linux_arm64', 'windows_amd64', 'windows_arm64'];
 const embeddedFiles = embeddedTargets.flatMap((target) => [
   `internal/embedded/zcopilot_${target}.go`,
@@ -109,6 +114,31 @@ test('runner identity fixtures trigger consumer validation and publication witho
   }
   assert.match(web, /playwright test --project=chromium --retries=0/);
   assert.match(site, /npm run test:e2e -- --project=chromium --retries=0/);
+  const webUpload = web.match(/- name: Upload dashboard test evidence\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  const siteUpload = site.match(/- name: Upload site test evidence\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  assert.ok(webUpload && siteUpload, 'expected browser evidence upload steps');
+  assert.match(webUpload, /path: \|\n {12}web\/test-results\/\n {10}include-hidden-files: true\n {10}if-no-files-found: error\n/);
+  assert.doesNotMatch(webUpload, /docs\/images|site\/public\/images|web\/dist/);
+  assert.match(siteUpload, /path: site\/test-results\//);
+  assert.doesNotMatch(siteUpload, /docs\/images|site\/public\/images|site\/dist/);
+  assert.equal(JSON.parse(read('web/package.json')).scripts['refresh:docs-media'],
+    'WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0');
+  assert.equal(JSON.parse(read('site/package.json')).scripts['refresh:docs-media'],
+    'WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0');
+  assert.equal(JSON.parse(read('web/package.json')).scripts['prerefresh:docs-media'], 'npm run build');
+  assert.equal(JSON.parse(read('site/package.json')).scripts['prerefresh:docs-media'], 'npm run build');
+  for (const path of ['web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',
+    'site/e2e/screenshots.spec.ts']) {
+    assert.match(read(path), /test\.skip\(process\.env\.WAZA_REFRESH_DOCS_MEDIA !== ['"]1['"]/);
+  }
+  assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'),
+    /npm run refresh:docs-media -- e2e\/screenshots\.spec\.ts --grep dashboard-lab/);
+  const releaseLinks = read('site/e2e/documentation-links.spec.ts');
+  assert.equal((releaseLinks.match(/if \(process\.env\.WAZA_REFRESH_DOCS_MEDIA === '1'\) \{\s+await page\.screenshot/g) ?? []).length, 2,
+    'mixed release navigation assertions must not write documentation media in routine tests');
+  assert.match(read('web/e2e/runner-negotiation.spec.ts'),
+    /if \(outcome === "evaluation_failure" && process\.env\.WAZA_REFRESH_DOCS_MEDIA === "1"\)/,
+    'mixed terminal export assertions must not write documentation media in routine tests');
   assert.match(read('web/playwright.config.ts'), /testDir: "\.\/e2e"/);
   assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
   assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));
@@ -116,6 +146,23 @@ test('runner identity fixtures trigger consumer validation and publication witho
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-identities.spec.ts')));
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-terminal.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
+
+function assertMediaSelection(web, site) {
+  assert.match(web, /testIgnore: process\.env\.WAZA_REFRESH_DOCS_MEDIA === "1"\s*\? \[\]\s*: \["\*\*\/screenshots\.spec\.ts", "\*\*\/release-screenshots\.spec\.ts"\]/);
+  assert.match(site, /testIgnore: \[\s*'chat\.spec\.ts', 'chat-unavailable\.spec\.ts',\s*\.\.\.\(process\.env\.WAZA_REFRESH_DOCS_MEDIA === '1' \? \[\] : \['\*\*\/screenshots\.spec\.ts'\]\),\s*\]/);
+}
+
+test('routine browser discovery excludes only media-only specs and refresh restores them', () => {
+  const web = read('web/playwright.config.ts');
+  const site = read('site/playwright.config.ts');
+  assertMediaSelection(web, site);
+  for (const file of ['screenshots.spec.ts', 'release-screenshots.spec.ts']) {
+    assert.throws(() => assertMediaSelection(web.replace(`"**/${file}"`, '"**/*.spec.ts"'), site));
+  }
+  assert.throws(() => assertMediaSelection(web, site.replace("'**/screenshots.spec.ts'", "'**/*.spec.ts'")));
+  assert.throws(() => assertMediaSelection(web.replace('=== "1"', '!== "1"'), site));
+  assert.throws(() => assertMediaSelection(web, site.replace("=== '1'", "!== '1'")));
 });
 
 function anchors(text) {
@@ -203,9 +250,29 @@ function assertSiteDiscovery(workflow, inputs) {
   assert.equal(scripts['test:docs'], 'node --test tests/documentation.test.mjs');
 }
 
-test('every catalog, release and Docker workflow input enables PR site checks and the main push workflow', () => {
+test('every catalog, release, Docker and dashboard media input enables PR site checks and the main push workflow', () => {
   assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
-    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml', serveCommandInput]);
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, ...dashboardMediaInputs,
+      '.github/workflows/docker-ci.yml', serveCommandInput]);
+});
+
+test('dashboard media guard discovery rejects removal from either production selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertSiteDiscovery(workflow, dashboardMediaInputs);
+  const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
+  assert.ok(site, 'PR site filter must exist');
+  assert.doesNotMatch(site, /'web\/\*\*'/, 'unrelated dashboard changes must not select Site guards');
+  for (const input of dashboardMediaInputs) {
+    for (const [selector, line, diagnostic] of [
+      ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+      ['main push', input.startsWith('web/') ? "      - 'web/**'\n" : `      - '${input}'\n`,
+        /main push gate excludes documentation input/],
+    ]) {
+      const mutated = workflow.replace(line, '');
+      assert.notEqual(mutated, workflow, `${input}: ${selector} mutation must remove the actual selector`);
+      assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, `${input}: ${selector}`);
+    }
+  }
 });
 
 test('serve flag source selects site checks and selector omissions fail closed', () => {
@@ -263,7 +330,7 @@ function assertSiteParallelChecks(workflow) {
   assert.match(jobs.changes, /site: \$\{\{ steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
   assert.match(jobs.changes, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
   assert.match(jobs.changes, /uses: dorny\/paths-filter@/);
-  assert.doesNotMatch(jobs.changes, /npm|playwright/, 'change detection must not wait for browser or example work');
+  assert.doesNotMatch(jobs.changes, /^\s+(?:-\s+)?run:/m, 'change detection must not execute browser or example work');
   for (const [id, name] of [['build', 'Build site'], ['examples', 'Offline documentation examples']]) {
     assert.ok(jobs[id], `${id} job must exist`);
     assert.match(jobs[id], /^\s+needs: \[changes\]$/m, `${id} must depend only on successful change detection`);
@@ -287,6 +354,9 @@ test('site browser checks and offline examples wait only for short change detect
     ['    needs: [changes]\n    if: ${{ !cancelled() }}',
       '    needs: [changes, examples]\n    if: ${{ !cancelled() }}', /build must depend only/],
     ['    timeout-minutes: 5', '    timeout-minutes: 15', /timeout-minutes: 5/],
+    ['      - name: Detect site changes\n',
+      '      - run: npm --prefix site run build\n\n      - name: Detect site changes\n',
+      /change detection must not execute/],
     ['site: ${{ steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
     ["if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'",
       "if: needs.build.outputs.examples == 'true' || github.event_name == 'push'", /examples condition must consume/],
