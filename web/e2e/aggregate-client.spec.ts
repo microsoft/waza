@@ -46,6 +46,7 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
   let delayed: { wire: string; delay: number; started?: () => void; closed?: (completed: boolean) => void } | undefined;
 
   test.beforeAll(async () => {
+    test.setTimeout(120_000);
     directory = await mkdtemp(join(tmpdir(), "waza-mixed-aggregate-"));
     const output = join(directory, "mixed.json");
     execFileSync("go", ["test", "-count=1", "-run", "^TestMixedIdentityPublicReportFixture$",
