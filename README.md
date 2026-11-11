@@ -284,6 +284,27 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ## Commands
 
+### `waza artifact` (unreleased v0.41 source preview)
+
+Publish immutable artifact manifests without executing agents. The opt-in store
+is separate from legacy mutable result files; content verification is not
+execution attestation.
+
+```bash
+mkdir -m700 .waza-artifacts
+waza artifact create manifest.json --store .waza-artifacts
+waza artifact upload manifest.json terminal terminal.json --store .waza-artifacts
+waza artifact finalize "$DIGEST" --store .waza-artifacts
+waza artifact inspect "$DIGEST" --store .waza-artifacts
+```
+
+`DIGEST` is the canonical manifest digest returned by `create`; `terminal` must
+be its declared logical artifact name. Azure uses `--azure-container-url` instead
+of `--store`, with existing credentials and no automatic login. Lab can discover
+stored declaration pointers and inspect current integrity. Unreadable publication
+or an ambiguous finalization write reports `unknown`, not observed marker absence. See
+[declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
+
 <span id="waza-interop-source-build-preview"></span>
 
 ### `waza interop` (v0.40.0)
@@ -1954,7 +1975,9 @@ adversarial:
 
 ### Custom Input Variables
 
-Use the `inputs` section to define key-value variables available throughout your evaluation as `{{.Vars.key}}`:
+Use the top-level `inputs` section to define string variables available to
+lifecycle hook commands as `{{.Vars.key}}`. This contract applies to both
+legacy skill evals and scenario evals:
 
 ```yaml
 inputs:
@@ -2165,13 +2188,17 @@ hooks:
 
 **Template Variables in Hooks and Commands:**
 
-Available variables in hook commands and task execution contexts:
-- `{{.JobID}}` — Unique evaluation run identifier
-- `{{.TaskName}}` — Name/ID of the current task (available in `before_task`/`after_task` only)
-- `{{.Iteration}}` — Current trial number (1-indexed)
-- `{{.Attempt}}` — Current attempt number (1-indexed, used for retries)
-- `{{.Timestamp}}` — ISO 8601 timestamp of execution
-- `{{.Vars.key}}` — User-defined variables from the `inputs` section or CSV columns
+Hook commands support `{{.Vars.key}}` for user-defined values from the eval's
+top-level `inputs` section. Waza splits the configured command into process
+arguments, then renders each argument before starting the hook. A standalone
+placeholder remains one argument when its value contains whitespace or is
+empty. An invalid template or missing key fails that hook instead of passing
+the placeholder literally. Waza does not invoke a shell implicitly; use an
+explicit shell command when shell syntax is required.
+
+An empty rendered executable is rejected even when `error_on_fail` is false.
+When hooks are configured, both hook configuration and eval inputs participate
+in result cache identity; changing either prevents reuse of an old task result.
 
 Custom variables can be defined in the `inputs` section and referenced in hooks:
 
@@ -2183,13 +2210,16 @@ inputs:
 
 hooks:
   before_run:
-    - command: "echo 'Starting eval {{.JobID}} in {{.Vars.environment}}'"
+    - command: "echo {{.Vars.environment}}"
       working_directory: "."
       exit_codes: [0]
       error_on_fail: false
 ```
 
-When using CSV-generated tasks, each row's column values are also available as `{{.Vars.column_name}}`.
+For `tasks_from` CSV datasets, eval-level inputs and the current row's columns
+are available while rendering that row's task prompt. CSV columns are not added
+to lifecycle hook context. CSV prompt rendering also supports `{{.JobID}}`,
+`{{.TaskName}}`, and `{{.Timestamp}}`.
 
 ## Git Repository Resources
 

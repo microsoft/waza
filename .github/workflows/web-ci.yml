@@ -18,9 +18,23 @@ on:
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/web-ci.yml'
+      - '.github/scripts/ci-evidence*'
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      cold_observation:
+        description: Observe initially empty isolated Linux dependency stores
+        type: boolean
+        default: false
+        required: false
+  workflow_call:
+    inputs:
+      cold_observation:
+        description: Observe initially empty isolated Linux dependency stores
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -39,6 +53,8 @@ jobs:
       CI: 'true'
       ENABLE_COPILOT_TESTS: 'false'
       ENABLE_LIVE_COPILOT_TESTS: 'false'
+      CI_EVIDENCE_COLD_REQUESTED: ${{ inputs.cold_observation == true }}
+      CI_EVIDENCE_COLD_SETUP_CACHE_DISABLED: ${{ inputs.cold_observation == true }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,26 +80,39 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - '.github/workflows/web-ci.yml'
+              - '.github/scripts/ci-evidence*'
 
       - name: Setup Node
+        id: node
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.19.0'
-          cache: npm
+          cache: ${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' && 'npm' || '' }}
+          package-manager-cache: ${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' }}
           cache-dependency-path: web/package-lock.json
+
+      - name: Setup Go for real runner API browser coverage
+        id: go
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache: ${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' }}
+          cache-dependency-path: go.sum
+
+      - name: Observe initially empty isolated stores
+        if: env.CI_EVIDENCE_COLD_REQUESTED == 'true' && (steps.filter.outputs.web == 'true' || github.event_name != 'pull_request')
+        run: node .github/scripts/ci-evidence-cache.cjs prepare go-npm web
 
       - name: Install dependencies
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         working-directory: web
         run: npm ci
 
-      - name: Setup Go for real runner API browser coverage
+      - name: Test current browser reporter evidence contract
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.26'
-          cache-dependency-path: go.sum
+        run: node --test .github/scripts/ci-evidence-playwright.test.cjs
 
       - name: Lint dashboard
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
@@ -100,13 +129,39 @@ jobs:
         working-directory: web
         run: npx --no-install playwright install --with-deps chromium
 
+      - name: Discover dashboard tests without execution
+        id: discovery
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        working-directory: web
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: .ci-evidence-discovery.json
+        run: npx --no-install playwright test --project=chromium --retries=0 --list --reporter=json
+
       - name: Test dashboard
         id: tests
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         working-directory: web
         env:
-          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json
+          PLAYWRIGHT_JSON_OUTPUT_NAME: .ci-evidence-report.json
         run: npx --no-install playwright test --project=chromium --retries=0 --reporter=github,line,json
+
+      - name: Sanitize dashboard execution evidence
+        if: always() && steps.discovery.outcome != 'skipped' && steps.discovery.outcome != ''
+        env:
+          GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}
+          NODE_CACHE_HIT: ${{ steps.node.outputs.cache-hit }}
+          BROWSER_DISCOVERY_OUTCOME: ${{ steps.discovery.outcome }}
+          BROWSER_EXECUTION_OUTCOME: ${{ steps.tests.outcome }}
+        run: node .github/scripts/ci-evidence.cjs browser web/.ci-evidence-report.json ci-evidence-browser.json web/.ci-evidence-discovery.json
+
+      - name: Retain sanitized dashboard execution evidence
+        if: always() && steps.discovery.outcome != 'skipped' && steps.discovery.outcome != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-evidence-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-evidence-browser.json
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Upload dashboard test evidence
         if: always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
