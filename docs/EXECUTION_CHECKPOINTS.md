@@ -156,6 +156,20 @@ The operation then has `checkpoint_error`, exit 2, while retaining the original
 submission's terminal facts. There is no cross-object transaction, automatic
 rollback, inferred crash durability, or deletion of partial evidence.
 
+Finalized publication retains its separate 10-second budget after the runner
+joins, independent of the original request timeout and cancellation. Compatibility,
+native selection and full identity checks share one original-wire declaration;
+creator validation and immutable persistence still use that bounded publication
+context. A large accepted prompt must not trigger redundant identity derivation
+inside this budget. Deadline failures retain phase timings and the underlying
+context error; they do not imply that submission admission or execution failed.
+
+Negotiation uses `runnercontract.NegotiateValidatedRequest` only after `Parse`
+validates the original full-request wire. This helper performs capability/version
+selection without reparsing, serializing captured input, or imposing the narrower
+negotiation-only schema's offer limits. It does not validate arbitrary typed
+requests or admit execution; unknown required capabilities still fail negotiation.
+
 Raw core results can contain original source metadata. They are not approved
 public disclosure responses. `SubmitCaptured` and `ResumeCaptured` compose the
 evidence owner's shared `ownedsubmission.CaptureHooks` before projection and

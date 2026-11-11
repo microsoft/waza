@@ -848,6 +848,11 @@ streams require **Reconnect stream** rather than claiming automatic retry.
 The configured local storage adapter refreshes too. Incomplete rewrites of known
 artifacts fail refresh without discarding cached evidence; successful scans still
 reflect intentional deletion and ignore unrelated malformed new files.
+Local dashboard refreshes reuse parsed artifacts only when their SHA-256 content
+digest is unchanged, with a detached snapshot on every successful refresh.
+Mutating a downloaded outcome or API projection cannot alter the retained parse
+used by a later refresh. Ordinary CLI, MCP, evidence, and assurance readers remain
+uncached; the cache lasts only for the dashboard store's lifetime.
 Missing directories remain empty while no artifacts have been admitted. New
 unrelated inaccessible paths are skipped; root and admitted-path failures remain
 explicit. Nonempty remote archives refresh on demand rather than every 15

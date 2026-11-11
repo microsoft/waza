@@ -107,13 +107,30 @@ func TestOwnedFinalizedCheckpointRejectsForeignCreatorAndRequestRetag(t *testing
 		checkpoint.Compatibility.RunnerRevision, checkpoint.ManifestDigest); digest != "" || !errors.Is(err, executionledger.ErrCapability) {
 		t.Fatalf("zero creator published a checkpoint: %s, %v", digest, err)
 	}
-	modified := bytes.Replace(request, []byte(`"attempt": 2`), []byte(`"attempt": 3`), 1)
-	if bytes.Equal(request, modified) {
-		t.Fatal("native ordinal control did not change original request")
-	}
-	if digest, err := PublishFinalized(context.Background(), backend, ledger, creator, modified,
-		checkpoint.Compatibility.RunnerRevision, checkpoint.ManifestDigest); digest != "" || !errors.Is(err, ErrContext) {
-		t.Fatalf("new caller ordinal replaced original request: %s, %v", digest, err)
+	for _, control := range []struct{ name, from, to string }{
+		{"native-ordinal", `"attempt": 2`, `"attempt": 3`},
+		{"prompt", "prompt: hello", "prompt: changed"},
+		{"timeout", `"timeout_ms": 60000`, `"timeout_ms": 60001`},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			modified := bytes.Replace(request, []byte(control.from), []byte(control.to), 1)
+			if bytes.Equal(request, modified) {
+				t.Fatal("retag control did not change original request")
+			}
+			for _, boundary := range []string{BeforeUnit, FinalizedUnit} {
+				var digest string
+				var err error
+				if boundary == BeforeUnit {
+					digest, err = PublishBefore(t.Context(), backend, ledger, creator, modified, checkpoint.Compatibility.RunnerRevision)
+				} else {
+					digest, err = PublishFinalized(t.Context(), backend, ledger, creator, modified,
+						checkpoint.Compatibility.RunnerRevision, checkpoint.ManifestDigest)
+				}
+				if digest != "" || !errors.Is(err, ErrContext) {
+					t.Fatalf("%s retag replaced original request: %s, %v", boundary, digest, err)
+				}
+			}
+		})
 	}
 	if digest, err := PublishFinalized(context.Background(), backend, ledger, creator, request,
 		"", checkpoint.ManifestDigest); digest != "" || !errors.Is(err, ErrIncompatible) {

@@ -15,6 +15,15 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 	if output, err := unit.CombinedOutput(); err != nil {
 		t.Fatalf("explicit checker test discovery: %v\n%s", err, output)
 	}
+	modules := exec.CommandContext(t.Context(), "go", "list", "-mod=readonly", "-m",
+		"-f", "{{.Path}} {{.Version}}", "golang.org/x/net", "golang.org/x/sys")
+	modules.Dir = "../.."
+	modules.Env = append(os.Environ(), "GOOS=", "GOARCH=", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off")
+	requirements, err := modules.CombinedOutput()
+	if err != nil {
+		t.Fatalf("resolve pinned checker dependencies offline: %v\n%s", err, requirements)
+	}
+	fixtureModule := []byte("module dashboard.fixture\n\ngo 1.26.4\n\nrequire (\n" + string(requirements) + ")\n")
 	for _, missing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "host-native", true: "missing-pinned-dependency"}[missing], func(t *testing.T) {
 			dir := t.TempDir()
@@ -29,7 +38,7 @@ func TestReleaseDashboardCheckerDistribution(t *testing.T) {
 				}
 				writeReleaseFile(t, filepath.Join(sources, name), content)
 			}
-			writeReleaseFile(t, filepath.Join(dir, "go.mod"), []byte("module dashboard.fixture\n\ngo 1.26.4\n\nrequire (\n\tgolang.org/x/net v0.61.0\n\tgolang.org/x/sys v0.49.0\n)\n"))
+			writeReleaseFile(t, filepath.Join(dir, "go.mod"), fixtureModule)
 			sum, err := os.ReadFile("../../go.sum")
 			if err != nil {
 				t.Fatal(err)

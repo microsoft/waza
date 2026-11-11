@@ -341,6 +341,7 @@ func TestSuggest_CopilotText(t *testing.T) {
 	out := new(bytes.Buffer)
 	cmd := newSuggestCmd()
 	cmd.SetOut(out)
+	cmd.SetErr(new(bytes.Buffer))
 	cmd.SetArgs([]string{"--copilot"})
 	require.NoError(t, cmd.Execute())
 
@@ -355,6 +356,7 @@ func TestSuggest_CopilotJSON(t *testing.T) {
 	out := new(bytes.Buffer)
 	cmd := newSuggestCmd()
 	cmd.SetOut(out)
+	cmd.SetErr(new(bytes.Buffer))
 	cmd.SetArgs([]string{"--copilot", "--format", "json"})
 	require.NoError(t, cmd.Execute())
 
@@ -376,6 +378,7 @@ func TestSuggest_CopilotMultipleFiles(t *testing.T) {
 	out := new(bytes.Buffer)
 	cmd := newSuggestCmd()
 	cmd.SetOut(out)
+	cmd.SetErr(new(bytes.Buffer))
 	cmd.SetArgs([]string{"--copilot", "--format", "json"})
 	require.NoError(t, cmd.Execute())
 
@@ -397,6 +400,7 @@ func TestSuggest_CopilotModel(t *testing.T) {
 	out := new(bytes.Buffer)
 	cmd := newSuggestCmd()
 	cmd.SetOut(out)
+	cmd.SetErr(new(bytes.Buffer))
 	cmd.SetArgs([]string{"--copilot", "--model", "custom-model", "--format", "json"})
 	require.NoError(t, cmd.Execute())
 
