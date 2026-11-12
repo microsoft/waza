@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -104,6 +105,39 @@ func TestActualRepeatedExecutionsAndCompatibleViewsAreDeterministic(t *testing.T
 	_, err = Parse(forged)
 	require.ErrorIs(t, err, ErrInvalid, "saved reports must not give sidecar views of one manifest different outcomes")
 	_, err = Encode(inconsistent)
+	require.ErrorIs(t, err, ErrInvalid)
+
+	contradictory := *report
+	contradictory.Members = append([]Member(nil), report.Members...)
+	changed = false
+	for index := range contradictory.Members {
+		member := &contradictory.Members[index]
+		if member.Manifest == first.Manifest && member.Evidence == third.Evidence {
+			binding := *member.Binding
+			binding.GraderIDs = append(slices.Clone(binding.GraderIDs), "forged-grader")
+			slices.Sort(binding.GraderIDs)
+			member.Binding = &binding
+			changed = true
+		}
+	}
+	require.True(t, changed)
+	profiles := map[string][]Input{}
+	for _, member := range contradictory.Members {
+		wire, err := json.Marshal(member.Binding)
+		require.NoError(t, err)
+		key := artifactmanifest.Hash(wire)
+		profiles[key] = append(profiles[key], member.Input)
+	}
+	contradictory.Groups = nil
+	for _, key := range sortedKeys(profiles) {
+		contradictory.Groups = append(contradictory.Groups, Group{Profile: key, Members: profiles[key]})
+	}
+	require.Len(t, contradictory.Groups, 2, "the control must keep groups consistent so only the binding conflict is invalid")
+	forged, err = json.Marshal(contradictory)
+	require.NoError(t, err)
+	_, err = Parse(forged)
+	require.ErrorIs(t, err, ErrInvalid, "saved reports must not give sidecar views of one manifest different bindings")
+	_, err = Encode(contradictory)
 	require.ErrorIs(t, err, ErrInvalid)
 }
 

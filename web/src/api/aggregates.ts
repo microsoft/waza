@@ -171,6 +171,7 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
   const profiles = new Map<string, string[]>();
   const executionManifests = new Map<string, string>();
   const manifestOutcomes = new Map<string, string>();
+  const manifestProfiles = new Map<string, string>();
   let state = "complete";
   let ordered = sorted(value.usage.diagnostics);
   for (const member of value.members) {
@@ -193,6 +194,9 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
     if (member.binding) {
       ordered &&= sorted(member.binding.grader_ids, compareUTF8);
       const profile = await bindingProfile(member.binding);
+      const previousProfile = manifestProfiles.get(member.manifest_sha256);
+      if (previousProfile !== undefined && previousProfile !== profile) ordered = false;
+      else manifestProfiles.set(member.manifest_sha256, profile);
       const members = profiles.get(profile) ?? [];
       members.push(referenceKey(member));
       profiles.set(profile, members);

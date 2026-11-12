@@ -68,7 +68,7 @@ func accounting(report Report) error {
 	counts := Counts{Members: len(report.Members), MemberStates: map[string]int{}, MemberOutcomes: map[string]int{}}
 	manifests, executions := map[string]bool{}, map[string]bool{}
 	executionManifests := map[string]string{}
-	manifestOutcomes := map[string]string{}
+	manifestOutcomes, manifestProfiles := map[string]string{}, map[string]string{}
 	profiles := map[string][]Input{}
 	state := "complete"
 	allUsageEligible := true
@@ -103,6 +103,11 @@ func accounting(report Report) error {
 				return err
 			}
 			key := artifactmanifest.Hash(wire)
+			// A content-addressed manifest has exactly one binding across its views.
+			if previous, ok := manifestProfiles[member.Manifest]; ok && previous != key {
+				return fail()
+			}
+			manifestProfiles[member.Manifest] = key
 			profiles[key] = append(profiles[key], member.Input)
 		}
 		if member.Execution != "" {

@@ -157,6 +157,36 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
     await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" }))
       .toContainText("Aggregate admission: complete");
 
+    const contradictoryBinding = JSON.parse(fixture.canonical);
+    const views = contradictoryBinding.members as {
+      manifest_sha256: string; evidence_sha256?: string; binding: { grader_ids: string[] } & Record<string, unknown>;
+    }[];
+    expect(views[0]!.binding).toEqual(views[1]!.binding);
+    expect(contradictoryBinding.groups).toHaveLength(1);
+    views[1]!.binding = { ...views[1]!.binding, grader_ids: [...views[1]!.binding.grader_ids, "forged-grader"].sort() };
+    const profileOf = (binding: Record<string, unknown>) => {
+      const wire = JSON.stringify(binding);
+      expect(wire).not.toMatch(/[<>&\u2028\u2029]/);
+      return createHash("sha256").update(wire).digest("hex");
+    };
+    contradictoryBinding.groups = views
+      .map((view) => ({ profile_sha256: profileOf(view.binding), members: [{
+        manifest_sha256: view.manifest_sha256, ...(view.evidence_sha256 ? { evidence_sha256: view.evidence_sha256 } : {}),
+      }] }))
+      .sort((a, b) => a.profile_sha256 < b.profile_sha256 ? -1 : 1);
+    expect(contradictoryBinding.groups[0].profile_sha256).not.toBe(contradictoryBinding.groups[1].profile_sha256);
+    expect(profileOf(JSON.parse(fixture.canonical).members[0].binding))
+      .toBe(JSON.parse(fixture.canonical).groups[0].profile_sha256);
+    response = JSON.stringify(contradictoryBinding);
+    await build.click();
+    await expect(page.getByRole("alert")).toContainText("inconsistent");
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
+
+    response = fixture.canonical;
+    await build.click();
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" }))
+      .toContainText("Aggregate admission: complete");
+
     const forged = JSON.parse(fixture.canonical);
     const target = forged.members[1];
     const previousManifest = target.manifest_sha256 as string;
