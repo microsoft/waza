@@ -18,6 +18,26 @@ const identityVectors = JSON.parse(readFileSync(new URL("../../internal/runnerun
   identity: Record<string, string>;
 }[];
 
+function reorderMultiGraderDeclaration(result: ReturnType<typeof JSON.parse>) {
+  const wireOrder = ["😀", "\uE000"];
+  const canonicalOrder = ["\uE000", "😀"];
+  result.submission.reservation.binding.grader_ids = wireOrder;
+  result.submission.decision.binding.grader_ids = wireOrder;
+  const reservation = structuredClone(result.submission.reservation);
+  reservation.binding.grader_ids = canonicalOrder;
+  const reservationDigest = createHash("sha256").update(JSON.stringify(reservation)).digest("hex");
+  result.source.reservation_digest = reservationDigest;
+  const completion = result.submission.completion;
+  completion.reservation_digest = reservationDigest;
+  result.source.completion_digest = createHash("sha256").update(JSON.stringify({
+    kind: completion.kind,
+    schema_version: completion.schema_version,
+    execution_id: completion.execution_id,
+    reservation_digest: completion.reservation_digest,
+    manifest_digest: completion.manifest_digest,
+  })).digest("hex");
+}
+
 test.describe("Runner negotiation through the real Go API", () => {
   test.describe.configure({ mode: "serial" });
   let directory: string;
@@ -217,6 +237,13 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
       .toContainText("Checkpoint result: reused");
 
+    const reorderedResult = structuredClone(reusedResult);
+    reorderMultiGraderDeclaration(reorderedResult);
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(reorderedResult));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Checkpoint result: reused");
+
     const mismatchedExit = structuredClone(reusedResult);
     mismatchedExit.exit_code = 1;
     await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedExit));
@@ -226,6 +253,13 @@ test.describe("Runner negotiation through the real Go API", () => {
     const operationError = JSON.parse(
       readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
     );
+    const reorderedOperationError = structuredClone(operationError);
+    reorderMultiGraderDeclaration(reorderedOperationError);
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(reorderedOperationError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Operation error");
+
     const substitutedReservation = structuredClone(operationError);
     const digest = "0".repeat(64);
     substitutedReservation.source.reservation_digest = digest;
@@ -250,21 +284,28 @@ test.describe("Runner negotiation through the real Go API", () => {
     await page.evaluate(() => {
       const subtle = globalThis.crypto.subtle;
       const digest = subtle.digest.bind(subtle);
-      let release: (() => void) | undefined;
+      const pending: (() => void)[] = [];
+      let completed = 0;
       const browserWindow = window as Window & {
         __releaseCheckpointDigest?: () => void;
-        __checkpointDigestDone?: boolean;
+        __checkpointDigestPending?: number;
+        __checkpointDigestCompleted?: number;
       };
       Object.defineProperty(subtle, "digest", {
         configurable: true,
         value: (algorithm: AlgorithmIdentifier, data: BufferSource) => new Promise<ArrayBuffer>((resolve, reject) => {
-          release = () => {
+          pending.push(() => {
             void digest(algorithm, data).then((value) => {
-              browserWindow.__checkpointDigestDone = true;
+              completed++;
+              browserWindow.__checkpointDigestCompleted = completed;
               resolve(value);
             }, reject);
+          });
+          browserWindow.__checkpointDigestPending = pending.length;
+          browserWindow.__releaseCheckpointDigest = () => {
+            pending.shift()?.();
+            browserWindow.__checkpointDigestPending = pending.length;
           };
-          browserWindow.__releaseCheckpointDigest = () => release?.();
         }),
       });
     });
@@ -274,7 +315,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await input.fill(JSON.stringify(operationError));
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
     await page.waitForFunction(() =>
-      typeof (window as Window & { __releaseCheckpointDigest?: () => void }).__releaseCheckpointDigest === "function");
+      (window as Window & { __checkpointDigestPending?: number }).__checkpointDigestPending === 1);
 
     await input.fill(JSON.stringify({
       kind: "waza.runner-checkpoint-result",
@@ -293,8 +334,18 @@ test.describe("Runner negotiation through the real Go API", () => {
 
     await page.evaluate(() =>
       (window as Window & { __releaseCheckpointDigest?: () => void }).__releaseCheckpointDigest?.());
+    await page.waitForFunction(() => {
+      const browserWindow = window as Window & {
+        __checkpointDigestPending?: number;
+        __checkpointDigestCompleted?: number;
+      };
+      return browserWindow.__checkpointDigestPending === 1 &&
+        browserWindow.__checkpointDigestCompleted === 1;
+    });
+    await page.evaluate(() =>
+      (window as Window & { __releaseCheckpointDigest?: () => void }).__releaseCheckpointDigest?.());
     await page.waitForFunction(() =>
-      (window as Window & { __checkpointDigestDone?: boolean }).__checkpointDigestDone === true);
+      (window as Window & { __checkpointDigestCompleted?: number }).__checkpointDigestCompleted === 2);
     await expect(status).toContainText("Checkpoint result: rejected");
   });
 

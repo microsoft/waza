@@ -82,6 +82,7 @@ function validator(schema: object) {
 
 const validate10 = validator(result10Schema);
 const validate11 = validator(result11Schema);
+const utf8Encoder = new TextEncoder();
 
 async function jsonDigest(value: object) {
   const wire = JSON.stringify(value)
@@ -92,6 +93,17 @@ async function jsonDigest(value: object) {
     .replace(/\u2029/g, "\\u2029");
   const bytes = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(wire));
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function compareUTF8(left: string, right: string) {
+  const leftBytes = utf8Encoder.encode(left);
+  const rightBytes = utf8Encoder.encode(right);
+  for (const [index, leftByte] of leftBytes.entries()) {
+    const rightByte = rightBytes[index];
+    if (rightByte === undefined) return leftBytes.length - rightBytes.length;
+    if (leftByte !== rightByte) return leftByte - rightByte;
+  }
+  return leftBytes.length - rightBytes.length;
 }
 
 function canonicalAttempt(attempt: ExecutionAttempt) {
@@ -117,7 +129,7 @@ function canonicalAttempt(attempt: ExecutionAttempt) {
         attempt: attempt.binding.selection.attempt,
       },
       execution_mode: attempt.binding.execution_mode,
-      grader_ids: attempt.binding.grader_ids,
+      grader_ids: [...attempt.binding.grader_ids].sort(compareUTF8),
     },
     ...(attempt.parent ? {
       parent: {
