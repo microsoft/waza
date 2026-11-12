@@ -66,7 +66,10 @@ test('local container conformance is selected by its production build inputs', (
   assert.match(job, /lfs: true/);
   assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
   assert.match(job, /run: node --test examples\/runner\/container\/native-test\.mjs/);
-  assert.doesNotMatch(job, /continue-on-error|if:/);
+  assert.doesNotMatch(job, /continue-on-error/);
+  for (const [line] of job.matchAll(/^\s+if:.*$/gm)) {
+    assert.match(line, /pr_completeness_plan != ''|steps\.receipt\.outcome == 'success'/, 'only completeness receipt steps may be conditional');
+  }
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
 });
@@ -333,7 +336,7 @@ function assertInteropExampleDiscovery(workflow) {
     const patterns = [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
     assert.ok(patterns.includes('examples/interop/**'), `${name} must select script-only interop changes`);
   }
-  assert.match(workflow, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(workflow, /examples: \$\{\{ steps\.scope\.outputs\.examples \|\| steps\.filter\.outputs\.examples \}\}/);
   assert.match(workflow, /if: needs\.changes\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/);
 }
 
@@ -343,10 +346,14 @@ function assertSiteParallelChecks(workflow) {
   assert.ok(jobs.changes, 'short change detection prerequisite must exist');
   assert.match(jobs.changes, /timeout-minutes: 5/);
   assert.doesNotMatch(jobs.changes, /^\s+needs:/m, 'change detection must run independently');
-  assert.match(jobs.changes, /site: \$\{\{ steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
-  assert.match(jobs.changes, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(jobs.changes, /site: \$\{\{ steps\.scope\.outputs\.site \|\| steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
+  assert.match(jobs.changes, /examples: \$\{\{ steps\.scope\.outputs\.examples \|\| steps\.filter\.outputs\.examples \}\}/);
   assert.match(jobs.changes, /uses: dorny\/paths-filter@/);
-  assert.doesNotMatch(jobs.changes, /^\s+(?:-\s+)?run:/m, 'change detection must not execute browser or example work');
+  const scope = '      - name: Use completeness plan scope\n        id: scope\n        if: inputs.pr_completeness_plan != \'\'\n' +
+    '        env:\n          SITE_SELECTED: ${{ inputs.site }}\n          EXAMPLES_SELECTED: ${{ inputs.examples }}\n' +
+    '        run: printf \'site=%s\\nexamples=%s\\n\' "$SITE_SELECTED" "$EXAMPLES_SELECTED" >> "$GITHUB_OUTPUT"\n';
+  assert.ok(jobs.changes.includes(scope), 'completeness scope must only forward caller-selected applicability');
+  assert.doesNotMatch(jobs.changes.replace(scope, ''), /^\s+(?:-\s+)?run:/m, 'change detection must not execute browser or example work');
   for (const [id, name] of [['build', 'Build site'], ['examples', 'Offline documentation examples']]) {
     assert.ok(jobs[id], `${id} job must exist`);
     assert.match(jobs[id], /^\s+needs: \[changes\]$/m, `${id} must depend only on successful change detection`);
@@ -373,7 +380,7 @@ test('site browser checks and offline examples wait only for short change detect
     ['      - name: Detect site changes\n',
       '      - run: npm --prefix site run build\n\n      - name: Detect site changes\n',
       /change detection must not execute/],
-    ['site: ${{ steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
+    ['site: ${{ steps.scope.outputs.site || steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
     ["if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'",
       "if: needs.build.outputs.examples == 'true' || github.event_name == 'push'", /examples condition must consume/],
     ['run: test "$CHANGES_RESULT" = success', 'run: echo ignored', /required site check must reject/],
