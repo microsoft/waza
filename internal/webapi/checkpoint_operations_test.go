@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -220,10 +222,12 @@ func TestCheckpointOperationHTTPCombinedPinnedReadAndCloseFailures(t *testing.T)
 	require.NoError(t, err)
 	require.NoError(t, closeLocal())
 	backend, fixture := testfixture.NewPinnedReadBackend(t, directory)
-	var logs bytes.Buffer
-	logger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	defer slog.SetDefault(logger)
+	require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	logs := &checkpointLogSink{}
+	setWebAPITestLogger(t, slog.New(slog.NewTextHandler(logs, nil)))
+	defer func() {
+		require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	}()
 	mux := http.NewServeMux()
 	registerCheckpointOperationRoutes(mux, checkpointOperations{
 		open: func() (artifactmanifest.Backend, func() error, error) {
@@ -247,8 +251,11 @@ func TestCheckpointOperationHTTPCombinedPinnedReadAndCloseFailures(t *testing.T)
 	require.Equal(t, "reuse_not_admitted", result.Submission.Diagnostics[0].Code)
 	require.Nil(t, result.Submission.Reservation)
 	require.Nil(t, result.Submission.Completion)
-	require.Contains(t, logs.String(), testfixture.PinnedReadFailure)
-	require.Contains(t, logs.String(), "private-http-close-control")
+	require.Eventually(t, func() bool {
+		record := logs.String()
+		return strings.Contains(record, testfixture.PinnedReadFailure) &&
+			strings.Contains(record, "private-http-close-control")
+	}, 2*time.Second, time.Millisecond)
 	public, err := runnercheckpoint.EncodeResult(result)
 	require.NoError(t, err)
 	require.NotContains(t, string(public), testfixture.PinnedReadFailure)
@@ -390,19 +397,72 @@ func TestCheckpointOperationHTTPAdmissionPrecedesBuildStorageAndExecution(t *tes
 	require.Zero(t, factories.Load())
 }
 
-type checkpointLogSink chan string
+type checkpointLogSink struct {
+	mu   sync.Mutex
+	data bytes.Buffer
+}
 
-func (s checkpointLogSink) Write(data []byte) (int, error) {
-	s <- string(data)
-	return len(data), nil
+func (s *checkpointLogSink) Write(data []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.Write(data)
+}
+
+func (s *checkpointLogSink) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.String()
+}
+
+func (s *checkpointLogSink) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Reset()
+}
+
+func setWebAPITestLogger(t *testing.T, logger *slog.Logger) {
+	t.Helper()
+	previous := slog.Default()
+	writer, flags := log.Writer(), log.Flags()
+	slog.SetDefault(logger)
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		// Restoring slog's default handler does not restore log's writer or flags.
+		log.SetOutput(writer)
+		log.SetFlags(flags)
+	})
+}
+
+func TestCheckpointLoggingRestoresStandardLogger(t *testing.T) {
+	previous := slog.Default()
+	writer, flags := log.Writer(), log.Flags()
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(writer)
+		log.SetFlags(flags)
+	})
+	var original bytes.Buffer
+	log.SetOutput(&original)
+	log.SetFlags(log.Llongfile)
+	t.Run("capture", func(t *testing.T) {
+		records := &checkpointLogSink{}
+		setWebAPITestLogger(t, slog.New(slog.NewTextHandler(records, nil)))
+		log.Print("captured standard log")
+		slog.Error("captured structured log")
+		require.Contains(t, records.String(), "captured standard log")
+		require.Contains(t, records.String(), "captured structured log")
+	})
+	require.Same(t, previous, slog.Default())
+	require.Same(t, &original, log.Writer())
+	require.Equal(t, log.Llongfile, log.Flags())
+	log.Print("restored standard log")
+	require.Contains(t, original.String(), "restored standard log")
 }
 
 func TestCheckpointOperationHTTPSubmissionParseFailureLogsWithoutRequestContents(t *testing.T) {
 	require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
-	records := make(checkpointLogSink, 4)
-	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(records, nil)))
-	defer slog.SetDefault(previous)
+	records := &checkpointLogSink{}
+	setWebAPITestLogger(t, slog.New(slog.NewTextHandler(records, nil)))
 	defer func() {
 		require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
 	}()
@@ -433,6 +493,7 @@ func TestCheckpointOperationHTTPSubmissionParseFailureLogsWithoutRequestContents
 		} {
 			t.Run(action+"-"+input.name, func(t *testing.T) {
 				require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+				records.Reset()
 				_, parseErr := runnerunit.ParseSubmission([]byte(input.wire))
 				require.Error(t, parseErr)
 				path := "/api/v1/checkpoints"
@@ -452,16 +513,15 @@ func TestCheckpointOperationHTTPSubmissionParseFailureLogsWithoutRequestContents
 				require.Equal(t, 6, result.ExitCode)
 				require.Equal(t, "checkpoint_input_invalid", result.Diagnostics[0].Code)
 				require.NotContains(t, string(body), secret)
-				select {
-				case record := <-records:
-					require.Contains(t, record, "checkpoint submission parsing failed")
-					require.Contains(t, record, "action="+action)
-					require.Contains(t, record, "Inspect the submission and local schema initialization.")
-					require.NotContains(t, record, secret)
-					require.NotContains(t, record, parseErr.Error())
-				case <-time.After(2 * time.Second):
-					t.Fatal("checkpoint submission parsing diagnostic was not logged")
-				}
+				require.Eventually(t, func() bool {
+					record := records.String()
+					return strings.Contains(record, "checkpoint submission parsing failed") &&
+						strings.Contains(record, "action="+action)
+				}, 2*time.Second, time.Millisecond, "checkpoint submission parsing diagnostic was not logged")
+				record := records.String()
+				require.Contains(t, record, "Inspect the submission and local schema initialization.")
+				require.NotContains(t, record, secret)
+				require.NotContains(t, record, parseErr.Error())
 			})
 		}
 	}
