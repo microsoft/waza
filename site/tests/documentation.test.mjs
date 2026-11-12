@@ -32,6 +32,22 @@ const releaseInputs = [
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
+test('CI/CD guide preserves readable punctuation and copyable result labels', () => {
+  const guide = read('site/src/content/docs/guides/ci-cd.mdx');
+  assert.doesNotMatch(guide, /ΓÇö|Γ£à|Γ¥î|ΓåÆ|\uFFFD/);
+  assert.match(guide, /^description: Integrate waza into your CI\/CD pipeline — GitHub Actions, Azure DevOps, GitLab CI, and more\.$/m);
+  assert.match(guide, /^### Quick Start — Scaffold with waza init$/m);
+  assert.match(guide, /^### Multi-Stage Pipeline: PR → Staging → Production$/m);
+  assert.ok(guide.includes('✅ **Passed:** ${results.summary.succeeded}\\n❌ **Failed:** ${results.summary.failed}'));
+  const nextSteps = guide.split('\n## Next Steps\n')[1];
+  assert.equal(nextSteps?.trim(), [
+    '- **[Writing Eval Specs](../eval-yaml/)** — Configure your evaluations',
+    '- **[CLI Reference](../../reference/cli/)** — All flags and commands',
+    '- **[Graders Guide](../graders/)** — Set up scoring rules',
+    '- **[Examples](https://github.com/microsoft/waza/tree/main/examples)** — Real eval setups',
+  ].join('\n'));
+});
+
 test('local container conformance is selected by its production build inputs', () => {
   const workflow = read('.github/workflows/docker-ci.yml');
   for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
