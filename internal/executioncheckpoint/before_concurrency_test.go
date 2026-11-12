@@ -12,6 +12,45 @@ import (
 	"github.com/microsoft/waza/internal/artifactmanifest"
 )
 
+func currentGoroutineID() string {
+	var stack [64]byte
+	n := runtime.Stack(stack[:], false)
+	fields := strings.Fields(string(stack[:n]))
+	if len(fields) < 2 {
+		panic("runtime stack omitted goroutine id")
+	}
+	return fields[1]
+}
+
+func waitForCreatorMutationLock(t *testing.T, id, operation string, mutated <-chan error, deadline time.Time) {
+	t.Helper()
+	buffer := make([]byte, 1<<20)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-mutated:
+			t.Fatalf("creator mutation escaped blocked publication gate: %v", err)
+		default:
+		}
+		n := runtime.Stack(buffer, true)
+		allStacks := string(buffer[:n])
+		header := "goroutine " + id + " "
+		start := strings.Index(allStacks, header)
+		if start >= 0 {
+			end := strings.Index(allStacks[start:], "\n\n")
+			if end < 0 {
+				end = len(allStacks) - start
+			}
+			stack := allStacks[start : start+end]
+			if strings.Contains(stack, "sync.(*Mutex).Lock") &&
+				strings.Contains(stack, "executionledger.(*Ledger)."+operation) {
+				return
+			}
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("creator %s contender never reached the blocked mutation gate", operation)
+}
+
 func TestBeforePublicationSerializesConcurrentCreatorMutations(t *testing.T) {
 	for _, operation := range []string{"dispatch", "complete"} {
 		t.Run(operation, func(t *testing.T) {
@@ -47,9 +86,10 @@ func TestBeforePublicationSerializesConcurrentCreatorMutations(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
-			mutated := make(chan error, 1)
+			contenderID, mutated := make(chan string, 1), make(chan error, 1)
 			copy := creator
 			go func() {
+				contenderID <- currentGoroutineID()
 				var err error
 				if operation == "dispatch" {
 					_, err = ledger.Distinct(ctx, copy)
@@ -58,11 +98,11 @@ func TestBeforePublicationSerializesConcurrentCreatorMutations(t *testing.T) {
 				}
 				mutated <- err
 			}()
-			frame := "executionledger.(*Ledger).Distinct("
-			if operation == "complete" {
-				frame = "executionledger.(*Ledger).Complete("
-			}
-			waitForCreatorGateContention(ctx, t, frame, mutated)
+			id := <-contenderID
+			waitForCreatorMutationLock(t, id, map[string]string{
+				"dispatch": "Distinct",
+				"complete": "Complete",
+			}[operation], mutated, time.Now().Add(5*time.Second))
 			if operation == "dispatch" {
 				if started, err := ledger.HasDistinctDecision(ctx, checkpoint.ExecutionID); err != nil || started {
 					t.Fatalf("dispatch became visible while Put was blocked: started=%v %v", started, err)
@@ -91,36 +131,5 @@ func TestBeforePublicationSerializesConcurrentCreatorMutations(t *testing.T) {
 				t.Fatalf("mutation permitted subsequent before publication: %s %v", stored, err)
 			}
 		})
-	}
-}
-
-// waitForCreatorGateContention returns only once a goroutine executing frame is
-// parked on a sync.Mutex, proving the contender reached the held creator gate.
-func waitForCreatorGateContention(ctx context.Context, t *testing.T, frame string, mutated <-chan error) {
-	t.Helper()
-	buf := make([]byte, 1<<20)
-	for {
-		for {
-			n := runtime.Stack(buf, true)
-			if n < len(buf) {
-				buf = buf[:n]
-				break
-			}
-			buf = make([]byte, 2*len(buf))
-		}
-		for _, stack := range strings.Split(string(buf), "\n\n") {
-			header, _, _ := strings.Cut(stack, "\n")
-			if strings.Contains(header, "[sync.Mutex.Lock") && strings.Contains(stack, frame) {
-				return
-			}
-		}
-		buf = buf[:cap(buf)]
-		select {
-		case err := <-mutated:
-			t.Fatalf("creator mutation escaped blocked publication gate: %v", err)
-		case <-ctx.Done():
-			t.Fatalf("creator mutation never contended on the publication gate: %v", ctx.Err())
-		case <-time.After(time.Millisecond):
-		}
 	}
 }

@@ -78,7 +78,7 @@ export interface RunnerTerminal {
 
 const validateTerminal = new Ajv2020({ strict: false }).compile<RunnerTerminal>(terminalSchema);
 
-function sameSelection(a: WorkSelection | undefined, b: WorkSelection | undefined): boolean {
+export function sameSelection(a: WorkSelection | undefined, b: WorkSelection | undefined): boolean {
   return !!a && !!b && a.shard === b.shard && a.task === b.task && a.trial === b.trial && a.attempt === b.attempt;
 }
 

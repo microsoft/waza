@@ -2,9 +2,12 @@
 
 This unreleased, partial #765 layer builds on the
 [logical-attempt core](EXECUTION_ATTEMPTS.md) and immutable manifest v1. It
-provides an embedding service, not released CLI commands, protected HTTP
-operations, or a Lab checkpoint view. Those public surfaces and full #755
-acceptance remain pending.
+provides an embedding service and unreleased source commands
+`runner checkpoint create` and `runner checkpoint resume`. Installed v0.40.1
+artifacts do not contain these commands. Protected HTTP create/resume operations
+are registered, and the Lab can inspect supplied checkpoint-result JSON.
+Lab orchestration of create/resume, a generic public submission command,
+broader native-platform evidence, and full #755 acceptance remain pending.
 
 ## Supported boundaries
 
@@ -101,6 +104,46 @@ are integration controls, not evidence that a clean production CLI was run.
 Working-directory Git, caller JSON and version-shaped fallback strings are not
 accepted sources of build identity.
 
+The shared CLI input reader accepts an explicit bound for submission wrappers
+(`runnerunit.MaxSubmissionBytes`), including inherited stdin. It retains one
+extra byte so the strict parser can reject oversized input rather than accepting
+a truncated document. Legacy `runner run` and `runner validate` retain their
+original `runnercontract.MaxRequestBytes` bound and stdin cancellation behavior.
+Public commands use this wrapper bound, not the bare runner-request bound.
+
+The CLI accepts the existing private store through `--store` or an explicit Azure
+container through `--azure-container-url`; those flags are mutually exclusive.
+It writes one capture-approved `waza.runner-checkpoint-result` record to stdout
+and boundary/digest progress to stderr. Ordinary success, rejection, and
+checkpoint results retain strict schema version `1.0`. Store-open/close
+operational failures use schema version `1.1`, top-level `operation_error`,
+exit code `2`, and an allowlisted sanitized `error_code`; no submission or
+source is fabricated before admission. Save stdout even when the exit is
+nonzero: a close failure after execution preserves the capture-approved
+submission, source and checkpoint references when their linkage is valid,
+including the submission's original status and exit. If an admitted source
+cannot be linked to the retained submission, it is withheld and
+`source_withheld` is true. The CLI writes underlying causes to operator stderr;
+server operational logs may include causes, but submission-parser failures log
+only the failure stage, action and guidance, not the parser error or request.
+Consumers must treat the levels separately: top-level exit `2` can coexist with
+a preserved completed or reused submission whose nested exit is `0`.
+The Lab reader performs schema and cross-field checks locally, but does not
+perform native canonical-report checks. For report-bearing 1.0 results it
+therefore labels operation and submission statuses and exit codes as unverified
+claims, not verified outcomes.
+An output failure exits 2 and is not successful delivery.
+See the [operator workflow](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
+
+The dashboard server registers `POST /api/v1/checkpoints` and
+`POST /api/v1/checkpoints/{digest}/resume`. Both accept the same submission JSON
+and return the protected checkpoint-result record with `X-Waza-Exit-Code`.
+They require a loopback peer, literal loopback Host, same-origin browser metadata,
+JSON content type, and bounded request/response transport. The server selects
+the existing `RESULTS_DIR/.waza-artifacts` store or its configured Azure provider;
+request JSON cannot select host paths or provider locations. Unsupported active
+providers fail closed. No raw checkpoint GET endpoint is exposed.
+
 `Put` can return a digest **and an error** if a blob may remain after failure.
 Preserve that reference and inspect it; never treat it as verified publication.
 Finalized checkpoint publication can fail after the original execution completed.
@@ -108,23 +151,14 @@ The operation then has `checkpoint_error`, exit 2, while retaining the original
 submission's terminal facts. There is no cross-object transaction, automatic
 rollback, inferred crash durability, or deletion of partial evidence.
 
-Finalized publication retains its separate 10-second budget after the runner
-joins, independent of the original request timeout and cancellation. Compatibility,
-native selection and full identity checks share one original-wire declaration;
-creator validation and immutable persistence still use that bounded publication
-context. A large accepted prompt must not trigger redundant identity derivation
-inside this budget. Deadline failures retain phase timings and the underlying
-context error; they do not imply that submission admission or execution failed.
-
-Negotiation uses `runnercontract.NegotiateValidatedRequest` only after `Parse`
-validates the original full-request wire. This helper performs capability/version
-selection without reparsing, serializing captured input, or imposing the narrower
-negotiation-only schema's offer limits. It does not validate arbitrary typed
-requests or admit execution; unknown required capabilities still fail negotiation.
-
 Raw core results can contain original source metadata. They are not approved
-public disclosure responses. Public endpoints must compose the evidence owner's
-capture policy before encoding them; that integration remains separately owned.
+public disclosure responses. `SubmitCaptured` and `ResumeCaptured` compose the
+evidence owner's shared `ownedsubmission.CaptureHooks` before projection and
+encoding. An incompatible resume can return a source before submission hooks run;
+the wrapper withholds that unapproved source rather than encoding the raw result.
+Capture-denied finalized reuse returns a protected submission error (HTTP 500,
+exit 2) without new engine calls. The HTTP regression checks withheld source and
+terminal data and unchanged original artifact, manifest, sidecar and checkpoint bytes.
 The checkpoint result writer validates the original nested submission, including
 its reservation, decision and terminal, before marshaling. Invalid UTF-8 is
 rejected rather than normalized into apparently valid text. Original
@@ -134,12 +168,23 @@ Submission and both recovery adapters avoid HTML escaping of admitted request
 JSON. Literal `<`, `>` and `&` in captured inputs do not expand solely because
 the adapter wraps the request; original request-size bounds still apply.
 
-Creator-validation failures retain elapsed declaration phases and context states
-alongside the original error cause. Inspect compatibility, selection and identity
-work separately from the retained-reservation and provider-validation phases;
-phase timings are diagnostics, not execution or recovery evidence. Publication
-budgets are unchanged. A timeout remains a publication failure: preserve the
-original completion and any reported unverified blob rather than retrying.
+Creator-validation failures retain phase timings, context states and the
+original error cause. `request_declaration` reports the earlier compatibility
+derivation and its operation-context snapshots; `creator_publication` separately
+reports retained-reservation, selection, identity and provider-validation
+phases and the publication context. Finalized publication uses a separate
+10-second context without the operation's cancellation. Its
+`creator_declaration_elapsed` excludes the earlier derivation and intervening
+execution; it is not the former combined `declaration_elapsed`. Callers using
+`DeclareRequest` without a context receive `unavailable` for request-context
+observations. Timings are diagnostics, not execution or recovery evidence.
+Publication budgets are unchanged. A timeout remains a publication failure:
+preserve the original completion and any reported unverified blob rather than
+retrying.
+The CLI sends underlying input, build, operation and flag-parsing errors to bounded operator stderr while
+keeping the public JSON diagnostic sanitized. Conflicting store flags also use
+the single-record JSON rejection path. Build-revision admission failures retain
+their actionable cause and rebuild guidance on operator stderr as well.
 
 ## Migration and validation limits
 
@@ -156,5 +201,22 @@ they are not production CLI/clean-build, live-inference, native Windows, or Lab
 evidence. The root test process skips two Unix permission-denial cases; those
 same compiled cases are separately executed under a non-root identity.
 
-Protected CLI/API/Lab integration, compiled clean-CLI kill/resume cases, all
-current-head broad/platform gates and independent review remain release blockers.
+The additional Linux production-process fixture discovers the current native
+build inputs with `go list`, including modified/new source and ignored embedded
+assets, verifies their copied bytes, and commits only that snapshot in a private
+test-owned repository. The caller's checkout need not be clean. One ordinary CLI
+build carries the genuine fixture-local revision and is reused across recovery
+controls. A Linux syscall tracer
+stops the unchanged binary when the actual immutable boundary blob becomes visible,
+kills and reaps it, and joins its output-copy goroutines before starting a fresh
+CLI. It does not use a bounded diagnostic write or a wall-clock pause as a barrier.
+Before restore creates a fresh retry child; finalized success and failed-check
+restore preserve original terminal bytes with zero new calls. A separate actual
+service producer leaves a dispatch without completion; the compiled consumer
+refuses it without new records. That control does not kill a CLI mid-dispatch.
+These are offline mock-execution controls, not native runtime, LFS installation,
+live inference, dashboard delivery, or Windows execution evidence.
+
+Lab operation orchestration, full current-head broad/platform gates and
+independent review remain release blockers. Broad test failures and timed-out
+lint runs are not passing checks even when focused recovery controls pass.

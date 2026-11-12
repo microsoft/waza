@@ -27,12 +27,19 @@ import (
 
 func buildRecoveryCLI(t *testing.T) string {
 	t.Helper()
+	return buildRecoveryCLIFromDirectory(t, ".")
+}
+
+func buildRecoveryCLIFromDirectory(t *testing.T, directory string) string {
+	t.Helper()
 	binary := filepath.Join(t.TempDir(), "waza")
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
 	started := time.Now()
-	log, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".").CombinedOutput()
+	command := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".")
+	command.Dir = directory
+	log, err := command.CombinedOutput()
 	require.NoError(t, err, "%s", log)
 	info, err := os.Stat(binary)
 	require.NoError(t, err)

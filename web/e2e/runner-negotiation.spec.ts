@@ -12,11 +12,34 @@ const unitExample = JSON.parse(readFileSync(new URL("../../examples/runner/unit.
   input: { eval: string; task: string };
 };
 
+const capturedDiagnosticMessage = "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.";
+
 const identityVectors = JSON.parse(readFileSync(new URL("../../internal/runnerunit/testdata/identities.json", import.meta.url), "utf8")) as {
   name: string;
   request: { selection: { task: string }; input: { task: string } };
   identity: Record<string, string>;
 }[];
+
+function reorderMultiGraderDeclaration(result: ReturnType<typeof JSON.parse>) {
+  const wireOrder = ["😀", "\uE000"];
+  const canonicalOrder = ["\uE000", "😀"];
+  result.submission.reservation.binding.grader_ids = canonicalOrder;
+  result.submission.decision.binding.grader_ids = wireOrder;
+  result.submission.terminal.observation.validations = wireOrder.map((identifier) => ({ identifier, passed: true }));
+  const reservation = structuredClone(result.submission.reservation);
+  reservation.binding.grader_ids = canonicalOrder;
+  const reservationDigest = createHash("sha256").update(JSON.stringify(reservation)).digest("hex");
+  result.source.reservation_digest = reservationDigest;
+  const completion = result.submission.completion;
+  completion.reservation_digest = reservationDigest;
+  result.source.completion_digest = createHash("sha256").update(JSON.stringify({
+    kind: completion.kind,
+    schema_version: completion.schema_version,
+    execution_id: completion.execution_id,
+    reservation_digest: completion.reservation_digest,
+    manifest_digest: completion.manifest_digest,
+  })).digest("hex");
+}
 
 test.describe("Runner negotiation through the real Go API", () => {
   test.describe.configure({ mode: "serial" });
@@ -109,6 +132,571 @@ test.describe("Runner negotiation through the real Go API", () => {
           expect(report.observation).toBeUndefined();
         }
       }
+  });
+
+  test("Lab parses both checkpoint result versions without treating operation errors as success", async ({ page }) => {
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify({
+      kind: "waza.runner-checkpoint-result",
+      schema_version: "1.1",
+      status: "operation_error",
+      exit_code: 2,
+      error_code: "checkpoint_storage_close_failed",
+      compatibility_result: "unavailable",
+      compatibility_differences: [],
+      restored_units: null,
+      remaining_work: null,
+      diagnostics: [],
+    }));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    const failure = reader.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(failure.getByRole("heading", { name: "Operation error" })).toBeVisible();
+    await expect(failure).toContainText("Operation statusoperation_error");
+    await expect(failure).toContainText("Sanitized error codecheckpoint_storage_close_failed");
+    await expect(failure).not.toContainText("completed");
+    await expect(failure).not.toContainText("UNVERIFIED CLAIM");
+
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify({
+      kind: "waza.runner-checkpoint-result",
+      schema_version: "1.0",
+      status: "rejected",
+      exit_code: 6,
+      compatibility_result: "unavailable",
+      compatibility_differences: [],
+      restored_units: null,
+      remaining_work: null,
+      diagnostics: [{ code: "checkpoint_input_invalid", message: "Input was rejected." }],
+    }));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Checkpoint result: rejected");
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .not.toContainText("UNVERIFIED CLAIM");
+  });
+
+  test("Lab verifies retained operation-error source linkage without claiming admission", async ({ page }) => {
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(operationError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    const result = reader.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(result).toContainText("Underlying submission status (not overall operation status)");
+    await expect(result).toContainText("reused (exit 0)");
+    await expect(result).toContainText("Declared source (not independently verified)");
+    await expect(result).not.toContainText("Admitted source");
+
+    const mismatchedExecution = structuredClone(operationError);
+    mismatchedExecution.source.execution_id = `exec-${"0".repeat(64)}`;
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedExecution));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("does not match the retained submission");
+
+    const mismatchedDigest = structuredClone(operationError);
+    mismatchedDigest.source.completion_digest = "0".repeat(64);
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedDigest));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("does not match the retained submission");
+
+    const beforeUnitError = structuredClone(operationError);
+    beforeUnitError.source.boundary = "before-unit";
+    delete beforeUnitError.source.completion_digest;
+    delete beforeUnitError.source.manifest_digest;
+    const sourceExecution = beforeUnitError.source.execution_id;
+    beforeUnitError.submission.status = "submission_error";
+    beforeUnitError.submission.exit_code = 2;
+    beforeUnitError.submission.engine_calls = 0;
+    delete beforeUnitError.submission.decision;
+    delete beforeUnitError.submission.completion;
+    delete beforeUnitError.submission.terminal;
+    beforeUnitError.submission.reservation.execution_id = `exec-${"a".repeat(64)}`;
+    beforeUnitError.submission.reservation.parent = {
+      execution_id: sourceExecution,
+      relationship: "retry",
+    };
+    beforeUnitError.submission.diagnostics = [{
+      code: "resume_interrupted",
+      message: capturedDiagnosticMessage,
+    }];
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(beforeUnitError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Operation error");
+  });
+
+  test("Lab rejects producer-result cross-field contradictions for both versions", async ({ page }) => {
+    const reusedResult = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    reusedResult.schema_version = "1.0";
+    reusedResult.status = "reused";
+    reusedResult.exit_code = 0;
+    delete reusedResult.error_code;
+    reusedResult.compatibility_result = "compatible";
+    reusedResult.restored_units = 1;
+    reusedResult.remaining_work = 0;
+
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(reusedResult));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Checkpoint result: reused");
+
+    const reorderedResult = structuredClone(reusedResult);
+    reorderMultiGraderDeclaration(reorderedResult);
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(reorderedResult));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Checkpoint result: reused");
+
+    const mismatchedExit = structuredClone(reusedResult);
+    mismatchedExit.exit_code = 1;
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedExit));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("status or exit code contradicts");
+
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reorderedOperationError = structuredClone(operationError);
+    reorderMultiGraderDeclaration(reorderedOperationError);
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(reorderedOperationError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Operation error");
+
+    const substitutedReservation = structuredClone(operationError);
+    const digest = "0".repeat(64);
+    substitutedReservation.source.reservation_digest = digest;
+    substitutedReservation.submission.completion.reservation_digest = digest;
+    const completion = substitutedReservation.submission.completion;
+    substitutedReservation.source.completion_digest = createHash("sha256").update(JSON.stringify({
+      kind: completion.kind,
+      schema_version: completion.schema_version,
+      execution_id: completion.execution_id,
+      reservation_digest: completion.reservation_digest,
+      manifest_digest: completion.manifest_digest,
+    })).digest("hex");
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(substitutedReservation));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("retained submission");
+  });
+
+  test("Lab checks retained submission exit against its terminal for both result versions", async ({ page, request }) => {
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reused = structuredClone(operationError);
+    reused.schema_version = "1.0";
+    reused.status = "reused";
+    reused.exit_code = 0;
+    delete reused.error_code;
+    reused.compatibility_result = "compatible";
+    reused.restored_units = 1;
+    reused.remaining_work = 0;
+
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    for (const result of [reused, operationError]) {
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+
+      const contradiction = structuredClone(result);
+      contradiction.submission.exit_code = 1;
+      if (contradiction.schema_version === "1.0") contradiction.exit_code = 1;
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(contradiction));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("alert")).toContainText("submission exit code contradicts");
+    }
+
+    const submissionError = structuredClone(operationError);
+    delete submissionError.source;
+    delete submissionError.submission.completion;
+    submissionError.submission.status = "submission_error";
+    submissionError.submission.exit_code = 2;
+    submissionError.submission.engine_calls = 1;
+    submissionError.submission.diagnostics = [{
+      code: "submission_failed",
+      message: capturedDiagnosticMessage,
+    }];
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(submissionError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Operation error");
+
+    const unsafeDiagnostic = structuredClone(submissionError);
+    unsafeDiagnostic.submission.diagnostics[0].message = "Unapproved operator detail";
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(unsafeDiagnostic));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("unapproved");
+
+    const admission = await request.post(`${base}/api/v1/runner/validate`, { data: unitExample });
+    expect(admission.ok()).toBe(true);
+    const unapprovedReport = structuredClone(operationError);
+    unapprovedReport.submission.report = await admission.json();
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(unapprovedReport));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("unapproved");
+  });
+
+  test("Lab checks retained submission bindings for both result versions", async ({ page }) => {
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reused = structuredClone(operationError);
+    reused.schema_version = "1.0";
+    reused.status = "reused";
+    reused.exit_code = 0;
+    delete reused.error_code;
+    reused.compatibility_result = "compatible";
+    reused.restored_units = 1;
+    reused.remaining_work = 0;
+
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    for (const result of [reused, operationError]) {
+      const alternateCaller = structuredClone(result);
+      alternateCaller.submission.caller.canonical_digest = "0".repeat(64);
+      alternateCaller.submission.caller.attempt = `attempt-${"0".repeat(64)}`;
+      alternateCaller.submission.decision.binding.identity = structuredClone(alternateCaller.submission.caller);
+      alternateCaller.submission.decision.binding.selection.attempt += 1;
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(alternateCaller));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+
+      const unsortedSource = structuredClone(result);
+      reorderMultiGraderDeclaration(unsortedSource);
+      unsortedSource.submission.reservation.binding.grader_ids = ["😀", "\uE000"];
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(unsortedSource));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("alert")).toContainText("retained submission");
+
+      for (const mutate of [
+        (value: typeof result) => { value.submission.caller.canonical_digest = "0".repeat(64); },
+        (value: typeof result) => { value.submission.decision.binding.selection.task = "other-task"; },
+        (value: typeof result) => { value.submission.terminal.identity.canonical_digest = "0".repeat(64); },
+        (value: typeof result) => { value.submission.terminal.observation.execution_mode = "copilot"; },
+      ]) {
+        const contradiction = structuredClone(result);
+        mutate(contradiction);
+        await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(contradiction));
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        await expect(reader.getByRole("alert")).toContainText("retained submission");
+      }
+    }
+
+    const completed = structuredClone(reused);
+    completed.status = "completed";
+    completed.restored_units = 0;
+    delete completed.source;
+    completed.before_checkpoint_sha256 = "1".repeat(64);
+    completed.finalized_checkpoint_sha256 = "2".repeat(64);
+    completed.submission.status = "completed";
+    completed.submission.engine_calls = 1;
+    completed.submission.decision.policy = "distinct";
+    completed.submission.decision.outcome = "distinct";
+    completed.submission.decision.execution_id = completed.submission.reservation.execution_id;
+    delete completed.submission.decision.source;
+
+    const completedError = structuredClone(operationError);
+    delete completedError.source;
+    completedError.submission = structuredClone(completed.submission);
+    for (const result of [completed, completedError]) {
+      const wireOrder = ["😀", "\uE000"];
+      result.submission.reservation.binding.grader_ids = wireOrder;
+      result.submission.decision.binding.grader_ids = wireOrder;
+      result.submission.terminal.observation.validations = wireOrder.map((identifier) => ({ identifier, passed: true }));
+      const canonical = structuredClone(result.submission.reservation);
+      canonical.binding.grader_ids = ["\uE000", "😀"];
+      result.submission.completion.reservation_digest = createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+
+      const contradiction = structuredClone(result);
+      contradiction.submission.completion.reservation_digest = "0".repeat(64);
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(contradiction));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("alert")).toContainText("retained submission");
+
+      const mismatchedCalls = structuredClone(result);
+      mismatchedCalls.submission.engine_calls = 0;
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedCalls));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("alert")).toContainText("call count contradicts");
+    }
+  });
+
+  test("Lab checks producer report bindings against the original reservation and terminal", async ({ page }) => {
+    test.setTimeout(180_000);
+    const helper = join(directory, "checkpoint-report");
+    execFileSync("go", ["build", "-o", helper, "./web/e2e/testdata/checkpoint-report"], {
+      cwd: resolve(".."), timeout: 150_000,
+    });
+    const store = join(directory, "checkpoint-report-store");
+    await mkdir(store);
+    const results = execFileSync(helper, [store], { cwd: resolve(".."), encoding: "utf8" })
+      .trim().split("\n").map((line) => JSON.parse(line));
+    expect(results.map((result) => result.status)).toEqual(["completed", "reused"]);
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    const native = (value: unknown) => spawnSync(helper, ["validate"], {
+      input: JSON.stringify(value), encoding: "utf8",
+    });
+    const posted: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST") posted.push(request.url());
+    });
+    const expectUnverified = async (status: string, submissionStatus = status) => {
+      const displayed = reader.getByRole("status", { name: "Checkpoint operation result" });
+      await expect(displayed.getByRole("heading", { name: "Checkpoint result: UNVERIFIED CLAIMS" })).toBeVisible();
+      await expect(displayed).toContainText("Native canonical-report checks are not performed in-browser");
+      await expect(displayed).not.toContainText(`Checkpoint result: ${status}`);
+      await expect(displayed.locator("dt", { hasText: "Operation status (UNVERIFIED CLAIM)" })
+        .locator("xpath=following-sibling::dd[1]")).toHaveText(`UNVERIFIED CLAIM: ${status}`);
+      await expect(displayed.locator("dt", { hasText: "Submission status (UNVERIFIED CLAIM)" })
+        .locator("xpath=following-sibling::dd[1]")).toContainText(`UNVERIFIED CLAIM: ${submissionStatus}`);
+      await expect(displayed.locator("dt", { hasText: "Operation exit code (UNVERIFIED CLAIM)" })
+        .locator("xpath=following-sibling::dd[1]")).toContainText("UNVERIFIED CLAIM:");
+    };
+
+    for (const result of results) {
+      expect(["completed", "reused"]).toContain(result.status);
+      expect(result.submission.report).toBeDefined();
+      if (result.status === "reused") {
+        expect(result.submission.caller.attempt).not.toBe(result.submission.reservation.binding.identity.attempt);
+        expect(result.submission.report.identity.attempt).toBe(result.submission.reservation.binding.identity.attempt);
+      }
+      expect(native(result).status).toBe(0);
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expectUnverified(result.status);
+
+      const reportWire = JSON.stringify(result.submission.report);
+      const resultWire = JSON.stringify(result);
+      for (const [name, mutatedReport, accepted] of [
+        ["canonical", reportWire, true],
+        ["whitespace", reportWire.replace('{"kind"', '{ \n "kind"'), true],
+        ["property order", reportWire.replace(
+          '{"kind":"waza.runner-unit","schema_version":"1.0"',
+          '{"schema_version":"1.0","kind":"waza.runner-unit"',
+        ), false],
+        ["string escaping", reportWire.replace('"waza.runner-unit"', '"waza.runner-\\u0075nit"'), false],
+      ] as const) {
+        if (name !== "canonical") expect(mutatedReport, name).not.toBe(reportWire);
+        const mutatedWire = resultWire.replace(reportWire, mutatedReport);
+        const checked = spawnSync(helper, ["validate"], { input: mutatedWire, encoding: "utf8" });
+        expect(checked.status, name).toBe(accepted ? 0 : 1);
+        if (!accepted) expect(checked.stderr, name).toContain("canonical writer");
+        await reader.getByLabel("Checkpoint result JSON").fill(mutatedWire);
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        await expectUnverified(result.status);
+      }
+
+      for (const [name, mutate] of [
+        ["requested task", (report: typeof result.submission.report) => { report.requested.task = "other-task"; }],
+        ["resolved task", (report: typeof result.submission.report) => { report.resolved.task = "other-task"; }],
+        ["requested shard", (report: typeof result.submission.report) => { report.requested.shard = "other-shard"; }],
+        ["resolved trial", (report: typeof result.submission.report) => { report.resolved.trial++; }],
+        ["resolved attempt", (report: typeof result.submission.report) => { report.resolved.attempt++; }],
+        ["identity", (report: typeof result.submission.report) => { report.identity.task = `task-${"0".repeat(64)}`; }],
+        ["mode", (report: typeof result.submission.report) => { report.execution_mode = "copilot"; }],
+        ["report outcome", (report: typeof result.submission.report) => {
+          report.status = "execution_error";
+          report.diagnostics = [{ code: "execution_failed", message: "Failed." }];
+        }],
+        ["report call count", (report: typeof result.submission.report) => {
+          report.status = "execution_error";
+          report.diagnostics = [{ code: "execution_failed", message: "Failed." }];
+          report.engine_calls = 0;
+        }],
+        ["missing observation", (report: typeof result.submission.report) => {
+          report.status = "execution_error";
+          report.diagnostics = [{ code: "execution_failed", message: "Failed." }];
+          delete report.observation;
+        }],
+        ["run number", (report: typeof result.submission.report) => { report.observation.run_number++; }],
+        ["attempt", (report: typeof result.submission.report) => { report.observation.attempts++; }],
+        ["observation status", (report: typeof result.submission.report) => { report.observation.status = "failed"; }],
+        ["observation error", (report: typeof result.submission.report) => { report.observation.error_msg = "unexpected"; }],
+        ["grader result", (report: typeof result.submission.report) => { report.observation.validations._output_contains.passed = false; }],
+        ["grader identifier", (report: typeof result.submission.report) => { report.observation.validations._output_contains.identifier = "other"; }],
+        ["missing grader", (report: typeof result.submission.report) => { delete report.observation.validations._output_contains; }],
+      ] as const) {
+        const contradiction = structuredClone(result);
+        mutate(contradiction.submission.report);
+        const checked = native(contradiction);
+        expect(checked.status, name).not.toBe(0);
+        expect(checked.stderr, name).toMatch(/source (report|execution mode|observation|grader)/);
+        await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(contradiction));
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        await expect(reader.getByRole("alert"), name).toContainText("retained submission report");
+      }
+      const noReport = structuredClone(result);
+      delete noReport.submission.report;
+      expect(native(noReport).status).toBe(0);
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(noReport));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+        .toContainText(`Checkpoint result: ${result.status}`);
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+        .not.toContainText("UNVERIFIED CLAIM");
+      const extraDetail = structuredClone(result);
+      extraDetail.submission.report.observation.prompt = "different unbound detail";
+      expect(native(extraDetail).status).toBe(0);
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(extraDetail));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expectUnverified(result.status);
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+        .not.toContainText("different unbound detail");
+
+      if (result.status === "completed") {
+        const checkpointError = structuredClone(result);
+        checkpointError.status = "checkpoint_error";
+        checkpointError.exit_code = 2;
+        checkpointError.compatibility_result = "unavailable";
+        checkpointError.restored_units = null;
+        checkpointError.remaining_work = null;
+        checkpointError.diagnostics = [{ code: "checkpoint_publication_failed", message: "Publication failed." }];
+        expect(native(checkpointError).status).toBe(0);
+        await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(checkpointError));
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        await expectUnverified("checkpoint_error", "completed");
+      }
+    }
+    expect(posted).toEqual([]);
+  });
+
+  test("Lab checks canonical source timestamps against native checkpoint parsing", async ({ page }) => {
+    test.setTimeout(180_000);
+    const helper = join(directory, "checkpoint-timestamps");
+    execFileSync("go", ["build", "-o", helper, "./web/e2e/testdata/checkpoint-report"], {
+      cwd: resolve(".."), timeout: 150_000,
+    });
+    const store = join(directory, "checkpoint-timestamp-store");
+    await mkdir(store);
+    const [, reused] = execFileSync(helper, [store], { cwd: resolve(".."), encoding: "utf8" })
+      .trim().split("\n").map((line) => JSON.parse(line));
+    delete reused.submission.report;
+    const rejected = structuredClone(reused);
+    rejected.status = "rejected";
+    rejected.exit_code = 6;
+    rejected.compatibility_result = "unavailable";
+    rejected.restored_units = null;
+    rejected.remaining_work = null;
+    rejected.diagnostics = [{ code: "checkpoint_rejected", message: "Rejected." }];
+    delete rejected.submission;
+    const beforeUnitRejected = structuredClone(rejected);
+    beforeUnitRejected.source.boundary = "before-unit";
+    delete beforeUnitRejected.source.completion_digest;
+    delete beforeUnitRejected.source.manifest_digest;
+
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    const native = (result: unknown) => spawnSync(helper, ["validate"], {
+      input: JSON.stringify(result), encoding: "utf8",
+    });
+    const valid = [
+      "0001-01-01T00:00:00Z", "2000-02-29T23:59:59Z", "2400-02-29T12:34:56.1Z",
+      "2026-11-07T16:00:00.123456789Z", "9999-12-31T23:59:59.000000001Z",
+    ];
+    const invalid = [
+      "0000-01-01T00:00:00Z", "1900-02-29T00:00:00Z", "2026-02-30T00:00:00Z",
+      "2026-00-01T00:00:00Z", "2026-13-01T00:00:00Z", "2026-04-31T00:00:00Z",
+      "2026-11-07T24:00:00Z", "2026-11-07T16:60:00Z", "2026-11-07T16:00:60Z",
+      "2026-11-07T16:00:00.000Z", "2026-11-07T16:00:00.10Z", "2026-11-07T16:00:00.123456780Z",
+    ];
+    for (const original of [reused, rejected, beforeUnitRejected, operationError]) {
+      expect(native(original).status).toBe(0);
+      for (const timestamp of [...valid, ...invalid]) {
+        const result = structuredClone(original);
+        result.source.created_at = timestamp;
+        const checked = native(result);
+        const accepted = valid.includes(timestamp);
+        expect(checked.status, timestamp).toBe(accepted ? 0 : 1);
+        if (!accepted) expect(checked.stderr, timestamp).toContain("created_at must be a canonical UTC RFC3339 timestamp");
+        await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        if (accepted) {
+          await expect(reader.getByRole("status", { name: "Checkpoint operation result" }), timestamp).toBeVisible();
+        } else {
+          await expect(reader.getByRole("alert"), timestamp).toContainText("canonical UTC RFC3339 timestamp");
+        }
+      }
+    }
+  });
+
+  test("Lab does not let a stale async parse replace newer input", async ({ page }) => {
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    await page.evaluate(() => {
+      const subtle = globalThis.crypto.subtle;
+      const digest = subtle.digest.bind(subtle);
+      const pending: (() => void)[] = [];
+      let completed = 0;
+      const browserWindow = window as Window & {
+        __releaseCheckpointDigest?: () => void;
+        __checkpointDigestPending?: number;
+        __checkpointDigestCompleted?: number;
+      };
+      Object.defineProperty(subtle, "digest", {
+        configurable: true,
+        value: (algorithm: AlgorithmIdentifier, data: BufferSource) => new Promise<ArrayBuffer>((resolve, reject) => {
+          pending.push(() => {
+            void digest(algorithm, data).then((value) => {
+              completed++;
+              browserWindow.__checkpointDigestCompleted = completed;
+              resolve(value);
+            }, reject);
+          });
+          browserWindow.__checkpointDigestPending = pending.length;
+          browserWindow.__releaseCheckpointDigest = () => {
+            pending.shift()?.();
+            browserWindow.__checkpointDigestPending = pending.length;
+          };
+        }),
+      });
+    });
+
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    const input = reader.getByLabel("Checkpoint result JSON");
+    await input.fill(JSON.stringify(operationError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await page.waitForFunction(() =>
+      (window as Window & { __checkpointDigestPending?: number }).__checkpointDigestPending === 1);
+
+    await input.fill(JSON.stringify({
+      kind: "waza.runner-checkpoint-result",
+      schema_version: "1.0",
+      status: "rejected",
+      exit_code: 6,
+      compatibility_result: "unavailable",
+      compatibility_differences: [],
+      restored_units: null,
+      remaining_work: null,
+      diagnostics: [{ code: "checkpoint_input_invalid", message: "Input was rejected." }],
+    }));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    const status = reader.getByRole("status", { name: "Checkpoint operation result" });
+    await expect(status).toContainText("Checkpoint result: rejected");
+
+    await page.evaluate(() =>
+      (window as Window & { __releaseCheckpointDigest?: () => void }).__releaseCheckpointDigest?.());
+    await page.waitForFunction(() => {
+      const browserWindow = window as Window & {
+        __checkpointDigestPending?: number;
+        __checkpointDigestCompleted?: number;
+      };
+      return browserWindow.__checkpointDigestPending === 1 &&
+        browserWindow.__checkpointDigestCompleted === 1;
+    });
+    await page.evaluate(() =>
+      (window as Window & { __releaseCheckpointDigest?: () => void }).__releaseCheckpointDigest?.());
+    await page.waitForFunction(() =>
+      (window as Window & { __checkpointDigestCompleted?: number }).__checkpointDigestCompleted === 2);
+    await expect(status).toContainText("Checkpoint result: rejected");
   });
 
   test("built CLI saves every frozen identity through actual stdout redirection", () => {

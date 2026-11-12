@@ -18,7 +18,19 @@ import (
 func PublishBefore(ctx context.Context, backend artifactmanifest.Backend, ledger *executionledger.Ledger,
 	creator executionledger.Creator, request []byte, revision string,
 ) (string, error) {
-	checkpoint, reserved, err := creatorDeclaration(ctx, ledger, creator, request, revision, BeforeUnit)
+	declaration, err := DeclareRequestWithContext(ctx, request, revision)
+	if err != nil {
+		return "", err
+	}
+	return PublishBeforeDeclared(ctx, backend, ledger, creator, declaration)
+}
+
+// PublishBeforeDeclared requires the retained creator and original admitted
+// request declaration. The owning runner must call it before engine creation.
+func PublishBeforeDeclared(ctx context.Context, backend artifactmanifest.Backend, ledger *executionledger.Ledger,
+	creator executionledger.Creator, declaration RequestDeclaration,
+) (string, error) {
+	checkpoint, reserved, err := creatorDeclaration(ctx, ledger, creator, declaration, BeforeUnit)
 	if err != nil {
 		return "", err
 	}

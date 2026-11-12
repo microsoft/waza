@@ -10,8 +10,11 @@ import (
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
+	"github.com/microsoft/waza/internal/runnerunit"
 )
 
 func TestResultRejectsOriginalInvalidSubmissionDiagnosticUTF8(t *testing.T) {
@@ -181,10 +184,153 @@ func TestResultCodecAdmitsActualProductionOperationShapes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if parsed.SchemaVersion != "1.0" || parsed.ErrorCode != "" {
+			t.Fatalf("ordinary result changed its strict 1.0 declaration: %+v", parsed)
+		}
 		again, err := EncodeResult(*parsed)
 		if err != nil || !bytes.Equal(again, data) {
 			t.Fatalf("production result %d lost declaration presence or canonical writer output: %v", i, err)
 		}
+	}
+}
+
+func TestOperationErrorResultCodecAndPreservation(t *testing.T) {
+	preRun := OperationErrorResult(ErrorCodeStorageUnavailable)
+	data, err := EncodeResult(preRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseResult(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.SchemaVersion != "1.1" || parsed.Status != "operation_error" ||
+		parsed.ExitCode != 2 || parsed.ErrorCode != ErrorCodeStorageUnavailable ||
+		parsed.Submission != nil || parsed.Source != nil {
+		t.Fatalf("pre-run failure fabricated execution declarations: %+v", parsed)
+	}
+
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	store := backend(t)
+	created, err := service.SubmitCaptured(context.Background(), fixture(t), store, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preRunWithForgedSubmission := WithOperationError(created, ErrorCodeStorageUnavailable)
+	if data, err := EncodeResult(preRunWithForgedSubmission); data != nil || err == nil {
+		t.Fatalf("pre-run error code admitted a submission: %s %v", data, err)
+	}
+	closed := WithOperationError(created, ErrorCodeStorageCloseFailed)
+	data, err = EncodeResult(closed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = ParseResult(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Status != "operation_error" || parsed.ExitCode != 2 ||
+		parsed.Submission.Status != created.Submission.Status ||
+		parsed.Submission.ExitCode != created.Submission.ExitCode ||
+		parsed.BeforeDigest != created.BeforeDigest || parsed.FinalizedDigest != created.FinalizedDigest {
+		t.Fatalf("close failure did not preserve original submission and references: %+v", parsed)
+	}
+	originalSubmission, err := json.Marshal(created.Submission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preservedSubmission, err := json.Marshal(parsed.Submission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(originalSubmission, preservedSubmission) {
+		t.Fatal("close failure changed the capture-approved submission")
+	}
+
+	reused, err := service.ResumeCaptured(context.Background(), fixture(t), store, created.FinalizedDigest, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reuseFailure := WithOperationError(reused, ErrorCodeStorageCloseFailed)
+	data, err = EncodeResult(reuseFailure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = ParseResult(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Submission.Status != reused.Submission.Status || parsed.Source == nil ||
+		parsed.Source.ExecutionID != reused.Source.ExecutionID || parsed.FinalizedDigest != "" {
+		t.Fatalf("close failure did not preserve finalized reuse declarations: %+v", parsed)
+	}
+}
+
+func TestOperationErrorResultRejectsForgedOrUnprojectedFields(t *testing.T) {
+	base := OperationErrorResult(ErrorCodeStorageUnavailable)
+	cases := map[string]func(*Result){
+		"unknown error code": func(result *Result) { result.ErrorCode = "private-provider-error" },
+		"wrong status":       func(result *Result) { result.Status = "completed" },
+		"wrong exit":         func(result *Result) { result.ExitCode = 0 },
+		"diagnostics": func(result *Result) {
+			result.Diagnostics = []runnercontract.Diagnostic{{Code: "raw", Message: "private cause"}}
+		},
+		"claimed progress": func(result *Result) {
+			one := 1
+			result.RestoredUnits = &one
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			changed := base
+			mutate(&changed)
+			if data, err := EncodeResult(changed); data != nil || err == nil {
+				t.Fatalf("invalid operation error encoded: %s %v", data, err)
+			}
+		})
+	}
+}
+
+func TestOperationErrorPreservesBeforeUnitResumeWithoutCompletion(t *testing.T) {
+	service, store := adapter(t, nil), backend(t)
+	before, err := service.SubmitCaptured(context.Background(), fixture(t), store, Hooks{
+		Published: func(_ context.Context, reference Reference) error {
+			if reference.Boundary == "before-unit" {
+				return errors.New("stop before dispatch")
+			}
+			return nil
+		},
+	})
+	if err == nil || before.BeforeDigest == "" || before.Submission == nil || before.Submission.Completion != nil {
+		t.Fatalf("fixture did not retain an undispatched before-unit source: %+v %v", before, err)
+	}
+
+	partial, err := service.Resume(context.Background(), fixture(t), store, before.BeforeDigest, Hooks{
+		Submission: runnerunit.SubmissionHooks{
+			Reserved: func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error {
+				return errors.New("stop before artifact persistence")
+			},
+		},
+	})
+	if err == nil || partial.Source == nil || partial.Source.Boundary != "before-unit" ||
+		partial.Submission == nil || partial.Submission.Completion != nil ||
+		partial.Submission.Reservation == nil || partial.Submission.Reservation.Parent == nil {
+		t.Fatalf("fixture did not retain a before-unit retry without completion: %+v %v", partial, err)
+	}
+	for i := range partial.Submission.Diagnostics {
+		partial.Submission.Diagnostics[i].Message = CapturedDiagnosticMessage
+	}
+	result := WithOperationError(partial, ErrorCodeStorageCloseFailed)
+	data, err := EncodeResult(result)
+	if err != nil {
+		t.Fatalf("valid before-unit operational error was rejected: %v", err)
+	}
+	parsed, err := ParseResult(data)
+	if err != nil || parsed.Source == nil || parsed.Source.Boundary != "before-unit" ||
+		parsed.Submission.Completion != nil {
+		t.Fatalf("before-unit operational error lost its admitted source or partial submission: %+v %v", parsed, err)
 	}
 }
 

@@ -1,6 +1,26 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
+test('checkpoint source commands link to bounded recovery and protected HTTP limits', async ({ page }) => {
+  await page.goto('/waza/reference/cli/');
+  await expect(page.getByRole('heading', { name: 'Checkpoint commands (unreleased source preview)', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'complete workflow and recovery limits', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/guides\/immutable-artifacts\/#checkpoint-public-source-preview$/);
+  const content = page.locator('main');
+  await expect(content).toContainText('Build the owning CLI from a clean Git tree with VCS stamping enabled.');
+  await expect(content).toContainText('zero new submission engine calls');
+  await expect(content).toContainText('Unavailable progress is null, never an invented zero.');
+  await expect(content).toContainText('POST /api/v1/checkpoints');
+  await expect(content).toContainText('POST /api/v1/checkpoints/{digest}/resume');
+  await expect(content).toContainText('Unsupported active providers fail closed');
+  await expect(content).toContainText('no raw checkpoint GET endpoint is available');
+  await expect(content).toContainText('A previously dispatched source is refused, not replayed.');
+  await expect(content).toContainText('Lab can inspect supplied checkpoint-result JSON.');
+  await expect(content).toContainText('Lab operation orchestration and full production process/platform acceptance remain pending.');
+  await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint create' })).toContainText('schema_version:"1.0"');
+  await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint resume' })).toContainText('restored-result.json');
+});
+
 test('attempt preview links serve exact independent sidecar schemas below the deployed base', async ({ page, request }) => {
   await page.goto('/waza/guides/immutable-artifacts/');
   await expect(page.getByRole('heading', { name: 'Logical attempts: embedding preview', exact: true })).toBeVisible();
@@ -11,6 +31,7 @@ test('attempt preview links serve exact independent sidecar schemas below the de
     ['submission-result schema', 'execution-submission-result-1.0.schema.json'],
     ['checkpoint schema', 'execution-checkpoint-1.0.schema.json'],
     ['checkpoint-result schema', 'runner-checkpoint-result-1.0.schema.json'],
+    ['checkpoint operation error schema', 'runner-checkpoint-result-1.1.schema.json'],
   ]) {
     const link = page.getByRole('link', { name: label, exact: true });
     const href = await link.getAttribute('href');

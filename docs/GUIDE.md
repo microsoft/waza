@@ -514,6 +514,14 @@ unchanged. See [outcomes, exits and migration](../site/src/content/docs/guides/r
 [identity guide](../site/src/content/docs/guides/runner-identities.mdx) and
 [canonical contract and migration guide](../site/src/content/docs/guides/runner-contract.mdx).
 
+The unreleased source checkpoint commands accept a captured submission wrapper:
+`waza runner checkpoint create --store .waza-artifacts < submission.json` and
+`waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
+submission.json`. They require a clean VCS-stamped owning CLI and preserve
+original terminal failures on finalized reuse. See the
+[checkpoint workflow, boundaries and troubleshooting](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview);
+these commands are not in installed v0.40.1 artifacts.
+
 ### `waza init [directory]`
 
 Initialize a waza project with directory structure.

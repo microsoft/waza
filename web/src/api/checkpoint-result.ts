@@ -1,0 +1,427 @@
+import Ajv2020 from "ajv/dist/2020";
+import artifactSchema from "../../../schemas/artifact-manifest-1.0.schema.json";
+import attemptSchema from "../../../schemas/execution-attempt-1.0.schema.json";
+import checkpointSchema from "../../../schemas/execution-checkpoint-1.0.schema.json";
+import completionSchema from "../../../schemas/execution-completion-1.0.schema.json";
+import result10Schema from "../../../schemas/runner-checkpoint-result-1.0.schema.json";
+import result11Schema from "../../../schemas/runner-checkpoint-result-1.1.schema.json";
+import negotiationSchema from "../../../schemas/runner-negotiation-response-1.0.schema.json";
+import runnerTerminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
+import runnerUnitSchema from "../../../schemas/runner-unit-1.0.schema.json";
+import submissionResultSchema from "../../../schemas/execution-submission-result-1.0.schema.json";
+import { parseStrictJSON } from "../lib/strictJson";
+import { sameSelection, type RunnerIdentity, type RunnerTerminal, type WorkSelection } from "./runner";
+
+export interface CheckpointOperationResult {
+  kind: "waza.runner-checkpoint-result";
+  schema_version: "1.0" | "1.1";
+  status: "rejected" | "submission_error" | "checkpoint_error" | "completed" | "reused" | "operation_error";
+  exit_code: number;
+  error_code?: string;
+  submission?: {
+    status: string;
+    exit_code: number;
+    engine_calls: number;
+    caller?: RunnerIdentity;
+    decision?: ExecutionDecision;
+    terminal?: RunnerTerminal;
+    report?: ExecutionReport;
+    diagnostics: { code: string; message: string }[];
+    reservation?: ExecutionAttempt;
+    completion?: ExecutionCompletion;
+  };
+  source?: ExecutionCheckpoint;
+  before_checkpoint_sha256?: string;
+  finalized_checkpoint_sha256?: string;
+}
+
+interface ExecutionAttempt {
+  kind: "waza.execution-attempt";
+  schema_version: "1.0";
+  logical: { run: string; work: string };
+  execution_id: string;
+  binding: ExecutionBinding;
+  parent?: { execution_id: string; relationship: "retry" | "branch" };
+}
+
+interface ExecutionBinding {
+  identity: RunnerIdentity;
+  selection: WorkSelection;
+  execution_mode: string;
+  grader_ids: string[];
+}
+
+interface ExecutionDecision {
+  logical: { run: string; work: string };
+  binding: ExecutionBinding;
+  policy: "distinct" | "reuse";
+  outcome: "distinct" | "reused" | "unfinished" | "conflict";
+  execution_id?: string;
+  source?: { execution_id: string; manifest_digest: string };
+}
+
+interface ExecutionCompletion {
+  kind: "waza.execution-completion";
+  schema_version: "1.0";
+  execution_id: string;
+  reservation_digest: string;
+  manifest_digest: string;
+}
+
+interface ExecutionCheckpoint {
+  execution_id: string;
+  boundary: "before-unit" | "finalized-unit";
+  created_at: string;
+  reservation_digest: string;
+  compatibility: { work: string };
+  completion_digest?: string;
+  manifest_digest?: string;
+}
+
+interface ExecutionReport {
+  status: "ready" | "rejected" | "completed" | "execution_error";
+  requested?: WorkSelection;
+  resolved?: WorkSelection;
+  identity?: RunnerIdentity;
+  validation: string;
+  compatibility: { status: string };
+  adjacent_work_selected: boolean;
+  execution_mode?: string;
+  engine_calls: number;
+  observation?: {
+    run_number: number;
+    attempts: number;
+    status: string;
+    error_msg?: string;
+    validations: Record<string, { identifier: string; passed: boolean }> | null;
+  };
+}
+
+function validator(schema: object) {
+  return new Ajv2020({ strict: false })
+    .addSchema(artifactSchema)
+    .addSchema(attemptSchema)
+    .addSchema(checkpointSchema)
+    .addSchema(completionSchema)
+    .addSchema(negotiationSchema)
+    .addSchema(runnerTerminalSchema)
+    .addSchema(runnerUnitSchema)
+    .addSchema(submissionResultSchema)
+    .compile<CheckpointOperationResult>(schema);
+}
+
+const validate10 = validator(result10Schema);
+const validate11 = validator(result11Schema);
+const utf8Encoder = new TextEncoder();
+const capturedDiagnosticMessage = "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.";
+
+async function jsonDigest(value: object) {
+  const wire = JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+  const bytes = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(wire));
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function compareUTF8(left: string, right: string) {
+  const leftBytes = utf8Encoder.encode(left);
+  const rightBytes = utf8Encoder.encode(right);
+  for (const [index, leftByte] of leftBytes.entries()) {
+    const rightByte = rightBytes[index];
+    if (rightByte === undefined) return leftBytes.length - rightBytes.length;
+    if (leftByte !== rightByte) return leftByte - rightByte;
+  }
+  return leftBytes.length - rightBytes.length;
+}
+
+function canonicalAttempt(attempt: ExecutionAttempt) {
+  return {
+    kind: attempt.kind,
+    schema_version: attempt.schema_version,
+    logical: { run: attempt.logical.run, work: attempt.logical.work },
+    execution_id: attempt.execution_id,
+    binding: {
+      identity: {
+        version: attempt.binding.identity.version,
+        canonical_digest: attempt.binding.identity.canonical_digest,
+        run: attempt.binding.identity.run,
+        shard: attempt.binding.identity.shard,
+        task: attempt.binding.identity.task,
+        trial: attempt.binding.identity.trial,
+        attempt: attempt.binding.identity.attempt,
+      },
+      selection: {
+        shard: attempt.binding.selection.shard,
+        task: attempt.binding.selection.task,
+        trial: attempt.binding.selection.trial,
+        attempt: attempt.binding.selection.attempt,
+      },
+      execution_mode: attempt.binding.execution_mode,
+      grader_ids: [...attempt.binding.grader_ids].sort(compareUTF8),
+    },
+    ...(attempt.parent ? {
+      parent: {
+        execution_id: attempt.parent.execution_id,
+        relationship: attempt.parent.relationship,
+      },
+    } : {}),
+  };
+}
+
+function sameIdentity(left: RunnerIdentity | undefined, right: RunnerIdentity | undefined) {
+  return !!left && !!right &&
+    (Object.keys(left) as (keyof RunnerIdentity)[]).every((key) => left[key] === right[key]);
+}
+
+function sameStrings(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function validBinding(logical: { run: string; work: string }, binding: ExecutionBinding) {
+  return logical.run === binding.identity.run && logical.work === binding.identity.trial &&
+    [...binding.grader_ids, binding.selection.shard, binding.selection.task]
+      .every((value) => utf8Encoder.encode(value).length <= 256);
+}
+
+function canonicalCheckpointTime(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/.exec(value);
+  if (!match || match[0] !== value) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1]! &&
+    Number(hourText) <= 23 && Number(minuteText) <= 59 && Number(secondText) <= 59 &&
+    (fraction === undefined || !fraction.endsWith("0"));
+}
+
+function validateReport(report: ExecutionReport, reservation: ExecutionAttempt, terminal: RunnerTerminal) {
+  const { binding } = reservation;
+  const observed = report.observation;
+  const terminalObservation = terminal.observation;
+  const validOutcome = report.status === "completed"
+    ? terminal.outcome === "success" || terminal.outcome === "evaluation_failure" ||
+      (terminal.outcome === "infrastructure_failure" && terminal.failure_boundary === "terminalization")
+    : report.status === "execution_error" &&
+      ["infrastructure_failure", "cancelled", "timeout"].includes(terminal.outcome);
+  if (!sameIdentity(report.identity, binding.identity) ||
+    !sameSelection(report.requested, binding.selection) || !sameSelection(report.resolved, binding.selection) ||
+    report.validation !== "valid" || report.compatibility.status !== "compatible" || report.adjacent_work_selected ||
+    report.engine_calls !== terminal.engine_calls || !validOutcome ||
+    (report.execution_mode !== undefined && report.execution_mode !== binding.execution_mode) ||
+    (!!observed !== !!terminalObservation)) {
+    throw new Error("Checkpoint retained submission report contradicts its reservation or terminal.");
+  }
+  if (observed && terminalObservation) {
+    const validations = observed.validations;
+    if (observed.run_number !== terminalObservation.run_number ||
+      observed.attempts !== terminalObservation.attempts || observed.status !== terminalObservation.status ||
+      (observed.error_msg ?? "") !== (terminalObservation.error_msg ?? "") ||
+      (validations !== null && (typeof validations !== "object" || Array.isArray(validations))) ||
+      Object.keys(validations ?? {}).length !== terminalObservation.validations.length ||
+      terminalObservation.validations.some(({ identifier, passed }) =>
+        !validations || !Object.prototype.hasOwnProperty.call(validations, identifier) ||
+        validations[identifier]?.identifier !== identifier || validations[identifier]?.passed !== passed)) {
+      throw new Error("Checkpoint retained submission report contradicts its terminal observation.");
+    }
+  }
+}
+
+async function validateRetainedSubmission(submission: NonNullable<CheckpointOperationResult["submission"]>) {
+  const { caller, decision, reservation, completion, terminal, report } = submission;
+  if (reservation) {
+    if (!validBinding(reservation.logical, reservation.binding) ||
+      reservation.parent?.execution_id === reservation.execution_id ||
+      !caller || caller.run !== reservation.logical.run || caller.trial !== reservation.logical.work ||
+      (!decision && !sameIdentity(caller, reservation.binding.identity))) {
+      throw new Error("Checkpoint retained submission contradicts its reservation.");
+    }
+  }
+  if (decision) {
+    if (!caller || !reservation || !validBinding(decision.logical, decision.binding) ||
+      !sameIdentity(caller, decision.binding.identity) ||
+      decision.logical.run !== reservation.logical.run || decision.logical.work !== reservation.logical.work) {
+      throw new Error("Checkpoint retained submission contradicts its decision.");
+    }
+    const declared = decision.binding;
+    const original = reservation.binding;
+    if (decision.policy === "distinct") {
+      if (decision.execution_id !== reservation.execution_id ||
+        !sameIdentity(declared.identity, original.identity) ||
+        !sameSelection(declared.selection, original.selection) ||
+        declared.execution_mode !== original.execution_mode ||
+        !sameStrings(declared.grader_ids, original.grader_ids)) {
+        throw new Error("Checkpoint retained submission contradicts its distinct reservation.");
+      }
+    } else if (decision.outcome !== "reused" || decision.source?.execution_id !== reservation.execution_id ||
+      declared.identity.version !== original.identity.version ||
+      declared.identity.run !== original.identity.run || declared.identity.shard !== original.identity.shard ||
+      declared.identity.task !== original.identity.task || declared.identity.trial !== original.identity.trial ||
+      declared.selection.shard !== original.selection.shard || declared.selection.task !== original.selection.task ||
+      declared.selection.trial !== original.selection.trial || declared.execution_mode !== original.execution_mode ||
+      !sameStrings([...declared.grader_ids].sort(compareUTF8), original.grader_ids)) {
+      throw new Error("Checkpoint retained submission contradicts its reused reservation.");
+    }
+  }
+  let reservationDigest: string | undefined;
+  if (completion) {
+    if (!reservation) throw new Error("Checkpoint retained submission lacks its completion reservation.");
+    reservationDigest = await jsonDigest(canonicalAttempt(reservation));
+    if (completion.execution_id !== reservation.execution_id ||
+      completion.reservation_digest !== reservationDigest ||
+      (submission.status === "reused" && decision?.source?.manifest_digest !== completion.manifest_digest)) {
+      throw new Error("Checkpoint retained submission completion contradicts its reservation.");
+    }
+  }
+  if (terminal) {
+    if (["completed", "reused", "rejected"].includes(submission.status) &&
+      submission.exit_code !== terminal.exit_code) {
+      throw new Error("Retained submission exit code contradicts its terminal.");
+    }
+    if (submission.status !== "reused" && submission.engine_calls !== terminal.engine_calls) {
+      throw new Error("Checkpoint retained submission call count contradicts its terminal.");
+    }
+    if (!reservation) {
+      if (terminal.identity || terminal.selection || terminal.observation || terminal.engine_calls !== 0) {
+        throw new Error("Checkpoint retained submission contains unadmitted terminal evidence.");
+      }
+    } else {
+      const { binding } = reservation;
+      if (terminal.validation !== "valid" || !sameIdentity(terminal.identity, binding.identity) ||
+        !sameSelection(terminal.selection, binding.selection)) {
+        throw new Error("Checkpoint retained submission terminal contradicts its reservation.");
+      }
+      if (terminal.observation) {
+        const observed = terminal.observation;
+        const ids = observed.validations.map((verdict) => verdict.identifier);
+        const expected = new Set(binding.grader_ids);
+        if (observed.execution_mode !== binding.execution_mode ||
+          observed.engine_calls !== terminal.engine_calls ||
+          !sameSelection(observed.selection, binding.selection) ||
+          observed.run_number !== binding.selection.trial || observed.attempts !== binding.selection.attempt ||
+          new Set(ids).size !== ids.length || ids.some((id) => !expected.has(id)) ||
+          (observed.status !== "error" && ids.length !== expected.size)) {
+          throw new Error("Checkpoint retained submission observation contradicts its reservation.");
+        }
+      }
+    }
+  }
+  if (report) {
+    if (!reservation || !terminal) throw new Error("Checkpoint retained submission report lacks its reservation or terminal.");
+    validateReport(report, reservation, terminal);
+  }
+  return reservationDigest;
+}
+
+async function completionDigest(completion: ExecutionCompletion) {
+  return jsonDigest({
+    kind: completion.kind,
+    schema_version: completion.schema_version,
+    execution_id: completion.execution_id,
+    reservation_digest: completion.reservation_digest,
+    manifest_digest: completion.manifest_digest,
+  });
+}
+
+function validateBeforeSource(source: ExecutionCheckpoint, reservation: ExecutionAttempt) {
+  const parent = reservation.parent;
+  if (source.boundary !== "before-unit" || !parent ||
+    parent.execution_id !== source.execution_id ||
+    parent.relationship !== "retry" ||
+    reservation.execution_id === source.execution_id) {
+    throw new Error("Checkpoint source declaration does not match the retained submission.");
+  }
+}
+
+async function validateFinalizedSource(source: ExecutionCheckpoint, reservation: ExecutionAttempt, reservationDigest: string | undefined, completion?: ExecutionCompletion) {
+  if (!completion ||
+    reservation.execution_id !== source.execution_id ||
+    completion.execution_id !== source.execution_id ||
+    reservationDigest !== source.reservation_digest ||
+    completion.reservation_digest !== source.reservation_digest ||
+    completion.manifest_digest !== source.manifest_digest ||
+    await completionDigest(completion) !== source.completion_digest) {
+    throw new Error("Checkpoint source declaration does not match the retained submission.");
+  }
+}
+
+async function validateCheckpointResult(result: CheckpointOperationResult) {
+  if (result.before_checkpoint_sha256 &&
+    result.before_checkpoint_sha256 === result.finalized_checkpoint_sha256) {
+    throw new Error("Checkpoint boundary references must identify different blobs.");
+  }
+
+  const { source, submission } = result;
+  if (source && !canonicalCheckpointTime(source.created_at)) {
+    throw new Error("Checkpoint source created_at must be a canonical UTC RFC3339 timestamp.");
+  }
+  if (result.status === "operation_error" && submission &&
+    (submission.report !== undefined || submission.diagnostics.some((diagnostic) => diagnostic.message !== capturedDiagnosticMessage))) {
+    throw new Error("Checkpoint retained submission contains unapproved report or diagnostics.");
+  }
+  const reservationDigest = submission ? await validateRetainedSubmission(submission) : undefined;
+  if (result.status === "operation_error") {
+    if (!source) return;
+    const reservation = submission?.reservation;
+    if (!reservation || source.compatibility.work !== reservation.logical.work) {
+      throw new Error("Operation-error source declaration does not match the retained submission.");
+    }
+    if (source.boundary === "before-unit") {
+      validateBeforeSource(source, reservation);
+      if (source.completion_digest !== undefined || source.manifest_digest !== undefined) {
+        throw new Error("Operation-error source declaration does not match the retained submission.");
+      }
+      return;
+    }
+    await validateFinalizedSource(source, reservation, reservationDigest, submission?.completion);
+    return;
+  }
+
+  if (!submission) {
+    if (result.status !== "rejected") {
+      throw new Error("Checkpoint status requires a retained submission.");
+    }
+    return;
+  }
+  const reservation = submission.reservation;
+  if (source && reservation && source.compatibility.work !== reservation.logical.work) {
+    throw new Error("Checkpoint source declaration does not match the retained submission.");
+  }
+  if (result.status === "checkpoint_error") {
+    if (submission.status !== "completed") {
+      throw new Error("Checkpoint publication failure must retain a completed submission.");
+    }
+  } else if (result.status !== submission.status || result.exit_code !== submission.exit_code) {
+    throw new Error("Checkpoint result status or exit code contradicts the retained submission.");
+  }
+  if (source && reservation && source.boundary === "before-unit") {
+    validateBeforeSource(source, reservation);
+  }
+  if (result.status === "completed" && source?.boundary === "finalized-unit") {
+    throw new Error("A finalized checkpoint source must be reused, not rerun.");
+  }
+  if (result.status === "reused") {
+    if (!source || source.boundary !== "finalized-unit" || !reservation || !submission.completion) {
+      throw new Error("Reused result requires its exact finalized source and retained sidecars.");
+    }
+    await validateFinalizedSource(source, reservation, reservationDigest, submission.completion);
+  }
+}
+
+export async function parseCheckpointOperationResult(text: string): Promise<CheckpointOperationResult> {
+  const value = parseStrictJSON(text);
+  if (validate10(value)) {
+    await validateCheckpointResult(value);
+    return value;
+  }
+  if (validate11(value)) {
+    await validateCheckpointResult(value);
+    return value;
+  }
+  throw new Error("Checkpoint result must match the supported 1.0 or 1.1 schema.");
+}

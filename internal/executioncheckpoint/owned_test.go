@@ -107,30 +107,13 @@ func TestOwnedFinalizedCheckpointRejectsForeignCreatorAndRequestRetag(t *testing
 		checkpoint.Compatibility.RunnerRevision, checkpoint.ManifestDigest); digest != "" || !errors.Is(err, executionledger.ErrCapability) {
 		t.Fatalf("zero creator published a checkpoint: %s, %v", digest, err)
 	}
-	for _, control := range []struct{ name, from, to string }{
-		{"native-ordinal", `"attempt": 2`, `"attempt": 3`},
-		{"prompt", "prompt: hello", "prompt: changed"},
-		{"timeout", `"timeout_ms": 60000`, `"timeout_ms": 60001`},
-	} {
-		t.Run(control.name, func(t *testing.T) {
-			modified := bytes.Replace(request, []byte(control.from), []byte(control.to), 1)
-			if bytes.Equal(request, modified) {
-				t.Fatal("retag control did not change original request")
-			}
-			for _, boundary := range []string{BeforeUnit, FinalizedUnit} {
-				var digest string
-				var err error
-				if boundary == BeforeUnit {
-					digest, err = PublishBefore(t.Context(), backend, ledger, creator, modified, checkpoint.Compatibility.RunnerRevision)
-				} else {
-					digest, err = PublishFinalized(t.Context(), backend, ledger, creator, modified,
-						checkpoint.Compatibility.RunnerRevision, checkpoint.ManifestDigest)
-				}
-				if digest != "" || !errors.Is(err, ErrContext) {
-					t.Fatalf("%s retag replaced original request: %s, %v", boundary, digest, err)
-				}
-			}
-		})
+	modified := bytes.Replace(request, []byte(`"attempt": 2`), []byte(`"attempt": 3`), 1)
+	if bytes.Equal(request, modified) {
+		t.Fatal("native ordinal control did not change original request")
+	}
+	if digest, err := PublishFinalized(context.Background(), backend, ledger, creator, modified,
+		checkpoint.Compatibility.RunnerRevision, checkpoint.ManifestDigest); digest != "" || !errors.Is(err, ErrContext) {
+		t.Fatalf("new caller ordinal replaced original request: %s, %v", digest, err)
 	}
 	if digest, err := PublishFinalized(context.Background(), backend, ledger, creator, request,
 		"", checkpoint.ManifestDigest); digest != "" || !errors.Is(err, ErrIncompatible) {
@@ -166,14 +149,96 @@ func TestOwnedFinalizedCheckpointCreatorFailureRetainsPhaseContextAndCause(t *te
 				t.Fatalf("creator failure lost context classification or published a checkpoint: %s %v", digest, err)
 			}
 			for _, phase := range []string{
-				"declaration_elapsed=", "retained_elapsed=", "compatibility_elapsed=",
+				"request_declaration:", "compatibility_elapsed=",
+				"request_deadline_remaining_at_entry=", "request_entry_ctx_err=" + control.want.Error(),
+				"request_compatibility_ctx_err=" + control.want.Error(),
+				"creator_publication:", "creator_declaration_elapsed=", "retained_elapsed=",
 				"selection_elapsed=", "identity_elapsed=", "creator_validation_elapsed=",
 				"deadline_remaining_at_entry=", "entry_ctx_err=" + control.want.Error(),
-				"compatibility_ctx_err=" + control.want.Error(), "selection_ctx_err=" + control.want.Error(),
-				"identity_ctx_err=" + control.want.Error(), "final_ctx_err=" + control.want.Error(),
+				"selection_ctx_err=" + control.want.Error(), "identity_ctx_err=" + control.want.Error(),
+				"final_ctx_err=" + control.want.Error(),
 			} {
 				if !strings.Contains(err.Error(), phase) {
 					t.Fatalf("creator failure omitted phase/context %q: %v", phase, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCreatorFailureSeparatesRequestAndPublicationContexts(t *testing.T) {
+	checkpoint, backend, ledger, creator, _, _ := typedCheckpointSource(t, false)
+	request := readFixture(t, "../../examples/runner/unit.json")
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expiredPublication, stopExpired := context.WithDeadline(context.WithoutCancel(canceled), time.Unix(1, 0))
+	defer stopExpired()
+	live, stopLive := context.WithTimeout(t.Context(), time.Hour)
+	defer stopLive()
+	canceledPublication, cancelPublication := context.WithCancel(context.WithoutCancel(live))
+	cancelPublication()
+
+	for _, control := range []struct {
+		name        string
+		requestCtx  context.Context
+		publication context.Context
+		requestErr  string
+		want        error
+	}{
+		{"canceled-request-expired-publication", canceled, expiredPublication, context.Canceled.Error(), context.DeadlineExceeded},
+		{"live-request-canceled-publication", live, canceledPublication, "<nil>", context.Canceled},
+		{"unobserved-request", nil, canceledPublication, "unavailable", context.Canceled},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			var declaration RequestDeclaration
+			var err error
+			if control.requestCtx == nil {
+				declaration, err = DeclareRequest(request, checkpoint.Compatibility.RunnerRevision)
+			} else {
+				declaration, err = DeclareRequestWithContext(control.requestCtx, request, checkpoint.Compatibility.RunnerRevision)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if control.name == "live-request-canceled-publication" {
+				remaining, err := time.ParseDuration(declaration.diagnostics.deadlineRemaining)
+				if err != nil || remaining <= 0 {
+					t.Fatalf("request deadline observation is not live: %q, %v", declaration.diagnostics.deadlineRemaining, err)
+				}
+			}
+			for _, boundary := range []string{BeforeUnit, FinalizedUnit} {
+				var digest string
+				if boundary == BeforeUnit {
+					digest, err = PublishBeforeDeclared(control.publication, backend, ledger, creator, declaration)
+				} else {
+					digest, err = PublishFinalizedDeclared(control.publication, backend, ledger, creator, declaration, checkpoint.ManifestDigest)
+				}
+				if digest != "" || !errors.Is(err, control.want) {
+					t.Fatalf("%s creator failure lost its publication cause: %s %v", boundary, digest, err)
+				}
+				requestPhase, creatorPhase, ok := strings.Cut(err.Error(), "; creator_publication:")
+				if !ok {
+					t.Fatalf("%s omitted separately labeled phases: %v", boundary, err)
+				}
+				for _, field := range []string{
+					"compatibility_elapsed=" + declaration.diagnostics.elapsed.String(),
+					"request_deadline_remaining_at_entry=" + declaration.diagnostics.deadlineRemaining,
+					"request_entry_ctx_err=" + control.requestErr,
+					"request_compatibility_ctx_err=" + control.requestErr,
+				} {
+					if !strings.Contains(requestPhase, field) {
+						t.Fatalf("%s omitted original request observation %q: %v", boundary, field, err)
+					}
+				}
+				for _, field := range []string{
+					"entry_ctx_err=" + control.want.Error(),
+					"selection_ctx_err=" + control.want.Error(),
+					"identity_ctx_err=" + control.want.Error(),
+					"final_ctx_err=" + control.want.Error(),
+				} {
+					if !strings.Contains(creatorPhase, field) {
+						t.Fatalf("%s conflated publication observation %q: %v", boundary, field, err)
+					}
 				}
 			}
 		})

@@ -96,9 +96,7 @@ func TestRunnerDiagnosticsBlockedSinkDoesNotBlockHandlersOrCallbacks(t *testing.
 	}))
 
 	sink := &blockedRunnerDiagnosticSink{entered: make(chan struct{}), release: make(chan struct{})}
-	logger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(sink, &slog.HandlerOptions{Level: slog.LevelError})))
-	defer slog.SetDefault(logger)
+	setWebAPITestLogger(t, slog.New(slog.NewTextHandler(sink, &slog.HandlerOptions{Level: slog.LevelError})))
 	var release sync.Once
 	var handlers []<-chan any
 	defer func() {

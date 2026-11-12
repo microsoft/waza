@@ -5,6 +5,7 @@ package executioncheckpoint
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +51,23 @@ type Compatibility struct {
 	Work                string `json:"work"`
 	RequestPolicyDigest string `json:"request_policy_digest"`
 }
+
+type RequestDeclaration struct {
+	compatibility Compatibility
+	selection     runnercontract.Selection
+	identity      runneridentity.Identity
+	diagnostics   requestDeclarationDiagnostics
+}
+
+type requestDeclarationDiagnostics struct {
+	elapsed                time.Duration
+	deadlineRemaining      string
+	entryContextError      string
+	completionContextError string
+}
+
+// Compatibility returns the immutable request compatibility declaration.
+func (d RequestDeclaration) Compatibility() Compatibility { return d.compatibility }
 
 // CompatibilityError exposes only differing field names, not captured inputs.
 type CompatibilityError struct {
@@ -134,50 +152,60 @@ func Encode(checkpoint Checkpoint) ([]byte, error) {
 	return data, nil
 }
 
-// ForRequest retains the shared declared logical-work identity, including
-// captured model/config/tool/policy values and timeout. Only the attempt ordinal
-// may change. Negotiation/consent declarations not covered by that identity are
-// hashed separately. The production caller must also perform semantic admission
-// and supply its actual build revision; these hashes are not runtime attestation.
-func ForRequest(data []byte, runnerRevision string) (Compatibility, error) {
-	declaration, err := declareRequest(data, runnerRevision)
-	if err != nil {
-		return Compatibility{}, err
+// DeclareRequest validates and derives one immutable request declaration for
+// compatibility and publication without a request-context observation.
+func DeclareRequest(data []byte, runnerRevision string) (RequestDeclaration, error) {
+	return declareRequest(context.Background(), data, runnerRevision, false)
+}
+
+// DeclareRequestWithContext records the supplied operation context during the
+// same single derivation. It does not change request admission or cancellation.
+func DeclareRequestWithContext(ctx context.Context, data []byte, runnerRevision string) (RequestDeclaration, error) {
+	return declareRequest(ctx, data, runnerRevision, true)
+}
+
+func remainingAt(ctx context.Context, started time.Time) string {
+	if deadline, ok := ctx.Deadline(); ok {
+		return deadline.Sub(started).String()
 	}
-	return declaration.compatibility, nil
+	return "none"
 }
 
-type requestDeclaration struct {
-	compatibility Compatibility
-	selection     runnercontract.Selection
-	identity      runneridentity.Identity
-}
-
-// Keep the full identity and selection from the same original-wire validation
-// used for compatibility; creator checks must not parse and canonicalize it again.
-func declareRequest(data []byte, runnerRevision string) (*requestDeclaration, error) {
+func declareRequest(ctx context.Context, data []byte, runnerRevision string, observeContext bool) (RequestDeclaration, error) {
+	started := time.Now()
+	diagnostics := requestDeclarationDiagnostics{
+		deadlineRemaining: "unavailable", entryContextError: "unavailable", completionContextError: "unavailable",
+	}
+	if observeContext {
+		diagnostics.deadlineRemaining = remainingAt(ctx, started)
+		diagnostics.entryContextError = fmt.Sprint(ctx.Err())
+	}
 	request, err := runnercontract.Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("%w: request: %w", ErrIncompatible, err)
+		return RequestDeclaration{}, fmt.Errorf("%w: request: %w", ErrIncompatible, err)
 	}
-	if negotiation := runnercontract.NegotiateValidatedRequest(request); negotiation.Status != "compatible" {
-		return nil, fmt.Errorf("%w: negotiation: %s", ErrIncompatible, negotiation.Status)
+	negotiation := runnercontract.NegotiateValidatedRequest(request)
+	if negotiation.Status != "compatible" {
+		return RequestDeclaration{}, fmt.Errorf("%w: negotiation: %s", ErrIncompatible, negotiation.Status)
 	}
-	identity, err := runneridentity.DeriveJSON(data)
+	identity, err := runneridentity.DeriveValidated(request)
 	if err != nil {
-		return nil, fmt.Errorf("%w: identity: %w", ErrIncompatible, err)
+		return RequestDeclaration{}, fmt.Errorf("%w: identity: %w", ErrIncompatible, err)
 	}
-	slices.Sort(request.Versions)
-	slices.Sort(request.RequiredCapabilities)
-	slices.Sort(request.OptionalCapabilities)
+	versions := slices.Clone(request.Versions)
+	required := slices.Clone(request.RequiredCapabilities)
+	optional := slices.Clone(request.OptionalCapabilities)
+	slices.Sort(versions)
+	slices.Sort(required)
+	slices.Sort(optional)
 	policy, err := json.Marshal(struct {
 		Versions []string `json:"versions"`
 		Required []string `json:"required"`
 		Optional []string `json:"optional"`
 		Paid     bool     `json:"paid"`
-	}{request.Versions, request.RequiredCapabilities, request.OptionalCapabilities, request.AllowPaidExecution})
+	}{versions, required, optional, request.AllowPaidExecution})
 	if err != nil {
-		return nil, fmt.Errorf("%w: request policy: %w", ErrIncompatible, err)
+		return RequestDeclaration{}, fmt.Errorf("%w: request policy: %w", ErrIncompatible, err)
 	}
 	compatibility := Compatibility{
 		RunnerRevision: runnerRevision, RequestVersion: request.SchemaVersion,
@@ -188,20 +216,39 @@ func declareRequest(data []byte, runnerRevision string) (*requestDeclaration, er
 	}
 	wire, err := json.Marshal(compatibility)
 	if err != nil {
-		return nil, fmt.Errorf("%w: encoding compatibility: %w", ErrIncompatible, err)
+		return RequestDeclaration{}, fmt.Errorf("%w: encoding compatibility: %w", ErrIncompatible, err)
 	}
 	document, err := jsonutil.Parse(wire)
 	if err != nil {
-		return nil, fmt.Errorf("%w: parsing compatibility: %w", ErrIncompatible, err)
+		return RequestDeclaration{}, fmt.Errorf("%w: parsing compatibility: %w", ErrIncompatible, err)
 	}
 	schema, err := checkpointSchema()
 	if err != nil {
-		return nil, fmt.Errorf("compiling checkpoint schema: %w", err)
+		return RequestDeclaration{}, fmt.Errorf("compiling checkpoint schema: %w", err)
 	}
 	if err := schema.Properties["compatibility"].Validate(document); err != nil {
-		return nil, fmt.Errorf("%w: compatibility: %w", ErrIncompatible, err)
+		return RequestDeclaration{}, fmt.Errorf("%w: compatibility: %w", ErrIncompatible, err)
 	}
-	return &requestDeclaration{compatibility: compatibility, selection: request.Selection, identity: *identity}, nil
+	diagnostics.elapsed = time.Since(started)
+	if observeContext {
+		diagnostics.completionContextError = fmt.Sprint(ctx.Err())
+	}
+	return RequestDeclaration{
+		compatibility: compatibility, selection: request.Selection, identity: *identity,
+		diagnostics: diagnostics,
+	}, nil
+}
+
+// ForRequest retains the shared declared logical-work identity, including
+// captured model/config/tool/policy values and timeout. Only the attempt ordinal
+// may change. Negotiation/consent declarations not covered by that identity are
+// hashed separately. These hashes are not runtime attestation.
+func ForRequest(data []byte, runnerRevision string) (Compatibility, error) {
+	declaration, err := DeclareRequest(data, runnerRevision)
+	if err != nil {
+		return Compatibility{}, err
+	}
+	return declaration.Compatibility(), nil
 }
 
 func ValidateCompatibility(checkpoint Checkpoint, current Compatibility) error {
