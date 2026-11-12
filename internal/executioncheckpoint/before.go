@@ -18,7 +18,7 @@ import (
 func PublishBefore(ctx context.Context, backend artifactmanifest.Backend, ledger *executionledger.Ledger,
 	creator executionledger.Creator, request []byte, revision string,
 ) (string, error) {
-	declaration, err := DeclareRequest(request, revision)
+	declaration, err := DeclareRequestWithContext(ctx, request, revision)
 	if err != nil {
 		return "", err
 	}
