@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/manifest-aggregate-1.0.schema.json",
+  "title": "Public completed manifest aggregate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "state", "verification", "members", "groups", "counts", "usage"],
+  "properties": {
+    "kind": {"const": "waza.manifest-aggregate"},
+    "schema_version": {"const": "1.0"},
+    "state": {"enum": ["complete", "incomplete", "conflicting"]},
+    "verification": {"const": "current-content-and-original-record-context-only"},
+    "members": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/member"}},
+    "groups": {"type": "array", "maxItems": 128, "items": {
+      "type": "object", "additionalProperties": false, "required": ["profile_sha256", "members"],
+      "properties": {"profile_sha256": {"$ref": "#/$defs/digest"},
+        "members": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/input"}}}
+    }},
+    "counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["input_members", "unique_verified_manifests", "unique_verified_execution_records", "member_states", "member_outcomes"],
+      "properties": {
+        "input_members": {"type": "integer", "minimum": 1, "maximum": 128},
+        "unique_verified_manifests": {"$ref": "#/$defs/count"},
+        "unique_verified_execution_records": {"$ref": "#/$defs/count"},
+        "member_states": {"type": "object", "additionalProperties": false, "properties": {
+          "admitted": {"$ref": "#/$defs/count"}, "omitted": {"$ref": "#/$defs/count"}, "conflicting": {"$ref": "#/$defs/count"}}},
+        "member_outcomes": {"type": "object", "additionalProperties": false, "properties": {
+          "success": {"$ref": "#/$defs/count"}, "evaluation_failure": {"$ref": "#/$defs/count"},
+          "infrastructure_failure": {"$ref": "#/$defs/count"}, "cancelled": {"$ref": "#/$defs/count"},
+          "timeout": {"$ref": "#/$defs/count"}, "unsupported_capability": {"$ref": "#/$defs/count"},
+          "invalid_input": {"$ref": "#/$defs/count"}}}
+      }
+    },
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "population", "executions", "recorded_historical_usage", "diagnostics"],
+      "properties": {
+        "state": {"enum": ["complete", "unavailable", "conflicting"]},
+        "population": {"const": "unique-verified-execution-records"},
+        "executions": {"$ref": "#/$defs/count"},
+        "recorded_historical_usage": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/usageStats"}]},
+        "diagnostics": {"$ref": "#/$defs/codes"}
+      },
+      "allOf": [
+        {"if": {"properties": {"state": {"const": "complete"}}}, "then": {"properties": {
+          "executions": {"minimum": 1}, "recorded_historical_usage": {"$ref": "#/$defs/usageStats"}, "diagnostics": {"maxItems": 0}
+        }}, "else": {"properties": {"recorded_historical_usage": {"type": "null"}, "diagnostics": {"minItems": 1}}}}
+      ]
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "count": {"type": "integer", "minimum": 0, "maximum": 128},
+    "codes": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {
+      "enum": ["execution_and_usage_unavailable_without_sidecar", "execution_identity_unavailable",
+        "cached_historical_usage_excluded", "read_budget_exhausted", "execution_read_capability_unavailable",
+        "conflicting_source", "corrupt_source", "missing_source", "read_canceled", "unsupported_or_invalid_profile",
+        "source_read_error", "incompatible_recorded_usage", "complete_historical_usage_unavailable",
+        "recorded_usage_numeric_overflow", "recorded_usage_numeric_precision_unavailable",
+        "recorded_usage_report_size_unavailable"]
+    }},
+    "input": {
+      "type": "object", "additionalProperties": false, "required": ["manifest_sha256"],
+      "properties": {"manifest_sha256": {"$ref": "#/$defs/digest"}, "evidence_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "member": {
+      "type": "object", "additionalProperties": false,
+      "required": ["manifest_sha256", "state", "categories", "diagnostics"],
+      "properties": {
+        "manifest_sha256": {"$ref": "#/$defs/digest"}, "evidence_sha256": {"$ref": "#/$defs/digest"},
+        "state": {"enum": ["admitted", "omitted", "conflicting"]},
+        "binding": {"$ref": "artifact-manifest-1.0.schema.json#/properties/binding"},
+        "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input"]},
+        "execution_id": {"type": "string", "pattern": "^exec-[0-9a-f]{64}$"},
+        "categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/category"}},
+        "diagnostics": {"$ref": "#/$defs/codes"}
+      },
+      "allOf": [{"if": {"properties": {"state": {"const": "admitted"}}}, "then": {"required": ["binding", "outcome"]}}]
+    },
+    "category": {
+      "type": "object", "additionalProperties": false,
+      "required": ["category", "state", "source", "context", "verification"],
+      "properties": {
+        "category": {"enum": ["conversation", "tool", "grader", "reliability", "usage", "provenance"]},
+        "state": {"enum": ["present", "unavailable", "incomplete", "redacted", "conflicting"]},
+        "declared_state": {"enum": ["present", "unavailable", "incomplete", "redacted", "conflicting"]},
+        "source": {"enum": ["authored", "mock", "cached", "live", "unknown"]},
+        "context": {"enum": ["declared", "observed", "unknown"]},
+        "verification": {"enum": ["unverified", "declared-state-only", "source-content-and-recorded-category-shape-only",
+          "source-content-and-recorded-usage-shape-only", "recorded-degradation-only"]},
+        "reason": {"type": "string", "pattern": "^[a-z_]+$", "maxLength": 128},
+        "observed_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "number": {"type": "number", "minimum": 0, "maximum": 9007199254740991},
+    "tokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "usageStats": {
+      "type": "object", "additionalProperties": false,
+      "required": ["turns", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "premium_requests"],
+      "properties": {
+        "turns": {"$ref": "#/$defs/tokens"}, "input_tokens": {"$ref": "#/$defs/tokens"},
+        "output_tokens": {"$ref": "#/$defs/tokens"}, "cache_read_tokens": {"$ref": "#/$defs/tokens"},
+        "cache_write_tokens": {"$ref": "#/$defs/tokens"}, "premium_requests": {"$ref": "#/$defs/number"},
+        "ai_credits": {"$ref": "#/$defs/number"}, "provider": {"type": "string"}, "provider_host": {"type": "string"},
+        "model_metrics": {"type": "object", "additionalProperties": {
+          "type": "object", "additionalProperties": false,
+          "required": ["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "request_count", "request_cost"],
+          "properties": {
+            "input_tokens": {"$ref": "#/$defs/tokens"}, "output_tokens": {"$ref": "#/$defs/tokens"},
+            "cache_read_tokens": {"$ref": "#/$defs/tokens"}, "cache_write_tokens": {"$ref": "#/$defs/tokens"},
+            "request_count": {"$ref": "#/$defs/number"}, "request_cost": {"$ref": "#/$defs/number"}, "ai_credits": {"$ref": "#/$defs/number"}
+          }
+        }}
+      }
+    }
+  }
+}

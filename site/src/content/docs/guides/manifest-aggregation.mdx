@@ -1,0 +1,143 @@
+---
+title: Aggregate completed manifests
+description: Build deterministic public-manifest aggregates without agents, worker ownership or invented usage.
+---
+
+**Unreleased v0.41 source preview.** Standalone aggregation reads an explicit set
+of completed public manifests from an existing local immutable store. It does
+not start agents, credential helpers or the original worker. Mutable result
+files and Azure credential-backed aggregation are not inputs to this profile.
+
+## Worked example: retained public sources
+
+Start with a completed manifest from the
+[immutable publication workflow](../immutable-artifacts/). Set
+`MANIFEST_SHA256` to its actual finalized digest. If available, set
+`EVIDENCE_SHA256` to the actual published public evidence-sidecar digest.
+These are references, not verification claims.
+
+```bash
+# Without a sidecar, admission can be complete but execution and usage are unknown.
+waza aggregate --store .waza-artifacts "$MANIFEST_SHA256" -o metadata-aggregate.json
+```
+
+Create a qualified input set without guessing digest strings or overwriting a file:
+
+```bash
+node --input-type=module <<'JS'
+import { writeFileSync } from 'node:fs';
+const manifest = process.env.MANIFEST_SHA256;
+const evidence = process.env.EVIDENCE_SHA256;
+if (!/^[0-9a-f]{64}$/.test(manifest ?? '') ||
+    !/^[0-9a-f]{64}$/.test(evidence ?? '')) {
+  throw new Error('Set actual MANIFEST_SHA256 and EVIDENCE_SHA256 public digests.');
+}
+writeFileSync('aggregate-inputs.json', JSON.stringify([
+  { manifest_sha256: manifest, evidence_sha256: evidence }
+]), { flag: 'wx', mode: 0o600 });
+JS
+
+waza aggregate --store .waza-artifacts --inputs aggregate-inputs.json -o aggregate.json
+```
+
+The evaluated report is emitted to stdout and saved to the new output file.
+Incomplete/conflicting reports are still emitted and saved, but exit nonzero.
+Do not treat a nonzero exit as permission to discard diagnostics or retry unchanged
+inputs until they appear complete. Existing output files are not replaced.
+
+## Understand the three populations
+
+`input_members` counts exact unique reference pairs; per-member state/outcome
+counts use this denominator. `unique_verified_manifests` counts current verified
+publications. `unique_verified_execution_records` counts original admitted source
+records, not legacy attempt ordinals. Compatible multiple views remain visible
+but count a record once. A saved report cannot map one execution ID to different
+manifests, while same-manifest views remain valid. Distinct repeated executions
+are valid, not conflicts.
+Different identity/selection/mode/grader profiles remain separate display groups;
+there is no latest winner or pooled quality score.
+
+Complete admission is **not a passing task or execution attestation**. Failed and
+cancelled source outcomes remain unchanged. Supported legacy metadata-only sources,
+optional omitted sidecars and privacy-redacted categories can be complete inputs.
+Supplied invalid sidecars, missing sources and conflicting claims remain explicit.
+
+`usage.recorded_historical_usage` is either a complete historical total over unique
+admitted, non-cached execution records or null. No partial total, token-price
+estimate or new SDK billing is invented. Explicit recorded zero remains zero;
+missing credits/model attribution remain unavailable. Per-view source labels
+distinguish mock/authored/cached/unknown records from observed live evidence.
+Readers reject a complete usage claim if any supplied view lacks execution
+identity or a verified, present single usage observation, or declares cached
+categories/lineage exclusion. An eligible view cannot override another's
+exclusion. Complete metadata-only admission still retains unavailable/null
+usage. This consistency check is not source reverification or live-only
+attestation. Optional aggregate credits/model attribution may remain absent;
+missing values are unavailable, never recorded zero.
+
+If the full serialized report would exceed 32 MiB because of recorded usage,
+`recorded_usage_report_size_unavailable` withholds the entire historical total.
+Membership, diagnostics and the unique execution count remain available; the
+smaller records do not become an unlabeled subset total. Nothing is truncated.
+
+## Lab and JSON downloads
+
+Open `waza serve --lab --results-dir RESULTS_DIR` with the configured results directory containing its
+existing `.waza-artifacts` store, then select **Runner**. In **Aggregate completed public manifests**, enter one manifest
+digest and optionally its evidence digest per line. The server reads only this
+configured local store; browser input cannot select filesystem paths or providers.
+
+Uploads are limited to 1 MiB and five seconds before opening storage. Stalled
+uploads return HTTP 408 (`aggregate_request_timeout`); cancellation stops
+admission (408 when delivery is still possible). Deadline
+setup/reset failures return 500 (`aggregate_transport_unavailable`), and
+unsupported bounded delivery aborts the connection instead of returning success.
+After admission, evaluation has its separate 30-second budget. Response delivery
+is bounded to five seconds without changing canonical report bytes.
+The aggregate-only client deadline is 50 seconds, covering those phases plus ten
+seconds of headroom while preserving caller cancellation. Source open/close and
+synchronous filesystem I/O are separate constraints, not a universal lifetime
+guarantee. Blocked diagnostic sinks use the existing bounded reporter rather
+than blocking report delivery or accumulating a logger per request.
+
+The panel displays composition, profile counts, member state/outcome counts,
+conflicts, omissions, category states, historical usage availability and source
+manifest inspection links. Evaluated incomplete/conflicting HTTP 409 reports stay
+visible and downloadable. The JSON download preserves the actual canonical API
+response; transport/malformed responses clear earlier success data instead of
+showing it as current.
+
+![Production Lab aggregate of an explicit mock-source fixture](/waza/images/manifest-aggregate.png)
+
+This producer-backed example contains author-recorded mock usage, not observed
+SDK billing or execution attestation.
+
+The aggregate response limit is 32 MiB of UTF-8 bytes, including escaped
+identifiers. The client checks member-driven admission state (conflicts take
+priority), named populations, display groups and historical-usage completeness
+before showing or downloading a report. A schema-valid but internally inconsistent
+response is not accepted as complete.
+
+## Compatibility, migration and troubleshooting
+
+[Aggregate schema 1.0](../../schemas/manifest-aggregate-1.0.schema.json) is
+separate from manifest, evidence and result versions.
+Completed manifest/terminal 1.0 sources are supported with or without a sidecar.
+Evidence/capture/attempt/completion 1.0 can qualify original record context.
+Unknown versions are explicit unsupported/invalid inputs; historical mutable
+results are not automatically converted and ownership/usage is never synthesized.
+Custom attempt artifact names are supported only when the selected descriptor
+matches the original reservation bytes; an unchanged execution ID alone is not
+sufficient.
+Ordering is deterministic for the same requested population and observed source
+state, including summation order. Diagnostics contain stable codes, not payloads
+or private provider errors.
+
+For `missing_source`, restore the original public source rather than dropping it.
+For corruption/conflicts, preserve evidence and inspect the source records.
+For `read_budget_exhausted`, the original population remains incomplete; a subset
+must not be relabeled as its complete aggregate. Missing namespace capability or
+usage stays unavailable, not zero. Reordering cannot repair a missing source.
+
+This is an opt-in source preview, not a published release or full acceptance claim.
+Existing result readers and ordinary evaluation behavior remain unchanged.

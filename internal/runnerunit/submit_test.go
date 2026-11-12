@@ -357,3 +357,70 @@ func assertContradictoryReportRejected(t *testing.T, backend artifactmanifest.Ba
 		t.Fatalf("finalized but contradictory source became actionable reuse: %+v %v", result, err)
 	}
 }
+
+func canceledSubmissionWithReport(t *testing.T, backend artifactmanifest.Backend, request runnercontract.Request) (Submission, Report) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var raw []byte
+	original, err := NewService(nil).Submit(ctx, submissionWire(t, request, nil), backend, SubmissionHooks{
+		Reserved: func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error {
+			cancel()
+			return nil
+		},
+		Artifacts: func(_ context.Context, _ *executionledger.Ledger, _ executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+			raw = bytes.Clone(snapshot.Report)
+			return nil, nil
+		},
+	})
+	if err != nil || original.Terminal.Outcome != runnerterminal.Canceled || original.Terminal.Observation != nil {
+		t.Fatalf("actual cancellation control did not select no-observation terminal: %+v %v", original, err)
+	}
+	report, err := decodeSubmissionReport(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return original, report
+}
+
+func TestHistoricalReportMutationsRejectedByBothConsumers(t *testing.T) {
+	for name, mutate := range map[string]func(*Report){
+		"mode_without_observation": func(report *Report) {
+			if report.Mode != "" || report.Observation != nil {
+				t.Fatalf("control did not select omitted pre-runtime mode: %+v", report)
+			}
+			report.Mode = "copilot"
+		},
+		"unsupported_negotiation_version": func(report *Report) {
+			if report.Compatibility.Negotiation.Version != "1.0" {
+				t.Fatalf("control did not select supported negotiation: %+v", report.Compatibility.Negotiation)
+			}
+			report.Compatibility.Negotiation.Version = "2.0"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			backend := submissionBackend(t)
+			request := fixture(t)
+			original, report := canceledSubmissionWithReport(t, backend, request)
+			if original.Reservation.Binding.ExecutionMode != "mock" {
+				t.Fatalf("control did not bind mock mode: %q", original.Reservation.Binding.ExecutionMode)
+			}
+			mutate(&report)
+			mutated, err := reportBytes(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := publishSubmissionReport(t, backend, original, mutated)
+			assertContradictoryReportRejected(t, backend, request, source)
+
+			original.Report = mutated
+			data, err := json.Marshal(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if parsed, err := ParseSubmissionResult(data); parsed != nil || err == nil {
+				t.Fatalf("submission-result parser admitted mutated historical report: %+v %v", parsed, err)
+			}
+		})
+	}
+}

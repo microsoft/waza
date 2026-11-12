@@ -89,7 +89,7 @@ func TestLargeUnescapedRequestSurvivesSubmitAndBothRecoveryBoundaries(t *testing
 	trace(t.Context(), "submit/return", started)
 	if err != nil || completed.Submission == nil || completed.Submission.Completion == nil ||
 		completed.BeforeDigest == "" || completed.FinalizedDigest == "" || factories != 1 {
-		t.Fatalf("accepted prompt failed in checkpoint adapter: %+v %v", completed, err)
+		t.Fatalf("accepted prompt failed in checkpoint adapter: result=%+v submission=%+v error=%v", completed, completed.Submission, err)
 	}
 	started = time.Now()
 	reused, err := service.Resume(t.Context(), wire, store, completed.FinalizedDigest, hooks("finalized-resume", started, false))
@@ -111,7 +111,7 @@ func TestLargeUnescapedRequestSurvivesSubmitAndBothRecoveryBoundaries(t *testing
 		child.Submission.Reservation.ExecutionID == paused.Submission.Reservation.ExecutionID ||
 		child.Submission.Reservation.Parent == nil ||
 		child.Submission.Reservation.Parent.ExecutionID != paused.Submission.Reservation.ExecutionID {
-		t.Fatalf("large before-unit checkpoint failed fresh-child recovery: %+v %v", child, err)
+		t.Fatalf("large before-unit checkpoint failed fresh-child recovery: result=%+v submission=%+v error=%v", child, child.Submission, err)
 	}
 }
 

@@ -66,6 +66,7 @@ func registerRoutes(mux *http.ServeMux, cfg Config) error {
 	webapi.RegisterRunnerRoutes(mux)
 	webapi.RegisterCheckpointOperationRoutes(mux, cfg.ResultsDir, cfg.StorageConfig)
 	webapi.RegisterManifestRoutes(mux, cfg.ResultsDir, cfg.StorageConfig)
+	webapi.RegisterAggregateRoutes(mux, cfg.ResultsDir, cfg.StorageConfig)
 
 	// SPA static files with HTML5 history API fallback
 	handler, err := spaHandler()

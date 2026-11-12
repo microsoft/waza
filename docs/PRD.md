@@ -85,6 +85,17 @@ and an explicit manifest; no billing, evidence or execution attestation is
 invented. Attempt ownership remains the separate #764 contract. See
 [publication and migration](IMMUTABLE_ARTIFACTS.md).
 
+The additive standalone aggregation profile (#766) consumes explicit completed
+public manifest/evidence references without agents or original worker state.
+It preserves repeated executions and compatible per-record views, distinguishes
+input-member/manifest/execution-record populations, and reports omissions and
+incompatible claims without selecting a winner or inventing usage. Lab exposes
+composition and downloads; supported legacy metadata remains explicitly
+unqualified. Aggregate schema 1.0 and complete historical usage are independent
+of terminal pass and execution attestation. This is unreleased source behavior,
+not publication or full current-head acceptance.
+See [aggregation contracts and migration](MANIFEST_AGGREGATION.md).
+
 The #765 source preview adds protected checkpoint create/resume in the CLI,
 HTTP API and Lab. Lab displays original outcomes, retry/reuse references and
 explicitly unavailable progress, and downloads the unchanged protected result.
