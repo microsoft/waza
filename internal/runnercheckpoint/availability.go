@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"net"
 	"strings"
 	"sync"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
 	"github.com/microsoft/waza/internal/executionattempt"
@@ -62,7 +65,7 @@ var availabilityGuidance = map[string]string{
 	"checkpoint_arguments_invalid":         "Pass exactly one checkpoint digest.",
 	"checkpoint_input_invalid":             "The captured submission is not valid execution-submission JSON. Recapture it; nothing was read from storage.",
 	"checkpoint_digest_invalid":            "The checkpoint digest must be 64 lowercase hex characters from a create result.",
-	"checkpoint_request_invalid":           "The captured request could not be bound to a compatibility declaration. Recapture it with this build.",
+	"checkpoint_request_invalid":           "The captured request is not admissible (for example its attempt exceeds max_attempts) or could not be bound to a compatibility declaration. Correct or recapture it with this build; resume rejects it the same way.",
 	"checkpoint_not_found":                 "No checkpoint blob with this digest exists in the selected store. Check --store or --azure-container-url and the digest.",
 	"checkpoint_corrupt":                   "The stored checkpoint differs from its digest or is not canonical. Preserve it for investigation; do not edit or resume it.",
 	"checkpoint_incompatible":              "The checkpoint was created by a different build or for different work, policy or consent. Rerun as new work or use the original build; implicit cross-version resume is not supported.",
@@ -130,16 +133,20 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 		return AvailabilityRejected("", "checkpoint_digest_invalid"), err
 	}
 	result := newAvailability(digest)
+	// Input causes can quote captured input, so only a fixed error leaves here.
 	request, err := runnerunit.ParseSubmission(bytes.Clone(data))
 	if err != nil {
-		return result.with("rejected", "checkpoint_input_invalid"), err
+		return result.with("rejected", "checkpoint_input_invalid"), ErrAvailabilityInput
+	}
+	if report := runnerunit.Validate(request.Request); report.Status != "ready" {
+		return result.with("rejected", "checkpoint_request_invalid"), ErrAvailabilityInput
 	}
 	declaration, err := executioncheckpoint.DeclareRequestWithContext(ctx, request.Request, s.revision)
 	if err != nil {
 		if interrupted(ctx, err) {
 			return result.with("operation_error", "checkpoint_availability_interrupted"), err
 		}
-		return result.with("rejected", "checkpoint_request_invalid"), err
+		return result.with("rejected", "checkpoint_request_invalid"), ErrAvailabilityInput
 	}
 	current := declaration.Compatibility()
 	checkpoint, err := executioncheckpoint.Load(ctx, backend, digest)
@@ -176,6 +183,8 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 			return result.with("operation_error", "checkpoint_availability_interrupted"), err
 		case errors.Is(err, executioncheckpoint.ErrStale):
 			return result.with("unavailable", "checkpoint_stale"), err
+		case operational(err):
+			return result.with("operation_error", ErrorCodeStorageUnavailable), err
 		default:
 			return result.with("unavailable", "checkpoint_before_source_rejected"), err
 		}
@@ -189,17 +198,21 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 		}
 		result.ResumeAction = ResumeFreshRetryChild
 	case executioncheckpoint.FinalizedUnit:
-		original, err := executioncheckpoint.ReadStoredFinalized(ctx, ledger, *checkpoint, current)
-		if err != nil {
-			if interrupted(ctx, err) {
-				return result.with("operation_error", "checkpoint_availability_interrupted"), err
-			}
-			return result.with("unavailable", "checkpoint_finalized_source_rejected"), err
+		if _, err := executioncheckpoint.ReadStoredFinalized(ctx, ledger, *checkpoint, current); err != nil {
+			return result.with(finalizedSourceFailure(ctx, err)), err
 		}
 		source := executionattempt.Source{ExecutionID: checkpoint.ExecutionID, ManifestDigest: checkpoint.ManifestDigest}
 		if request.Policy != nil && (request.Policy.Mode != "reuse" || request.Policy.Source == nil ||
 			*request.Policy.Source != source) {
 			return result.with("unavailable", "checkpoint_policy_conflict"), ErrPolicy
+		}
+		// Resume admits the same terminal and report.json before reusing them.
+		original, _, stage, err := runnerunit.VerifyReuseSource(ctx, ledger, source)
+		if err != nil {
+			if stage != "source_unavailable" && !interrupted(ctx, err) {
+				return result.with("unavailable", "checkpoint_finalized_source_rejected"), err
+			}
+			return result.with(finalizedSourceFailure(ctx, err)), err
 		}
 		if err := ownedsubmission.ValidateSourceDisclosure(original); err != nil {
 			return result.with("unavailable", "checkpoint_capture_policy_rejected"), err
@@ -217,6 +230,46 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 	result.Source = &AvailabilitySource{Boundary: checkpoint.Boundary, CreatedAt: checkpoint.CreatedAt, ExecutionID: checkpoint.ExecutionID}
 	result.RestoredUnits, result.RemainingWork = &restored, &remaining
 	return result, nil
+}
+
+// ErrAvailabilityInput replaces input admission causes, which may quote the
+// captured submission, before they can reach operator logs.
+var ErrAvailabilityInput = errors.New("captured submission was not admitted for checkpoint availability")
+
+func finalizedSourceFailure(ctx context.Context, err error) (string, string) {
+	switch {
+	case interrupted(ctx, err):
+		return "operation_error", "checkpoint_availability_interrupted"
+	case operational(err):
+		return "operation_error", ErrorCodeStorageUnavailable
+	default:
+		return "unavailable", "checkpoint_finalized_source_rejected"
+	}
+}
+
+// operational separates provider read failures from stale, missing or invalid
+// source evidence. Evidence sentinels may wrap a provider failure, so a
+// filesystem, network or Azure response cause always wins.
+func operational(err error) bool {
+	if _, ok := errors.AsType[*fs.PathError](err); ok {
+		return true
+	}
+	if _, ok := errors.AsType[*azcore.ResponseError](err); ok {
+		return true
+	}
+	if _, ok := errors.AsType[net.Error](err); ok {
+		return true
+	}
+	for _, evidence := range []error{
+		artifactmanifest.ErrMissing, artifactmanifest.ErrCorrupt, artifactmanifest.ErrConflict, artifactmanifest.ErrInvalid,
+		executionledger.ErrInvalid, executionledger.ErrContext,
+		executioncheckpoint.ErrInvalid, executioncheckpoint.ErrContext, executioncheckpoint.ErrIncompatible, executioncheckpoint.ErrStale,
+	} {
+		if errors.Is(err, evidence) {
+			return false
+		}
+	}
+	return true
 }
 
 func interrupted(ctx context.Context, err error) bool {

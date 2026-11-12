@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,4 +80,19 @@ func TestCheckpointAvailabilityCLIMatchesResumeWithoutExecuting(t *testing.T) {
 			require.Equal(t, "reused", reused.Status)
 		})
 	}
+}
+
+func TestCheckpointAvailabilityCLIRejectsInvalidInputBeforeStorage(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent")
+	revisions := 0
+	revision := func() (string, error) {
+		revisions++
+		return strings.Repeat("c", 40), nil
+	}
+	result := runCheckpointAvailabilityCLI(t, runnerunit.NewService(nil), revision, missing, []byte(`{}`), strings.Repeat("a", 64))
+	require.Equal(t, "rejected", result.Status)
+	require.Equal(t, 6, result.ExitCode)
+	require.Equal(t, "checkpoint_input_invalid", result.Diagnostics[0].Code)
+	require.Zero(t, revisions)
+	require.NoDirExists(t, missing)
 }

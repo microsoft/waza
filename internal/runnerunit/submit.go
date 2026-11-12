@@ -184,36 +184,14 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		policy = *request.Policy
 	}
 	if policy.Mode == "reuse" {
-		// First verify the actual source. Optional full report is captured only
-		// when declared; missing historical billing remains unavailable.
-		source, err := ledger.ReadCompleted(ctx, *policy.Source)
+		source, _, code, err := VerifyReuseSource(ctx, ledger, *policy.Source)
 		if err != nil {
-			result.fail("source_unavailable", err)
+			result.fail(code, err)
 			return result, err
 		}
 		names := []string{source.Publication.Manifest.TerminalArtifact}
-		for _, artifact := range source.Publication.Manifest.Artifacts {
-			if artifact.Name == "report.json" && artifact.Name != source.Publication.Manifest.TerminalArtifact {
-				names = append(names, artifact.Name)
-			}
-		}
-		// Verification and report admission precede the actionable decision.
-		source, err = ledger.ReadCompleted(ctx, *policy.Source, names...)
-		if err != nil {
-			result.fail("source_unavailable", err)
-			return result, err
-		}
-		envelope, err := runnerterminal.Validate(source.Publication.ArtifactBytes[source.Publication.Manifest.TerminalArtifact],
-			source.Reservation.Attempt.Binding.TerminalBinding())
-		if err != nil {
-			result.fail("source_terminal_invalid", err)
-			return result, err
-		}
-		if raw, found := source.Publication.ArtifactBytes["report.json"]; found && source.Publication.Manifest.TerminalArtifact != "report.json" {
-			if err := validateSourceReport(raw, source, envelope); err != nil {
-				result.fail("source_report_invalid", err)
-				return result, err
-			}
+		if _, found := source.Publication.ArtifactBytes["report.json"]; found && names[0] != "report.json" {
+			names = append(names, "report.json")
 		}
 		reservationBytes, completionBytes := bytes.Clone(source.Reservation.Bytes), bytes.Clone(source.CompletionBytes)
 		if hooks.ReuseAdmission != nil {
@@ -228,7 +206,7 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 			return result, err
 		}
 		// The decision rechecks current source bytes. Do not mix earlier reads.
-		envelope, err = runnerterminal.Validate(verified.Publication.ArtifactBytes[verified.Publication.Manifest.TerminalArtifact],
+		envelope, err := runnerterminal.Validate(verified.Publication.ArtifactBytes[verified.Publication.Manifest.TerminalArtifact],
 			verified.Reservation.Attempt.Binding.TerminalBinding())
 		if err != nil {
 			result.fail("source_terminal_invalid", err)
@@ -467,4 +445,38 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	}
 	result.Status, result.ExitCode, result.Completion = "completed", envelope.ExitCode, &completed.Completion
 	return result, nil
+}
+
+// VerifyReuseSource performs the read-only source admission that precedes a
+// reuse decision: finalized completion, terminal and any captured report.json.
+// The returned code names the failed stage for callers that classify it.
+func VerifyReuseSource(ctx context.Context, ledger *executionledger.Ledger, source executionattempt.Source,
+) (*executionledger.CompletedExecution, *runnerterminal.Envelope, string, error) {
+	// Optional full report is captured only when declared; missing historical
+	// billing remains unavailable.
+	completed, err := ledger.ReadCompleted(ctx, source)
+	if err != nil {
+		return nil, nil, "source_unavailable", err
+	}
+	names := []string{completed.Publication.Manifest.TerminalArtifact}
+	for _, artifact := range completed.Publication.Manifest.Artifacts {
+		if artifact.Name == "report.json" && artifact.Name != completed.Publication.Manifest.TerminalArtifact {
+			names = append(names, artifact.Name)
+		}
+	}
+	completed, err = ledger.ReadCompleted(ctx, source, names...)
+	if err != nil {
+		return nil, nil, "source_unavailable", err
+	}
+	envelope, err := runnerterminal.Validate(completed.Publication.ArtifactBytes[completed.Publication.Manifest.TerminalArtifact],
+		completed.Reservation.Attempt.Binding.TerminalBinding())
+	if err != nil {
+		return nil, nil, "source_terminal_invalid", err
+	}
+	if raw, found := completed.Publication.ArtifactBytes["report.json"]; found && completed.Publication.Manifest.TerminalArtifact != "report.json" {
+		if err := validateSourceReport(raw, completed, envelope); err != nil {
+			return nil, nil, "source_report_invalid", err
+		}
+	}
+	return completed, envelope, "", nil
 }

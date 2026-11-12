@@ -169,6 +169,10 @@ func newRunnerCheckpointAvailabilityCommand(
 			if err != nil {
 				return report(cmd, runnercheckpoint.AvailabilityRejected(digest, "checkpoint_input_unavailable"), "input read", err)
 			}
+			if _, err := runnerunit.ParseSubmission(data); err != nil {
+				return report(cmd, runnercheckpoint.AvailabilityRejected(digest, "checkpoint_input_invalid"), "input admission",
+					runnercheckpoint.ErrAvailabilityInput)
+			}
 			buildRevision, err := revision()
 			if err != nil {
 				return report(cmd, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeBuildUnavailable), "build admission", err)

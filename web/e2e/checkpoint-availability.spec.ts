@@ -65,10 +65,20 @@ test.describe("Checkpoint resume availability in Lab", () => {
     await expect(diagnostics).toContainText("use the original build");
   });
 
-  test("rejects contradictory transport or boundary state", async ({ page }) => {
-    await check(page, { ...available, resume_action: "fresh_retry_child" }, 200);
-    await expect(panel(page).getByRole("alert")).toContainText("resume action contradicts its boundary");
-    await page.unroute("**/api/v1/checkpoints/**");
+  for (const [name, body, status] of [
+    ["an action contradicting its boundary", { ...available, resume_action: "fresh_retry_child" }, 200],
+    ["progress contradicting its boundary", { ...available, restored_units: 0, remaining_work: 1 }, 200],
+    ["a boundary contradicting its action and progress", { ...available, source: { ...available.source, boundary: "before-unit" } }, 200],
+    ["source disclosed while unavailable", { ...incompatible, source: available.source }, 409],
+  ] as const) {
+    test(`rejects ${name}`, async ({ page }) => {
+      await check(page, body, status);
+      await expect(panel(page).getByRole("alert")).toContainText("does not match its schema");
+      await expect(panel(page).getByRole("status", { name: "Checkpoint availability result" })).toHaveCount(0);
+    });
+  }
+
+  test("rejects contradictory transport state", async ({ page }) => {
     await check(page, available, 409);
     await expect(panel(page).getByRole("alert")).toContainText("transport status contradicts");
     await expect(panel(page).getByRole("status", { name: "Checkpoint availability result" })).toHaveCount(0);

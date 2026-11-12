@@ -51,7 +51,7 @@
       "if": {"properties": {"status": {"const": "unavailable"}}},
       "then": {
         "required": ["checkpoint_sha256"],
-        "properties": {"exit_code": {"const": 6}, "resume_action": false, "restored_units": {"const": null}, "remaining_work": {"const": null},
+        "properties": {"exit_code": {"const": 6}, "source": false, "resume_action": false, "restored_units": {"const": null}, "remaining_work": {"const": null},
           "diagnostics": {"minItems": 1}}
       }
     },
@@ -62,6 +62,14 @@
           "compatibility_differences": {"maxItems": 0}, "restored_units": {"const": null}, "remaining_work": {"const": null},
           "diagnostics": {"minItems": 1}}
       }
+    },
+    {
+      "if": {"required": ["status", "source"], "properties": {"status": {"const": "available"}, "source": {"properties": {"boundary": {"const": "before-unit"}}}}},
+      "then": {"properties": {"resume_action": {"const": "fresh_retry_child"}, "restored_units": {"const": 0}, "remaining_work": {"const": 1}}}
+    },
+    {
+      "if": {"required": ["status", "source"], "properties": {"status": {"const": "available"}, "source": {"properties": {"boundary": {"const": "finalized-unit"}}}}},
+      "then": {"properties": {"resume_action": {"const": "reuse_original_terminal"}, "restored_units": {"const": 1}, "remaining_work": {"const": 0}}}
     },
     {"if": {"properties": {"status": {"const": "rejected"}}}, "then": {"properties": {"exit_code": {"const": 6}}}},
     {"if": {"properties": {"status": {"const": "operation_error"}}}, "then": {"properties": {"exit_code": {"const": 2}}}},

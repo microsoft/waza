@@ -24,18 +24,11 @@ const ajv = new Ajv2020({ strict: false });
 for (const schema of [terminalSchema, manifestSchema, attemptSchema]) ajv.addSchema(schema);
 const validate = ajv.compile<CheckpointAvailability>(availabilitySchema);
 
-const expectedAction = {
-  "before-unit": "fresh_retry_child", "finalized-unit": "reuse_original_terminal",
-} as const;
-
 export function parseCheckpointAvailability(text: string, digest?: string): CheckpointAvailability {
   const value = parseStrictJSON(text);
   if (!validate(value)) throw new Error("Checkpoint availability response does not match its schema.");
   if (digest && value.checkpoint_sha256 !== undefined && value.checkpoint_sha256 !== digest) {
     throw new Error("Checkpoint availability contradicts the requested checkpoint digest.");
-  }
-  if (value.status === "available" && value.source && value.resume_action !== expectedAction[value.source.boundary]) {
-    throw new Error("Checkpoint availability resume action contradicts its boundary.");
   }
   return value;
 }

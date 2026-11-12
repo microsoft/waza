@@ -142,6 +142,12 @@ func (operations checkpointOperations) availability(w http.ResponseWriter, r *ht
 		emit(http.StatusBadRequest, runnercheckpoint.AvailabilityRejected("", "checkpoint_digest_invalid"))
 		return
 	}
+	if _, err := runnerunit.ParseSubmission(data); err != nil {
+		logRunnerError("checkpoint availability submission parsing failed",
+			"guidance", "Inspect the submission and local schema initialization.")
+		emit(http.StatusBadRequest, runnercheckpoint.AvailabilityRejected(digest, "checkpoint_input_invalid"))
+		return
+	}
 	revision, err := operations.revision()
 	if err != nil {
 		logRunnerError("checkpoint availability build admission failed", "error", err)
@@ -166,7 +172,10 @@ func (operations checkpointOperations) availability(w http.ResponseWriter, r *ht
 		emit(http.StatusServiceUnavailable, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeStorageCloseFailed))
 		return
 	}
-	if err != nil {
+	if errors.Is(err, runnercheckpoint.ErrAvailabilityInput) {
+		logRunnerError("checkpoint availability request admission failed",
+			"guidance", "Inspect the captured request against this build; its cause is withheld.")
+	} else if err != nil {
 		logRunnerError("checkpoint availability check did not admit resume", "error", err)
 	}
 	status := map[string]int{

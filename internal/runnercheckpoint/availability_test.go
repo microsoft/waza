@@ -3,16 +3,22 @@ package runnercheckpoint
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executioncheckpoint"
+	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 )
 
@@ -184,4 +190,150 @@ func mustWire(t *testing.T, request runnerunit.SubmissionRequest) []byte {
 		t.Fatal(err)
 	}
 	return wire
+}
+
+// withAttempt rewrites only selection.attempt in the captured request.
+func withAttempt(t *testing.T, attempt int) []byte {
+	t.Helper()
+	var request map[string]any
+	if err := json.Unmarshal(mustRequest(t), &request); err != nil {
+		t.Fatal(err)
+	}
+	selection, ok := request["selection"].(map[string]any)
+	if !ok {
+		t.Fatal("request has no selection object")
+	}
+	selection["attempt"] = attempt
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mustWire(t, runnerunit.SubmissionRequest{Kind: "waza.execution-submission", SchemaVersion: "1.0", Request: data})
+}
+
+func TestAvailabilityAdmitsTheRequestLikeResume(t *testing.T) {
+	store := backend(t)
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	completed, err := service.Submit(context.Background(), fixture(t), store, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outOfRange := availability(t, service, withAttempt(t, 4), store, completed.FinalizedDigest)
+	if outOfRange.Status != "rejected" || diagnosticCode(outOfRange) != "checkpoint_request_invalid" || outOfRange.Source != nil {
+		t.Fatalf("attempt beyond max_attempts must be rejected before compatibility: %+v", outOfRange)
+	}
+	if resumed, err := service.Resume(context.Background(), withAttempt(t, 4), store, completed.FinalizedDigest, Hooks{}); err == nil {
+		t.Fatalf("resume admitted an attempt beyond max_attempts: %+v", resumed)
+	}
+	alternate := availability(t, service, withAttempt(t, 3), store, completed.FinalizedDigest)
+	if alternate.Status != "available" || alternate.ResumeAction != ResumeReuseOriginalTerminal {
+		t.Fatalf("valid alternate ordinal must stay available: %+v", alternate)
+	}
+	if resumed, err := service.Resume(context.Background(), withAttempt(t, 3), store, completed.FinalizedDigest, Hooks{}); err != nil ||
+		resumed.Status != "reused" {
+		t.Fatalf("available alternate ordinal did not resume: %+v, %v", resumed, err)
+	}
+}
+
+// deniedBackend fails every read except the checkpoint declaration itself.
+type deniedBackend struct {
+	artifactmanifest.Backend
+	allow string
+}
+
+func (d deniedBackend) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
+	if strings.Contains(key, d.allow) {
+		return d.Backend.Get(ctx, key, limit)
+	}
+	return nil, &fs.PathError{Op: "open", Path: key, Err: fs.ErrPermission}
+}
+
+func TestAvailabilitySeparatesStorageFailuresFromSourceEvidence(t *testing.T) {
+	store := backend(t)
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	pause := errors.New("stop after before publication")
+	interrupted, err := service.Submit(context.Background(), fixture(t), store, Hooks{
+		Published: func(context.Context, Reference) error { return pause },
+	})
+	if !errors.Is(err, pause) {
+		t.Fatal(err)
+	}
+	completed, err := service.Submit(context.Background(), fixture(t), store, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, digest := range map[string]string{"before": interrupted.BeforeDigest, "finalized": completed.FinalizedDigest} {
+		t.Run(name, func(t *testing.T) {
+			result := availability(t, service, fixture(t), deniedBackend{store, digest}, digest)
+			if result.Status != "operation_error" || result.ExitCode != 2 || diagnosticCode(result) != ErrorCodeStorageUnavailable {
+				t.Fatalf("permission denial must be an operation error: %+v", result)
+			}
+		})
+	}
+}
+
+func TestAvailabilityRejectsAContradictoryFinalizedReport(t *testing.T) {
+	ctx := context.Background()
+	store := backend(t)
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	control, err := service.Submit(ctx, fixture(t), store, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := control.Submission.Reservation.Binding
+	terminal, err := runnerterminal.Encode(*control.Submission.Terminal, binding.TerminalBinding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := executionledger.New(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := ledger.Reserve(ctx, binding, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := artifactmanifest.NewStore(store)
+	manifest := artifactmanifest.Manifest{Kind: "waza.artifact-manifest", SchemaVersion: artifactmanifest.Version,
+		Binding: binding, TerminalArtifact: "terminal.json", Artifacts: []artifactmanifest.Artifact{}}
+	for name, data := range map[string][]byte{"terminal.json": terminal, "report.json": []byte(`{}`)} {
+		artifact := artifactmanifest.Artifact{Name: name, SHA256: artifactmanifest.Hash(data),
+			SizeBytes: int64(len(data)), MediaType: "application/json"}
+		if err := objects.Put(ctx, artifact, data); err != nil {
+			t.Fatal(err)
+		}
+		manifest.Artifacts = append(manifest.Artifacts, artifact)
+	}
+	slices.SortFunc(manifest.Artifacts, func(a, b artifactmanifest.Artifact) int { return strings.Compare(a.Name, b.Name) })
+	manifestData, err := artifactmanifest.Encode(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := objects.Create(ctx, manifestData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := objects.Finalize(ctx, digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ledger.Complete(ctx, creator, digest, "terminal.json", "report.json"); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := executioncheckpoint.PublishFinalized(ctx, store, ledger, creator, mustRequest(t), strings.Repeat("c", 40), digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := availability(t, service, fixture(t), store, checkpoint)
+	if result.Status != "unavailable" || diagnosticCode(result) != "checkpoint_finalized_source_rejected" {
+		t.Fatalf("contradictory report.json must not be available: %+v", result)
+	}
+	if resumed, err := service.Resume(ctx, fixture(t), store, checkpoint, Hooks{}); err == nil {
+		t.Fatalf("resume reused a contradictory report: %+v", resumed)
+	}
 }

@@ -2,13 +2,16 @@ package webapi
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
@@ -91,4 +94,62 @@ func TestCheckpointAvailabilityHTTPStorageFailureIsOperationError(t *testing.T) 
 	require.Equal(t, "operation_error", result.Status)
 	require.Equal(t, runnercheckpoint.ErrorCodeStorageUnavailable, result.Diagnostics[0].Code)
 	require.NotContains(t, result.Diagnostics[0].Message, "private provider path")
+}
+
+func TestCheckpointAvailabilityHTTPAdmitsInputBeforeStorageWithoutLoggingIt(t *testing.T) {
+	require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	records := &checkpointLogSink{}
+	setWebAPITestLogger(t, slog.New(slog.NewTextHandler(records, nil)))
+	defer func() {
+		require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	}()
+	directory := t.TempDir()
+	var opens, revisions atomic.Int32
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			opens.Add(1)
+			return artifactmanifest.OpenBackend(directory, "")
+		},
+		runner: runnerunit.NewService(nil),
+		revision: func() (string, error) {
+			revisions.Add(1)
+			return strings.Repeat("c", 40), nil
+		},
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	const secret = "private-submission-marker"
+	digest := strings.Repeat("a", 64)
+
+	records.Reset()
+	malformed := postCheckpointAvailability(t, server, digest, []byte(`{"private":"`+secret+`",`), nil, http.StatusBadRequest)
+	require.Equal(t, "checkpoint_input_invalid", malformed.Diagnostics[0].Code)
+	require.Zero(t, opens.Load())
+	require.Zero(t, revisions.Load())
+	require.Eventually(t, func() bool {
+		return strings.Contains(records.String(), "checkpoint availability submission parsing failed")
+	}, 2*time.Second, time.Millisecond)
+	require.NotContains(t, records.String(), secret)
+
+	// A valid wrapper whose request is not admissible reaches the service; its
+	// cause still never reaches the log.
+	var request map[string]any
+	require.NoError(t, json.Unmarshal(checkpointOperationWire(t), &request))
+	inner, ok := request["request"].(map[string]any)
+	require.True(t, ok)
+	selection, ok := inner["selection"].(map[string]any)
+	require.True(t, ok)
+	inner["run_key"] = secret
+	selection["attempt"] = 4
+	wire, err := json.Marshal(request)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	records.Reset()
+	rejected := postCheckpointAvailability(t, server, digest, wire, nil, http.StatusBadRequest)
+	require.Equal(t, "checkpoint_request_invalid", rejected.Diagnostics[0].Code)
+	require.Eventually(t, func() bool {
+		return strings.Contains(records.String(), "checkpoint availability request admission failed")
+	}, 2*time.Second, time.Millisecond)
+	require.NotContains(t, records.String(), secret)
 }
