@@ -106,6 +106,7 @@ for (const schema of [
 ]) ajv.addSchema(schema);
 const validate = ajv.compile<CheckpointOperationResult>(resultSchema);
 const validateOperationError = ajv.compile<CheckpointOperationResult>(operationErrorSchema);
+const capturedDiagnosticMessage = "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.";
 
 async function goJSONDigest(value: object): Promise<string> {
   const canonical = JSON.stringify(value).replace(
@@ -129,6 +130,13 @@ function sortedStrings(ids: string[]): string[] {
 
 function sameGraders(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function validBinding(logical: { run: string; work: string }, binding: NonNullable<SubmissionResult["reservation"]>["binding"]): boolean {
+  const encoder = new TextEncoder();
+  return logical.run === binding.identity.run && logical.work === binding.identity.trial &&
+    [...binding.grader_ids, binding.selection.shard, binding.selection.task]
+      .every((value) => encoder.encode(value).length <= 256);
 }
 
 async function requestPolicyDigest(request: object): Promise<string> {
@@ -238,6 +246,13 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   const value = parseStrictJSON(text);
   const isOperationError = validateOperationError(value);
   if (!isOperationError && !validate(value)) throw new Error("Checkpoint API returned an invalid operation result.");
+  const submission = value.submission;
+  if (submission && "report" in submission) {
+    throw new Error("Checkpoint API returned an unapproved raw report.");
+  }
+  if (isOperationError && submission?.diagnostics.some(({ message }) => message !== capturedDiagnosticMessage)) {
+    throw new Error("Checkpoint operation error contains an unprojected submission diagnostic.");
+  }
   if (isOperationError) await validateOperationErrorSource(value);
   if (value.source && !isCanonicalCheckpointTime(value.source.created_at)) {
     throw new Error("Checkpoint API returned a noncanonical source creation time.");
@@ -245,10 +260,6 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   if (value.before_checkpoint_sha256 &&
       value.before_checkpoint_sha256 === value.finalized_checkpoint_sha256) {
     throw new Error("Checkpoint API returned one reference for different safe boundaries.");
-  }
-  const submission = value.submission;
-  if (submission && "report" in submission) {
-    throw new Error("Checkpoint API returned an unapproved raw report.");
   }
   if (submission && value.status !== "operation_error" &&
       (value.status === "checkpoint_error"
@@ -261,16 +272,19 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   const reservation = submission?.reservation;
   const decision = submission?.decision;
   if (reservation && binding &&
-      (reservation.logical.run !== binding.identity.run || reservation.logical.work !== binding.identity.trial ||
+      (!validBinding(reservation.logical, binding) || reservation.parent?.execution_id === reservation.execution_id ||
        submission?.caller?.run !== reservation.logical.run || submission.caller.trial !== reservation.logical.work ||
        (!decision && !sameRunnerIdentity(submission.caller, binding.identity)))) {
-    throw new Error("Checkpoint reservation contradicts its original logical work.");
+    throw new Error("Checkpoint retained submission reservation contradicts its original logical work.");
   }
-  if (decision && reservation && binding) {
+  if (decision) {
+    if (!reservation || !binding || !validBinding(decision.logical, decision.binding)) {
+      throw new Error("Checkpoint retained submission decision contradicts its original logical work.");
+    }
     const caller = decision.binding;
     if (!sameRunnerIdentity(caller.identity, submission?.caller) ||
         decision.logical.run !== reservation.logical.run || decision.logical.work !== reservation.logical.work) {
-      throw new Error("Checkpoint decision contradicts its caller or original logical work.");
+      throw new Error("Checkpoint retained submission decision contradicts its caller or original logical work.");
     }
     if (decision.policy === "distinct"
       ? decision.execution_id !== reservation.execution_id ||
@@ -281,14 +295,15 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
         caller.selection.shard !== binding.selection.shard || caller.selection.task !== binding.selection.task ||
         caller.selection.trial !== binding.selection.trial || caller.execution_mode !== binding.execution_mode ||
         !sameGraders(sortedStrings(caller.grader_ids), binding.grader_ids)) {
-      throw new Error("Checkpoint decision contradicts its original execution binding.");
+      throw new Error("Checkpoint retained submission decision contradicts its original execution binding.");
     }
   }
   if (submission?.completion &&
       (!submission.reservation || submission.completion.execution_id !== submission.reservation.execution_id ||
+       (submission.status === "reused" && decision?.source?.manifest_digest !== submission.completion.manifest_digest) ||
        (!(isOperationError && value.source?.boundary === "finalized-unit") &&
         submission.completion.reservation_digest !== await reservationDigest(submission.reservation)))) {
-    throw new Error("Checkpoint completion contradicts its canonical original reservation.");
+    throw new Error("Checkpoint retained submission completion contradicts its canonical original reservation.");
   }
   if (terminal && submission && submission.status !== "submission_error" &&
       submission.exit_code !== terminal.exit_code) {
@@ -296,11 +311,13 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   }
   if (terminal && submission && submission.status !== "reused" &&
       submission.engine_calls !== terminal.engine_calls) {
-    throw new Error("Checkpoint submission contradicts its original terminal call count.");
+    throw new Error("Checkpoint retained submission call count contradicts its original terminal.");
   }
-  if (terminal && (!binding || !sameSelection(terminal.selection, binding.selection) ||
-      !sameRunnerIdentity(terminal.identity, binding.identity))) {
-    throw new Error("Checkpoint terminal contradicts its original reservation.");
+  if (terminal && (binding
+    ? terminal.validation !== "valid" || !sameSelection(terminal.selection, binding.selection) ||
+      !sameRunnerIdentity(terminal.identity, binding.identity)
+    : !!terminal.identity || !!terminal.selection || !!terminal.observation || terminal.engine_calls !== 0)) {
+    throw new Error("Checkpoint retained submission terminal contradicts its original reservation.");
   }
   if (terminal?.observation && binding) {
     const observed = terminal.observation;
@@ -313,7 +330,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
         ids.some((id) => !binding.grader_ids.includes(id)) ||
         (observed.status !== "error" &&
          (observed.status === "failed") !== observed.validations.some((verdict) => !verdict.passed))) {
-      throw new Error("Checkpoint observation contradicts its original binding.");
+      throw new Error("Checkpoint retained submission observation contradicts its original binding.");
     }
   }
   if (value.source && submission?.reservation &&

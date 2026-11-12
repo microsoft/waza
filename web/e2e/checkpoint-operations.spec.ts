@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { copyFile, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import fixtures from "./fixtures/checkpoint-operations.json" with { type: "json" };
 import type { CheckpointOperationResult } from "../src/api/checkpointResults";
 
@@ -209,6 +210,45 @@ test.describe("Protected checkpoint operations in Lab", () => {
     expect(methods).toEqual(["POST"]);
   });
 
+  for (const payload of ["projected", "unprojected", "report"] as const) {
+    test(`operation-error reader and download enforce ${payload} submission privacy`, async ({ page }) => {
+      const fixture = closeFailure(fixtures.created);
+      const value = parsed(fixture);
+      value.submission!.status = "submission_error";
+      value.submission!.exit_code = 2;
+      delete value.submission!.completion;
+      value.submission!.diagnostics = [{
+        code: "submission_failed",
+        message: payload === "unprojected" ? "private operator details"
+          : "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.",
+      }];
+      if (payload === "report") Reflect.set(value.submission!, "report", fixtures.created.admission);
+      fixture.response = JSON.stringify(value);
+
+      const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+      await reader.getByLabel("Checkpoint result JSON").fill(fixture.response);
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      if (payload === "projected") {
+        await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+      } else {
+        await expect(reader.getByRole("alert")).toBeVisible();
+        await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toHaveCount(0);
+      }
+
+      await prepare(page, fixture);
+      await run(page, fixture);
+      if (payload === "projected") {
+        await expect(result(page)).toBeVisible();
+        await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toBeVisible();
+      } else {
+        await expect(panel(page).getByRole("alert")).toBeVisible();
+        await expect(panel(page)).not.toContainText("private operator details");
+        await expect(result(page)).toHaveCount(0);
+        await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
+      }
+    });
+  }
+
   for (const control of [
     { name: "caller identity", mutate: (value: CheckpointOperationResult) => {
       value.submission!.caller!.canonical_digest = "0".repeat(64);
@@ -249,6 +289,20 @@ test.describe("Protected checkpoint operations in Lab", () => {
     { name: "reordered distinct decision graders", fixture: "created", mutate: (value: CheckpointOperationResult) => {
       value.submission!.reservation!.binding.grader_ids = ["\uE000", "😀"];
       value.submission!.decision!.binding.grader_ids = ["😀", "\uE000"];
+    } },
+    { name: "self-parent reservation", fixture: "created", mutate: (value: CheckpointOperationResult) => {
+      const reservation = value.submission!.reservation!;
+      reservation.parent = { execution_id: reservation.execution_id, relationship: "retry" };
+      value.submission!.completion!.reservation_digest = createHash("sha256").update(JSON.stringify(reservation)).digest("hex");
+    } },
+    { name: "overlong UTF-8 selection", fixture: "created", mutate: (value: CheckpointOperationResult) => {
+      const submission = value.submission!;
+      const shard = "😀".repeat(65);
+      submission.reservation!.binding.selection.shard = shard;
+      submission.decision!.binding.selection.shard = shard;
+      submission.terminal!.selection!.shard = shard;
+      submission.terminal!.observation!.selection!.shard = shard;
+      submission.completion!.reservation_digest = createHash("sha256").update(JSON.stringify(submission.reservation)).digest("hex");
     } },
     { name: "paired fresh original attempt retagging", fixture: "created", mutate: (value: CheckpointOperationResult) => {
       const attempt = "attempt-" + "0".repeat(64);

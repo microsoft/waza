@@ -212,7 +212,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     };
     beforeUnitError.submission.diagnostics = [{
       code: "resume_interrupted",
-      message: "Checkpoint operation did not complete.",
+      message: "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.",
     }];
     await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(beforeUnitError));
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
@@ -287,7 +287,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     })).digest("hex");
     await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(substitutedReservation));
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
-    await expect(reader.getByRole("alert")).toContainText("source declaration does not match");
+    await expect(reader.getByRole("alert")).toContainText("retained submission");
   });
 
   test("Lab checks retained submission exit against its terminal for both result versions", async ({ page }) => {
@@ -331,6 +331,93 @@ test.describe("Runner negotiation through the real Go API", () => {
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
     await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
       .toContainText("Operation error");
+  });
+
+  test("Lab checks retained submission bindings for both result versions", async ({ page }) => {
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reused = structuredClone(operationError);
+    reused.schema_version = "1.0";
+    reused.status = "reused";
+    reused.exit_code = 0;
+    delete reused.error_code;
+    reused.compatibility_result = "compatible";
+    reused.restored_units = 1;
+    reused.remaining_work = 0;
+
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    for (const result of [reused, operationError]) {
+      const alternateCaller = structuredClone(result);
+      alternateCaller.submission.caller.canonical_digest = "0".repeat(64);
+      alternateCaller.submission.caller.attempt = `attempt-${"0".repeat(64)}`;
+      alternateCaller.submission.decision.binding.identity = structuredClone(alternateCaller.submission.caller);
+      alternateCaller.submission.decision.binding.selection.attempt += 1;
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(alternateCaller));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+
+      const unsortedSource = structuredClone(result);
+      reorderMultiGraderDeclaration(unsortedSource);
+      unsortedSource.submission.reservation.binding.grader_ids = ["😀", "\uE000"];
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(unsortedSource));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("alert")).toContainText("retained submission");
+
+      for (const mutate of [
+        (value: typeof result) => { value.submission.caller.canonical_digest = "0".repeat(64); },
+        (value: typeof result) => { value.submission.decision.binding.selection.task = "other-task"; },
+        (value: typeof result) => { value.submission.terminal.identity.canonical_digest = "0".repeat(64); },
+        (value: typeof result) => { value.submission.terminal.observation.execution_mode = "copilot"; },
+      ]) {
+        const contradiction = structuredClone(result);
+        mutate(contradiction);
+        await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(contradiction));
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        await expect(reader.getByRole("alert")).toContainText("retained submission");
+      }
+    }
+
+    const completed = structuredClone(reused);
+    completed.status = "completed";
+    completed.restored_units = 0;
+    delete completed.source;
+    completed.before_checkpoint_sha256 = "1".repeat(64);
+    completed.finalized_checkpoint_sha256 = "2".repeat(64);
+    completed.submission.status = "completed";
+    completed.submission.engine_calls = 1;
+    completed.submission.decision.policy = "distinct";
+    completed.submission.decision.outcome = "distinct";
+    completed.submission.decision.execution_id = completed.submission.reservation.execution_id;
+    delete completed.submission.decision.source;
+
+    const completedError = structuredClone(operationError);
+    delete completedError.source;
+    completedError.submission = structuredClone(completed.submission);
+    for (const result of [completed, completedError]) {
+      const wireOrder = ["😀", "\uE000"];
+      result.submission.reservation.binding.grader_ids = wireOrder;
+      result.submission.decision.binding.grader_ids = wireOrder;
+      result.submission.terminal.observation.validations = wireOrder.map((identifier) => ({ identifier, passed: true }));
+      const canonical = structuredClone(result.submission.reservation);
+      canonical.binding.grader_ids = ["\uE000", "😀"];
+      result.submission.completion.reservation_digest = createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+
+      const contradiction = structuredClone(result);
+      contradiction.submission.completion.reservation_digest = "0".repeat(64);
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(contradiction));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("alert")).toContainText("retained submission");
+
+      const mismatchedCalls = structuredClone(result);
+      mismatchedCalls.submission.engine_calls = 0;
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedCalls));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("alert")).toContainText("call count contradicts");
+    }
   });
 
   test("Lab does not let a stale async parse replace newer input", async ({ page }) => {
