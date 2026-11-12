@@ -87,6 +87,7 @@
         "categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/category"}},
         "diagnostics": {"$ref": "#/$defs/codes"}
       },
+      "dependentRequired": {"parent": ["execution_id"], "lineage": ["evidence_sha256"]},
       "allOf": [{"if": {"properties": {"state": {"const": "admitted"}}}, "then": {"required": ["binding", "outcome"]}}]
     },
     "category": {

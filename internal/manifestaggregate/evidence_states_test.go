@@ -17,6 +17,8 @@ import (
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/testutil/manifestfixture"
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,6 +68,37 @@ func categoryOf(member Member, category evidencestate.Category) Category {
 		}
 	}
 	return Category{}
+}
+
+type schemaDirectory struct{}
+
+func (schemaDirectory) Load(url string) (any, error) {
+	const prefix = "https://microsoft.github.io/waza/schemas/"
+	if !strings.HasPrefix(url, prefix) {
+		return nil, fs.ErrNotExist
+	}
+	file, err := os.Open(filepath.Join("..", "..", "schemas", filepath.Base(strings.TrimPrefix(url, prefix))))
+	if err != nil {
+		return nil, err
+	}
+	document, err := jsonschema.UnmarshalJSON(file)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return document, err
+}
+
+func aggregateSchema(t *testing.T) *jsonschema.Schema {
+	t.Helper()
+	compiler := jsonschema.NewCompiler()
+	compiler.UseLoader(jsonschema.SchemeURLLoader{"https": schemaDirectory{}})
+	document, err := jsonschema.UnmarshalJSON(strings.NewReader(schemas.ManifestAggregateSchemaJSON))
+	require.NoError(t, err)
+	const id = "https://microsoft.github.io/waza/schemas/manifest-aggregate-1.0.schema.json"
+	require.NoError(t, compiler.AddResource(id, document))
+	compiled, err := compiler.Compile(id)
+	require.NoError(t, err)
+	return compiled
 }
 
 func TestRetryAndResumeLineageRetainsEveryExecutionWithoutWinner(t *testing.T) {
@@ -128,7 +161,16 @@ func TestRetryAndResumeLineageRetainsEveryExecutionWithoutWinner(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, wire, again)
 
-	forge := func(change func(*Member)) error {
+	schema := aggregateSchema(t)
+	validate := func(data []byte) error {
+		t.Helper()
+		instance, err := jsonschema.UnmarshalJSON(strings.NewReader(string(data)))
+		require.NoError(t, err)
+		return schema.Validate(instance)
+	}
+	require.NoError(t, validate(wire), "the published schema accepts canonical parent and lineage")
+
+	forgeBytes := func(change func(*Member)) []byte {
 		t.Helper()
 		copied := *report
 		copied.Members = append([]Member(nil), report.Members...)
@@ -139,9 +181,15 @@ func TestRetryAndResumeLineageRetainsEveryExecutionWithoutWinner(t *testing.T) {
 		}
 		data, err := json.Marshal(copied)
 		require.NoError(t, err)
-		_, err = Parse(data)
+		return data
+	}
+	forge := func(change func(*Member)) error {
+		_, err := Parse(forgeBytes(change))
 		return err
 	}
+	forgeSchema := func(change func(*Member)) error { return validate(forgeBytes(change)) }
+	require.Error(t, forgeSchema(func(m *Member) { m.Execution = "" }), "schema requires an execution beside a parent")
+	require.Error(t, forgeSchema(func(m *Member) { m.Evidence, m.Parent, m.Execution = "", nil, "" }), "schema requires a sidecar beside lineage")
 	for name, change := range map[string]func(*Member){
 		"self parent": func(m *Member) { m.Parent = &executionattempt.Parent{ExecutionID: m.Execution, Relationship: "retry"} },
 		"unknown parent kind": func(m *Member) {
