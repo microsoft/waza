@@ -1,6 +1,6 @@
 ---
 title: CI/CD Integration
-description: Integrate waza into your CI/CD pipeline ΓÇö GitHub Actions, Azure DevOps, GitLab CI, and more.
+description: Integrate waza into your CI/CD pipeline — GitHub Actions, Azure DevOps, GitLab CI, and more.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
@@ -454,7 +454,7 @@ authority seams; they do not authenticate human review, establish global
 reservation or authorize a native lifecycle. Unsupported backend platforms must
 remain explicit nonpass, not successful durability fallbacks.
 
-### Quick Start ΓÇö Scaffold with waza init
+### Quick Start — Scaffold with waza init
 
 The `waza init` command generates a ready-to-use workflow:
 
@@ -544,7 +544,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `### Eval Results: ${{ matrix.model }}\n\nΓ£à **Passed:** ${results.summary.succeeded}\nΓ¥î **Failed:** ${results.summary.failed}`
+              body: `### Eval Results: ${{ matrix.model }}\n\n✅ **Passed:** ${results.summary.succeeded}\n❌ **Failed:** ${results.summary.failed}`
             });
 
       - name: Enforce evaluation status
@@ -1050,7 +1050,7 @@ Then in CI, compare with:
 waza compare baseline-results.json candidate-results.json
 ```
 
-### Multi-Stage Pipeline: PR ΓåÆ Staging ΓåÆ Production
+### Multi-Stage Pipeline: PR → Staging → Production
 
 ```yaml
 # GitHub Actions example
@@ -1084,7 +1084,7 @@ jobs:
 
 ## Next Steps
 
-- **[Writing Eval Specs](../eval-yaml/)** ΓÇö Configure your evaluations
-- **[CLI Reference](../../reference/cli/)** ΓÇö All flags and commands
-- **[Graders Guide](../graders/)** ΓÇö Set up scoring rules
-- **[Examples](https://github.com/microsoft/waza/tree/main/examples)** ΓÇö Real eval setups
+- **[Writing Eval Specs](../eval-yaml/)** — Configure your evaluations
+- **[CLI Reference](../../reference/cli/)** — All flags and commands
+- **[Graders Guide](../graders/)** — Set up scoring rules
+- **[Examples](https://github.com/microsoft/waza/tree/main/examples)** — Real eval setups
