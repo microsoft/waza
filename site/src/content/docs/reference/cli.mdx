@@ -1732,12 +1732,20 @@ the store is unavailable, truncated or contains unreadable records.
 
 ```bash
 waza runner checkpoint create --store .waza-artifacts < submission.json
+waza runner checkpoint availability CHECKPOINT_SHA256 --store .waza-artifacts < submission.json
 waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts < submission.json
 ```
 
+`availability` is a read-only resume preflight: it executes, reserves and repairs
+nothing, and prints one [`waza.runner-checkpoint-availability`](/waza/schemas/runner-checkpoint-availability-1.0.schema.json)
+record. `available` (exit 0) includes the boundary, creation time, original
+execution and resume action; `unavailable` or `rejected` (exit 6) carries a
+stable code with fixed guidance; storage or build failures are `operation_error`
+(exit 2). See the [troubleshooting table](../../guides/immutable-artifacts/#checkpoint-troubleshooting).
+
 Both require one `waza.execution-submission` wrapper on stdin, not a bare runner
 request, and a clean VCS-stamped Waza CLI. `create` accepts no positional
-arguments; `resume` requires one full lowercase SHA-256 checkpoint digest.
+arguments; `availability` and `resume` require one full lowercase SHA-256 checkpoint digest.
 `--store` defaults to `.waza-artifacts`, an existing private local directory.
 Alternatively use `--azure-container-url` with existing authorized credentials;
 it is mutually exclusive with `--store` and does not initiate interactive login.

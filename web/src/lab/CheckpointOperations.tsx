@@ -3,6 +3,8 @@ import unit from "../../../examples/runner/unit.json";
 import { runCheckpointOperation, type CheckpointOperationResponse } from "../api/checkpointResults";
 import { downloadText } from "../lib/export";
 import CheckpointResult from "./CheckpointResult";
+import { checkCheckpointAvailability, type CheckpointAvailability } from "../api/checkpointAvailability";
+import CheckpointAvailabilityResult from "./CheckpointAvailabilityResult";
 
 const example = JSON.stringify({
   kind: "waza.execution-submission", schema_version: "1.0", request: unit,
@@ -12,6 +14,7 @@ function Operations() {
   const [request, setRequest] = useState(example);
   const [digest, setDigest] = useState("");
   const [response, setResponse] = useState<CheckpointOperationResponse | null>(null);
+  const [availability, setAvailability] = useState<{ result: CheckpointAvailability; json: string } | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const active = useRef<AbortController | null>(null);
@@ -20,18 +23,25 @@ function Operations() {
   function clear() {
     active.current?.abort();
     setResponse(null);
+    setAvailability(null);
     setError("");
     setPending(false);
   }
 
-  async function run(action: "create" | "resume") {
+  async function run(action: "create" | "resume" | "availability") {
     active.current?.abort();
     const controller = new AbortController();
     active.current = controller;
     setResponse(null);
+    setAvailability(null);
     setError("");
     setPending(true);
     try {
+      if (action === "availability") {
+        const value = await checkCheckpointAvailability(request, digest, controller.signal);
+        if (!controller.signal.aborted) setAvailability(value);
+        return;
+      }
       const value = await runCheckpointOperation(action, request, digest, controller.signal);
       if (!controller.signal.aborted) setResponse(value);
     } catch (error) {
@@ -55,11 +65,18 @@ function Operations() {
         <button className="lab-button" disabled={pending} onClick={() => void run("create")}>
           {pending ? "Checkpoint operation running..." : "Create checkpoints and run unit"}
         </button>
+        <button className="lab-button" disabled={pending} onClick={() => void run("availability")}>Check resume availability</button>
         <button className="lab-button" disabled={pending} onClick={() => void run("resume")}>Resume checkpoint</button>
         {pending && <button className="lab-button" onClick={clear}>Stop waiting for checkpoint result</button>}
       </div>
       <p>Stopping this browser request is not proof the server worker stopped. Stop and join the original worker before retrying a before-unit source.</p>
       {error && <p role="alert">{error} No previous operation result is shown; execution may have occurred without a received response.</p>}
+      {availability && <>
+        <CheckpointAvailabilityResult result={availability.result} />
+        <button className="lab-button" onClick={() => downloadText(
+          availability.json, "waza-checkpoint-availability.json", "application/json",
+        )}>Download availability JSON</button>
+      </>}
       {response && <>
         <CheckpointResult result={response.result} />
         <button className="lab-button" onClick={() => downloadText(
@@ -79,6 +96,8 @@ export default function CheckpointOperations({ demo }: { demo: boolean }) {
           Before-unit resume creates a fresh retry child; finalized-unit resume preserves the original terminal without new engine calls.</p>
         <p>Use the original private immutable store and a clean versioned Waza build.
           A failed or canceled original is not successful grading. No raw source-inspection endpoint is used.</p>
+        <p>Check resume availability first: it reads the checkpoint without executing or reserving work and reports the boundary,
+          compatibility, resume action and an actionable diagnostic when resume is not possible.</p>
         <p>Creation and before-unit resume execute work and may incur charges. The Copilot profile requires explicit paid consent
           in the captured request and disables all tools. Finalized reuse reports new calls separately from the original terminal.</p>
       </div></div>

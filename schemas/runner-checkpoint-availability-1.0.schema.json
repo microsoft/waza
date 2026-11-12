@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/runner-checkpoint-availability-1.0.schema.json",
+  "title": "Waza checkpoint resume availability",
+  "description": "Read-only check of whether one immutable exact-unit checkpoint can be resumed by a captured submission. Nothing is executed, reserved or repaired.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "status", "exit_code", "compatibility_result", "compatibility_differences", "restored_units", "remaining_work", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.runner-checkpoint-availability"},
+    "schema_version": {"const": "1.0"},
+    "checkpoint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"enum": ["available", "unavailable", "rejected", "operation_error"]},
+    "exit_code": {"enum": [0, 2, 6]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boundary", "created_at", "execution_id"],
+      "properties": {
+        "boundary": {"enum": ["before-unit", "finalized-unit"]},
+        "created_at": {"type": "string", "format": "date-time"},
+        "execution_id": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"}
+      }
+    },
+    "compatibility_result": {"enum": ["compatible", "incompatible", "unavailable"]},
+    "compatibility_differences": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "resume_action": {"enum": ["fresh_retry_child", "reuse_original_terminal"]},
+    "restored_units": {"enum": [0, 1, null]},
+    "remaining_work": {"enum": [0, 1, null]},
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {"code": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "available"}}},
+      "then": {
+        "required": ["checkpoint_sha256", "source", "resume_action"],
+        "properties": {"exit_code": {"const": 0}, "compatibility_result": {"const": "compatible"},
+          "compatibility_differences": {"maxItems": 0}, "restored_units": {"enum": [0, 1]}, "remaining_work": {"enum": [0, 1]},
+          "diagnostics": {"maxItems": 0}}
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "unavailable"}}},
+      "then": {
+        "required": ["checkpoint_sha256"],
+        "properties": {"exit_code": {"const": 6}, "resume_action": false, "restored_units": {"const": null}, "remaining_work": {"const": null},
+          "diagnostics": {"minItems": 1}}
+      }
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["rejected", "operation_error"]}}},
+      "then": {
+        "properties": {"source": false, "resume_action": false, "compatibility_result": {"const": "unavailable"},
+          "compatibility_differences": {"maxItems": 0}, "restored_units": {"const": null}, "remaining_work": {"const": null},
+          "diagnostics": {"minItems": 1}}
+      }
+    },
+    {"if": {"properties": {"status": {"const": "rejected"}}}, "then": {"properties": {"exit_code": {"const": 6}}}},
+    {"if": {"properties": {"status": {"const": "operation_error"}}}, "then": {"properties": {"exit_code": {"const": 2}}}},
+    {
+      "if": {"properties": {"compatibility_result": {"const": "incompatible"}}},
+      "then": {"properties": {"compatibility_differences": {"minItems": 1}}},
+      "else": {"properties": {"compatibility_differences": {"maxItems": 0}}}
+    }
+  ]
+}

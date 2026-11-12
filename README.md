@@ -421,7 +421,9 @@ See the [compatibility table and before/after examples](site/src/content/docs/gu
 **Unreleased checkpoint source preview:** `waza runner checkpoint create --store
 .waza-artifacts < submission.json` publishes whole-unit checkpoints;
 `waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
-submission.json` admits compatible recovery. These commands require a clean
+submission.json` admits compatible recovery. `waza runner checkpoint availability
+CHECKPOINT_SHA256` checks the same inputs read-only first and explains why a
+checkpoint cannot be resumed. These commands require a clean
 VCS-stamped CLI and a captured submission wrapper, not a bare runner request.
 Ordinary results remain strict schema `1.0`; sanitized pre-store and store-close
 operational failures use schema `1.1`, status `operation_error`, exit code `2`,

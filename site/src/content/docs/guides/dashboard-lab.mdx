@@ -45,6 +45,9 @@ checkpoint inspection. It shows compatibility, withheld source metadata, exact-u
 progress, original failure/ordinal, retry parent or reuse source, and separate
 new/original engine calls. Unknown progress stays unavailable; recorded zero
 stays zero. **Download checkpoint result JSON** saves the exact protected response.
+**Check resume availability** reads a checkpoint digest without executing or
+reserving work and shows its boundary, creation time, compatibility, resume
+action and actionable diagnostics.
 Edits, new operations and reload errors clear prior results. Synthetic demo mode
 cannot dispatch checkpoint operations.
 Resume source declarations are checked against the requested checkpoint digest
