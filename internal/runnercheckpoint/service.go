@@ -96,11 +96,12 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		result.fail("checkpoint_policy_conflict")
 		return result, fmt.Errorf("%w: creating a checkpoint requires a new retained creator; use resume for an existing checkpoint", ErrPolicy)
 	}
-	if _, err := executioncheckpoint.ForRequest(request.Request, s.revision); err != nil {
+	declaration, err := executioncheckpoint.DeclareRequest(request.Request, s.revision)
+	if err != nil {
 		result.fail("checkpoint_request_invalid")
 		return result, err
 	}
-	return s.submit(ctx, request, backend, hooks, result, nil)
+	return s.submit(ctx, request, declaration, backend, hooks, result, nil)
 }
 
 // Resume admits the original source, then either reserves a fresh retry child
@@ -112,11 +113,12 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 		result.fail("submission_input_invalid")
 		return result, err
 	}
-	current, err := executioncheckpoint.ForRequest(request.Request, s.revision)
+	declaration, err := executioncheckpoint.DeclareRequest(request.Request, s.revision)
 	if err != nil {
 		result.fail("checkpoint_request_invalid")
 		return result, err
 	}
+	current := declaration.Compatibility()
 	checkpoint, err := executioncheckpoint.Load(ctx, backend, digest)
 	if err != nil {
 		result.fail("checkpoint_source_unavailable")
@@ -153,7 +155,7 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 			_, err := executioncheckpoint.ReadBefore(ctx, owner, *checkpoint, current)
 			return err
 		}
-		return s.submit(ctx, request, backend, hooks, result, checkSource)
+		return s.submit(ctx, request, declaration, backend, hooks, result, checkSource)
 	case executioncheckpoint.FinalizedUnit:
 		original, err := executioncheckpoint.ReadStoredFinalized(ctx, ledger, *checkpoint, current)
 		if err != nil {
@@ -220,11 +222,10 @@ func encodeSubmissionRequest(request *runnerunit.SubmissionRequest) ([]byte, err
 	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
 }
 
-func (s *Service) submit(ctx context.Context, request *runnerunit.SubmissionRequest,
+func (s *Service) submit(ctx context.Context, request *runnerunit.SubmissionRequest, declaration executioncheckpoint.RequestDeclaration,
 	backend artifactmanifest.Backend, hooks Hooks, result Result,
 	checkSource func(context.Context, *executionledger.Ledger) error,
 ) (Result, error) {
-	original := bytes.Clone(request.Request)
 	wire, err := encodeSubmissionRequest(request)
 	if err != nil {
 		result.fail("submission_encoding_failed")
@@ -248,7 +249,7 @@ func (s *Service) submit(ctx context.Context, request *runnerunit.SubmissionRequ
 				return err
 			}
 		}
-		digest, err := executioncheckpoint.PublishBefore(ctx, backend, ledger, capability, original, s.revision)
+		digest, err := executioncheckpoint.PublishBeforeDeclared(ctx, backend, ledger, capability, declaration)
 		result.BeforeDigest = digest
 		if err != nil {
 			return err
@@ -273,8 +274,8 @@ func (s *Service) submit(ctx context.Context, request *runnerunit.SubmissionRequ
 	}
 	publicationContext, stop := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer stop()
-	digest, err := executioncheckpoint.PublishFinalized(publicationContext, backend, owner, creator, original,
-		s.revision, submission.Completion.ManifestDigest)
+	digest, err := executioncheckpoint.PublishFinalizedDeclared(publicationContext, backend, owner, creator, declaration,
+		submission.Completion.ManifestDigest)
 	result.FinalizedDigest = digest
 	if err == nil && hooks.Published != nil {
 		err = hooks.Published(publicationContext, Reference{Digest: digest, Boundary: executioncheckpoint.FinalizedUnit})

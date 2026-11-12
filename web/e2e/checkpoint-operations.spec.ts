@@ -246,6 +246,10 @@ test.describe("Protected checkpoint operations in Lab", () => {
     { name: "foreign decision caller", fixture: "created", mutate: (value: CheckpointOperationResult) => {
       value.submission!.decision!.binding.identity.canonical_digest = "0".repeat(64);
     } },
+    { name: "reordered distinct decision graders", fixture: "created", mutate: (value: CheckpointOperationResult) => {
+      value.submission!.reservation!.binding.grader_ids = ["\uE000", "😀"];
+      value.submission!.decision!.binding.grader_ids = ["😀", "\uE000"];
+    } },
     { name: "paired fresh original attempt retagging", fixture: "created", mutate: (value: CheckpointOperationResult) => {
       const attempt = "attempt-" + "0".repeat(64);
       value.submission!.reservation!.binding.identity.attempt = attempt;

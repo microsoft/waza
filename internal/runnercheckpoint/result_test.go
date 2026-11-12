@@ -10,9 +10,11 @@ import (
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
+	"github.com/microsoft/waza/internal/runnerunit"
 )
 
 func TestResultRejectsOriginalInvalidSubmissionDiagnosticUTF8(t *testing.T) {
@@ -288,6 +290,47 @@ func TestOperationErrorResultRejectsForgedOrUnprojectedFields(t *testing.T) {
 				t.Fatalf("invalid operation error encoded: %s %v", data, err)
 			}
 		})
+	}
+}
+
+func TestOperationErrorPreservesBeforeUnitResumeWithoutCompletion(t *testing.T) {
+	service, store := adapter(t, nil), backend(t)
+	before, err := service.SubmitCaptured(context.Background(), fixture(t), store, Hooks{
+		Published: func(_ context.Context, reference Reference) error {
+			if reference.Boundary == "before-unit" {
+				return errors.New("stop before dispatch")
+			}
+			return nil
+		},
+	})
+	if err == nil || before.BeforeDigest == "" || before.Submission == nil || before.Submission.Completion != nil {
+		t.Fatalf("fixture did not retain an undispatched before-unit source: %+v %v", before, err)
+	}
+
+	partial, err := service.Resume(context.Background(), fixture(t), store, before.BeforeDigest, Hooks{
+		Submission: runnerunit.SubmissionHooks{
+			Reserved: func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error {
+				return errors.New("stop before artifact persistence")
+			},
+		},
+	})
+	if err == nil || partial.Source == nil || partial.Source.Boundary != "before-unit" ||
+		partial.Submission == nil || partial.Submission.Completion != nil ||
+		partial.Submission.Reservation == nil || partial.Submission.Reservation.Parent == nil {
+		t.Fatalf("fixture did not retain a before-unit retry without completion: %+v %v", partial, err)
+	}
+	for i := range partial.Submission.Diagnostics {
+		partial.Submission.Diagnostics[i].Message = CapturedDiagnosticMessage
+	}
+	result := WithOperationError(partial, ErrorCodeStorageCloseFailed)
+	data, err := EncodeResult(result)
+	if err != nil {
+		t.Fatalf("valid before-unit operational error was rejected: %v", err)
+	}
+	parsed, err := ParseResult(data)
+	if err != nil || parsed.Source == nil || parsed.Source.Boundary != "before-unit" ||
+		parsed.Submission.Completion != nil {
+		t.Fatalf("before-unit operational error lost its admitted source or partial submission: %+v %v", parsed, err)
 	}
 }
 

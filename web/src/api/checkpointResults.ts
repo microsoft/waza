@@ -206,7 +206,7 @@ async function validateOperationErrorSource(result: CheckpointOperationResult): 
   const { source, submission } = result;
   const reservation = submission?.reservation;
   const completion = submission?.completion;
-  if (!reservation || !completion || source.compatibility.work !== reservation.logical.work) {
+  if (!reservation || source.compatibility.work !== reservation.logical.work) {
     throw new Error("Operation-error source declaration does not match the retained submission.");
   }
   if (source.boundary === "before-unit") {
@@ -218,8 +218,9 @@ async function validateOperationErrorSource(result: CheckpointOperationResult): 
     }
     return;
   }
-  if (reservation.execution_id !== source.execution_id ||
+  if (!completion || reservation.execution_id !== source.execution_id ||
       completion.execution_id !== source.execution_id ||
+      await reservationDigest(reservation) !== source.reservation_digest ||
       completion.reservation_digest !== source.reservation_digest ||
       completion.manifest_digest !== source.manifest_digest ||
       await goJSONDigest({
@@ -253,7 +254,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
       (value.status === "checkpoint_error"
         ? submission.status !== "completed"
         : value.status !== submission.status || value.exit_code !== submission.exit_code)) {
-    throw new Error("Checkpoint operation contradicts its actual submission.");
+    throw new Error("Checkpoint status or exit code contradicts its actual submission.");
   }
   const binding = submission?.reservation?.binding;
   const terminal = submission?.terminal;
@@ -285,13 +286,17 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   }
   if (submission?.completion &&
       (!submission.reservation || submission.completion.execution_id !== submission.reservation.execution_id ||
-       submission.completion.reservation_digest !== await reservationDigest(submission.reservation))) {
+       (!(isOperationError && value.source?.boundary === "finalized-unit") &&
+        submission.completion.reservation_digest !== await reservationDigest(submission.reservation)))) {
     throw new Error("Checkpoint completion contradicts its canonical original reservation.");
   }
-  if (terminal && submission &&
-      ((submission.status !== "submission_error" && submission.exit_code !== terminal.exit_code) ||
-       (submission.status !== "reused" && submission.engine_calls !== terminal.engine_calls))) {
-    throw new Error("Checkpoint submission contradicts its original terminal outcome or call count.");
+  if (terminal && submission && submission.status !== "submission_error" &&
+      submission.exit_code !== terminal.exit_code) {
+    throw new Error("Retained submission exit code contradicts its terminal.");
+  }
+  if (terminal && submission && submission.status !== "reused" &&
+      submission.engine_calls !== terminal.engine_calls) {
+    throw new Error("Checkpoint submission contradicts its original terminal call count.");
   }
   if (terminal && (!binding || !sameSelection(terminal.selection, binding.selection) ||
       !sameRunnerIdentity(terminal.identity, binding.identity))) {
@@ -332,7 +337,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
       throw new Error("Checkpoint reuse does not retain its exact original source.");
     }
     const completion = submission.completion;
-    if (source && source.completion_digest !== await goJSONDigest({
+    if (source && !isOperationError && source.completion_digest !== await goJSONDigest({
       kind: completion.kind, schema_version: completion.schema_version, execution_id: completion.execution_id,
       reservation_digest: completion.reservation_digest, manifest_digest: completion.manifest_digest,
     })) {

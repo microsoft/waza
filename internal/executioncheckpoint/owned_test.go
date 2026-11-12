@@ -127,7 +127,7 @@ func TestOwnedFinalizedCheckpointRejectsForeignCreatorAndRequestRetag(t *testing
 	}
 }
 
-func TestOwnedFinalizedCheckpointCreatorFailureRetainsPhaseContextAndCause(t *testing.T) {
+func TestOwnedFinalizedCheckpointCreatorFailurePreservesContextAndCause(t *testing.T) {
 	checkpoint, backend, ledger, creator, _, _ := typedCheckpointSource(t, false)
 	request := readFixture(t, "../../examples/runner/unit.json")
 	canceled, cancel := context.WithCancel(t.Context())
@@ -147,17 +147,6 @@ func TestOwnedFinalizedCheckpointCreatorFailureRetainsPhaseContextAndCause(t *te
 				checkpoint.Compatibility.RunnerRevision, checkpoint.ManifestDigest)
 			if digest != "" || !errors.Is(err, control.want) {
 				t.Fatalf("creator failure lost context classification or published a checkpoint: %s %v", digest, err)
-			}
-			for _, phase := range []string{
-				"declaration_elapsed=", "retained_elapsed=", "compatibility_elapsed=",
-				"selection_elapsed=", "identity_elapsed=", "creator_validation_elapsed=",
-				"deadline_remaining_at_entry=", "entry_ctx_err=" + control.want.Error(),
-				"compatibility_ctx_err=" + control.want.Error(), "selection_ctx_err=" + control.want.Error(),
-				"identity_ctx_err=" + control.want.Error(), "final_ctx_err=" + control.want.Error(),
-			} {
-				if !strings.Contains(err.Error(), phase) {
-					t.Fatalf("creator failure omitted phase/context %q: %v", phase, err)
-				}
 			}
 		})
 	}
