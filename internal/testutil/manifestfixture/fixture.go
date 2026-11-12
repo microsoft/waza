@@ -9,6 +9,7 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
@@ -21,10 +22,26 @@ type Source struct {
 	Execution string
 }
 
+// Options selects capture privacy and an optional verified parent reservation.
+// Nil Withheld keeps CaptureReport's conservative conversation/tool default.
+type Options struct {
+	ChangeRequest func(*runnercontract.Request)
+	ChangeReport  func(*runnerunit.Report)
+	Withheld      []evidencestate.Category
+	Parent        *executionattempt.Parent
+}
+
 // Publish runs only the fixture's explicitly selected mock engine. Callers may
 // alter the original request/report to produce alternative and negative controls.
 func Publish(t *testing.T, backend *artifactmanifest.Local, requestPath string, changeRequest func(*runnercontract.Request), changeReport func(*runnerunit.Report)) Source {
 	t.Helper()
+	return PublishWith(t, backend, requestPath, Options{ChangeRequest: changeRequest, ChangeReport: changeReport})
+}
+
+// PublishWith is Publish with explicit capture privacy and execution parentage.
+func PublishWith(t *testing.T, backend *artifactmanifest.Local, requestPath string, options Options) Source {
+	t.Helper()
+	changeRequest, changeReport := options.ChangeRequest, options.ChangeReport
 	wire, err := os.ReadFile(requestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +64,7 @@ func Publish(t *testing.T, backend *artifactmanifest.Local, requestPath string, 
 	if changeReport != nil {
 		changeReport(&report)
 	}
-	prepared, err := evidencestate.CaptureReport(report, nil)
+	prepared, err := evidencestate.CaptureReport(report, options.Withheld)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +79,7 @@ func Publish(t *testing.T, backend *artifactmanifest.Local, requestPath string, 
 	creator, err := ledger.Reserve(t.Context(), artifactmanifest.Binding{
 		Identity: *binding.Identity, Selection: binding.Selection,
 		ExecutionMode: binding.ExecutionMode, GraderIDs: binding.GraderIDs,
-	}, nil)
+	}, options.Parent)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -73,6 +73,17 @@
         "binding": {"$ref": "artifact-manifest-1.0.schema.json#/properties/binding"},
         "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input"]},
         "execution_id": {"type": "string", "pattern": "^exec-[0-9a-f]{64}$"},
+        "parent": {"type": "object", "additionalProperties": false, "required": ["execution_id", "relationship"],
+          "properties": {
+            "execution_id": {"type": "string", "pattern": "^exec-[0-9a-f]{64}$"},
+            "relationship": {"enum": ["retry", "branch"]}
+          }},
+        "lineage": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"type": "object", "additionalProperties": false,
+          "required": ["manifest", "relationship"],
+          "properties": {
+            "manifest": {"$ref": "#/$defs/digest"},
+            "relationship": {"enum": ["retry", "resume", "cache", "aggregation"]}
+          }}},
         "categories": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/category"}},
         "diagnostics": {"$ref": "#/$defs/codes"}
       },

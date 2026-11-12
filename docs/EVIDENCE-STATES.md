@@ -1,10 +1,11 @@
 # Derived execution evidence and protected capture
 
-The opt-in `internal/evidencestate` package defines version 1.0 evidence
-declarations separately from immutable manifest 1.0, native terminal outcomes,
-and historical result readers. This library recovery does not add CLI commands,
-API routes, dashboard views, or release acceptance. Those consumers must use the
-same capture policy before exposing execution data.
+The `internal/evidencestate` package defines version 1.0 evidence declarations
+separately from immutable manifest 1.0, native terminal outcomes, and historical
+result readers. The public consumers are `waza aggregate`, `POST /api/v1/aggregates`
+and the Lab aggregate panel ([manifest aggregation](MANIFEST_AGGREGATION.md)).
+They report re-inspected category states per member; they never copy payloads.
+Any new consumer must use the same capture policy before exposing execution data.
 
 ## Categories and presence
 
@@ -31,6 +32,55 @@ not inferred token prices. Consumers must require present, complete usage before
 including it in authoritative aggregation.
 Capture uses recorded session-digest usage only when the run's top-level usage
 is absent. An explicit top-level zero or incomplete record takes precedence.
+
+## Interpreting missing data
+
+Read every category independently. Evidence completeness is never a verdict:
+a `success` outcome with redacted conversation is still a success, and a
+failure with complete evidence is still a failure.
+
+- Treat `unavailable`, `incomplete`, `redacted` and `conflicting` as "unknown"
+  for that category. Do not count them as zero, empty, or passing.
+- `present` with `observed_count: 0` is a recorded empty observation, which is
+  different from `unavailable`.
+- Consumers report the *verified* state, not the declared one. A sidecar that
+  declares a state the original capture index does not record makes the member
+  `conflicting`; its categories stay `unavailable` with
+  `verification: declared-state-only`. A sidecar without the capture index (for
+  example one that withholds provenance) stays unqualified the same way.
+- Aggregated historical usage totals only verified `present` usage from
+  non-cached executions. Any other usage state withholds the whole total.
+
+## Retries, resumes and lineage
+
+Retries and resumes append new records; they never overwrite an original
+manifest, sidecar, reservation or completion. Two independent links exist:
+
+- **Execution parent** (`parent` in an aggregate member) comes from the verified
+  original reservation: `execution_id` plus `retry` or `branch`. The ledger
+  rejects parents from different logical work, cycles and self-references.
+- **Evidence lineage** (`lineage`) is the sidecar's declared list of source
+  manifests with `retry`, `resume`, `cache` or `aggregation`. Each source must be
+  a completed manifest; cache lineage excludes the member from usage totals.
+
+Neither link selects a winner. An aggregate keeps the original attempt and its
+outcome beside every retry, and counts each verified execution once.
+
+## Privacy
+
+Conversation and tool content are withheld by default. Withheld categories are
+`redacted` with no payload, count, references or free text. A credential-shaped
+value withholds the entire category. Aggregate reports carry only states,
+sources, contexts, counts, reason codes and digests.
+
+## Extending categories or states
+
+The six categories and five states are a closed 1.0 vocabulary enforced by the
+schema and parser. Adding a category, state, reason or lineage relationship
+requires a new evidence schema version, an updated aggregate schema and Lab
+legend, and a migration note. Unknown values are rejected, never mapped to the
+nearest known state. Producers must emit every category explicitly; omission is
+not a way to declare `unavailable`.
 
 ## Pure codecs and current source admission
 
@@ -109,6 +159,5 @@ failures. There is no whole-operation transaction or rollback guarantee.
 
 This package does not sanitize an already persisted origin, infer unique
 executions from legacy attempt ordinals, or establish cancellation/force/process
-join evidence. Runtime diagnostics, retry/resume policy, public CLI/API/Lab
-integration, and execution-aware aggregation remain separately accountable
-deliverables for #764, #765, #766, #767, and #768.
+join evidence. Runtime diagnostics, retry/resume policy and execution lifecycle
+evidence are tracked by #764, #765 and #767.

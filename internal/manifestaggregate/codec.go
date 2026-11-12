@@ -84,6 +84,17 @@ func accounting(report Report) error {
 				return fail()
 			}
 		}
+		if member.Parent != nil && (member.Execution == "" || member.Parent.ExecutionID == member.Execution) {
+			return fail()
+		}
+		if len(member.Lineage) > 0 && member.Evidence == "" {
+			return fail()
+		}
+		for i, link := range member.Lineage {
+			if link.Manifest == member.Manifest || (i > 0 && compareLineage(member.Lineage[i-1], link) >= 0) {
+				return fail()
+			}
+		}
 		counts.MemberStates[member.State]++
 		if member.Outcome != "" {
 			outcome := string(member.Outcome)
@@ -137,6 +148,13 @@ func accounting(report Report) error {
 		return fail()
 	}
 	return nil
+}
+
+func compareLineage(a, b evidencestate.Lineage) int {
+	if order := strings.Compare(a.Manifest, b.Manifest); order != 0 {
+		return order
+	}
+	return strings.Compare(string(a.Relationship), string(b.Relationship))
 }
 
 func memberUsageEligible(member Member) bool {

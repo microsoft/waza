@@ -18,6 +18,8 @@ export interface AggregateReport {
     state: "admitted" | "omitted" | "conflicting";
     outcome?: string;
     execution_id?: string;
+    parent?: { execution_id: string; relationship: "retry" | "branch" };
+    lineage?: { manifest: string; relationship: "retry" | "resume" | "cache" | "aggregation" }[];
     binding?: {
       identity: {
         version: string; canonical_digest: string; run: string; shard: string;
