@@ -1175,6 +1175,7 @@ func TestGoCIRequiresNativeWindowsReleaseDashboardChecker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	source = normalizeWorkflowLineEndings(source)
 
 	const stepName = "Test native Windows release dashboard checker"
 	const command = `log="$(mktemp)"
