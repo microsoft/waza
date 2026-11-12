@@ -8,6 +8,11 @@ on:
         type: boolean
         default: false
         required: false
+      pr_completeness:
+        description: Capture same-run PR completeness receipts
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -32,6 +37,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+          fetch-depth: 2
+      - name: Record receipt checkout
+        if: inputs.pr_completeness
+        id: checkout
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Setup Go Environment
         id: go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -48,10 +58,12 @@ jobs:
         if: inputs.cold_observation
         run: node .github/scripts/ci-evidence-cache.cjs prepare go
       - name: Test shard discovery and failure handling
+        id: discovery_controls
         env:
           CI_EVIDENCE_COLD_REQUESTED: 'false'
         run: bash .github/scripts/go_test_shard_test.sh
       - name: Install and prove rejecting runtime guard
+        id: guard
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
       - name: Execute exhaustive native test shard
         id: native_tests
@@ -73,6 +85,7 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
       - name: Retain coverage and test-selection evidence
+        id: coverage
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: go-coverage-native-${{ matrix.shard }}
@@ -80,4 +93,29 @@ jobs:
             coverage-native-${{ matrix.shard }}.txt
             coverage-native-${{ matrix.shard }}.txt.all
             coverage-native-${{ matrix.shard }}.txt.selected
+          if-no-files-found: error
+      - name: Capture PR completeness receipt
+        if: always() && inputs.pr_completeness
+        id: receipt
+        env:
+          WAZA_COMPLETENESS_STEPS: ${{ toJSON(steps) }}
+        run: |
+          receipt_dir="$RUNNER_TEMP/pr-completeness-receipt-native-${{ matrix.shard }}"
+          mkdir -p "$receipt_dir"
+          printf '%s' "$WAZA_COMPLETENESS_STEPS" > "$receipt_dir/steps.json"
+          node .github/scripts/pr-completeness.cjs plan > "$receipt_dir/plan.json"
+          node .github/scripts/pr-completeness.cjs receipt \
+            "$receipt_dir/plan.json" go "native-${{ matrix.shard }}" \
+            "$receipt_dir/steps.json" > "$receipt_dir/receipt.json"
+          node - "$receipt_dir/receipt.json" >> "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.stdout.write(`artifact_name=${receipt.artifact_name}\n`);
+          NODE
+      - name: Upload PR completeness receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/pr-completeness-receipt-native-${{ matrix.shard }}/receipt.json
           if-no-files-found: error

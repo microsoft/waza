@@ -128,7 +128,7 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 	for _, tc := range []struct{ name, before, after string }{
 		{"missing-package", " ./.github/scripts/release-assets-helper", ""},
 		{"echo-only", "run: go test -count=1 -v ./.github/scripts", "run: echo go test -count=1 -v ./.github/scripts"},
-		{"skipped-step", "- name: Test Go workflow trigger selection\n        run:", "- name: Test Go workflow trigger selection\n        if: false\n        run:"},
+		{"skipped-step", "- name: Test Go workflow trigger selection\n        id: workflow_controls\n        run:", "- name: Test Go workflow trigger selection\n        id: workflow_controls\n        if: false\n        run:"},
 		{"run-value", "-count=1 -v ./.github/scripts", "-count=1 -v -run '^$' ./.github/scripts"},
 		{"run-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -run=^$ ./.github/scripts"},
 		{"list-value", "-count=1 -v ./.github/scripts", "-count=1 -v -list '.' ./.github/scripts"},
@@ -798,7 +798,7 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 				mutations = append(mutations,
 					[2]string{"ci_go_test_capture.sh remaining", "ci_go_test_capture.sh all"},
 					[2]string{"ci_go_test_capture.sh all", "ci_go_test_capture.sh remaining"},
-					[2]string{"      - name: Integration Test\n        run:", "      - name: Integration Test\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
+					[2]string{"      - name: Integration Test\n        id: integration\n        run:", "      - name: Integration Test\n        id: integration\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
 					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
 				)
 			}

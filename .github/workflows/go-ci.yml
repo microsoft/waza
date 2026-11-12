@@ -21,10 +21,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  pr-scope:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-completeness-plan.yml
+
   native-test-shards:
     uses: ./.github/workflows/go-native-shards.yml
     with:
       cold_observation: ${{ github.event_name == 'workflow_dispatch' && inputs.cold_observation }}
+      pr_completeness: ${{ github.event_name == 'pull_request' }}
 
   build-and-test:
     name: Linux build and remaining tests
@@ -48,6 +53,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+          fetch-depth: 2
+
+      - name: Record receipt checkout
+        if: github.event_name == 'pull_request'
+        id: checkout
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Go Environment
         id: go
@@ -71,20 +82,25 @@ jobs:
         run: node .github/scripts/ci-evidence-cache.cjs prepare go-npm web
 
       - name: Verify Module Dependencies
+        id: verify_modules
         run: go mod verify
 
       - name: Download Dependencies
+        id: download
         run: go mod download
 
       - name: Install and prove rejecting runtime guard
+        id: guard
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
 
       - name: Verify uncached compatibility inventory
+        id: inventory
         if: matrix.os == 'ubuntu-latest'
         run: make test-compat-inventory
 
       # Only build full Web UI on Linux to save time/resources on Windows
       - name: Build Web UI
+        id: web_build
         if: matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''
         working-directory: web
         run: npm ci && npm run build
@@ -99,6 +115,7 @@ jobs:
           fi
 
       - name: Format Check
+        id: format
         if: matrix.os == 'ubuntu-latest'
         run: |
           if [ -n "$(gofmt -l .)" ]; then
@@ -108,6 +125,7 @@ jobs:
           fi
 
       - name: Run Go Vet
+        id: vet
         run: go vet ./...
 
       - name: Execute Tests
@@ -123,6 +141,7 @@ jobs:
           fi
 
       - name: Test native Windows shell controls
+        id: shell_controls
         if: matrix.os == 'windows-latest'
         run: |
           log="$(mktemp)"
@@ -153,6 +172,7 @@ jobs:
           done
 
       - name: Reject tolerated runtime launches
+        id: no_launch
         run: |
           if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
             echo "Ordinary Go tests attempted to launch the Copilot runtime." >&2
@@ -177,6 +197,7 @@ jobs:
           if-no-files-found: error
 
       - name: Build Binary
+        id: binary
         run: |
           BINARY_NAME="waza"
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
@@ -190,12 +211,40 @@ jobs:
           ./$BINARY_NAME --version
 
       - name: Integration Test
+        id: integration
         run: |
           BINARY_NAME=waza
           if [ "$RUNNER_OS" = Windows ]; then
             BINARY_NAME=waza.exe
           fi
           bash .github/scripts/release_integration_test.sh "./$BINARY_NAME"
+
+      - name: Capture PR completeness receipt
+        if: always() && github.event_name == 'pull_request'
+        id: receipt
+        env:
+          WAZA_COMPLETENESS_STEPS: ${{ toJSON(steps) }}
+        run: |
+          receipt_dir="$RUNNER_TEMP/pr-completeness-receipt-${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}"
+          mkdir -p "$receipt_dir"
+          printf '%s' "$WAZA_COMPLETENESS_STEPS" > "$receipt_dir/steps.json"
+          node .github/scripts/pr-completeness.cjs plan > "$receipt_dir/plan.json"
+          node .github/scripts/pr-completeness.cjs receipt \
+            "$receipt_dir/plan.json" go "${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}" \
+            "$receipt_dir/steps.json" > "$receipt_dir/receipt.json"
+          node - "$receipt_dir/receipt.json" >> "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.stdout.write(`artifact_name=${receipt.artifact_name}\n`);
+          NODE
+
+      - name: Upload PR completeness receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/pr-completeness-receipt-${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}/receipt.json
+          if-no-files-found: error
 
   build-and-test-windows:
     name: ${{ matrix.os }}
@@ -218,6 +267,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Require every build and native test shard
+        id: requirements
         env:
           BUILD_RESULT: ${{ needs.build-and-test.result }}
           NATIVE_RESULT: ${{ needs.native-test-shards.result }}
@@ -226,13 +276,26 @@ jobs:
           test "$NATIVE_RESULT" = success
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Record receipt checkout
+        if: github.event_name == 'pull_request'
+        id: checkout
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Setup Node for PR completeness receipt
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
       - name: Download all required coverage and discovery evidence
+        id: coverage
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: go-coverage-*
           merge-multiple: true
           path: coverage-reports
       - name: Verify exhaustive native test selection and coverage
+        id: inventory
         run: bash .github/scripts/go_test_shard_verify.sh coverage-reports
       - name: Upload combined coverage reports
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -241,6 +304,31 @@ jobs:
           disable_search: true
           flags: go-implementation
           name: waza
+      - name: Capture PR completeness receipt
+        if: always() && github.event_name == 'pull_request'
+        id: receipt
+        env:
+          WAZA_COMPLETENESS_STEPS: ${{ toJSON(steps) }}
+        run: |
+          receipt_dir="$RUNNER_TEMP/pr-completeness-receipt-linux-gate"
+          mkdir -p "$receipt_dir"
+          printf '%s' "$WAZA_COMPLETENESS_STEPS" > "$receipt_dir/steps.json"
+          node .github/scripts/pr-completeness.cjs plan > "$receipt_dir/plan.json"
+          node .github/scripts/pr-completeness.cjs receipt \
+            "$receipt_dir/plan.json" go "linux-gate" \
+            "$receipt_dir/steps.json" > "$receipt_dir/receipt.json"
+          node - "$receipt_dir/receipt.json" >> "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.stdout.write(`artifact_name=${receipt.artifact_name}\n`);
+          NODE
+      - name: Upload PR completeness receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/pr-completeness-receipt-linux-gate/receipt.json
+          if-no-files-found: error
 
   lint:
     name: Lint
@@ -256,6 +344,18 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+          fetch-depth: 2
+
+      - name: Record receipt checkout
+        if: github.event_name == 'pull_request'
+        id: checkout
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node for PR completeness receipt
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
 
       - name: Setup Go Environment
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -279,10 +379,102 @@ jobs:
           install-only: true
 
       - name: Test lint script failure handling
+        id: lint_controls
         run: bash .github/scripts/lint_test.sh
 
       - name: Test Go workflow trigger selection
+        id: workflow_controls
         run: go test -count=1 -v ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard ./.github/scripts/release-assets-helper
 
       - name: Verify configuration and run golangci-lint
+        id: lint
         run: bash .github/scripts/lint.sh
+
+      - name: Capture PR completeness receipt
+        if: always() && github.event_name == 'pull_request'
+        id: receipt
+        env:
+          WAZA_COMPLETENESS_STEPS: ${{ toJSON(steps) }}
+        run: |
+          receipt_dir="$RUNNER_TEMP/pr-completeness-receipt-lint"
+          mkdir -p "$receipt_dir"
+          printf '%s' "$WAZA_COMPLETENESS_STEPS" > "$receipt_dir/steps.json"
+          node .github/scripts/pr-completeness.cjs plan > "$receipt_dir/plan.json"
+          node .github/scripts/pr-completeness.cjs receipt \
+            "$receipt_dir/plan.json" go "lint" \
+            "$receipt_dir/steps.json" > "$receipt_dir/receipt.json"
+          node - "$receipt_dir/receipt.json" >> "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.stdout.write(`artifact_name=${receipt.artifact_name}\n`);
+          NODE
+
+      - name: Upload PR completeness receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/pr-completeness-receipt-lint/receipt.json
+          if-no-files-found: error
+
+  dashboard:
+    needs: [pr-scope]
+    if: needs.pr-scope.outputs.dashboard == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/web-ci.yml
+    with:
+      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}
+
+  documentation:
+    needs: [pr-scope]
+    if: needs.pr-scope.outputs.site == 'true' || needs.pr-scope.outputs.examples == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/site-ci.yml
+    with:
+      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}
+      site: ${{ needs.pr-scope.outputs.site == 'true' }}
+      examples: ${{ needs.pr-scope.outputs.examples == 'true' }}
+
+  assurance:
+    needs: [pr-scope]
+    if: needs.pr-scope.outputs.assurance == 'true'
+    uses: ./.github/workflows/grader-assurance-ci.yml
+    with:
+      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}
+
+  container:
+    needs: [pr-scope]
+    if: needs.pr-scope.outputs.container == 'true'
+    uses: ./.github/workflows/docker-ci.yml
+    with:
+      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}
+
+  tools:
+    needs: [pr-scope]
+    if: needs.pr-scope.outputs.tools == 'true'
+    uses: ./.github/workflows/squad-tools-ci.yml
+    with:
+      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}
+
+  runtime:
+    needs: [pr-scope]
+    if: needs.pr-scope.outputs.runtime == 'true'
+    uses: ./.github/workflows/evidence-judge-ci.yml
+    with:
+      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}
+
+  completeness:
+    needs: [pr-scope, lint, build-and-test, build-and-test-windows, native-test-shards, linux-gate,
+      dashboard, documentation, assurance, container, tools, runtime]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/pr-completeness-admission.yml
+    with:
+      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}
+      dependency_results: ${{ toJSON(needs) }}

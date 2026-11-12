@@ -26,6 +26,7 @@ func checkColdInput(declaration yaml.Node) error {
 	cold, exists := input.Inputs["cold_observation"]
 	// Completeness callers may also pass their plan; it does not affect cold state.
 	delete(input.Inputs, "pr_completeness_plan")
+	delete(input.Inputs, "pr_completeness")
 	if declaration.Kind != yaml.MappingNode || len(declaration.Content) != 2 ||
 		!exists || len(input.Inputs) != 1 || cold.Description == "" || cold.Type != "boolean" ||
 		cold.Default.Tag != "!!bool" || cold.Default.Value != "false" ||
@@ -118,8 +119,9 @@ func checkColdWorkflow(source []byte, file string) error {
 		return fmt.Errorf("both toolchains must be ready before observing isolated stores")
 	}
 	for _, step := range job.Steps[:prepare] {
-		// Completeness receipt bookkeeping runs only for plan callers, never cold dispatches.
-		if step.Run != "" && step.If != "inputs.pr_completeness_plan != ''" {
+		// Completeness receipt bookkeeping runs only for PR completeness callers, never cold dispatches.
+		if step.Run != "" && !map[string]bool{"inputs.pr_completeness_plan != ''": true,
+			"github.event_name == 'pull_request'": true, "inputs.pr_completeness": true}[step.If] {
 			return fmt.Errorf("initial empty observation must precede dependencies, offline guard, discovery and tests")
 		}
 	}
