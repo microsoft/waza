@@ -10,7 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 const (
@@ -82,7 +86,7 @@ type describeResponse struct {
 func (c *CommandAdapter) Describe(ctx context.Context) (AdapterInfo, error) {
 	var resp describeResponse
 	req := describeRequest{Kind: AdapterRequestKind, ContractVersion: ContractVersion, Operation: OperationDescribe, Harness: Capabilities()}
-	if err := c.call(ctx, req, &resp); err != nil {
+	if err := c.call(ctx, OperationDescribe, req, &resp); err != nil {
 		return AdapterInfo{}, err
 	}
 	if resp.Kind != AdapterResponseKind {
@@ -93,7 +97,7 @@ func (c *CommandAdapter) Describe(ctx context.Context) (AdapterInfo, error) {
 
 func (c *CommandAdapter) Propose(ctx context.Context, req ProposeRequest) (ProposeResponse, error) {
 	var resp ProposeResponse
-	if err := c.call(ctx, req, &resp); err != nil {
+	if err := c.call(ctx, OperationPropose, req, &resp); err != nil {
 		return ProposeResponse{}, err
 	}
 	return resp, nil
@@ -109,7 +113,7 @@ func (c *CommandAdapter) env() []string {
 	return env
 }
 
-func (c *CommandAdapter) call(parent context.Context, req, resp any) error {
+func (c *CommandAdapter) call(parent context.Context, operation string, req, resp any) error {
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -145,8 +149,59 @@ func (c *CommandAdapter) call(parent context.Context, req, resp any) error {
 	if runErr != nil {
 		return newError(CategoryOptimizerFailure, "adapter command failed: %v; stderr: %s", runErr, stderr.String())
 	}
+	if err := validateAdapterResponse(operation, stdout.Bytes()); err != nil {
+		return err
+	}
 	if err := decodeStrict(stdout.Bytes(), resp); err != nil {
 		return wrapError(CategoryMalformedProposal, err, "decoding adapter response")
+	}
+	return nil
+}
+
+var adapterResponseSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	const url = "https://microsoft.github.io/waza/schemas/optimizer-adapter-response-1.0.schema.json"
+	doc, err := jsonschema.UnmarshalJSON(strings.NewReader(schemas.OptimizerAdapterResponseSchemaJSON))
+	if err != nil {
+		return nil, err
+	}
+	c := jsonschema.NewCompiler()
+	if err := c.AddResource(url, doc); err != nil {
+		return nil, err
+	}
+	return c.Compile(url)
+})
+
+// validateAdapterResponse checks a raw reply against the bundled response
+// schema for the operation, so missing or invalid values are never decoded
+// into zero values. An unsupported envelope version is reported as such.
+func validateAdapterResponse(operation string, data []byte) error {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return wrapError(CategoryMalformedProposal, err, "decoding adapter response")
+	}
+	var version string
+	if raw, ok := envelope["contract_version"]; ok {
+		if err := json.Unmarshal(raw, &version); err != nil {
+			return newError(CategoryMalformedProposal, "adapter response contract_version must be a string")
+		}
+		if version != ContractVersion {
+			return newError(CategoryUnsupportedVersion, "adapter response contract_version %q is not supported (want %q)", version, ContractVersion)
+		}
+	}
+	_, hasAdapter := envelope["adapter"]
+	if (operation == OperationDescribe) != hasAdapter {
+		return newError(CategoryMalformedProposal, "adapter response does not match the %s operation", operation)
+	}
+	sch, err := adapterResponseSchema()
+	if err != nil {
+		return wrapError(CategoryInfrastructureFailure, err, "compiling adapter response schema")
+	}
+	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		return wrapError(CategoryMalformedProposal, err, "decoding adapter response")
+	}
+	if err := sch.Validate(inst); err != nil {
+		return wrapError(CategoryMalformedProposal, err, "adapter response does not match the contract schema")
 	}
 	return nil
 }

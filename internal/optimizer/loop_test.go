@@ -360,3 +360,20 @@ func TestErrorCategoryOf(t *testing.T) {
 	require.Equal(t, CategoryTimeout, CategoryOf(err))
 	require.Empty(t, CategoryOf(errors.New("plain")))
 }
+
+func TestRunFailsWhenCandidateCannotBeSaved(t *testing.T) {
+	ev := &stubEvaluator{}
+	cfg := testConfig(t, NewFakeAdapter(FakeProposal{Files: map[string]string{"guide.md": "+\n"}}), ev)
+	ev.hook = func(req EvaluateRequest) {
+		// Replace the candidates directory with a file after the seed is saved.
+		dir := filepath.Join(cfg.OutputDir, "candidates")
+		require.NoError(t, os.RemoveAll(dir))
+		require.NoError(t, os.WriteFile(dir, nil, 0o600))
+	}
+	report, err := Run(context.Background(), cfg)
+	require.NoError(t, err)
+	require.Equal(t, OutcomeFailed, report.Outcome)
+	require.Equal(t, CategoryInfrastructureFailure, report.Failure.Category)
+	require.Len(t, report.Evaluations, 1, "an unsaved candidate must not be evaluated")
+	require.Equal(t, ProposalFailed, report.Proposals[0].State)
+}

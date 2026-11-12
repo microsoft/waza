@@ -45,7 +45,7 @@ func (a *ReflectAdapter) Close(ctx context.Context) error {
 	if a.Engine == nil {
 		return nil
 	}
-	return a.Engine.Shutdown(ctx)
+	return execution.ShutdownBounded(ctx, a.Engine, execution.DefaultShutdownGrace, execution.DefaultShutdownTimeout)
 }
 
 func (a *ReflectAdapter) Propose(ctx context.Context, req ProposeRequest) (ProposeResponse, error) {

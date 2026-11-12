@@ -329,11 +329,8 @@ func treeDigest(dir string, skip func(string) bool) (string, error) {
 		case d.IsDir():
 			_, _ = fmt.Fprintf(h, "D %s\n", rel)
 		case d.Type()&fs.ModeSymlink != 0:
-			target, err := os.Readlink(p)
-			if err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(h, "L %s %s\n", rel, filepath.ToSlash(target))
+			// Link text alone would not pin the target's content.
+			return fmt.Errorf("symlink %s is not supported in a pinned directory", rel)
 		case d.Type().IsRegular():
 			data, err := os.ReadFile(p)
 			if err != nil {

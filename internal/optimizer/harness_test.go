@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -133,6 +134,7 @@ func TestPinSuiteAdmission(t *testing.T) {
 	cases := map[string]struct {
 		edit     func(t *testing.T, suite string)
 		opts     func(*SuiteOptions)
+		target   Target
 		contains string
 	}{
 		"hooks":        {edit: appendFile("eval.yaml", "hooks:\n  before_run:\n    - command: echo hi\n"), contains: "hooks"},
@@ -142,6 +144,34 @@ func TestPinSuiteAdmission(t *testing.T) {
 		"missing tags": {opts: func(o *SuiteOptions) { o.OptimizationTags = nil }, contains: "required"},
 		"duplicate id": {edit: replaceInFile("tasks/bug-fix.yaml", "id: bug-fix", "id: deprecation"), contains: "duplicate"},
 		"context dir":  {edit: appendFile("tasks/bug-fix.yaml", "context_dir: elsewhere\n"), contains: "context_dir"},
+		"context fixture": {edit: replaceInFile("tasks/bug-fix.yaml", "inputs:\n", "inputs:\n  context:\n    fixture: fixtures/style-guide.md\n"),
+			contains: "inputs.context.fixture"},
+		"eval update snapshots": {edit: replaceInFile("eval.yaml", "graders:\n", "graders:\n  - type: diff\n    name: snap\n    config:\n      update_snapshots: true\n      expected_files:\n        - path: out.md\n          snapshot: snap.md\n"),
+			contains: "update_snapshots"},
+		"task update snapshots": {edit: appendFile("tasks/bug-fix.yaml", "  - name: snap\n    type: diff\n    config:\n      update_snapshots: true\n      expected_files:\n        - path: out.md\n          snapshot: snap.md\n"),
+			contains: "update_snapshots"},
+		"checkpoint update snapshots": {edit: appendFile("tasks/bug-fix.yaml", "checkpoints:\n  - after_turn: 1\n    graders:\n      - name: snap\n        type: diff\n        config:\n          update_snapshots: true\n          expected_files:\n            - path: out.md\n              snapshot: snap.md\n"),
+			contains: "update_snapshots"},
+		"external task file": {edit: func(t *testing.T, suite string) {
+			shared := filepath.Join(filepath.Dir(suite), "shared")
+			require.NoError(t, os.MkdirAll(shared, 0o755))
+			data, err := os.ReadFile(filepath.Join(suite, "tasks", "bug-fix.yaml"))
+			require.NoError(t, err)
+			require.NoError(t, os.Remove(filepath.Join(suite, "tasks", "bug-fix.yaml")))
+			require.NoError(t, os.WriteFile(filepath.Join(shared, "bug-fix.yaml"), data, 0o600))
+			replaceInFile("eval.yaml", "  - \"tasks/*.yaml\"\n", "  - \"tasks/*.yaml\"\n  - \"../shared/*.yaml\"\n")(t, suite)
+		}, contains: "outside the suite directory"},
+		"parent path": {edit: replaceInFile("tasks/bug-fix.yaml", "    - path: style-guide.md", "    - path: ../outside.md"), contains: "outside the pinned"},
+		"symlink": {edit: func(t *testing.T, suite string) {
+			require.NoError(t, os.Symlink(filepath.Join(suite, "eval.yaml"), filepath.Join(suite, "link.yaml")))
+		}, contains: "symlink"},
+		"disabled skills": {edit: replaceInFile("eval.yaml", "  model: mock\n", "  model: mock\n  disabled_skills: [\"*\"]\n"),
+			target: TargetSkillDirectory, contains: "disabled_skills"},
+		"ambient skill": {edit: func(t *testing.T, _ string) {
+			cwd := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(cwd, "SKILL.md"), []byte("---\nname: release-notes-writer\n---\nAmbient.\n"), 0o600))
+			t.Chdir(cwd)
+		}, target: TargetSkillDirectory, contains: "discoverable from the working directory"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -149,7 +179,11 @@ func TestPinSuiteAdmission(t *testing.T) {
 			if tc.edit != nil {
 				tc.edit(t, suite)
 			}
-			opts := SuiteOptions{SpecPath: filepath.Join(suite, "eval.yaml"), Target: TargetContextOverlay,
+			target := tc.target
+			if target == "" {
+				target = TargetContextOverlay
+			}
+			opts := SuiteOptions{SpecPath: filepath.Join(suite, "eval.yaml"), Target: target,
 				OptimizationTags: []string{"optimization"}, QualificationTags: []string{"qualification"}}
 			if tc.opts != nil {
 				tc.opts(&opts)
@@ -251,4 +285,39 @@ func TestAdaptersAreInterchangeable(t *testing.T) {
 			require.NotEmpty(t, r.Proposals)
 		})
 	}
+}
+
+func TestGraderEvaluationErrorsCountsFinalAndCheckpointResults(t *testing.T) {
+	broken := models.GraderResults{Details: map[string]any{"evaluation_errors": map[int]string{0: "boom"}}}
+	clean := models.GraderResults{Details: map[string]any{"evaluation_errors": map[int]string{}}}
+	outcome := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{Runs: []models.RunResult{{
+		Validations: map[string]models.GraderResults{"final": broken, "ok": clean},
+		Checkpoints: []models.CheckpointOutcome{{Validations: map[string]models.GraderResults{"cp": broken}}},
+	}}}}}
+	require.Equal(t, 2, graderEvaluationErrors(outcome))
+}
+
+// stalledShutdownEngine never finishes Shutdown on its own.
+type stalledShutdownEngine struct{ *execution.MockEngine }
+
+func (stalledShutdownEngine) Shutdown(ctx context.Context) error {
+	<-ctx.Done()
+	select {} // ignores cancellation, like a wedged client
+}
+
+func TestHarnessEvaluatorBoundsStalledShutdown(t *testing.T) {
+	suite := copySuite(t)
+	cfg := harnessConfig(t, suite, NewFakeAdapter())
+	h, ok := cfg.Evaluator.(*HarnessEvaluator)
+	require.True(t, ok)
+	h.EngineFactory = func(c models.Config) (execution.AgentEngine, error) {
+		return stalledShutdownEngine{execution.NewMockEngine(c.ModelID)}, nil
+	}
+	h.ShutdownGrace, h.ShutdownTimeout = 10*time.Millisecond, 10*time.Millisecond
+	require.NoError(t, os.MkdirAll(cfg.OutputDir, 0o755))
+	start := time.Now()
+	ev := h.Evaluate(context.Background(), EvaluateRequest{Index: 1, CandidateID: "sha256:" + strings.Repeat("a", 64), Files: cfg.Seed, Split: cfg.Pin.Optimization})
+	require.Equal(t, CategoryInfrastructureFailure, ev.State, ev.Error)
+	require.Contains(t, ev.Error, "shutting down engine")
+	require.Less(t, time.Since(start), 20*time.Second)
 }

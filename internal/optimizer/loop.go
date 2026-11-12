@@ -312,7 +312,11 @@ func (s *runState) execute(ctx context.Context) {
 		s.fail(categoryOrDefault(err, CategoryInvalidConfig), fmt.Errorf("seed: %w", err))
 		return
 	}
-	seed := s.addCandidate(seedFiles, "", OriginSeed, 0, "", info)
+	seed, err := s.addCandidate(seedFiles, "", OriginSeed, 0, "", info)
+	if err != nil {
+		s.fail(CategoryInfrastructureFailure, fmt.Errorf("seed: %w", err))
+		return
+	}
 	s.report.SeedCandidateID = seed.ID
 	seedEval := s.evaluate(ctx, seed.ID, cfg.Pin.Optimization)
 	if seedEval.State != StateScored {
@@ -415,7 +419,11 @@ func (s *runState) iterate(ctx context.Context, iter int, best string, remaining
 		record(ProposalDuplicate, "", nil)
 		return "", resp.Done
 	}
-	s.addCandidate(files, best, OriginAdapter, iter, truncateText(resp.Candidate.Rationale, maxRationaleBytes), info)
+	if _, err := s.addCandidate(files, best, OriginAdapter, iter, truncateText(resp.Candidate.Rationale, maxRationaleBytes), info); err != nil {
+		record(ProposalFailed, CategoryInfrastructureFailure, err)
+		s.fail(CategoryInfrastructureFailure, fmt.Errorf("iteration %d: %w", iter, err))
+		return "", false
+	}
 	record(ProposalEvaluated, "", nil)
 	ev := s.evaluate(ctx, id, cfg.Pin.Optimization)
 	switch ev.State {
@@ -492,7 +500,9 @@ func (s *runState) notQualified(ev Evaluation) {
 	}
 }
 
-func (s *runState) addCandidate(files []FileContent, parent, origin string, iter int, rationale string, info AdapterInfo) Candidate {
+// addCandidate saves the candidate before it can be evaluated, so every
+// reported candidate has a complete saved artifact.
+func (s *runState) addCandidate(files []FileContent, parent, origin string, iter int, rationale string, info AdapterInfo) (Candidate, error) {
 	id, digests := candidateIdentity(s.cfg.Target, files)
 	c := Candidate{
 		ID: id, ParentID: parent, Origin: origin, Iteration: iter,
@@ -503,12 +513,16 @@ func (s *runState) addCandidate(files []FileContent, parent, origin string, iter
 	}
 	rel := filepath.ToSlash(filepath.Join("candidates", strings.TrimPrefix(id, "sha256:")[:16]))
 	dir := filepath.Join(s.cfg.OutputDir, filepath.FromSlash(rel))
-	if err := os.MkdirAll(dir, 0o755); err == nil && materialize(dir, files) == nil {
-		c.SavedPath = rel
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return Candidate{}, fmt.Errorf("saving candidate %s: %w", id, err)
 	}
+	if err := materialize(dir, files); err != nil {
+		return Candidate{}, fmt.Errorf("saving candidate %s: %w", id, err)
+	}
+	c.SavedPath = rel
 	s.files[id] = files
 	s.report.Candidates = append(s.report.Candidates, c)
-	return c
+	return c, nil
 }
 
 func (s *runState) evaluate(ctx context.Context, id string, split Split) Evaluation {

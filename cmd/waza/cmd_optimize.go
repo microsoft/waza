@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,9 +16,12 @@ import (
 )
 
 // newReflectEngine builds the engine used by the copilot-reflect adapter.
+// Ambient discovery is disabled so proposals only see the supplied candidate
+// and optimization feedback, not host instructions, retrieval or memory.
 var newReflectEngine = func(model string) execution.AgentEngine {
 	return execution.NewCopilotEngineBuilder(model, &execution.CopilotEngineBuilderOptions{
-		NewCopilotClient: newCopilotClientFn,
+		NewCopilotClient:        newCopilotClientFn,
+		DisableAmbientDiscovery: true,
 	}).Build()
 }
 
@@ -103,7 +105,7 @@ func newOptimizeRunCommand() *cobra.Command {
 	return cmd
 }
 
-func runOptimize(cmd *cobra.Command, specPath string, opts *optimizeRunOptions) error {
+func runOptimize(cmd *cobra.Command, specPath string, opts *optimizeRunOptions) (retErr error) {
 	target, err := optimizer.ParseTarget(opts.target)
 	if err != nil {
 		return err
@@ -181,7 +183,11 @@ func runOptimize(cmd *cobra.Command, specPath string, opts *optimizeRunOptions) 
 			return errors.New("--reflect-model is required when the eval model is unset or mock")
 		}
 		adapter := optimizer.NewReflectAdapter(newReflectEngine(model), model)
-		defer func() { _ = adapter.Close(context.WithoutCancel(cmd.Context())) }()
+		defer func() {
+			if err := adapter.Close(cmd.Context()); err != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("shutting down copilot-reflect adapter: %w", err))
+			}
+		}()
 		cfg.Adapter = adapter
 		cfg.AdapterPaid = true
 	default:

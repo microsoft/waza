@@ -63,6 +63,18 @@ func TestHelperAdapterProcess(t *testing.T) {
 	case "env":
 		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion, "done": true,
 			"usage": map[string]any{"input_tokens": len(os.Getenv("WAZA_SECRET_PROBE")), "output_tokens": 0, "premium_requests": 0}})
+	case "null-content":
+		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion,
+			"candidate": map[string]any{"parent_id": "sha256:" + strings.Repeat("a", 64), "files": []any{map[string]any{"path": "g.md", "content": nil}}}})
+	case "empty-usage":
+		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion, "done": true, "usage": map[string]any{}})
+	case "negative-usage":
+		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion, "done": true,
+			"usage": map[string]any{"input_tokens": -1, "output_tokens": 0, "premium_requests": 0}})
+	case "future-version":
+		write(map[string]any{"kind": AdapterResponseKind, "contract_version": "9.0", "done": true})
+	case "describe-as-propose":
+		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion, "adapter": DefaultFakeInfo()})
 	case "unknown-field":
 		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion, "done": true, "extra": 1})
 	case "plus":
@@ -103,6 +115,12 @@ func TestCommandAdapterFailures(t *testing.T) {
 		"unknown-field": CategoryMalformedProposal,
 		"oversize":      CategoryOptimizerFailure,
 		"exit":          CategoryOptimizerFailure,
+		// Schema-invalid replies must not decode into empty files or zero spend.
+		"null-content":        CategoryMalformedProposal,
+		"empty-usage":         CategoryMalformedProposal,
+		"negative-usage":      CategoryMalformedProposal,
+		"describe-as-propose": CategoryMalformedProposal,
+		"future-version":      CategoryUnsupportedVersion,
 	}
 	for mode, category := range cases {
 		t.Run(mode, func(t *testing.T) {
@@ -165,4 +183,9 @@ func TestCommandAdapterResponsesMatchSchema(t *testing.T) {
 	data, err = json.Marshal(describeRequest{Kind: AdapterRequestKind, ContractVersion: ContractVersion, Operation: OperationDescribe, Harness: Capabilities()})
 	require.NoError(t, err)
 	validateAgainst(t, "optimizer-adapter-request-1.0.schema.json", schemas.OptimizerAdapterRequestSchemaJSON, data)
+}
+
+func TestCommandAdapterDescribeRejectsUnsupportedVersion(t *testing.T) {
+	_, err := helperAdapter(t, "future-version", time.Minute).Describe(context.Background())
+	require.Equal(t, CategoryUnsupportedVersion, CategoryOf(err), err)
 }

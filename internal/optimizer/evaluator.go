@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"time"
@@ -91,6 +92,10 @@ type HarnessEvaluator struct {
 	ExcludeDirs   []string
 	WazaVersion   string
 	Verbose       bool
+	// ShutdownGrace and ShutdownTimeout bound engine shutdown; zero values
+	// use the execution package defaults.
+	ShutdownGrace   time.Duration
+	ShutdownTimeout time.Duration
 }
 
 var errOptimizerDeadline = errors.New("optimizer deadline exceeded")
@@ -156,6 +161,9 @@ func (h *HarnessEvaluator) Evaluate(ctx context.Context, req EvaluateRequest) Ev
 	if d.Errors+d.Skipped > 0 || d.TotalTests != len(req.Split.TestIDs) {
 		return fail(StateIncomplete, fmt.Errorf("%d errored and %d skipped of %d tasks", d.Errors, d.Skipped, d.TotalTests))
 	}
+	if n := graderEvaluationErrors(outcome); n > 0 {
+		return fail(StateIncomplete, fmt.Errorf("%d grader results recorded evaluation errors", n))
+	}
 	score := d.AggregateScore
 	pass := float64(d.Succeeded) / float64(d.TotalTests)
 	ev.Score, ev.PassRate = &score, &pass
@@ -197,6 +205,12 @@ func (h *HarnessEvaluator) run(ctx context.Context, req EvaluateRequest) (*model
 			return nil, err
 		}
 		spec.Config.SkillPaths = []string{skillDir}
+		if len(spec.Config.FilteredSkillPaths()) != 1 {
+			return nil, newError(CategoryInvalidSuite, "the suite's disabled_skills would remove the candidate skill directory")
+		}
+		if err := admitNoAmbientSkill(spec.SkillName); err != nil {
+			return nil, err
+		}
 	case TargetContextOverlay:
 		fixtureDir = filepath.Join(workdir, "context")
 		if err := os.Mkdir(fixtureDir, 0o755); err != nil {
@@ -226,16 +240,36 @@ func (h *HarnessEvaluator) run(ctx context.Context, req EvaluateRequest) (*model
 	if err != nil {
 		return nil, wrapError(CategoryInfrastructureFailure, err, "creating engine")
 	}
-	defer func() { _ = engine.Shutdown(context.WithoutCancel(ctx)) }()
 	runner := orchestration.NewEvalRunner(cfg, engine,
 		orchestration.WithExactTestIDs(req.Split.TestIDs...),
 		orchestration.WithWazaVersion(h.WazaVersion),
 	)
-	outcome, err := runner.RunBenchmark(ctx)
-	if err != nil {
-		return nil, wrapError(CategoryInfrastructureFailure, err, "running harness")
+	outcome, runErr := runner.RunBenchmark(ctx)
+	shutdownErr := execution.ShutdownBounded(ctx, engine, h.shutdownGrace(), h.shutdownTimeout())
+	if runErr != nil {
+		return nil, wrapError(CategoryInfrastructureFailure, errors.Join(runErr, shutdownErr), "running harness")
 	}
+	if shutdownErr != nil {
+		return nil, wrapError(CategoryInfrastructureFailure, shutdownErr, "shutting down engine")
+	}
+	// Shutdown can publish final provider usage; refresh it before scoring
+	// spend or writing evidence.
+	execution.UpdateOutcomeUsage(outcome, engine)
 	return outcome, nil
+}
+
+func (h *HarnessEvaluator) shutdownGrace() time.Duration {
+	if h.ShutdownGrace > 0 {
+		return h.ShutdownGrace
+	}
+	return execution.DefaultShutdownGrace
+}
+
+func (h *HarnessEvaluator) shutdownTimeout() time.Duration {
+	if h.ShutdownTimeout > 0 {
+		return h.ShutdownTimeout
+	}
+	return execution.DefaultShutdownTimeout
 }
 
 func (h *HarnessEvaluator) writeEvidence(req EvaluateRequest, outcome *models.EvaluationOutcome) (*EvidenceRef, error) {
@@ -252,6 +286,43 @@ func (h *HarnessEvaluator) writeEvidence(req EvaluateRequest, outcome *models.Ev
 		return nil, fmt.Errorf("writing evidence: %w", err)
 	}
 	return &EvidenceRef{Path: rel, SHA256: sha256Hex(data)}, nil
+}
+
+// graderEvaluationErrors counts final and checkpoint grader results that
+// recorded structured evaluation errors (for example an inline-script
+// exception) without failing the task with a Go error.
+func graderEvaluationErrors(outcome *models.EvaluationOutcome) int {
+	count := func(results map[string]models.GraderResults) int {
+		n := 0
+		for _, g := range results {
+			if v, ok := g.Details["evaluation_errors"]; ok && !isEmptyValue(v) {
+				n++
+			}
+		}
+		return n
+	}
+	n := 0
+	for _, to := range outcome.TestOutcomes {
+		for _, run := range to.Runs {
+			n += count(run.Validations)
+			for _, cp := range run.Checkpoints {
+				n += count(cp.Validations)
+			}
+		}
+	}
+	return n
+}
+
+func isEmptyValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array, reflect.String:
+		return rv.Len() == 0
+	}
+	return false
 }
 
 // taskFeedback summarizes outcomes as bounded, adapter-safe feedback.

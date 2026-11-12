@@ -96,7 +96,8 @@ A candidate is a complete set of UTF-8 text files.
 - **Lineage.** Each candidate records its parent, origin, adapter, adapter
   version and iteration.
 - **Storage.** The seed and every proposed candidate are saved under
-  `candidates/<id-prefix>/` with their file digests.
+  `candidates/<id-prefix>/` with their file digests before they are evaluated.
+  If saving fails, the run stops with `infrastructure_failure`.
 - **Path policy.** Paths are relative `/`-separated segments of
   `[A-Za-z0-9._-]`. These are rejected with `unsafe_candidate_path`: absolute
   paths, `..` segments, dot-files, `.git`, backslashes, drive letters, Windows
@@ -134,12 +135,22 @@ A suite is rejected with `invalid_suite` in any of these cases:
 - A task has no ID, or two tasks share an ID.
 - A split is empty, or the two splits overlap.
 - A task would bypass the candidate: its own `skill_directories` under the
-  skill target, or its own `context_dir` or `repos` under the overlay target.
+  skill target, or its own `context_dir`, `repos` or `inputs.context.fixture`
+  under the overlay target.
+- The suite or context directory contains a symlink, a task file lives outside
+  the suite directory, or a path field uses `..` or an absolute path outside
+  the pinned directories. The pin can only cover files inside it.
+- A diff grader sets `update_snapshots`, at the eval, task or checkpoint
+  level, because it could rewrite pinned files.
+- Under the skill target, `disabled_skills: ["*"]` is set, or a skill with the
+  suite's `skill` name can be found from the working directory. The runner
+  looks there before the candidate directory, so run `waza optimize` from a
+  directory without that skill.
 
 ### Scores and decisions
 
 An evaluation is `scored` only when every selected task ran without errors or
-skips. Its score is the harness `aggregate_score`, and its pass rate is
+skips, and no grader result recorded evaluation errors. Its score is the harness `aggregate_score`, and its pass rate is
 passed tasks divided by total tasks. Any other result is
 `evaluation_incomplete` and never counts as an improvement.
 
@@ -253,8 +264,14 @@ How the process is run:
 - It receives only this environment: `PATH`, `HOME`, `USERPROFILE`,
   `SYSTEMROOT`, `TMPDIR`, `TEMP`, `TMP`, `LANG` and `LC_ALL`. Pass any other
   variable, such as a provider API key, by name with `--adapter-env NAME`.
-- Responses are strict: unknown fields and trailing data are rejected, and
-  stdout is limited to 8 MiB.
+- Responses are validated against the response schema for the operation
+  before decoding. Unknown fields, missing or `null` values, negative usage
+  counters and trailing data are rejected with `malformed_proposal`, and an
+  unsupported `contract_version` with `unsupported_version`. Stdout is limited
+  to 8 MiB.
+- On timeout or cancellation, Waza kills the adapter's whole process tree
+  (a process group on Unix, `taskkill /T` on Windows), so child processes
+  cannot keep making calls.
 
 Waza cannot know what an external command calls, so this adapter **always
 requires `--allow-paid-calls`**.
@@ -264,7 +281,9 @@ requires `--allow-paid-calls`**.
 This adapter is a GEPA-style reflective rewrite. The Copilot SDK asks a model
 to revise the incumbent's files, given the optimization-split failures.
 
-- The model runs with every tool denied, no skills and an ephemeral session.
+- The model runs with every tool denied, no skills, an ephemeral session and
+  ambient discovery disabled, so it sees no host instructions, retrieval or
+  memory, only the candidate and the optimization feedback.
 - It replies with full-file blocks, or `<<<WAZA-DONE>>>` when it has nothing
   to change.
 - Its usage is reported as measured adapter spend.

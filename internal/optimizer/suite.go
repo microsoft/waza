@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 )
@@ -74,7 +75,7 @@ func PinSuite(opts SuiteOptions) (*SuitePin, error) {
 		return nil, wrapError(CategoryInvalidSuite, err, "loading %s", opts.SpecPath)
 	}
 	specDir := filepath.Dir(specPath)
-	if err := admitSpec(spec); err != nil {
+	if err := admitSpec(spec, opts.Target); err != nil {
 		return nil, err
 	}
 	now := opts.Now
@@ -126,6 +127,14 @@ func PinSuite(opts SuiteOptions) (*SuitePin, error) {
 	if opts.Target == TargetContextOverlay && contextDir == "" {
 		return nil, newError(CategoryInvalidConfig, "the context-overlay target needs a context directory (--context-dir or <spec-dir>/fixtures)")
 	}
+	if err := admitDependencies(spec, cases, specDir, contextDir); err != nil {
+		return nil, err
+	}
+	if opts.Target == TargetSkillDirectory {
+		if err := admitNoAmbientSkill(spec.SkillName); err != nil {
+			return nil, err
+		}
+	}
 	model := spec.Config.ModelID
 	if opts.ModelID != "" {
 		model = opts.ModelID
@@ -150,7 +159,7 @@ func PinSuite(opts SuiteOptions) (*SuitePin, error) {
 	return pin, nil
 }
 
-func admitSpec(spec *models.EvalSpec) error {
+func admitSpec(spec *models.EvalSpec, target Target) error {
 	h := spec.Hooks
 	if len(h.BeforeRun)+len(h.AfterRun)+len(h.BeforeTask)+len(h.AfterTask) > 0 {
 		return newError(CategoryInvalidSuite, "suites with hooks are not supported by the optimizer (hooks can carry state between candidates)")
@@ -161,10 +170,58 @@ func admitSpec(spec *models.EvalSpec) error {
 	if spec.Scenario != "" {
 		return newError(CategoryInvalidSuite, "scenario suites are not supported by the optimizer")
 	}
+	if target == TargetSkillDirectory && slices.Contains(spec.Config.DisabledSkills, "*") {
+		return newError(CategoryInvalidSuite, "disabled_skills: [\"*\"] would evaluate every candidate without its skill; remove it for the skill-directory target")
+	}
+	for _, g := range spec.Graders {
+		if updatesSnapshots(g.Parameters) {
+			return newError(CategoryInvalidSuite, "grader %q sets update_snapshots, which can rewrite pinned suite files during optimization", g.Identifier)
+		}
+	}
+	return nil
+}
+
+func updatesSnapshots(p models.GraderParameters) bool {
+	switch v := p.(type) {
+	case models.DiffGraderParameters:
+		return v.UpdateSnapshots
+	case *models.DiffGraderParameters:
+		return v != nil && v.UpdateSnapshots
+	case models.GenericGraderParameters:
+		b, _ := v["update_snapshots"].(bool)
+		return b
+	}
+	return false
+}
+
+// admitNoAmbientSkill rejects runs where a same-named skill is discoverable
+// from the working directory: the runner and the Copilot executor search it
+// before the candidate skill directory, so scores could reflect the ambient
+// skill instead of the candidate.
+func admitNoAmbientSkill(skillName string) error {
+	if strings.TrimSpace(skillName) == "" {
+		return nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return wrapError(CategoryInfrastructureFailure, err, "resolving working directory")
+	}
+	if execution.IsSkillAvailable([]string{cwd}, skillName) {
+		return newError(CategoryInvalidSuite, "skill %q is discoverable from the working directory %s, which would shadow the candidate; run waza optimize from a directory without it", skillName, cwd)
+	}
 	return nil
 }
 
 func admitTask(tc *models.TestCase, target Target) error {
+	graders := slices.Clone(tc.Validators)
+	for _, cp := range tc.Checkpoints {
+		graders = append(graders, cp.Graders...)
+	}
+	for _, g := range graders {
+		if updatesSnapshots(g.Parameters) {
+			return newError(CategoryInvalidSuite, "task %q grader %q sets update_snapshots, which can rewrite pinned suite files during optimization", tc.TestID, g.Identifier)
+		}
+	}
 	switch target {
 	case TargetSkillDirectory:
 		if len(tc.SkillPaths) > 0 {
@@ -177,8 +234,111 @@ func admitTask(tc *models.TestCase, target Target) error {
 		if len(tc.Stimulus.Repos) > 0 {
 			return newError(CategoryInvalidSuite, "task %q clones repos, which would bypass the candidate overlay", tc.TestID)
 		}
+		if _, ok := tc.Stimulus.Metadata["fixture"]; ok {
+			return newError(CategoryInvalidSuite, "task %q sets inputs.context.fixture, which is read from the suite directory rather than the candidate overlay", tc.TestID)
+		}
 	}
 	return nil
+}
+
+// admitDependencies keeps every file the suite can read inside the pinned
+// suite and context directories, so the pin digests cover them. Task files
+// must live under the suite directory, and path-valued fields must not use
+// ".." or absolute paths outside the pinned roots.
+func admitDependencies(spec *models.EvalSpec, cases []*models.TestCase, specDir, contextDir string) error {
+	roots := []string{specDir}
+	if contextDir != "" {
+		roots = append(roots, contextDir)
+	}
+	files, err := spec.ResolveTestFiles(specDir)
+	if err != nil {
+		return wrapError(CategoryInvalidSuite, err, "resolving task files")
+	}
+	for _, f := range files {
+		if !withinAny(f, roots[:1]) {
+			return newError(CategoryInvalidSuite, "task file %s is outside the suite directory, so it cannot be pinned", f)
+		}
+	}
+	if err := checkPathFields("suite", spec, roots); err != nil {
+		return err
+	}
+	for _, tc := range cases {
+		if err := checkPathFields(fmt.Sprintf("task %q", tc.TestID), tc, roots); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkPathFields(owner string, v any, roots []string) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return wrapError(CategoryInvalidSuite, err, "inspecting %s", owner)
+	}
+	var doc any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return wrapError(CategoryInvalidSuite, err, "inspecting %s", owner)
+	}
+	var walk func(key string, node any) error
+	walk = func(key string, node any) error {
+		switch n := node.(type) {
+		case map[string]any:
+			for k, child := range n {
+				if err := walk(k, child); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, child := range n {
+				if err := walk(key, child); err != nil {
+					return err
+				}
+			}
+		case string:
+			if isPathKey(key) && !pinnedPath(n, roots) {
+				return newError(CategoryInvalidSuite, "%s field %q references %q outside the pinned suite and context directories", owner, key, n)
+			}
+		}
+		return nil
+	}
+	return walk("", doc)
+}
+
+func isPathKey(key string) bool {
+	switch key {
+	case "path", "file", "files", "script", "fixture", "fixtures", "location":
+		return true
+	}
+	for _, suffix := range []string{"_path", "_paths", "_file", "_files", "_dir", "_dirs", "_root"} {
+		if strings.HasSuffix(key, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func pinnedPath(p string, roots []string) bool {
+	if p == "" || strings.Contains(p, "://") {
+		return true
+	}
+	if filepath.IsAbs(p) {
+		return withinAny(p, roots)
+	}
+	for _, part := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if part == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func withinAny(p string, roots []string) bool {
+	for _, root := range roots {
+		if rel, err := filepath.Rel(root, p); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			return true
+		}
+	}
+	return false
 }
 
 func selectSplit(name string, cases []*models.TestCase, patterns []string) Split {
