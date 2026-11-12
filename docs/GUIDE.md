@@ -16,6 +16,11 @@ Explicit opt-in and platform limits still apply; see
 
 ## What is Waza?
 
+For the opt-in v0.41 source preview of standalone aggregation over completed
+public manifests, see [commands, populations and migration](MANIFEST_AGGREGATION.md).
+It does not start agents or recover worker ownership; admission completeness,
+terminal outcomes and recorded historical usage remain separate.
+
 Waza helps you:
 
 - **Define agent skills** with comprehensive documentation and behavioral requirements

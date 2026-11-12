@@ -116,8 +116,9 @@ func validateSourceReport(data []byte, source *executionledger.CompletedExecutio
 	default:
 		return fmt.Errorf("source report has no admitted terminal execution status")
 	}
-	if report.Mode != "" && report.Mode != binding.ExecutionMode {
-		return fmt.Errorf("source execution mode contradicts the original reservation")
+	// Pre-runtime failures may omit the mode; any present mode must match.
+	if (report.Mode != "" || report.Observation != nil) && report.Mode != binding.ExecutionMode {
+		return fmt.Errorf("source report execution mode contradicts original reservation")
 	}
 	if report.Observation != nil && (report.Observation.RunNumber != terminal.Observation.RunNumber ||
 		report.Observation.Attempts != terminal.Observation.Attempts ||

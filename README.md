@@ -296,6 +296,26 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ## Commands
 
+### `waza aggregate` (unreleased v0.41 source preview)
+
+Aggregate explicit completed public manifests from an existing local immutable
+store without starting agents or requiring the original worker:
+
+```bash
+waza aggregate --store .waza-artifacts "$DIGEST" -o aggregate.json
+waza aggregate --store .waza-artifacts --inputs inputs.json -o qualified.json
+```
+
+Input reference pairs, verified manifests and verified execution records are
+separate populations. Repeated executions and compatible views are retained;
+missing/conflicting inputs remain in emitted reports and exit nonzero.
+Complete admission is not a passing task or execution attestation. Historical
+usage is unavailable rather than a partial or cached subtotal. Lab's
+**Runner** view's **Aggregate completed public manifests** panel exposes composition,
+diagnostics and the exact JSON download.
+See [worked examples](site/src/content/docs/guides/manifest-aggregation.mdx) and
+[ordering, compatibility and migration](docs/MANIFEST_AGGREGATION.md).
+
 ### `waza artifact` (unreleased v0.41 source preview)
 
 Publish immutable artifact manifests without executing agents. The opt-in store

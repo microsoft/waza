@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Standalone manifest aggregation (unreleased v0.41 source preview, #766)** -
+  Aggregate explicit public completed manifest/evidence references without
+  agents, credential helpers or private worker ownership. Aggregate schema 1.0
+  retains separate member/manifest/execution-record populations, repeated
+  executions, compatible views, original failed/cancelled outcomes and explicit
+  omissions/conflicts. Local CLI/API/Lab composition and canonical JSON exports
+  distinguish admission completeness from pass/attestation and withhold partial
+  or cached historical usage. No automatic migration invents execution records,
+  evidence or billing. See [ordering, compatibility and migration](docs/MANIFEST_AGGREGATION.md).
+
 - **Checkpoint embedding API (unreleased partial #765)** - Recover immutable
   before-unit/finalized-unit checkpoints and compatibility-checked restore atop
   the attempt core. Finalized restore reuses the original terminal; before-unit
