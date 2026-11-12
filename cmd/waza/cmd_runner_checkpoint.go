@@ -34,10 +34,6 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 		}
 		return emitRunnerOperationJSON(cmd, data, result.ExitCode, result.Status)
 	}
-	rejectWithDiagnostic := func(cmd *cobra.Command, code, stage string, cause error) error {
-		_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint %s: %v\n", stage, cause)
-		return errors.Join(emit(cmd, runnercheckpoint.RejectPublic(code)), diagnosticErr)
-	}
 	for _, action := range []string{"create", "resume"} {
 		unit := &cobra.Command{
 			Use: action, Short: "Read one captured submission from stdin; emit one protected checkpoint result",
@@ -58,14 +54,15 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 				defer stop()
 				data, err := readRunnerInputLimit(ctx, cmd.InOrStdin(), runnerunit.MaxSubmissionBytes)
 				if err != nil {
-					return rejectWithDiagnostic(cmd, "checkpoint_input_unavailable", "input read", err)
+					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_input_unavailable"))
 				}
 				if _, err := runnerunit.ParseSubmission(data); err != nil {
-					return rejectWithDiagnostic(cmd, "checkpoint_input_invalid", "input admission", err)
+					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_input_invalid"))
 				}
 				buildRevision, err := revision()
 				if err != nil {
-					return rejectWithDiagnostic(cmd, "checkpoint_build_incompatible", "build admission", err)
+					_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint build admission: %v\n", err)
+					return errors.Join(emit(cmd, runnercheckpoint.RejectPublic("checkpoint_build_incompatible")), diagnosticErr)
 				}
 				checkpoints, err := runnercheckpoint.NewService(service, buildRevision)
 				if err != nil {
