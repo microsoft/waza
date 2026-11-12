@@ -64,11 +64,30 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
   if (ids.size !== lineage.attempts.length) return false;
   const decisions = new Map(lineage.decisions.map((decision) => [decision.decision_id, decision]));
   if (decisions.size !== lineage.decisions.length) return false;
+  const diagnosed = (code: string, id: string) => lineage.diagnostics.some((diagnostic) =>
+    diagnostic.code === code && diagnostic.execution_ids.includes(id));
+  const nativeAttempts = new Map(lineage.attempts.map((attempt) => [attempt.execution_id, attempt.native_attempt]));
+  const distinctFor = new Map<string, string[]>();
+  for (const decision of lineage.decisions) {
+    if (decision.policy === "distinct" && decision.execution_id) {
+      const native = nativeAttempts.get(decision.execution_id);
+      if (native === undefined) {
+        if (!diagnosed("decision_reservation_unavailable", decision.execution_id)) return false;
+        continue;
+      }
+      // Reuse ordinals describe the caller, so only distinct targets must match.
+      if (decision.native_attempt !== native) return false;
+      distinctFor.set(decision.execution_id, [...(distinctFor.get(decision.execution_id) ?? []), decision.decision_id]);
+    }
+    if (decision.policy === "reuse" && decision.outcome === "reused" && decision.source
+      && !ids.has(decision.source.execution_id) && !diagnosed("reuse_source_unavailable", decision.source.execution_id)) return false;
+  }
   const seen = new Map<string, LineageAttempt>();
   for (const [index, attempt] of lineage.attempts.entries()) {
     if (attempt.order !== index + 1) return false;
     const parentID = attempt.parent?.execution_id;
     if (parentID && ids.has(parentID) && !seen.has(parentID)) return false;
+    if (parentID && !ids.has(parentID) && !diagnosed("parent_unavailable", attempt.execution_id)) return false;
     const parent = parentID ? seen.get(parentID) : undefined;
     if (attempt.depth !== (parent ? parent.depth + 1 : 0)) return false;
     const finished = attempt.status === "completed" || attempt.status === "completion_unverified";
@@ -76,10 +95,9 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
     if (finished !== !!attempt.manifest_digest) return false;
     if ((attempt.status === "dispatched") && !attempt.dispatch_decision) return false;
     if ((attempt.status === "reserved") && attempt.dispatch_decision) return false;
-    if (attempt.dispatch_decision) {
-      const dispatch = decisions.get(attempt.dispatch_decision);
-      if (dispatch?.policy !== "distinct" || dispatch.execution_id !== attempt.execution_id) return false;
-    }
+    const dispatches = distinctFor.get(attempt.execution_id) ?? [];
+    if ((dispatches.length > 0) !== !!attempt.dispatch_decision) return false;
+    if (attempt.dispatch_decision && !dispatches.includes(attempt.dispatch_decision)) return false;
     // Unfinished or conflicting reuse decisions are listed but never linked.
     const reuses = lineage.decisions.filter((decision) => decision.policy === "reuse"
       && decision.outcome === "reused" && decision.source?.execution_id === attempt.execution_id);

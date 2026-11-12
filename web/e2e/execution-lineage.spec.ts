@@ -15,6 +15,16 @@ function load(page: Page) {
   return panel(page).getByRole("button", { name: "Load attempt lineage" }).click();
 }
 
+// Re-roots the retry under an unrecorded parent, optionally with the producer's diagnostic.
+function orphanedParent(diagnosed: boolean) {
+  const missing = `exec-${"d".repeat(64)}`;
+  const attempts = fixture.attempts.map((attempt, index) =>
+    index === 1 ? { ...attempt, depth: 0, parent: { execution_id: missing, relationship: "retry" } } : attempt);
+  const diagnostics = diagnosed ? [...fixture.diagnostics, { code: "parent_unavailable",
+    execution_ids: [fixture.attempts[1]!.execution_id], message: "Attempt names a parent that is not recorded for this logical work." }] : fixture.diagnostics;
+  return { ...fixture, attempts, diagnostics };
+}
+
 test.describe("Execution attempt lineage in Lab", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [] }));
@@ -23,9 +33,10 @@ test.describe("Execution attempt lineage in Lab", () => {
 
   test("shows ordered retries, reuse and concurrent-writer diagnostics", async ({ page }) => {
     const queries: string[] = [];
+    const served = `${JSON.stringify(fixture, null, 1)}\n`;
     await page.route("**/api/v1/lineage**", (route) => {
       queries.push(new URL(route.request().url()).search);
-      return route.fulfill({ body: JSON.stringify(fixture), contentType: "application/json" });
+      return route.fulfill({ body: served, contentType: "application/json" });
     });
     await fill(page);
     await load(page);
@@ -43,7 +54,7 @@ test.describe("Execution attempt lineage in Lab", () => {
     const download = page.waitForEvent("download");
     await result.getByRole("button", { name: "Download lineage JSON" }).click();
     const saved = await (await download).path();
-    expect(JSON.parse(await readFile(saved, "utf8"))).toEqual(fixture);
+    expect(await readFile(saved, "utf8")).toBe(served);
   });
 
   test("lists unfinished reuse decisions without linking them", async ({ page }) => {
@@ -69,6 +80,14 @@ test.describe("Execution attempt lineage in Lab", () => {
     expect(requests).toBe(0);
   });
 
+  test("accepts unresolved references only with their diagnostics", async ({ page }) => {
+    await page.route("**/api/v1/lineage**", (route) => route.fulfill({ body: JSON.stringify(orphanedParent(true)), contentType: "application/json" }));
+    await fill(page);
+    await load(page);
+    const result = panel(page).getByRole("status", { name: "Loaded attempt lineage" });
+    await expect(result.getByRole("list", { name: "Lineage diagnostics" })).toContainText("parent_unavailable");
+  });
+
   for (const [name, status, body] of [
     ["storage failure", 503, "{}"],
     ["inconsistent order", 200, JSON.stringify({ ...fixture, attempts: [...fixture.attempts].reverse() })],
@@ -81,6 +100,28 @@ test.describe("Execution attempt lineage in Lab", () => {
       index === 0 ? { ...attempt, status: "dispatched" } : attempt) })],
     ["misattributed reuse", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
       index === 2 ? { ...attempt, reused_by: fixture.attempts[0]!.reused_by } : attempt) })],
+    ["distinct decision with reused outcome", 200, JSON.stringify({ ...fixture, decisions: fixture.decisions.map((decision, index) =>
+      index === 0 ? { ...decision, outcome: "reused" } : decision) })],
+    ["distinct decision with a different native attempt", 200, JSON.stringify({ ...fixture, decisions: fixture.decisions.map((decision, index) =>
+      index === 0 ? { ...decision, native_attempt: 5 } : decision) })],
+    ["reserved attempt with a recorded dispatch", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) => {
+      if (index !== 2) return attempt;
+      const reserved: Partial<typeof attempt> = { ...attempt, status: "reserved" };
+      delete reserved.dispatch_decision;
+      delete reserved.manifest_digest;
+      delete reserved.terminal;
+      return reserved;
+    }) })],
+    ["success terminal with a failure exit code", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, terminal: { ...attempt.terminal, exit_code: 2 } } : attempt) })],
+    ["terminal with more than one engine call", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, terminal: { ...attempt.terminal, engine_calls: 7 } } : attempt) })],
+    ["undiagnosed missing parent", 200, JSON.stringify(orphanedParent(false))],
+    ["undiagnosed missing decision target", 200, JSON.stringify({ ...fixture, decisions: [...fixture.decisions,
+      { decision_id: `decision-${"e".repeat(64)}`, execution_id: `exec-${"e".repeat(64)}`, native_attempt: 1, outcome: "distinct", policy: "distinct" }] })],
+    ["undiagnosed missing reuse source", 200, JSON.stringify({ ...fixture, decisions: [...fixture.decisions,
+      { decision_id: `decision-${"e".repeat(64)}`, native_attempt: 4, outcome: "reused", policy: "reuse",
+        source: { execution_id: `exec-${"e".repeat(64)}`, manifest_digest: "0".repeat(64) } }] })],
     ["duplicate keys", 200, `{"kind":"waza.execution-lineage",${JSON.stringify(fixture).slice(1)}`],
   ] as const) {
     test(`fails closed on ${name}`, async ({ page }) => {
