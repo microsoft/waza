@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never overwrite), retry/branch parents are recorded, and reuse makes zero
   engine calls. `waza runner lineage` and loopback `GET /api/v1/lineage` emit
   `waza.execution-lineage` 1.0 with parent-ordered attempts, reuse decisions and
-  concurrent-writer diagnostics. No migration: historical results gain no
+  concurrent-writer diagnostics; the Lab **Runner contract** view renders the
+  same lineage read-only. No migration: historical results gain no
   synthesized attempts. See [public submission and lineage](docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage).
 
 - **Standalone manifest aggregation (unreleased v0.41 source preview, #766)** -

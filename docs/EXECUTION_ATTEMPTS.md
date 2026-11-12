@@ -1,9 +1,10 @@
 # Logical work and immutable execution attempts
 
-This is an unreleased v0.41 **embedding API** preview for #764. It is not a
-released CLI command, dashboard operation, checkpoint contract, or scheduler.
-The public CLI/API/Lab integration remains pending. Ordinary `runner run` and
-mutable result files keep their existing behavior.
+This is an unreleased source preview for #764. It is not a released CLI
+command, checkpoint contract, or scheduler. Source builds expose public
+submission and lineage through the CLI, loopback API and a read-only Lab view
+(see [public submission and lineage](#public-submission-and-lineage)). Ordinary
+`runner run` and mutable result files keep their existing behavior.
 
 ## Identity and duplicate decisions
 
@@ -211,6 +212,6 @@ original terminal bytes, or infer a creator from a checkpoint.
 
 Existing manifest-only publications remain inspectable. Reuse requires actual
 original ledger records, not an automatically migrated legacy result.
-Public submission and lineage transport are available from source. Lab
-lineage inspection, lifecycle controls, native-platform checks, and independent
-review remain separate release gates.
+Public submission, lineage transport and read-only Lab lineage inspection are
+available from source. Lifecycle controls, native-platform checks, and
+independent review remain separate release gates.
