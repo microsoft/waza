@@ -159,6 +159,13 @@ func PinSuite(opts SuiteOptions) (*SuitePin, error) {
 	return pin, nil
 }
 
+// candidateSkillDisabled reports whether the suite's skill filtering would drop
+// the candidate directory, which the evaluator materializes as ".../skill".
+func candidateSkillDisabled(cfg models.Config) bool {
+	cfg.SkillPaths = []string{filepath.Join("candidate", candidateSkillDirName)}
+	return len(cfg.FilteredSkillPaths()) != 1
+}
+
 func admitSpec(spec *models.EvalSpec, target Target) error {
 	h := spec.Hooks
 	if len(h.BeforeRun)+len(h.AfterRun)+len(h.BeforeTask)+len(h.AfterTask) > 0 {
@@ -170,8 +177,8 @@ func admitSpec(spec *models.EvalSpec, target Target) error {
 	if spec.Scenario != "" {
 		return newError(CategoryInvalidSuite, "scenario suites are not supported by the optimizer")
 	}
-	if target == TargetSkillDirectory && slices.Contains(spec.Config.DisabledSkills, "*") {
-		return newError(CategoryInvalidSuite, "disabled_skills: [\"*\"] would evaluate every candidate without its skill; remove it for the skill-directory target")
+	if target == TargetSkillDirectory && candidateSkillDisabled(spec.Config) {
+		return newError(CategoryInvalidSuite, "disabled_skills would remove the candidate skill directory, so every candidate would be evaluated without its skill; remove that entry for the skill-directory target")
 	}
 	for _, g := range spec.Graders {
 		if updatesSnapshots(g.Parameters) {

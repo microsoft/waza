@@ -138,7 +138,7 @@
           "index": {"type": "integer", "minimum": 1},
           "candidate_id": {"$ref": "#/$defs/candidateId"},
           "split": {"enum": ["optimization", "qualification"]},
-          "state": {"enum": ["scored", "evaluation_incomplete", "infrastructure_failure", "missing_evidence", "suite_changed", "cancelled", "timeout", "invalid_config"]},
+          "state": {"enum": ["scored", "evaluation_incomplete", "infrastructure_failure", "missing_evidence", "suite_changed", "cancelled", "timeout", "invalid_config", "invalid_suite"]},
           "score": {"type": ["number", "null"]},
           "pass_rate": {"type": ["number", "null"]},
           "tasks": {"type": "array"},

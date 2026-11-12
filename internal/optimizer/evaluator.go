@@ -110,12 +110,31 @@ func contextState(ctx context.Context) string {
 	return CategoryCancelled
 }
 
+// candidateSkillDirName is the directory the skill candidate is materialized in.
+const candidateSkillDirName = "skill"
+
+// evaluationStates are the non-scored states the report schema allows for an
+// evaluation; any other failure category is recorded as infrastructure_failure.
+var evaluationStates = map[string]bool{
+	StateIncomplete:               true,
+	CategoryInfrastructureFailure: true,
+	CategoryMissingEvidence:       true,
+	CategorySuiteChanged:          true,
+	CategoryCancelled:             true,
+	CategoryTimeout:               true,
+	CategoryInvalidConfig:         true,
+	CategoryInvalidSuite:          true,
+}
+
 func (h *HarnessEvaluator) Evaluate(ctx context.Context, req EvaluateRequest) Evaluation {
 	start := time.Now()
 	ev := Evaluation{Index: req.Index, CandidateID: req.CandidateID, Split: req.Split.Name, Spend: Spend{Status: SpendUnavailable}}
 	fail := func(state string, err error) Evaluation {
 		if cs := contextState(ctx); cs != "" {
 			state = cs
+		}
+		if !evaluationStates[state] {
+			state = CategoryInfrastructureFailure
 		}
 		ev.State = state
 		if err != nil {
@@ -197,7 +216,7 @@ func (h *HarnessEvaluator) run(ctx context.Context, req EvaluateRequest) (*model
 	fixtureDir := h.Pin.ContextDir
 	switch h.Target {
 	case TargetSkillDirectory:
-		skillDir := filepath.Join(workdir, "skill")
+		skillDir := filepath.Join(workdir, candidateSkillDirName)
 		if err := os.Mkdir(skillDir, 0o755); err != nil {
 			return nil, err
 		}

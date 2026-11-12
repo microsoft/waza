@@ -142,10 +142,13 @@ A suite is rejected with `invalid_suite` in any of these cases:
   the pinned directories. The pin can only cover files inside it.
 - A diff grader sets `update_snapshots`, at the eval, task or checkpoint
   level, because it could rewrite pinned files.
-- Under the skill target, `disabled_skills: ["*"]` is set, or a skill with the
+- Under the skill target, `disabled_skills` would remove the candidate
+  (`"*"` or `"skill"`, the candidate directory's name), or a skill with the
   suite's `skill` name can be found from the working directory. The runner
   looks there before the candidate directory, so run `waza optimize` from a
-  directory without that skill.
+  directory without that skill. The working directory is checked again before
+  every evaluation, and a failure there is recorded as an `invalid_suite`
+  evaluation.
 
 ### Scores and decisions
 

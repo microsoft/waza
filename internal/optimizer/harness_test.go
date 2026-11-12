@@ -167,6 +167,8 @@ func TestPinSuiteAdmission(t *testing.T) {
 		}, contains: "symlink"},
 		"disabled skills": {edit: replaceInFile("eval.yaml", "  model: mock\n", "  model: mock\n  disabled_skills: [\"*\"]\n"),
 			target: TargetSkillDirectory, contains: "disabled_skills"},
+		"disabled candidate dir": {edit: replaceInFile("eval.yaml", "  model: mock\n", "  model: mock\n  disabled_skills: [\"skill\"]\n"),
+			target: TargetSkillDirectory, contains: "disabled_skills"},
 		"ambient skill": {edit: func(t *testing.T, _ string) {
 			cwd := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(cwd, "SKILL.md"), []byte("---\nname: release-notes-writer\n---\nAmbient.\n"), 0o600))
@@ -229,7 +231,8 @@ func (e skillEchoEngine) Execute(ctx context.Context, req *execution.ExecutionRe
 	return resp, nil
 }
 
-func TestHarnessSkillDirectoryTarget(t *testing.T) {
+func skillTargetSuite(t *testing.T) (*SuitePin, []FileContent) {
+	t.Helper()
 	suite := copySuite(t)
 	require.NoError(t, os.RemoveAll(filepath.Join(suite, "fixtures")))
 	for _, f := range []string{"breaking-change", "bug-fix", "deprecation", "new-command", "security-fix"} {
@@ -244,6 +247,11 @@ func TestHarnessSkillDirectoryTarget(t *testing.T) {
 	require.NoError(t, err)
 	seed, err := LoadSeed(seedDir, TargetSkillDirectory)
 	require.NoError(t, err)
+	return pin, seed
+}
+
+func TestHarnessSkillDirectoryTarget(t *testing.T) {
+	pin, seed := skillTargetSuite(t)
 	out := filepath.Join(t.TempDir(), "out")
 	factory := func(cfg models.Config) (execution.AgentEngine, error) {
 		return skillEchoEngine{execution.NewMockEngine(cfg.ModelID)}, nil
@@ -320,4 +328,26 @@ func TestHarnessEvaluatorBoundsStalledShutdown(t *testing.T) {
 	require.Equal(t, CategoryInfrastructureFailure, ev.State, ev.Error)
 	require.Contains(t, ev.Error, "shutting down engine")
 	require.Less(t, time.Since(start), 20*time.Second)
+}
+
+// TestHarnessAmbientSkillAfterPinIsSchemaValid covers an evaluation-time
+// invalid_suite failure and checks the report still matches its schema.
+func TestHarnessAmbientSkillAfterPinIsSchemaValid(t *testing.T) {
+	pin, seed := skillTargetSuite(t)
+	cwd := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(cwd, "SKILL.md"), []byte("---\nname: release-notes-writer\n---\nAmbient.\n"), 0o600))
+	t.Chdir(cwd)
+	out := filepath.Join(t.TempDir(), "out")
+	r, err := Run(context.Background(), Config{
+		Adapter: NewFakeAdapter(), Pin: pin, Target: TargetSkillDirectory, Seed: seed, OutputDir: out,
+		Evaluator: &HarnessEvaluator{Pin: pin, Target: TargetSkillDirectory, OutputDir: out,
+			EngineFactory: func(cfg models.Config) (execution.AgentEngine, error) {
+				return execution.NewMockEngine(cfg.ModelID), nil
+			}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, OutcomeFailed, r.Outcome)
+	require.Equal(t, CategoryInvalidSuite, r.Failure.Category)
+	require.Equal(t, CategoryInvalidSuite, r.Evaluations[0].State)
+	validateReportSchema(t, out)
 }
