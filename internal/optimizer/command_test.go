@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const helperModeEnv = "WAZA_OPTIMIZER_HELPER_MODE"
+const (
+	helperModeEnv    = "WAZA_OPTIMIZER_HELPER_MODE"
+	helperPIDFileEnv = "WAZA_OPTIMIZER_HELPER_PID_FILE"
+)
 
 // TestHelperAdapterProcess is not a real test: it is re-executed as an
 // external command adapter by the tests below.
@@ -46,6 +51,14 @@ func TestHelperAdapterProcess(t *testing.T) {
 		fmt.Fprint(os.Stderr, "adapter crashed")
 		os.Exit(3)
 	case "hang":
+		time.Sleep(time.Minute)
+	case "spawn":
+		child := exec.Command(os.Args[0], "-test.run=^TestHelperAdapterProcess$")
+		child.Env = append(os.Environ(), helperModeEnv+"=hang")
+		if child.Start() != nil {
+			os.Exit(4)
+		}
+		_ = os.WriteFile(os.Getenv(helperPIDFileEnv), []byte(strconv.Itoa(child.Process.Pid)), 0o600)
 		time.Sleep(time.Minute)
 	case "env":
 		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion, "done": true,

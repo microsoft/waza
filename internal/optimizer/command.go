@@ -131,6 +131,7 @@ func (c *CommandAdapter) call(parent context.Context, req, resp any) error {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.WaitDelay = adapterWaitDelay
+	configureAdapterProcess(cmd)
 	runErr := cmd.Run()
 	if parent.Err() != nil {
 		return context.Cause(parent)
