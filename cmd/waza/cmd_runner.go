@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
@@ -28,6 +29,8 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 	}
 	cmd.AddCommand(newRunnerAdaptCommand())
 	cmd.AddCommand(newRunnerCheckpointCommand(service))
+	cmd.AddCommand(newRunnerSubmitCommand(service, artifactmanifest.OpenBackend))
+	cmd.AddCommand(newRunnerLineageCommand(artifactmanifest.OpenBackend))
 	cmd.AddCommand(&cobra.Command{
 		Use: "capabilities", Short: "Print supported runner versions and capabilities as JSON",
 		Args: cobra.NoArgs,

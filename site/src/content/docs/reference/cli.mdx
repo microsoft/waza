@@ -1705,6 +1705,29 @@ Save stdout with `> validation.json`; identity is not proof of execution or
 duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
 See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
 
+### Submission and lineage commands (unreleased source preview)
+
+```bash
+waza runner submit --store .waza-artifacts < submission.json
+waza runner lineage --run RUN_ID --work WORK_ID --store .waza-artifacts
+```
+
+`submit` reads one `waza.execution-submission` wrapper on stdin and emits one
+capture-approved `waza.execution-submission-result`. Policy `distinct` (default)
+always reserves a new execution ID; add `policy.parent` with relationship
+`retry` or `branch` to link it. Policy `reuse` names a verified finalized
+`source` and makes zero engine calls. Existing records are never overwritten.
+Exits follow the original terminal (0, 1, 3, 4); invalid input exits 6 and
+storage failures exit 2 with raw causes on stderr only.
+
+`lineage` prints one read-only [`waza.execution-lineage`](/waza/schemas/execution-lineage-1.0.schema.json)
+document: attempts in parent order (not wall-clock), retry parents, reuse
+decisions, and diagnostics for concurrent writers, missing parents and
+dispatched attempts without completion. It exits 6 for malformed IDs and 2 when
+the store is unavailable, truncated or contains unreadable records.
+`--store` and `--azure-container-url` behave as for checkpoint commands. See
+[logical work and attempts](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage).
+
 ### Checkpoint commands (unreleased source preview)
 
 ```bash

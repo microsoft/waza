@@ -43,17 +43,27 @@ Parent relationships are explicit `retry` or `branch` declarations within one
 logical work item. They form a partial order, not a global schedule. Knowing an
 execution ID or reading a record does not grant completion authority.
 
-This is an **embedding API preview**, not a released `runner submit` command or
-Lab lineage view. The source checkpoint CLI and protected checkpoint HTTP
-operations are available as a separate preview below; a generic public
-submission command and broader Lab evaluation lifecycle orchestration remain pending. Existing
-`runner run`, native ordinals, manifest v1, and legacy results are unchanged;
-historical ownership records are not synthesized.
+Unreleased source commands expose this layer:
+
+```bash
+waza runner submit --store .waza-artifacts < submission.json
+waza runner lineage --run RUN_ID --work WORK_ID --store .waza-artifacts
+```
+
+`runner submit` (and protected `POST /api/v1/submissions`) reserves a distinct
+attempt or performs verified reuse. `runner lineage` (and loopback
+`GET /api/v1/lineage?run=&work=`) prints parent-ordered attempts, reuse
+decisions and diagnostics such as `concurrent_distinct_attempts` (several
+parentless writers) and `dispatched_without_completion` (inspect before
+retrying). Lineage fails closed when listing is truncated or a record is
+unreadable. Existing `runner run`, native ordinals, manifest v1, and legacy
+results are unchanged; historical ownership records are not synthesized.
 See the independently versioned
 [attempt/decision schema](../../schemas/execution-attempt-1.0.schema.json),
 [completion schema](../../schemas/execution-completion-1.0.schema.json),
-[submission schema](../../schemas/execution-submission-1.0.schema.json), and
-[submission-result schema](../../schemas/execution-submission-result-1.0.schema.json).
+[submission schema](../../schemas/execution-submission-1.0.schema.json),
+[submission-result schema](../../schemas/execution-submission-result-1.0.schema.json), and
+[lineage schema](../../schemas/execution-lineage-1.0.schema.json).
 
 ### Checkpoint public source preview
 

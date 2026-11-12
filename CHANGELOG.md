@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Public submission and attempt lineage (unreleased source preview, #764)** -
+  `waza runner submit` and protected `POST /api/v1/submissions` call the
+  attempt core: distinct submissions always reserve a new execution ID (duplicates
+  never overwrite), retry/branch parents are recorded, and reuse makes zero
+  engine calls. `waza runner lineage` and loopback `GET /api/v1/lineage` emit
+  `waza.execution-lineage` 1.0 with parent-ordered attempts, reuse decisions and
+  concurrent-writer diagnostics. No migration: historical results gain no
+  synthesized attempts. See [public submission and lineage](docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage).
+
 - **Standalone manifest aggregation (unreleased v0.41 source preview, #766)** -
   Aggregate explicit public completed manifest/evidence references without
   agents, credential helpers or private worker ownership. Aggregate schema 1.0
