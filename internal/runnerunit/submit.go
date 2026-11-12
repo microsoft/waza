@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
+	"github.com/microsoft/waza/internal/executionlifecycle"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
@@ -67,7 +69,12 @@ type Submission struct {
 	Terminal      *runnerterminal.Envelope    `json:"terminal,omitempty"`
 	Report        json.RawMessage             `json:"report,omitempty"`
 	Diagnostics   []runnercontract.Diagnostic `json:"diagnostics"`
+	lifecycleErr  error
 }
+
+// LifecycleError reports a lifecycle journal write failure. It never changes
+// the execution outcome; lineage then derives state from ledger records only.
+func (s Submission) LifecycleError() error { return s.lifecycleErr }
 
 func (s *Submission) fail(code string, err error) {
 	s.Status, s.ExitCode = "submission_error", 2
@@ -259,10 +266,31 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	result.Decision = decision
 	executor := s
 	if hooks.Factory != nil {
-		executor = NewService(hooks.Factory)
+		executor = &Service{factory: NewService(hooks.Factory).factory, heartbeat: s.heartbeat, dispatch: s.dispatch}
 	}
-	report = executor.executeAdmitted(ctx, report, input, false)
+	journal, err := openLifecycle(backend, reserved, decision.DecisionID)
+	if err != nil {
+		result.lifecycleErr = err
+	}
+	interval := s.heartbeat
+	if interval <= 0 {
+		interval = executionlifecycle.DefaultHeartbeatInterval
+	}
+	report = trackLifecycle(ctx, journal, interval, func(ctx context.Context) Report {
+		if executor.dispatch != nil {
+			return executor.dispatch(ctx, report, input)
+		}
+		return executor.executeAdmitted(ctx, report, input, false)
+	})
 	envelope, terminalBinding := terminal(report)
+	finishLifecycle(ctx, journal, envelope.Outcome)
+	if err := journal.Err(); err != nil {
+		result.lifecycleErr = err
+	}
+	if result.lifecycleErr != nil {
+		slog.Warn("execution lifecycle journal incomplete; lineage will derive state from ledger records only",
+			"execution_id", reserved.Attempt.ExecutionID, "error", result.lifecycleErr)
+	}
 	result.Terminal, result.EngineCalls = &envelope, report.Calls
 	// Lifecycle is already joined. Bounded publication may retain a canceled
 	// terminal without treating cancellation as successful execution.
@@ -479,4 +507,19 @@ func VerifyReuseSource(ctx context.Context, ledger *executionledger.Ledger, sour
 		}
 	}
 	return completed, envelope, "", nil
+}
+
+func openLifecycle(backend artifactmanifest.Backend, reserved *executionledger.Reservation, decisionID string) (*executionlifecycle.Journal, error) {
+	store, err := executionlifecycle.NewStore(backend)
+	if errors.Is(err, artifactmanifest.ErrUnsupportedBackend) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	scope, err := executionlifecycle.Scope(reserved.Attempt.ExecutionID, reserved.Digest, decisionID)
+	if err != nil {
+		return nil, err
+	}
+	return executionlifecycle.Open(store, scope)
 }

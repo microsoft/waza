@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
@@ -93,14 +94,19 @@ never overwritten.`,
 func newRunnerLineageCommand(openBackend openBackendFunc) *cobra.Command {
 	var directory, azureURL string
 	var logical executionattempt.Logical
+	var staleAfter time.Duration
 	cmd := &cobra.Command{
 		Use:   "lineage",
 		Short: "Print the ordered attempts, retry parents, reuse decisions and writer diagnostics for one logical work item",
 		Long: `Read every ledger record for one logical work item and emit one
 waza.execution-lineage JSON document. Order follows parent relationships, not
 wall-clock time. Concurrent writers, missing parents, dispatched attempts without
-completion and unverifiable completions are reported as diagnostics. The command
-is read-only and fails closed when the store listing is truncated or a record is
+completion and unverifiable completions are reported as diagnostics. Each attempt
+carries a derived lifecycle (state, cancellation, deadline, partial completion,
+retry eligibility and allowed actions) read from its owner's lifecycle journal.
+A dispatched attempt whose journal is older than --stale-after (default: three
+heartbeat intervals) is reported as orphaned and retry-eligible. The command is
+read-only and fails closed when the store listing is truncated or a record is
 unreadable.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -111,11 +117,14 @@ unreadable.`,
 			if err := executionledger.ValidateLogical(logical); err != nil {
 				return &ExitCodeError{Code: 6, Err: err}
 			}
+			if staleAfter < 0 {
+				return &ExitCodeError{Code: 6, Err: fmt.Errorf("--stale-after must not be negative")}
+			}
 			backend, closeBackend, err := openBackend(directory, azureURL)
 			if err != nil {
 				return &ExitCodeError{Code: 2, Err: fmt.Errorf("opening store: %w", err)}
 			}
-			lineage, err := readLineage(cmd, backend, logical)
+			lineage, err := readLineage(cmd, backend, logical, executionledger.LineageOptions{StaleAfter: staleAfter})
 			if closeErr := closeBackend(); closeErr != nil && err == nil {
 				err = fmt.Errorf("closing store: %w", closeErr)
 			}
@@ -129,16 +138,17 @@ unreadable.`,
 	cmd.Flags().StringVar(&logical.Work, "work", "", "Logical work ID (trial-<sha256>)")
 	_ = cmd.MarkFlagRequired("run")
 	_ = cmd.MarkFlagRequired("work")
+	cmd.Flags().DurationVar(&staleAfter, "stale-after", 0, "Report a dispatched attempt as orphaned when its lifecycle journal is older than this (default: 3x heartbeat interval)")
 	addStoreFlags(cmd, &directory, &azureURL)
 	return cmd
 }
 
-func readLineage(cmd *cobra.Command, backend artifactmanifest.Backend, logical executionattempt.Logical) ([]byte, error) {
+func readLineage(cmd *cobra.Command, backend artifactmanifest.Backend, logical executionattempt.Logical, options executionledger.LineageOptions) ([]byte, error) {
 	ledger, err := executionledger.New(backend)
 	if err != nil {
 		return nil, fmt.Errorf("opening ledger: %w", err)
 	}
-	lineage, err := ledger.Lineage(cmd.Context(), logical)
+	lineage, err := ledger.Lineage(cmd.Context(), logical, options)
 	if err != nil {
 		return nil, fmt.Errorf("reading lineage: %w", err)
 	}

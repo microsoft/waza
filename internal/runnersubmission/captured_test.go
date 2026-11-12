@@ -96,7 +96,7 @@ func TestSubmitCapturedRetryReuseAndLineage(t *testing.T) {
 
 	ledger, err := executionledger.New(backend)
 	require.NoError(t, err)
-	lineage, err := ledger.Lineage(ctx, first.Reservation.Logical)
+	lineage, err := ledger.Lineage(ctx, first.Reservation.Logical, executionledger.LineageOptions{})
 	require.NoError(t, err)
 	require.Len(t, lineage.Attempts, 2)
 	require.Equal(t, first.Reservation.ExecutionID, lineage.Attempts[0].ExecutionID)
@@ -129,7 +129,7 @@ func TestSubmitCapturedConcurrentDuplicatesKeepDistinctEvidence(t *testing.T) {
 
 	ledger, err := executionledger.New(backend)
 	require.NoError(t, err)
-	lineage, err := ledger.Lineage(ctx, results[0].Reservation.Logical)
+	lineage, err := ledger.Lineage(ctx, results[0].Reservation.Logical, executionledger.LineageOptions{})
 	require.NoError(t, err)
 	require.Len(t, lineage.Attempts, writers)
 	for _, attempt := range lineage.Attempts {

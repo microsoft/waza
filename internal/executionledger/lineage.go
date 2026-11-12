@@ -10,8 +10,10 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executionlifecycle"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/schemaloader"
@@ -38,18 +40,29 @@ type LineageTerminal struct {
 }
 
 type LineageAttempt struct {
-	Order             int                      `json:"order"`
-	Depth             int                      `json:"depth"`
-	ExecutionID       string                   `json:"execution_id"`
-	ReservationDigest string                   `json:"reservation_digest"`
-	NativeAttempt     int                      `json:"native_attempt"`
-	Parent            *executionattempt.Parent `json:"parent,omitempty"`
-	Status            string                   `json:"status"`
-	DispatchDecision  string                   `json:"dispatch_decision,omitempty"`
-	ManifestDigest    string                   `json:"manifest_digest,omitempty"`
-	Terminal          *LineageTerminal         `json:"terminal,omitempty"`
-	ReusedBy          []string                 `json:"reused_by"`
+	Order             int                          `json:"order"`
+	Depth             int                          `json:"depth"`
+	ExecutionID       string                       `json:"execution_id"`
+	ReservationDigest string                       `json:"reservation_digest"`
+	NativeAttempt     int                          `json:"native_attempt"`
+	Parent            *executionattempt.Parent     `json:"parent,omitempty"`
+	Status            string                       `json:"status"`
+	DispatchDecision  string                       `json:"dispatch_decision,omitempty"`
+	ManifestDigest    string                       `json:"manifest_digest,omitempty"`
+	Terminal          *LineageTerminal             `json:"terminal,omitempty"`
+	ReusedBy          []string                     `json:"reused_by"`
+	Lifecycle         executionlifecycle.Lifecycle `json:"lifecycle"`
 }
+
+// LineageOptions supply the read clock and stale threshold for derived
+// lifecycle state. A zero StaleAfter uses the recorded heartbeat interval.
+type LineageOptions struct {
+	Now        time.Time
+	StaleAfter time.Duration
+}
+
+// MaxLineageLifecycleReads bounds journal reads across one lineage document.
+const MaxLineageLifecycleReads = 1 << 16
 
 type LineageDecision struct {
 	DecisionID    string                   `json:"decision_id"`
@@ -82,10 +95,11 @@ var lineageSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(schemaloader.Offline{})
 	for name, text := range map[string]string{
-		"execution-lineage-1.0.schema.json": schemas.ExecutionLineageSchemaJSON,
-		"execution-attempt-1.0.schema.json": schemas.ExecutionAttemptSchemaJSON,
-		"artifact-manifest-1.0.schema.json": schemas.ArtifactManifestSchemaJSON,
-		"runner-terminal-1.0.schema.json":   schemas.RunnerTerminalSchemaJSON,
+		"execution-lineage-1.0.schema.json":   schemas.ExecutionLineageSchemaJSON,
+		"execution-attempt-1.0.schema.json":   schemas.ExecutionAttemptSchemaJSON,
+		"artifact-manifest-1.0.schema.json":   schemas.ArtifactManifestSchemaJSON,
+		"runner-terminal-1.0.schema.json":     schemas.RunnerTerminalSchemaJSON,
+		"execution-lifecycle-1.0.schema.json": schemas.ExecutionLifecycleSchemaJSON,
 	} {
 		doc, err := jsonschema.UnmarshalJSON(strings.NewReader(text))
 		if err != nil {
@@ -146,7 +160,7 @@ func ValidateLogical(logical executionattempt.Logical) error {
 // Truncated discovery, unreadable records or non-canonical records fail closed:
 // absence and completeness cannot be proven from partial discovery. Completion
 // verification failures are reported per attempt, never repaired or hidden.
-func (l *Ledger) Lineage(ctx context.Context, logical executionattempt.Logical) (*Lineage, error) {
+func (l *Ledger) Lineage(ctx context.Context, logical executionattempt.Logical, options LineageOptions) (*Lineage, error) {
 	if l == nil || l.records == nil {
 		return nil, ErrCapability
 	}
@@ -217,7 +231,7 @@ func (l *Ledger) Lineage(ctx context.Context, logical executionattempt.Logical) 
 	if len(reservations) > MaxLineageAttempts {
 		return nil, fmt.Errorf("%w: logical work has %d attempts; lineage supports at most %d", ErrContext, len(reservations), MaxLineageAttempts)
 	}
-	return l.project(ctx, logical, reservations, completions, decisions)
+	return l.project(ctx, logical, reservations, completions, decisions, options)
 }
 
 // MaxLineageAttempts bounds one lineage document; larger histories fail closed.
@@ -235,8 +249,13 @@ func decisionMatchesReservation(decision executionattempt.Decision, reserved *Re
 }
 
 func (l *Ledger) project(ctx context.Context, logical executionattempt.Logical, reservations map[string]*Reservation,
-	completions map[string]*CompletionRecord, decisions []executionattempt.Decision,
+	completions map[string]*CompletionRecord, decisions []executionattempt.Decision, options LineageOptions,
 ) (*Lineage, error) {
+	if options.Now.IsZero() {
+		options.Now = time.Now()
+	}
+	budget := MaxLineageLifecycleReads
+	var readErr error
 	result := &Lineage{Kind: "waza.execution-lineage", SchemaVersion: LineageVersion, Logical: logical,
 		Attempts: []LineageAttempt{}, Decisions: []LineageDecision{}, Diagnostics: []LineageDiagnostic{}}
 	diagnose := func(code, message string, ids ...string) {
@@ -335,6 +354,26 @@ func (l *Ledger) project(ctx context.Context, logical executionattempt.Logical, 
 		} else if attempt.Status == AttemptDispatched {
 			diagnose("dispatched_without_completion", "Execution was dispatched but no completion is recorded; it may be running, stopped or lost. Do not treat it as absent.", id)
 		}
+		facts := executionlifecycle.Facts{Status: attempt.Status}
+		if attempt.Terminal != nil {
+			facts.Outcome, facts.FailureBoundary, facts.EngineCalls = attempt.Terminal.Outcome, attempt.Terminal.FailureBoundary, attempt.Terminal.EngineCalls
+		}
+		var observed *executionlifecycle.Observed
+		if attempt.DispatchDecision != "" && readErr == nil {
+			scope, err := executionlifecycle.Scope(id, reserved.Digest, attempt.DispatchDecision)
+			if err == nil {
+				observed, err = executionlifecycle.Read(ctx, l.lifecycle, scope, &budget)
+			}
+			if err != nil {
+				readErr = fmt.Errorf("reading lifecycle journal for %s: %w", id, err)
+			} else if observed.Invalid {
+				diagnose("lifecycle_journal_invalid", "Lifecycle journal is corrupt, unchained or out of order; lifecycle is derived from ledger records only. Preserve and inspect it.", id)
+			}
+		}
+		attempt.Lifecycle = executionlifecycle.Derive(facts, observed, options.Now, options.StaleAfter)
+		if attempt.Lifecycle.State == "orphaned" {
+			diagnose("orphaned_attempt", "Dispatched attempt has no completion and its lifecycle journal is stale or past its deadline; its records are preserved. A retry creates a new attempt.", id)
+		}
 		result.Attempts = append(result.Attempts, attempt)
 		next := children[id]
 		slices.Sort(next)
@@ -344,6 +383,9 @@ func (l *Ledger) project(ctx context.Context, logical executionattempt.Logical, 
 	}
 	for _, root := range roots {
 		visit(root, 0)
+	}
+	if readErr != nil {
+		return nil, readErr
 	}
 	if len(result.Attempts) != len(reservations) {
 		return nil, fmt.Errorf("%w: attempt parent relationships contain a cycle", ErrContext)

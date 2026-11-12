@@ -39,6 +39,7 @@ type Report struct {
 	failure       error
 	boundary      string
 	localOutcome  *models.EvaluationOutcome
+	forced        bool
 }
 
 func (r Report) ExitCode() int {
@@ -192,6 +193,11 @@ type EngineFactory func(models.Config) (execution.AgentEngine, error)
 // supplied only by embedding hosts/tests; it cannot broaden admission.
 type Service struct {
 	factory EngineFactory
+	// heartbeat is the lifecycle journal interval; zero uses the default.
+	heartbeat time.Duration
+	// dispatch replaces admitted execution in tests whose fake runtimes cannot
+	// pass concrete-engine admission.
+	dispatch func(context.Context, Report, *admitted) Report
 }
 
 func NewService(factory EngineFactory) *Service {
@@ -336,7 +342,7 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	}
 	defer interruptRunnerRuntime(ctx, interrupt)()
 	defer func() {
-		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), runtimeShutdownBound)
 		defer stop()
 		stopShutdownInterrupt := interruptRunnerRuntime(shutdownCtx, interrupt)
 		if err := engine.Shutdown(shutdownCtx); err != nil {
@@ -344,6 +350,7 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 		}
 		stopShutdownInterrupt()
 		if err := shutdownCtx.Err(); err != nil {
+			result.forced = true
 			result.executionError("shutdown", fmt.Errorf("runtime shutdown deadline: %w", err))
 		}
 		result.Calls = observed.calls

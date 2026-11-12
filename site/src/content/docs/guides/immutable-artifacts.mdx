@@ -65,6 +65,59 @@ See the independently versioned
 [submission-result schema](../../schemas/execution-submission-result-1.0.schema.json), and
 [lineage schema](../../schemas/execution-lineage-1.0.schema.json).
 
+### Execution lifecycle and recovery
+
+The owner of each dispatched attempt records a bounded lifecycle journal
+([event schema](../../schemas/execution-lifecycle-1.0.schema.json)): `started`
+(with deadline and heartbeat interval), periodic `heartbeat`,
+`cancel_requested` (reason `caller` or `deadline`), `cancel_acknowledged` or
+`forced`, and `finished`. Lineage derives a `lifecycle` object for every
+attempt from that journal and the immutable ledger records. Derivation is
+read-only; retry eligibility is advisory and Waza owns no retry policy.
+
+```mermaid
+stateDiagram-v2
+    [*] --> reserved
+    reserved --> running: dispatched, started
+    reserved --> unobserved: dispatched, no journal
+    running --> cancelling: cancel requested
+    running --> orphaned: heartbeat stale or deadline passed
+    cancelling --> orphaned: heartbeat stale
+    running --> succeeded
+    running --> evaluation_failed
+    running --> failed
+    cancelling --> cancelled
+    cancelling --> timed_out
+    orphaned --> [*]: retry with parent creates a new attempt
+```
+
+| State | Retry eligible | Next action |
+|-------|----------------|-------------|
+| `running` / `cancelling` / `unobserved` | No | Wait, or stop the owner process |
+| `orphaned` | Yes | Confirm the owner is gone, then retry with the orphan as parent |
+| `cancelled` / `timed_out` | Yes | Retry with parent; partial work is never resumed |
+| `failed` (infrastructure) | Yes | Retry with parent |
+| `failed` (input) / `rejected` | No | Fix the input |
+| `succeeded` / `evaluation_failed` | No | Inspect or reuse the result |
+
+Each lifecycle also reports `cancellation` (`none`, `requested`,
+`acknowledged`, `forced`), `deadline_exceeded`, `partial` and
+`allowed_actions`. Recovery examples:
+
+- **Interrupted owner** (Ctrl+C): the owner records the request, joins the
+  runtime, records `cancel_acknowledged` and publishes a `cancelled` terminal.
+- **Killed owner** (SIGKILL, host loss): heartbeats stop. After
+  `--stale-after` (default three heartbeat intervals) lineage reports
+  `orphaned` with an `orphaned_attempt` diagnostic. Submit again with
+  `"policy":{"mode":"distinct","parent":{"execution_id":"exec-...","relationship":"retry"}}`;
+  the orphan's records stay byte-for-byte unchanged.
+- **Runtime ignores shutdown**: after the 5s bound the owner force-stops it and
+  records `forced`; lineage shows `cancellation: "forced"` and `partial: true`.
+
+Attempts recorded before this preview have no journal and report
+`observation: "unobserved"`; nothing is rewritten. See
+[execution lifecycle semantics](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_LIFECYCLE.md).
+
 ### Checkpoint public source preview
 
 The source-only checkpoint service supports two whole-unit safe boundaries:

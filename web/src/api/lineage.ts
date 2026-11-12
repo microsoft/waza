@@ -3,6 +3,7 @@ import lineageSchema from "../../../schemas/execution-lineage-1.0.schema.json";
 import attemptSchema from "../../../schemas/execution-attempt-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
 import manifestSchema from "../../../schemas/artifact-manifest-1.0.schema.json";
+import lifecycleSchema from "../../../schemas/execution-lifecycle-1.0.schema.json";
 import { parseStrictJSON } from "../lib/strictJson";
 
 export interface LineageAttempt {
@@ -17,6 +18,24 @@ export interface LineageAttempt {
   manifest_digest?: string;
   terminal?: { outcome: string; exit_code: number; failure_boundary: string; engine_calls: number };
   reused_by: string[];
+  lifecycle: AttemptLifecycle;
+}
+
+export interface AttemptLifecycle {
+  state: string;
+  observation: "recorded" | "unobserved" | "invalid";
+  events?: number;
+  started_at?: string;
+  last_event_at?: string;
+  deadline_at?: string;
+  heartbeat_interval_ms?: number;
+  stale_after_ms?: number;
+  cancellation: "none" | "requested" | "acknowledged" | "forced";
+  cancellation_reason?: "caller" | "deadline";
+  deadline_exceeded: boolean;
+  partial: boolean;
+  retry: { eligible: boolean; reason: string };
+  allowed_actions: string[];
 }
 
 export interface ExecutionLineage {
@@ -44,6 +63,7 @@ export class LineageError extends Error {}
 
 const validateLineage = new Ajv2020({ strict: false })
   .addSchema(terminalSchema)
+  .addSchema(lifecycleSchema)
   .addSchema(manifestSchema)
   .addSchema(attemptSchema)
   .compile<ExecutionLineage>(lineageSchema);
@@ -55,6 +75,14 @@ export function parseLogical(run: string, work: string): { run: string; work: st
   }
   return logical;
 }
+
+// Derived lifecycle states each attempt status may report.
+const lifecycleStates: Record<LineageAttempt["status"], string[]> = {
+  reserved: ["reserved"],
+  dispatched: ["unobserved", "running", "cancelling", "orphaned", "publication_incomplete"],
+  completed: ["succeeded", "evaluation_failed", "failed", "cancelled", "timed_out", "rejected"],
+  completion_unverified: ["unverified"],
+};
 
 // The browser re-checks producer invariants so a malformed response cannot
 // present an attempt before its parent or misattribute terminals and reuse.
@@ -99,6 +127,9 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
     if (attempt.status === "dispatched" && !diagnosed("dispatched_without_completion", attempt.execution_id)) return false;
     if (attempt.status === "completion_unverified" && !diagnosed("completion_unverified", attempt.execution_id)
       && !diagnosed("completion_verification_interrupted", attempt.execution_id)) return false;
+    if (!lifecycleStates[attempt.status].includes(attempt.lifecycle.state)) return false;
+    if (attempt.lifecycle.state === "orphaned" && !diagnosed("orphaned_attempt", attempt.execution_id)) return false;
+    if (attempt.lifecycle.observation === "invalid" && !diagnosed("lifecycle_journal_invalid", attempt.execution_id)) return false;
     const dispatches = distinctFor.get(attempt.execution_id) ?? [];
     if ((dispatches.length > 0) !== !!attempt.dispatch_decision) return false;
     if (attempt.dispatch_decision && !dispatches.includes(attempt.dispatch_decision)) return false;
