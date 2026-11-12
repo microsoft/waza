@@ -1283,10 +1283,57 @@ done
 			"          for control in TestReadFileOpensOrdinaryWindowsFile TestReadFileRejectsWindowsLeafReparseReplacement TestReadFileRetainsOpenedWindowsParentDuringReplacement; do\n            grep -Fxq",
 			"          for control in TestReadFileOpensOrdinaryWindowsFile; do\n            grep -Fxq",
 		},
+		{
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}",
+			"  build-and-test-windows:\n    if: ${{ false }}\n    name: ${{ matrix.os }}",
+		},
+		{
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest",
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: ubuntu-latest",
+		},
+		{
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [windows-latest]",
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [ubuntu-latest]",
+		},
+		{
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n",
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n        shell: bash -e {0}\n",
+		},
 	} {
 		mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
 		if mutated == string(source) || check([]byte(mutated)) == nil {
 			t.Fatalf("dashboard checker workflow mutation admitted: %q", mutation.replacement)
+		}
+	}
+
+	sourceText := string(source)
+	stepStart := strings.Index(sourceText, "      - name: "+stepName+"\n")
+	if stepStart < 0 {
+		t.Fatal("dashboard checker step anchor missing")
+	}
+	marker := "      - name: Reject tolerated runtime launches\n"
+	markerOffset := strings.Index(sourceText[stepStart:], marker)
+	if markerOffset < 0 {
+		t.Fatal("runtime marker step anchor missing")
+	}
+	stepBlock := sourceText[stepStart : stepStart+markerOffset]
+	moveStepBefore := func(anchor string) string {
+		withoutStep := sourceText[:stepStart] + sourceText[stepStart+markerOffset:]
+		position := strings.Index(withoutStep, anchor)
+		if position < 0 {
+			t.Fatalf("step-order mutation anchor missing: %q", anchor)
+		}
+		return withoutStep[:position] + stepBlock + withoutStep[position:]
+	}
+	for _, mutation := range []struct {
+		name   string
+		before string
+	}{
+		{"prerequisite", "      - name: Test native Windows shell controls\n"},
+		{"runtime marker", "      - name: Retain sanitized Go execution evidence\n"},
+	} {
+		if mutated := moveStepBefore(mutation.before); check([]byte(mutated)) == nil {
+			t.Fatalf("dashboard checker step-order mutation admitted: %s", mutation.name)
 		}
 	}
 }
