@@ -137,6 +137,21 @@ jobs:
           done
           rm "$log"
 
+      - name: Test native Windows release dashboard checker
+        if: matrix.os == 'windows-latest'
+        run: |
+          log="$(mktemp)"
+          trap 'rm -f "$log"' EXIT
+          go test -v -race -count=1 -timeout=5m ./.github/scripts/release-dashboard-check | sed 's/\r$//' | tee "$log"
+          if grep -q -- '--- SKIP:' "$log"; then
+            echo "Native Windows release dashboard tests must not skip." >&2
+            exit 1
+          fi
+          for control in TestReadFileOpensOrdinaryWindowsFile TestReadFileRejectsWindowsLeafReparseReplacement TestReadFileRetainsOpenedWindowsParentDuringReplacement; do
+            grep -Fxq "=== RUN   $control" "$log"
+            grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"
+          done
+
       - name: Reject tolerated runtime launches
         run: |
           if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
