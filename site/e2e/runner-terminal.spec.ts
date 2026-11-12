@@ -15,7 +15,8 @@ test('checkpoint source commands link to bounded recovery and protected HTTP lim
   await expect(content).toContainText('Unsupported active providers fail closed');
   await expect(content).toContainText('no raw checkpoint GET endpoint is available');
   await expect(content).toContainText('A previously dispatched source is refused, not replayed.');
-  await expect(content).toContainText('Lab integration and production process/platform acceptance remain pending');
+  await expect(content).toContainText('Lab can inspect supplied checkpoint-result JSON.');
+  await expect(content).toContainText('Lab operation orchestration and full production process/platform acceptance remain pending.');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint create' })).toContainText('schema_version:"1.0"');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint resume' })).toContainText('restored-result.json');
 });
