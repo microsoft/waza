@@ -168,12 +168,19 @@ Submission and both recovery adapters avoid HTML escaping of admitted request
 JSON. Literal `<`, `>` and `&` in captured inputs do not expand solely because
 the adapter wraps the request; original request-size bounds still apply.
 
-Creator-validation failures retain elapsed declaration phases and context states
-alongside the original error cause. Inspect compatibility, selection and identity
-work separately from the retained-reservation and provider-validation phases;
-phase timings are diagnostics, not execution or recovery evidence. Publication
-budgets are unchanged. A timeout remains a publication failure: preserve the
-original completion and any reported unverified blob rather than retrying.
+Creator-validation failures retain phase timings, context states and the
+original error cause. `request_declaration` reports the earlier compatibility
+derivation and its operation-context snapshots; `creator_publication` separately
+reports retained-reservation, selection, identity and provider-validation
+phases and the publication context. Finalized publication uses a separate
+10-second context without the operation's cancellation. Its
+`creator_declaration_elapsed` excludes the earlier derivation and intervening
+execution; it is not the former combined `declaration_elapsed`. Callers using
+`DeclareRequest` without a context receive `unavailable` for request-context
+observations. Timings are diagnostics, not execution or recovery evidence.
+Publication budgets are unchanged. A timeout remains a publication failure:
+preserve the original completion and any reported unverified blob rather than
+retrying.
 The CLI sends underlying input, build, operation and flag-parsing errors to bounded operator stderr while
 keeping the public JSON diagnostic sanitized. Conflicting store flags also use
 the single-record JSON rejection path. Build-revision admission failures retain

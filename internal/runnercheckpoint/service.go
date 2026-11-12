@@ -96,7 +96,7 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		result.fail("checkpoint_policy_conflict")
 		return result, fmt.Errorf("%w: creating a checkpoint requires a new retained creator; use resume for an existing checkpoint", ErrPolicy)
 	}
-	declaration, err := executioncheckpoint.DeclareRequest(request.Request, s.revision)
+	declaration, err := executioncheckpoint.DeclareRequestWithContext(ctx, request.Request, s.revision)
 	if err != nil {
 		result.fail("checkpoint_request_invalid")
 		return result, err
@@ -113,7 +113,7 @@ func (s *Service) Resume(ctx context.Context, data []byte, backend artifactmanif
 		result.fail("submission_input_invalid")
 		return result, err
 	}
-	declaration, err := executioncheckpoint.DeclareRequest(request.Request, s.revision)
+	declaration, err := executioncheckpoint.DeclareRequestWithContext(ctx, request.Request, s.revision)
 	if err != nil {
 		result.fail("checkpoint_request_invalid")
 		return result, err

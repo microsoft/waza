@@ -15,7 +15,7 @@ import (
 func PublishFinalized(ctx context.Context, backend artifactmanifest.Backend, ledger *executionledger.Ledger,
 	creator executionledger.Creator, request []byte, revision, manifestDigest string,
 ) (string, error) {
-	declaration, err := DeclareRequest(request, revision)
+	declaration, err := DeclareRequestWithContext(ctx, request, revision)
 	if err != nil {
 		return "", err
 	}
@@ -60,18 +60,29 @@ func PublishFinalizedDeclared(ctx context.Context, backend artifactmanifest.Back
 func creatorDeclaration(ctx context.Context, ledger *executionledger.Ledger, creator executionledger.Creator,
 	declaration RequestDeclaration, boundary string,
 ) (Checkpoint, *executionledger.Reservation, error) {
+	started, entryContextErr := time.Now(), ctx.Err()
+	deadlineRemaining := remainingAt(ctx, started)
 	reserved, err := ledger.Reservation(creator)
 	if err != nil {
 		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w", err)
 	}
+	retainedDone := time.Now()
 	if declaration.selection != reserved.Attempt.Binding.Selection {
 		return Checkpoint{}, nil, fmt.Errorf("%w: request selection differs from the creator's original native tuple", ErrContext)
 	}
+	selectionDone, selectionContextErr := time.Now(), ctx.Err()
 	if declaration.identity != reserved.Attempt.Binding.Identity {
 		return Checkpoint{}, nil, fmt.Errorf("%w: request does not retain the creator's full original identity and native ordinal", ErrContext)
 	}
+	identityDone, identityContextErr := time.Now(), ctx.Err()
 	if err := ledger.ValidateCreator(ctx, creator); err != nil {
-		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w", err)
+		finished := time.Now()
+		request := declaration.diagnostics
+		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w (request_declaration: compatibility_elapsed=%s request_deadline_remaining_at_entry=%s request_entry_ctx_err=%s request_compatibility_ctx_err=%s; creator_publication: creator_declaration_elapsed=%s retained_elapsed=%s selection_elapsed=%s identity_elapsed=%s creator_validation_elapsed=%s deadline_remaining_at_entry=%s entry_ctx_err=%v selection_ctx_err=%v identity_ctx_err=%v final_ctx_err=%v)",
+			err, request.elapsed, request.deadlineRemaining, request.entryContextError, request.completionContextError,
+			finished.Sub(started), retainedDone.Sub(started), selectionDone.Sub(retainedDone),
+			identityDone.Sub(selectionDone), finished.Sub(identityDone), deadlineRemaining,
+			entryContextErr, selectionContextErr, identityContextErr, ctx.Err())
 	}
 	return Checkpoint{
 		Kind: "waza.execution-checkpoint", SchemaVersion: Version, Boundary: boundary,
