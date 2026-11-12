@@ -56,6 +56,11 @@ original reservation or terminal.
 Completed resumes require a source; source-withheld failures remain available.
 This also applies when completed work has an outer publication error.
 Create responses cannot contain resume-only source or reuse state.
+Retained submissions must match the captured submission schema and requested
+distinct/reuse mode, explicit parent, and reuse source. Rejections before
+metadata admission remain visible. Distinct resumes require a retry parent
+even if the source is withheld; its identity cannot then be checked against
+that source.
 The checkpoint result reader discards pending validation results and errors
 after an edit or a newer parse, so only the current input can populate the reader.
 

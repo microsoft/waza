@@ -1,11 +1,13 @@
 import Ajv2020 from "ajv/dist/2020";
 import resultSchema from "../../../schemas/runner-checkpoint-result-1.0.schema.json";
 import operationErrorSchema from "../../../schemas/runner-checkpoint-result-1.1.schema.json";
+import submissionRequestSchema from "../../../schemas/execution-submission-1.0.schema.json";
 import submissionSchema from "../../../schemas/execution-submission-result-1.0.schema.json";
 import checkpointSchema from "../../../schemas/execution-checkpoint-1.0.schema.json";
 import attemptSchema from "../../../schemas/execution-attempt-1.0.schema.json";
 import completionSchema from "../../../schemas/execution-completion-1.0.schema.json";
 import manifestSchema from "../../../schemas/artifact-manifest-1.0.schema.json";
+import requestSchema from "../../../schemas/runner-request-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
 import unitSchema from "../../../schemas/runner-unit-1.0.schema.json";
 import negotiationSchema from "../../../schemas/runner-negotiation-response-1.0.schema.json";
@@ -18,6 +20,16 @@ import { parseStrictJSON } from "../lib/strictJson";
 interface SourceReference {
   execution_id: string;
   manifest_digest: string;
+}
+
+interface ExecutionParent {
+  execution_id: string;
+  relationship: "retry" | "branch";
+}
+
+interface CapturedSubmission {
+  request: object;
+  policy?: { mode: "distinct"; parent?: ExecutionParent } | { mode: "reuse"; source: SourceReference };
 }
 
 interface ExecutionReport {
@@ -51,7 +63,7 @@ interface SubmissionResult {
     schema_version: "1.0";
     execution_id: string;
     logical: { run: string; work: string };
-    parent?: { execution_id: string; relationship: "retry" | "branch" };
+    parent?: ExecutionParent;
     binding: {
       identity: RunnerIdentity;
       selection: WorkSelection;
@@ -121,11 +133,12 @@ export interface CheckpointOperationResult {
 
 const ajv = new Ajv2020({ strict: false });
 for (const schema of [
-  negotiationSchema, unitSchema, terminalSchema, manifestSchema,
+  negotiationSchema, unitSchema, requestSchema, terminalSchema, manifestSchema,
   attemptSchema, completionSchema, submissionSchema, checkpointSchema,
 ]) ajv.addSchema(schema);
 const validate = ajv.compile<CheckpointOperationResult>(resultSchema);
 const validateOperationError = ajv.compile<CheckpointOperationResult>(operationErrorSchema);
+const validateSubmissionRequest = ajv.compile<CapturedSubmission>(submissionRequestSchema);
 const capturedDiagnosticMessage = "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.";
 
 async function goJSONDigest(value: object): Promise<string> {
@@ -433,6 +446,40 @@ export interface CheckpointOperationResponse {
   json: string;
 }
 
+function validateRequestedSubmission(
+  action: "create" | "resume", request: unknown, result: CheckpointOperationResult,
+): void {
+  const reservation = result.submission?.reservation;
+  const decision = result.submission?.decision;
+  // Rejections without retained metadata may precede submission parsing.
+  if (!reservation && !decision) return;
+  if (!validateSubmissionRequest(request)) {
+    throw new Error("Checkpoint retained submission contradicts the captured submission or policy.");
+  }
+  const policy = request.policy;
+  const actualMode = decision?.policy ?? "distinct";
+  const expectedMode = action === "create" ? "distinct"
+    : result.source?.boundary === "before-unit" ? "distinct"
+      : result.source?.boundary === "finalized-unit" ? "reuse" : undefined;
+  if ((expectedMode && actualMode !== expectedMode) || (policy && policy.mode !== actualMode)) {
+    throw new Error("Checkpoint retained submission contradicts the requested submission policy.");
+  }
+  if (actualMode === "distinct" && reservation) {
+    const parent = policy?.mode === "distinct" ? policy.parent : undefined;
+    if ((action === "resume" && reservation.parent?.relationship !== "retry") ||
+        ((action === "create" || parent) &&
+         (parent?.execution_id !== reservation.parent?.execution_id ||
+          parent?.relationship !== reservation.parent?.relationship))) {
+      throw new Error("Checkpoint retained submission contradicts the requested submission policy parent.");
+    }
+  }
+  if (policy?.mode === "reuse" &&
+      (!decision?.source || policy.source.execution_id !== decision.source.execution_id ||
+       policy.source.manifest_digest !== decision.source.manifest_digest)) {
+    throw new Error("Checkpoint retained submission contradicts the requested submission policy source.");
+  }
+}
+
 export async function runCheckpointOperation(
   action: "create" | "resume", request: string, digest: string, signal: AbortSignal,
 ): Promise<CheckpointOperationResponse> {
@@ -475,6 +522,7 @@ export async function runCheckpointOperation(
       result.source.compatibility.request_policy_digest !== await requestPolicyDigest(wrapper.request)) {
     throw new Error("Checkpoint source policy contradicts the admitted captured request.");
   }
+  validateRequestedSubmission(action, wrapper, result);
   if (response.headers.get("X-Waza-Exit-Code") !== String(result.exit_code) ||
       (!response.ok && (result.status === "completed" || result.status === "reused"))) {
     throw new Error("Checkpoint transport status contradicts its operation result.");

@@ -167,6 +167,11 @@ A completed resume, including a partial publication failure, without a source is
 rejected unless the failure explicitly withholds it. Source-withheld failures remain
 available with their recorded unavailable progress.
 Create results cannot contain resume-only source or reuse state.
+Retained submissions must match the captured submission schema and requested
+distinct/reuse mode, explicit parent, and reuse source; rejections before
+metadata admission remain visible. Distinct resumes require a retry parent
+even when the source is withheld; its identity cannot then be checked against
+that source.
 Stopping a browser request is not proof of worker termination. This panel is
 not an ordered evaluation-wide attempt history or a whole-evaluation resume UI.
 
