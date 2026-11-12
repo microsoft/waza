@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -161,6 +162,27 @@ func TestRetryAndResumeLineageRetainsEveryExecutionWithoutWinner(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, wire, again)
 
+	conflictingView := view
+	conflictingView.Categories = slices.Clone(view.Categories)
+	for index := range conflictingView.Categories {
+		if record := &conflictingView.Categories[index]; record.Category == evidencestate.Grader {
+			record.State, record.Reason, record.ObservedCount, record.Artifacts, record.Limit =
+				evidencestate.Unavailable, evidencestate.NotRecorded, nil, []string{}, nil
+		}
+	}
+	conflictingPublication, err := evidencestate.Publish(t.Context(), backend, conflictingView)
+	require.NoError(t, err)
+	conflicted := Input{Manifest: retry.Manifest, Evidence: conflictingPublication.EvidenceSHA256}
+	conflictReport, err := Build(t.Context(), sources, []Input{conflicted}, DefaultLimits())
+	require.ErrorIs(t, err, ErrConflicting)
+	require.Equal(t, "conflicting", memberOf(t, conflictReport, conflicted).State)
+	require.Equal(t, view.Lineage, memberOf(t, conflictReport, conflicted).Lineage,
+		"a conflicting member keeps its declared lineage for investigation")
+	conflictWire, err := Encode(*conflictReport)
+	require.NoError(t, err)
+	_, err = Parse(conflictWire)
+	require.NoError(t, err)
+
 	schema := aggregateSchema(t)
 	validate := func(data []byte) error {
 		t.Helper()
@@ -176,6 +198,7 @@ func TestRetryAndResumeLineageRetainsEveryExecutionWithoutWinner(t *testing.T) {
 		copied.Members = append([]Member(nil), report.Members...)
 		for index := range copied.Members {
 			if copied.Members[index].Input == resumed {
+				copied.Members[index].Lineage = slices.Clone(copied.Members[index].Lineage)
 				change(&copied.Members[index])
 			}
 		}
@@ -198,13 +221,16 @@ func TestRetryAndResumeLineageRetainsEveryExecutionWithoutWinner(t *testing.T) {
 		"self lineage": func(m *Member) {
 			m.Lineage = []evidencestate.Lineage{{Manifest: m.Manifest, Relationship: evidencestate.Retry}}
 		},
-		"unknown lineage kind": func(m *Member) { m.Lineage[0].Relationship = "winner" },
+		"unknown lineage kind":                  func(m *Member) { m.Lineage[0].Relationship = "winner" },
+		"cache lineage without usage exclusion": func(m *Member) { m.Lineage[0].Relationship = evidencestate.Cache },
 		"unsorted lineage": func(m *Member) {
 			m.Lineage = append(m.Lineage, evidencestate.Lineage{Manifest: original.Manifest, Relationship: evidencestate.Aggregation})
 		},
 	} {
 		require.ErrorIs(t, forge(change), ErrInvalid, name)
 	}
+	require.Equal(t, []evidencestate.Lineage{{Manifest: original.Manifest, Relationship: evidencestate.Resume}},
+		memberOf(t, report, resumed).Lineage, "negative controls never mutate the baseline report")
 	require.ErrorIs(t, forge(func(m *Member) { m.Execution = "" }), ErrInvalid, "parent without a verified execution")
 	require.ErrorIs(t, forge(func(m *Member) {
 		m.Evidence, m.Parent, m.Execution = "", nil, ""

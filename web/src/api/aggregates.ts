@@ -83,9 +83,27 @@ function referenceKey(input: AggregateInput): string {
   return `${input.manifest_sha256}:${input.evidence_sha256 ?? ""}`;
 }
 
-function memberUsageEligible(member: AggregateReport["members"][number]): boolean {
+type AggregateMember = AggregateReport["members"][number];
+
+function memberCached(member: AggregateMember): boolean {
+  return (member.lineage ?? []).some((link) => link.relationship === "cache") ||
+    member.categories.some((category) => category.source === "cached");
+}
+
+// Mirrors the Go codec: verified parentage and sorted, non-self lineage.
+function linkageValid(member: AggregateMember): boolean {
+  const lineage = member.lineage ?? [];
+  const key = (link: { manifest: string; relationship: string }) => `${link.manifest}\u0000${link.relationship}`;
+  return (!member.parent || (!!member.execution_id && member.parent.execution_id !== member.execution_id)) &&
+    (lineage.length === 0 || !!member.evidence_sha256) &&
+    lineage.every((link, index) => link.manifest !== member.manifest_sha256 &&
+      (index === 0 || key(lineage[index - 1]!) < key(link))) &&
+    (!member.execution_id || memberCached(member) === member.diagnostics.includes("cached_historical_usage_excluded"));
+}
+
+function memberUsageEligible(member: AggregateMember): boolean {
   return !!member.execution_id && !member.diagnostics.includes("cached_historical_usage_excluded") &&
-    !member.categories.some((category) => category.source === "cached") &&
+    !memberCached(member) &&
     member.categories.some((category) =>
       category.category === "usage" && category.state === "present" && category.declared_state === "present" &&
       category.verification === "source-content-and-recorded-usage-shape-only" && category.observed_count === 1);
@@ -104,7 +122,7 @@ function compareUTF8(a: string, b: string): number {
   return left.length - right.length;
 }
 
-async function bindingProfile(binding: NonNullable<AggregateReport["members"][number]["binding"]>): Promise<string> {
+async function bindingProfile(binding: NonNullable<AggregateMember["binding"]>): Promise<string> {
   const { version, canonical_digest, run, shard, task, trial, attempt } = binding.identity;
   const selection = binding.selection;
   // Match the Go typed binding order and encoding/json string escaping.
@@ -191,7 +209,7 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
     if (member.outcome) outcomes[member.outcome] = (outcomes[member.outcome] ?? 0) + 1;
     if (member.state === "conflicting") state = "conflicting";
     else if (member.state !== "admitted" && state !== "conflicting") state = "incomplete";
-    ordered &&= sorted(member.diagnostics) &&
+    ordered &&= linkageValid(member) && sorted(member.diagnostics) &&
       member.categories.every((category, index) => index === 0 || member.categories[index - 1]!.category < category.category);
     if (member.binding) {
       ordered &&= sorted(member.binding.grader_ids, compareUTF8);

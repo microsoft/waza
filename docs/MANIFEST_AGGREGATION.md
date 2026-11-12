@@ -150,7 +150,10 @@ Members with a verified execution may carry `parent` (`execution_id` and `retry`
 or `branch`, read from the original reservation). Members with a sidecar may carry
 `lineage` (source `manifest` digests with `retry`, `resume`, `cache` or
 `aggregation`, sorted). Both are omitted when absent and never select a winner:
-the original and each retry stay separate members with their own outcomes. See
+the original and each retry stay separate members with their own outcomes. A
+conflicting member keeps its declared lineage so the sources can be investigated,
+and any `cache` lineage requires the `cached_historical_usage_excluded`
+diagnostic and excludes that member's usage from totals. See
 [evidence states](EVIDENCE-STATES.md) for how to read each category state.
 
 No automatic migration synthesizes execution records, scores, billing or evidence.

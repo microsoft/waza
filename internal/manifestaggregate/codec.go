@@ -95,6 +95,9 @@ func accounting(report Report) error {
 				return fail()
 			}
 		}
+		if member.Execution != "" && memberCached(member) != slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
+			return fail()
+		}
 		counts.MemberStates[member.State]++
 		if member.Outcome != "" {
 			outcome := string(member.Outcome)
@@ -157,15 +160,28 @@ func compareLineage(a, b evidencestate.Lineage) int {
 	return strings.Compare(string(a.Relationship), string(b.Relationship))
 }
 
+// memberCached mirrors Build: cache lineage or any cached category source
+// excludes the member's recorded usage from historical totals.
+func memberCached(member Member) bool {
+	for _, link := range member.Lineage {
+		if link.Relationship == evidencestate.Cache {
+			return true
+		}
+	}
+	for _, category := range member.Categories {
+		if category.Source == evidencestate.Cached {
+			return true
+		}
+	}
+	return false
+}
+
 func memberUsageEligible(member Member) bool {
-	if member.Execution == "" || slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
+	if member.Execution == "" || memberCached(member) || slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
 		return false
 	}
 	present := false
 	for _, category := range member.Categories {
-		if category.Source == evidencestate.Cached {
-			return false
-		}
 		if category.Category == evidencestate.Usage {
 			present = category.State == evidencestate.Present && category.DeclaredState == evidencestate.Present &&
 				category.Verification == "source-content-and-recorded-usage-shape-only" &&

@@ -330,12 +330,12 @@ func loadMember(ctx context.Context, sources Sources, backend readOnlyBackend, s
 	slices.SortFunc(member.Categories, func(a, b Category) int {
 		return strings.Compare(string(a.Category), string(b.Category))
 	})
-	if inspectionErr != nil {
-		return fail(inspectionErr)
-	}
 	document := inspection.Document
 	if len(document.Lineage) > 0 {
 		member.Lineage = slices.Clone(document.Lineage)
+	}
+	if inspectionErr != nil {
+		return fail(inspectionErr)
 	}
 	if document.ExecutionSource == nil {
 		member.Diagnostics = append(member.Diagnostics, "execution_identity_unavailable")
