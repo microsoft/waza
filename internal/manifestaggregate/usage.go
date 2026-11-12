@@ -46,7 +46,9 @@ func sumRecordedUsage(stats []*models.UsageStats) (*models.UsageStats, string) {
 				return nil, "recorded_usage_numeric_precision_unavailable"
 			}
 		}
-		for name, metrics := range usage.ModelMetrics {
+		// Lexical model order keeps the first reported numeric failure stable.
+		for _, name := range sortedKeys(usage.ModelMetrics) {
+			metrics := usage.ModelMetrics[name]
 			floats := modelFloatTotals[name]
 			if !addFloat(&floats[0], metrics.RequestCount) || !addFloat(&floats[1], metrics.RequestCost) ||
 				(metrics.AICredits != nil && !addFloat(&floats[2], *metrics.AICredits)) {

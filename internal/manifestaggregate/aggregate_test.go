@@ -375,6 +375,24 @@ func TestNonemptyRecordedZeroIsNotAnAbsentPopulation(t *testing.T) {
 	require.Nil(t, absent)
 }
 
+func TestRecordedUsageNumericReasonIgnoresModelMapOrder(t *testing.T) {
+	for _, control := range []struct {
+		first, second models.ModelUsage
+		want          string
+	}{
+		{models.ModelUsage{InputTokens: -1}, models.ModelUsage{RequestCount: math.NaN()}, "recorded_usage_numeric_overflow"},
+		{models.ModelUsage{RequestCount: math.NaN()}, models.ModelUsage{InputTokens: -1}, "recorded_usage_numeric_precision_unavailable"},
+	} {
+		for range 200 {
+			usage, reason := sumRecordedUsage([]*models.UsageStats{{ModelMetrics: map[string]models.ModelUsage{
+				"a-model": control.first, "b-model": control.second,
+			}}})
+			require.Nil(t, usage)
+			require.Equal(t, control.want, reason, "the lexically first model's failure is reported")
+		}
+	}
+}
+
 func TestIndividuallyValidLargeUsageCannotBecomeRoundedUITotal(t *testing.T) {
 	largeCount := int64(1) << 52
 	if int64(int(largeCount)) != largeCount {
