@@ -7,7 +7,7 @@ const path = require("node:path");
 const { spawnSync, spawn } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const { deflateRawSync } = require("node:zlib");
-const { LIMITS, goReport, goParser, browserReport: parseBrowserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, writeHistoryProposal, main } = require("./ci-evidence.cjs");
+const { LIMITS, BUDGET_POLICY, evaluateBudget, goReport, goParser, browserReport: parseBrowserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, writeHistoryProposal, main } = require("./ci-evidence.cjs");
 const isolatedCache = require("./ci-evidence-cache.cjs");
 
 // Fixture collectors cannot reuse the enclosing workflow's private observation.
@@ -2166,6 +2166,69 @@ test("trend eligibility requires verified distinct comparable first-run samples;
   assert.equal(proposal.targets[0].observations[0].seconds, 2);
   assert.equal(proposal.targets[0].observations[0].provenance.artifact_id, 100);
   assert.match(proposal.targets[0].observations[0].report_content_sha256, /^[0-9a-f]{64}$/);
+});
+test("regression budgets compare the newest sample with the median of at least three earlier same-cohort samples", () => {
+  const sample = (run_id, value) => ({ run_id, value });
+  assert.equal(BUDGET_POLICY.enforcement, "non-blocking");
+  const short = evaluateBudget([sample("1", 10), sample("2", 10), sample("3", 50)], 0.2);
+  assert.equal(short.status, "insufficient-samples");
+  assert.equal(short.baseline_samples, 2);
+  assert.equal(short.candidate.run_id, "3");
+  const within = evaluateBudget([sample("40", 12), sample("10", 10), sample("20", 30), sample("30", 11)], 0.2);
+  assert.equal(within.baseline_value, 11, "median ignores the outlier");
+  assert.equal(within.candidate.run_id, "40", "candidate is selected numerically, not by input order");
+  assert.equal(within.status, "within");
+  assert.equal(evaluateBudget([sample("1", 10), sample("2", 10), sample("3", 10), sample("4", 12)], 0.2).status, "within", "tolerance boundary is inclusive");
+  assert.equal(evaluateBudget([sample("1", 10), sample("2", 10), sample("3", 10), sample("4", 12.01)], 0.2).status, "regressed");
+  assert.equal(evaluateBudget([sample("1", 0), sample("2", 0), sample("3", 0), sample("4", 1)], 0.2).status, "regressed");
+  assert.equal(evaluateBudget([], 0.2).candidate, null);
+
+  const report = parseGo(successful);
+  report.selected = ["example/p::TestA"];
+  report.discovered = report.selected;
+  report.identity.source_sha = "a".repeat(40);
+  const observed = ["10", "11", "12", "13"].map((id) => verified({ ...report, identity: { ...report.identity, run_id: id } }));
+  const reports = observed.map((item) => item.reports[0]);
+  const grouped = trends(reports, observed.map((item) => item.metadata));
+  assert.equal(grouped.budget_policy, BUDGET_POLICY);
+  assert.equal(grouped.cohorts[0].attainment, "not-assessed");
+  assert.equal(grouped.cohorts[0].latency_budget.baseline_samples, 3);
+  assert.equal(grouped.cohorts[0].latency_budget.candidate.run_id, "13");
+  assert.equal(grouped.cohorts[0].latency_budget.candidate.value, report.top_level_seconds);
+  assert.equal(grouped.cohorts[0].latency_budget.status, "within");
+  assert.equal(trends(reports.slice(0, 3)).cohorts[0].latency_budget.status, "insufficient-samples");
+  const authored = trends(["10", "11", "12", "13"].map((id) => ({ ...report, identity: { ...report.identity, run_id: id } })));
+  assert.equal(authored.cohorts[0].latency_budget.status, "insufficient-samples", "unverified reports never form a baseline");
+  assert.deepEqual(trends(reports).runner_consumption, [], "runner budgets require authenticated run metadata");
+});
+test("runner-consumption budgets admit only successful single-attempt verified runs that carried evidence", () => {
+  const sha = run.head_sha;
+  const meta = (id, minutes, overrides = {}) => ({
+    run_id: Number(id), complete: true, run_attempt: 1, final_conclusion: "success", event: "workflow_dispatch",
+    workflow: "Go Build and Test", source_sha: sha, jobs: [{ conclusion: "success" }, { conclusion: "skipped" }],
+    runner_elapsed_minutes_by_os: { "ubuntu-latest": minutes, "windows-latest": null }, ...overrides,
+  });
+  const report = parseGo(successful);
+  report.selected = ["example/p::TestA"];
+  report.discovered = report.selected;
+  report.identity.source_sha = sha;
+  const authored = ["1", "2", "3", "4"].map((id) => ({ ...report, identity: { ...report.identity, run_id: id } }));
+  assert.deepEqual(trends(authored, [meta("1", 10), meta("2", 11), meta("3", 9), meta("4", 20)]).runner_consumption, [],
+    "authored reports never make a run eligible");
+  const reports = authored.map((item) => verified(item).reports[0]);
+  const grouped = trends(reports, [meta("1", 10), meta("2", 11), meta("3", 9), meta("4", 20)]).runner_consumption;
+  assert.equal(grouped.length, 1, "null per-OS minutes are not samples");
+  assert.equal(grouped[0].cohort.os, "ubuntu-latest");
+  assert.equal(grouped[0].budget.baseline_value, 10);
+  assert.equal(grouped[0].budget.status, "regressed");
+  for (const overrides of [{ complete: false }, { run_attempt: 2 }, { final_conclusion: "failure" }, { event: "pull_request" },
+    { source_sha: "main" }, { jobs: [{ conclusion: "cancelled" }] }, { run_id: 99 }]) {
+    const excluded = trends(reports, [meta("1", 10), meta("2", 11), meta("3", 9), meta("4", 20, overrides)]).runner_consumption;
+    assert.equal(excluded[0].budget.status, "insufficient-samples", JSON.stringify(overrides));
+  }
+  const mixed = trends([...reports.slice(0, 3), verified({ ...authored[3], cache: { ...report.cache, go_dependencies: true } }).reports[0]],
+    [meta("1", 10), meta("2", 11), meta("3", 9), meta("4", 20)]).runner_consumption;
+  assert.equal(mixed.length, 2, "runs with different evidence cohorts are never compared");
 });
 test("verified dependency-cache admission retains missing observations without vacuous eligibility", () => {
   const makeReport = (family) => {
