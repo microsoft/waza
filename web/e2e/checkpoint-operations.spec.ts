@@ -6,7 +6,7 @@ import type { CheckpointOperationResult } from "../src/api/checkpointResults";
 
 interface Fixture {
   path: string;
-  request: { request: unknown };
+  request: { request: unknown; policy?: unknown };
   admission: unknown;
   http_status: number;
   response: string;
@@ -38,6 +38,16 @@ function closeFailure(fixture: Fixture): Fixture {
   operationError.diagnostics = [];
   copy.response = JSON.stringify(operationError);
   copy.http_status = 500;
+  return copy;
+}
+
+function withParent(fixture: Fixture, parent: { execution_id: string; relationship: "retry" | "branch" }): Fixture {
+  const copy = structuredClone(fixture);
+  const value = parsed(copy);
+  value.submission!.reservation!.parent = parent;
+  value.submission!.completion!.reservation_digest = createHash("sha256")
+    .update(JSON.stringify(value.submission!.reservation)).digest("hex");
+  copy.response = JSON.stringify(value);
   return copy;
 }
 
@@ -195,6 +205,196 @@ test.describe("Protected checkpoint operations in Lab", () => {
         expect(value.restored_units).toBeNull();
         expect(value.remaining_work).toBeNull();
       }
+    });
+  }
+
+  for (const control of [
+    { name: "create requested reuse", fixture: fixtures.created, policy: {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: parsed(fixtures.reused).source!.manifest_digest,
+      },
+    } },
+    { name: "create requested parent", fixture: fixtures.created, policy: {
+      mode: "distinct", parent: { execution_id: parsed(fixtures.reused).source!.execution_id, relationship: "retry" },
+    } },
+    { name: "finalized resume requested distinct", fixture: fixtures.reused, policy: { mode: "distinct" } },
+    { name: "finalized resume requested another source", fixture: fixtures.reused, policy: {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: "0".repeat(64),
+      },
+    } },
+    { name: "finalized resume requested another execution", fixture: fixtures.reused, policy: {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.created).submission!.reservation!.execution_id,
+        manifest_digest: parsed(fixtures.reused).source!.manifest_digest,
+      },
+    } },
+    { name: "before-unit resume requested reuse", fixture: fixtures.retried, policy: {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: parsed(fixtures.reused).source!.manifest_digest,
+      },
+    } },
+    { name: "before-unit resume requested another parent", fixture: fixtures.retried, policy: {
+      mode: "distinct", parent: { execution_id: parsed(fixtures.reused).source!.execution_id, relationship: "retry" },
+    } },
+    { name: "before-unit resume requested branch parent", fixture: fixtures.retried, policy: {
+      mode: "distinct", parent: { execution_id: parsed(fixtures.retried).source!.execution_id, relationship: "branch" },
+    } },
+    { name: "malformed reuse policy", fixture: fixtures.created, policy: { mode: "reuse" } },
+    { name: "null policy", fixture: fixtures.created, policy: null },
+    { name: "retained reuse after close failure requested another source", fixture: closeFailure(fixtures.reused), policy: {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: "0".repeat(64),
+      },
+    } },
+    { name: "retained create after close failure requested another parent", fixture: closeFailure(fixtures.created), policy: {
+      mode: "distinct", parent: { execution_id: parsed(fixtures.reused).source!.execution_id, relationship: "retry" },
+    } },
+  ]) {
+    test(`rejects contradictory requested submission policy: ${control.name}`, async ({ page }) => {
+      const fixture: Fixture = structuredClone(control.fixture);
+      fixture.request.policy = control.policy;
+      await prepare(page, fixture);
+      await run(page, fixture);
+      await expect(panel(page).getByRole("alert")).toContainText("policy");
+      await expect(result(page)).toHaveCount(0);
+      await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
+    });
+  }
+
+  for (const control of [
+    { name: "create distinct", fixture: fixtures.created, policy: { mode: "distinct" } },
+    { name: "finalized resume reuse", fixture: fixtures.reused, policy: {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: parsed(fixtures.reused).source!.manifest_digest,
+      },
+    } },
+    { name: "before-unit resume retry", fixture: fixtures.retried, policy: {
+      mode: "distinct", parent: { execution_id: parsed(fixtures.retried).source!.execution_id, relationship: "retry" },
+    } },
+    { name: "retained reuse after close failure", fixture: closeFailure(fixtures.reused), policy: {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: parsed(fixtures.reused).source!.manifest_digest,
+      },
+    } },
+  ]) {
+    test(`accepts matching requested submission policy: ${control.name}`, async ({ page }) => {
+      const fixture: Fixture = structuredClone(control.fixture);
+      fixture.request.policy = control.policy;
+      await prepare(page, fixture);
+      await run(page, fixture);
+      await expect(result(page)).toBeVisible();
+    });
+  }
+
+  test("checks the implicit create policy and accepts an explicitly requested parent", async ({ page }) => {
+    const parent = { execution_id: parsed(fixtures.reused).source!.execution_id, relationship: "retry" as const };
+    const fixture = withParent(fixtures.created, parent);
+    await prepare(page, fixture);
+    await run(page, fixture);
+    await expect(panel(page).getByRole("alert")).toContainText("policy parent");
+    await expect(result(page)).toHaveCount(0);
+
+    fixture.request.policy = { mode: "distinct", parent };
+    await page.unroute("**/api/v1/runner/validate");
+    await page.unroute("**/api/v1/checkpoints**");
+    await prepare(page, fixture);
+    await run(page, fixture);
+    await expect(result(page)).toBeVisible();
+  });
+
+  test("checks a retained reservation before a distinct decision is recorded", async ({ page }) => {
+    const fixture = closeFailure(fixtures.created);
+    const value = parsed(fixture);
+    value.submission!.status = "submission_error";
+    value.submission!.exit_code = 2;
+    value.submission!.engine_calls = 0;
+    delete value.submission!.decision;
+    delete value.submission!.completion;
+    delete value.submission!.terminal;
+    delete value.finalized_checkpoint_sha256;
+    value.submission!.diagnostics = [{
+      code: "reserved_observer_failed",
+      message: "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.",
+    }];
+    fixture.response = JSON.stringify(value);
+    fixture.request.policy = {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: parsed(fixtures.reused).source!.manifest_digest,
+      },
+    };
+    await prepare(page, fixture);
+    await run(page, fixture);
+    await expect(panel(page).getByRole("alert")).toContainText("policy");
+    await expect(result(page)).toHaveCount(0);
+  });
+
+  test("preserves a rejection before submission-policy admission", async ({ page }) => {
+    const fixture: Fixture = structuredClone(fixtures.incompatible);
+    fixture.request.policy = {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: parsed(fixtures.reused).source!.manifest_digest,
+      },
+    };
+    await prepare(page, fixture);
+    await run(page, fixture);
+    await expect(result(page)).toContainText("incompatible");
+  });
+
+  test("checks requested reuse source when an operation error withholds the checkpoint source", async ({ page }) => {
+    const fixture: Fixture = closeFailure(fixtures.reused);
+    fixture.request.policy = {
+      mode: "reuse", source: {
+        execution_id: parsed(fixtures.reused).source!.execution_id,
+        manifest_digest: "0".repeat(64),
+      },
+    };
+    const value = parsed(fixture);
+    delete value.source;
+    value.source_withheld = true;
+    fixture.response = JSON.stringify(value);
+    await prepare(page, fixture);
+    await run(page, fixture);
+    await expect(panel(page).getByRole("alert")).toContainText("policy");
+    await expect(result(page)).toHaveCount(0);
+  });
+
+  test("preserves a source-withheld distinct resume with its retry parent", async ({ page }) => {
+    const fixture = closeFailure(fixtures.retried);
+    const value = parsed(fixture);
+    delete value.source;
+    value.source_withheld = true;
+    fixture.response = JSON.stringify(value);
+    await prepare(page, fixture);
+    await run(page, fixture);
+    await expect(result(page)).toContainText("Withheld - source admission or linkage did not succeed");
+  });
+
+  for (const parent of ["missing", "branch"] as const) {
+    test(`rejects a source-withheld distinct resume with a ${parent} retry parent`, async ({ page }) => {
+      const fixture = closeFailure(fixtures.retried);
+      const value = parsed(fixture);
+      delete value.source;
+      value.source_withheld = true;
+      const reservation = value.submission!.reservation!;
+      if (parent === "missing") delete reservation.parent;
+      else reservation.parent!.relationship = "branch";
+      value.submission!.completion!.reservation_digest = createHash("sha256")
+        .update(JSON.stringify(reservation)).digest("hex");
+      fixture.response = JSON.stringify(value);
+      await prepare(page, fixture);
+      await run(page, fixture);
+      await expect(panel(page).getByRole("alert")).toContainText("policy parent");
+      await expect(result(page)).toHaveCount(0);
+      await expect(panel(page).getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
     });
   }
 
