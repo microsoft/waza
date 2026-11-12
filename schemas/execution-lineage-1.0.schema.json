@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-lineage-1.0.schema.json",
+  "title": "Waza execution lineage 1.0",
+  "description": "Read-only projection of one logical work's immutable attempt, decision and completion records. Order follows parent relationships, not wall-clock or global order.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "logical", "attempts", "decisions", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.execution-lineage"},
+    "schema_version": {"const": "1.0"},
+    "logical": {"$ref": "execution-attempt-1.0.schema.json#/$defs/logical"},
+    "attempts": {
+      "type": "array", "maxItems": 1024,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["order", "depth", "execution_id", "reservation_digest", "native_attempt", "status", "reused_by"],
+        "properties": {
+          "order": {"type": "integer", "minimum": 1},
+          "depth": {"type": "integer", "minimum": 0},
+          "execution_id": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"},
+          "reservation_digest": {"$ref": "#/$defs/digest"},
+          "native_attempt": {"type": "integer", "minimum": 1},
+          "parent": {"$ref": "execution-attempt-1.0.schema.json#/$defs/parent"},
+          "status": {"enum": ["reserved", "dispatched", "completed", "completion_unverified"]},
+          "dispatch_decision": {"$ref": "#/$defs/decision_id"},
+          "manifest_digest": {"$ref": "#/$defs/digest"},
+          "terminal": {
+            "type": "object", "additionalProperties": false,
+            "required": ["outcome", "exit_code", "failure_boundary", "engine_calls"],
+            "properties": {
+              "outcome": {"$ref": "runner-terminal-1.0.schema.json#/properties/outcome"},
+              "exit_code": {"type": "integer"},
+              "failure_boundary": {"type": "string"},
+              "engine_calls": {"type": "integer", "minimum": 0}
+            }
+          },
+          "reused_by": {"type": "array", "items": {"$ref": "#/$defs/decision_id"}}
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["decision_id", "policy", "outcome", "native_attempt"],
+        "properties": {
+          "decision_id": {"$ref": "#/$defs/decision_id"},
+          "policy": {"enum": ["distinct", "reuse"]},
+          "outcome": {"enum": ["distinct", "reused", "unfinished", "conflict"]},
+          "native_attempt": {"type": "integer", "minimum": 1},
+          "execution_id": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"},
+          "source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"}
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "message", "execution_ids"],
+        "properties": {
+          "code": {"enum": [
+            "parent_unavailable", "decision_reservation_unavailable", "duplicate_dispatch_decision",
+            "reuse_source_unavailable", "completion_unverified", "completion_verification_interrupted",
+            "dispatched_without_completion", "concurrent_distinct_attempts", "sibling_attempts"
+          ]},
+          "message": {"type": "string", "maxLength": 512},
+          "execution_ids": {"type": "array", "items": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"}}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decision_id": {"type": "string", "pattern": "^decision-[0-9a-f]{64}$"}
+  }
+}
