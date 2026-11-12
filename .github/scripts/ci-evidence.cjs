@@ -139,6 +139,10 @@ function completeGoTargets(report) {
   if (new Set(report.targets.map((target) => `${target.package}::${target.name}`)).size !== report.targets.length ||
       packages.size !== report.packages.length || report.targets.some((target) => !packages.has(target.package))) return false;
   const top = report.targets.filter((target) => target.top_level);
+  // top_level_seconds feeds latency budgets, so it must agree with the validated rows.
+  const topSeconds = top.length ? top.reduce((sum, target) => sum + target.seconds, 0) : null;
+  if (topSeconds === null ? report.top_level_seconds !== null :
+    number(report.top_level_seconds) === null || Math.abs(report.top_level_seconds - topSeconds) > 1e-6 * Math.max(1, topSeconds)) return false;
   const actual = new Set(top.map((target) => report.inventory_scope === "names" ? target.name : `${target.package}::${target.name}`));
   if (!Array.isArray(report.discovered) || report.discovered.length > LIMITS.targets ||
       report.discovered.some((target) => !text(target))) return false;
@@ -784,7 +788,59 @@ function collectObservations(runID, api, download = (id) => {
   if (!reports.length) diagnostics.push("test-evidence-unavailable");
   return { metadata, reports, diagnostics };
 }
-function trends(reports) {
+// Non-blocking regression budgets: the newest eligible sample (highest run ID)
+// is compared with the median of earlier eligible samples in the same cohort.
+const BUDGET_POLICY = Object.freeze({
+  schema: 1, enforcement: "non-blocking", baseline: "median", candidate: "highest-run-id",
+  minimum_baseline_samples: 3,
+  latency: Object.freeze({ metric: "test_execution_seconds", tolerance: 0.2 }),
+  runner_consumption: Object.freeze({ metric: "runner_elapsed_minutes", tolerance: 0.2 }),
+});
+const median = (values) => {
+  const ordered = [...values].sort((a, b) => a - b), middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
+};
+function evaluateBudget(samples, tolerance) {
+  const ordered = [...samples].sort((a, b) => Number(a.run_id) - Number(b.run_id));
+  const candidate = ordered.at(-1) ?? null, baseline = ordered.slice(0, -1);
+  if (baseline.length < BUDGET_POLICY.minimum_baseline_samples) {
+    return { status: "insufficient-samples", tolerance, baseline_samples: baseline.length, baseline_value: null, candidate: candidate && { run_id: candidate.run_id, value: candidate.value }, ratio: null };
+  }
+  const baselineValue = median(baseline.map((sample) => sample.value));
+  const ratio = baselineValue > 0 ? candidate.value / baselineValue : null;
+  // Compare against the absolute limit with a relative epsilon so exact boundaries
+  // such as 4.1 -> 4.92 at 20% are not misreported through floating-point division.
+  const limit = baselineValue * (1 + tolerance);
+  const status = baselineValue > 0 ? (candidate.value - limit > 1e-9 * limit ? "regressed" : "within") : candidate.value > 0 ? "regressed" : "within";
+  return { status, tolerance, baseline_samples: baseline.length, baseline_value: baselineValue, candidate: { run_id: candidate.run_id, value: candidate.value }, ratio };
+}
+const latencySeconds = (report) => number(report.kind === "go" ? report.top_level_seconds : report.runner_seconds);
+function runnerBudgets(reports, metadata) {
+  const runs = new Map();
+  for (const report of reports) {
+    const runID = report.identity?.run_id;
+    if (verifiedReports.get(report)?.run_id !== runID) continue;
+    if (!runs.has(runID)) runs.set(runID, new Set());
+    runs.get(runID).add(createHash("sha256").update(cohort(report)).digest("hex"));
+  }
+  const groups = new Map();
+  for (const run of metadata) {
+    const runID = String(run?.run_id);
+    if (!run?.complete || run.run_attempt !== 1 || run.final_conclusion !== "success" || run.event === "pull_request" ||
+        !/^[0-9a-f]{40}$/.test(run.source_sha || "") || !runs.has(runID) ||
+        !run.jobs.every((job) => ["success", "skipped"].includes(job.conclusion))) continue;
+    for (const [os, minutes] of Object.entries(run.runner_elapsed_minutes_by_os || {})) {
+      if (number(minutes) === null) continue;
+      const descriptor = { workflow: run.workflow, event: run.event, source_sha: run.source_sha, os, report_cohorts: [...runs.get(runID)].sort() };
+      const key = JSON.stringify(descriptor);
+      if (!groups.has(key)) groups.set(key, { cohort: descriptor, samples: [] });
+      const group = groups.get(key);
+      if (!group.samples.some((sample) => sample.run_id === runID)) group.samples.push({ run_id: runID, value: minutes });
+    }
+  }
+  return [...groups.values()].map((group) => ({ ...group, budget: evaluateBudget(group.samples, BUDGET_POLICY.runner_consumption.tolerance) }));
+}
+function trends(reports, metadata = []) {
   const groups = new Map(), seen = new Set();
   for (const report of reports) {
     const key = cohort(report);
@@ -796,10 +852,17 @@ function trends(reports) {
     if (seen.has(id)) continue;
     seen.add(id); group.observations.push(source);
     if (eligibleSample(report)) {
-      if (!group.eligible.some((item) => item.run_id === source.run_id)) group.eligible.push(source);
+      if (!group.eligible.some((item) => item.run_id === source.run_id)) group.eligible.push({ ...source, latency_seconds: latencySeconds(report) });
     }
   }
-  return { schema: 1, kind: "trends", policy: "non-blocking; no target attainment assessed", cohorts: [...groups.values()].map((group) => ({ ...group, minimum_samples_available: group.eligible.length >= 3 })) };
+  return {
+    schema: 1, kind: "trends", policy: "non-blocking; no target attainment assessed", budget_policy: BUDGET_POLICY,
+    cohorts: [...groups.values()].map((group) => ({
+      ...group, minimum_samples_available: group.eligible.length >= 3,
+      latency_budget: evaluateBudget(group.eligible.filter((item) => item.latency_seconds !== null).map((item) => ({ run_id: item.run_id, value: item.latency_seconds })), BUDGET_POLICY.latency.tolerance),
+    })),
+    runner_consumption: runnerBudgets(reports, metadata),
+  };
 }
 function knownIdentity(report) {
   const required = ["repository", "source_sha", "workflow", "event", "os", "arch", "os_release", "os_version", "node", "run_id", "attempt", "job"];
@@ -921,7 +984,7 @@ async function main(args, api, download) {
     const budget = { compressed: 0, expanded: 0, reports: 0 };
     const collections = ids.map((id) => collectObservations(id, api, download, budget));
     const reports = collections.flatMap((collection) => collection.reports);
-    const report = mode === "trends" ? trends(reports) : historyProposal(reports);
+    const report = mode === "trends" ? trends(reports, collections.map((collection) => collection.metadata)) : historyProposal(reports);
     report.diagnostics = collections.flatMap((collection) => collection.diagnostics);
     report.metadata = collections.map((collection) => collection.metadata);
     if (mode === "history") writeHistoryProposal(output, report);
@@ -931,5 +994,5 @@ async function main(args, api, download) {
   }
   throw new Error("usage: ci-evidence.cjs init-go OUT | discover OUT | go OUT DISCOVERED SELECTED | browser IN OUT DISCOVERY | actions RUN OUT | trends|history RUN[,RUN...] OUT");
 }
-module.exports = { LIMITS, goReport, goParser, browserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, writeHistoryProposal, cohort, main };
+module.exports = { LIMITS, BUDGET_POLICY, evaluateBudget, goReport, goParser, browserReport, browserInventory, summarizeActions, collectActions, collectObservations, artifactJSON, trends, historyProposal, writeHistoryProposal, cohort, main };
 if (require.main === module) main(process.argv.slice(2)).catch((error) => { console.error(`CI evidence: ${error.message}`); process.exitCode = 1; });

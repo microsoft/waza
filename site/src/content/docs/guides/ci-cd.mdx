@@ -384,6 +384,30 @@ values remain unchanged but cannot qualify when missing or unrecognized.
 Three **distinct comparable runs**, not three retries/tests within one run, are necessary before
 assessing any timing target. The initial summary always reports
 `attainment: "not-assessed"`; it installs no hard-fail timing budget.
+
+#### Regression budget policy
+
+`trends` also publishes `budget_policy` (schema 1). It evaluates two separate
+budgets, which never change the exit code:
+
+| Budget | Sample | Cohort | Tolerance |
+|---|---|---|---|
+| Latency (`cohorts[].latency_budget`) | Eligible test execution seconds (Go `top_level_seconds`, Playwright `runner_seconds`) | Evidence cohort above | 20% |
+| Runner consumption (`runner_consumption[]`) | `runner_elapsed_minutes_by_os` for one OS label | Workflow, event, checkout SHA, OS label and the exact set of report cohorts in the run | 20% |
+
+The candidate is the eligible sample with the highest run ID. The baseline is
+the median of every earlier eligible sample in the same cohort. A budget
+reports `regressed` when the candidate exceeds baseline × (1 + tolerance), and
+`within` otherwise. It reports `insufficient-samples` until at least three
+baseline samples exist, so a decision needs four comparable runs.
+
+Runner-consumption samples come only from complete, successful, single-attempt
+non-PR runs with a verified 40-hex head SHA. The run must have succeeded or
+skipped every job and produced at least one verified evidence report. Runner
+minutes are elapsed job time, not billed cost.
+
+Promoting a budget to a required check is a separate reviewed change. That
+change must keep these baseline, cohort and tolerance rules.
 Artifact names alone do not authenticate an upload attempt. Runs whose API
 records more than one attempt retain available observations but cannot supply
 eligible baseline/history samples, even if an artifact claims attempt 1.
