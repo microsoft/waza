@@ -116,9 +116,19 @@ layouts, with a rejecting/offline PR API executable fixture. Authored successful
 receipts in these controls prove the admission interface, **not** that any hosted
 suite, native platform or browser actually ran.
 
+Dashboard (`web-ci.yml`), site/examples (`site-ci.yml`) and Docker
+(`docker-ci.yml`) now expose the same optional `pr_completeness_plan` receipt
+interface as assurance, tools and runtime. It is inactive unless a caller passes
+a plan; with a plan the dashboard bypasses its path filter, and site/examples use
+the caller's plan-selected `site`/`examples` inputs instead of path filters.
+Receipt capture still re-verifies applicability and fails closed for an
+unselected family. Contract step ids reuse the existing workflow ids (`tests`,
+`chat-tests`, `ci_tests`, `native_tests`) so evidence and receipts share one
+execution. Plan-mode runs use a separate `-completeness` concurrency group so a
+caller cannot cancel or be cancelled by a standalone run.
+
 The next upper integration layer must first add genuine source-bound receipt
-interfaces to Go (including all four native shards and coverage gate), dashboard,
-site/examples and Docker. It must include the new admission adapter and controls
+interfaces to Go (including all four native shards and coverage gate). It must include the new admission adapter and controls
 in the applicability map, route metadata/retarget events and concurrency safely,
 wire the plan outputs into actual reusable producers, and call admission with
 `always()` and every required direct dependency. Only then can standalone ordinary
@@ -245,7 +255,7 @@ capture retains required outcomes and case results, not unrelated action outputs
 or browser logs. This is workflow-execution evidence, not independent attestation
 or a performance/model-quality claim.
 
-Site's single compound `chat` step runs private-chat controls, chat Chromium and
+Site's single compound `chat-tests` step runs private-chat controls, chat Chromium and
 unavailable-service Chromium in an `&&` chain. Its outcome covers that entire
 chain, not independently observed outcomes for each subcommand. The two browser
 reports remain required, but the receipt must not invent a separate
