@@ -692,6 +692,13 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 ---
 
+### Reports for failed evaluations
+
+Use `waza run eval.yaml --output results.json --reporter junit:results.xml`
+to save JSON and JUnit XML, including when a completed evaluation fails grading.
+The command retains its nonzero exit status; if writing the report also fails,
+the returned error includes both the grading failure and the write error.
+
 ### `waza dev <skill-name | skill-path>`
 
 Iteratively score and improve a skill's frontmatter. A single target can be a
