@@ -19,6 +19,11 @@ func (t truncatedRecords) ListUnverified(ctx context.Context) ([]string, bool, e
 	return keys, true, err
 }
 
+func (t truncatedRecords) ListAllUnverified(ctx context.Context, limit int) ([]string, bool, error) {
+	keys, _, err := t.records.ListAllUnverified(ctx, limit)
+	return keys, true, err
+}
+
 func lineageFor(t *testing.T, ledger *Ledger, binding artifactmanifest.Binding) *Lineage {
 	t.Helper()
 	lineage, err := ledger.Lineage(context.Background(), executionattempt.LogicalFrom(binding.Identity))
@@ -231,6 +236,88 @@ func TestLineageFailsClosedOnForgedContradictions(t *testing.T) {
 		forgeRecord(t, ledger, "decision/"+forged.DecisionID, data)
 		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || !errors.Is(err, ErrContext) {
 			t.Fatalf("unrecorded reuse source linked: %+v %v", got, err)
+		}
+	})
+}
+
+func TestLineageReviewedEdgeCases(t *testing.T) {
+	ctx := context.Background()
+	t.Run("unsuccessful reuse decisions are preserved without links", func(t *testing.T) {
+		ledger, _, _, binding := ownerFixture(t)
+		_, root := reserveFixture(t, ledger, binding)
+		for _, outcome := range []string{"unfinished", "conflict"} {
+			forged := executionattempt.Decision{Kind: "waza.duplicate-decision", SchemaVersion: "1.0",
+				DecisionID: "decision-" + artifactmanifest.Hash([]byte(outcome)), Logical: root.Attempt.Logical,
+				Binding: root.Attempt.Binding, Policy: "reuse", Outcome: outcome,
+				Source: &executionattempt.Source{ExecutionID: root.Attempt.ExecutionID, ManifestDigest: artifactmanifest.Hash([]byte("m"))}}
+			data, err := executionattempt.EncodeDecision(forged)
+			if err != nil {
+				t.Fatal(err)
+			}
+			forgeRecord(t, ledger, "decision/"+forged.DecisionID, data)
+		}
+		lineage := lineageFor(t, ledger, binding)
+		if len(lineage.Decisions) != 2 || len(lineage.Attempts[0].ReusedBy) != 0 {
+			t.Fatalf("unsuccessful reuse dropped or linked: %+v", lineage)
+		}
+	})
+	t.Run("successful reuse with incompatible caller context fails closed", func(t *testing.T) {
+		ledger, _, _, binding := ownerFixture(t)
+		capability, root := reserveFixture(t, ledger, binding)
+		if _, err := ledger.Distinct(ctx, capability); err != nil {
+			t.Fatal(err)
+		}
+		digest := ownerPublication(t, ledger, binding, true)
+		if _, err := ledger.Complete(ctx, capability, digest); err != nil {
+			t.Fatal(err)
+		}
+		forged := executionattempt.Decision{Kind: "waza.duplicate-decision", SchemaVersion: "1.0",
+			DecisionID: "decision-" + artifactmanifest.Hash([]byte("foreign-mode")), Logical: root.Attempt.Logical,
+			Binding: root.Attempt.Binding, Policy: "reuse", Outcome: "reused",
+			Source: &executionattempt.Source{ExecutionID: root.Attempt.ExecutionID, ManifestDigest: digest}}
+		forged.Binding.ExecutionMode = "copilot"
+		data, err := executionattempt.EncodeDecision(forged)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forgeRecord(t, ledger, "decision/"+forged.DecisionID, data)
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || !errors.Is(err, ErrContext) {
+			t.Fatalf("incompatible reuse linked: %+v %v", got, err)
+		}
+	})
+	t.Run("completion for other or missing work is validated", func(t *testing.T) {
+		ledger, _, _, binding := ownerFixture(t)
+		_, root := reserveFixture(t, ledger, binding)
+		other := binding
+		other.Identity.Trial = "trial-" + artifactmanifest.Hash([]byte("other-work"))
+		_, unrelated := reserveFixture(t, ledger, other)
+		forgeRecord(t, ledger, "completion/"+unrelated.Attempt.ExecutionID, []byte("{}"))
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || err == nil {
+			t.Fatalf("corrupt unrelated completion hidden: %+v %v", got, err)
+		}
+		ledger, _, _, binding = ownerFixture(t)
+		_, root = reserveFixture(t, ledger, binding)
+		forgeRecord(t, ledger, "completion/exec-"+artifactmanifest.Hash([]byte("orphan")), []byte("{}"))
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || !errors.Is(err, ErrContext) {
+			t.Fatalf("orphan completion hidden: %+v %v", got, err)
+		}
+	})
+	t.Run("discovery pages past one provider listing across work items", func(t *testing.T) {
+		ledger, _, _, binding := ownerFixture(t)
+		_, root := reserveFixture(t, ledger, binding)
+		other := binding
+		other.Identity.Trial = "trial-" + artifactmanifest.Hash([]byte("busy-work"))
+		for range artifactmanifest.MaxCatalogEntries {
+			if _, err := ledger.Reserve(ctx, other, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, truncated, err := ledger.records.ListUnverified(ctx); err != nil || !truncated {
+			t.Fatalf("fixture did not exceed one provider listing: %v %v", truncated, err)
+		}
+		lineage := lineageFor(t, ledger, binding)
+		if len(lineage.Attempts) != 1 || lineage.Attempts[0].ExecutionID != root.Attempt.ExecutionID {
+			t.Fatalf("busy unrelated work disabled lineage: %+v", lineage.Attempts)
 		}
 	})
 }

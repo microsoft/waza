@@ -194,8 +194,13 @@ Lineage diagnostics never block reading the remaining records:
 | `completion_unverified` / `completion_verification_interrupted` | Completion marker exists but its terminal could not be verified |
 | `parent_unavailable`, `reuse_source_unavailable`, `decision_reservation_unavailable`, `duplicate_dispatch_decision` | Referenced records are missing or contradictory |
 
-The reader fails closed instead of returning a partial view when the store
-listing is truncated or a record is unreadable or non-canonical.
+Discovery follows provider pagination across the whole ledger (all logical
+work) up to 262,144 records. The reader validates every completion, including
+those for other work, and fails closed instead of returning a partial view when
+that bound is exceeded or a record is unreadable, non-canonical or orphaned.
+Reuse decisions with outcome `unfinished` or `conflict` are listed but never
+linked as `reused_by`; successful reuse decisions must match the source's
+logical work and execution context.
 
 ## Migration and remaining release gates
 

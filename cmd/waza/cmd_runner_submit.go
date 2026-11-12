@@ -75,11 +75,10 @@ never overwritten.`,
 					return errors.Join(emit(cmd, failed), diagnosticErr)
 				}
 				// The finalized record stays authoritative; signal the close
-				// failure through the process status only.
-				if emitErr := emit(cmd, result); emitErr != nil {
-					return errors.Join(emitErr, diagnosticErr)
-				}
-				return errors.Join(&ExitCodeError{Code: 2, Err: fmt.Errorf("submission store close failed")}, diagnosticErr)
+				// failure through the process status only. It takes precedence
+				// over the terminal exit (1, 3 or 4) carried by the result.
+				closeFailed := &ExitCodeError{Code: 2, Err: errors.Join(fmt.Errorf("submission store close failed"), emit(cmd, result))}
+				return errors.Join(closeFailed, diagnosticErr)
 			}
 			return errors.Join(emit(cmd, result), diagnosticErr)
 		},

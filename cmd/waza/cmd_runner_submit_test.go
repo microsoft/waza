@@ -111,3 +111,31 @@ func TestRunnerLineageCLIRejectsInvalidLogical(t *testing.T) {
 	require.Equal(t, 6, exit.Code)
 	require.True(t, strings.Contains(err.Error(), "run-<sha256>"))
 }
+
+func TestRunnerSubmitCLICloseFailureOverridesTerminalExit(t *testing.T) {
+	directory := t.TempDir()
+	wire := submissionCLIWire(t, 1, nil)
+	failing := bytes.Replace(wire, []byte("- hello"), []byte("- missing-output-control"), 1)
+	require.NotEqual(t, wire, failing)
+	command := newRunnerSubmitCommand(runnerunit.NewService(nil), func(directory, azureURL string) (artifactmanifest.Backend, func() error, error) {
+		backend, closeBackend, err := artifactmanifest.OpenBackend(directory, azureURL)
+		if err != nil {
+			return nil, nil, err
+		}
+		return backend, func() error { return errors.Join(closeBackend(), errors.New("close-control")) }, nil
+	})
+	command.SetArgs([]string{"--store", directory})
+	command.SetIn(bytes.NewReader(failing))
+	var output, progress bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(&progress)
+	err := command.ExecuteContext(t.Context())
+	result, decodeErr := runnerunit.ParseSubmissionResult(output.Bytes())
+	require.NoError(t, decodeErr, "%s", output.Bytes())
+	require.Equal(t, "completed", result.Status)
+	require.Equal(t, 1, result.ExitCode)
+	exit, ok := errors.AsType[*ExitCodeError](err)
+	require.True(t, ok, "%v", err)
+	require.Equal(t, 2, exit.Code)
+	require.Contains(t, progress.String(), "close-control")
+}

@@ -153,7 +153,7 @@ func (l *Ledger) Lineage(ctx context.Context, logical executionattempt.Logical) 
 	if err := ValidateLogical(logical); err != nil {
 		return nil, err
 	}
-	keys, truncated, err := l.records.ListUnverified(ctx)
+	keys, truncated, err := l.records.ListAllUnverified(ctx, MaxLineageRecords)
 	if err != nil {
 		return nil, fmt.Errorf("discovering execution lineage: %w", err)
 	}
@@ -161,18 +161,20 @@ func (l *Ledger) Lineage(ctx context.Context, logical executionattempt.Logical) 
 		return nil, fmt.Errorf("%w: execution lineage discovery is truncated; completeness is unavailable", ErrContext)
 	}
 	reservations := map[string]*Reservation{}
+	reserved := map[string]bool{}
 	completed := map[string]bool{}
 	var decisions []executionattempt.Decision
 	for _, key := range keys {
 		kind, id, _ := strings.Cut(key, "/")
 		switch kind {
 		case "reservation":
-			reserved, err := l.ReadReservation(ctx, id)
+			record, err := l.ReadReservation(ctx, id)
 			if err != nil {
 				return nil, err
 			}
-			if reserved.Attempt.Logical == logical {
-				reservations[id] = reserved
+			reserved[id] = true
+			if record.Attempt.Logical == logical {
+				reservations[id] = record
 			}
 		case "completion":
 			completed[id] = true
@@ -197,16 +199,20 @@ func (l *Ledger) Lineage(ctx context.Context, logical executionattempt.Logical) 
 			}
 		}
 	}
+	// Every completion is validated, not only those for the requested work, so
+	// an unreadable record cannot hide behind an unrelated or missing reservation.
 	completions := map[string]*CompletionRecord{}
-	for id := range reservations {
-		if !completed[id] {
-			continue
+	for id := range completed {
+		if !reserved[id] {
+			return nil, fmt.Errorf("%w: execution completion has no recorded reservation", ErrContext)
 		}
 		record, err := l.ReadCompletion(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		completions[id] = record
+		if _, ok := reservations[id]; ok {
+			completions[id] = record
+		}
 	}
 	if len(reservations) > MaxLineageAttempts {
 		return nil, fmt.Errorf("%w: logical work has %d attempts; lineage supports at most %d", ErrContext, len(reservations), MaxLineageAttempts)
@@ -216,6 +222,10 @@ func (l *Ledger) Lineage(ctx context.Context, logical executionattempt.Logical) 
 
 // MaxLineageAttempts bounds one lineage document; larger histories fail closed.
 const MaxLineageAttempts = 1024
+
+// MaxLineageRecords bounds paginated store-wide ledger discovery (all logical
+// work). Larger ledgers fail closed rather than reporting partial lineage.
+const MaxLineageRecords = 1 << 18
 
 func decisionMatchesReservation(decision executionattempt.Decision, reserved *Reservation) bool {
 	original, actual := reserved.Attempt.Binding, decision.Binding
@@ -272,16 +282,22 @@ func (l *Ledger) project(ctx context.Context, logical executionattempt.Logical, 
 			}
 			dispatch[decision.ExecutionID] = decision.DecisionID
 		case "reuse":
-			if decision.Source == nil {
+			// Unfinished or conflicting reuse attempts are preserved as
+			// decisions but never link to, or require, a source completion.
+			if decision.Source == nil || decision.Outcome != "reused" {
 				continue
 			}
-			if _, ok := reservations[decision.Source.ExecutionID]; !ok {
+			source, ok := reservations[decision.Source.ExecutionID]
+			if !ok {
 				diagnose("reuse_source_unavailable", "Reuse decision names a source with no reservation for this logical work.", decision.Source.ExecutionID)
 				continue
 			}
 			record, ok := completions[decision.Source.ExecutionID]
 			if !ok || record.Completion.ManifestDigest != decision.Source.ManifestDigest {
 				return nil, fmt.Errorf("%w: reuse decision %s names a source completion that is not recorded", ErrContext, decision.DecisionID)
+			}
+			if err := ValidateReuseBinding(decision, source.Attempt); err != nil {
+				return nil, fmt.Errorf("reuse decision %s contradicts its source reservation: %w", decision.DecisionID, err)
 			}
 			reusedBy[decision.Source.ExecutionID] = append(reusedBy[decision.Source.ExecutionID], decision.DecisionID)
 		}

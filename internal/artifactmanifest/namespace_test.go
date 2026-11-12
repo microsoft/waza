@@ -378,3 +378,35 @@ func TestNamespaceAzureReadbackAndAmbiguousCommitCannotGrantCreation(t *testing.
 		})
 	}
 }
+
+func TestNamespaceListAllFollowsProviderPagination(t *testing.T) {
+	for _, provider := range []string{"local", "azure-offline-transport"} {
+		t.Run(provider, func(t *testing.T) {
+			backend, namespace, _ := namespaceFixture(t, provider)
+			total := MaxCatalogEntries + 5
+			for index := range total {
+				if _, err := namespace.Create(t.Context(), fmt.Sprintf("reservation/exec-%064x", index), []byte("r")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			digest := Hash([]byte("unrelated-blob"))
+			if _, err := backend.Create(t.Context(), "blob-"+digest, []byte("unrelated-blob")); err != nil {
+				t.Fatal(err)
+			}
+			if _, truncated, err := namespace.ListUnverified(t.Context()); err != nil || !truncated {
+				t.Fatalf("single-page discovery must stay bounded: %v %v", truncated, err)
+			}
+			keys, truncated, err := namespace.ListAllUnverified(t.Context(), total)
+			if err != nil || truncated || len(keys) != total || !slices.IsSorted(keys) {
+				t.Fatalf("paginated discovery incomplete: %d %v %v", len(keys), truncated, err)
+			}
+			keys, truncated, err = namespace.ListAllUnverified(t.Context(), total-1)
+			if err != nil || !truncated || len(keys) != total-1 {
+				t.Fatalf("paginated limit not reported as truncated: %d %v %v", len(keys), truncated, err)
+			}
+			if _, _, err := namespace.ListAllUnverified(t.Context(), 0); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("non-positive limit admitted: %v", err)
+			}
+		})
+	}
+}

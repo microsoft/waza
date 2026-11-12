@@ -19,6 +19,7 @@ type records interface {
 	Create(context.Context, string, []byte) (bool, error)
 	ReadUnverified(context.Context, string) ([]byte, error)
 	ListUnverified(context.Context) ([]string, bool, error)
+	ListAllUnverified(context.Context, int) ([]string, bool, error)
 }
 
 // Ledger uses the foundation's append-only namespace and verified artifact

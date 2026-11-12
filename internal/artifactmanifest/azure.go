@@ -93,6 +93,33 @@ func (a *Azure) listObjects(ctx context.Context, prefix string) ([]string, bool,
 	return keys, pager.More(), nil
 }
 
+// listAllObjects follows continuation pages and returns at most limit keys;
+// truncated reports that more keys exist.
+func (a *Azure) listAllObjects(ctx context.Context, prefix string, limit int) ([]string, bool, error) {
+	size := int32(MaxCatalogEntries)
+	pager := a.client.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{Prefix: &prefix, MaxResults: &size})
+	keys := []string{}
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		if page.Segment == nil || len(page.Segment.BlobItems) > MaxCatalogEntries {
+			return nil, false, ErrCorrupt
+		}
+		for _, item := range page.Segment.BlobItems {
+			if item == nil || item.Name == nil || !strings.HasPrefix(*item.Name, prefix) {
+				return nil, false, ErrCorrupt
+			}
+			if len(keys) == limit {
+				return keys, true, nil
+			}
+			keys = append(keys, *item.Name)
+		}
+	}
+	return keys, false, nil
+}
+
 func (a *Azure) Create(ctx context.Context, key string, data []byte) (bool, error) {
 	if !validKey(key) || len(data) > MaxArtifactBytes {
 		return false, ErrInvalid
