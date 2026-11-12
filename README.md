@@ -258,6 +258,9 @@ waza grade eval.yaml --results results.json
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
+# Optimize a skill or context candidate with held-out qualification (source preview)
+waza optimize run eval.yaml --seed ./my-skill --optimization-tag train --qualification-tag holdout
+
 # Capture snapshots during a run and inspect offline consistency
 waza run eval.yaml --snapshot ./snapshots/
 waza replay ./snapshots/my-task-run1.json
@@ -337,6 +340,26 @@ of `--store`, with existing credentials and no automatic login. Lab can discover
 stored declaration pointers and inspect current integrity. Unreadable publication
 or an ambiguous finalization write reports `unknown`, not observed marker absence. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
+
+### `waza optimize` (unreleased v0.41 source preview)
+
+An optimizer adapter proposes skill or context candidates, and Waza evaluates
+each one with the normal harness against a pinned suite. A candidate is
+accepted only if it improves the optimization split and does not regress on a
+held-out qualification split:
+
+```bash
+waza optimize capabilities
+waza optimize run examples/optimizer/eval.yaml \
+  --target context-overlay --seed examples/optimizer/seed \
+  --optimization-tag optimization --qualification-tag qualification \
+  --adapter fake --fake-script examples/optimizer/fake-script.json
+```
+
+The adapters are `fake` (offline), `command` (any executable using JSON on
+stdin and stdout) and `copilot-reflect` (paid). Paid adapters and non-mock
+executors require `--allow-paid-calls`. Spend is reported, never capped.
+See [Optimizer Adapters](site/src/content/docs/guides/optimizer-adapters.mdx).
 
 <span id="waza-interop-source-build-preview"></span>
 

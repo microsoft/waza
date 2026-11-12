@@ -1616,6 +1616,46 @@ Render a session timeline from an NDJSON event log.
 waza session view <session-file>
 ```
 
+## waza optimize
+
+**Unreleased v0.41 source preview.** Let an optimizer adapter propose skill or
+context candidates, which the normal harness evaluates against a pinned suite,
+with held-out qualification.
+
+```bash
+waza optimize capabilities
+waza optimize run examples/optimizer/eval.yaml \
+  --target context-overlay --seed examples/optimizer/seed \
+  --optimization-tag optimization --qualification-tag qualification \
+  --adapter fake --fake-script examples/optimizer/fake-script.json
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--adapter` | `fake` | `fake`, `command` or `copilot-reflect` |
+| `--target` | `skill-directory` | `skill-directory` or `context-overlay` |
+| `--seed` | (required) | Directory with the seed candidate files |
+| `--optimization-tag` | (required) | Task tag(s) for the optimization split (repeatable) |
+| `--qualification-tag` | (required) | Task tag(s) for the held-out qualification split (repeatable) |
+| `--max-iterations` | `5` | Maximum adapter proposals |
+| `--max-evaluations` | `10` | Maximum harness evaluations, including 2 reserved for qualification |
+| `--timeout` | `0` (none) | Deadline for the whole run |
+| `--min-improvement` | `0` | Required optimization-split gain over the seed |
+| `--output-dir` | `waza-optimize-<timestamp>` | New or empty directory for `report.json`, evidence and candidates |
+| `--context-dir` | `<eval dir>/fixtures` | Context directory for the suite |
+| `--model` | spec model | Override the evaluation model |
+| `--reflect-model` | eval model | Model for `copilot-reflect` (required when the eval model is `mock`) |
+| `--fake-script` | | Strict JSON proposals for the `fake` adapter |
+| `--adapter-command`, `--adapter-arg` | | Executable and arguments for the `command` adapter |
+| `--adapter-env` | | Extra environment variable name passed to the command adapter (repeatable) |
+| `--adapter-timeout` | `10m` | Per-call timeout for the command adapter |
+| `--allow-paid-calls` | `false` | Consent to paid calls. Required by `command` and `copilot-reflect`, and by any executor other than `mock` |
+
+Outcomes `accepted`, `no_improvement` and `rejected` exit 0. Outcomes
+`not_qualified`, `failed` and `incomplete` exit 1, and `report.json` names the
+failure category. Waza never enforces a provider spending cap. See
+[Optimizer Adapters](../../guides/optimizer-adapters/).
+
 ## waza aggregate
 
 **Unreleased v0.41 source preview.** Aggregate completed public manifests without

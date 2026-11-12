@@ -163,3 +163,20 @@ func testCaseIDs(testCases []*models.TestCase) []string {
 	}
 	return ids
 }
+
+func TestFilterExactTestIDs(t *testing.T) {
+	cases := sampleCases()
+	cases[2].DisplayName = "tc-001"
+	cases[3].TestID = "tc-00*"
+
+	r := &EvalRunner{}
+	assert.Len(t, r.filterExactTestIDs(cases), 4, "no option keeps every case")
+
+	WithExactTestIDs("tc-001", "tc-00?")(r)
+	result := r.filterExactTestIDs(cases)
+	require.Len(t, result, 1, "display names and glob syntax never match")
+	assert.Equal(t, "tc-001", result[0].TestID)
+
+	WithExactTestIDs()(r)
+	assert.Empty(t, r.filterExactTestIDs(cases), "an empty ID set keeps nothing")
+}

@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/optimizer-report-1.0.schema.json",
+  "title": "Waza optimizer report 1.0",
+  "description": "Result of `waza optimize run`. A separate artifact from run results; Lab does not render it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "contract_version", "outcome", "termination", "started_at", "finished_at", "target", "suite", "suite_digest", "min_improvement", "budget", "paid_calls", "candidates", "proposals", "evaluations", "qualification", "spend"],
+  "properties": {
+    "kind": {"const": "waza.optimizer-report"},
+    "schema_version": {"const": "1.0"},
+    "contract_version": {"const": "1.0"},
+    "outcome": {"enum": ["accepted", "no_improvement", "rejected", "not_qualified", "failed", "incomplete"]},
+    "failure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["category", "message"],
+      "properties": {
+        "category": {"enum": ["unsupported_version", "incompatible_capability", "invalid_suite", "malformed_proposal", "unsafe_candidate_path", "optimizer_failure", "infrastructure_failure", "missing_evidence", "suite_changed", "cancelled", "timeout", "consent_required", "invalid_config", "evaluation_incomplete"]},
+        "message": {"type": "string"}
+      }
+    },
+    "termination": {"enum": ["", "adapter_done", "iteration_budget", "evaluation_budget", "failure", "cancelled", "timeout"]},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": "string", "format": "date-time"},
+    "target": {"enum": ["skill-directory", "context-overlay"]},
+    "adapter": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "version", "contract_versions", "required_capabilities", "optional_capabilities", "paid_calls"],
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"},
+        "contract_versions": {"type": "array", "items": {"type": "string"}},
+        "required_capabilities": {"type": ["array", "null"], "items": {"type": "string"}},
+        "optional_capabilities": {"type": ["array", "null"], "items": {"type": "string"}},
+        "paid_calls": {"type": "boolean"}
+      }
+    },
+    "negotiation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "target", "selected_capabilities", "unavailable_optional_capabilities"],
+      "properties": {
+        "version": {"const": "1.0"},
+        "target": {"enum": ["skill-directory", "context-overlay"]},
+        "selected_capabilities": {"type": "array", "items": {"type": "string"}},
+        "unavailable_optional_capabilities": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "suite": {
+      "oneOf": [{"type": "null"}, {
+        "type": "object", "additionalProperties": false,
+        "required": ["spec_path", "spec_dir_digest", "config", "waza_version", "optimization", "qualification"],
+        "properties": {
+          "spec_path": {"type": "string"},
+          "spec_dir_digest": {"$ref": "#/$defs/digest"},
+          "context_dir": {"type": "string"},
+          "context_dir_digest": {"$ref": "#/$defs/digest"},
+          "config": {
+            "type": "object", "additionalProperties": false,
+            "required": ["executor", "model", "trials_per_task", "timeout_seconds"],
+            "properties": {
+              "executor": {"type": "string"},
+              "model": {"type": "string"},
+              "reasoning_effort": {"type": "string"},
+              "trials_per_task": {"type": "integer"},
+              "timeout_seconds": {"type": "integer"}
+            }
+          },
+          "waza_version": {"type": "string"},
+          "optimization": {"$ref": "#/$defs/split"},
+          "qualification": {"$ref": "#/$defs/split"}
+        }
+      }]
+    },
+    "suite_digest": {"type": "string"},
+    "min_improvement": {"type": "number", "minimum": 0},
+    "budget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_iterations", "max_evaluations", "reserved_qualification_evaluations", "deadline_ms", "iterations_used", "evaluations_used"],
+      "properties": {
+        "max_iterations": {"type": "integer"},
+        "max_evaluations": {"type": "integer"},
+        "reserved_qualification_evaluations": {"const": 2},
+        "deadline_ms": {"type": "integer", "minimum": 0},
+        "iterations_used": {"type": "integer", "minimum": 0},
+        "evaluations_used": {"type": "integer", "minimum": 0}
+      }
+    },
+    "paid_calls": {"type": "boolean"},
+    "seed_candidate_id": {"$ref": "#/$defs/candidateId"},
+    "best_candidate_id": {"$ref": "#/$defs/candidateId"},
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "origin", "adapter", "adapter_version", "iteration", "target", "files"],
+        "properties": {
+          "id": {"$ref": "#/$defs/candidateId"},
+          "parent_id": {"$ref": "#/$defs/candidateId"},
+          "origin": {"enum": ["seed", "adapter"]},
+          "adapter": {"type": "string"},
+          "adapter_version": {"type": "string"},
+          "iteration": {"type": "integer", "minimum": 0},
+          "target": {"enum": ["skill-directory", "context-overlay"]},
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["path", "sha256", "size"],
+              "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "size": {"type": "integer", "minimum": 0}}
+            }
+          },
+          "rationale": {"type": "string"},
+          "saved_path": {"type": "string"}
+        }
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["iteration", "state", "spend"],
+        "properties": {
+          "iteration": {"type": "integer", "minimum": 1},
+          "state": {"enum": ["evaluated", "duplicate", "done", "rejected", "failed"]},
+          "candidate_id": {"$ref": "#/$defs/candidateId"},
+          "error": {"type": "string"},
+          "category": {"type": "string"},
+          "spend": {"$ref": "#/$defs/spend"}
+        }
+      }
+    },
+    "evaluations": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["index", "candidate_id", "split", "state", "score", "pass_rate", "tasks", "evidence", "spend", "duration_ms"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 1},
+          "candidate_id": {"$ref": "#/$defs/candidateId"},
+          "split": {"enum": ["optimization", "qualification"]},
+          "state": {"enum": ["scored", "evaluation_incomplete", "infrastructure_failure", "missing_evidence", "suite_changed", "cancelled", "timeout", "invalid_config"]},
+          "score": {"type": ["number", "null"]},
+          "pass_rate": {"type": ["number", "null"]},
+          "tasks": {"type": "array"},
+          "evidence": {
+            "oneOf": [{"type": "null"}, {
+              "type": "object", "additionalProperties": false,
+              "required": ["path", "sha256"],
+              "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+            }]
+          },
+          "spend": {"$ref": "#/$defs/spend"},
+          "duration_ms": {"type": "integer", "minimum": 0},
+          "error": {"type": "string"}
+        }
+      }
+    },
+    "qualification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["performed", "seed_score", "candidate_score", "seed_evaluation", "candidate_evaluation", "decision", "details"],
+      "properties": {
+        "performed": {"type": "boolean"},
+        "seed_score": {"type": ["number", "null"]},
+        "candidate_score": {"type": ["number", "null"]},
+        "seed_evaluation": {"type": ["integer", "null"]},
+        "candidate_evaluation": {"type": ["integer", "null"]},
+        "decision": {"enum": ["", "skipped", "accepted", "rejected", "not_qualified"]},
+        "details": {"type": "string"}
+      }
+    },
+    "spend": {
+      "type": "object", "additionalProperties": false,
+      "required": ["hard_spend_cap", "evaluations", "adapter", "total"],
+      "properties": {
+        "hard_spend_cap": {"const": false},
+        "evaluations": {"$ref": "#/$defs/spend"},
+        "adapter": {"$ref": "#/$defs/spend"},
+        "total": {"$ref": "#/$defs/spend"}
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "candidateId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "split": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "tags", "test_ids"],
+      "properties": {
+        "name": {"enum": ["optimization", "qualification"]},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "test_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "spend": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["measured", "unavailable", "partial"]},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "premium_requests": {"type": "number", "minimum": 0},
+        "ai_credits": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

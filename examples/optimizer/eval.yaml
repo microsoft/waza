@@ -1,0 +1,25 @@
+# Offline optimizer walkthrough suite. The mock executor echoes the fixture
+# files it is given, so improving fixtures/style-guide.md (the candidate)
+# changes the score deterministically without any model calls.
+name: optimizer-walkthrough
+description: Offline suite for `waza optimize run` with the context-overlay target.
+skill: release-notes-writer
+schemaVersion: "1.0"
+version: "1.0"
+
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  parallel: false
+  executor: mock
+  model: mock
+
+graders:
+  - type: text
+    name: no_errors
+    config:
+      regex_not_match:
+        - "(?i)fatal error|crashed"
+
+tasks:
+  - "tasks/*.yaml"
