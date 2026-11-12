@@ -2180,6 +2180,8 @@ test("regression budgets compare the newest sample with the median of at least t
   assert.equal(within.status, "within");
   assert.equal(evaluateBudget([sample("1", 10), sample("2", 10), sample("3", 10), sample("4", 12)], 0.2).status, "within", "tolerance boundary is inclusive");
   assert.equal(evaluateBudget([sample("1", 10), sample("2", 10), sample("3", 10), sample("4", 12.01)], 0.2).status, "regressed");
+  assert.equal(evaluateBudget([sample("1", 4.1), sample("2", 4.1), sample("3", 4.1), sample("4", 4.92)], 0.2).status, "within", "fractional boundary is inclusive");
+  assert.equal(evaluateBudget([sample("1", 4.1), sample("2", 4.1), sample("3", 4.1), sample("4", 4.93)], 0.2).status, "regressed");
   assert.equal(evaluateBudget([sample("1", 0), sample("2", 0), sample("3", 0), sample("4", 1)], 0.2).status, "regressed");
   assert.equal(evaluateBudget([], 0.2).candidate, null);
 
@@ -2200,6 +2202,11 @@ test("regression budgets compare the newest sample with the median of at least t
   const authored = trends(["10", "11", "12", "13"].map((id) => ({ ...report, identity: { ...report.identity, run_id: id } })));
   assert.equal(authored.cohorts[0].latency_budget.status, "insufficient-samples", "unverified reports never form a baseline");
   assert.deepEqual(trends(reports).runner_consumption, [], "runner budgets require authenticated run metadata");
+  const tampered = verified({ ...report, top_level_seconds: report.top_level_seconds / 2, identity: { ...report.identity, run_id: "14" } });
+  assert.deepEqual(tampered.reports, [], "an aggregate that disagrees with validated top-level rows is not admitted");
+  assert.ok(tampered.diagnostics.includes("evidence-artifact-invalid-or-unverified"));
+  const mixed = [...reports.slice(0, 3), ...tampered.reports];
+  assert.equal(trends(mixed, observed.slice(0, 3).map((item) => item.metadata)).cohorts[0].latency_budget.status, "insufficient-samples");
 });
 test("runner-consumption budgets admit only successful single-attempt verified runs that carried evidence", () => {
   const sha = run.head_sha;

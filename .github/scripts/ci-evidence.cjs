@@ -139,6 +139,10 @@ function completeGoTargets(report) {
   if (new Set(report.targets.map((target) => `${target.package}::${target.name}`)).size !== report.targets.length ||
       packages.size !== report.packages.length || report.targets.some((target) => !packages.has(target.package))) return false;
   const top = report.targets.filter((target) => target.top_level);
+  // top_level_seconds feeds latency budgets, so it must agree with the validated rows.
+  const topSeconds = top.length ? top.reduce((sum, target) => sum + target.seconds, 0) : null;
+  if (topSeconds === null ? report.top_level_seconds !== null :
+    number(report.top_level_seconds) === null || Math.abs(report.top_level_seconds - topSeconds) > 1e-6 * Math.max(1, topSeconds)) return false;
   const actual = new Set(top.map((target) => report.inventory_scope === "names" ? target.name : `${target.package}::${target.name}`));
   if (!Array.isArray(report.discovered) || report.discovered.length > LIMITS.targets ||
       report.discovered.some((target) => !text(target))) return false;
@@ -804,7 +808,10 @@ function evaluateBudget(samples, tolerance) {
   }
   const baselineValue = median(baseline.map((sample) => sample.value));
   const ratio = baselineValue > 0 ? candidate.value / baselineValue : null;
-  const status = ratio === null ? (candidate.value > 0 ? "regressed" : "within") : ratio > 1 + tolerance ? "regressed" : "within";
+  // Compare against the absolute limit with a relative epsilon so exact boundaries
+  // such as 4.1 -> 4.92 at 20% are not misreported through floating-point division.
+  const limit = baselineValue * (1 + tolerance);
+  const status = baselineValue > 0 ? (candidate.value - limit > 1e-9 * limit ? "regressed" : "within") : candidate.value > 0 ? "regressed" : "within";
   return { status, tolerance, baseline_samples: baseline.length, baseline_value: baselineValue, candidate: { run_id: candidate.run_id, value: candidate.value }, ratio };
 }
 const latencySeconds = (report) => number(report.kind === "go" ? report.top_level_seconds : report.runner_seconds);
