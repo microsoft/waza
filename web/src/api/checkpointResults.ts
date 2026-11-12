@@ -251,7 +251,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
     throw new Error("Checkpoint API returned an unapproved raw report.");
   }
   if (isOperationError && submission?.diagnostics.some(({ message }) => message !== capturedDiagnosticMessage)) {
-    throw new Error("Checkpoint operation error contains an unprojected submission diagnostic.");
+    throw new Error("Checkpoint retained submission contains unapproved diagnostics.");
   }
   if (isOperationError) await validateOperationErrorSource(value);
   if (value.source && !isCanonicalCheckpointTime(value.source.created_at)) {

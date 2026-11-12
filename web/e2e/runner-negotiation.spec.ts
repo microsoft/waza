@@ -12,6 +12,8 @@ const unitExample = JSON.parse(readFileSync(new URL("../../examples/runner/unit.
   input: { eval: string; task: string };
 };
 
+const capturedDiagnosticMessage = "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.";
+
 const identityVectors = JSON.parse(readFileSync(new URL("../../internal/runnerunit/testdata/identities.json", import.meta.url), "utf8")) as {
   name: string;
   request: { selection: { task: string }; input: { task: string } };
@@ -212,7 +214,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     };
     beforeUnitError.submission.diagnostics = [{
       code: "resume_interrupted",
-      message: "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.",
+      message: capturedDiagnosticMessage,
     }];
     await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(beforeUnitError));
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
@@ -290,7 +292,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(reader.getByRole("alert")).toContainText("retained submission");
   });
 
-  test("Lab checks retained submission exit against its terminal for both result versions", async ({ page }) => {
+  test("Lab checks retained submission exit against its terminal for both result versions", async ({ page, request }) => {
     const operationError = JSON.parse(
       readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
     );
@@ -325,12 +327,26 @@ test.describe("Runner negotiation through the real Go API", () => {
     submissionError.submission.engine_calls = 1;
     submissionError.submission.diagnostics = [{
       code: "submission_failed",
-      message: "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.",
+      message: capturedDiagnosticMessage,
     }];
     await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(submissionError));
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
     await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
       .toContainText("Operation error");
+
+    const unsafeDiagnostic = structuredClone(submissionError);
+    unsafeDiagnostic.submission.diagnostics[0].message = "Unapproved operator detail";
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(unsafeDiagnostic));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("unapproved");
+
+    const admission = await request.post(`${base}/api/v1/runner/validate`, { data: unitExample });
+    expect(admission.ok()).toBe(true);
+    const unapprovedReport = structuredClone(operationError);
+    unapprovedReport.submission.report = await admission.json();
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(unapprovedReport));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("unapproved");
   });
 
   test("Lab checks retained submission bindings for both result versions", async ({ page }) => {
