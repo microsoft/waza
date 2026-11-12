@@ -499,12 +499,15 @@ test.describe("Protected checkpoint operations in Lab", () => {
     expect(calls).toEqual([]);
   });
 
-  test("records the producer-backed failed-original reuse screenshot", async ({ page }) => {
+  test("records the producer-backed failed-original reuse screenshot", async ({ page }, testInfo) => {
     await prepare(page, fixtures.reused);
     await run(page, fixtures.reused);
     await expect(result(page)).toContainText("evaluation_failure");
-    const path = "../docs/images/dashboard-lab-checkpoint.png";
-    await panel(page).screenshot({ path, animations: "disabled" });
-    await copyFile(path, "../site/public/images/dashboard-lab-checkpoint.png");
+    // Tracked media is written only by the single-project docs refresh, never by routine or cross-browser runs.
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === "1" && testInfo.project.name === "chromium") {
+      const path = "../docs/images/dashboard-lab-checkpoint.png";
+      await panel(page).screenshot({ path, animations: "disabled" });
+      await copyFile(path, "../site/public/images/dashboard-lab-checkpoint.png");
+    }
   });
 });
