@@ -222,17 +222,13 @@ func validateOperationError(result Result) error {
 			return err
 		}
 		submission := result.Submission
-		if submission.Reservation == nil || submission.Completion == nil {
-			return fmt.Errorf("checkpoint source requires its exact admitted reservation and completion")
+		if submission.Reservation == nil {
+			return fmt.Errorf("checkpoint source requires its exact admitted reservation")
 		}
 		if result.Source.Compatibility.Work != submission.Reservation.Logical.Work {
 			return fmt.Errorf("checkpoint source work contradicts the admitted submission")
 		}
 		reservation, err := executionattempt.EncodeAttempt(*submission.Reservation)
-		if err != nil {
-			return err
-		}
-		completion, err := executionledger.EncodeCompletion(*submission.Completion)
 		if err != nil {
 			return err
 		}
@@ -245,6 +241,13 @@ func validateOperationError(result Result) error {
 				return fmt.Errorf("before restore does not retain its exact original parent and fresh child")
 			}
 		case executioncheckpoint.FinalizedUnit:
+			if submission.Completion == nil {
+				return fmt.Errorf("finalized checkpoint source requires its exact admitted completion")
+			}
+			completion, err := executionledger.EncodeCompletion(*submission.Completion)
+			if err != nil {
+				return err
+			}
 			if submission.Reservation.ExecutionID != result.Source.ExecutionID ||
 				artifactmanifest.Hash(reservation) != result.Source.ReservationDigest ||
 				artifactmanifest.Hash(completion) != result.Source.CompletionDigest ||

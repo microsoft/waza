@@ -33,6 +33,25 @@ var submissionSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	return compileSubmissionSchema("execution-submission-1.0.schema.json")
 })
 
+var runnerUnitReportSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileSubmissionSchema("runner-unit-1.0.schema.json")
+})
+
+func validateRunnerUnitReport(data []byte) error {
+	doc, err := jsonutil.Parse(data)
+	if err != nil {
+		return fmt.Errorf("parsing source runner-unit report: %w", err)
+	}
+	schema, err := runnerUnitReportSchema()
+	if err != nil {
+		return err
+	}
+	if err := schema.Validate(doc); err != nil {
+		return fmt.Errorf("source runner-unit report schema: %w", err)
+	}
+	return nil
+}
+
 func compileSubmissionSchema(name string) (*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(schemaloader.Offline{})

@@ -13,7 +13,6 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
-	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
@@ -83,7 +82,7 @@ func (s *Submission) fail(code string, err error) {
 func reportBytes(report Report) ([]byte, error) { return json.Marshal(report) }
 
 func validateSourceReport(data []byte, source *executionledger.CompletedExecution, terminal *runnerterminal.Envelope) error {
-	if _, err := jsonutil.Parse(data); err != nil {
+	if err := validateRunnerUnitReport(data); err != nil {
 		return err
 	}
 	report, err := decodeSubmissionReport(data)
@@ -117,8 +116,10 @@ func validateSourceReport(data []byte, source *executionledger.CompletedExecutio
 	default:
 		return fmt.Errorf("source report has no admitted terminal execution status")
 	}
-	if report.Observation != nil && (report.Mode != binding.ExecutionMode ||
-		report.Observation.RunNumber != terminal.Observation.RunNumber ||
+	if report.Mode != "" && report.Mode != binding.ExecutionMode {
+		return fmt.Errorf("source execution mode contradicts the original reservation")
+	}
+	if report.Observation != nil && (report.Observation.RunNumber != terminal.Observation.RunNumber ||
 		report.Observation.Attempts != terminal.Observation.Attempts ||
 		string(report.Observation.Status) != terminal.Observation.Status ||
 		report.Observation.ErrorMsg != terminal.Observation.ErrorMsg ||

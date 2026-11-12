@@ -1,18 +1,24 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { parseCheckpointOperationResult, type CheckpointOperationResult } from "../api/checkpoint-result";
 
 export default function CheckpointResult() {
   const [wire, setWire] = useState("");
   const [result, setResult] = useState<CheckpointOperationResult | null>(null);
   const [error, setError] = useState("");
+  const parseGeneration = useRef(0);
 
   async function parse() {
+    const generation = ++parseGeneration.current;
+    const input = wire;
     setResult(null);
     setError("");
     try {
-      setResult(await parseCheckpointOperationResult(wire));
+      const parsed = await parseCheckpointOperationResult(input);
+      if (generation === parseGeneration.current) setResult(parsed);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Checkpoint result could not be parsed.");
+      if (generation === parseGeneration.current) {
+        setError(cause instanceof Error ? cause.message : "Checkpoint result could not be parsed.");
+      }
     }
   }
 
@@ -27,6 +33,7 @@ export default function CheckpointResult() {
       <label htmlFor="checkpoint-result-json">Checkpoint result JSON</label>
       <textarea id="checkpoint-result-json" rows={8} spellCheck={false} value={wire}
         onChange={(event) => {
+          parseGeneration.current++;
           setWire(event.target.value);
           setResult(null);
           setError("");
