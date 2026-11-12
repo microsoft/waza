@@ -121,13 +121,12 @@ func TestAggregateCLIAndAPIStateMatrix(t *testing.T) {
 	for _, control := range []struct {
 		name     string
 		inputs   []manifestaggregate.Input
-		reversed bool
 		state    string
 		outcomes map[string]int
 		members  map[manifestaggregate.Input]expectation
 	}{
 		{
-			name: "reordered", inputs: []manifestaggregate.Input{good, bad, cancel, good}, reversed: true, state: "complete",
+			name: "reordered", inputs: []manifestaggregate.Input{good, bad, cancel, good}, state: "complete",
 			outcomes: map[string]int{"success": 1, "infrastructure_failure": 1, string(runnerterminal.Canceled): 1},
 			members: map[manifestaggregate.Input]expectation{
 				good: {member: "admitted"}, bad: {member: "admitted"},
@@ -158,7 +157,7 @@ func TestAggregateCLIAndAPIStateMatrix(t *testing.T) {
 			},
 		},
 		{
-			name: "mixed", inputs: []manifestaggregate.Input{newer, conflict, missing, cancel, bad, good}, reversed: true, state: "conflicting",
+			name: "mixed", inputs: []manifestaggregate.Input{newer, conflict, missing, cancel, bad, good}, state: "conflicting",
 			outcomes: map[string]int{"success": 1, "infrastructure_failure": 2, string(runnerterminal.Canceled): 1},
 			members: map[manifestaggregate.Input]expectation{
 				good: {member: "admitted"}, bad: {member: "admitted"},
@@ -173,13 +172,14 @@ func TestAggregateCLIAndAPIStateMatrix(t *testing.T) {
 			saved, cliErr := runAggregateCLI(t, directory, control.inputs)
 			status, body := postAggregateAPI(t, directory, control.inputs)
 			require.Equal(t, saved, body, "CLI and API must emit identical canonical reports")
-			if control.reversed {
-				reversed := slices.Clone(control.inputs)
-				slices.Reverse(reversed)
-				again, againErr := runAggregateCLI(t, directory, reversed)
-				require.Equal(t, saved, again, "input order must not change the aggregate")
-				require.Equal(t, cliErr == nil, againErr == nil, "input order must not change the exit status")
-			}
+			reversed := slices.Clone(control.inputs)
+			slices.Reverse(reversed)
+			again, againErr := runAggregateCLI(t, directory, reversed)
+			require.Equal(t, saved, again, "input order must not change the CLI aggregate")
+			require.Equal(t, cliErr == nil, againErr == nil, "input order must not change the exit status")
+			againStatus, againBody := postAggregateAPI(t, directory, reversed)
+			require.Equal(t, saved, againBody, "input order must not change the API aggregate")
+			require.Equal(t, status, againStatus, "input order must not change the HTTP status")
 			report, err := manifestaggregate.Parse(saved)
 			require.NoError(t, err)
 			require.Equal(t, control.state, report.State)
