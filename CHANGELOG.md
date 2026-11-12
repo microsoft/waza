@@ -80,7 +80,7 @@ below compares published v0.40.1
 (`e0c251df896bee4e0f9b38a693a6105bf7eadd19`) through
 `6750ff6115b3a98a5609bd751227bca629839a9c`. It is not the final release scope.
 The separate subsequent-source entry below reaches current `main`
-`a986eb784bf20a0fb2b851f86cf0ea35825e8313`; neither inventory is final release
+`10f4081b2e84ce6053eb28dc8d5f147350fe7fb3`; neither inventory is final release
 or publication evidence.
 Existing Unreleased entries above are preserved verbatim; the inventory below
 is derived independently from source. The published baseline is not an ancestor
@@ -110,15 +110,15 @@ completion requirement (#902).
 ### Changed
 
 - **Subsequent merged preparation scope** - The current `main` snapshot,
-  `a986eb784bf20a0fb2b851f86cf0ea35825e8313`, adds partial attempt, evidence,
-  and checkpoint previews (#942, #958, #959, #961); attempt-aware CI evidence
-  and diagnostics (#929, #936); release/dashboard controls (#944, #945, #962);
-  and dashboard/CI work (#839, #841, #844, #856, #935, #954). Reporter failure
-  handling and provider-only diagnostic storage are also merged (#941, #957),
-  alongside Azure SDK updates (#917, #919). These additions are separate from
-  the initial bounded inventory above. Issues #764-#768 and #904 remain open;
-  no roadmap completion, release-wide performance target, or final publication
-  is claimed.
+  `10f4081b2e84ce6053eb28dc8d5f147350fe7fb3`, adds partial attempt, evidence,
+  checkpoint, and aggregation work (#942, #958, #959, #960, #961); attempt-aware
+  CI evidence and diagnostics (#929, #936); release/dashboard controls (#944,
+  #945, #962); and dashboard/CI work (#839, #841, #844, #856, #935, #954).
+  Reporter failure handling and provider-only diagnostic storage are also
+  merged (#941, #957), alongside Azure SDK updates (#917, #919). These
+  additions are separate from the initial bounded inventory above. Issues
+  #764-#768 and #904 remain open; #960 is not the completion of #766. No roadmap
+  completion, release-wide performance target, or final publication is claimed.
 - **Local dashboard projections** - Cache run-list and summary projections per
   successfully loaded local snapshot, retaining defensive copies and refresh
   behavior ([#858](https://github.com/microsoft/waza/pull/858)).

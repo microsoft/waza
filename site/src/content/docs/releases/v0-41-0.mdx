@@ -1,6 +1,6 @@
 ---
 title: "Waza v0.41.0 preview: prepare the release, preserve the evidence"
-description: Pending-publication preparation covering merged native question callbacks, recovery, dashboard, capture, build, and CI improvements; baseline reconciliation and release gates remain open.
+description: Pending-publication preparation covering merged native question callbacks, recovery, aggregation, dashboard, capture, build, and CI improvements; baseline reconciliation and release gates remain open.
 ---
 
 **Draft — publication pending.** Waza v0.41.0 is being prepared, not announced
@@ -181,23 +181,27 @@ cross-repository consumer acceptance.
 ### Latest merged-source frontier
 
 The current `main` snapshot is
-[`a986eb784bf20a0fb2b851f86cf0ea35825e8313`](https://github.com/microsoft/waza/commit/a986eb784bf20a0fb2b851f86cf0ea35825e8313).
+[`10f4081b2e84ce6053eb28dc8d5f147350fe7fb3`](https://github.com/microsoft/waza/commit/10f4081b2e84ce6053eb28dc8d5f147350fe7fb3).
 It includes the following work merged after the earlier `ccea3677` snapshot.
 These are bounded source updates, not proof that the related roadmap epics or
 final release gates are complete.
 
-- **Partial recovery and evidence previews** - Add the logical execution-attempt
-  core ([#942](https://github.com/microsoft/waza/pull/942)), recover evidence
-  capture libraries ([#958](https://github.com/microsoft/waza/pull/958)), add a
-  captured-checkpoint source preview
-  ([#959](https://github.com/microsoft/waza/pull/959)), and add protected Lab
-  checkpoint recovery operations
-  ([#961](https://github.com/microsoft/waza/pull/961)). These are partial
-  deliveries; issues [#764](https://github.com/microsoft/waza/issues/764),
+- **Partial recovery, evidence, and aggregation foundations** - Add the logical
+  execution-attempt core ([#942](https://github.com/microsoft/waza/pull/942)),
+  recover evidence capture libraries
+  ([#958](https://github.com/microsoft/waza/pull/958)), add a captured-checkpoint
+  source preview ([#959](https://github.com/microsoft/waza/pull/959)) and
+  protected Lab checkpoint recovery
+  ([#961](https://github.com/microsoft/waza/pull/961)), and merge the
+  execution-aware standalone aggregation core
+  ([#960](https://github.com/microsoft/waza/pull/960)). These are partial
+  deliveries; issues
+  [#764](https://github.com/microsoft/waza/issues/764),
   [#765](https://github.com/microsoft/waza/issues/765),
   [#766](https://github.com/microsoft/waza/issues/766),
   [#767](https://github.com/microsoft/waza/issues/767), and
-  [#768](https://github.com/microsoft/waza/issues/768) remain open.
+  [#768](https://github.com/microsoft/waza/issues/768) remain open; #960 does
+  not satisfy all acceptance criteria for #766.
 - **Release and CI controls** - Capture attempt-aware CI performance evidence
   ([#929](https://github.com/microsoft/waza/pull/929)), separate docs media
   from routine test evidence

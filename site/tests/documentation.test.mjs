@@ -533,8 +533,8 @@ test('pending release separates source readiness, historical metadata and releas
   assert.match(after, /#902 released-consumer validation/);
   assert.match(after, /installer, binary, and checksums are published/);
   assert.match(after, /does not waive #902/);
-  assert.match(merged, /a986eb784bf20a0fb2b851f86cf0ea35825e8313/);
-  for (const pr of ['#929', '#942', '#944', '#945', '#958', '#959', '#961', '#962']) {
+  assert.match(merged, /10f4081b2e84ce6053eb28dc8d5f147350fe7fb3/);
+  for (const pr of ['#929', '#942', '#944', '#945', '#958', '#959', '#960', '#961', '#962']) {
     assert.ok(merged.includes(pr), `${pr} must be included in the current merged-source inventory`);
   }
   assert.match(before, /still-open \[#904\]/);
@@ -548,7 +548,7 @@ test('pending release separates source readiness, historical metadata and releas
   const changelog = read('CHANGELOG.md');
   assert.match(changelog, /historical v0\.40\.1 tags retain `0\.39\.1`/);
   assert.match(changelog, /post-publication released-consumer\s+completion requirement \(#902\)/);
-  assert.match(changelog, /current `main`\s+`a986eb784bf20a0fb2b851f86cf0ea35825e8313`/);
+  assert.match(changelog, /current `main`\s+`10f4081b2e84ce6053eb28dc8d5f147350fe7fb3`/);
 });
 
 test('v0.40.1 article owns hotfix detail while the homepage leads with the product', () => {
