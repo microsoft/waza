@@ -25,6 +25,8 @@ export interface CheckpointOperationResult {
     caller?: RunnerIdentity;
     decision?: ExecutionDecision;
     terminal?: RunnerTerminal;
+    report?: unknown;
+    diagnostics: { code: string; message: string }[];
     reservation?: ExecutionAttempt;
     completion?: ExecutionCompletion;
   };
@@ -91,6 +93,7 @@ function validator(schema: object) {
 const validate10 = validator(result10Schema);
 const validate11 = validator(result11Schema);
 const utf8Encoder = new TextEncoder();
+const capturedDiagnosticMessage = "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.";
 
 async function jsonDigest(value: object) {
   const wire = JSON.stringify(value)
@@ -284,6 +287,10 @@ async function validateCheckpointResult(result: CheckpointOperationResult) {
   }
 
   const { source, submission } = result;
+  if (result.status === "operation_error" && submission &&
+    (submission.report !== undefined || submission.diagnostics.some((diagnostic) => diagnostic.message !== capturedDiagnosticMessage))) {
+    throw new Error("Checkpoint retained submission contains unapproved report or diagnostics.");
+  }
   const reservationDigest = submission ? await validateRetainedSubmission(submission) : undefined;
   if (result.status === "operation_error") {
     if (!source) return;
