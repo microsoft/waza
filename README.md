@@ -403,8 +403,10 @@ VCS-stamped CLI and a captured submission wrapper, not a bare runner request.
 Ordinary results remain strict schema `1.0`; sanitized pre-store and store-close
 operational failures use schema `1.1`, status `operation_error`, exit code `2`,
 and an allowlisted `error_code`. Close failures retain the capture-approved
-submission, source and checkpoint references without changing the submission's
-own status or exit. Raw causes remain operator-only.
+submission, source and checkpoint references when their linkage is valid,
+without changing the submission's own status or exit. An admitted source that
+cannot be linked to the retained submission is marked `source_withheld: true`.
+Raw causes remain operator-only.
 Consumers must keep these levels separate: a store-close failure can have
 top-level exit `2` while the preserved completed or reused submission still has
 nested exit `0`.

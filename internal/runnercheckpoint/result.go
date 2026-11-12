@@ -2,6 +2,7 @@ package runnercheckpoint
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -19,6 +20,8 @@ import (
 )
 
 const MaxResultBytes = runnerunit.MaxSubmissionResultBytes + executioncheckpoint.MaxBytes + 65536
+
+var errSourceLinkage = errors.New("checkpoint source linkage unavailable")
 
 var resultSchemas = sync.OnceValues(func() (map[string]*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
@@ -215,51 +218,54 @@ func validateOperationError(result Result) error {
 		}
 	}
 	if result.Source != nil {
-		if result.Submission == nil {
-			return fmt.Errorf("checkpoint source requires its admitted submission")
-		}
 		if _, err := executioncheckpoint.Encode(*result.Source); err != nil {
 			return err
 		}
-		submission := result.Submission
-		if submission.Reservation == nil {
-			return fmt.Errorf("checkpoint source requires its exact admitted reservation")
-		}
-		if result.Source.Compatibility.Work != submission.Reservation.Logical.Work {
-			return fmt.Errorf("checkpoint source work contradicts the admitted submission")
-		}
-		reservation, err := executionattempt.EncodeAttempt(*submission.Reservation)
-		if err != nil {
+		if err := validateOperationSourceLinkage(result.Source, result.Submission); err != nil {
 			return err
-		}
-		switch result.Source.Boundary {
-		case executioncheckpoint.BeforeUnit:
-			if submission.Reservation.Parent == nil ||
-				*submission.Reservation.Parent != (executionattempt.Parent{
-					ExecutionID: result.Source.ExecutionID, Relationship: "retry",
-				}) || submission.Reservation.ExecutionID == result.Source.ExecutionID {
-				return fmt.Errorf("before restore does not retain its exact original parent and fresh child")
-			}
-		case executioncheckpoint.FinalizedUnit:
-			if submission.Completion == nil {
-				return fmt.Errorf("finalized checkpoint source requires its exact admitted completion")
-			}
-			completion, err := executionledger.EncodeCompletion(*submission.Completion)
-			if err != nil {
-				return err
-			}
-			if submission.Reservation.ExecutionID != result.Source.ExecutionID ||
-				artifactmanifest.Hash(reservation) != result.Source.ReservationDigest ||
-				artifactmanifest.Hash(completion) != result.Source.CompletionDigest ||
-				submission.Completion.ManifestDigest != result.Source.ManifestDigest {
-				return fmt.Errorf("finalized restore differs from its exact original checkpoint source")
-			}
-		default:
-			return fmt.Errorf("operation error result has an unsupported checkpoint source boundary")
 		}
 	}
 	if result.Submission == nil && (result.BeforeDigest != "" || result.FinalizedDigest != "") {
 		return fmt.Errorf("checkpoint references require their admitted submission")
+	}
+	return nil
+}
+
+func validateOperationSourceLinkage(source *executioncheckpoint.Checkpoint, submission *runnerunit.Submission) error {
+	if submission == nil || submission.Reservation == nil {
+		return fmt.Errorf("%w: checkpoint source requires its exact admitted reservation", errSourceLinkage)
+	}
+	if source.Compatibility.Work != submission.Reservation.Logical.Work {
+		return fmt.Errorf("%w: checkpoint source work contradicts the admitted submission", errSourceLinkage)
+	}
+	reservation, err := executionattempt.EncodeAttempt(*submission.Reservation)
+	if err != nil {
+		return err
+	}
+	switch source.Boundary {
+	case executioncheckpoint.BeforeUnit:
+		if submission.Reservation.Parent == nil ||
+			*submission.Reservation.Parent != (executionattempt.Parent{
+				ExecutionID: source.ExecutionID, Relationship: "retry",
+			}) || submission.Reservation.ExecutionID == source.ExecutionID {
+			return fmt.Errorf("%w: before restore does not retain its exact original parent and fresh child", errSourceLinkage)
+		}
+	case executioncheckpoint.FinalizedUnit:
+		if submission.Completion == nil {
+			return fmt.Errorf("%w: finalized checkpoint source requires its exact admitted completion", errSourceLinkage)
+		}
+		completion, err := executionledger.EncodeCompletion(*submission.Completion)
+		if err != nil {
+			return err
+		}
+		if submission.Reservation.ExecutionID != source.ExecutionID ||
+			artifactmanifest.Hash(reservation) != source.ReservationDigest ||
+			artifactmanifest.Hash(completion) != source.CompletionDigest ||
+			submission.Completion.ManifestDigest != source.ManifestDigest {
+			return fmt.Errorf("%w: finalized restore differs from its exact original checkpoint source", errSourceLinkage)
+		}
+	default:
+		return fmt.Errorf("operation error result has an unsupported checkpoint source boundary")
 	}
 	return nil
 }

@@ -2,8 +2,10 @@ package runnercheckpoint
 
 import (
 	"context"
+	"errors"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/ownedsubmission"
 	"github.com/microsoft/waza/internal/runnercontract"
@@ -38,6 +40,13 @@ func OperationErrorResult(code string) Result {
 // capture policy while replacing the operation outcome with the versioned
 // operational-failure profile.
 func WithOperationError(result Result, code string) Result {
+	if code == ErrorCodeStorageCloseFailed && result.Source != nil {
+		if _, err := executioncheckpoint.Encode(*result.Source); err == nil &&
+			errors.Is(validateOperationSourceLinkage(result.Source, result.Submission), errSourceLinkage) {
+			result.Source = nil
+			result.SourceWithheld = true
+		}
+	}
 	result.SchemaVersion = "1.1"
 	result.Status = "operation_error"
 	result.ExitCode = 2

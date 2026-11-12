@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
+	"github.com/microsoft/waza/internal/runnercheckpoint/testfixture"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
@@ -198,6 +200,58 @@ func TestCheckpointOperationHTTPCloseFailurePreservesAdmittedResult(t *testing.T
 	reusedData, err := runnercheckpoint.EncodeResult(reused)
 	require.NoError(t, err)
 	require.NotContains(t, string(reusedData), "private-http-close-control")
+}
+
+func TestCheckpointOperationHTTPCombinedPinnedReadAndCloseFailures(t *testing.T) {
+	directory := t.TempDir()
+	var factories atomic.Int32
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		factories.Add(1)
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	revision := strings.Repeat("c", 40)
+	local, closeLocal, err := artifactmanifest.OpenBackend(directory, "")
+	require.NoError(t, err)
+	checkpoints, err := runnercheckpoint.NewService(service, revision)
+	require.NoError(t, err)
+	wire := checkpointOperationWire(t)
+	created, err := checkpoints.SubmitCaptured(t.Context(), wire, local, runnercheckpoint.Hooks{})
+	require.NoError(t, err)
+	require.NoError(t, closeLocal())
+	backend, fixture := testfixture.NewPinnedReadBackend(t, directory)
+	var logs bytes.Buffer
+	logger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(logger)
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			return backend, func() error { return errors.New("private-http-close-control") }, nil
+		},
+		runner: service, revision: func() (string, error) { return revision, nil },
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	result := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+created.FinalizedDigest+"/resume",
+		wire, http.StatusServiceUnavailable)
+	require.Equal(t, int32(4), fixture.Reads())
+	require.Equal(t, int32(1), factories.Load())
+	require.Equal(t, "operation_error", result.Status)
+	require.Equal(t, 2, result.ExitCode)
+	require.Equal(t, runnercheckpoint.ErrorCodeStorageCloseFailed, result.ErrorCode)
+	require.True(t, result.SourceWithheld)
+	require.Nil(t, result.Source)
+	require.NotNil(t, result.Submission)
+	require.Equal(t, "submission_error", result.Submission.Status)
+	require.Equal(t, "reuse_not_admitted", result.Submission.Diagnostics[0].Code)
+	require.Nil(t, result.Submission.Reservation)
+	require.Nil(t, result.Submission.Completion)
+	require.Contains(t, logs.String(), testfixture.PinnedReadFailure)
+	require.Contains(t, logs.String(), "private-http-close-control")
+	public, err := runnercheckpoint.EncodeResult(result)
+	require.NoError(t, err)
+	require.NotContains(t, string(public), testfixture.PinnedReadFailure)
+	require.NotContains(t, string(public), "private-http-close-control")
 }
 
 func TestCheckpointOperationHTTPDeniedReuseWithholdsSourceAndPreservesOriginal(t *testing.T) {

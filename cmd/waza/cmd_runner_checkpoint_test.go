@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
+	"github.com/microsoft/waza/internal/runnercheckpoint/testfixture"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
@@ -337,6 +338,42 @@ func TestCheckpointPublicCLICloseFailurePreservesCreateAndFinalizedResume(t *tes
 	require.Equal(t, reused.Source, closedReuse.Source)
 	require.Contains(t, diagnostic, "private-close-control")
 	require.NotContains(t, mustEncodeCheckpointResult(t, closedReuse), "private-close-control")
+}
+
+func TestCheckpointPublicCLICombinedPinnedReadAndCloseFailures(t *testing.T) {
+	directory := t.TempDir()
+	factories := 0
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		factories++
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	revision := func() (string, error) { return strings.Repeat("c", 40), nil }
+	wire := checkpointCLIWire(t)
+	created, _ := runCheckpointCLI(t, service, revision, directory, wire, "create")
+	require.NotEmpty(t, created.FinalizedDigest)
+	backend, fixture := testfixture.NewPinnedReadBackend(t, directory)
+	open := func(string, string) (artifactmanifest.Backend, func() error, error) {
+		return backend, func() error { return errors.New("private-close-control") }, nil
+	}
+	result, diagnostic := runCheckpointCLIWithBackend(t, service, revision, open, directory, wire,
+		"resume", created.FinalizedDigest)
+	require.Equal(t, int32(4), fixture.Reads())
+	require.Equal(t, 1, factories)
+	require.Equal(t, "operation_error", result.Status)
+	require.Equal(t, 2, result.ExitCode)
+	require.Equal(t, runnercheckpoint.ErrorCodeStorageCloseFailed, result.ErrorCode)
+	require.True(t, result.SourceWithheld)
+	require.Nil(t, result.Source)
+	require.NotNil(t, result.Submission)
+	require.Equal(t, "submission_error", result.Submission.Status)
+	require.Equal(t, "reuse_not_admitted", result.Submission.Diagnostics[0].Code)
+	require.Nil(t, result.Submission.Reservation)
+	require.Nil(t, result.Submission.Completion)
+	require.Contains(t, diagnostic, testfixture.PinnedReadFailure)
+	require.Contains(t, diagnostic, "private-close-control")
+	public := mustEncodeCheckpointResult(t, result)
+	require.NotContains(t, public, testfixture.PinnedReadFailure)
+	require.NotContains(t, public, "private-close-control")
 }
 
 func mustEncodeCheckpointResult(t *testing.T, result runnercheckpoint.Result) string {

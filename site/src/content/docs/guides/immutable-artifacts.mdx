@@ -107,9 +107,11 @@ Stdout is one protected result; boundary/digest progress goes to stderr. Preserv
 the result even on a nonzero exit. Store-open or store-close failures use result
 version `1.1`, status `operation_error`, exit code `2`, and a stable `error_code`.
 When close fails after execution, the result retains the capture-approved
-submission, source and checkpoint references while keeping the execution's
-original submission status and exit unchanged. Raw causes stay on operator
-stderr/server logs. Consumers must keep the levels separate: top-level exit `2`
+submission, source and checkpoint references when their linkage is valid, while
+keeping the execution's original submission status and exit unchanged. An
+admitted source without valid linkage is marked `source_withheld: true`.
+Raw causes stay on operator stderr/server logs. Consumers must keep the levels
+separate: top-level exit `2`
 can coexist with a preserved completed or reused submission's nested exit `0`.
 To restore the exact finalized source:
 
@@ -147,7 +149,7 @@ from an ordinarily completed execution: it is already stale.
 | Incompatible build or configuration | Preserve the checkpoint and use its compatible original binary and captured configuration; do not override the revision. |
 | Corrupt, missing, or unverified source | Preserve records and inspect the configured store; do not repair bytes in place. |
 | Stale before-unit source or incomplete discovery | Investigate the original execution. Missing completion does not authorize replay. |
-| `source_withheld: true` | Original-source capture admission did not succeed; no source metadata or terminal was approved for disclosure. |
+| `source_withheld: true` | Original-source capture admission failed, or a close-error result cannot link the admitted source to its retained submission. Inspect operator diagnostics and preserve the original records. |
 | Publication, output, or close failure | Preserve original and partial references. Do not infer completion or receipt from a digest. |
 
 ## Prepare a declaration
