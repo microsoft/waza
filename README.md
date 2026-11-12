@@ -779,6 +779,7 @@ fi
 waza run eval.yaml --format github-comment > comment.md
 gh pr comment $PR_NUMBER --body-file comment.md
 
+# Completed grading failures also write JUnit XML and retain a nonzero exit status.
 # Generate JUnit XML for CI test reporting
 waza run eval.yaml --reporter junit:results.xml
 
