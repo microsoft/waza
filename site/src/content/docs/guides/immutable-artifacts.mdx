@@ -44,9 +44,11 @@ logical work item. They form a partial order, not a global schedule. Knowing an
 execution ID or reading a record does not grant completion authority.
 
 This is an **embedding API preview**, not a released `runner submit` command or
-Lab lineage view. Public operations, checkpoints, and lifecycle integration
-remain pending. Existing `runner run`, native ordinals, manifest v1, and legacy
-results are unchanged; historical ownership records are not synthesized.
+Lab lineage view. The source checkpoint CLI and protected checkpoint HTTP
+operations are available as a separate preview below; a generic public
+submission command and Lab lifecycle orchestration remain pending. Existing
+`runner run`, native ordinals, manifest v1, and legacy results are unchanged;
+historical ownership records are not synthesized.
 See the independently versioned
 [attempt/decision schema](../../schemas/execution-attempt-1.0.schema.json),
 [completion schema](../../schemas/execution-completion-1.0.schema.json),
@@ -79,8 +81,8 @@ discovery. Mutex waits and blocked providers are not made cancellable by the gat
 No in-flight process, SDK session, partial grader or workspace is restored.
 The source CLI exposes capture-approved checkpoint creation and resume; it is
 not in installed v0.40.1 artifacts. Protected HTTP create/resume operations are
-registered, while Lab integration and production process/platform acceptance
-remain pending for operation creation; Lab can inspect captured result JSON. The
+registered, and Lab can inspect supplied checkpoint-result JSON. Lab operation
+orchestration and full production process/platform acceptance remain pending. The
 [checkpoint schema](../../schemas/execution-checkpoint-1.0.schema.json) and
 [checkpoint-result schema](../../schemas/runner-checkpoint-result-1.0.schema.json)
 and [checkpoint operation error schema](../../schemas/runner-checkpoint-result-1.1.schema.json)
@@ -110,8 +112,10 @@ When close fails after execution, the result retains the capture-approved
 submission, source and checkpoint references when their linkage is valid, while
 keeping the execution's original submission status and exit unchanged. An
 admitted source without valid linkage is marked `source_withheld: true`.
-Raw causes stay on operator stderr/server logs. Consumers must keep the levels
-separate: top-level exit `2`
+The CLI writes underlying causes to operator stderr; server operational logs may
+include causes, but submission-parser failures log only the failure stage,
+action and guidance, not the parser error or request. Consumers must keep the
+levels separate: top-level exit `2`
 can coexist with a preserved completed or reused submission's nested exit `0`.
 The Lab reader checks schemas and cross-field consistency locally, but does not
 perform native canonical-report checks. It labels statuses and exit codes in

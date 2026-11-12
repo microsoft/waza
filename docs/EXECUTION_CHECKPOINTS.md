@@ -5,8 +5,9 @@ This unreleased, partial #765 layer builds on the
 provides an embedding service and unreleased source commands
 `runner checkpoint create` and `runner checkpoint resume`. Installed v0.40.1
 artifacts do not contain these commands. Protected HTTP create/resume operations
-are registered; Lab integration, broader native-platform evidence, and full
-#755 acceptance remain pending.
+are registered, and the Lab can inspect supplied checkpoint-result JSON.
+Lab orchestration of create/resume, a generic public submission command,
+broader native-platform evidence, and full #755 acceptance remain pending.
 
 ## Supported boundaries
 
@@ -122,7 +123,9 @@ nonzero: a close failure after execution preserves the capture-approved
 submission, source and checkpoint references when their linkage is valid,
 including the submission's original status and exit. If an admitted source
 cannot be linked to the retained submission, it is withheld and
-`source_withheld` is true. Raw causes remain operator-only on stderr/server logs.
+`source_withheld` is true. The CLI writes underlying causes to operator stderr;
+server operational logs may include causes, but submission-parser failures log
+only the failure stage, action and guidance, not the parser error or request.
 Consumers must treat the levels separately: top-level exit `2` can coexist with
 a preserved completed or reused submission whose nested exit is `0`.
 The Lab reader performs schema and cross-field checks locally, but does not
@@ -207,6 +210,6 @@ refuses it without new records. That control does not kill a CLI mid-dispatch.
 These are offline mock-execution controls, not native runtime, LFS installation,
 live inference, dashboard delivery, or Windows execution evidence.
 
-Lab integration, full current-head broad/platform gates and independent review
-remain release blockers. Broad test failures and timed-out lint runs are not
-passing checks even when focused recovery controls pass.
+Lab operation orchestration, full current-head broad/platform gates and
+independent review remain release blockers. Broad test failures and timed-out
+lint runs are not passing checks even when focused recovery controls pass.
