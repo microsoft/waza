@@ -2,6 +2,7 @@ package runnercheckpoint
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -20,11 +21,14 @@ import (
 
 const MaxResultBytes = runnerunit.MaxSubmissionResultBytes + executioncheckpoint.MaxBytes + 65536
 
-var resultSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+var errSourceLinkage = errors.New("checkpoint source linkage unavailable")
+
+var resultSchemas = sync.OnceValues(func() (map[string]*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(schemaloader.Offline{})
 	for name, text := range map[string]string{
 		"runner-checkpoint-result-1.0.schema.json":    schemas.RunnerCheckpointResultSchemaJSON,
+		"runner-checkpoint-result-1.1.schema.json":    schemas.RunnerCheckpointResultV11SchemaJSON,
 		"execution-checkpoint-1.0.schema.json":        schemas.ExecutionCheckpointSchemaJSON,
 		"execution-submission-result-1.0.schema.json": schemas.ExecutionSubmissionResultSchemaJSON,
 		"execution-attempt-1.0.schema.json":           schemas.ExecutionAttemptSchemaJSON,
@@ -42,7 +46,18 @@ var resultSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 			return nil, fmt.Errorf("registering checkpoint result schema: %w", err)
 		}
 	}
-	return compiler.Compile("https://microsoft.github.io/waza/schemas/runner-checkpoint-result-1.0.schema.json")
+	result := make(map[string]*jsonschema.Schema, 2)
+	for version, name := range map[string]string{
+		"1.0": "runner-checkpoint-result-1.0.schema.json",
+		"1.1": "runner-checkpoint-result-1.1.schema.json",
+	} {
+		schema, err := compiler.Compile("https://microsoft.github.io/waza/schemas/" + name)
+		if err != nil {
+			return nil, err
+		}
+		result[version] = schema
+	}
+	return result, nil
 })
 
 // ParseResult admits strict wire declarations and cross-field context, not
@@ -55,9 +70,19 @@ func ParseResult(data []byte) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing checkpoint result: %w", err)
 	}
-	schema, err := resultSchema()
+	var header struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return nil, fmt.Errorf("decoding checkpoint result version: %w", err)
+	}
+	schemasByVersion, err := resultSchemas()
 	if err != nil {
 		return nil, err
+	}
+	schema := schemasByVersion[header.SchemaVersion]
+	if schema == nil {
+		return nil, fmt.Errorf("unsupported checkpoint result schema version %q", header.SchemaVersion)
 	}
 	if err := schema.Validate(doc); err != nil {
 		return nil, fmt.Errorf("checkpoint result schema: %w", err)
@@ -96,6 +121,9 @@ func EncodeResult(result Result) ([]byte, error) {
 }
 
 func validateResult(result Result) error {
+	if result.SchemaVersion == "1.1" {
+		return validateOperationError(result)
+	}
 	if result.BeforeDigest != "" && result.BeforeDigest == result.FinalizedDigest {
 		return fmt.Errorf("different checkpoint boundaries cannot share one canonical blob digest")
 	}
@@ -153,6 +181,91 @@ func validateResult(result Result) error {
 		artifactmanifest.Hash(completion) != source.CompletionDigest ||
 		submission.Completion.ManifestDigest != source.ManifestDigest {
 		return fmt.Errorf("finalized restore differs from its exact original checkpoint source")
+	}
+	return nil
+}
+
+func validateOperationError(result Result) error {
+	if result.Status != "operation_error" || result.ExitCode != 2 || result.ErrorCode == "" {
+		return fmt.Errorf("operation error result requires operation_error status, exit 2, and a stable error code")
+	}
+	if result.BeforeDigest != "" && result.BeforeDigest == result.FinalizedDigest {
+		return fmt.Errorf("different checkpoint boundaries cannot share one canonical blob digest")
+	}
+	if result.CompatibilityResult != "unavailable" || len(result.CompatibilityDifferences) != 0 ||
+		result.RestoredUnits != nil || result.RemainingWork != nil || len(result.Diagnostics) != 0 {
+		return fmt.Errorf("operation error result cannot claim checkpoint progress or include diagnostics")
+	}
+	if result.ErrorCode != ErrorCodeStorageCloseFailed &&
+		(result.Submission != nil || result.Source != nil || result.SourceWithheld ||
+			result.BeforeDigest != "" || result.FinalizedDigest != "") {
+		return fmt.Errorf("pre-run operation error cannot include submission, source, or checkpoint references")
+	}
+	if result.SourceWithheld && result.Source != nil {
+		return fmt.Errorf("withheld checkpoint source cannot be included")
+	}
+	if result.Submission != nil {
+		if result.Submission.Report != nil {
+			return fmt.Errorf("operation error result cannot include an unapproved submission report")
+		}
+		for _, diagnostic := range result.Submission.Diagnostics {
+			if diagnostic.Message != CapturedDiagnosticMessage {
+				return fmt.Errorf("operation error result contains an unprojected submission diagnostic")
+			}
+		}
+		if _, err := runnerunit.EncodeSubmissionResult(*result.Submission); err != nil {
+			return err
+		}
+	}
+	if result.Source != nil {
+		if _, err := executioncheckpoint.Encode(*result.Source); err != nil {
+			return err
+		}
+		if err := validateOperationSourceLinkage(result.Source, result.Submission); err != nil {
+			return err
+		}
+	}
+	if result.Submission == nil && (result.BeforeDigest != "" || result.FinalizedDigest != "") {
+		return fmt.Errorf("checkpoint references require their admitted submission")
+	}
+	return nil
+}
+
+func validateOperationSourceLinkage(source *executioncheckpoint.Checkpoint, submission *runnerunit.Submission) error {
+	if submission == nil || submission.Reservation == nil {
+		return fmt.Errorf("%w: checkpoint source requires its exact admitted reservation", errSourceLinkage)
+	}
+	if source.Compatibility.Work != submission.Reservation.Logical.Work {
+		return fmt.Errorf("%w: checkpoint source work contradicts the admitted submission", errSourceLinkage)
+	}
+	reservation, err := executionattempt.EncodeAttempt(*submission.Reservation)
+	if err != nil {
+		return err
+	}
+	switch source.Boundary {
+	case executioncheckpoint.BeforeUnit:
+		if submission.Reservation.Parent == nil ||
+			*submission.Reservation.Parent != (executionattempt.Parent{
+				ExecutionID: source.ExecutionID, Relationship: "retry",
+			}) || submission.Reservation.ExecutionID == source.ExecutionID {
+			return fmt.Errorf("%w: before restore does not retain its exact original parent and fresh child", errSourceLinkage)
+		}
+	case executioncheckpoint.FinalizedUnit:
+		if submission.Completion == nil {
+			return fmt.Errorf("%w: finalized checkpoint source requires its exact admitted completion", errSourceLinkage)
+		}
+		completion, err := executionledger.EncodeCompletion(*submission.Completion)
+		if err != nil {
+			return err
+		}
+		if submission.Reservation.ExecutionID != source.ExecutionID ||
+			artifactmanifest.Hash(reservation) != source.ReservationDigest ||
+			artifactmanifest.Hash(completion) != source.CompletionDigest ||
+			submission.Completion.ManifestDigest != source.ManifestDigest {
+			return fmt.Errorf("%w: finalized restore differs from its exact original checkpoint source", errSourceLinkage)
+		}
+	default:
+		return fmt.Errorf("operation error result has an unsupported checkpoint source boundary")
 	}
 	return nil
 }

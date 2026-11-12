@@ -7,18 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executionledger"
-	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // SubmissionHooks are embedding-host callbacks, never caller JSON. Reserved
@@ -84,21 +81,9 @@ func (s *Submission) fail(code string, err error) {
 
 func reportBytes(report Report) ([]byte, error) { return json.Marshal(report) }
 
-var runnerUnitReportSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
-	return compileSubmissionSchema("runner-unit-1.0.schema.json")
-})
-
 func validateSourceReport(data []byte, source *executionledger.CompletedExecution, terminal *runnerterminal.Envelope) error {
-	doc, err := jsonutil.Parse(data)
-	if err != nil {
+	if err := validateRunnerUnitReport(data); err != nil {
 		return err
-	}
-	schema, err := runnerUnitReportSchema()
-	if err != nil {
-		return err
-	}
-	if err := schema.Validate(doc); err != nil {
-		return fmt.Errorf("source report schema: %w", err)
 	}
 	report, err := decodeSubmissionReport(data)
 	if err != nil {

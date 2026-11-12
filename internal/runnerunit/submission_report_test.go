@@ -13,6 +13,7 @@ import (
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerterminal"
 )
 
 func BenchmarkSubmitReportCapture(b *testing.B) {
@@ -73,7 +74,7 @@ func BenchmarkSubmitReportCapture(b *testing.B) {
 }
 
 func TestHistoricalSourceRequiresOriginalSelectionAndAdmission(t *testing.T) {
-	for _, control := range []string{"requested-task", "requested-attempt", "missing-requested", "invalid-validation", "incompatible", "adjacent-work", "valid-alternate-ordinal"} {
+	for _, control := range []string{"requested-task", "requested-attempt", "missing-requested", "invalid-validation", "incompatible", "unsupported-negotiation-version", "adjacent-work", "valid-alternate-ordinal"} {
 		t.Run(control, func(t *testing.T) {
 			backend := submissionBackend(t)
 			request := fixture(t)
@@ -103,6 +104,8 @@ func TestHistoricalSourceRequiresOriginalSelectionAndAdmission(t *testing.T) {
 				report.Validation = "invalid"
 			case "incompatible":
 				report.Compatibility.Status = "unsupported_version"
+			case "unsupported-negotiation-version":
+				report.Compatibility.Negotiation.Version = "2.0"
 			case "adjacent-work":
 				report.AdjacentWork = true
 			}
@@ -154,6 +157,38 @@ func TestHistoricalSourceRequiresOriginalSelectionAndAdmission(t *testing.T) {
 				t.Errorf("receipt decoder accepted invalid historical admission: %+v %v", parsed, err)
 			}
 		})
+	}
+}
+
+func TestHistoricalSourceRejectsExecutionModeMismatchWithoutObservation(t *testing.T) {
+	backend := submissionBackend(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var captured Report
+	var terminal runnerterminal.Envelope
+	result, err := NewService(nil).Submit(ctx, submissionWire(t, fixture(t), nil), backend, SubmissionHooks{
+		Reserved: func(context.Context, *executionledger.Ledger, executionledger.Creator, executionledger.Reservation) error {
+			cancel()
+			return nil
+		},
+		Artifacts: func(_ context.Context, _ *executionledger.Ledger, _ executionledger.Creator, snapshot SubmissionSnapshot) ([]SubmissionArtifact, error) {
+			captured, terminal = snapshot.ObservedReport, snapshot.Terminal
+			return nil, nil
+		},
+	})
+	if err != nil || result.Reservation == nil || captured.Observation != nil || terminal.Observation != nil {
+		t.Fatalf("fixture did not produce an admitted pre-runtime terminal: %+v %v", result, err)
+	}
+	captured.Mode = "copilot"
+	data, err := reportBytes(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &executionledger.CompletedExecution{
+		Reservation: executionledger.Reservation{Attempt: *result.Reservation},
+	}
+	if err := validateSourceReport(data, source, &terminal); err == nil || !strings.Contains(err.Error(), "execution mode") {
+		t.Fatalf("pre-runtime source report with a different execution mode was admitted: %v", err)
 	}
 }
 

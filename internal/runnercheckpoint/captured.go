@@ -2,18 +2,59 @@ package runnercheckpoint
 
 import (
 	"context"
+	"errors"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/ownedsubmission"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerunit"
 )
 
+const CapturedDiagnosticMessage = "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld."
+
 // RejectPublic withholds native input, provider locations and operator causes.
 func RejectPublic(code string) Result {
 	result := newResult()
 	result.fail(code)
+	return result
+}
+
+// OperationErrorResult reports an operational failure before a submission or
+// source has been admitted. Operator causes must be logged separately.
+func OperationErrorResult(code string) Result {
+	result := newResult()
+	result.SchemaVersion = "1.1"
+	result.Status = "operation_error"
+	result.ExitCode = 2
+	result.ErrorCode = code
+	result.CompatibilityResult = "unavailable"
+	result.CompatibilityDifferences = []string{}
+	result.RestoredUnits, result.RemainingWork = nil, nil
+	result.Diagnostics = []runnercontract.Diagnostic{}
+	return result
+}
+
+// WithOperationError retains only declarations already projected by the
+// capture policy while replacing the operation outcome with the versioned
+// operational-failure profile.
+func WithOperationError(result Result, code string) Result {
+	if code == ErrorCodeStorageCloseFailed && result.Source != nil {
+		if _, err := executioncheckpoint.Encode(*result.Source); err == nil &&
+			errors.Is(validateOperationSourceLinkage(result.Source, result.Submission), errSourceLinkage) {
+			result.Source = nil
+			result.SourceWithheld = true
+		}
+	}
+	result.SchemaVersion = "1.1"
+	result.Status = "operation_error"
+	result.ExitCode = 2
+	result.ErrorCode = code
+	result.CompatibilityResult = "unavailable"
+	result.CompatibilityDifferences = []string{}
+	result.RestoredUnits, result.RemainingWork = nil, nil
+	result.Diagnostics = []runnercontract.Diagnostic{}
 	return result
 }
 
@@ -96,7 +137,7 @@ func publicDiagnostics(original []runnercontract.Diagnostic) []runnercontract.Di
 	for i, diagnostic := range original {
 		result[i] = runnercontract.Diagnostic{
 			Code:    diagnostic.Code,
-			Message: "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.",
+			Message: CapturedDiagnosticMessage,
 		}
 	}
 	return result

@@ -20,6 +20,14 @@ func newRunnerCheckpointCommand(service *runnerunit.Service) *cobra.Command {
 }
 
 func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revision func() (string, error)) *cobra.Command {
+	return newRunnerCheckpointCommandWithBackend(service, revision, artifactmanifest.OpenBackend)
+}
+
+func newRunnerCheckpointCommandWithBackend(
+	service *runnerunit.Service,
+	revision func() (string, error),
+	openBackend func(string, string) (artifactmanifest.Backend, func() error, error),
+) *cobra.Command {
 	var directory, azureURL string
 	cmd := &cobra.Command{
 		Use: "checkpoint", Short: "Create or restore immutable exact-unit checkpoints from captured submission JSON",
@@ -33,6 +41,14 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 			return &ExitCodeError{Code: 2, Err: fmt.Errorf("validating checkpoint operation output: %w", err)}
 		}
 		return emitRunnerOperationJSON(cmd, data, result.ExitCode, result.Status)
+	}
+	rejectWithDiagnostic := func(cmd *cobra.Command, code, stage string, cause error) error {
+		_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint %s: %v\n", stage, cause)
+		return errors.Join(emit(cmd, runnercheckpoint.RejectPublic(code)), diagnosticErr)
+	}
+	operationFailure := func(cmd *cobra.Command, code, stage string, cause error) error {
+		_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint %s: %v\n", stage, cause)
+		return errors.Join(emit(cmd, runnercheckpoint.OperationErrorResult(code)), diagnosticErr)
 	}
 	for _, action := range []string{"create", "resume"} {
 		unit := &cobra.Command{
@@ -54,23 +70,22 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 				defer stop()
 				data, err := readRunnerInputLimit(ctx, cmd.InOrStdin(), runnerunit.MaxSubmissionBytes)
 				if err != nil {
-					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_input_unavailable"))
+					return rejectWithDiagnostic(cmd, "checkpoint_input_unavailable", "input read", err)
 				}
 				if _, err := runnerunit.ParseSubmission(data); err != nil {
-					return emit(cmd, runnercheckpoint.RejectPublic("checkpoint_input_invalid"))
+					return rejectWithDiagnostic(cmd, "checkpoint_input_invalid", "input admission", err)
 				}
 				buildRevision, err := revision()
 				if err != nil {
-					_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint build admission: %v\n", err)
-					return errors.Join(emit(cmd, runnercheckpoint.RejectPublic("checkpoint_build_incompatible")), diagnosticErr)
+					return operationFailure(cmd, runnercheckpoint.ErrorCodeBuildUnavailable, "build admission", err)
 				}
 				checkpoints, err := runnercheckpoint.NewService(service, buildRevision)
 				if err != nil {
-					return &ExitCodeError{Code: 2, Err: err}
+					return operationFailure(cmd, runnercheckpoint.ErrorCodeRunnerUnavailable, "runner admission", err)
 				}
-				backend, closeBackend, err := artifactmanifest.OpenBackend(directory, azureURL)
+				backend, closeBackend, err := openBackend(directory, azureURL)
 				if err != nil {
-					return &ExitCodeError{Code: 2, Err: fmt.Errorf("opening checkpoint store: %w", err)}
+					return operationFailure(cmd, runnercheckpoint.ErrorCodeStorageUnavailable, "store open", err)
 				}
 				observers := runnercheckpoint.Hooks{Published: func(_ context.Context, reference runnercheckpoint.Reference) error {
 					_, err := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint %s %s\n", reference.Boundary, reference.Digest)
@@ -83,7 +98,13 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 					result, err = checkpoints.SubmitCaptured(ctx, data, backend, observers)
 				}
 				if closeErr := closeBackend(); closeErr != nil {
-					return &ExitCodeError{Code: 2, Err: errors.Join(err, fmt.Errorf("closing checkpoint store: %w", closeErr))}
+					var diagnosticErr error
+					if err != nil {
+						_, diagnosticErr = fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint operation: %v\n", err)
+					}
+					_, closeDiagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint store close: %v\n", closeErr)
+					result = runnercheckpoint.WithOperationError(result, runnercheckpoint.ErrorCodeStorageCloseFailed)
+					return errors.Join(emit(cmd, result), diagnosticErr, closeDiagnosticErr)
 				}
 				var diagnosticErr error
 				if err != nil {
@@ -96,8 +117,7 @@ func newRunnerCheckpointCommandWithRevision(service *runnerunit.Service, revisio
 			unit.Use = "resume CHECKPOINT_SHA256"
 		}
 		unit.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
-			_, diagnosticErr := fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint flags: %v\n", err)
-			return errors.Join(emit(cmd, runnercheckpoint.RejectPublic("checkpoint_flags_invalid")), diagnosticErr)
+			return rejectWithDiagnostic(cmd, "checkpoint_flags_invalid", "flags", err)
 		})
 		cmd.AddCommand(unit)
 	}

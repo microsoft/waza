@@ -35,7 +35,7 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 	for _, setting := range info.Settings {
 		settings[setting.Key] = setting.Value
 	}
-	require.Equal(t, "false", settings["vcs.modified"], "recovery requires an actual clean VCS-stamped CLI; commit source before running this process fixture")
+	require.Equal(t, "false", settings["vcs.modified"], "the test-owned source snapshot must have genuine clean VCS provenance")
 	require.Len(t, settings["vcs.revision"], 40)
 
 	for _, action := range []string{"create", "resume"} {
@@ -66,6 +66,63 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 		})
 	}
 
+	invalidInput := []byte("{")
+	_, parserErr := runnerunit.ParseSubmission(invalidInput)
+	require.Error(t, parserErr)
+	for _, stage := range []string{"read", "admission"} {
+		t.Run("stdin-"+stage+"-diagnostics", func(t *testing.T) {
+			directory := filepath.Join(t.TempDir(), "must-not-open")
+			command := exec.CommandContext(t.Context(), binary, "runner", "checkpoint", "create", "--store", directory)
+			code, cause := "checkpoint_input_invalid", parserErr.Error()
+			command.Stdin = bytes.NewReader(invalidInput)
+			if stage == "read" {
+				input, err := os.Open(t.TempDir())
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, input.Close()) })
+				command.Stdin = input
+				code, cause = "checkpoint_input_unavailable", "is a directory"
+			}
+			var output, diagnostic bytes.Buffer
+			command.Stdout, command.Stderr = &output, &diagnostic
+			err := command.Run()
+			exit, ok := errors.AsType[*exec.ExitError](err)
+			require.True(t, ok, "%v", err)
+			result, err := runnercheckpoint.ParseResult(output.Bytes())
+			require.NoError(t, err, "%s", output.Bytes())
+			require.Equal(t, 6, exit.ExitCode())
+			require.Equal(t, exit.ExitCode(), result.ExitCode)
+			require.Equal(t, code, result.Diagnostics[0].Code)
+			require.Equal(t, 1, bytes.Count(output.Bytes(), []byte{'\n'}))
+			require.Contains(t, diagnostic.String(), "checkpoint input "+stage+":")
+			if stage == "admission" {
+				require.Contains(t, strings.Split(diagnostic.String(), "\n"), "checkpoint input admission: "+cause)
+			} else {
+				require.Contains(t, diagnostic.String(), cause)
+			}
+			require.NotContains(t, output.String(), cause)
+			require.NoDirExists(t, directory)
+		})
+	}
+
+	t.Run("unblocked-create", func(t *testing.T) {
+		directory := t.TempDir()
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		child := exec.CommandContext(ctx, binary, "runner", "checkpoint", "create", "--store", directory)
+		child.Stdin = bytes.NewReader(checkpointCLIWire(t))
+		var output, diagnostic bytes.Buffer
+		child.Stdout, child.Stderr = &output, &diagnostic
+		require.NoError(t, child.Run(), "%s", diagnostic.String())
+		result, err := runnercheckpoint.ParseResult(output.Bytes())
+		require.NoError(t, err)
+		require.Equal(t, "completed", result.Status)
+		require.Zero(t, result.ExitCode)
+		require.Equal(t, 1, result.Submission.EngineCalls)
+		require.NotNil(t, result.Submission.Completion)
+		require.NotEmpty(t, result.BeforeDigest)
+		require.NotEmpty(t, result.FinalizedDigest)
+	})
+
 	for _, control := range []struct {
 		name, boundary string
 		failedChecks   bool
@@ -86,6 +143,15 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 			require.Equal(t, settings["vcs.revision"], source.Compatibility.RunnerRevision)
 			original, err := os.ReadFile(filepath.Join(directory, "blob-"+digest))
 			require.NoError(t, err)
+			entries, err := os.ReadDir(directory)
+			require.NoError(t, err)
+			retained := make(map[string][]byte, len(entries))
+			for _, entry := range entries {
+				data, err := os.ReadFile(filepath.Join(directory, entry.Name()))
+				require.NoError(t, err)
+				retained[entry.Name()] = data
+			}
+			require.NotEmpty(t, retained)
 			backend, err := artifactmanifest.OpenLocal(directory)
 			require.NoError(t, err)
 			defer backend.Close() //nolint:errcheck
@@ -145,6 +211,11 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 			preserved, err := os.ReadFile(filepath.Join(directory, "blob-"+digest))
 			require.NoError(t, err)
 			require.Equal(t, original, preserved)
+			for name, expected := range retained {
+				actual, err := os.ReadFile(filepath.Join(directory, name))
+				require.NoError(t, err)
+				require.Equal(t, expected, actual, "fresh child must preserve original store record %s", name)
+			}
 		})
 	}
 
@@ -190,33 +261,9 @@ func TestCheckpointProductionProcessRecovery(t *testing.T) {
 
 func buildCheckpointRecoveryCLI(t *testing.T) string {
 	t.Helper()
-	root, err := exec.CommandContext(t.Context(), "git", "rev-parse", "--show-toplevel").Output()
+	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
-	directory := strings.TrimSpace(string(root))
-	diff := exec.CommandContext(t.Context(), "git", "diff", "--exit-code", "HEAD", "--",
-		"*.go", "cmd", "internal", "schemas", "web", "docs/graders", "go.mod", "go.sum")
-	diff.Dir = directory
-	log, err := diff.CombinedOutput()
-	require.NoError(t, err, "commit changed build inputs before the clean revision fixture: %s", log)
-	untracked := exec.CommandContext(t.Context(), "git", "ls-files", "--others", "--exclude-standard", "--",
-		"*.go", "go.mod", "go.sum", "schemas/", "docs/graders/")
-	untracked.Dir = directory
-	log, err = untracked.CombinedOutput()
-	require.NoError(t, err)
-	require.Empty(t, log, "commit new Go/schema build inputs rather than testing an older HEAD")
-
-	snapshot := filepath.Join(t.TempDir(), "source")
-	commands := [][]string{
-		{"clone", "--quiet", "--shared", "--single-branch", "--no-tags", "--no-checkout", directory, snapshot},
-		{"-C", snapshot, "sparse-checkout", "set", "--cone", "cmd", "internal", "schemas", "web", "docs/graders"},
-		{"-C", snapshot, "checkout", "--quiet", "--detach", "HEAD"},
-	}
-	for _, args := range commands {
-		command := exec.CommandContext(t.Context(), "git", append([]string{"-c", "core.hooksPath=/dev/null"}, args...)...)
-		command.Env = append(os.Environ(), "GIT_LFS_SKIP_SMUDGE=1", "GIT_TERMINAL_PROMPT=0")
-		log, err := command.CombinedOutput()
-		require.NoError(t, err, "preparing private clean committed source: %s", log)
-	}
+	snapshot := checkpointSourceSnapshot(t, root)
 	return buildRecoveryCLIFromDirectory(t, filepath.Join(snapshot, "cmd", "waza"))
 }
 
@@ -300,6 +347,19 @@ func killCheckpointProcessAtBoundary(t *testing.T, binary, directory string, wir
 		}
 		require.NoError(t, syscall.PtraceSyscall(tid, signal))
 	}
+	backend, err := artifactmanifest.OpenLocal(directory)
+	require.NoError(t, err)
+	ledger, err := executionledger.New(backend)
+	require.NoError(t, err)
+	if boundary == executioncheckpoint.BeforeUnit {
+		_, err = executioncheckpoint.ReadBefore(ctx, ledger, *source, source.Compatibility)
+		require.NoError(t, err, "live stopped publisher must retain reserved/undispatched/incomplete source")
+	} else {
+		completed, readErr := executioncheckpoint.ReadStoredFinalized(ctx, ledger, *source, source.Compatibility)
+		require.NoError(t, readErr, "live stopped publisher must already retain verified finalized evidence")
+		require.NotEmpty(t, completed.Publication.ArtifactBytes[completed.Publication.Manifest.TerminalArtifact])
+	}
+	require.NoError(t, backend.Close())
 	require.NoError(t, child.Process.Kill())
 	status, err := reap()
 	require.NoError(t, err)

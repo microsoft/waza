@@ -113,9 +113,25 @@ Public commands use this wrapper bound, not the bare runner-request bound.
 The CLI accepts the existing private store through `--store` or an explicit Azure
 container through `--azure-container-url`; those flags are mutually exclusive.
 It writes one capture-approved `waza.runner-checkpoint-result` record to stdout
-and boundary/digest progress to stderr. Save stdout even when the exit is nonzero:
-reused failure, cancellation, and timeout preserve their original exit codes.
-An output or storage-close failure exits 2 and is not successful delivery.
+and boundary/digest progress to stderr. Ordinary success, rejection, and
+checkpoint results retain strict schema version `1.0`. Store-open/close
+operational failures use schema version `1.1`, top-level `operation_error`,
+exit code `2`, and an allowlisted sanitized `error_code`; no submission or
+source is fabricated before admission. Save stdout even when the exit is
+nonzero: a close failure after execution preserves the capture-approved
+submission, source and checkpoint references when their linkage is valid,
+including the submission's original status and exit. If an admitted source
+cannot be linked to the retained submission, it is withheld and
+`source_withheld` is true. The CLI writes underlying causes to operator stderr;
+server operational logs may include causes, but submission-parser failures log
+only the failure stage, action and guidance, not the parser error or request.
+Consumers must treat the levels separately: top-level exit `2` can coexist with
+a preserved completed or reused submission whose nested exit is `0`.
+The Lab reader performs schema and cross-field checks locally, but does not
+perform native canonical-report checks. For report-bearing 1.0 results it
+therefore labels operation and submission statuses and exit codes as unverified
+claims, not verified outcomes.
+An output failure exits 2 and is not successful delivery.
 See the [operator workflow](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
 The dashboard server registers `POST /api/v1/checkpoints` and
@@ -142,6 +158,11 @@ reservation digest before display or download. This checks declaration linkage,
 not storage integrity or execution authority.
 Resume source declarations must also hash to the requested checkpoint digest,
 independent of response object-key order, before display or download.
+Compatible resumes also require the native request-policy digest for the current
+versions, required/optional capabilities and explicit paid-execution consent.
+Native-valid reordered policy arrays remain equivalent; consent-only changes
+do not. The decision's full selection must match the admitted current attempt,
+while the reused original reservation and terminal retain their older attempt.
 A completed resume, including a partial publication failure, without a source is
 rejected unless the failure explicitly withholds it. Source-withheld failures remain
 available with their recorded unavailable progress.
@@ -161,8 +182,8 @@ joins, independent of the original request timeout and cancellation. Compatibili
 native selection and full identity checks share one original-wire declaration;
 creator validation and immutable persistence still use that bounded publication
 context. A large accepted prompt must not trigger redundant identity derivation
-inside this budget. Deadline failures retain phase timings and the underlying
-context error; they do not imply that submission admission or execution failed.
+inside this budget. Deadline failures retain the underlying context error; they
+do not imply that submission admission or execution failed.
 
 Negotiation uses `runnercontract.NegotiateValidatedRequest` only after `Parse`
 validates the original full-request wire. This helper performs capability/version
@@ -187,13 +208,11 @@ Submission and both recovery adapters avoid HTML escaping of admitted request
 JSON. Literal `<`, `>` and `&` in captured inputs do not expand solely because
 the adapter wraps the request; original request-size bounds still apply.
 
-Creator-validation failures retain elapsed declaration phases and context states
-alongside the original error cause. Inspect compatibility, selection and identity
-work separately from the retained-reservation and provider-validation phases;
-phase timings are diagnostics, not execution or recovery evidence. Publication
-budgets are unchanged. A timeout remains a publication failure: preserve the
+Creator-validation failures retain the original error cause. The request
+declaration is derived before publication, and creator validation uses the
+publication context. A timeout remains a publication failure: preserve the
 original completion and any reported unverified blob rather than retrying.
-The CLI sends underlying operation and flag-parsing errors to bounded operator stderr while
+The CLI sends underlying input, build, operation and flag-parsing errors to bounded operator stderr while
 keeping the public JSON diagnostic sanitized. Conflicting store flags also use
 the single-record JSON rejection path. Build-revision admission failures retain
 their actionable cause and rebuild guidance on operator stderr as well.
@@ -213,8 +232,12 @@ they are not production CLI/clean-build, live-inference, native Windows, or Lab
 evidence. The root test process skips two Unix permission-denial cases; those
 same compiled cases are separately executed under a non-root identity.
 
-The additional Linux production-process fixture builds the ordinary owning CLI
-from an isolated clean checkout of committed build inputs. A Linux syscall tracer
+The additional Linux production-process fixture discovers the current native
+build inputs with `go list`, including modified/new source and ignored embedded
+assets, verifies their copied bytes, and commits only that snapshot in a private
+test-owned repository. The caller's checkout need not be clean. One ordinary CLI
+build carries the genuine fixture-local revision and is reused across recovery
+controls. A Linux syscall tracer
 stops the unchanged binary when the actual immutable boundary blob becomes visible,
 kills and reaps it, and joins its output-copy goroutines before starting a fresh
 CLI. It does not use a bounded diagnostic write or a wall-clock pause as a barrier.

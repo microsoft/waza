@@ -133,21 +133,88 @@ func requireRunnerStartupInput(t *testing.T, ctx context.Context, cancel context
 	require.Equal(t, len(payload), n, "readiness requires the complete oversized input write")
 }
 
+var errRunnerStartupWriteGuard = errors.New("runner startup write exceeded completion guard")
+
+func startRunnerStartupWrite(t *testing.T, writer *os.File, write func() (int, error)) func() (int, error) {
+	t.Helper()
+	var n int
+	var err error
+	done := make(chan struct{})
+	go func() {
+		n, err = write()
+		close(done)
+	}()
+	closeWriter := func() {
+		if err := writer.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			t.Errorf("closing fixture-owned startup writer: %v", err)
+		}
+	}
+	join := func() {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("fixture-owned startup writer did not join after close")
+		}
+	}
+	t.Cleanup(func() {
+		closeWriter()
+		join()
+	})
+	return func() (int, error) {
+		select {
+		case <-done:
+			return n, err
+		case <-time.After(time.Second):
+			closeWriter()
+			join()
+			return n, errors.Join(errRunnerStartupWriteGuard, err)
+		}
+	}
+}
+
 func TestRunnerStartupInputWriteBound(t *testing.T) {
+	t.Run("expired before write preserves empty pipe", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, reader.Close()) })
+		peer := duplicateRunnerFD(t, reader)
+		t.Cleanup(func() { require.NoError(t, peer.Close()) })
+		before := runnerFDFlags(t, peer)
+		payload := bytes.Repeat([]byte("x"), 2<<20)
+		ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+		defer cancel()
+		require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+		wait := startRunnerStartupWrite(t, writer, func() (int, error) {
+			return writeRunnerStartupInput(ctx, writer, payload)
+		})
+		n, err := wait()
+		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+		require.Zero(t, n)
+		require.Equal(t, before, runnerFDFlags(t, peer))
+		// duplicateRunnerFD calls reader.Fd(), which leaves the reader blocking so read
+		// deadlines are inert; closing the only writer bounds the read with EOF instead.
+		require.NoError(t, writer.Close())
+		got, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		require.Empty(t, got, "an expired-before-write deadline must not admit payload bytes")
+	})
 	t.Run("retained readers cannot outlive write deadline", func(t *testing.T) {
 		reader, writer, err := os.Pipe()
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, reader.Close()) })
-		t.Cleanup(func() { require.NoError(t, writer.Close()) })
 		peer := duplicateRunnerFD(t, reader)
 		t.Cleanup(func() { require.NoError(t, peer.Close()) })
 		before := runnerFDFlags(t, peer)
+		payload := bytes.Repeat([]byte("x"), 2<<20)
 		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 		defer cancel()
-		payload := bytes.Repeat([]byte("x"), 2<<20)
-		n, err := writeRunnerStartupInput(ctx, writer, payload)
+		wait := startRunnerStartupWrite(t, writer, func() (int, error) {
+			return writeRunnerStartupInput(ctx, writer, payload)
+		})
+		n, err := wait()
 		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
-		require.Positive(t, n, "the actual native pipe must receive a partial write")
+		require.NotErrorIs(t, err, errRunnerStartupWriteGuard)
+		require.GreaterOrEqual(t, n, 0)
 		require.Less(t, n, len(payload), "retained readers must not turn incomplete startup into readiness")
 		require.Equal(t, before, runnerFDFlags(t, peer), "write deadlines must not mutate inherited reader flags")
 		require.NoError(t, reader.SetReadDeadline(time.Now().Add(time.Second)))
@@ -156,14 +223,58 @@ func TestRunnerStartupInputWriteBound(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, payload[:n], got, "deadline failure must preserve the actual accepted bytes")
 	})
+	t.Run("controlled native partial write preserves acknowledged bytes", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, reader.Close()) })
+		peer := duplicateRunnerFD(t, reader)
+		t.Cleanup(func() { require.NoError(t, peer.Close()) })
+		before := runnerFDFlags(t, peer)
+		payload := bytes.Repeat([]byte("x"), 2<<20)
+		wait := startRunnerStartupWrite(t, writer, func() (int, error) {
+			return writer.Write(payload)
+		})
+		require.NoError(t, reader.SetReadDeadline(time.Now().Add(time.Second)))
+		ack := make([]byte, 1)
+		_, err = io.ReadFull(reader, ack)
+		require.NoError(t, err, "native write progress must precede forced expiry")
+		require.NoError(t, writer.SetWriteDeadline(time.Now()))
+		n, err := wait()
+		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+		require.NotErrorIs(t, err, errRunnerStartupWriteGuard)
+		require.Positive(t, n)
+		require.Less(t, n, len(payload))
+		require.Equal(t, before, runnerFDFlags(t, peer))
+		require.NoError(t, reader.SetReadDeadline(time.Now().Add(time.Second)))
+		remainder := make([]byte, n-1)
+		_, err = io.ReadFull(reader, remainder)
+		require.NoError(t, err)
+		require.Equal(t, payload[:n], append(ack, remainder...), "n includes the already acknowledged byte")
+	})
+	t.Run("missing write deadline mutant is bounded and joined", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, reader.Close()) })
+		payload := bytes.Repeat([]byte("x"), 2<<20)
+		wait := startRunnerStartupWrite(t, writer, func() (int, error) {
+			return writer.Write(payload)
+		})
+		n, err := wait()
+		require.ErrorIs(t, err, errRunnerStartupWriteGuard)
+		require.ErrorIs(t, err, os.ErrClosed)
+		require.Less(t, n, len(payload))
+		// SetWriteDeadline surfaces the unwrapped poll error; Write maps closure to os.ErrClosed.
+		_, err = writer.Write([]byte("x"))
+		require.ErrorIs(t, err, os.ErrClosed)
+	})
 	t.Run("draining reader completes", func(t *testing.T) {
 		reader, writer, err := os.Pipe()
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, reader.Close()) })
-		t.Cleanup(func() { require.NoError(t, writer.Close()) })
+		payload := bytes.Repeat([]byte("x"), 2<<20)
+		drained := make([]byte, len(payload))
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
-		payload := bytes.Repeat([]byte("x"), 2<<20)
 		require.NoError(t, reader.SetReadDeadline(time.Now().Add(time.Second)))
 		type readResult struct {
 			data []byte
@@ -171,11 +282,13 @@ func TestRunnerStartupInputWriteBound(t *testing.T) {
 		}
 		done := make(chan readResult, 1)
 		go func() {
-			data := make([]byte, len(payload))
-			_, err := io.ReadFull(reader, data)
-			done <- readResult{data, err}
+			_, err := io.ReadFull(reader, drained)
+			done <- readResult{drained, err}
 		}()
-		n, err := writeRunnerStartupInput(ctx, writer, payload)
+		wait := startRunnerStartupWrite(t, writer, func() (int, error) {
+			return writeRunnerStartupInput(ctx, writer, payload)
+		})
+		n, err := wait()
 		result := <-done
 		require.NoError(t, err)
 		require.Equal(t, len(payload), n)

@@ -3,7 +3,8 @@ import type { CheckpointOperationResult } from "../api/checkpointResults";
 export default function CheckpointResult({ result }: { result: CheckpointOperationResult }) {
   const submission = result.submission;
   const terminal = submission?.terminal;
-  const failed = result.status === "rejected" || result.status === "submission_error" || result.status === "checkpoint_error";
+  const failed = result.status === "rejected" || result.status === "submission_error" ||
+    result.status === "checkpoint_error" || result.status === "operation_error";
   return (
     <div role={failed ? "alert" : "status"} aria-label="Checkpoint operation result">
       <h3>{failed ? "Checkpoint operation did not complete" : "Checkpoint operation completed"}</h3>
@@ -11,9 +12,10 @@ export default function CheckpointResult({ result }: { result: CheckpointOperati
       <dl>
         <dt>Operation status</dt><dd>{result.status}</dd>
         <dt>Exit code</dt><dd>{result.exit_code}</dd>
+        {result.error_code && <><dt>Sanitized operation error</dt><dd>{result.error_code}</dd></>}
         <dt>Source boundary</dt><dd>{result.source?.boundary ?? "Unavailable"}</dd>
         <dt>Source disclosure</dt><dd>{result.source_withheld
-          ? "Withheld - capture admission did not succeed" : result.source ? "Admitted original declaration" : "Unavailable"}</dd>
+          ? "Withheld - source admission or linkage did not succeed" : result.source ? "Admitted original declaration" : "Unavailable"}</dd>
         <dt>Source created (UTC)</dt><dd>{result.source
           ? <time dateTime={result.source.created_at}>{result.source.created_at}</time> : "Unavailable"}</dd>
         <dt>Compatibility</dt><dd>{result.compatibility_result}</dd>

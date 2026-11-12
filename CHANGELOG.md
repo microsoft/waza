@@ -56,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Write configured reports after completed grading failures while retaining the
+  grading error and any report write error (#892).
+
 - **Cancellation force-stop join** - When a canceled send or disconnect finishes
   during forced cleanup, join the force-stop callback within the remaining
   post-force grace instead of prematurely retiring its client. A callback that

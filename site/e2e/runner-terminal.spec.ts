@@ -37,6 +37,7 @@ test('attempt preview links serve exact independent sidecar schemas below the de
     ['submission-result schema', 'execution-submission-result-1.0.schema.json'],
     ['checkpoint schema', 'execution-checkpoint-1.0.schema.json'],
     ['checkpoint-result schema', 'runner-checkpoint-result-1.0.schema.json'],
+    ['checkpoint operation error schema', 'runner-checkpoint-result-1.1.schema.json'],
   ]) {
     const link = page.getByRole('link', { name: label, exact: true });
     const href = await link.getAttribute('href');

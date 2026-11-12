@@ -1,4 +1,14 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+
+test('aggregate schema is published at its declared URL with exact source content', async ({ request }) => {
+  const filename = 'manifest-aggregate-1.0.schema.json';
+  const schema = JSON.parse(readFileSync(new URL(`../../schemas/${filename}`, import.meta.url), 'utf8'));
+  const response = await request.get(new URL(schema.$id).pathname);
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-type']).toMatch(/^application\/(?:schema\+)?json(?:;|$)/);
+  expect(await response.json()).toEqual(schema);
+});
 
 test('aggregate guide navigation preserves the deployed base and population contract', async ({ page }) => {
   await page.goto('/waza/guides/immutable-artifacts/');
@@ -15,6 +25,8 @@ test('aggregate guide navigation preserves the deployed base and population cont
   await expect(content).toContainText('Incomplete/conflicting reports are still emitted and saved');
   await expect(content).toContainText('historical_usage');
   await expect(content).toContainText('Unknown versions are explicit unsupported/invalid inputs');
+  await expect(content.getByRole('link', { name: 'Aggregate schema 1.0', exact: true }))
+    .toHaveAttribute('href', '../../schemas/manifest-aggregate-1.0.schema.json');
   await expect(content.getByRole('link', { name: 'immutable publication workflow' }))
     .toHaveAttribute('href', '../immutable-artifacts/');
 });

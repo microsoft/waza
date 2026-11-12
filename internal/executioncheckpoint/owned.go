@@ -11,15 +11,24 @@ import (
 	"github.com/microsoft/waza/internal/executionledger"
 )
 
-// PublishFinalized requires a live creator and its exact original reservation,
-// plus the original admitted request and an already-completed publication.
-// The runner caller must retain that original request, provide its actual build
-// revision and join execution before invoking this function. It does not admit
-// or execute a unit, create a completion, or authenticate external runtimes.
+// PublishFinalized derives the original request declaration before publishing.
 func PublishFinalized(ctx context.Context, backend artifactmanifest.Backend, ledger *executionledger.Ledger,
 	creator executionledger.Creator, request []byte, revision, manifestDigest string,
 ) (string, error) {
-	checkpoint, reserved, err := creatorDeclaration(ctx, ledger, creator, request, revision, FinalizedUnit)
+	declaration, err := DeclareRequest(request, revision)
+	if err != nil {
+		return "", err
+	}
+	return PublishFinalizedDeclared(ctx, backend, ledger, creator, declaration, manifestDigest)
+}
+
+// PublishFinalizedDeclared requires a live creator and its exact original
+// reservation plus an already-completed publication. It does not execute a
+// unit, create a completion, or authenticate external runtimes.
+func PublishFinalizedDeclared(ctx context.Context, backend artifactmanifest.Backend, ledger *executionledger.Ledger,
+	creator executionledger.Creator, declaration RequestDeclaration, manifestDigest string,
+) (string, error) {
+	checkpoint, reserved, err := creatorDeclaration(ctx, ledger, creator, declaration, FinalizedUnit)
 	if err != nil {
 		return "", err
 	}
@@ -49,38 +58,20 @@ func PublishFinalized(ctx context.Context, backend artifactmanifest.Backend, led
 }
 
 func creatorDeclaration(ctx context.Context, ledger *executionledger.Ledger, creator executionledger.Creator,
-	request []byte, revision, boundary string,
+	declaration RequestDeclaration, boundary string,
 ) (Checkpoint, *executionledger.Reservation, error) {
-	started, entryContextErr := time.Now(), ctx.Err()
 	reserved, err := ledger.Reservation(creator)
 	if err != nil {
 		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w", err)
 	}
-	original := bytes.Clone(request)
-	compatibilityStarted := time.Now()
-	declaration, err := declareRequest(original, revision)
-	if err != nil {
-		return Checkpoint{}, nil, err
-	}
-	compatibilityDone, compatibilityContextErr := time.Now(), ctx.Err()
 	if declaration.selection != reserved.Attempt.Binding.Selection {
 		return Checkpoint{}, nil, fmt.Errorf("%w: request selection differs from the creator's original native tuple", ErrContext)
 	}
-	selectionDone, selectionContextErr := time.Now(), ctx.Err()
 	if declaration.identity != reserved.Attempt.Binding.Identity {
 		return Checkpoint{}, nil, fmt.Errorf("%w: request does not retain the creator's full original identity and native ordinal", ErrContext)
 	}
-	identityDone, identityContextErr := time.Now(), ctx.Err()
 	if err := ledger.ValidateCreator(ctx, creator); err != nil {
-		finished := time.Now()
-		deadlineRemainingAtEntry := "none"
-		if deadline, ok := ctx.Deadline(); ok {
-			deadlineRemainingAtEntry = deadline.Sub(started).String()
-		}
-		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w (declaration_elapsed=%s retained_elapsed=%s compatibility_elapsed=%s selection_elapsed=%s identity_elapsed=%s creator_validation_elapsed=%s deadline_remaining_at_entry=%s entry_ctx_err=%v compatibility_ctx_err=%v selection_ctx_err=%v identity_ctx_err=%v final_ctx_err=%v)",
-			err, finished.Sub(started), compatibilityStarted.Sub(started), compatibilityDone.Sub(compatibilityStarted),
-			selectionDone.Sub(compatibilityDone), identityDone.Sub(selectionDone), finished.Sub(identityDone),
-			deadlineRemainingAtEntry, entryContextErr, compatibilityContextErr, selectionContextErr, identityContextErr, ctx.Err())
+		return Checkpoint{}, nil, fmt.Errorf("checkpoint creator: %w", err)
 	}
 	return Checkpoint{
 		Kind: "waza.execution-checkpoint", SchemaVersion: Version, Boundary: boundary,
