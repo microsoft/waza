@@ -71,17 +71,16 @@ actual Docker build is still required to verify container packaging.
 ## Proposed PR completeness gate
 
 Issue #900 adds an **additive gate, not a replacement for native Go checks**.
-The applicability and receipt controls are under implementation; the reusable
-workflow routing and current-head adoption evidence are not yet active. Do not
-require `PR completeness` in a ruleset until the migration below is reviewed and
-its actual workflow executions are verified.
+`go-ci.yml` now publishes a `completeness / PR completeness` check on ordinary
+pull requests. It is **not yet a required context**: do not require
+`PR completeness` in a ruleset until the migration below is reviewed and its
+actual workflow executions are verified.
 
-### Reusable plan/admission boundary (not activated)
+### Reusable plan/admission boundary
 
 `pr-completeness-plan.yml` and `pr-completeness-admission.yml` expose the
 same-run transport boundary without adding another runnable PR workflow. They
-have only `workflow_call` triggers. No current Go caller invokes them, so this
-layer does **not** publish an enforceable completeness result on ordinary PRs.
+have only `workflow_call` triggers; `go-ci.yml` is their only ordinary-PR caller.
 
 The plan job checks out the tested merge with both parents, invokes the existing
 source/path interpreter, uploads only `plan.json`, and exports the attempt-bound
@@ -127,15 +126,33 @@ unselected family. Contract step ids reuse the existing workflow ids (`tests`,
 execution. Plan-mode runs use a separate `-completeness` concurrency group so a
 caller cannot cancel or be cancelled by a standalone run.
 
-The next upper integration layer must first add genuine source-bound receipt
-interfaces to Go (including all four native shards and coverage gate). It must include the new admission adapter and controls
-in the applicability map, route metadata/retarget events and concurrency safely,
-wire the plan outputs into actual reusable producers, and call admission with
-`always()` and every required direct dependency. Only then can standalone ordinary
-PR triggers be consolidated without duplicate full-suite execution. Preserve the
-existing auxiliary receipt interfaces, current native Go gates and separate
-non-PR validation. Do not adopt a ruleset requirement before that wiring and the
-genuine current-head migration evidence below exist.
+### Go caller wiring
+
+On `pull_request` events `go-ci.yml` runs `pr-scope` (the plan workflow), then:
+
+- Every native Go job (`Lint`, Linux, Windows, the four native shards and the
+  coverage `linux-gate`) records its tested checkout and captures a `go` receipt
+  for its contract unit in an `always()` final step. Each job regenerates the
+  deterministic plan locally, so the required native jobs keep their existing
+  needs and stay unconditional; `go-native-shards.yml` captures receipts only
+  when its caller passes `pr_completeness: true`.
+- The `dashboard`, `documentation`, `assurance`, `container`, `tools` and
+  `runtime` jobs call the auxiliary reusable workflows with the plan artifact
+  only when the plan selects them; unselected families remain visible as
+  `not_applicable`.
+- `completeness` calls `pr-completeness-admission.yml` with `always()` and
+  `toJSON(needs)` over every job above, so a failed, cancelled or missing
+  producer fails the check.
+
+`TestGoCompletenessReceiptWiring` rejects removed step ids, unguarded or
+non-`always()` receipts, dropped dependencies and unwired callers.
+
+Remaining before adoption: route metadata/retarget (`edited`) events and their
+concurrency safely, then consolidate the auxiliary workflows' standalone
+`pull_request` triggers so full suites do not run twice. Preserve the existing
+auxiliary receipt interfaces, current native Go gates and separate non-PR
+validation. Do not adopt a ruleset requirement before the genuine current-head
+migration evidence below exists.
 
 The proposed ordinary-PR entrypoint is the existing Go workflow, with local
 reusable calls to the existing auxiliary validators. This avoids cross-run
