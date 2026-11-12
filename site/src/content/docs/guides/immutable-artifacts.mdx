@@ -113,6 +113,9 @@ admitted source without valid linkage is marked `source_withheld: true`.
 Raw causes stay on operator stderr/server logs. Consumers must keep the levels
 separate: top-level exit `2`
 can coexist with a preserved completed or reused submission's nested exit `0`.
+The Lab reader checks schemas and cross-field consistency locally, but does not
+perform native canonical-report checks. It labels statuses and exit codes in
+report-bearing 1.0 results as unverified claims, not verified outcomes.
 To restore the exact finalized source:
 
 ```bash

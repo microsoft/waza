@@ -125,6 +125,10 @@ cannot be linked to the retained submission, it is withheld and
 `source_withheld` is true. Raw causes remain operator-only on stderr/server logs.
 Consumers must treat the levels separately: top-level exit `2` can coexist with
 a preserved completed or reused submission whose nested exit is `0`.
+The Lab reader performs schema and cross-field checks locally, but does not
+perform native canonical-report checks. For report-bearing 1.0 results it
+therefore labels operation and submission statuses and exit codes as unverified
+claims, not verified outcomes.
 An output failure exits 2 and is not successful delivery.
 See the [operator workflow](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 

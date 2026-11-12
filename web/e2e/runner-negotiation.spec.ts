@@ -154,6 +154,7 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(failure).toContainText("Operation statusoperation_error");
     await expect(failure).toContainText("Sanitized error codecheckpoint_storage_close_failed");
     await expect(failure).not.toContainText("completed");
+    await expect(failure).not.toContainText("UNVERIFIED CLAIM");
 
     await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify({
       kind: "waza.runner-checkpoint-result",
@@ -169,6 +170,8 @@ test.describe("Runner negotiation through the real Go API", () => {
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
     await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
       .toContainText("Checkpoint result: rejected");
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .not.toContainText("UNVERIFIED CLAIM");
   });
 
   test("Lab verifies retained operation-error source linkage without claiming admission", async ({ page }) => {
@@ -439,6 +442,22 @@ test.describe("Runner negotiation through the real Go API", () => {
     const native = (value: unknown) => spawnSync(helper, ["validate"], {
       input: JSON.stringify(value), encoding: "utf8",
     });
+    const posted: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST") posted.push(request.url());
+    });
+    const expectUnverified = async (status: string, submissionStatus = status) => {
+      const displayed = reader.getByRole("status", { name: "Checkpoint operation result" });
+      await expect(displayed.getByRole("heading", { name: "Checkpoint result: UNVERIFIED CLAIMS" })).toBeVisible();
+      await expect(displayed).toContainText("Native canonical-report checks are not performed in-browser");
+      await expect(displayed).not.toContainText(`Checkpoint result: ${status}`);
+      await expect(displayed.locator("dt", { hasText: "Operation status (UNVERIFIED CLAIM)" })
+        .locator("xpath=following-sibling::dd[1]")).toHaveText(`UNVERIFIED CLAIM: ${status}`);
+      await expect(displayed.locator("dt", { hasText: "Submission status (UNVERIFIED CLAIM)" })
+        .locator("xpath=following-sibling::dd[1]")).toContainText(`UNVERIFIED CLAIM: ${submissionStatus}`);
+      await expect(displayed.locator("dt", { hasText: "Operation exit code (UNVERIFIED CLAIM)" })
+        .locator("xpath=following-sibling::dd[1]")).toContainText("UNVERIFIED CLAIM:");
+    };
 
     for (const result of results) {
       expect(["completed", "reused"]).toContain(result.status);
@@ -450,8 +469,28 @@ test.describe("Runner negotiation through the real Go API", () => {
       expect(native(result).status).toBe(0);
       await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
       await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
-      await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
-        .toContainText(`Checkpoint result: ${result.status}`);
+      await expectUnverified(result.status);
+
+      const reportWire = JSON.stringify(result.submission.report);
+      const resultWire = JSON.stringify(result);
+      for (const [name, mutatedReport, accepted] of [
+        ["canonical", reportWire, true],
+        ["whitespace", reportWire.replace('{"kind"', '{ \n "kind"'), true],
+        ["property order", reportWire.replace(
+          '{"kind":"waza.runner-unit","schema_version":"1.0"',
+          '{"schema_version":"1.0","kind":"waza.runner-unit"',
+        ), false],
+        ["string escaping", reportWire.replace('"waza.runner-unit"', '"waza.runner-\\u0075nit"'), false],
+      ] as const) {
+        if (name !== "canonical") expect(mutatedReport, name).not.toBe(reportWire);
+        const mutatedWire = resultWire.replace(reportWire, mutatedReport);
+        const checked = spawnSync(helper, ["validate"], { input: mutatedWire, encoding: "utf8" });
+        expect(checked.status, name).toBe(accepted ? 0 : 1);
+        if (!accepted) expect(checked.stderr, name).toContain("canonical writer");
+        await reader.getByLabel("Checkpoint result JSON").fill(mutatedWire);
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        await expectUnverified(result.status);
+      }
 
       for (const [name, mutate] of [
         ["requested task", (report: typeof result.submission.report) => { report.requested.task = "other-task"; }],
@@ -499,14 +538,32 @@ test.describe("Runner negotiation through the real Go API", () => {
       await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
       await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
         .toContainText(`Checkpoint result: ${result.status}`);
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+        .not.toContainText("UNVERIFIED CLAIM");
       const extraDetail = structuredClone(result);
       extraDetail.submission.report.observation.prompt = "different unbound detail";
       expect(native(extraDetail).status).toBe(0);
       await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(extraDetail));
       await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expectUnverified(result.status);
       await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
-        .toContainText(`Checkpoint result: ${result.status}`);
+        .not.toContainText("different unbound detail");
+
+      if (result.status === "completed") {
+        const checkpointError = structuredClone(result);
+        checkpointError.status = "checkpoint_error";
+        checkpointError.exit_code = 2;
+        checkpointError.compatibility_result = "unavailable";
+        checkpointError.restored_units = null;
+        checkpointError.remaining_work = null;
+        checkpointError.diagnostics = [{ code: "checkpoint_publication_failed", message: "Publication failed." }];
+        expect(native(checkpointError).status).toBe(0);
+        await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(checkpointError));
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        await expectUnverified("checkpoint_error", "completed");
+      }
     }
+    expect(posted).toEqual([]);
   });
 
   test("Lab does not let a stale async parse replace newer input", async ({ page }) => {
