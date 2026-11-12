@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -152,6 +153,60 @@ func TestCheckpointPublicCLIRejectsBeforeProvider(t *testing.T) {
 			_, err := os.Stat(directory)
 			require.True(t, os.IsNotExist(err))
 		})
+	}
+}
+
+func TestCheckpointPublicCLIInputAdmissionFailuresRemainRejections(t *testing.T) {
+	invalid := []byte("{")
+	_, parseErr := runnerunit.ParseSubmission(invalid)
+	require.Error(t, parseErr)
+	for _, action := range []string{"create", "resume"} {
+		for _, stage := range []string{"read", "admission"} {
+			t.Run(action+"-"+stage, func(t *testing.T) {
+				earlyCalls := 0
+				service := runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+					earlyCalls++
+					return nil, errors.New("must not construct")
+				})
+				command := newRunnerCheckpointCommandWithRevision(service, func() (string, error) {
+					earlyCalls++
+					return strings.Repeat("c", 40), nil
+				})
+				args := []string{action}
+				if action == "resume" {
+					args = append(args, strings.Repeat("e", 64))
+				}
+				directory := t.TempDir() + "/must-not-open"
+				command.SetArgs(append(args, "--store", directory))
+				cause, code := parseErr, "checkpoint_input_invalid"
+				command.SetIn(bytes.NewReader(invalid))
+				if stage == "read" {
+					cause, code = errors.New("private-stdin-read-control"), "checkpoint_input_unavailable"
+					command.SetIn(iotest.ErrReader(cause))
+				}
+				var output, diagnostic bytes.Buffer
+				command.SetOut(&output)
+				command.SetErr(&diagnostic)
+				err := command.ExecuteContext(t.Context())
+				exit, ok := errors.AsType[*ExitCodeError](err)
+				require.True(t, ok, "%v", err)
+				result, err := runnercheckpoint.ParseResult(output.Bytes())
+				require.NoError(t, err)
+				require.Equal(t, "rejected", result.Status)
+				require.Equal(t, 6, result.ExitCode)
+				require.Equal(t, exit.Code, result.ExitCode)
+				require.Equal(t, code, result.Diagnostics[0].Code)
+				require.Contains(t, diagnostic.String(), "checkpoint input "+stage+": ")
+				if stage == "admission" {
+					require.Contains(t, strings.Split(diagnostic.String(), "\n"), "checkpoint input admission: "+cause.Error())
+				} else {
+					require.Contains(t, diagnostic.String(), cause.Error())
+				}
+				require.NotContains(t, output.String(), cause.Error())
+				require.Zero(t, earlyCalls)
+				require.NoDirExists(t, directory)
+			})
+		}
 	}
 }
 
