@@ -80,11 +80,12 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
       const dispatch = decisions.get(attempt.dispatch_decision);
       if (dispatch?.policy !== "distinct" || dispatch.execution_id !== attempt.execution_id) return false;
     }
-    const expected = lineage.decisions.filter((decision) => decision.policy === "reuse"
-      && decision.source?.execution_id === attempt.execution_id).map((decision) => decision.decision_id);
+    // Unfinished or conflicting reuse decisions are listed but never linked.
+    const reuses = lineage.decisions.filter((decision) => decision.policy === "reuse"
+      && decision.outcome === "reused" && decision.source?.execution_id === attempt.execution_id);
+    const expected = reuses.map((decision) => decision.decision_id);
     if (expected.length > 0 && !finished) return false;
-    if (lineage.decisions.some((decision) => decision.source?.execution_id === attempt.execution_id
-      && decision.source.manifest_digest !== attempt.manifest_digest)) return false;
+    if (reuses.some((decision) => decision.source?.manifest_digest !== attempt.manifest_digest)) return false;
     if (attempt.reused_by.length !== expected.length
       || new Set(attempt.reused_by).size !== expected.length
       || attempt.reused_by.some((id) => !expected.includes(id))) return false;

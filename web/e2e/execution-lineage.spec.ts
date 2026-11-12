@@ -46,6 +46,20 @@ test.describe("Execution attempt lineage in Lab", () => {
     expect(JSON.parse(await readFile(saved, "utf8"))).toEqual(fixture);
   });
 
+  test("lists unfinished reuse decisions without linking them", async ({ page }) => {
+    const unfinished = { decision_id: `decision-${"f".repeat(64)}`, native_attempt: 4, outcome: "unfinished", policy: "reuse",
+      source: { execution_id: fixture.attempts[1]!.execution_id, manifest_digest: "0".repeat(64) } };
+    await page.route("**/api/v1/lineage**", (route) => route.fulfill({
+      body: JSON.stringify({ ...fixture, decisions: [...fixture.decisions, unfinished] }), contentType: "application/json",
+    }));
+    await fill(page);
+    await load(page);
+    const result = panel(page).getByRole("status", { name: "Loaded attempt lineage" });
+    await expect(result).toContainText("3 attempts, 5 decisions");
+    await expect(result.getByRole("list", { name: "Lineage decisions" })).toContainText("reuse / unfinished");
+    await expect(result.getByRole("list", { name: "Lineage decisions" })).toContainText("not reused; source not linked");
+  });
+
   test("rejects malformed IDs without a request", async ({ page }) => {
     let requests = 0;
     await page.route("**/api/v1/lineage**", (route) => { requests++; return route.abort(); });

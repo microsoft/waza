@@ -92,7 +92,7 @@ function LineageReader() {
         <ul aria-label="Lineage decisions">{lineage.decisions.map((decision) => <li key={decision.decision_id}>
           <code title={decision.decision_id}>{short(decision.decision_id)}</code>: {decision.policy} / {decision.outcome}, native attempt {decision.native_attempt}
           {decision.execution_id && <> for <code title={decision.execution_id}>{short(decision.execution_id)}</code></>}
-          {decision.source && <> from source <code title={decision.source.execution_id}>{short(decision.source.execution_id)}</code> (zero new engine calls)</>}
+          {decision.source && <> from source <code title={decision.source.execution_id}>{short(decision.source.execution_id)}</code> {decision.outcome === "reused" ? " (zero new engine calls)" : " (not reused; source not linked)"}</>}
         </li>)}</ul>
       </>}
       <h3>Writer and record diagnostics</h3>
