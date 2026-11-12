@@ -75,6 +75,78 @@ test.describe("Protected checkpoint operations in Lab", () => {
     await page.goto("/#/lab/runner");
   });
 
+  for (const previous of ["valid", "invalid"] as const) {
+    const nextInputs = previous === "valid"
+      ? ["edit", "valid", "invalid", "repeat"] as const
+      : ["edit", "valid", "invalid"] as const;
+    for (const next of nextInputs) {
+      test(`reader ignores a pending ${previous} parse after ${next === "edit" ? "editing" : `a newer ${next} parse`}`, async ({ page }) => {
+        const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+        const input = reader.getByLabel("Checkpoint result JSON");
+        const button = reader.getByRole("button", { name: "Parse checkpoint result", exact: true });
+        const displayed = reader.getByRole("status", { name: "Checkpoint operation result", exact: true });
+        const old = parsed(fixtures.created);
+        if (previous === "invalid") old.submission!.completion!.reservation_digest = "0".repeat(64);
+        const gate = await page.evaluateHandle((rejectFirst) => {
+          const digest = crypto.subtle.digest.bind(crypto.subtle);
+          let finish = () => {};
+          const state = {
+            pending: false,
+            release: () => {},
+            finished: new Promise<void>((resolve) => { finish = resolve; }),
+          };
+          crypto.subtle.digest = async (...args: Parameters<SubtleCrypto["digest"]>) => {
+            if (state.pending) return digest(...args);
+            state.pending = true;
+            await new Promise<void>((resolve) => { state.release = resolve; });
+            try {
+              if (rejectFirst) throw new Error("Superseded digest failure");
+              return await digest(...args);
+            } finally {
+              finish();
+            }
+          };
+          return state;
+        }, next === "repeat");
+        await input.fill(JSON.stringify(old));
+        await button.click();
+        await expect.poll(() => gate.evaluate((state) => state.pending)).toBe(true);
+        await expect(displayed).toHaveCount(0);
+        await expect(reader.getByRole("alert")).toHaveCount(0);
+
+        const wire = next === "repeat" ? JSON.stringify(old) : next === "valid" ? fixtures.failed.response : "{";
+        const successful = next === "valid" || next === "repeat";
+        const expectedExit = next === "repeat" ? 0 : 1;
+        if (next !== "repeat") await input.fill(wire);
+        let currentError = "";
+        if (next !== "edit") {
+          await button.click();
+          if (successful) {
+            await expect(displayed).toContainText(`Operation exit code${expectedExit}`);
+          } else {
+            await expect(reader.getByRole("alert")).toBeVisible();
+            currentError = await reader.getByRole("alert").innerText();
+          }
+        }
+        await gate.evaluate(async (state) => {
+          state.release();
+          await state.finished;
+          await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        });
+        await expect(input).toHaveValue(wire);
+        if (successful) {
+          await expect(displayed).toContainText(`Operation exit code${expectedExit}`);
+          await expect(reader.getByRole("alert")).toHaveCount(0);
+        } else {
+          await expect(displayed).toHaveCount(0);
+          if (next === "invalid") await expect(reader.getByRole("alert")).toHaveText(currentError);
+          else await expect(reader.getByRole("alert")).toHaveCount(0);
+        }
+        await gate.dispose();
+      });
+    }
+  }
+
   for (const name of ["created", "unicode", "failed", "reused", "retried", "execution_error", "reused_error", "incompatible", "stale", "checkpoint_error", "policy_reordered"] as const) {
     test(`renders and downloads actual protected producer ${name} values`, async ({ page }) => {
       const fixture = fixtures[name];
