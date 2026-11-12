@@ -176,8 +176,9 @@ func TestAggregateCLIAndAPIStateMatrix(t *testing.T) {
 			if control.reversed {
 				reversed := slices.Clone(control.inputs)
 				slices.Reverse(reversed)
-				again, _ := runAggregateCLI(t, directory, reversed)
+				again, againErr := runAggregateCLI(t, directory, reversed)
 				require.Equal(t, saved, again, "input order must not change the aggregate")
+				require.Equal(t, cliErr == nil, againErr == nil, "input order must not change the exit status")
 			}
 			report, err := manifestaggregate.Parse(saved)
 			require.NoError(t, err)
