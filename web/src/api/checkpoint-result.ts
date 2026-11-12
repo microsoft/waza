@@ -71,6 +71,7 @@ interface ExecutionCompletion {
 interface ExecutionCheckpoint {
   execution_id: string;
   boundary: "before-unit" | "finalized-unit";
+  created_at: string;
   reservation_digest: string;
   compatibility: { work: string };
   completion_digest?: string;
@@ -183,6 +184,20 @@ function validBinding(logical: { run: string; work: string }, binding: Execution
   return logical.run === binding.identity.run && logical.work === binding.identity.trial &&
     [...binding.grader_ids, binding.selection.shard, binding.selection.task]
       .every((value) => utf8Encoder.encode(value).length <= 256);
+}
+
+function canonicalCheckpointTime(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/.exec(value);
+  if (!match || match[0] !== value) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1]! &&
+    Number(hourText) <= 23 && Number(minuteText) <= 59 && Number(secondText) <= 59 &&
+    (fraction === undefined || !fraction.endsWith("0"));
 }
 
 function validateReport(report: ExecutionReport, reservation: ExecutionAttempt, terminal: RunnerTerminal) {
@@ -342,6 +357,9 @@ async function validateCheckpointResult(result: CheckpointOperationResult) {
   }
 
   const { source, submission } = result;
+  if (source && !canonicalCheckpointTime(source.created_at)) {
+    throw new Error("Checkpoint source created_at must be a canonical UTC RFC3339 timestamp.");
+  }
   if (result.status === "operation_error" && submission &&
     (submission.report !== undefined || submission.diagnostics.some((diagnostic) => diagnostic.message !== capturedDiagnosticMessage))) {
     throw new Error("Checkpoint retained submission contains unapproved report or diagnostics.");

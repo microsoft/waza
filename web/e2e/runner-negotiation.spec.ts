@@ -566,6 +566,67 @@ test.describe("Runner negotiation through the real Go API", () => {
     expect(posted).toEqual([]);
   });
 
+  test("Lab checks canonical source timestamps against native checkpoint parsing", async ({ page }) => {
+    test.setTimeout(180_000);
+    const helper = join(directory, "checkpoint-timestamps");
+    execFileSync("go", ["build", "-o", helper, "./web/e2e/testdata/checkpoint-report"], {
+      cwd: resolve(".."), timeout: 150_000,
+    });
+    const store = join(directory, "checkpoint-timestamp-store");
+    await mkdir(store);
+    const [, reused] = execFileSync(helper, [store], { cwd: resolve(".."), encoding: "utf8" })
+      .trim().split("\n").map((line) => JSON.parse(line));
+    delete reused.submission.report;
+    const rejected = structuredClone(reused);
+    rejected.status = "rejected";
+    rejected.exit_code = 6;
+    rejected.compatibility_result = "unavailable";
+    rejected.restored_units = null;
+    rejected.remaining_work = null;
+    rejected.diagnostics = [{ code: "checkpoint_rejected", message: "Rejected." }];
+    delete rejected.submission;
+    const beforeUnitRejected = structuredClone(rejected);
+    beforeUnitRejected.source.boundary = "before-unit";
+    delete beforeUnitRejected.source.completion_digest;
+    delete beforeUnitRejected.source.manifest_digest;
+
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    const native = (result: unknown) => spawnSync(helper, ["validate"], {
+      input: JSON.stringify(result), encoding: "utf8",
+    });
+    const valid = [
+      "0001-01-01T00:00:00Z", "2000-02-29T23:59:59Z", "2400-02-29T12:34:56.1Z",
+      "2026-11-07T16:00:00.123456789Z", "9999-12-31T23:59:59.000000001Z",
+    ];
+    const invalid = [
+      "0000-01-01T00:00:00Z", "1900-02-29T00:00:00Z", "2026-02-30T00:00:00Z",
+      "2026-00-01T00:00:00Z", "2026-13-01T00:00:00Z", "2026-04-31T00:00:00Z",
+      "2026-11-07T24:00:00Z", "2026-11-07T16:60:00Z", "2026-11-07T16:00:60Z",
+      "2026-11-07T16:00:00.000Z", "2026-11-07T16:00:00.10Z", "2026-11-07T16:00:00.123456780Z",
+    ];
+    for (const original of [reused, rejected, beforeUnitRejected, operationError]) {
+      expect(native(original).status).toBe(0);
+      for (const timestamp of [...valid, ...invalid]) {
+        const result = structuredClone(original);
+        result.source.created_at = timestamp;
+        const checked = native(result);
+        const accepted = valid.includes(timestamp);
+        expect(checked.status, timestamp).toBe(accepted ? 0 : 1);
+        if (!accepted) expect(checked.stderr, timestamp).toContain("created_at must be a canonical UTC RFC3339 timestamp");
+        await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        if (accepted) {
+          await expect(reader.getByRole("status", { name: "Checkpoint operation result" }), timestamp).toBeVisible();
+        } else {
+          await expect(reader.getByRole("alert"), timestamp).toContainText("canonical UTC RFC3339 timestamp");
+        }
+      }
+    }
+  });
+
   test("Lab does not let a stale async parse replace newer input", async ({ page }) => {
     const operationError = JSON.parse(
       readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
