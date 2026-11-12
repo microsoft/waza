@@ -526,11 +526,21 @@ test('pending release separates source readiness, historical metadata and releas
   const article = read('site/src/content/docs/releases/v0-41-0.mdx');
   const before = article.split('### Before selecting a release candidate')[1]?.split('### After publication: released-consumer completion')[0];
   const after = article.split('### After publication: released-consumer completion')[1];
+  const merged = article.split('### Latest merged-source frontier')[1]?.split('\n## Preserve the published hotfix baseline')[0];
   assert.ok(before && after, 'both ordered readiness stages must be present');
+  assert.ok(merged, 'current merged-source inventory must be present');
   assert.doesNotMatch(before, /#902/);
   assert.match(after, /#902 released-consumer validation/);
   assert.match(after, /installer, binary, and checksums are published/);
   assert.match(after, /does not waive #902/);
+  assert.match(merged, /a986eb784bf20a0fb2b851f86cf0ea35825e8313/);
+  for (const pr of ['#929', '#942', '#944', '#945', '#958', '#959', '#961', '#962']) {
+    assert.ok(merged.includes(pr), `${pr} must be included in the current merged-source inventory`);
+  }
+  assert.match(before, /still-open \[#904\]/);
+  assert.match(before, /The merged #839,\s+#935, and #841 changes are inventoried above and are not outstanding PRs\./);
+  assert.match(before, /The #929 evidence and #936 Windows diagnostics are merged/);
+  assert.match(before, /timeouts remain under investigation in\s+\[#965\]/);
   assert.match(article, /0\.39\.1` in `version\.txt` and `extension\.yaml`/);
   assert.match(article, /not a new verification of binary provenance/);
   assert.match(article, /applies prospectively to v0\.41\.0/);
@@ -538,6 +548,7 @@ test('pending release separates source readiness, historical metadata and releas
   const changelog = read('CHANGELOG.md');
   assert.match(changelog, /historical v0\.40\.1 tags retain `0\.39\.1`/);
   assert.match(changelog, /post-publication released-consumer\s+completion requirement \(#902\)/);
+  assert.match(changelog, /current `main`\s+`a986eb784bf20a0fb2b851f86cf0ea35825e8313`/);
 });
 
 test('v0.40.1 article owns hotfix detail while the homepage leads with the product', () => {

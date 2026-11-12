@@ -35,9 +35,10 @@ that initial comparison.
 
 ### Subsequent merged source
 
-The verified merged-source frontier now includes
-`ccea36772e22c04504ac198b72c84f873c3710b5`. This is a preparation snapshot,
-not the final release candidate or publication evidence.
+The initial supplement below records merged work through
+`ccea36772e22c04504ac198b72c84f873c3710b5`. That is an intermediate
+preparation snapshot, not the current source frontier or final release
+candidate.
 
 - Three demonstrated v0.40.1 contracts are restored: strict token-budget
   process exits, lifecycle-hook input rendering and cache identity, and
@@ -177,6 +178,59 @@ cross-repository consumer acceptance.
   [#932](https://github.com/microsoft/waza/pull/932)).
   This does not publish v0.41.0.
 
+### Latest merged-source frontier
+
+The current `main` snapshot is
+[`a986eb784bf20a0fb2b851f86cf0ea35825e8313`](https://github.com/microsoft/waza/commit/a986eb784bf20a0fb2b851f86cf0ea35825e8313).
+It includes the following work merged after the earlier `ccea3677` snapshot.
+These are bounded source updates, not proof that the related roadmap epics or
+final release gates are complete.
+
+- **Partial recovery and evidence previews** - Add the logical execution-attempt
+  core ([#942](https://github.com/microsoft/waza/pull/942)), recover evidence
+  capture libraries ([#958](https://github.com/microsoft/waza/pull/958)), add a
+  captured-checkpoint source preview
+  ([#959](https://github.com/microsoft/waza/pull/959)), and add protected Lab
+  checkpoint recovery operations
+  ([#961](https://github.com/microsoft/waza/pull/961)). These are partial
+  deliveries; issues [#764](https://github.com/microsoft/waza/issues/764),
+  [#765](https://github.com/microsoft/waza/issues/765),
+  [#766](https://github.com/microsoft/waza/issues/766),
+  [#767](https://github.com/microsoft/waza/issues/767), and
+  [#768](https://github.com/microsoft/waza/issues/768) remain open.
+- **Release and CI controls** - Capture attempt-aware CI performance evidence
+  ([#929](https://github.com/microsoft/waza/pull/929)), separate docs media
+  from routine test evidence
+  ([#839](https://github.com/microsoft/waza/pull/839)), add auxiliary
+  completeness receipts
+  ([#935](https://github.com/microsoft/waza/pull/935)), and define reusable PR
+  plan/admission boundaries
+  ([#945](https://github.com/microsoft/waza/pull/945)). A shared exact-source
+  dashboard producer and a manual nonpublishing acceptance control are merged
+  ([#944](https://github.com/microsoft/waza/pull/944),
+  [#962](https://github.com/microsoft/waza/pull/962)), but the related
+  dashboard-build issue [#904](https://github.com/microsoft/waza/issues/904)
+  remains open; these PRs do not satisfy every issue acceptance criterion or
+  final publication gate.
+- **Dashboard and runner behavior** - Cache unchanged dashboard results
+  ([#841](https://github.com/microsoft/waza/pull/841)), scale trend charts for
+  large histories ([#856](https://github.com/microsoft/waza/pull/856)),
+  parallelize transport admission actions
+  ([#844](https://github.com/microsoft/waza/pull/844)), retain intent
+  suppression across partial results
+  ([#954](https://github.com/microsoft/waza/pull/954)), and diagnose native
+  Windows stdout timing
+  ([#936](https://github.com/microsoft/waza/pull/936)). The timing
+  instrumentation is diagnostic, not proof that recurring Windows
+  process-start timeouts are resolved; investigation remains tracked in
+  [#965](https://github.com/microsoft/waza/issues/965).
+- **Other merged fixes and dependencies** - Write reporter output after
+  grading failures ([#941](https://github.com/microsoft/waza/pull/941)), add
+  gated provider-only diagnostic storage
+  ([#957](https://github.com/microsoft/waza/pull/957)), and update Azure SDK
+  dependencies ([#917](https://github.com/microsoft/waza/pull/917),
+  [#919](https://github.com/microsoft/waza/pull/919)).
+
 ## Preserve the published hotfix baseline
 
 The [v0.40.1 article](../v0-40-1/) already covers selected-task coverage, strict
@@ -208,26 +262,34 @@ completion are separate stages.
   refresh the immutable comparison and changelog, settle the final scope, and
   retain the restored contracts and resolve the remaining divergent v0.40.1
   hotfix baseline above.
-- Retain the merged cleanup-summary correction and resolve real native Windows evidence for
-  [#899](https://github.com/microsoft/waza/issues/899), the recovery ownership
-  and platform block for [#768](https://github.com/microsoft/waza/issues/768)
-  and [#766](https://github.com/microsoft/waza/issues/766). Preserve the merged
+- Complete exact-source validation for every production publisher under
+  [#899](https://github.com/microsoft/waza/issues/899). The dashboard producer
+  and nonpublishing acceptance control from #944 and #962 are partial delivery
+  against the still-open [#904](https://github.com/microsoft/waza/issues/904),
+  not completion of its remaining consumer and measurement criteria. Continue
+  the recovery ownership and platform work in
+  [#768](https://github.com/microsoft/waza/issues/768) and
+  [#766](https://github.com/microsoft/waza/issues/766), preserving the merged
   manifest foundation and its source-bound asset/API coverage from
   [#930](https://github.com/microsoft/waza/pull/930).
 - Complete the independently owned
   [#764](https://github.com/microsoft/waza/issues/764),
   [#765](https://github.com/microsoft/waza/issues/765), and
-  [#767](https://github.com/microsoft/waza/issues/767) sequence; build work
-  [#839](https://github.com/microsoft/waza/issues/839),
-  [#904](https://github.com/microsoft/waza/issues/904), and
-  [#935](https://github.com/microsoft/waza/issues/935); specialist isolation
-  [#841](https://github.com/microsoft/waza/issues/841); and measured targets
-  [#825](https://github.com/microsoft/waza/issues/825).
-- Integrate [#929](https://github.com/microsoft/waza/pull/929) on current main
-  and refresh its integration evidence. The
-  [#836](https://github.com/microsoft/waza/issues/836) allocation remains held;
-  this preparation does not activate, rerun, or advance its approved baseline.
-  Runtime frontier work remains separately owned.
+  [#767](https://github.com/microsoft/waza/issues/767) sequence and the
+  remaining [#768](https://github.com/microsoft/waza/issues/768) and
+  [#766](https://github.com/microsoft/waza/issues/766) work. The merged #839,
+  #935, and #841 changes are inventoried above and are not outstanding PRs.
+  Continue to measure the performance targets in
+  [#825](https://github.com/microsoft/waza/issues/825); no target is inferred
+  from a merged optimization.
+- The #929 evidence and #936 Windows diagnostics are merged, but neither proves
+  final-candidate native-platform acceptance. Recurring Windows process-start
+  timeouts remain under investigation in
+  [#965](https://github.com/microsoft/waza/issues/965). The native
+  Linux/amd64 measurement for
+  [#836](https://github.com/microsoft/waza/pull/836) remains on its separately
+  authorized hold; this preparation does not activate, rerun, or advance that
+  baseline. Runtime frontier work remains separately owned.
 - Rebuild and commit matching dashboard index/favicon metadata, inspect its
   actual referenced bundles, and obtain current-source checks and independent
   review, including required native Windows execution. Local Linux checks do
