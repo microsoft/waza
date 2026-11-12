@@ -5,11 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
@@ -146,6 +153,135 @@ func adapter(t *testing.T, factory runnerunit.EngineFactory) *Service {
 		t.Fatal(err)
 	}
 	return service
+}
+
+type checkpointTestCredential struct{}
+
+func (checkpointTestCredential) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
+	return azcore.AccessToken{Token: "offline", ExpiresOn: time.Now().Add(time.Hour)}, nil
+}
+
+type finalizedCreatorReadFailure struct {
+	mu                   sync.Mutex
+	objects              map[string][]byte
+	failure              error
+	completionReads      int
+	failed               bool
+	publicationCtxActive bool
+}
+
+func (b *finalizedCreatorReadFailure) Do(request *http.Request) (*http.Response, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := strings.TrimPrefix(request.URL.Path, "/container/")
+	header := http.Header{"Etag": {`"test"`}}
+	response := func(status int, data []byte) (*http.Response, error) {
+		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(bytes.NewReader(data)),
+			ContentLength: int64(len(data)), Request: request}, nil
+	}
+	switch request.Method {
+	case http.MethodPut:
+		if request.Header.Get("If-None-Match") != "*" {
+			return nil, errors.New("missing conditional write")
+		}
+		if _, exists := b.objects[key]; exists {
+			header.Set("X-Ms-Error-Code", "ConditionNotMet")
+			return response(http.StatusPreconditionFailed, []byte("<Error><Code>ConditionNotMet</Code></Error>"))
+		}
+		data, err := io.ReadAll(request.Body)
+		if err != nil {
+			return nil, err
+		}
+		b.objects[key] = data
+		return response(http.StatusCreated, nil)
+	case http.MethodGet:
+		if request.URL.Query().Get("comp") == "list" {
+			var body strings.Builder
+			body.WriteString("<EnumerationResults><Blobs>")
+			for name := range b.objects {
+				if strings.HasPrefix(name, request.URL.Query().Get("prefix")) {
+					body.WriteString("<Blob><Name>" + name + "</Name></Blob>")
+				}
+			}
+			body.WriteString("</Blobs><NextMarker></NextMarker></EnumerationResults>")
+			return response(http.StatusOK, []byte(body.String()))
+		}
+		if b.completionReads >= 2 && strings.HasPrefix(key, "execution-ledger-v1-reservation-") {
+			b.failed = true
+			_, hasDeadline := request.Context().Deadline()
+			b.publicationCtxActive = request.Context().Err() == nil && hasDeadline
+			return nil, b.failure
+		}
+		data, exists := b.objects[key]
+		if !exists {
+			header.Set("X-Ms-Error-Code", "BlobNotFound")
+			return response(http.StatusNotFound, []byte("<Error><Code>BlobNotFound</Code></Error>"))
+		}
+		if strings.HasPrefix(key, "execution-ledger-v1-completion-") {
+			b.completionReads++
+		}
+		header.Set("Content-Length", strconv.Itoa(len(data)))
+		header.Set("X-Ms-Blob-Type", "BlockBlob")
+		return response(http.StatusOK, data)
+	default:
+		return nil, errors.New("unexpected checkpoint fixture request")
+	}
+}
+
+func TestSubmitFinalizedCreatorFailureRetainsOriginalDeclarationContext(t *testing.T) {
+	failure := errors.New("finalized creator read control")
+	fault := &finalizedCreatorReadFailure{objects: map[string][]byte{}, failure: failure}
+	store, err := artifactmanifest.NewAzure("https://offline.invalid/container", checkpointTestCredential{}, &container.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Transport: fault, Retry: policy.RetryOptions{MaxRetries: -1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	result, err := service.Submit(ctx, fixture(t), store, Hooks{
+		Published: func(_ context.Context, reference Reference) error {
+			if reference.Boundary == executioncheckpoint.BeforeUnit {
+				cancel()
+			}
+			return nil
+		},
+	})
+	fault.mu.Lock()
+	failed, publicationCtxActive := fault.failed, fault.publicationCtxActive
+	fault.mu.Unlock()
+	if !errors.Is(err, failure) || !errors.Is(ctx.Err(), context.Canceled) ||
+		!failed || !publicationCtxActive ||
+		result.Status != "checkpoint_error" || result.Submission == nil || result.Submission.Completion == nil {
+		t.Fatalf("finalized creator failure did not retain completed submission and separate live publication context: %+v, %v", result, err)
+	}
+	requestPhase, creatorPhase, ok := strings.Cut(err.Error(), "; creator_publication:")
+	if !ok {
+		t.Fatalf("creator failure omitted separate request and publication diagnostics: %v", err)
+	}
+	for _, field := range []string{
+		"request_deadline_remaining_at_entry=none",
+		"request_entry_ctx_err=<nil>",
+		"request_compatibility_ctx_err=<nil>",
+	} {
+		if !strings.Contains(requestPhase, field) {
+			t.Fatalf("original request observation %q was lost or replaced after cancellation: %v", field, err)
+		}
+	}
+	for _, field := range []string{"entry_ctx_err=<nil>", "final_ctx_err=<nil>"} {
+		if !strings.Contains(creatorPhase, field) {
+			t.Fatalf("live publication context observation %q was lost: %v", field, err)
+		}
+	}
+	_, deadlineField, found := strings.Cut(creatorPhase, "deadline_remaining_at_entry=")
+	remainingText, _, _ := strings.Cut(deadlineField, " ")
+	remaining, parseErr := time.ParseDuration(remainingText)
+	if !found || parseErr != nil || remaining <= 0 || remaining > 10*time.Second {
+		t.Fatalf("creator publication deadline is not the independent 10s budget: %q, %v", remainingText, parseErr)
+	}
 }
 
 func TestSubmitBoundaryHooksAndFinalizedRestorePreserveOriginalTerminal(t *testing.T) {

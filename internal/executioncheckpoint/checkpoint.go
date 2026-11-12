@@ -5,6 +5,7 @@ package executioncheckpoint
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +56,14 @@ type RequestDeclaration struct {
 	compatibility Compatibility
 	selection     runnercontract.Selection
 	identity      runneridentity.Identity
+	diagnostics   requestDeclarationDiagnostics
+}
+
+type requestDeclarationDiagnostics struct {
+	elapsed                time.Duration
+	deadlineRemaining      string
+	entryContextError      string
+	completionContextError string
 }
 
 // Compatibility returns the immutable request compatibility declaration.
@@ -144,8 +153,33 @@ func Encode(checkpoint Checkpoint) ([]byte, error) {
 }
 
 // DeclareRequest validates and derives one immutable request declaration for
-// both compatibility checks and checkpoint publication.
+// compatibility and publication without a request-context observation.
 func DeclareRequest(data []byte, runnerRevision string) (RequestDeclaration, error) {
+	return declareRequest(context.Background(), data, runnerRevision, false)
+}
+
+// DeclareRequestWithContext records the supplied operation context during the
+// same single derivation. It does not change request admission or cancellation.
+func DeclareRequestWithContext(ctx context.Context, data []byte, runnerRevision string) (RequestDeclaration, error) {
+	return declareRequest(ctx, data, runnerRevision, true)
+}
+
+func remainingAt(ctx context.Context, started time.Time) string {
+	if deadline, ok := ctx.Deadline(); ok {
+		return deadline.Sub(started).String()
+	}
+	return "none"
+}
+
+func declareRequest(ctx context.Context, data []byte, runnerRevision string, observeContext bool) (RequestDeclaration, error) {
+	started := time.Now()
+	diagnostics := requestDeclarationDiagnostics{
+		deadlineRemaining: "unavailable", entryContextError: "unavailable", completionContextError: "unavailable",
+	}
+	if observeContext {
+		diagnostics.deadlineRemaining = remainingAt(ctx, started)
+		diagnostics.entryContextError = fmt.Sprint(ctx.Err())
+	}
 	request, err := runnercontract.Parse(data)
 	if err != nil {
 		return RequestDeclaration{}, fmt.Errorf("%w: request: %w", ErrIncompatible, err)
@@ -195,7 +229,14 @@ func DeclareRequest(data []byte, runnerRevision string) (RequestDeclaration, err
 	if err := schema.Properties["compatibility"].Validate(document); err != nil {
 		return RequestDeclaration{}, fmt.Errorf("%w: compatibility: %w", ErrIncompatible, err)
 	}
-	return RequestDeclaration{compatibility: compatibility, selection: request.Selection, identity: *identity}, nil
+	diagnostics.elapsed = time.Since(started)
+	if observeContext {
+		diagnostics.completionContextError = fmt.Sprint(ctx.Err())
+	}
+	return RequestDeclaration{
+		compatibility: compatibility, selection: request.Selection, identity: *identity,
+		diagnostics: diagnostics,
+	}, nil
 }
 
 // ForRequest retains the shared declared logical-work identity, including
