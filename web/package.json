@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "prerefresh:docs-media": "npm run build",
+    "refresh:docs-media": "WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.105.3",
@@ -28,7 +30,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
-    "eslint": "^10.13.0",
+    "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",

@@ -56,6 +56,18 @@ func Derive(request *runnercontract.Request) (*Identity, error) {
 	return DeriveJSON(data)
 }
 
+// DeriveValidated derives an identity from a request already admitted by
+// runnercontract.Parse, without re-encoding large input fields.
+func DeriveValidated(request *runnercontract.Request) (*Identity, error) {
+	if request == nil {
+		return nil, errors.New("identity request is nil")
+	}
+	if !utf8.ValidString(request.Input.Eval) || !utf8.ValidString(request.Input.Task) {
+		return nil, errors.New("identity source is not UTF-8")
+	}
+	return derive(request)
+}
+
 func derive(request *runnercontract.Request) (*Identity, error) {
 	if request.Input.Shard != request.Selection.Shard {
 		return nil, errors.New("identity selection shard does not match declared input shard")

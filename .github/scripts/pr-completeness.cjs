@@ -39,7 +39,7 @@ const runtimeInputs = Object.freeze([
   'internal/graders', 'internal/hooks', 'internal/judgeevidence', 'internal/jsonutil',
   'internal/models', 'internal/pathadmission', 'internal/projectconfig', 'internal/requirements',
   'internal/scaffold', 'internal/schemaloader', 'internal/skill', 'internal/snapshot',
-  'internal/statistics', 'internal/testutil/copilotfake', 'internal/tokens', 'internal/utils', 'schemas',
+  'internal/statistics', 'internal/template', 'internal/testutil/copilotfake', 'internal/tokens', 'internal/utils', 'schemas',
 ]);
 
 function requireValue(condition, message) {
@@ -224,6 +224,7 @@ function verifyBrowser(report, family) {
 function validateReceipt(receipt, plan, family, unit) {
   requireValue(receipt.kind === 'waza.pr-completeness-receipt' && receipt.schema === 1, 'Invalid execution receipt');
   sameSource(receipt.source, plan.source);
+  requireValue(receipt.artifact_name === receiptArtifactName(plan.source, family, unit), 'Invalid receipt artifact name');
   requireValue(receipt.tested_sha === plan.source.tested_sha, 'Actual checkout SHA mismatch');
   requireValue(record(receipt.steps), 'Missing command outcomes');
   requireValue(receipt.steps.checkout?.outputs?.commit === plan.source.tested_sha, 'Initial checkout SHA mismatch or unavailable');
@@ -234,6 +235,13 @@ function validateReceipt(receipt, plan, family, unit) {
     requireValue(record(receipt.browser_reports), 'Missing browser command evidence');
     for (const command of browserCommands[family]) verifyBrowser(receipt.browser_reports[command], family);
   }
+}
+
+function receiptArtifactName(source, family, unit) {
+  validateSource(source);
+  requireValue(typeof family === 'string' && Object.hasOwn(contracts, family) &&
+    typeof unit === 'string' && Object.hasOwn(contracts[family].units, unit), 'Unknown receipt unit');
+  return `pr-completeness-receipt-${family}-${unit}-${source.run_id}-${source.run_attempt}`;
 }
 
 function captureReceipt(plan, family, unit, steps, testedSHA, reports, observedSource) {
@@ -251,6 +259,7 @@ function captureReceipt(plan, family, unit, steps, testedSHA, reports, observedS
   }
   const receipt = {
     kind: 'waza.pr-completeness-receipt', schema: 1, family, unit,
+    artifact_name: receiptArtifactName(observedSource, family, unit),
     source: { ...observedSource }, tested_sha: testedSHA, steps: outcomes,
   };
   if (browserCommands[family]) {
@@ -414,4 +423,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { applicability, captureReceipt, contracts, createPlan, discoverPlan, evaluate, eventSource, planOutputs, prEventMode, prRouting, producerTitle, runtimeInputs, verifyBrowser };
+module.exports = { applicability, captureReceipt, contracts, createPlan, discoverPlan, evaluate, eventSource, planOutputs, prEventMode, prRouting, producerTitle, receiptArtifactName, runtimeInputs, verifyBrowser };

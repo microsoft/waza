@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/assurance"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/webapi"
@@ -102,7 +103,7 @@ func TestNativeResultOrdinaryCaptureAndLegacyReaderRegression(t *testing.T) {
 func TestNativeResultLegacyDynamicNumbersRemainFloat64(t *testing.T) {
 	for _, token := range []string{"9007199254740993", "-9007199254740993", "1e-300", "0.1234567890123456789"} {
 		t.Run(token, func(t *testing.T) {
-			data := []byte(`{"validations":{"check":{"details":{"count":` + token + `}}}}`)
+			data := []byte(`{"validations":{"check":{"details":{"count":` + token + `}}},"transcript":[{"type":"tool.execution_start","tool_call_id":"numeric","tool_name":"numeric","arguments":{"nested":[` + token + `]}}]}`)
 			var run models.RunResult
 			require.NoError(t, json.Unmarshal(data, &run))
 			details := run.Validations["check"].Details
@@ -110,6 +111,9 @@ func TestNativeResultLegacyDynamicNumbersRemainFloat64(t *testing.T) {
 			var expected any
 			require.NoError(t, json.Unmarshal([]byte(token), &expected))
 			require.Equal(t, expected, details["count"])
+			start, ok := copilotevents.ToolStart(run.Transcript[0].SessionEvent)
+			require.True(t, ok)
+			require.Equal(t, map[string]any{"nested": []any{expected}}, start.Arguments)
 		})
 	}
 }
@@ -117,10 +121,13 @@ func TestNativeResultLegacyDynamicNumbersRemainFloat64(t *testing.T) {
 func TestNativeResultExactNumbersAndAdmission(t *testing.T) {
 	for _, token := range []string{"9007199254740993", "-9007199254740993", "1e-300", "0.1234567890123456789", "1e1000"} {
 		t.Run(token, func(t *testing.T) {
-			data := []byte(`{"validations":{"check":{"details":{"count":` + token + `}}}}`)
+			data := []byte(`{"validations":{"check":{"details":{"count":` + token + `}}},"transcript":[{"type":"tool.execution_start","tool_call_id":"numeric","tool_name":"numeric","arguments":{"nested":[` + token + `]}}]}`)
 			var run models.RunResult
 			require.NoError(t, run.UnmarshalJSONExact(data))
 			require.Equal(t, json.Number(token), run.Validations["check"].Details["count"])
+			start, ok := copilotevents.ToolStart(run.Transcript[0].SessionEvent)
+			require.True(t, ok)
+			require.Equal(t, map[string]any{"nested": []any{json.Number(token)}}, start.Arguments)
 		})
 	}
 	for _, invalid := range []string{

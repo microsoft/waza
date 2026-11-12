@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-evidence-1.0.schema.json",
+  "title": "Waza derived execution evidence declarations 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "publication", "origin_manifest", "categories", "lineage"],
+  "properties": {
+    "kind": {"const": "waza.execution-evidence"},
+    "schema_version": {"const": "1.0"},
+    "publication": {"const": "derived"},
+    "origin_manifest": {"$ref": "#/$defs/digest"},
+    "execution_source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"},
+    "attempt_artifact": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"},
+    "categories": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "items": {"$ref": "#/$defs/record"},
+      "allOf": [
+        {"contains": {"properties": {"category": {"const": "conversation"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"category": {"const": "tool"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"category": {"const": "grader"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"category": {"const": "reliability"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"category": {"const": "usage"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"category": {"const": "provenance"}}}, "minContains": 1, "maxContains": 1}
+      ]
+    },
+    "lineage": {
+      "type": "array", "maxItems": 128, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["manifest", "relationship"],
+        "properties": {
+          "manifest": {"$ref": "#/$defs/digest"},
+          "relationship": {"enum": ["retry", "resume", "cache", "aggregation"]}
+        }
+      }
+    }
+  },
+  "dependentRequired": {
+    "execution_source": ["attempt_artifact"],
+    "attempt_artifact": ["execution_source"]
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "count": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "record": {
+      "type": "object", "additionalProperties": false,
+      "required": ["category", "state", "source", "context", "artifacts"],
+      "properties": {
+        "category": {"enum": ["conversation", "tool", "grader", "reliability", "usage", "provenance"]},
+        "state": {"enum": ["present", "unavailable", "incomplete", "redacted", "conflicting"]},
+        "source": {"enum": ["authored", "mock", "cached", "live", "unknown"]},
+        "context": {"enum": ["declared", "observed", "unknown"]},
+        "artifacts": {
+          "type": "array", "maxItems": 128, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"}
+        },
+        "observed_count": {"$ref": "#/$defs/count"},
+        "reason": {"enum": ["not_recorded", "partial_capture", "privacy", "source_conflict", "artifact_count_limit", "object_size_limit", "total_size_limit"]},
+        "limit": {
+          "type": "object", "additionalProperties": false,
+          "required": ["observed"],
+          "properties": {
+            "observed": {"$ref": "#/$defs/count"},
+            "total": {"$ref": "#/$defs/count"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "present"}}},
+          "then": {"required": ["observed_count"], "not": {"anyOf": [{"required": ["reason"]}, {"required": ["limit"]}]}},
+          "else": {"required": ["reason"]}
+        },
+        {
+          "if": {"required": ["observed_count"], "properties": {"state": {"const": "present"}, "observed_count": {"const": 0}}},
+          "then": {"properties": {"artifacts": {"maxItems": 0}}}
+        },
+        {
+          "if": {"required": ["observed_count"], "properties": {"state": {"const": "present"}, "observed_count": {"minimum": 1}}},
+          "then": {"properties": {"artifacts": {"minItems": 1}}}
+        },
+        {
+          "if": {"properties": {"state": {"enum": ["unavailable", "redacted"]}}},
+          "then": {
+            "properties": {"artifacts": {"maxItems": 0}},
+            "not": {"anyOf": [{"required": ["observed_count"]}, {"required": ["limit"]}]}
+          }
+        },
+        {
+          "if": {"required": ["reason"], "properties": {"reason": {"enum": ["artifact_count_limit", "object_size_limit", "total_size_limit"]}}},
+          "then": {"required": ["limit"], "properties": {"state": {"const": "incomplete"}}},
+          "else": {"not": {"required": ["limit"]}}
+        },
+        {
+          "if": {"properties": {"state": {"const": "unavailable"}}},
+          "then": {"properties": {"reason": {"const": "not_recorded"}}}
+        },
+        {
+          "if": {"properties": {"state": {"const": "redacted"}}},
+          "then": {"properties": {"reason": {"const": "privacy"}}}
+        },
+        {
+          "if": {"properties": {"state": {"const": "conflicting"}}},
+          "then": {"properties": {"reason": {"const": "source_conflict"}}}
+        },
+        {
+          "if": {"properties": {"state": {"const": "incomplete"}}},
+          "then": {"properties": {"reason": {"enum": ["partial_capture", "artifact_count_limit", "object_size_limit", "total_size_limit"]}}}
+        },
+        {
+          "if": {"required": ["reason"], "properties": {"reason": {"const": "artifact_count_limit"}}},
+          "then": {"properties": {"limit": {"properties": {"observed": {"minimum": 129}}}}}
+        },
+        {
+          "if": {"required": ["reason"], "properties": {"reason": {"const": "object_size_limit"}}},
+          "then": {"properties": {"limit": {"properties": {"observed": {"minimum": 67108865}}}}}
+        },
+        {
+          "if": {"required": ["reason"], "properties": {"reason": {"const": "total_size_limit"}}},
+          "then": {"properties": {"limit": {"properties": {"observed": {"minimum": 268435457}}}}}
+        }
+      ]
+    }
+  }
+}

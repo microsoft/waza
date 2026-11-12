@@ -12,7 +12,8 @@ or build current source as described in
 
 `waza serve --lab` opens the **experimental real-results dashboard** at `/#/lab`.
 The classic dashboard remains available at `/#/` on the same server. The Go
-evaluation engine is unchanged; the lab is a viewer, not an execution service.
+evaluation engine is unchanged. Saved-results workspaces are viewers; explicit
+runner actions use the separate exact-unit runner service.
 
 <ZoomImage src="../../images/dashboard-lab-overview.png" alt="Dashboard lab with linked quality charts, model performance, attention items, and run history." />
 
@@ -37,6 +38,43 @@ previous success. See [terminal interpretation](../runner-terminal/).
 This is separate from saved run evidence and is
 unavailable in the synthetic demo. See [Runner contract and API](../runner-contract/)
 and [logical identity normalization and migration](../runner-identities/).
+
+The unreleased source preview also offers **Create or resume an exact-unit
+checkpoint** in **Runner contract**. It uses protected POST operations, not raw
+checkpoint inspection. It shows compatibility, withheld source metadata, exact-unit
+progress, original failure/ordinal, retry parent or reuse source, and separate
+new/original engine calls. Unknown progress stays unavailable; recorded zero
+stays zero. **Download checkpoint result JSON** saves the exact protected response.
+Edits, new operations and reload errors clear prior results. Synthetic demo mode
+cannot dispatch checkpoint operations.
+Resume source declarations are checked against the requested checkpoint digest
+before display or download; this is declaration linkage, not storage authority.
+Compatible resumes also match native negotiation and paid-consent policy;
+reordering capability/version arrays is valid, but changing consent is not.
+The current decision must match the admitted attempt without retagging the
+original reservation or terminal.
+Completed resumes require a source; source-withheld failures remain available.
+This also applies when completed work has an outer publication error.
+Create responses cannot contain resume-only source or reuse state.
+Retained submissions must match the captured submission schema and requested
+distinct/reuse mode, explicit parent, and reuse source. Rejections before
+metadata admission remain visible. Distinct resumes require a retry parent
+even if the source is withheld; its identity cannot then be checked against
+that source.
+The checkpoint result reader discards pending validation results and errors
+after an edit or a newer parse, so only the current input can populate the reader.
+
+Creation and before-unit resume execute work and may incur charges when the
+captured Copilot request explicitly consents. Finalized restore reuses the
+original terminal without new engine calls. Stopping a browser request is not
+proof that its server worker stopped. This is not a full ordered attempt history
+or whole-evaluation resume workflow. See [checkpoint boundaries and recovery
+limits](../immutable-artifacts/#checkpoint-public-source-preview).
+
+<ZoomImage src="../../images/dashboard-lab-checkpoint.png" alt="Source Lab showing a recorded protected mock API response: failed original terminal reused with zero new calls and exact JSON download." />
+
+This checkpoint screenshot uses the producer-backed protected mock API fixture,
+not the synthetic demo or live inference.
 
 For a dashboard built from this source tree:
 
@@ -80,6 +118,11 @@ reflected after a successful scan; unrelated malformed new files remain ignored.
 An uncreated empty results directory remains empty across refreshes. Inaccessible
 new unrelated paths are skipped; failures affecting the root or previously
 admitted artifacts retain explicit errors and the prior snapshot.
+Local refreshes reuse parsed results only when their SHA-256 content digest is
+unchanged. Each successful refresh detaches its snapshot from the retained parse,
+so caller mutations cannot contaminate later refreshes. This in-memory cache is
+limited to the dashboard store's lifetime; ordinary CLI and MCP readers remain
+uncached.
 
 For frontend-only exploration of the synthetic demo, no Go server is needed:
 
@@ -373,8 +416,12 @@ cd web
 npm run build
 npm run lint
 npx playwright test e2e/dashboard-lab.spec.ts e2e/dashboard-lab-real.spec.ts --project=chromium
-npx playwright test e2e/screenshots.spec.ts --project=chromium --grep dashboard-lab
+npm run refresh:docs-media -- e2e/screenshots.spec.ts --grep dashboard-lab
 ```
+
+Routine browser discovery excludes screenshot-only specs. The explicit refresh
+command includes them and enables media writes; mixed assertion specs run in
+both modes.
 
 Browser coverage exercises real summaries, arbitrary models, lazy evidence,
 precision, API errors/retries/refresh, stable and legacy IDs, duplicate identities,

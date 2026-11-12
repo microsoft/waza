@@ -21,6 +21,19 @@ the [terminal outcome and diagnostics](../site/src/content/docs/guides/runner-te
 with an exact terminal JSON export. This demo remains mock-only; opted-in exact
 Copilot/text CLI execution has its own paid-call and disabled-tool/skill boundaries.
 
+For the unreleased checkpoint source preview, build a clean versioned CLI and
+open **Runner contract → Create or resume an exact-unit checkpoint**. Use an
+existing private `.waza-artifacts` store under the served results directory.
+Create the captured mock example, then resume its finalized digest: new calls
+must be zero while the original terminal outcome and ordinal remain unchanged.
+Failed originals remain failed grading. Unknown progress is unavailable, not
+zero; an incompatible source is withheld. Download the exact protected JSON.
+This is not a whole-evaluation or ordered-lineage demonstration. Stop and join
+the original worker before before-unit recovery; stopping a browser request
+does not prove worker termination. See the [checkpoint workflow](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
+
+![Recorded protected mock API checkpoint reuse, not live inference](images/dashboard-lab-checkpoint.png)
+
 For an offline controlled-comparison demo, follow
 [the source-bound planning and collection example](CONTROLLED-COMPARISONS.md).
 Its one-cluster mock design intentionally remains inconclusive (selected gate

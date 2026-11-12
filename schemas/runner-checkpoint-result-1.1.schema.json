@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/runner-checkpoint-result-1.1.schema.json",
+  "title": "Exact-unit checkpoint operation error result 1.1",
+  "description": "A sanitized operational failure. Optional submission, source, and checkpoint references are retained only when admitted by the capture policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "status", "exit_code", "error_code", "compatibility_result", "compatibility_differences", "restored_units", "remaining_work", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.runner-checkpoint-result"},
+    "schema_version": {"const": "1.1"},
+    "status": {"const": "operation_error"},
+    "exit_code": {"const": 2},
+    "error_code": {
+      "enum": [
+        "checkpoint_build_unavailable",
+        "checkpoint_runner_unavailable",
+        "checkpoint_storage_unavailable",
+        "checkpoint_storage_close_failed"
+      ]
+    },
+    "submission": {"$ref": "execution-submission-result-1.0.schema.json"},
+    "source": {"$ref": "execution-checkpoint-1.0.schema.json"},
+    "source_withheld": {"type": "boolean", "const": true},
+    "before_checkpoint_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "finalized_checkpoint_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "compatibility_result": {"const": "unavailable"},
+    "compatibility_differences": {"type": "array", "maxItems": 0},
+    "restored_units": {"type": "null"},
+    "remaining_work": {"type": "null"},
+    "diagnostics": {"type": "array", "maxItems": 0}
+  },
+  "allOf": [
+    {
+      "if": {"required": ["source_withheld"]},
+      "then": {"not": {"required": ["source"]}}
+    },
+    {
+      "if": {"required": ["source"]},
+      "then": {"required": ["submission"]}
+    },
+    {
+      "if": {"properties": {"error_code": {"const": "checkpoint_storage_close_failed"}}},
+      "else": {
+        "not": {
+          "anyOf": [
+            {"required": ["submission"]},
+            {"required": ["source"]},
+            {"required": ["source_withheld"]},
+            {"required": ["before_checkpoint_sha256"]},
+            {"required": ["finalized_checkpoint_sha256"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {"anyOf": [{"required": ["before_checkpoint_sha256"]}, {"required": ["finalized_checkpoint_sha256"]}]},
+      "then": {"required": ["submission"]}
+    }
+  ]
+}

@@ -9,9 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Checkpoint embedding API (unreleased partial #765)** - Recover immutable
+  before-unit/finalized-unit checkpoints and compatibility-checked restore atop
+  the attempt core. Finalized restore reuses the original terminal; before-unit
+  restore rejects a recorded dispatch even without completion, preventing
+  uncertain execution from silently rerunning. Source commands `runner checkpoint
+  create` and `runner checkpoint resume` emit capture-approved results. Protected
+  HTTP operations and the source Lab preserve original outcomes, unavailable
+  progress, and exact JSON exports without raw source inspection. Linux clean-CLI
+  boundary-kill/fresh-process controls cover offline mock work; full roadmap,
+  native-platform acceptance, and independent approval remain pending. See
+  [checkpoint contracts and migration limits](docs/EXECUTION_CHECKPOINTS.md).
+
+- **Logical execution-attempt embedding API (unreleased partial #764)** - Recover
+  strict attempt/completion/submission sidecars, exclusive retained creators,
+  append-only parent and duplicate decisions, and original-source verified reuse.
+  New submissions bind exact reservation bytes into their immutable manifest,
+  including concurrent executions with identical terminal output. Reuse makes
+  no new engine calls and preserves original failures and native ordinals.
+  CLI/API/Lab integration and full release acceptance remain pending; this is
+  not a published feature. See [contracts and migration limits](docs/EXECUTION_ATTEMPTS.md).
+
+- **Immutable artifact publication (v0.41 source preview)** - Add manifest schema
+  `1.0` and `artifact create/upload/finalize/inspect` with conditional local and
+  Azure object creation, canonical content addressing, current-byte verification,
+  and explicit missing/corrupt/conflicting publication diagnostics (#763).
+  Native API and Lab discover persisted declaration pointers separately from
+  mutable results. Finalization is manifest-digest scoped; attempt ownership
+  remains separate. Verification covers bytes and declared context, not execution
+  attestation. Legacy result formats and mutable uploads are unchanged; adoption
+  is opt-in and historical evidence is never synthesized. Local staging is
+  retained; no whole-publication transaction, crash durability, replication or
+  hostile-storage authenticity is claimed. See [migration and recovery](docs/IMMUTABLE_ARTIFACTS.md).
+
 - **Native question callbacks** - Scenario evals can set `config.native_user_input: true` to give the agent the Copilot SDK `ask_user` tool (#818). Questions are answered by task `user_input_responses` (ordered `answer` entries with an optional `question` regex) and then by the task's adaptive responder; anything unexpected fails the run instead of getting a default answer. Results from current source use schema `1.9` and record each question in `runs[].user_input_requests`. Evals without the flag are unchanged.
 
 ### Fixed
+
+- Write configured reports after completed grading failures while retaining the
+  grading error and any report write error (#892).
 
 - **Cancellation force-stop join** - When a canceled send or disconnect finishes
   during forced cleanup, join the force-stop callback within the remaining

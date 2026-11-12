@@ -25,6 +25,18 @@ Install the published binary or run `waza update`; a source build is optional.
 Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
 [feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
 
+The unreleased [logical execution-attempt embedding API](docs/EXECUTION_ATTEMPTS.md)
+adds immutable reservations and explicit verified reuse without changing
+`runner run`. Public submission commands and Lab lineage integration remain
+pending; this is not available in installed v0.40.1 artifacts.
+The [checkpoint embedding preview](docs/EXECUTION_CHECKPOINTS.md) adds compatible
+whole-unit recovery. Its unreleased source CLI adds `runner checkpoint create`
+and `runner checkpoint resume`, with protected HTTP create/resume operations.
+The source Lab can create/resume checkpoints and export protected results.
+Ordered evaluation-level lineage and full platform acceptance remain pending.
+For 1.0 results containing a report, the Lab reader labels statuses as unverified
+claims: native canonical-report checks are not performed in the browser.
+
 **v0.40.0 adds** bounded
 runner/text execution, selected AgentV assertion conversion, task-level MCP
 mocks, program-grader context, host lifecycle evidence, and Lab conversations.
@@ -284,6 +296,27 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ## Commands
 
+### `waza artifact` (unreleased v0.41 source preview)
+
+Publish immutable artifact manifests without executing agents. The opt-in store
+is separate from legacy mutable result files; content verification is not
+execution attestation.
+
+```bash
+mkdir -m700 .waza-artifacts
+waza artifact create manifest.json --store .waza-artifacts
+waza artifact upload manifest.json terminal terminal.json --store .waza-artifacts
+waza artifact finalize "$DIGEST" --store .waza-artifacts
+waza artifact inspect "$DIGEST" --store .waza-artifacts
+```
+
+`DIGEST` is the canonical manifest digest returned by `create`; `terminal` must
+be its declared logical artifact name. Azure uses `--azure-container-url` instead
+of `--store`, with existing credentials and no automatic login. Lab can discover
+stored declaration pointers and inspect current integrity. Unreadable publication
+or an ambiguous finalization write reports `unknown`, not observed marker absence. See
+[declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
+
 <span id="waza-interop-source-build-preview"></span>
 
 ### `waza interop` (v0.40.0)
@@ -321,7 +354,7 @@ waza runner run < examples/runner/unit.json
 
 The v0.40.0 release implements `negotiation`, `exact-unit`, `inline.mock-text`,
 `terminal-result` and opt-in `inline.copilot-text`.
-Only `runner run` starts an engine; each dispatch runs its selected task/trial/
+In v0.40.0, only `runner run` starts an engine; each dispatch runs its selected task/trial/
 attempt once, without discovery, cache or retries. Admitted receipts include
 versioned [logical identities](site/src/content/docs/guides/runner-identities.mdx)
 derived from the original captured input, not proof of execution or deduplication.
@@ -363,6 +396,23 @@ are hard errors; remove `--runner-compat` to retain ordinary local workflows.
 The task entry must be eval-relative, and successful adaptation passes shared
 offline admission within the complete 4 MiB emitted-byte limit.
 See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
+
+**Unreleased checkpoint source preview:** `waza runner checkpoint create --store
+.waza-artifacts < submission.json` publishes whole-unit checkpoints;
+`waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
+submission.json` admits compatible recovery. These commands require a clean
+VCS-stamped CLI and a captured submission wrapper, not a bare runner request.
+Ordinary results remain strict schema `1.0`; sanitized pre-store and store-close
+operational failures use schema `1.1`, status `operation_error`, exit code `2`,
+and an allowlisted `error_code`. Close failures retain the capture-approved
+submission, source and checkpoint references when their linkage is valid,
+without changing the submission's own status or exit. An admitted source that
+cannot be linked to the retained submission is marked `source_withheld: true`.
+Raw causes remain operator-only.
+Consumers must keep these levels separate: a store-close failure can have
+top-level exit `2` while the preserved completed or reused submission still has
+nested exit `0`.
+See the [checkpoint workflow and limits](site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
 keeps the default scratch image mock-only and provides an explicit
@@ -729,6 +779,7 @@ fi
 waza run eval.yaml --format github-comment > comment.md
 gh pr comment $PR_NUMBER --body-file comment.md
 
+# Completed grading failures also write JUnit XML and retain a nonzero exit status.
 # Generate JUnit XML for CI test reporting
 waza run eval.yaml --reporter junit:results.xml
 
@@ -1954,7 +2005,9 @@ adversarial:
 
 ### Custom Input Variables
 
-Use the `inputs` section to define key-value variables available throughout your evaluation as `{{.Vars.key}}`:
+Use the top-level `inputs` section to define string variables available to
+lifecycle hook commands as `{{.Vars.key}}`. This contract applies to both
+legacy skill evals and scenario evals:
 
 ```yaml
 inputs:
@@ -2165,13 +2218,17 @@ hooks:
 
 **Template Variables in Hooks and Commands:**
 
-Available variables in hook commands and task execution contexts:
-- `{{.JobID}}` — Unique evaluation run identifier
-- `{{.TaskName}}` — Name/ID of the current task (available in `before_task`/`after_task` only)
-- `{{.Iteration}}` — Current trial number (1-indexed)
-- `{{.Attempt}}` — Current attempt number (1-indexed, used for retries)
-- `{{.Timestamp}}` — ISO 8601 timestamp of execution
-- `{{.Vars.key}}` — User-defined variables from the `inputs` section or CSV columns
+Hook commands support `{{.Vars.key}}` for user-defined values from the eval's
+top-level `inputs` section. Waza splits the configured command into process
+arguments, then renders each argument before starting the hook. A standalone
+placeholder remains one argument when its value contains whitespace or is
+empty. An invalid template or missing key fails that hook instead of passing
+the placeholder literally. Waza does not invoke a shell implicitly; use an
+explicit shell command when shell syntax is required.
+
+An empty rendered executable is rejected even when `error_on_fail` is false.
+When hooks are configured, both hook configuration and eval inputs participate
+in result cache identity; changing either prevents reuse of an old task result.
 
 Custom variables can be defined in the `inputs` section and referenced in hooks:
 
@@ -2183,13 +2240,16 @@ inputs:
 
 hooks:
   before_run:
-    - command: "echo 'Starting eval {{.JobID}} in {{.Vars.environment}}'"
+    - command: "echo {{.Vars.environment}}"
       working_directory: "."
       exit_codes: [0]
       error_on_fail: false
 ```
 
-When using CSV-generated tasks, each row's column values are also available as `{{.Vars.column_name}}`.
+For `tasks_from` CSV datasets, eval-level inputs and the current row's columns
+are available while rendering that row's task prompt. CSV columns are not added
+to lifecycle hook context. CSV prompt rendering also supports `{{.JobID}}`,
+`{{.TaskName}}`, and `{{.Timestamp}}`.
 
 ## Git Repository Resources
 
@@ -2439,6 +2499,14 @@ See [AGENTS.md](AGENTS.md) for coding guidelines.
   `go test ./internal/webapi -run '^$' -bench '^BenchmarkPerfSweepWebAPI/(list-runs-warm|summary-warm|runs-handler-warm)$' -benchmem`
 - Re-run native dashboard JSON encoding benchmarks after changing response DTOs:
   `go test ./internal/webapi -run '^$' -bench '^BenchmarkMarshalRunSummaries5000$' -benchmem`
+
+Check large-history chart rendering, exact tooltips, and AI Credit availability:
+
+```bash
+cd web
+npm run lint && npm run build
+CI=true npx --no-install playwright test e2e/trend-chart-scaling.spec.ts e2e/ai-credits.spec.ts --project=chromium --retries=0
+```
 
 ## Legacy Python Implementation
 

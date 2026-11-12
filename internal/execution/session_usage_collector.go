@@ -359,165 +359,208 @@ func (s *SessionUsageCollector) observeEventModels(event copilot.SessionEvent) {
 // from one SDK event without collecting usage or inferring missing identities.
 // Retained native evidence uses this same contract to reconcile canonical events.
 func ObserveSessionEventModels(event copilot.SessionEvent) SessionEventModelObservation {
-	var ids []*string
+	var observation sessionEventModelObservationBuilder
 	switch data := event.Data.(type) {
 	case *copilot.AssistantUsageData:
 		if data != nil {
-			ids = append(ids, &data.Model)
+			observation.add(data.Model)
 			if usage := data.CopilotUsage; usage != nil {
-				if usage.Model != nil {
-					ids = append(ids, usage.Model)
-				}
+				observation.addOptionalPointer(usage.Model)
 				for _, detail := range usage.TokenDetails {
-					if detail.Model != nil {
-						ids = append(ids, detail.Model)
-					}
+					observation.addOptionalPointer(detail.Model)
 				}
 			}
 		}
 	case *copilot.AssistantMessageData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.AssistantTurnStartData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.AssistantTurnEndData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.AssistantTurnRetryData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.ModelCallStartData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.ModelCallFailureData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.SessionStartData:
 		if data != nil {
-			ids = append(ids, data.SelectedModel)
+			observation.addRequiredPointer(data.SelectedModel)
 		}
 	case *copilot.SessionResumeData:
 		if data != nil {
-			ids = append(ids, data.SelectedModel)
+			observation.addRequiredPointer(data.SelectedModel)
 		}
 	case *copilot.SessionModelChangeData:
 		if data != nil {
-			ids = append(ids, &data.NewModel)
-			if data.PreviousModel != nil {
-				ids = append(ids, data.PreviousModel)
-			}
+			observation.add(data.NewModel)
+			observation.addOptionalPointer(data.PreviousModel)
 		}
 	case *copilot.SessionModelDeselectedData:
 		if data != nil {
-			ids = append(ids, &data.PreviousModel)
+			observation.add(data.PreviousModel)
 		}
 	case *copilot.SessionShutdownData:
 		if data != nil {
-			if data.CurrentModel != nil {
-				ids = append(ids, data.CurrentModel)
-			}
+			observation.addOptionalPointer(data.CurrentModel)
 			for model := range data.ModelMetrics {
-				ids = append(ids, &model)
+				observation.add(model)
 			}
 			for _, agent := range data.AgentMetrics {
 				for model := range agent.ModelMetrics {
-					ids = append(ids, &model)
+					observation.add(model)
 				}
 			}
 		}
 	case *copilot.SessionCompactionStartData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.SessionCompactionCompleteData:
 		if data != nil && data.CompactionTokensUsed != nil {
 			tokens := data.CompactionTokensUsed
-			ids = append(ids, tokens.Model)
+			observation.addRequiredPointer(tokens.Model)
 			if usage := tokens.CopilotUsage; usage != nil {
-				if usage.Model != nil {
-					ids = append(ids, usage.Model)
-				}
+				observation.addOptionalPointer(usage.Model)
 				for _, detail := range usage.TokenDetails {
-					if detail.Model != nil {
-						ids = append(ids, detail.Model)
-					}
+					observation.addOptionalPointer(detail.Model)
 				}
 			}
 		}
 	case *copilot.AssistantFusionPhaseStartedData:
 		if data != nil {
-			ids = append(ids, &data.Model)
+			observation.add(data.Model)
 		}
 	case *copilot.AssistantFusionPhaseCompletedData:
 		if data != nil {
-			ids = append(ids, &data.Model)
+			observation.add(data.Model)
 		}
 	case *copilot.AssistantFusionPhaseFailedData:
 		if data != nil {
-			ids = append(ids, &data.Model)
+			observation.add(data.Model)
 		}
 	case *copilot.SubagentConfiguredData:
 		if data != nil {
-			ids = append(ids, &data.Model)
+			observation.add(data.Model)
 		}
 	case *copilot.SubagentStartedData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.SubagentCompletedData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.SubagentFailedData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.AgentInterruptedData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.SessionToolsUpdatedData:
 		if data != nil {
-			ids = append(ids, &data.Model)
+			observation.add(data.Model)
 		}
 	case *copilot.ToolExecutionStartData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.ToolExecutionCompleteData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.SkillInvokedData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	case *copilot.ExitPlanModeRequestedData:
 		if data != nil {
-			ids = append(ids, data.Model)
+			observation.addRequiredPointer(data.Model)
 		}
 	default:
 		return SessionEventModelObservation{}
 	}
-	result := SessionEventModelObservation{EventsObserved: 1, Complete: len(ids) > 0}
-	models := map[string]bool{}
-	for _, id := range ids {
-		if id == nil || !observedModel(*id) {
-			result.Complete = false
-			continue
+	return observation.result()
+}
+
+const linearModelDedupLimit = 8
+
+type sessionEventModelObservationBuilder struct {
+	models       []string
+	seen         map[string]struct{}
+	hasCandidate bool
+	incomplete   bool
+}
+
+func (b *sessionEventModelObservationBuilder) addRequiredPointer(model *string) {
+	b.hasCandidate = true
+	if model == nil {
+		b.incomplete = true
+		return
+	}
+	b.addValue(*model)
+}
+
+func (b *sessionEventModelObservationBuilder) addOptionalPointer(model *string) {
+	if model != nil {
+		b.add(*model)
+	}
+}
+
+func (b *sessionEventModelObservationBuilder) add(model string) {
+	b.hasCandidate = true
+	b.addValue(model)
+}
+
+func (b *sessionEventModelObservationBuilder) addValue(model string) {
+	if !observedModel(model) {
+		b.incomplete = true
+		return
+	}
+	if b.seen != nil {
+		if _, ok := b.seen[model]; ok {
+			return
 		}
-		models[*id] = true
+		b.seen[model] = struct{}{}
+		b.models = append(b.models, model)
+		return
 	}
-	for model := range models {
-		result.Models = append(result.Models, model)
+	for _, existing := range b.models {
+		if existing == model {
+			return
+		}
 	}
-	sort.Strings(result.Models)
-	return result
+	if len(b.models) == linearModelDedupLimit {
+		b.seen = make(map[string]struct{}, len(b.models)+1)
+		for _, existing := range b.models {
+			b.seen[existing] = struct{}{}
+		}
+		b.seen[model] = struct{}{}
+		b.models = append(b.models, model)
+		return
+	}
+	b.models = append(b.models, model)
+}
+
+func (b *sessionEventModelObservationBuilder) result() SessionEventModelObservation {
+	sort.Strings(b.models)
+	return SessionEventModelObservation{
+		Models:         b.models,
+		EventsObserved: 1,
+		Complete:       b.hasCandidate && !b.incomplete,
+	}
 }

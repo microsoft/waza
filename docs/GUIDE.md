@@ -352,6 +352,12 @@ def greet(name):
 
 ### Step 4: Run the Evaluation
 
+Eval-level `inputs` also supply lifecycle hook arguments via `{{.Vars.key}}`.
+Arguments preserve whitespace and explicit empty values; missing variables or
+an empty rendered executable fail the hook. Hook configuration and eval inputs
+participate in result cache identity when hooks are configured. See the
+[hook contract and examples](../site/src/content/docs/guides/eval-yaml.mdx#hooks).
+
 Execute the benchmark:
 
 ```bash
@@ -507,6 +513,14 @@ override eval settings. Historical local `waza run` exit/artifact behavior is
 unchanged. See [outcomes, exits and migration](../site/src/content/docs/guides/runner-terminal.mdx), the
 [identity guide](../site/src/content/docs/guides/runner-identities.mdx) and
 [canonical contract and migration guide](../site/src/content/docs/guides/runner-contract.mdx).
+
+The unreleased source checkpoint commands accept a captured submission wrapper:
+`waza runner checkpoint create --store .waza-artifacts < submission.json` and
+`waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
+submission.json`. They require a clean VCS-stamped owning CLI and preserve
+original terminal failures on finalized reuse. See the
+[checkpoint workflow, boundaries and troubleshooting](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview);
+these commands are not in installed v0.40.1 artifacts.
 
 ### `waza init [directory]`
 
@@ -686,6 +700,13 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 ---
 
+### Reports for failed evaluations
+
+Use `waza run eval.yaml --output results.json --reporter junit:results.xml`
+to save JSON and JUnit XML, including when a completed evaluation fails grading.
+The command retains its nonzero exit status; if writing the report also fails,
+the returned error includes both the grading failure and the write error.
+
 ### `waza dev <skill-name | skill-path>`
 
 Iteratively score and improve a skill's frontmatter. A single target can be a
@@ -829,6 +850,11 @@ streams require **Reconnect stream** rather than claiming automatic retry.
 The configured local storage adapter refreshes too. Incomplete rewrites of known
 artifacts fail refresh without discarding cached evidence; successful scans still
 reflect intentional deletion and ignore unrelated malformed new files.
+Local dashboard refreshes reuse parsed artifacts only when their SHA-256 content
+digest is unchanged, with a detached snapshot on every successful refresh.
+Mutating a downloaded outcome or API projection cannot alter the retained parse
+used by a later refresh. Ordinary CLI, MCP, evidence, and assurance readers remain
+uncached; the cache lasts only for the dashboard store's lifetime.
 Missing directories remain empty while no artifacts have been admitted. New
 unrelated inaccessible paths are skipped; root and admitted-path failures remain
 explicit. Nonempty remote archives refresh on demand rather than every 15

@@ -259,6 +259,24 @@ func Negotiate(data []byte) Response {
 	if err != nil {
 		return Rejected(err.Error())
 	}
+	return negotiate(request)
+}
+
+// NegotiateValidatedRequest negotiates a full request already admitted by Parse.
+// It does not validate typed values or perform execution admission. Callers must
+// validate the original wire first; negotiation-only schema limits do not apply.
+// The request is not mutated.
+func NegotiateValidatedRequest(request *Request) Response {
+	if request == nil {
+		return Rejected("validated full runner request is nil")
+	}
+	return negotiate(&NegotiationRequest{
+		SchemaVersion: request.SchemaVersion, Versions: request.Versions,
+		RequiredCapabilities: request.RequiredCapabilities, OptionalCapabilities: request.OptionalCapabilities,
+	})
+}
+
+func negotiate(request *NegotiationRequest) Response {
 	response := Rejected("pending negotiation")
 	response.Diagnostics = []Diagnostic{}
 	n := &response.Negotiation
