@@ -34,6 +34,8 @@ whole-unit recovery. Its unreleased source CLI adds `runner checkpoint create`
 and `runner checkpoint resume`, with protected HTTP create/resume operations.
 The source Lab can create/resume checkpoints and export protected results.
 Ordered evaluation-level lineage and full platform acceptance remain pending.
+For 1.0 results containing a report, the Lab reader labels statuses as unverified
+claims: native canonical-report checks are not performed in the browser.
 
 **v0.40.0 adds** bounded
 runner/text execution, selected AgentV assertion conversion, task-level MCP
@@ -403,8 +405,10 @@ VCS-stamped CLI and a captured submission wrapper, not a bare runner request.
 Ordinary results remain strict schema `1.0`; sanitized pre-store and store-close
 operational failures use schema `1.1`, status `operation_error`, exit code `2`,
 and an allowlisted `error_code`. Close failures retain the capture-approved
-submission, source and checkpoint references without changing the submission's
-own status or exit. Raw causes remain operator-only.
+submission, source and checkpoint references when their linkage is valid,
+without changing the submission's own status or exit. An admitted source that
+cannot be linked to the retained submission is marked `source_withheld: true`.
+Raw causes remain operator-only.
 Consumers must keep these levels separate: a store-close failure can have
 top-level exit `2` while the preserved completed or reused submission still has
 nested exit `0`.
@@ -775,6 +779,7 @@ fi
 waza run eval.yaml --format github-comment > comment.md
 gh pr comment $PR_NUMBER --body-file comment.md
 
+# Completed grading failures also write JUnit XML and retain a nonzero exit status.
 # Generate JUnit XML for CI test reporting
 waza run eval.yaml --reporter junit:results.xml
 

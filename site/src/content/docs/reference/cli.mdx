@@ -182,6 +182,7 @@ waza run eval.yaml --parallel --workers 8
 # With caching
 waza run eval.yaml --cache --cache-dir .waza-cache
 
+# Completed grading failures also write JUnit XML and retain a nonzero exit status.
 # Generate JUnit XML for CI test reporting
 waza run eval.yaml --reporter junit:results.xml
 
@@ -1707,8 +1708,10 @@ or rejected restore exits 6; checkpoint publication and output failures exit 2.
 Store-open/close failures emit result version `1.1` with top-level status
 `operation_error`, exit code `2`, and a stable sanitized `error_code`; ordinary
 results remain strict version `1.0`. A close failure after execution preserves
-the capture-approved submission, source and checkpoint references without
-changing the submission's own status/exit. Raw causes remain on operator stderr.
+the capture-approved submission, source and checkpoint references when their
+linkage is valid, without changing the submission's own status/exit. An admitted
+source without valid linkage is marked `source_withheld: true`. Raw causes
+remain on operator stderr.
 Treat these levels separately: top-level exit `2` can coexist with a preserved
 completed or reused submission whose nested exit is `0`.
 A reference can survive a failed publication and is not a success claim.

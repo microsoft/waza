@@ -158,7 +158,7 @@ test.describe("Protected checkpoint operations in Lab", () => {
       const terminal = submission?.terminal;
       await expect(result(page).locator("dd")).toHaveText([
         value.status, String(value.exit_code), value.source?.boundary ?? "Unavailable",
-        value.source_withheld ? "Withheld - capture admission did not succeed"
+        value.source_withheld ? "Withheld - source admission or linkage did not succeed"
           : value.source ? "Admitted original declaration" : "Unavailable",
         value.source?.created_at ?? "Unavailable", value.compatibility_result,
         value.compatibility_differences.join(", ") || "None reported",

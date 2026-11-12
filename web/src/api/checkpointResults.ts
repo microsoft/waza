@@ -20,6 +20,25 @@ interface SourceReference {
   manifest_digest: string;
 }
 
+interface ExecutionReport {
+  status: "ready" | "rejected" | "completed" | "execution_error";
+  requested?: WorkSelection;
+  resolved?: WorkSelection;
+  identity?: RunnerIdentity;
+  validation: string;
+  compatibility: { status: string };
+  adjacent_work_selected: boolean;
+  execution_mode?: string;
+  engine_calls: number;
+  observation?: {
+    run_number: number;
+    attempts: number;
+    status: string;
+    error_msg?: string;
+    validations: Record<string, { identifier: string; passed: boolean }> | null;
+  };
+}
+
 interface SubmissionResult {
   kind: "waza.execution-submission-result";
   schema_version: "1.0";
@@ -56,6 +75,7 @@ interface SubmissionResult {
     source?: SourceReference;
   };
   terminal?: RunnerTerminal;
+  report?: ExecutionReport;
   diagnostics: { code: string; message: string }[];
 }
 
@@ -137,6 +157,38 @@ function validBinding(logical: { run: string; work: string }, binding: NonNullab
   return logical.run === binding.identity.run && logical.work === binding.identity.trial &&
     [...binding.grader_ids, binding.selection.shard, binding.selection.task]
       .every((value) => encoder.encode(value).length <= 256);
+}
+
+function validateReport(report: ExecutionReport, reservation: NonNullable<SubmissionResult["reservation"]>, terminal: RunnerTerminal): void {
+  const { binding } = reservation;
+  const observed = report.observation;
+  const terminalObservation = terminal.observation;
+  const validOutcome = report.status === "completed"
+    ? terminal.outcome === "success" || terminal.outcome === "evaluation_failure" ||
+      (terminal.outcome === "infrastructure_failure" && terminal.failure_boundary === "terminalization")
+    : report.status === "execution_error" &&
+      ["infrastructure_failure", "cancelled", "timeout"].includes(terminal.outcome);
+  if (!sameRunnerIdentity(report.identity, binding.identity) ||
+      !sameSelection(report.requested, binding.selection) || !sameSelection(report.resolved, binding.selection) ||
+      report.validation !== "valid" || report.compatibility.status !== "compatible" || report.adjacent_work_selected ||
+      report.engine_calls !== terminal.engine_calls || !validOutcome ||
+      (report.execution_mode !== undefined && report.execution_mode !== binding.execution_mode) ||
+      (!!observed !== !!terminalObservation)) {
+    throw new Error("Checkpoint retained submission report contradicts its reservation or terminal.");
+  }
+  if (observed && terminalObservation) {
+    const validations = observed.validations;
+    if (observed.run_number !== terminalObservation.run_number ||
+        observed.attempts !== terminalObservation.attempts || observed.status !== terminalObservation.status ||
+        (observed.error_msg ?? "") !== (terminalObservation.error_msg ?? "") ||
+        (validations !== null && (typeof validations !== "object" || Array.isArray(validations))) ||
+        Object.keys(validations ?? {}).length !== terminalObservation.validations.length ||
+        terminalObservation.validations.some(({ identifier, passed }) =>
+          !validations || !Object.prototype.hasOwnProperty.call(validations, identifier) ||
+          validations[identifier]?.identifier !== identifier || validations[identifier]?.passed !== passed)) {
+      throw new Error("Checkpoint retained submission report contradicts its terminal observation.");
+    }
+  }
 }
 
 async function requestPolicyDigest(request: object): Promise<string> {
@@ -247,7 +299,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   const isOperationError = validateOperationError(value);
   if (!isOperationError && !validate(value)) throw new Error("Checkpoint API returned an invalid operation result.");
   const submission = value.submission;
-  if (submission && "report" in submission) {
+  if (isOperationError && submission?.report !== undefined) {
     throw new Error("Checkpoint API returned an unapproved raw report.");
   }
   if (isOperationError && submission?.diagnostics.some(({ message }) => message !== capturedDiagnosticMessage)) {
@@ -255,7 +307,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   }
   if (isOperationError) await validateOperationErrorSource(value);
   if (value.source && !isCanonicalCheckpointTime(value.source.created_at)) {
-    throw new Error("Checkpoint API returned a noncanonical source creation time.");
+    throw new Error("Checkpoint source created_at must be a canonical UTC RFC3339 timestamp.");
   }
   if (value.before_checkpoint_sha256 &&
       value.before_checkpoint_sha256 === value.finalized_checkpoint_sha256) {
@@ -333,6 +385,10 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
       throw new Error("Checkpoint retained submission observation contradicts its original binding.");
     }
   }
+  if (submission?.report) {
+    if (!reservation || !terminal) throw new Error("Checkpoint retained submission report lacks its reservation or terminal.");
+    validateReport(submission.report, reservation, terminal);
+  }
   if (value.source && submission?.reservation &&
       value.source.compatibility.work !== submission.reservation.logical.work) {
     throw new Error("Checkpoint source contradicts the actual submission work.");
@@ -402,6 +458,9 @@ export async function runCheckpointOperation(
   });
   const json = await response.text();
   const result = await parseCheckpointOperationResult(json);
+  if (result.submission?.report !== undefined) {
+    throw new Error("Checkpoint API returned an unapproved raw report.");
+  }
   if (action === "create" && (result.source || result.source_withheld || result.submission?.status === "reused")) {
     throw new Error("Checkpoint create response contains resume-only state.");
   }

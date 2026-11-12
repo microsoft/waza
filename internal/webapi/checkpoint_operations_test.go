@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
@@ -22,6 +26,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/runnercheckpoint"
+	"github.com/microsoft/waza/internal/runnercheckpoint/testfixture"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
@@ -200,6 +205,63 @@ func TestCheckpointOperationHTTPCloseFailurePreservesAdmittedResult(t *testing.T
 	require.NotContains(t, string(reusedData), "private-http-close-control")
 }
 
+func TestCheckpointOperationHTTPCombinedPinnedReadAndCloseFailures(t *testing.T) {
+	directory := t.TempDir()
+	var factories atomic.Int32
+	service := runnerunit.NewService(func(config models.Config) (execution.AgentEngine, error) {
+		factories.Add(1)
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	revision := strings.Repeat("c", 40)
+	local, closeLocal, err := artifactmanifest.OpenBackend(directory, "")
+	require.NoError(t, err)
+	checkpoints, err := runnercheckpoint.NewService(service, revision)
+	require.NoError(t, err)
+	wire := checkpointOperationWire(t)
+	created, err := checkpoints.SubmitCaptured(t.Context(), wire, local, runnercheckpoint.Hooks{})
+	require.NoError(t, err)
+	require.NoError(t, closeLocal())
+	backend, fixture := testfixture.NewPinnedReadBackend(t, directory)
+	require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	logs := &checkpointLogSink{}
+	setWebAPITestLogger(t, slog.New(slog.NewTextHandler(logs, nil)))
+	defer func() {
+		require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	}()
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			return backend, func() error { return errors.New("private-http-close-control") }, nil
+		},
+		runner: service, revision: func() (string, error) { return revision, nil },
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	result := postCheckpointOperation(t, server, "/api/v1/checkpoints/"+created.FinalizedDigest+"/resume",
+		wire, http.StatusServiceUnavailable)
+	require.Equal(t, int32(4), fixture.Reads())
+	require.Equal(t, int32(1), factories.Load())
+	require.Equal(t, "operation_error", result.Status)
+	require.Equal(t, 2, result.ExitCode)
+	require.Equal(t, runnercheckpoint.ErrorCodeStorageCloseFailed, result.ErrorCode)
+	require.True(t, result.SourceWithheld)
+	require.Nil(t, result.Source)
+	require.NotNil(t, result.Submission)
+	require.Equal(t, "submission_error", result.Submission.Status)
+	require.Equal(t, "reuse_not_admitted", result.Submission.Diagnostics[0].Code)
+	require.Nil(t, result.Submission.Reservation)
+	require.Nil(t, result.Submission.Completion)
+	require.Eventually(t, func() bool {
+		record := logs.String()
+		return strings.Contains(record, testfixture.PinnedReadFailure) &&
+			strings.Contains(record, "private-http-close-control")
+	}, 2*time.Second, time.Millisecond)
+	public, err := runnercheckpoint.EncodeResult(result)
+	require.NoError(t, err)
+	require.NotContains(t, string(public), testfixture.PinnedReadFailure)
+	require.NotContains(t, string(public), "private-http-close-control")
+}
+
 func TestCheckpointOperationHTTPDeniedReuseWithholdsSourceAndPreservesOriginal(t *testing.T) {
 	directory := t.TempDir()
 	var factories atomic.Int32
@@ -333,6 +395,138 @@ func TestCheckpointOperationHTTPAdmissionPrecedesBuildStorageAndExecution(t *tes
 	require.Equal(t, int32(1), revisions.Load())
 	require.Zero(t, opens.Load())
 	require.Zero(t, factories.Load())
+}
+
+type checkpointLogSink struct {
+	mu   sync.Mutex
+	data bytes.Buffer
+}
+
+func (s *checkpointLogSink) Write(data []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.Write(data)
+}
+
+func (s *checkpointLogSink) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.String()
+}
+
+func (s *checkpointLogSink) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Reset()
+}
+
+func setWebAPITestLogger(t *testing.T, logger *slog.Logger) {
+	t.Helper()
+	previous := slog.Default()
+	writer, flags := log.Writer(), log.Flags()
+	slog.SetDefault(logger)
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		// Restoring slog's default handler does not restore log's writer or flags.
+		log.SetOutput(writer)
+		log.SetFlags(flags)
+	})
+}
+
+func TestCheckpointLoggingRestoresStandardLogger(t *testing.T) {
+	previous := slog.Default()
+	writer, flags := log.Writer(), log.Flags()
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(writer)
+		log.SetFlags(flags)
+	})
+	var original bytes.Buffer
+	log.SetOutput(&original)
+	log.SetFlags(log.Llongfile)
+	t.Run("capture", func(t *testing.T) {
+		records := &checkpointLogSink{}
+		setWebAPITestLogger(t, slog.New(slog.NewTextHandler(records, nil)))
+		log.Print("captured standard log")
+		slog.Error("captured structured log")
+		require.Contains(t, records.String(), "captured standard log")
+		require.Contains(t, records.String(), "captured structured log")
+	})
+	require.Same(t, previous, slog.Default())
+	require.Same(t, &original, log.Writer())
+	require.Equal(t, log.Llongfile, log.Flags())
+	log.Print("restored standard log")
+	require.Contains(t, original.String(), "restored standard log")
+}
+
+func TestCheckpointOperationHTTPSubmissionParseFailureLogsWithoutRequestContents(t *testing.T) {
+	require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	records := &checkpointLogSink{}
+	setWebAPITestLogger(t, slog.New(slog.NewTextHandler(records, nil)))
+	defer func() {
+		require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	}()
+
+	var opens, revisions atomic.Int32
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			opens.Add(1)
+			return nil, nil, errors.New("must not open")
+		},
+		runner: runnerunit.NewService(nil),
+		revision: func() (string, error) {
+			revisions.Add(1)
+			return "", errors.New("must not read revision")
+		},
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	const secret = "private-submission-marker"
+	for _, action := range []string{"create", "resume"} {
+		for _, input := range []struct {
+			name string
+			wire string
+		}{
+			{"malformed", `{"private":"` + secret + `",`},
+			{"schema-invalid", `{"kind":"` + secret + `","schema_version":"1.0","request":{}}`},
+		} {
+			t.Run(action+"-"+input.name, func(t *testing.T) {
+				require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+				records.Reset()
+				_, parseErr := runnerunit.ParseSubmission([]byte(input.wire))
+				require.Error(t, parseErr)
+				path := "/api/v1/checkpoints"
+				if action == "resume" {
+					path += "/" + strings.Repeat("e", 64) + "/resume"
+				}
+				response, err := server.Client().Post(server.URL+path, "application/json", strings.NewReader(input.wire))
+				require.NoError(t, err)
+				body, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+				require.Equal(t, http.StatusBadRequest, response.StatusCode)
+				require.Equal(t, "6", response.Header.Get("X-Waza-Exit-Code"))
+				result, err := runnercheckpoint.ParseResult(body)
+				require.NoError(t, err)
+				require.Equal(t, "rejected", result.Status)
+				require.Equal(t, 6, result.ExitCode)
+				require.Equal(t, "checkpoint_input_invalid", result.Diagnostics[0].Code)
+				require.NotContains(t, string(body), secret)
+				require.Eventually(t, func() bool {
+					record := records.String()
+					return strings.Contains(record, "checkpoint submission parsing failed") &&
+						strings.Contains(record, "action="+action)
+				}, 2*time.Second, time.Millisecond, "checkpoint submission parsing diagnostic was not logged")
+				record := records.String()
+				require.Contains(t, record, "Inspect the submission and local schema initialization.")
+				require.NotContains(t, record, secret)
+				require.NotContains(t, record, parseErr.Error())
+			})
+		}
+	}
+	require.Zero(t, opens.Load())
+	require.Zero(t, revisions.Load())
 }
 
 func TestCheckpointOperationHTTPTrustDenialPrecedesInputAndStorage(t *testing.T) {

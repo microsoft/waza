@@ -119,10 +119,18 @@ operational failures use schema version `1.1`, top-level `operation_error`,
 exit code `2`, and an allowlisted sanitized `error_code`; no submission or
 source is fabricated before admission. Save stdout even when the exit is
 nonzero: a close failure after execution preserves the capture-approved
-submission, source and checkpoint references, including the submission's
-original status and exit. Raw causes remain operator-only on stderr/server logs.
+submission, source and checkpoint references when their linkage is valid,
+including the submission's original status and exit. If an admitted source
+cannot be linked to the retained submission, it is withheld and
+`source_withheld` is true. The CLI writes underlying causes to operator stderr;
+server operational logs may include causes, but submission-parser failures log
+only the failure stage, action and guidance, not the parser error or request.
 Consumers must treat the levels separately: top-level exit `2` can coexist with
 a preserved completed or reused submission whose nested exit is `0`.
+The Lab reader performs schema and cross-field checks locally, but does not
+perform native canonical-report checks. For report-bearing 1.0 results it
+therefore labels operation and submission statuses and exit codes as unverified
+claims, not verified outcomes.
 An output failure exits 2 and is not successful delivery.
 See the [operator workflow](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 

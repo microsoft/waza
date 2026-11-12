@@ -69,6 +69,8 @@ func registerCheckpointOperationRoutes(mux *http.ServeMux, operations checkpoint
 				}
 			}
 			if _, err := runnerunit.ParseSubmission(data); err != nil {
+				logRunnerError("checkpoint submission parsing failed",
+					"action", action, "guidance", "Inspect the submission and local schema initialization.")
 				emit(http.StatusBadRequest, runnercheckpoint.RejectPublic("checkpoint_input_invalid"))
 				return
 			}

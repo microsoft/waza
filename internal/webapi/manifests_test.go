@@ -43,10 +43,8 @@ func TestManifestInspectionLogsMixedFailuresWithoutExposingOperatorDetails(t *te
 			path := filepath.Join(t.TempDir(), "operator.log")
 			sink, err := os.Create(path)
 			require.NoError(t, err)
-			defer func() { require.NoError(t, sink.Close()) }()
-			logger := slog.Default()
-			slog.SetDefault(slog.New(slog.NewTextHandler(sink, nil)))
-			defer slog.SetDefault(logger)
+			t.Cleanup(func() { require.NoError(t, sink.Close()) })
+			setWebAPITestLogger(t, slog.New(slog.NewTextHandler(sink, nil)))
 			operatorDetail := "injected authentication failure /synthetic/private-store"
 			store := artifactmanifest.NewStore(manifestReadFailure{
 				failure: errors.Join(scenario.cause, errors.New(operatorDetail)),

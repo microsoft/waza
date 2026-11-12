@@ -44,9 +44,11 @@ logical work item. They form a partial order, not a global schedule. Knowing an
 execution ID or reading a record does not grant completion authority.
 
 This is an **embedding API preview**, not a released `runner submit` command or
-Lab lineage view. Public operations, checkpoints, and lifecycle integration
-remain pending. Existing `runner run`, native ordinals, manifest v1, and legacy
-results are unchanged; historical ownership records are not synthesized.
+Lab lineage view. The source checkpoint CLI and protected checkpoint HTTP
+operations are available as a separate preview below; a generic public
+submission command and broader Lab evaluation lifecycle orchestration remain pending. Existing
+`runner run`, native ordinals, manifest v1, and legacy results are unchanged;
+historical ownership records are not synthesized.
 See the independently versioned
 [attempt/decision schema](../../schemas/execution-attempt-1.0.schema.json),
 [completion schema](../../schemas/execution-completion-1.0.schema.json),
@@ -107,10 +109,17 @@ Stdout is one protected result; boundary/digest progress goes to stderr. Preserv
 the result even on a nonzero exit. Store-open or store-close failures use result
 version `1.1`, status `operation_error`, exit code `2`, and a stable `error_code`.
 When close fails after execution, the result retains the capture-approved
-submission, source and checkpoint references while keeping the execution's
-original submission status and exit unchanged. Raw causes stay on operator
-stderr/server logs. Consumers must keep the levels separate: top-level exit `2`
+submission, source and checkpoint references when their linkage is valid, while
+keeping the execution's original submission status and exit unchanged. An
+admitted source without valid linkage is marked `source_withheld: true`.
+The CLI writes underlying causes to operator stderr; server operational logs may
+include causes, but submission-parser failures log only the failure stage,
+action and guidance, not the parser error or request. Consumers must keep the
+levels separate: top-level exit `2`
 can coexist with a preserved completed or reused submission's nested exit `0`.
+The Lab reader checks schemas and cross-field consistency locally, but does not
+perform native canonical-report checks. It labels statuses and exit codes in
+report-bearing 1.0 results as unverified claims, not verified outcomes.
 To restore the exact finalized source:
 
 ```bash
@@ -157,7 +166,7 @@ from an ordinarily completed execution: it is already stale.
 | Incompatible build or configuration | Preserve the checkpoint and use its compatible original binary and captured configuration; do not override the revision. |
 | Corrupt, missing, or unverified source | Preserve records and inspect the configured store; do not repair bytes in place. |
 | Stale before-unit source or incomplete discovery | Investigate the original execution. Missing completion does not authorize replay. |
-| `source_withheld: true` | Original-source capture admission did not succeed; no source metadata or terminal was approved for disclosure. |
+| `source_withheld: true` | Original-source capture admission failed, or a close-error result cannot link the admitted source to its retained submission. Inspect operator diagnostics and preserve the original records. |
 | Publication, output, or close failure | Preserve original and partial references. Do not infer completion or receipt from a digest. |
 
 ## Prepare a declaration

@@ -15,7 +15,7 @@ export default function CheckpointResult({ result }: { result: CheckpointOperati
         {result.error_code && <><dt>Sanitized operation error</dt><dd>{result.error_code}</dd></>}
         <dt>Source boundary</dt><dd>{result.source?.boundary ?? "Unavailable"}</dd>
         <dt>Source disclosure</dt><dd>{result.source_withheld
-          ? "Withheld - capture admission did not succeed" : result.source ? "Admitted original declaration" : "Unavailable"}</dd>
+          ? "Withheld - source admission or linkage did not succeed" : result.source ? "Admitted original declaration" : "Unavailable"}</dd>
         <dt>Source created (UTC)</dt><dd>{result.source
           ? <time dateTime={result.source.created_at}>{result.source.created_at}</time> : "Unavailable"}</dd>
         <dt>Compatibility</dt><dd>{result.compatibility_result}</dd>
