@@ -46,7 +46,7 @@ execution ID or reading a record does not grant completion authority.
 This is an **embedding API preview**, not a released `runner submit` command or
 Lab lineage view. The source checkpoint CLI and protected checkpoint HTTP
 operations are available as a separate preview below; a generic public
-submission command and Lab lifecycle orchestration remain pending. Existing
+submission command and broader Lab evaluation lifecycle orchestration remain pending. Existing
 `runner run`, native ordinals, manifest v1, and legacy results are unchanged;
 historical ownership records are not synthesized.
 See the independently versioned
@@ -81,8 +81,8 @@ discovery. Mutex waits and blocked providers are not made cancellable by the gat
 No in-flight process, SDK session, partial grader or workspace is restored.
 The source CLI exposes capture-approved checkpoint creation and resume; it is
 not in installed v0.40.1 artifacts. Protected HTTP create/resume operations are
-registered, and Lab can inspect supplied checkpoint-result JSON. Lab operation
-orchestration and full production process/platform acceptance remain pending. The
+registered and available in the source Lab. Full native-platform and release
+acceptance remain pending. The
 [checkpoint schema](../../schemas/execution-checkpoint-1.0.schema.json) and
 [checkpoint-result schema](../../schemas/runner-checkpoint-result-1.0.schema.json)
 and [checkpoint operation error schema](../../schemas/runner-checkpoint-result-1.1.schema.json)
@@ -143,6 +143,16 @@ The existing results directory selects `.waza-artifacts`, unless the server has
 an active supported Azure storage configuration. Request JSON cannot choose
 host paths or credentials. Unsupported active providers fail closed; no raw
 checkpoint GET endpoint is available.
+
+In the source Lab, open **Runner contract** and **Create or resume an exact-unit
+checkpoint**. Supply the same captured submission and, for resume, the original
+checkpoint digest. The panel separates new calls from original terminal calls,
+preserves failed original outcomes, and shows retry parents or reuse sources
+without claiming an evaluation-wide history. **Download checkpoint result JSON**
+saves the exact protected response, including explicit zero or unavailable
+progress. Edits, new requests, and reload failures clear previous results;
+synthetic demo mode cannot dispatch operations. Stopping a browser request does
+not establish that its server worker stopped.
 
 For an interrupted **before-unit** source, first stop and join the original
 worker, then pass its original `before_checkpoint_sha256` to the same resume

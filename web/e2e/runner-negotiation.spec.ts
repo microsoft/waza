@@ -250,6 +250,12 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
       .toContainText("Checkpoint result: reused");
 
+    const unsortedSource = structuredClone(reorderedResult);
+    unsortedSource.submission.reservation.binding.grader_ids.reverse();
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(unsortedSource));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("decision contradicts");
+
     const mismatchedExit = structuredClone(reusedResult);
     mismatchedExit.exit_code = 1;
     await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(mismatchedExit));
@@ -265,6 +271,12 @@ test.describe("Runner negotiation through the real Go API", () => {
     await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
     await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
       .toContainText("Operation error");
+
+    const unsortedErrorSource = structuredClone(reorderedOperationError);
+    unsortedErrorSource.submission.reservation.binding.grader_ids.reverse();
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(unsortedErrorSource));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("alert")).toContainText("decision contradicts");
 
     const substitutedReservation = structuredClone(operationError);
     const digest = "0".repeat(64);
@@ -564,6 +576,16 @@ test.describe("Runner negotiation through the real Go API", () => {
       }
     }
     expect(posted).toEqual([]);
+    await page.route("**/api/v1/checkpoints", (route) => route.fulfill({
+      json: results[0], headers: { "X-Waza-Exit-Code": String(results[0].exit_code) },
+    }));
+    const operations = page.getByRole("region", { name: "Checkpoint creation and recovery" });
+    await operations.getByRole("textbox", { name: "Captured checkpoint submission (JSON)" }).fill(JSON.stringify({
+      kind: "waza.execution-submission", schema_version: "1.0", request: unitExample,
+    }));
+    await operations.getByRole("button", { name: "Create checkpoints and run unit" }).click();
+    await expect(operations.getByRole("alert")).toContainText("unapproved raw report");
+    await expect(operations.getByRole("button", { name: "Download checkpoint result JSON" })).toHaveCount(0);
   });
 
   test("Lab checks canonical source timestamps against native checkpoint parsing", async ({ page }) => {

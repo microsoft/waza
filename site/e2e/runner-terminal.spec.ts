@@ -15,10 +15,16 @@ test('checkpoint source commands link to bounded recovery and protected HTTP lim
   await expect(content).toContainText('Unsupported active providers fail closed');
   await expect(content).toContainText('no raw checkpoint GET endpoint is available');
   await expect(content).toContainText('A previously dispatched source is refused, not replayed.');
-  await expect(content).toContainText('Lab can inspect supplied checkpoint-result JSON.');
-  await expect(content).toContainText('Lab operation orchestration and full production process/platform acceptance remain pending.');
+  await expect(content).toContainText('available in the source Lab');
+  await expect(content).toContainText('Full native-platform and release acceptance remain pending');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint create' })).toContainText('schema_version:"1.0"');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint resume' })).toContainText('restored-result.json');
+  await page.goto('/waza/guides/dashboard-lab/');
+  const image = page.getByRole('img', { name: 'Source Lab showing a recorded protected mock API response: failed original terminal reused with zero new calls and exact JSON download.' });
+  await expect(image).toBeVisible();
+  expect(new URL((await image.getAttribute('src'))!, page.url()).pathname).toBe('/waza/images/dashboard-lab-checkpoint.png');
+  expect(await image.evaluate((img) => img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0)).toBe(true);
+  await expect(page.locator('main')).toContainText('not the synthetic demo or live inference');
 });
 
 test('attempt preview links serve exact independent sidecar schemas below the deployed base', async ({ page, request }) => {

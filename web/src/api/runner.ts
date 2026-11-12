@@ -82,6 +82,10 @@ export function sameSelection(a: WorkSelection | undefined, b: WorkSelection | u
   return !!a && !!b && a.shard === b.shard && a.task === b.task && a.trial === b.trial && a.attempt === b.attempt;
 }
 
+export function sameRunnerIdentity(a: RunnerIdentity | undefined, b: RunnerIdentity | undefined): boolean {
+  return !!a && !!b && (Object.keys(a) as (keyof RunnerIdentity)[]).every((key) => a[key] === b[key]);
+}
+
 // Server admission is authoritative for grader bindings. The browser checks the
 // exact original JSON, schema, selection and identity against offline admission;
 // it neither derives identities nor treats them as proof of live execution.
@@ -113,8 +117,8 @@ export async function runRunnerUnit(request: string, signal: AbortSignal): Promi
     throw new Error("Runner API terminal exit header contradicts its body.");
   }
   if (value.identity) {
-    if (admitted.status !== "ready" || !sameSelection(value.selection, admitted.resolved) || !admitted.identity ||
-        (Object.keys(admitted.identity) as (keyof RunnerIdentity)[]).some((key) => admitted.identity?.[key] !== value.identity?.[key])) {
+    if (admitted.status !== "ready" || !sameSelection(value.selection, admitted.resolved) ||
+        !sameRunnerIdentity(admitted.identity, value.identity)) {
       throw new Error("Terminal identity or selection does not match admitted input.");
     }
   } else if (value.selection || value.observation || value.engine_calls !== 0) {

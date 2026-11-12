@@ -1,68 +1,48 @@
-import { useRef, useState } from "react";
-import { parseCheckpointOperationResult, type CheckpointOperationResult } from "../api/checkpoint-result";
+import type { CheckpointOperationResult } from "../api/checkpointResults";
 
-export default function CheckpointResult() {
-  const [wire, setWire] = useState("");
-  const [result, setResult] = useState<CheckpointOperationResult | null>(null);
-  const [error, setError] = useState("");
-  const parseGeneration = useRef(0);
-  const unverified = result?.schema_version === "1.0" && result.submission?.report !== undefined;
-
-  async function parse() {
-    const generation = ++parseGeneration.current;
-    const input = wire;
-    setResult(null);
-    setError("");
-    try {
-      const parsed = await parseCheckpointOperationResult(input);
-      if (generation === parseGeneration.current) setResult(parsed);
-    } catch (cause) {
-      if (generation === parseGeneration.current) {
-        setError(cause instanceof Error ? cause.message : "Checkpoint result could not be parsed.");
-      }
-    }
-  }
-
+export default function CheckpointResult({ result }: { result: CheckpointOperationResult }) {
+  const submission = result.submission;
+  const terminal = submission?.terminal;
+  const failed = result.status === "rejected" || result.status === "submission_error" ||
+    result.status === "checkpoint_error" || result.status === "operation_error";
   return (
-    <section className="lab-panel" aria-label="Checkpoint result reader">
-      <div className="lab-panel-header">
-        <div>
-          <h2>Read checkpoint operation result</h2>
-          <p>Validate captured CLI or HTTP output against the supported result schemas. An execution status is not the overall operation status.</p>
-        </div>
-      </div>
-      <label htmlFor="checkpoint-result-json">Checkpoint result JSON</label>
-      <textarea id="checkpoint-result-json" rows={8} spellCheck={false} value={wire}
-        onChange={(event) => {
-          parseGeneration.current++;
-          setWire(event.target.value);
-          setResult(null);
-          setError("");
-        }}
-      />
-      <button className="lab-button" onClick={parse}>Parse checkpoint result</button>
-      {error && <p role="alert">{error}</p>}
-      {result && (
-        <div role="status" aria-label="Checkpoint operation result">
-          <h3>{unverified ? "Checkpoint result: UNVERIFIED CLAIMS" : result.status === "operation_error" ? "Operation error" : `Checkpoint result: ${result.status}`}</h3>
-          {unverified && <p>Native canonical-report checks are not performed in-browser. Statuses and exit codes below are unverified claims, not verified outcomes.</p>}
-          <dl>
-            <dt>Result schema</dt><dd>{result.schema_version}</dd>
-            <dt>{unverified ? "Operation status (UNVERIFIED CLAIM)" : "Operation status"}</dt>
-            <dd>{unverified ? `UNVERIFIED CLAIM: ${result.status}` : result.status}</dd>
-            <dt>{unverified ? "Operation exit code (UNVERIFIED CLAIM)" : "Operation exit code"}</dt>
-            <dd>{unverified ? `UNVERIFIED CLAIM: ${result.exit_code}` : result.exit_code}</dd>
-            {result.error_code && <><dt>Sanitized error code</dt><dd>{result.error_code}</dd></>}
-            {result.submission && <>
-              <dt>{unverified ? "Submission status (UNVERIFIED CLAIM)" : "Underlying submission status (not overall operation status)"}</dt>
-              <dd>{unverified ? "UNVERIFIED CLAIM: " : ""}{result.submission.status} (exit {result.submission.exit_code})</dd>
-            </>}
-            {result.source && <><dt>Declared source (not independently verified)</dt><dd>{result.source.boundary}: {result.source.execution_id}</dd></>}
-            {result.before_checkpoint_sha256 && <><dt>Before checkpoint reference</dt><dd><code>{result.before_checkpoint_sha256}</code></dd></>}
-            {result.finalized_checkpoint_sha256 && <><dt>Finalized checkpoint reference</dt><dd><code>{result.finalized_checkpoint_sha256}</code></dd></>}
-          </dl>
-        </div>
-      )}
-    </section>
+    <div role={failed ? "alert" : "status"} aria-label="Checkpoint operation result">
+      <h3>{failed ? "Checkpoint operation did not complete" : "Checkpoint operation completed"}</h3>
+      <p>This describes one selected exact unit. Original terminal failure or cancellation is preserved, not successful grading.</p>
+      <dl>
+        <dt>Operation status</dt><dd>{result.status}</dd>
+        <dt>Exit code</dt><dd>{result.exit_code}</dd>
+        {result.error_code && <><dt>Sanitized operation error</dt><dd>{result.error_code}</dd></>}
+        <dt>Source boundary</dt><dd>{result.source?.boundary ?? "Unavailable"}</dd>
+        <dt>Source disclosure</dt><dd>{result.source_withheld
+          ? "Withheld - source admission or linkage did not succeed" : result.source ? "Admitted original declaration" : "Unavailable"}</dd>
+        <dt>Source created (UTC)</dt><dd>{result.source
+          ? <time dateTime={result.source.created_at}>{result.source.created_at}</time> : "Unavailable"}</dd>
+        <dt>Compatibility</dt><dd>{result.compatibility_result}</dd>
+        <dt>Differing fields</dt><dd>{result.compatibility_differences.join(", ") || "None reported"}</dd>
+        <dt>Restored units</dt><dd>{result.restored_units ?? "Unavailable"}</dd>
+        <dt>Remaining work</dt><dd>{result.remaining_work ?? "Unavailable"}</dd>
+        <dt>New engine calls</dt><dd>{submission?.engine_calls ?? "Unavailable"}</dd>
+        <dt>Original terminal outcome</dt><dd>{terminal?.outcome ?? "Unavailable"}</dd>
+        <dt>Original terminal engine calls</dt><dd>{terminal?.engine_calls ?? "Unavailable"}</dd>
+        <dt>Original native attempt</dt><dd>{terminal?.selection?.attempt ?? "Unavailable"}</dd>
+        <dt>Execution ID</dt><dd><code>{submission?.reservation?.execution_id ?? "Unavailable"}</code></dd>
+        <dt>Retry parent</dt><dd><code>{submission?.reservation?.parent?.execution_id ?? "Unavailable"}</code></dd>
+        <dt>Parent relationship</dt><dd>{submission?.reservation?.parent?.relationship ?? "Unavailable"}</dd>
+        <dt>Decision policy</dt><dd>{submission?.decision?.policy ?? "Unavailable"}</dd>
+        <dt>Reused original execution</dt><dd><code>{submission?.decision?.source?.execution_id ?? "Unavailable"}</code></dd>
+        <dt>Before checkpoint reference</dt><dd><code>{result.before_checkpoint_sha256 ?? "Unavailable"}</code></dd>
+        <dt>Finalized checkpoint reference</dt><dd><code>{result.finalized_checkpoint_sha256 ?? "Unavailable"}</code></dd>
+      </dl>
+      {failed && <p>References may locate partial or unverified residue. Preserve source records; a digest is not successful recovery.</p>}
+      {result.diagnostics.length > 0 && <>
+        <h3>Operation diagnostics</h3>
+        <ul>{result.diagnostics.map((item, index) => <li key={`${item.code}-${index}`}>{item.code}: {item.message}</li>)}</ul>
+      </>}
+      {submission && submission.diagnostics.length > 0 && <>
+        <h3>Submission diagnostics</h3>
+        <ul>{submission.diagnostics.map((item, index) => <li key={`${item.code}-${index}`}>{item.code}: {item.message}</li>)}</ul>
+      </>}
+    </div>
   );
 }

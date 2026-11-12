@@ -13,9 +13,10 @@ import (
 )
 
 type checkpointOperations struct {
-	open     func() (artifactmanifest.Backend, func() error, error)
-	runner   *runnerunit.Service
-	revision func() (string, error)
+	open      func() (artifactmanifest.Backend, func() error, error)
+	runner    *runnerunit.Service
+	revision  func() (string, error)
+	observers runnercheckpoint.Hooks
 }
 
 func RegisterCheckpointOperationRoutes(mux *http.ServeMux, resultsDir string, config *projectconfig.StorageConfig) {
@@ -93,9 +94,9 @@ func registerCheckpointOperationRoutes(mux *http.ServeMux, operations checkpoint
 			}
 			var result runnercheckpoint.Result
 			if action == "resume" {
-				result, err = checkpoints.ResumeCaptured(r.Context(), data, backend, r.PathValue("digest"), runnercheckpoint.Hooks{})
+				result, err = checkpoints.ResumeCaptured(r.Context(), data, backend, r.PathValue("digest"), operations.observers)
 			} else {
-				result, err = checkpoints.SubmitCaptured(r.Context(), data, backend, runnercheckpoint.Hooks{})
+				result, err = checkpoints.SubmitCaptured(r.Context(), data, backend, operations.observers)
 			}
 			if closeErr := closeBackend(); closeErr != nil {
 				logRunnerError("checkpoint immutable store close failed after operation", "error", errors.Join(err, closeErr))
