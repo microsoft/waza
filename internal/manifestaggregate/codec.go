@@ -95,7 +95,9 @@ func accounting(report Report) error {
 				return fail()
 			}
 		}
-		if member.Execution != "" && memberCached(member) != slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
+		// Earlier 1.0 producers emitted the diagnostic without exposing lineage,
+		// so only visible cache metadata requires it.
+		if member.Execution != "" && memberCached(member) && !slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
 			return fail()
 		}
 		counts.MemberStates[member.State]++

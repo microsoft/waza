@@ -98,7 +98,8 @@ function linkageValid(member: AggregateMember): boolean {
     (lineage.length === 0 || !!member.evidence_sha256) &&
     lineage.every((link, index) => link.manifest !== member.manifest_sha256 &&
       (index === 0 || key(lineage[index - 1]!) < key(link))) &&
-    (!member.execution_id || memberCached(member) === member.diagnostics.includes("cached_historical_usage_excluded"));
+    // Earlier 1.0 producers emitted the diagnostic without exposing lineage.
+    (!member.execution_id || !memberCached(member) || member.diagnostics.includes("cached_historical_usage_excluded"));
 }
 
 function memberUsageEligible(member: AggregateMember): boolean {

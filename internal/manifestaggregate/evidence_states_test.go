@@ -183,6 +183,23 @@ func TestRetryAndResumeLineageRetainsEveryExecutionWithoutWinner(t *testing.T) {
 	_, err = Parse(conflictWire)
 	require.NoError(t, err)
 
+	cachedView := view
+	cachedView.Lineage = []evidencestate.Lineage{{Manifest: original.Manifest, Relationship: evidencestate.Cache}}
+	cachedPublication, err := evidencestate.Publish(t.Context(), backend, cachedView)
+	require.NoError(t, err)
+	cachedInput := Input{Manifest: retry.Manifest, Evidence: cachedPublication.EvidenceSHA256}
+	cachedReport, err := Build(t.Context(), sources, []Input{cachedInput}, DefaultLimits())
+	require.NoError(t, err)
+	require.Contains(t, cachedReport.Members[0].Diagnostics, "cached_historical_usage_excluded")
+	require.Nil(t, cachedReport.Usage.Recorded, "cache lineage never totals historical usage")
+	historical := *cachedReport
+	historical.Members = slices.Clone(cachedReport.Members)
+	historical.Members[0].Lineage = nil
+	historicalWire, err := json.Marshal(historical)
+	require.NoError(t, err)
+	_, err = Parse(historicalWire)
+	require.NoError(t, err, "an earlier 1.0 report with a diagnostic-only cache exclusion stays readable")
+
 	schema := aggregateSchema(t)
 	validate := func(data []byte) error {
 		t.Helper()

@@ -71,6 +71,20 @@ test.describe("Aggregate evidence states and lineage", () => {
     await expect(page.getByText("conflicting_source")).toBeVisible();
   });
 
+  test("displays an earlier report with a diagnostic-only cache exclusion", async ({ page }) => {
+    const report = JSON.parse(fixture.canonical);
+    const member = report.members.find((candidate: { lineage?: unknown[] }) => candidate.lineage);
+    delete member.lineage;
+    member.diagnostics = [...member.diagnostics, "cached_historical_usage_excluded"].sort();
+    await page.route("**/api/v1/aggregates", (route) => route.fulfill({ status: 409, json: report }));
+    await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
+    await page.getByRole("textbox").fill(fixture.inputs.map((input) =>
+      `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n"));
+    await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+    await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toContainText("Aggregate admission: conflicting");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
   type Member = { manifest_sha256: string; execution_id?: string; parent?: { execution_id: string };
     lineage?: { manifest: string; relationship: string }[]; diagnostics: string[] };
   const forgeries: Record<string, (member: Member) => void> = {
