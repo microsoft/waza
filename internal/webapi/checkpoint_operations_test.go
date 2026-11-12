@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
@@ -387,6 +388,85 @@ func TestCheckpointOperationHTTPAdmissionPrecedesBuildStorageAndExecution(t *tes
 	require.Equal(t, int32(1), revisions.Load())
 	require.Zero(t, opens.Load())
 	require.Zero(t, factories.Load())
+}
+
+type checkpointLogSink chan string
+
+func (s checkpointLogSink) Write(data []byte) (int, error) {
+	s <- string(data)
+	return len(data), nil
+}
+
+func TestCheckpointOperationHTTPSubmissionParseFailureLogsWithoutRequestContents(t *testing.T) {
+	require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	records := make(checkpointLogSink, 4)
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(records, nil)))
+	defer slog.SetDefault(previous)
+	defer func() {
+		require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+	}()
+
+	var opens, revisions atomic.Int32
+	mux := http.NewServeMux()
+	registerCheckpointOperationRoutes(mux, checkpointOperations{
+		open: func() (artifactmanifest.Backend, func() error, error) {
+			opens.Add(1)
+			return nil, nil, errors.New("must not open")
+		},
+		runner: runnerunit.NewService(nil),
+		revision: func() (string, error) {
+			revisions.Add(1)
+			return "", errors.New("must not read revision")
+		},
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	const secret = "private-submission-marker"
+	for _, action := range []string{"create", "resume"} {
+		for _, input := range []struct {
+			name string
+			wire string
+		}{
+			{"malformed", `{"private":"` + secret + `",`},
+			{"schema-invalid", `{"kind":"` + secret + `","schema_version":"1.0","request":{}}`},
+		} {
+			t.Run(action+"-"+input.name, func(t *testing.T) {
+				require.Eventually(t, func() bool { return !runnerDiagnosticActive.Load() }, 2*time.Second, time.Millisecond)
+				_, parseErr := runnerunit.ParseSubmission([]byte(input.wire))
+				require.Error(t, parseErr)
+				path := "/api/v1/checkpoints"
+				if action == "resume" {
+					path += "/" + strings.Repeat("e", 64) + "/resume"
+				}
+				response, err := server.Client().Post(server.URL+path, "application/json", strings.NewReader(input.wire))
+				require.NoError(t, err)
+				body, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+				require.Equal(t, http.StatusBadRequest, response.StatusCode)
+				require.Equal(t, "6", response.Header.Get("X-Waza-Exit-Code"))
+				result, err := runnercheckpoint.ParseResult(body)
+				require.NoError(t, err)
+				require.Equal(t, "rejected", result.Status)
+				require.Equal(t, 6, result.ExitCode)
+				require.Equal(t, "checkpoint_input_invalid", result.Diagnostics[0].Code)
+				require.NotContains(t, string(body), secret)
+				select {
+				case record := <-records:
+					require.Contains(t, record, "checkpoint submission parsing failed")
+					require.Contains(t, record, "action="+action)
+					require.Contains(t, record, "Inspect the submission and local schema initialization.")
+					require.NotContains(t, record, secret)
+					require.NotContains(t, record, parseErr.Error())
+				case <-time.After(2 * time.Second):
+					t.Fatal("checkpoint submission parsing diagnostic was not logged")
+				}
+			})
+		}
+	}
+	require.Zero(t, opens.Load())
+	require.Zero(t, revisions.Load())
 }
 
 func TestCheckpointOperationHTTPTrustDenialPrecedesInputAndStorage(t *testing.T) {
