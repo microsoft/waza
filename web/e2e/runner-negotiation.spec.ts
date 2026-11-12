@@ -277,6 +277,49 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(reader.getByRole("alert")).toContainText("source declaration does not match");
   });
 
+  test("Lab checks retained submission exit against its terminal for both result versions", async ({ page }) => {
+    const operationError = JSON.parse(
+      readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),
+    );
+    const reused = structuredClone(operationError);
+    reused.schema_version = "1.0";
+    reused.status = "reused";
+    reused.exit_code = 0;
+    delete reused.error_code;
+    reused.compatibility_result = "compatible";
+    reused.restored_units = 1;
+    reused.remaining_work = 0;
+
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    for (const result of [reused, operationError]) {
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+
+      const contradiction = structuredClone(result);
+      contradiction.submission.exit_code = 1;
+      if (contradiction.schema_version === "1.0") contradiction.exit_code = 1;
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(contradiction));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("alert")).toContainText("submission exit code contradicts");
+    }
+
+    const submissionError = structuredClone(operationError);
+    delete submissionError.source;
+    delete submissionError.submission.completion;
+    submissionError.submission.status = "submission_error";
+    submissionError.submission.exit_code = 2;
+    submissionError.submission.engine_calls = 1;
+    submissionError.submission.diagnostics = [{
+      code: "submission_failed",
+      message: "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.",
+    }];
+    await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(submissionError));
+    await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+      .toContainText("Operation error");
+  });
+
   test("Lab does not let a stale async parse replace newer input", async ({ page }) => {
     const operationError = JSON.parse(
       readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),

@@ -20,6 +20,7 @@ export interface CheckpointOperationResult {
   submission?: {
     status: string;
     exit_code: number;
+    terminal?: { exit_code: number };
     reservation?: ExecutionAttempt;
     completion?: ExecutionCompletion;
   };
@@ -179,6 +180,11 @@ async function validateCheckpointResult(result: CheckpointOperationResult) {
   }
 
   const { source, submission } = result;
+  if (submission?.terminal &&
+    ["completed", "reused", "rejected"].includes(submission.status) &&
+    submission.exit_code !== submission.terminal.exit_code) {
+    throw new Error("Retained submission exit code contradicts its terminal.");
+  }
   if (result.status === "operation_error") {
     if (!source) return;
     const reservation = submission?.reservation;
