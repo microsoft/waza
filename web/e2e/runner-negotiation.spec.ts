@@ -424,6 +424,91 @@ test.describe("Runner negotiation through the real Go API", () => {
     }
   });
 
+  test("Lab checks producer report bindings against the original reservation and terminal", async ({ page }) => {
+    test.setTimeout(180_000);
+    const helper = join(directory, "checkpoint-report");
+    execFileSync("go", ["build", "-o", helper, "./web/e2e/testdata/checkpoint-report"], {
+      cwd: resolve(".."), timeout: 150_000,
+    });
+    const store = join(directory, "checkpoint-report-store");
+    await mkdir(store);
+    const results = execFileSync(helper, [store], { cwd: resolve(".."), encoding: "utf8" })
+      .trim().split("\n").map((line) => JSON.parse(line));
+    expect(results.map((result) => result.status)).toEqual(["completed", "reused"]);
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    const native = (value: unknown) => spawnSync(helper, ["validate"], {
+      input: JSON.stringify(value), encoding: "utf8",
+    });
+
+    for (const result of results) {
+      expect(["completed", "reused"]).toContain(result.status);
+      expect(result.submission.report).toBeDefined();
+      if (result.status === "reused") {
+        expect(result.submission.caller.attempt).not.toBe(result.submission.reservation.binding.identity.attempt);
+        expect(result.submission.report.identity.attempt).toBe(result.submission.reservation.binding.identity.attempt);
+      }
+      expect(native(result).status).toBe(0);
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+        .toContainText(`Checkpoint result: ${result.status}`);
+
+      for (const [name, mutate] of [
+        ["requested task", (report: typeof result.submission.report) => { report.requested.task = "other-task"; }],
+        ["resolved task", (report: typeof result.submission.report) => { report.resolved.task = "other-task"; }],
+        ["requested shard", (report: typeof result.submission.report) => { report.requested.shard = "other-shard"; }],
+        ["resolved trial", (report: typeof result.submission.report) => { report.resolved.trial++; }],
+        ["resolved attempt", (report: typeof result.submission.report) => { report.resolved.attempt++; }],
+        ["identity", (report: typeof result.submission.report) => { report.identity.task = `task-${"0".repeat(64)}`; }],
+        ["mode", (report: typeof result.submission.report) => { report.execution_mode = "copilot"; }],
+        ["report outcome", (report: typeof result.submission.report) => {
+          report.status = "execution_error";
+          report.diagnostics = [{ code: "execution_failed", message: "Failed." }];
+        }],
+        ["report call count", (report: typeof result.submission.report) => {
+          report.status = "execution_error";
+          report.diagnostics = [{ code: "execution_failed", message: "Failed." }];
+          report.engine_calls = 0;
+        }],
+        ["missing observation", (report: typeof result.submission.report) => {
+          report.status = "execution_error";
+          report.diagnostics = [{ code: "execution_failed", message: "Failed." }];
+          delete report.observation;
+        }],
+        ["run number", (report: typeof result.submission.report) => { report.observation.run_number++; }],
+        ["attempt", (report: typeof result.submission.report) => { report.observation.attempts++; }],
+        ["observation status", (report: typeof result.submission.report) => { report.observation.status = "failed"; }],
+        ["observation error", (report: typeof result.submission.report) => { report.observation.error_msg = "unexpected"; }],
+        ["grader result", (report: typeof result.submission.report) => { report.observation.validations._output_contains.passed = false; }],
+        ["grader identifier", (report: typeof result.submission.report) => { report.observation.validations._output_contains.identifier = "other"; }],
+        ["missing grader", (report: typeof result.submission.report) => { delete report.observation.validations._output_contains; }],
+      ] as const) {
+        const contradiction = structuredClone(result);
+        mutate(contradiction.submission.report);
+        const checked = native(contradiction);
+        expect(checked.status, name).not.toBe(0);
+        expect(checked.stderr, name).toMatch(/source (report|execution mode|observation|grader)/);
+        await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(contradiction));
+        await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+        await expect(reader.getByRole("alert"), name).toContainText("retained submission report");
+      }
+      const noReport = structuredClone(result);
+      delete noReport.submission.report;
+      expect(native(noReport).status).toBe(0);
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(noReport));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+        .toContainText(`Checkpoint result: ${result.status}`);
+      const extraDetail = structuredClone(result);
+      extraDetail.submission.report.observation.prompt = "different unbound detail";
+      expect(native(extraDetail).status).toBe(0);
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(extraDetail));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+      await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
+        .toContainText(`Checkpoint result: ${result.status}`);
+    }
+  });
+
   test("Lab does not let a stale async parse replace newer input", async ({ page }) => {
     const operationError = JSON.parse(
       readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"),

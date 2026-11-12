@@ -25,7 +25,7 @@ export interface CheckpointOperationResult {
     caller?: RunnerIdentity;
     decision?: ExecutionDecision;
     terminal?: RunnerTerminal;
-    report?: unknown;
+    report?: ExecutionReport;
     diagnostics: { code: string; message: string }[];
     reservation?: ExecutionAttempt;
     completion?: ExecutionCompletion;
@@ -75,6 +75,25 @@ interface ExecutionCheckpoint {
   compatibility: { work: string };
   completion_digest?: string;
   manifest_digest?: string;
+}
+
+interface ExecutionReport {
+  status: "ready" | "rejected" | "completed" | "execution_error";
+  requested?: WorkSelection;
+  resolved?: WorkSelection;
+  identity?: RunnerIdentity;
+  validation: string;
+  compatibility: { status: string };
+  adjacent_work_selected: boolean;
+  execution_mode?: string;
+  engine_calls: number;
+  observation?: {
+    run_number: number;
+    attempts: number;
+    status: string;
+    error_msg?: string;
+    validations: Record<string, { identifier: string; passed: boolean }> | null;
+  };
 }
 
 function validator(schema: object) {
@@ -166,8 +185,40 @@ function validBinding(logical: { run: string; work: string }, binding: Execution
       .every((value) => utf8Encoder.encode(value).length <= 256);
 }
 
+function validateReport(report: ExecutionReport, reservation: ExecutionAttempt, terminal: RunnerTerminal) {
+  const { binding } = reservation;
+  const observed = report.observation;
+  const terminalObservation = terminal.observation;
+  const validOutcome = report.status === "completed"
+    ? terminal.outcome === "success" || terminal.outcome === "evaluation_failure" ||
+      (terminal.outcome === "infrastructure_failure" && terminal.failure_boundary === "terminalization")
+    : report.status === "execution_error" &&
+      ["infrastructure_failure", "cancelled", "timeout"].includes(terminal.outcome);
+  if (!sameIdentity(report.identity, binding.identity) ||
+    !sameSelection(report.requested, binding.selection) || !sameSelection(report.resolved, binding.selection) ||
+    report.validation !== "valid" || report.compatibility.status !== "compatible" || report.adjacent_work_selected ||
+    report.engine_calls !== terminal.engine_calls || !validOutcome ||
+    (report.execution_mode !== undefined && report.execution_mode !== binding.execution_mode) ||
+    (!!observed !== !!terminalObservation)) {
+    throw new Error("Checkpoint retained submission report contradicts its reservation or terminal.");
+  }
+  if (observed && terminalObservation) {
+    const validations = observed.validations;
+    if (observed.run_number !== terminalObservation.run_number ||
+      observed.attempts !== terminalObservation.attempts || observed.status !== terminalObservation.status ||
+      (observed.error_msg ?? "") !== (terminalObservation.error_msg ?? "") ||
+      (validations !== null && (typeof validations !== "object" || Array.isArray(validations))) ||
+      Object.keys(validations ?? {}).length !== terminalObservation.validations.length ||
+      terminalObservation.validations.some(({ identifier, passed }) =>
+        !validations || !Object.prototype.hasOwnProperty.call(validations, identifier) ||
+        validations[identifier]?.identifier !== identifier || validations[identifier]?.passed !== passed)) {
+      throw new Error("Checkpoint retained submission report contradicts its terminal observation.");
+    }
+  }
+}
+
 async function validateRetainedSubmission(submission: NonNullable<CheckpointOperationResult["submission"]>) {
-  const { caller, decision, reservation, completion, terminal } = submission;
+  const { caller, decision, reservation, completion, terminal, report } = submission;
   if (reservation) {
     if (!validBinding(reservation.logical, reservation.binding) ||
       reservation.parent?.execution_id === reservation.execution_id ||
@@ -244,6 +295,10 @@ async function validateRetainedSubmission(submission: NonNullable<CheckpointOper
         }
       }
     }
+  }
+  if (report) {
+    if (!reservation || !terminal) throw new Error("Checkpoint retained submission report lacks its reservation or terminal.");
+    validateReport(report, reservation, terminal);
   }
   return reservationDigest;
 }
