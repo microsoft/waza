@@ -25,6 +25,13 @@ Install the published binary or run `waza update`; a source build is optional.
 Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
 [feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
 
+The unreleased [logical execution-attempt embedding API](docs/EXECUTION_ATTEMPTS.md)
+adds immutable reservations and explicit verified reuse without changing
+`runner run`. Public submission commands and Lab lineage integration remain
+pending; this is not available in installed v0.40.1 artifacts.
+The [checkpoint embedding preview](docs/EXECUTION_CHECKPOINTS.md) adds compatible
+whole-unit recovery; its public CLI/API/Lab integration is also pending.
+
 **v0.40.0 adds** bounded
 runner/text execution, selected AgentV assertion conversion, task-level MCP
 mocks, program-grader context, host lifecycle evidence, and Lab conversations.
@@ -2470,6 +2477,14 @@ See [AGENTS.md](AGENTS.md) for coding guidelines.
   `go test ./internal/webapi -run '^$' -bench '^BenchmarkPerfSweepWebAPI/(list-runs-warm|summary-warm|runs-handler-warm)$' -benchmem`
 - Re-run native dashboard JSON encoding benchmarks after changing response DTOs:
   `go test ./internal/webapi -run '^$' -bench '^BenchmarkMarshalRunSummaries5000$' -benchmem`
+
+Check large-history chart rendering, exact tooltips, and AI Credit availability:
+
+```bash
+cd web
+npm run lint && npm run build
+CI=true npx --no-install playwright test e2e/trend-chart-scaling.spec.ts e2e/ai-credits.spec.ts --project=chromium --retries=0
+```
 
 ## Legacy Python Implementation
 

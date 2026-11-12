@@ -5,6 +5,22 @@ workflows. See [External evaluation interoperability](INTEROPERABILITY.md) for
 the assertion-only AgentV preview, exact version pin, oracle evidence, rejected
 lossy mappings and unsupported whole-suite semantics.
 
+The unreleased [logical execution-attempt embedding API](EXECUTION_ATTEMPTS.md)
+is additive. Its attempt, completion, and submission sidecars have independent
+`1.0` versions; they do not change legacy result readers, runner request
+ordinals, manifest v1, or ordinary `runner run` retry behavior. No historical
+reservation, ownership, or billing evidence is synthesized.
+
+Explicit exact-evidence readers preserve nested transcript argument numbers.
+Ordinary `RunResult` JSON decoding intentionally retains legacy float64 values.
+Typed submission/checkpoint writers reject invalid original terminal UTF-8
+before JSON marshaling can normalize it.
+
+The [checkpoint embedding preview](EXECUTION_CHECKPOINTS.md) uses independently
+versioned checkpoint sidecars. It admits only whole-unit boundaries, exact
+runner/configuration compatibility, and original-source recovery. An absent
+completion does not authorize rerunning an original recorded dispatch.
+
 This is the offline preservation gate for #658 and the additive work under
 #657. The contract is intended existing v1 behavior, not a new assurance
 feature. The baseline is commit `04e7b4c6d593555834e71221227326c63274a921`;
@@ -201,6 +217,7 @@ regression test, not a new organizational assignment.
 | Text, file, code, program, JSON schema, prompt/rubric, behavior, action sequence, skill invocation, trigger, diff, tool constraint, tool calls | `internal/testdata/compatibility/v1/graders.yaml`; inventory equality fails when a kind is added without a fixture; prompt/quality execution uses existing fake engines, not a live judge |
 | CLI run/grade/compare/gate/check/replay and exit policies | `cmd/waza`: `TestCompatibilityCLIProcessExits` builds and invokes the actual binary; existing `cmd_run`, `cmd_grade`, `cmd_compare`, `cmd_gate`, `cmd_check`, `cmd_replay` suites retain flag/output/error coverage |
 | Skill discovery/injection, task overrides, disabled/required skills, custom-agent lifecycle | `internal/execution`: skill injection, engine shutdown and tool-policy suites; `internal/skill`: skill/agent parsing; `internal/orchestration`: skill discovery and agent grader suites; `cmd/waza`: new/check/workspace command suites |
+| Legacy streaming events and intent suppression | `internal/execution`: `TestSessionEventsCollectorKeepsIntentFilterAcrossPartialResults` retains `report_intent` suppression across nonterminal chunks until completion, without dropping another call's events; `TestSessionEventsCollectorPreservesLegacyPartialResultFixture` covers ordinary legacy output and transcript serialization |
 | Token budgets and quality checks | `cmd/waza/tokens`, `internal/checks`, `internal/scoring`, `internal/quality`, `cmd/waza/cmd_quality_test.go`: strict/warning policy, JSON shape, fractional scores, fake judge errors |
 | Static multi-turn/checkpoints and responder decisions | `internal/orchestration/runner_orchestration_test.go`: `TestExecuteRun_Checkpoints_*`; `responder_loop_test.go`: reply/stop, abstain/error, cap exhaustion; `internal/responder` decision parsing |
 | CLI mock inheritance, populated/empty task replacement | `internal/orchestration`: `TestCompatibilityMockRequestOverrides` checks the actual execution request and eval-relative fixture base |
