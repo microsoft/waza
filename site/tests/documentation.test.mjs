@@ -245,13 +245,11 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
 });
 
 function assertSiteDiscovery(workflow, inputs) {
-  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
-  const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  workflow_call:)/m)?.[1];
   const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
-  assert.ok(push && pullRequest && site, 'expected workflow event/filter blocks must exist');
+  assert.ok(push && site, 'expected workflow event/filter blocks must exist');
   assert.match(push, /branches: \[main\]/);
-  assert.match(pullRequest, /branches: \[main\]/);
-  assert.doesNotMatch(pullRequest, /^\s+paths(?:-ignore)?:/m, 'required PR status must not be path-gated');
+  assert.doesNotMatch(workflow, /^  pull_request:/m, 'PR site checks run only through the Go completeness caller');
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
@@ -329,7 +327,7 @@ test('Docker guard discovery rejects removal from either production site selecto
 });
 
 function assertInteropExampleDiscovery(workflow) {
-  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  workflow_call:)/m)?.[1];
   const examples = workflow.match(/^            examples:\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   for (const [name, block] of [['main push gate', push], ['PR examples filter', examples]]) {
     assert.ok(block, `${name} must exist`);

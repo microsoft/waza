@@ -19,8 +19,6 @@ on:
       - 'go.sum'
       - '.github/workflows/web-ci.yml'
       - '.github/scripts/ci-evidence*'
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       cold_observation:
