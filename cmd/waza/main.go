@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/microsoft/waza/internal/clierrors"
+	"github.com/microsoft/waza/internal/executionisolation"
 )
 
 // Exit codes for different failure modes
@@ -44,6 +45,7 @@ func completedBenchmarkError(err error) bool {
 type ExitCodeError = clierrors.ExitCodeError
 
 func main() {
+	executionisolation.ExitIfSubprocessProbe()
 	// Cobra and the final diagnostic share one process-only budget. Diagnostic
 	// delivery failures must not replace the command's selected exit status.
 	diagnostics := &processDiagnosticWriter{output: processStderr{}}

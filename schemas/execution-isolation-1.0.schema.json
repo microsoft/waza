@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-isolation-1.0.schema.json",
+  "title": "Waza execution isolation 1.0",
+  "description": "Portable isolation capability contract. A request names the boundaries an execution requires; a host declaration names boundaries an outer host or runtime claims to enforce; a preflight report records requested, available and effective capabilities after conformance probes attempt each boundary violation. Waza enforces no boundary itself: a capability is effective only when a provider's probe shows the boundary holding, and every other requested boundary is reported unavailable and rejected before execution.",
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/host"},
+    {"$ref": "#/$defs/preflight"}
+  ],
+  "$defs": {
+    "dimension": {"enum": ["filesystem", "environment", "network", "subprocess", "remote_tools"]},
+    "posture": {"enum": ["unrestricted", "restricted"]},
+    "text": {"type": "string", "minLength": 1, "maxLength": 512},
+    "endpoint": {"type": "string", "minLength": 3, "maxLength": 300, "pattern": "^[^\\s/]+:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"},
+    "endpoints": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/endpoint"}},
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "dimensions"],
+      "properties": {
+        "kind": {"const": "waza.execution-isolation-request"},
+        "schema_version": {"const": "1.0"},
+        "dimensions": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "filesystem": {"$ref": "#/$defs/posture"},
+            "environment": {"$ref": "#/$defs/posture"},
+            "network": {"$ref": "#/$defs/posture"},
+            "subprocess": {"$ref": "#/$defs/posture"},
+            "remote_tools": {"$ref": "#/$defs/posture"}
+          }
+        }
+      }
+    },
+    "host": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "enforced_by", "dimensions"],
+      "properties": {
+        "kind": {"const": "waza.execution-isolation-host"},
+        "schema_version": {"const": "1.0"},
+        "enforced_by": {"type": "string", "minLength": 1, "maxLength": 200},
+        "dimensions": {
+          "type": "object", "additionalProperties": false, "minProperties": 1,
+          "properties": {
+            "filesystem": {
+              "type": "object", "additionalProperties": false,
+              "properties": {
+                "outside_paths": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 1024}}
+              }
+            },
+            "environment": {
+              "type": "object", "additionalProperties": false,
+              "properties": {
+                "secret_names": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"}}
+              }
+            },
+            "network": {
+              "type": "object", "additionalProperties": false, "required": ["targets"],
+              "properties": {"targets": {"$ref": "#/$defs/endpoints"}}
+            },
+            "subprocess": {"type": "object", "additionalProperties": false},
+            "remote_tools": {
+              "type": "object", "additionalProperties": false, "required": ["targets"],
+              "properties": {"targets": {"$ref": "#/$defs/endpoints"}}
+            }
+          }
+        }
+      }
+    },
+    "provider": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+        "status": {"enum": ["available", "absent", "unavailable"]},
+        "reason": {"$ref": "#/$defs/text"},
+        "enforced_by": {"type": "string", "minLength": 1, "maxLength": 200}
+      },
+      "if": {"properties": {"status": {"const": "available"}}},
+      "then": {"not": {"required": ["reason"]}},
+      "else": {"required": ["reason"], "not": {"required": ["enforced_by"]}}
+    },
+    "probe": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider", "outcome", "detail"],
+      "properties": {
+        "provider": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+        "outcome": {"enum": ["enforced", "violated", "inconclusive"]},
+        "detail": {"$ref": "#/$defs/text"}
+      }
+    },
+    "capability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dimension", "requested", "available", "effective", "probes"],
+      "properties": {
+        "dimension": {"$ref": "#/$defs/dimension"},
+        "requested": {"$ref": "#/$defs/posture"},
+        "available": {"type": "boolean"},
+        "effective": {"enum": ["unrestricted", "restricted", "unavailable"]},
+        "enforcement_source": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+        "probes": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/probe"}},
+        "diagnostic": {
+          "type": "object", "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"enum": ["no_provider", "probe_violated", "probe_inconclusive"]},
+            "message": {"$ref": "#/$defs/text"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"available": {"const": true}}},
+          "then": {"required": ["enforcement_source"], "properties": {"effective": {"const": "restricted"}}, "not": {"required": ["diagnostic"]}},
+          "else": {"required": ["diagnostic"], "not": {"required": ["enforcement_source"]}, "properties": {"effective": {"not": {"const": "restricted"}}}}
+        },
+        {
+          "if": {"properties": {"effective": {"const": "unavailable"}}},
+          "then": {"properties": {"requested": {"const": "restricted"}}}
+        },
+        {
+          "if": {"properties": {"effective": {"const": "unrestricted"}}},
+          "then": {"properties": {"requested": {"const": "unrestricted"}}}
+        }
+      ]
+    },
+    "preflight": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "checked_at", "decision", "providers", "dimensions"],
+      "properties": {
+        "kind": {"const": "waza.execution-isolation-preflight"},
+        "schema_version": {"const": "1.0"},
+        "checked_at": {"type": "string", "format": "date-time", "maxLength": 40},
+        "decision": {"enum": ["admitted", "rejected"]},
+        "providers": {"type": "array", "maxItems": 16, "items": {"$ref": "#/$defs/provider"}},
+        "dimensions": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"$ref": "#/$defs/capability"}}
+      },
+      "if": {"properties": {"decision": {"const": "admitted"}}},
+      "then": {"properties": {"dimensions": {"items": {"properties": {"effective": {"enum": ["unrestricted", "restricted"]}}}}}},
+      "else": {"properties": {"dimensions": {"contains": {"properties": {"effective": {"const": "unavailable"}}}}}}
+    }
+  }
+}
