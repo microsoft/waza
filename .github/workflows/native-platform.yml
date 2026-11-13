@@ -131,14 +131,15 @@ jobs:
             os="${target%/*}" arch="${target#*/}"
             name="waza-$os-$arch"
             if [ "$os" = windows ]; then name="$name.exe"; fi
-            mkdir -p "cli/$os-$arch"
-            GOOS="$os" GOARCH="$arch" go build -ldflags "-X main.version=${VERSION}" -o "cli/$os-$arch/$name" ./cmd/waza
-            (cd "cli/$os-$arch" &&
-              GITHUB_SHA="$REVISION" bash ../../.github/scripts/release_binary_check.sh "$name" &&
+            # Outputs stay outside the checkout: untracked files mark vcs.modified.
+            out="$RUNNER_TEMP/cli/$os-$arch"
+            mkdir -p "$out"
+            GOOS="$os" GOARCH="$arch" go build -ldflags "-X main.version=${VERSION}" -o "$out/$name" ./cmd/waza
+            (cd "$out" &&
+              GITHUB_SHA="$REVISION" bash "$GITHUB_WORKSPACE/.github/scripts/release_binary_check.sh" "$name" &&
               printf '%s\n' "$REVISION" > "$name.source-sha.txt" &&
               sha256sum "$name" > "$name.sha256")
           done
-          mv cli "$RUNNER_TEMP/cli"
 
       - name: Upload linux/amd64 CLI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
