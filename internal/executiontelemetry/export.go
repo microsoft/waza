@@ -245,7 +245,10 @@ func acknowledgement(body []byte) (rejected, ok bool) {
 	var partial partialSuccess
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
-	if decoder.Decode(&partial) != nil || decoder.More() || body[0] != '{' {
+	if decoder.Decode(&partial) != nil || body[0] != '{' {
+		return false, false
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return false, false
 	}
 	if partial.PartialSuccess == nil {

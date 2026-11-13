@@ -24,6 +24,9 @@ test.describe("Execution telemetry in Lab", () => {
     await expect(ids.filter({ hasText: fixture.correlation.root_span_id })).toBeVisible();
     await expect(ids.filter({ hasText: fixture.correlation.scheduler_work_id })).toBeVisible();
 
+    for (const name of ["Attempt spans", "Artifact spans", "Signal counts", "Export diagnostics"]) {
+      await expect(result.getByRole("region", { name: `${name} table` })).toHaveAttribute("tabindex", "0");
+    }
     const attempts = result.getByRole("table", { name: "Attempt spans" });
     await expect(attempts.getByRole("row")).toHaveCount(fixture.correlation.attempts.length + 1);
     const retry = fixture.correlation.attempts.find((attempt) => attempt.selected)!;

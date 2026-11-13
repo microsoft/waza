@@ -39,9 +39,7 @@ func Build(src *Source, opts Options) *Bundle {
 	if opts.Policy == "" {
 		opts.Policy = PayloadExclude
 	}
-	if opts.Limits == (Limits{}) {
-		opts.Limits = DefaultLimits()
-	}
+	opts.Limits = opts.Limits.withDefaults()
 	if opts.Now.IsZero() {
 		opts.Now = time.Now().UTC()
 	}

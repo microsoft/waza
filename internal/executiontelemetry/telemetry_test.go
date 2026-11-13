@@ -359,10 +359,7 @@ func TestSafeguardsBoundCardinality(t *testing.T) {
 	require.Contains(t, bundle.Report.Dropped, Drop{Signal: SignalMetrics, Reason: DropMetricCardinality, Count: 33})
 	require.Equal(t, 8, bundle.Report.Signals.Metrics.Names[MetricToolCalls])
 
-	limits = DefaultLimits()
-	limits.MaxSpans = 3
-	limits.MaxLogs = 2
-	bundle = build(t, f.Inputs, Options{Limits: limits})
+	bundle = build(t, f.Inputs, Options{Limits: Limits{MaxSpans: 3, MaxLogs: 2}})
 	require.Equal(t, 3, bundle.Report.Signals.Traces.Emitted)
 	require.Equal(t, 2, bundle.Report.Signals.Logs.Emitted)
 	require.Positive(t, bundle.Report.Signals.Traces.Dropped)
@@ -573,6 +570,8 @@ func TestDeliverRejectsUnacknowledgedExports(t *testing.T) {
 		"html":      "<html>RECEIVER-SECRET-BODY</html>",
 		"array":     "[]",
 		"trailing":  "{} {}",
+		"bracket":   "{}]",
+		"brace":     "{}}",
 		"negative":  `{"partialSuccess":{"rejectedSpans":"-1"}}`,
 		"oversized": `{"x":"` + strings.Repeat("a", MaxOTLPResponseBytes) + `"}`,
 	} {

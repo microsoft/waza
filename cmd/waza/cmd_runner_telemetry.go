@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
@@ -121,7 +122,7 @@ func parseOTLPHeaders(values []string) (map[string]string, error) {
 		if !ok || key == "" || strings.ContainsAny(key, " \t\r\n:") || strings.ContainsAny(val, "\r\n") {
 			return nil, fmt.Errorf("--otlp-header must be key=value")
 		}
-		headers[key] = val
+		headers[http.CanonicalHeaderKey(key)] = val
 	}
 	return headers, nil
 }

@@ -28,7 +28,7 @@ export default function ExecutionTelemetry() {
 
   const health = report ? exportHealth(report) : undefined;
   return (
-    <section className="lab-panel" aria-label="Execution telemetry">
+    <section className="lab-panel lab-execution-telemetry" aria-label="Execution telemetry">
       <div className="lab-panel-header">
         <div>
           <h2>Execution telemetry correlation</h2>
@@ -67,7 +67,8 @@ export default function ExecutionTelemetry() {
           </ul>
 
           <h3>Attempts</h3>
-          <table aria-label="Attempt spans">
+          <div className="lab-table-scroll" tabIndex={0} role="region" aria-label="Attempt spans table">
+          <table className="lab-table" aria-label="Attempt spans">
             <thead><tr><th>Span</th><th>Execution</th><th>Parent</th><th>Status</th><th>Manifest</th><th>Selected</th></tr></thead>
             <tbody>
               {report.correlation.attempts.map((attempt) => (
@@ -82,9 +83,11 @@ export default function ExecutionTelemetry() {
               ))}
             </tbody>
           </table>
+          </div>
 
           <h3>Artifacts</h3>
-          <table aria-label="Artifact spans">
+          <div className="lab-table-scroll" tabIndex={0} role="region" aria-label="Artifact spans table">
+          <table className="lab-table" aria-label="Artifact spans">
             <thead><tr><th>Span</th><th>Name</th><th>SHA-256</th><th>Bytes</th></tr></thead>
             <tbody>
               {report.correlation.artifacts.map((artifact) => (
@@ -97,6 +100,7 @@ export default function ExecutionTelemetry() {
               ))}
             </tbody>
           </table>
+          </div>
 
           {report.correlation.aggregation && (
             <>
@@ -114,7 +118,8 @@ export default function ExecutionTelemetry() {
           )}
 
           <h3>Signals</h3>
-          <table aria-label="Signal counts">
+          <div className="lab-table-scroll" tabIndex={0} role="region" aria-label="Signal counts table">
+          <table className="lab-table" aria-label="Signal counts">
             <thead><tr><th>Signal</th><th>Emitted</th><th>Dropped</th></tr></thead>
             <tbody>
               {signals.map((signal) => (
@@ -122,6 +127,7 @@ export default function ExecutionTelemetry() {
               ))}
             </tbody>
           </table>
+          </div>
           {report.dropped.length > 0 && (
             <ul aria-label="Safeguard drops">
               {report.dropped.map((drop) => <li key={`${drop.signal}-${drop.reason}`}>{drop.signal}: {drop.reason} × {drop.count}</li>)}
@@ -131,7 +137,8 @@ export default function ExecutionTelemetry() {
           <h3>Export diagnostics</h3>
           <p>Export health: {health === "healthy" ? "all exports succeeded" : health === "degraded" ? "one or more exports did not succeed" : "not exported"}</p>
           {report.exports.length > 0 && (
-            <table aria-label="Export diagnostics">
+            <div className="lab-table-scroll" tabIndex={0} role="region" aria-label="Export diagnostics table">
+            <table className="lab-table" aria-label="Export diagnostics">
               <thead><tr><th>Signal</th><th>Destination</th><th>Target</th><th>State</th><th>Detail</th></tr></thead>
               <tbody>
                 {report.exports.map((entry) => (
@@ -145,6 +152,7 @@ export default function ExecutionTelemetry() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}

@@ -288,6 +288,25 @@ type Limits struct {
 	MaxLinks            int
 }
 
+// withDefaults replaces each non-positive limit with its documented default.
+func (l Limits) withDefaults() Limits {
+	d := DefaultLimits()
+	for _, pair := range []struct {
+		value    *int
+		fallback int
+	}{
+		{&l.MaxSpans, d.MaxSpans}, {&l.MaxToolSpansPerTask, d.MaxToolSpansPerTask},
+		{&l.MaxLogs, d.MaxLogs}, {&l.MaxAttributes, d.MaxAttributes},
+		{&l.MaxStringLength, d.MaxStringLength}, {&l.MaxSeriesPerMetric, d.MaxSeriesPerMetric},
+		{&l.MaxLinks, d.MaxLinks},
+	} {
+		if *pair.value <= 0 {
+			*pair.value = pair.fallback
+		}
+	}
+	return l
+}
+
 // DefaultLimits returns the documented defaults.
 func DefaultLimits() Limits {
 	return Limits{

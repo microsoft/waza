@@ -101,3 +101,9 @@ func TestRunnerTelemetryExitCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestParseOTLPHeadersLastValueWinsCaseInsensitively(t *testing.T) {
+	headers, err := parseOTLPHeaders([]string{"Authorization=old", "authorization=new"})
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"Authorization": "new"}, headers)
+}
