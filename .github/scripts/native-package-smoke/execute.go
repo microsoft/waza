@@ -117,6 +117,9 @@ func checkDashboard(ctx context.Context, binary string) (int, error) {
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
 	client := &http.Client{Timeout: 10 * time.Second}
 	if err := waitHealthy(ctx, client, base, exited); err != nil {
+		// Stop the output copiers before reading the shared buffer.
+		_ = cmd.Process.Kill()
+		<-exited
 		return 0, fmt.Errorf("%w\n%s", err, log.String())
 	}
 	index, err := fetch(ctx, client, base+"/", "text/html")
