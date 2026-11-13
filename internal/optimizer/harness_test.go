@@ -158,6 +158,18 @@ func TestPinSuiteAdmission(t *testing.T) {
 			contains: "rubric"},
 		"relative trigger skill": {edit: appendFile("tasks/bug-fix.yaml", "  - name: trigger\n    type: trigger\n    config:\n      skill_path: skill/SKILL.md\n      mode: positive\n"),
 			contains: "skill_path"},
+		"relative snapshot": {edit: appendFile("tasks/bug-fix.yaml", "  - name: snap\n    type: diff\n    config:\n      expected_files:\n        - path: out.md\n          snapshot: snap.md\n"),
+			contains: "snapshot"},
+		"external snapshot": {edit: func(t *testing.T, suite string) {
+			outside := filepath.Join(filepath.Dir(suite), "snap.md")
+			appendFile("tasks/bug-fix.yaml", "  - name: snap\n    type: diff\n    config:\n      context_dir: '"+suite+"'\n      expected_files:\n        - path: out.md\n          snapshot: '"+outside+"'\n")(t, suite)
+		}, contains: "outside the pinned"},
+		"relative program script": {edit: appendFile("tasks/bug-fix.yaml", "  - name: judge\n    type: program\n    config:\n      command: python3\n      args: [judge.py]\n"),
+			contains: "program input"},
+		"external program script": {edit: func(t *testing.T, suite string) {
+			outside := filepath.Join(filepath.Dir(suite), "judge.py")
+			replaceInFile("eval.yaml", "graders:\n", "graders:\n  - type: program\n    name: judge\n    config:\n      command: python3\n      args: ['"+outside+"']\n")(t, suite)
+		}, contains: "outside the pinned"},
 		"external task file": {edit: func(t *testing.T, suite string) {
 			shared := filepath.Join(filepath.Dir(suite), "shared")
 			require.NoError(t, os.MkdirAll(shared, 0o755))
@@ -357,6 +369,40 @@ func TestHarnessEvaluatorBoundsStalledShutdown(t *testing.T) {
 	require.NotNil(t, ev.Evidence, "the completed outcome is kept as evidence")
 	require.Nil(t, ev.Score)
 	require.Less(t, time.Since(start), 20*time.Second)
+}
+
+// suiteEditingEngine edits the pinned suite while executing and reports usage.
+type suiteEditingEngine struct {
+	*execution.MockEngine
+	suite string
+}
+
+func (e suiteEditingEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	resp, err := e.MockEngine.Execute(ctx, req)
+	if resp != nil {
+		resp.Usage = &models.UsageStats{InputTokens: 11, OutputTokens: 3}
+	}
+	if writeErr := os.WriteFile(filepath.Join(e.suite, "drift.md"), []byte(time.Now().String()), 0o600); writeErr != nil {
+		return nil, writeErr
+	}
+	return resp, err
+}
+
+func TestHarnessSuiteChangeDuringRunKeepsSpendAndEvidence(t *testing.T) {
+	suite := copySuite(t)
+	cfg := harnessConfig(t, suite, NewFakeAdapter())
+	h, ok := cfg.Evaluator.(*HarnessEvaluator)
+	require.True(t, ok)
+	h.EngineFactory = func(c models.Config) (execution.AgentEngine, error) {
+		return suiteEditingEngine{execution.NewMockEngine(c.ModelID), suite}, nil
+	}
+	require.NoError(t, os.MkdirAll(cfg.OutputDir, 0o755))
+	ev := h.Evaluate(context.Background(), EvaluateRequest{Index: 1, CandidateID: "sha256:" + strings.Repeat("a", 64), Files: cfg.Seed, Split: cfg.Pin.Optimization})
+	require.Equal(t, CategorySuiteChanged, ev.State, ev.Error)
+	require.Equal(t, SpendMeasured, ev.Spend.Status)
+	require.Positive(t, ev.Spend.InputTokens)
+	require.NotNil(t, ev.Evidence)
+	require.Nil(t, ev.Score)
 }
 
 // TestHarnessAmbientSkillAfterPinIsSchemaValid covers an evaluation-time

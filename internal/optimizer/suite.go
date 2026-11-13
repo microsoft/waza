@@ -213,7 +213,7 @@ func cwdRelativeDependency(p models.GraderParameters) (string, string, bool) {
 	if json.Unmarshal(data, &fields) != nil {
 		return "", "", false
 	}
-	for _, key := range []string{"schema_file", "skill_path", "rubric"} {
+	for _, key := range []string{"schema_file", "skill_path", "rubric", "context_dir"} {
 		value, _ := fields[key].(string)
 		value = strings.TrimSpace(value)
 		if value == "" || filepath.IsAbs(value) {
@@ -224,7 +224,64 @@ func cwdRelativeDependency(p models.GraderParameters) (string, string, bool) {
 		}
 		return key, value, true
 	}
+	// Without a grader context_dir, diff snapshots resolve against the
+	// working directory.
+	if ctx, _ := fields["context_dir"].(string); strings.TrimSpace(ctx) == "" {
+		expected, _ := fields["expected_files"].([]any)
+		for _, item := range expected {
+			entry, _ := item.(map[string]any)
+			snapshot, _ := entry["snapshot"].(string)
+			if snapshot = strings.TrimSpace(snapshot); snapshot != "" && !filepath.IsAbs(snapshot) {
+				return "snapshot", snapshot, true
+			}
+		}
+	}
+	for _, ref := range programFileRefs(p) {
+		if !filepath.IsAbs(ref) {
+			return "program input", ref, true
+		}
+	}
 	return "", "", false
+}
+
+var programScriptExts = []string{".py", ".js", ".mjs", ".cjs", ".ts", ".sh", ".bash", ".ps1", ".rb", ".pl", ".php", ".lua", ".jar", ".exe", ".bat", ".cmd"}
+
+// programFileRefs returns the files a program grader runs or reads: a command
+// given as a path, and arguments that are paths, script files or files present
+// in the working directory. A command name resolved from PATH is not a file
+// reference.
+func programFileRefs(p models.GraderParameters) []string {
+	var command string
+	var args []string
+	switch v := p.(type) {
+	case models.ProgramGraderParameters:
+		command, args = v.Command, v.Args
+	case *models.ProgramGraderParameters:
+		if v == nil {
+			return nil
+		}
+		command, args = v.Command, v.Args
+	default:
+		return nil
+	}
+	var refs []string
+	if command = strings.TrimSpace(command); filepath.IsAbs(command) || strings.ContainsAny(command, `/\`) {
+		refs = append(refs, command)
+	}
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if filepath.IsAbs(arg) || strings.ContainsAny(arg, `/\`) || slices.Contains(programScriptExts, strings.ToLower(filepath.Ext(arg))) {
+			refs = append(refs, arg)
+			continue
+		}
+		if _, err := os.Stat(arg); err == nil {
+			refs = append(refs, arg)
+		}
+	}
+	return refs
 }
 
 func updatesSnapshots(p models.GraderParameters) bool {
@@ -308,9 +365,35 @@ func admitDependencies(spec *models.EvalSpec, cases []*models.TestCase, specDir,
 	if err := checkPathFields("suite", spec, roots); err != nil {
 		return err
 	}
-	for _, tc := range cases {
-		if err := checkPathFields(fmt.Sprintf("task %q", tc.TestID), tc, roots); err != nil {
+	for _, g := range spec.Graders {
+		if err := checkProgramRefs("suite", g.Identifier, g.Parameters, roots); err != nil {
 			return err
+		}
+	}
+	for _, tc := range cases {
+		owner := fmt.Sprintf("task %q", tc.TestID)
+		if err := checkPathFields(owner, tc, roots); err != nil {
+			return err
+		}
+		graders := slices.Clone(tc.Validators)
+		for _, cp := range tc.Checkpoints {
+			graders = append(graders, cp.Graders...)
+		}
+		for _, g := range graders {
+			if err := checkProgramRefs(owner, g.Identifier, g.Parameters, roots); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkProgramRefs keeps program grader scripts inside the pinned roots, so
+// changing a script outside the suite cannot change scores silently.
+func checkProgramRefs(owner, name string, params models.GraderParameters, roots []string) error {
+	for _, ref := range programFileRefs(params) {
+		if filepath.IsAbs(ref) && !withinAny(ref, roots) {
+			return newError(CategoryInvalidSuite, "%s program grader %q runs %q outside the pinned suite and context directories", owner, name, ref)
 		}
 	}
 	return nil
@@ -352,7 +435,7 @@ func checkPathFields(owner string, v any, roots []string) error {
 
 func isPathKey(key string) bool {
 	switch key {
-	case "path", "file", "files", "script", "fixture", "fixtures", "location":
+	case "path", "file", "files", "script", "snapshot", "fixture", "fixtures", "location":
 		return true
 	}
 	for _, suffix := range []string{"_path", "_paths", "_file", "_files", "_dir", "_dirs", "_root"} {

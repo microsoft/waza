@@ -151,16 +151,15 @@ func (h *HarnessEvaluator) Evaluate(ctx context.Context, req EvaluateRequest) Ev
 		return fail(categoryOrDefault(err, CategoryInfrastructureFailure), err)
 	}
 	outcome, err := h.run(ctx, req)
+	// Record spend and evidence as soon as an outcome exists, so a paid
+	// evaluation that later fails validation still accounts for its cost.
+	var evidenceErr error
+	if outcome != nil {
+		ev.Spend = outcomeSpend(outcome)
+		ev.Evidence, evidenceErr = h.writeEvidence(req, outcome)
+	}
 	if err != nil {
-		if outcome != nil {
-			ev.Spend = outcomeSpend(outcome)
-			if ref, evidenceErr := h.writeEvidence(req, outcome); evidenceErr == nil {
-				ev.Evidence = ref
-			} else {
-				err = errors.Join(err, evidenceErr)
-			}
-		}
-		return fail(categoryOrDefault(err, CategoryInfrastructureFailure), err)
+		return fail(categoryOrDefault(err, CategoryInfrastructureFailure), errors.Join(err, evidenceErr))
 	}
 	if err := h.Pin.Verify(h.ExcludeDirs); err != nil {
 		return fail(categoryOrDefault(err, CategoryInfrastructureFailure), err)
@@ -176,13 +175,10 @@ func (h *HarnessEvaluator) Evaluate(ctx context.Context, req EvaluateRequest) Ev
 	if !slices.Equal(got, req.Split.TestIDs) {
 		return fail(CategoryMissingEvidence, fmt.Errorf("harness returned tasks %v, want %v", got, req.Split.TestIDs))
 	}
-	ref, err := h.writeEvidence(req, outcome)
-	if err != nil {
-		return fail(CategoryMissingEvidence, err)
+	if evidenceErr != nil {
+		return fail(CategoryMissingEvidence, evidenceErr)
 	}
-	ev.Evidence = ref
 	ev.Tasks = taskFeedback(outcome)
-	ev.Spend = outcomeSpend(outcome)
 	d := outcome.Digest
 	if d.Errors+d.Skipped > 0 || d.TotalTests != len(req.Split.TestIDs) {
 		return fail(StateIncomplete, fmt.Errorf("%d errored and %d skipped of %d tasks", d.Errors, d.Skipped, d.TotalTests))

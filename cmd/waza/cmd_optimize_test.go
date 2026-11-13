@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -39,6 +40,10 @@ func TestOptimizeCapabilities(t *testing.T) {
 }
 
 func TestOptimizeRunExample(t *testing.T) {
+	prevShutdown := shutdownSharedClientForRun
+	t.Cleanup(func() { shutdownSharedClientForRun = prevShutdown })
+	shutdowns := 0
+	shutdownSharedClientForRun = func(context.Context) error { shutdowns++; return nil }
 	suite := copyOptimizerExample(t)
 	outDir := filepath.Join(t.TempDir(), "out")
 	base := []string{"run", filepath.Join(suite, "eval.yaml"), "--seed", filepath.Join(suite, "seed"),
@@ -52,6 +57,7 @@ func TestOptimizeRunExample(t *testing.T) {
 	var report optimizer.Report
 	require.NoError(t, json.Unmarshal(data, &report))
 	require.Equal(t, optimizer.OutcomeAccepted, report.Outcome)
+	require.Equal(t, 1, shutdowns, "the shared SDK client is shut down after the run")
 
 	_, err = executeOptimize(t, append(base[:len(base)-1], filepath.Join(t.TempDir(), "consent"),
 		"--adapter", "command", "--adapter-command", os.Args[0])...)

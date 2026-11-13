@@ -145,9 +145,13 @@ A suite is rejected with `invalid_suite` in any of these cases:
 - A diff grader sets `update_snapshots`, at the eval, task or checkpoint
   level, because it could rewrite pinned files.
 - A grader reads a file relative to the working directory rather than the
-  suite: a relative `schema_file`, a relative `rubric` file or a relative
-  trigger `skill_path`. Use an absolute path inside the suite, or an inline
-  schema or prompt.
+  suite: a relative `schema_file`, `rubric` file, trigger `skill_path` or
+  grader `context_dir`, or a diff `snapshot` with no grader `context_dir`.
+  Use an absolute path inside the suite, or an inline schema or prompt.
+- A program grader runs a script the pin cannot cover: a relative script path
+  in `command` or `args`, or an absolute one outside the suite and context
+  directories. Interpreters found on `PATH` (for example `python3`) are
+  allowed; pass the script as an absolute path inside the suite.
 - Under the skill target, `disabled_skills` would remove the candidate
   (`"*"` or `"skill"`, the candidate directory's name), or a skill with the
   suite's `skill` name can be found from the working directory. The runner
@@ -214,6 +218,11 @@ Spend is reported, never capped. Each evaluation and proposal has a spend
 - `measured`: usage came from the engine or adapter.
 - `unavailable`: no usage was reported, which is never treated as zero.
 - `partial`: some parts were measured and some were not.
+
+Failed calls still count. An evaluation that fails after the harness produced
+an outcome (a suite change, a task mismatch or an engine shutdown error) keeps
+its measured spend and, when it can be written, its evidence, but gets no
+score. A failed `copilot-reflect` call keeps the usage the engine reported.
 
 The report always sets `hard_spend_cap: false`. Waza cannot enforce provider
 billing limits; it can only bound iterations, evaluations and time.

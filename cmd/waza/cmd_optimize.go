@@ -158,6 +158,13 @@ func runOptimize(cmd *cobra.Command, specPath string, opts *optimizeRunOptions) 
 			WazaVersion:   version,
 		},
 	}
+	// Registered before any engine cleanup so it runs last: engines built on
+	// the process-wide Copilot SDK client leave it running on Shutdown.
+	defer func() {
+		if err := shutdownSharedClientAfterRun(cmd.Context()); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("shutting down shared copilot client: %w", err))
+		}
+	}()
 	switch opts.adapter {
 	case "fake":
 		adapter := optimizer.NewFakeAdapter()
