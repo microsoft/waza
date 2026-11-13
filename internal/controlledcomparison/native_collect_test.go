@@ -386,12 +386,22 @@ func TestNativeCollectionAcceptedAndFrozenReader(t *testing.T) {
 	checkFrozen("stripped-core-only", native.Policy)
 }
 
+// The observed-failure cases are split across two top-level tests so the
+// native CI shard planner can place each half independently.
 func TestNativeCollectionObservedFailures(t *testing.T) {
+	testNativeCollectionObservedFailures(t, "retry", "initialize", "execute", "shutdown", "disconnect")
+}
+
+func TestNativeCollectionObservedFailuresOutputAndBudget(t *testing.T) {
+	testNativeCollectionObservedFailures(t, "empty-output", "unknown-usage", "unknown-budget", "reached-budget")
+}
+
+func testNativeCollectionObservedFailures(t *testing.T, names ...string) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("native durable creation requires Linux or macOS")
 	}
 
-	for _, name := range []string{"retry", "initialize", "execute", "shutdown", "disconnect", "empty-output", "unknown-usage", "unknown-budget", "reached-budget"} {
+	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			baseline, candidate := nativeFixture(t, "fixed-model"), nativeFixture(t, "fixed-model")
 			for _, source := range []controlledcomparison.Source{baseline, candidate} {

@@ -111,11 +111,25 @@ func TestNativeReaderSuppliedDecisionProcess(t *testing.T) {
 	require.Equal(t, got.Root.Native, api[0].Decision.Native)
 }
 
+// The parity cases are split across two top-level tests so the native CI shard
+// planner can place each half independently. Only this test dispatches the
+// frozen oracle subprocess.
 func TestNativeReaderFrozen15cDecisionParity(t *testing.T) {
 	if raw, subprocess := readeroracle.Input(t); subprocess {
 		frozenNativeDecisionProcess(t, raw)
 		return
 	}
+	testNativeReaderFrozen15cDecisionParity(t, "decision-frozen15c-observations.json", true,
+		"writer", "whitespace", "trailing_document", "duplicate_blob", "unsafe_truncated_object",
+		"unicode_before_syntax", "blob_failure_before_unknown", "unknown_before_blob_failure")
+}
+
+func TestNativeReaderFrozen15cDecisionParityReordered(t *testing.T) {
+	testNativeReaderFrozen15cDecisionParity(t, "decision-frozen15c-reordered-observations.json", false,
+		"escaped_member", "member_order")
+}
+
+func testNativeReaderFrozen15cDecisionParity(t *testing.T, proofName string, proofCapture bool, selected ...string) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("native durable creation requires Linux or macOS; supplied decision reading remains covered")
 	}
@@ -191,8 +205,15 @@ func TestNativeReaderFrozen15cDecisionParity(t *testing.T) {
 		}, `unknown field "unknown"`},
 	}
 	input := frozenDecisionInput{Directory: directory, Policy: policy}
+	byName := map[string]int{}
+	for i, test := range cases {
+		byName[test.Name] = i
+	}
 	observations := map[string]frozenDecisionObservation{}
-	for _, test := range cases {
+	for _, name := range selected {
+		index, ok := byName[name]
+		require.True(t, ok, "unknown frozen parity case %q", name)
+		test := cases[index]
 		t.Run(test.Name, func(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, test.Raw(), 0600))
 			frozen := readeroracle.Run(t, oracle, "TestNativeReaderFrozen15cDecisionParity", input)
@@ -236,7 +257,7 @@ func TestNativeReaderFrozen15cDecisionParity(t *testing.T) {
 			observations[test.Name] = expected
 		})
 	}
-	require.Len(t, observations, len(cases))
+	require.Len(t, observations, len(selected))
 	require.NoError(t, os.WriteFile(path, raw, 0600))
 	control := observeFrozenNativeDecision(t, frozenDecisionInput{Directory: directory, Policy: policy})
 	require.Empty(t, control.SelectedError)
@@ -248,7 +269,9 @@ func TestNativeReaderFrozen15cDecisionParity(t *testing.T) {
 	if out := os.Getenv("WAZA_READER_PROOF_DIR"); out != "" {
 		encoded, err := json.Marshal(observations)
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(out, "decision-frozen15c-observations.json"), encoded, 0600))
-		require.NoError(t, os.WriteFile(filepath.Join(out, "actual-production-capture.json"), raw, 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(out, proofName), encoded, 0600))
+		if proofCapture {
+			require.NoError(t, os.WriteFile(filepath.Join(out, "actual-production-capture.json"), raw, 0600))
+		}
 	}
 }

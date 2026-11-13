@@ -34,11 +34,21 @@ func nativeHTTPCollection(t *testing.T, directory string) webapi.ReleaseCollecti
 	return items[0]
 }
 
+// The payload cases are split across two top-level tests so the native CI
+// shard planner can place each half independently.
 func TestNativeCollectionPublicPayloads(t *testing.T) {
+	testNativeCollectionPublicPayloads(t, "carriage-return", "large-request")
+}
+
+func TestNativeCollectionPublicPayloadsLargeOutput(t *testing.T) {
+	testNativeCollectionPublicPayloads(t, "large-output", "stream-overflow")
+}
+
+func testNativeCollectionPublicPayloads(t *testing.T, names ...string) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("native durable creation requires Linux or macOS")
 	}
-	for _, name := range []string{"carriage-return", "large-output", "large-request", "stream-overflow"} {
+	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			source := nativeFixture(t, "fixed-model")
 			design := nativeDesign()
