@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Checkpoint resume availability (unreleased source preview, #765)** -
+  `waza runner checkpoint availability CHECKPOINT_SHA256`, protected
+  `POST /api/v1/checkpoints/{digest}/availability` and the Lab **Check resume
+  availability** action report, without executing or reserving work, whether a
+  checkpoint can be resumed: boundary, creation time, compatibility, resume
+  action and a stable code with actionable guidance otherwise. New independent
+  `waza.runner-checkpoint-availability` 1.0 schema; checkpoint 1.0 and result
+  1.0/1.1 are unchanged. Not resumable: partial in-unit work, before-unit
+  checkpoints after dispatch, and checkpoints from another build revision.
+  See [troubleshooting](docs/EXECUTION_CHECKPOINTS.md#resume-availability-and-troubleshooting).
 - **Public submission and attempt lineage (unreleased source preview, #764)** -
   `waza runner submit` and protected `POST /api/v1/submissions` call the
   attempt core: distinct submissions always reserve a new execution ID (duplicates

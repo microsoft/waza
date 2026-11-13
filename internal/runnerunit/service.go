@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -68,6 +69,21 @@ type admitted struct {
 func Validate(data []byte) Report {
 	report, _ := admit(data)
 	return report
+}
+
+// AdmittedBinding returns the caller binding Submit would use for data, or
+// false when the request is not admitted.
+func AdmittedBinding(data []byte) (artifactmanifest.Binding, bool) {
+	report, input := admit(data)
+	if input == nil || report.binding == nil || report.binding.Identity == nil {
+		return artifactmanifest.Binding{}, false
+	}
+	return callerBinding(report.binding), true
+}
+
+func callerBinding(binding *runnerterminal.Binding) artifactmanifest.Binding {
+	return artifactmanifest.Binding{Identity: *binding.Identity, Selection: binding.Selection,
+		ExecutionMode: binding.ExecutionMode, GraderIDs: slices.Clone(binding.GraderIDs)}
 }
 
 // Admission is adapted from frozen #779 service.go, excluding native lifecycle,

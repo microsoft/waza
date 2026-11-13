@@ -169,15 +169,12 @@ func (l *Ledger) create(ctx context.Context, key string, data []byte) error {
 	return nil
 }
 
-// Reserve generates its own execution ID independently of the declared native
-// ordinal. Any ambiguous/occupied/error result returns no creator capability.
-func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, parent *executionattempt.Parent) (Creator, error) {
-	if l == nil || l.records == nil || l.executionID == nil {
-		return Creator{}, ErrCapability
-	}
+// prospective encodes a new reservation without storing it. Validation uses
+// the detached encoded input, not caller-owned slices or pointers.
+func (l *Ledger) prospective(binding artifactmanifest.Binding, parent *executionattempt.Parent) (*Reservation, error) {
 	id, err := l.executionID()
 	if err != nil {
-		return Creator{}, err
+		return nil, err
 	}
 	attempt := executionattempt.Attempt{
 		Kind: "waza.execution-attempt", SchemaVersion: executionattempt.Version,
@@ -185,13 +182,35 @@ func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, 
 	}
 	data, err := executionattempt.EncodeAttempt(attempt)
 	if err != nil {
-		return Creator{}, err
+		return nil, err
 	}
-	// Validate the detached encoded input, not caller-owned slices or pointers.
-	frozen, err := reservation(data, id)
+	return reservation(data, id)
+}
+
+// AdmitParent applies Reserve's read-only parent admission to a prospective
+// child of binding without creating any record.
+func (l *Ledger) AdmitParent(ctx context.Context, binding artifactmanifest.Binding, parent executionattempt.Parent) error {
+	if l == nil || l.records == nil || l.executionID == nil {
+		return ErrCapability
+	}
+	frozen, err := l.prospective(binding, &parent)
+	if err != nil {
+		return err
+	}
+	return l.parent(ctx, frozen.Attempt)
+}
+
+// Reserve generates its own execution ID independently of the declared native
+// ordinal. Any ambiguous/occupied/error result returns no creator capability.
+func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, parent *executionattempt.Parent) (Creator, error) {
+	if l == nil || l.records == nil || l.executionID == nil {
+		return Creator{}, ErrCapability
+	}
+	frozen, err := l.prospective(binding, parent)
 	if err != nil {
 		return Creator{}, err
 	}
+	data, id := frozen.Bytes, frozen.Attempt.ExecutionID
 	if err := execution.ValidateOwnedRuntime(frozen.Attempt.Binding.ExecutionMode); err != nil {
 		return Creator{}, err
 	}

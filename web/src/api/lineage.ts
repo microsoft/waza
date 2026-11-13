@@ -113,6 +113,26 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
       || attempt.reused_by.some((id) => !expected.includes(id))) return false;
     seen.set(attempt.execution_id, attempt);
   }
+  // Concurrent-writer diagnostics must name the complete affected execution set.
+  const diagnosedSet = (code: string, expected: string[]) => {
+    const want = [...expected].sort();
+    return lineage.diagnostics.some((diagnostic) => diagnostic.code === code
+      && diagnostic.execution_ids.length === want.length
+      && [...diagnostic.execution_ids].sort().every((id, index) => id === want[index]));
+  };
+  const roots = lineage.attempts.filter((attempt) => !attempt.parent).map((attempt) => attempt.execution_id);
+  if (roots.length > 1 && !diagnosedSet("concurrent_distinct_attempts", roots)) return false;
+  const children = new Map<string, string[]>();
+  for (const attempt of lineage.attempts) {
+    const parentID = attempt.parent?.execution_id;
+    if (parentID && ids.has(parentID)) children.set(parentID, [...(children.get(parentID) ?? []), attempt.execution_id]);
+  }
+  for (const [parentID, siblings] of children) {
+    if (siblings.length > 1 && !diagnosedSet("sibling_attempts", [parentID, ...siblings])) return false;
+  }
+  for (const [id, dispatches] of distinctFor) {
+    if (dispatches.length > 1 && !diagnosedSet("duplicate_dispatch_decision", [id])) return false;
+  }
   return true;
 }
 

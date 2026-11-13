@@ -121,5 +121,80 @@ func newRunnerCheckpointCommandWithBackend(
 		})
 		cmd.AddCommand(unit)
 	}
+	cmd.AddCommand(newRunnerCheckpointAvailabilityCommand(service, revision, openBackend, &directory, &azureURL))
 	return cmd
+}
+
+func newRunnerCheckpointAvailabilityCommand(
+	service *runnerunit.Service,
+	revision func() (string, error),
+	openBackend func(string, string) (artifactmanifest.Backend, func() error, error),
+	directory, azureURL *string,
+) *cobra.Command {
+	emit := func(cmd *cobra.Command, result runnercheckpoint.Availability) error {
+		data, err := runnercheckpoint.EncodeAvailability(result)
+		if err != nil {
+			return &ExitCodeError{Code: 2, Err: fmt.Errorf("validating checkpoint availability output: %w", err)}
+		}
+		return emitRunnerOperationJSON(cmd, data, result.ExitCode, result.Status)
+	}
+	report := func(cmd *cobra.Command, result runnercheckpoint.Availability, stage string, cause error) error {
+		var diagnosticErr error
+		if cause != nil {
+			_, diagnosticErr = fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint availability %s: %v\n", stage, cause)
+		}
+		return errors.Join(emit(cmd, result), diagnosticErr)
+	}
+	unit := &cobra.Command{
+		Use:           "availability CHECKPOINT_SHA256",
+		Short:         "Read one captured submission from stdin; report whether the checkpoint can resume, without executing",
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			digest := ""
+			if len(args) == 1 {
+				digest = args[0]
+			}
+			if cmd.Flags().Changed("store") && cmd.Flags().Changed("azure-container-url") {
+				return emit(cmd, runnercheckpoint.AvailabilityRejected(digest, "checkpoint_flags_conflict"))
+			}
+			if len(args) != 1 {
+				return emit(cmd, runnercheckpoint.AvailabilityRejected("", "checkpoint_arguments_invalid"))
+			}
+			if err := executioncheckpoint.ValidateDigest(digest); err != nil {
+				return emit(cmd, runnercheckpoint.AvailabilityRejected("", "checkpoint_digest_invalid"))
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			data, err := readRunnerInputLimit(ctx, cmd.InOrStdin(), runnerunit.MaxSubmissionBytes)
+			if err != nil {
+				return report(cmd, runnercheckpoint.AvailabilityRejected(digest, "checkpoint_input_unavailable"), "input read", err)
+			}
+			if _, err := runnerunit.ParseSubmission(data); err != nil {
+				return report(cmd, runnercheckpoint.AvailabilityRejected(digest, "checkpoint_input_invalid"), "input admission",
+					runnercheckpoint.ErrAvailabilityInput)
+			}
+			buildRevision, err := revision()
+			if err != nil {
+				return report(cmd, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeBuildUnavailable), "build admission", err)
+			}
+			checkpoints, err := runnercheckpoint.NewService(service, buildRevision)
+			if err != nil {
+				return report(cmd, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeRunnerUnavailable), "runner admission", err)
+			}
+			backend, closeBackend, err := openBackend(*directory, *azureURL)
+			if err != nil {
+				return report(cmd, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeStorageUnavailable), "store open", err)
+			}
+			result, err := checkpoints.Availability(ctx, data, backend, digest)
+			if closeErr := closeBackend(); closeErr != nil {
+				return report(cmd, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeStorageCloseFailed),
+					"store close", errors.Join(err, closeErr))
+			}
+			return report(cmd, result, "check", err)
+		},
+	}
+	unit.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		return report(cmd, runnercheckpoint.AvailabilityRejected("", "checkpoint_flags_invalid"), "flags", err)
+	})
+	return unit
 }

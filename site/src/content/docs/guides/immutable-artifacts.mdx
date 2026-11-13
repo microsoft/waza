@@ -144,9 +144,40 @@ A valid finalized restore reports `reused`, `restored_units: 1`,
 ordinal and outcome remain unchanged, including failed checks or cancellation.
 Unavailable progress is `null`, never an invented zero.
 
+### Checkpoint troubleshooting
+
+Check a digest before resuming. The check reads the store only; it never
+executes, reserves or repairs work:
+
+```bash
+waza runner checkpoint availability "$DIGEST" --store .waza-artifacts \
+  < submission.json | jq '{status,exit_code,source,resume_action,diagnostics}'
+```
+
+`available` (exit 0) shows the boundary, `created_at`, original execution and
+whether resume creates a fresh retry child (before-unit) or reuses the original
+terminal (finalized-unit). Otherwise the first diagnostic code says what to do:
+
+| Code | Action |
+| --- | --- |
+| `checkpoint_not_found` | Check the store flag and copy the digest from the create result or stderr. |
+| `checkpoint_corrupt` | Preserve the blob; never edit or resume it. |
+| `checkpoint_incompatible` | Use the original clean build or rerun as new work; there is no cross-version resume. |
+| `checkpoint_policy_conflict` | Omit the submission policy or match the boundary (retry for before-unit, reuse for finalized-unit). |
+| `checkpoint_stale` | The original already dispatched; use the finalized checkpoint or inspect `waza runner lineage`. |
+| `checkpoint_*_source_rejected` | Original records could not be verified; preserve them and inspect operator logs. |
+| `checkpoint_runtime_rejected` | This environment would not admit the owned runtime a before-unit retry needs (for example `COPILOT_CLI_PATH` is set); clear it and check again. |
+| `checkpoint_capture_policy_rejected` | The source holds restricted text and will not be reused; rerun as new work. |
+| `checkpoint_storage_*`, `checkpoint_build_unavailable` | Fix storage access or rebuild from a clean tree, then retry the check. |
+
+Partial work inside a unit is never resumed; resume restarts the whole unit.
+Availability can change before resume, so resume repeats every check.
+See the [full table](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_CHECKPOINTS.md#resume-availability-and-troubleshooting).
+
 The dashboard server accepts the same submission at
 `POST /api/v1/checkpoints` and
-`POST /api/v1/checkpoints/{digest}/resume`. Responses use the same protected
+`POST /api/v1/checkpoints/{digest}/resume`, plus the read-only
+`POST /api/v1/checkpoints/{digest}/availability`. Responses use the same protected
 result with `X-Waza-Exit-Code`. Operations require a loopback peer and literal
 loopback Host, same-origin browser metadata, and `application/json`.
 The existing results directory selects `.waza-artifacts`, unless the server has

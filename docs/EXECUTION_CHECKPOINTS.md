@@ -3,7 +3,8 @@
 This unreleased, partial #765 layer builds on the
 [logical-attempt core](EXECUTION_ATTEMPTS.md) and immutable manifest v1. It
 provides an embedding service and unreleased source commands
-`runner checkpoint create` and `runner checkpoint resume`. Installed v0.40.1
+`runner checkpoint create`, `runner checkpoint availability` and
+`runner checkpoint resume`. Installed v0.40.1
 artifacts do not contain these commands. Protected HTTP create/resume operations
 are registered and consumed by the source Lab. Broader native-platform evidence
 and full #755 acceptance remain pending.
@@ -88,6 +89,77 @@ one supported exact unit, not an entire evaluation or fleet. Failed or unavailab
 observations remain unavailable, not zero. Before-boundary recovery creates a new
 execution ID with an explicit `retry` parent; it cannot rehydrate the dead
 process's creator capability.
+
+## Resume availability and troubleshooting
+
+Before resuming, check whether a checkpoint can be resumed without executing,
+reserving or repairing anything:
+
+```bash
+waza runner checkpoint availability CHECKPOINT_SHA256 --store .waza-artifacts \
+  < submission.json > availability.json
+```
+
+Stdout is one [`waza.runner-checkpoint-availability`](../schemas/runner-checkpoint-availability-1.0.schema.json)
+1.0 record. `available` (exit 0) reports the source boundary, `created_at`,
+original execution ID, the resume action (`fresh_retry_child` or
+`reuse_original_terminal`) and the restored/remaining units that resume would
+report. `unavailable` (exit 6) explains why with a stable code and fixed
+guidance; `rejected` (exit 6) means the request itself was invalid; and
+`operation_error` (exit 2) means the store or build could not be checked. Source
+metadata is disclosed only when the result is `available`, and diagnostics never
+include captured input or provider causes. Availability can change before resume,
+for example when an original before-unit attempt dispatches, so resume repeats
+every check. The dashboard server accepts the same submission at
+`POST /api/v1/checkpoints/{digest}/availability` (200 available, 409
+unavailable, 400 rejected, 503 operation error).
+
+Per-boundary resume workflows. A before-unit checkpoint is only resumable while
+the original never dispatched, so it comes from an interrupted worker, which
+never writes final JSON; take its digest from the stderr progress line
+`checkpoint before-unit <digest>` after the worker has stopped:
+
+```bash
+waza runner checkpoint create --store .waza-artifacts < submission.json \
+  > checkpoint-result.json 2> checkpoint-progress.log &
+WORKER=$!
+# ... the worker is interrupted before execution starts ...
+kill "$WORKER"; wait "$WORKER"  # stop and join it before checking
+BEFORE="$(awk '$1 == "checkpoint" && $2 == "before-unit" { print $3 }' checkpoint-progress.log)"
+waza runner checkpoint availability "$BEFORE" --store .waza-artifacts < submission.json \
+  && waza runner checkpoint resume "$BEFORE" --store .waza-artifacts < submission.json  # fresh retry child
+```
+
+A completed `create` leaves its before-unit checkpoint stale; recover from its
+finalized-unit checkpoint, which reuses the original terminal with zero new
+engine calls:
+
+```bash
+waza runner checkpoint create --store .waza-artifacts < submission.json \
+  > checkpoint-result.json
+FINAL="$(jq -er '.finalized_checkpoint_sha256' checkpoint-result.json)"
+waza runner checkpoint availability "$FINAL" --store .waza-artifacts < submission.json \
+  && waza runner checkpoint resume "$FINAL" --store .waza-artifacts < submission.json
+```
+
+| Code | Meaning | Action |
+| --- | --- | --- |
+| `checkpoint_not_found` | No blob with this digest in the selected store. | Check `--store`/`--azure-container-url` and copy the digest from the create result or stderr progress. |
+| `checkpoint_corrupt` | Stored bytes differ from the digest or are not canonical. | Preserve the blob for investigation; never edit or resume it. |
+| `checkpoint_incompatible` | Build revision, work, policy or consent differs (`compatibility_differences` names fields). | Use the original clean build or rerun as new work; there is no cross-version resume. |
+| `checkpoint_policy_conflict` | The submission policy contradicts the boundary. | Omit the policy, or use a distinct retry for before-unit and reuse of the exact source for finalized-unit. |
+| `checkpoint_stale` | The original before-unit attempt already dispatched or completed. | Use the finalized checkpoint, or inspect `waza runner lineage` before starting separate work. |
+| `checkpoint_before_source_rejected` | The original reservation, its dispatch state or the retry ancestry that resume would admit could not be verified. | Preserve records and inspect operator logs before any retry. |
+| `checkpoint_finalized_source_rejected` | The original completion, manifest, terminal or captured `report.json` could not be verified, or the source's execution mode or graders differ from the caller (the same source admission resume performs). | Preserve records; the original terminal cannot be reused. |
+| `checkpoint_runtime_rejected` | This environment would not admit the owned runtime that a before-unit retry needs (for example `COPILOT_CLI_PATH` or an ambient custom provider is set). | Clear those settings and check again, or use the legacy runner. Finalized reuse does not depend on runtime configuration. |
+| `checkpoint_capture_policy_rejected` | The source holds restricted identifiers or diagnostic text. | Capture policy will not reuse or disclose it; rerun as new work. |
+| `checkpoint_digest_invalid`, `checkpoint_input_invalid`, `checkpoint_request_invalid` | The digest or captured submission is malformed, or the request is not admissible (for example `selection.attempt` exceeds `max_attempts`); resume rejects it the same way. | Pass 64 lowercase hex characters and a recaptured `waza.execution-submission`. |
+| `checkpoint_storage_unavailable`, `checkpoint_storage_close_failed`, `checkpoint_build_unavailable` | The store or clean build could not be used, including a permission, provider or truncated-transfer failure while reading the checkpoint or its original source. | Fix storage access or rebuild from a clean VCS-stamped tree, then retry the check. |
+
+Not resumable by design: partial work inside a unit (resume restarts the whole
+unit), a before-unit checkpoint once its original dispatched, any checkpoint
+created by a different build revision, and historical runs that have no
+checkpoint (none are synthesized).
 
 ## Embedding API and publication failures
 
@@ -236,7 +308,9 @@ their actionable cause and rebuild guidance on operator stderr as well.
 Checkpoint and checkpoint-result sidecars have independent `1.0` versions.
 Legacy result files, manifest v1, identity v1 and ordinary `runner run` remain
 unchanged. No historical checkpoint or ownership metadata is synthesized.
-There is no implicit cross-revision resume.
+There is no implicit cross-revision resume. The availability record is a new,
+independent `1.0` schema; it adds no field to existing checkpoint or result
+documents, so no migration is needed.
 
 The retained process controls kill an actual Go test subprocess at each
 supported boundary and recover through a fresh production service owner. They
