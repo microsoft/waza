@@ -98,16 +98,28 @@ test.describe("Aggregate evidence states and lineage", () => {
     "duplicate lineage": (member) => { member.lineage!.push({ ...member.lineage![0]! }); },
     "cache lineage without usage exclusion": (member) => { member.lineage![0]!.relationship = "cache"; },
   };
-  for (const [name, forge] of Object.entries(forgeries)) {
+  const retryViewForgeries: Record<string, (member: Member) => void> = {
+    "a disagreeing parent ID across views of one execution": (member) => {
+      member.parent!.execution_id = `exec-${"f".repeat(64)}`;
+    },
+    "a disagreeing parent relationship across views of one execution": (member) => {
+      (member.parent as { relationship: string }).relationship = "branch";
+    },
+  };
+  for (const [name, forge, select] of [
+    ...Object.entries(forgeries).map(([name, forge]) => [name, forge, (member: Member) => !!member.lineage] as const),
+    ...Object.entries(retryViewForgeries).map(([name, forge]) =>
+      [name, forge, (member: Member) => !!member.parent && !member.lineage] as const),
+  ]) {
     test(`rejects ${name} the Go codec rejects`, async ({ page }) => {
       const report = JSON.parse(fixture.canonical);
-      forge(report.members.find((member: Member) => member.lineage));
+      forge(report.members.find(select));
       await page.route("**/api/v1/aggregates", (route) => route.fulfill({ status: 409, json: report }));
       await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
       await page.getByRole("textbox").fill(fixture.inputs.map((input) =>
         `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n"));
       await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
-      await expect(page.getByRole("alert")).toContainText("inconsistent");
+      await expect(page.getByRole("alert")).toContainText(/invalid report|inconsistent/);
       await expect(page.getByRole("list", { name: "Evidence lineage" })).toHaveCount(0);
     });
   }

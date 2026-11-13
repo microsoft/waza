@@ -229,6 +229,17 @@ func TestRetryAndResumeLineageRetainsEveryExecutionWithoutWinner(t *testing.T) {
 	}
 	forgeSchema := func(change func(*Member)) error { return validate(forgeBytes(change)) }
 	require.Error(t, forgeSchema(func(m *Member) { m.Execution = "" }), "schema requires an execution beside a parent")
+	require.Error(t, forgeSchema(func(m *Member) { m.Lineage = append(m.Lineage, m.Lineage[0]) }), "schema rejects duplicate lineage")
+	require.ErrorIs(t, forge(func(m *Member) {
+		m.Parent = &executionattempt.Parent{ExecutionID: "exec-" + strings.Repeat("f", 64), Relationship: "retry"}
+	}),
+		ErrInvalid, "views of one execution cannot disagree on the parent ID")
+	require.ErrorIs(t, forge(func(m *Member) {
+		m.Parent = &executionattempt.Parent{ExecutionID: originalExecution, Relationship: "branch"}
+	}),
+		ErrInvalid, "views of one execution cannot disagree on the parent relationship")
+	_, err = Parse(forgeBytes(func(m *Member) { m.Parent = nil }))
+	require.NoError(t, err, "an earlier report may omit parentage on one view")
 	require.Error(t, forgeSchema(func(m *Member) { m.Evidence, m.Parent, m.Execution = "", nil, "" }), "schema requires a sidecar beside lineage")
 	for name, change := range map[string]func(*Member){
 		"self parent": func(m *Member) { m.Parent = &executionattempt.Parent{ExecutionID: m.Execution, Relationship: "retry"} },
@@ -392,7 +403,7 @@ func TestEvidenceStatesLabFixture(t *testing.T) {
 	require.NoError(t, err)
 	forged := Input{Manifest: oversized.Manifest, Evidence: published.EvidenceSHA256}
 
-	inputs := []Input{original, resumed, oversized, forged}
+	inputs := []Input{original, retry, resumed, oversized, forged}
 	report, err := Build(t.Context(), sources, inputs, DefaultLimits())
 	require.ErrorIs(t, err, ErrConflicting)
 	states := map[evidencestate.State]bool{}

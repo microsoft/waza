@@ -11,6 +11,7 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
@@ -68,6 +69,7 @@ func accounting(report Report) error {
 	counts := Counts{Members: len(report.Members), MemberStates: map[string]int{}, MemberOutcomes: map[string]int{}}
 	manifests, executions := map[string]bool{}, map[string]bool{}
 	executionManifests := map[string]string{}
+	executionParents := map[string]executionattempt.Parent{}
 	manifestOutcomes, manifestProfiles := map[string]string{}, map[string]string{}
 	profiles := map[string][]Input{}
 	state := "complete"
@@ -84,8 +86,15 @@ func accounting(report Report) error {
 				return fail()
 			}
 		}
-		if member.Parent != nil && (member.Execution == "" || member.Parent.ExecutionID == member.Execution) {
-			return fail()
+		if member.Parent != nil {
+			if member.Execution == "" || member.Parent.ExecutionID == member.Execution {
+				return fail()
+			}
+			// Parentage comes from one immutable reservation; earlier reports may omit it.
+			if previous, ok := executionParents[member.Execution]; ok && previous != *member.Parent {
+				return fail()
+			}
+			executionParents[member.Execution] = *member.Parent
 		}
 		if len(member.Lineage) > 0 && member.Evidence == "" {
 			return fail()

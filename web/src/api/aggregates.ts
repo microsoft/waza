@@ -191,6 +191,7 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
   const outcomes: Record<string, number> = {};
   const profiles = new Map<string, string[]>();
   const executionManifests = new Map<string, string>();
+  const executionParents = new Map<string, string>();
   const manifestOutcomes = new Map<string, string>();
   const manifestProfiles = new Map<string, string>();
   let state = "complete";
@@ -200,6 +201,13 @@ export async function buildAggregate(inputs: AggregateInput[], signal: AbortSign
       const previousOutcome = manifestOutcomes.get(member.manifest_sha256);
       if (previousOutcome !== undefined && previousOutcome !== member.outcome) ordered = false;
       else manifestOutcomes.set(member.manifest_sha256, member.outcome);
+    }
+    if (member.execution_id && member.parent) {
+      // Parentage comes from one immutable reservation; earlier reports may omit it.
+      const parent = `${member.parent.execution_id}:${member.parent.relationship}`;
+      const previousParent = executionParents.get(member.execution_id);
+      if (previousParent !== undefined && previousParent !== parent) ordered = false;
+      else executionParents.set(member.execution_id, parent);
     }
     if (member.execution_id) {
       const previousManifest = executionManifests.get(member.execution_id);

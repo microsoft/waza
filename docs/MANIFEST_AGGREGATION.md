@@ -147,7 +147,8 @@ an earlier successful read is never a cache of current verification.
 | Historical mutable result files | Not aggregate inputs; remain readable through existing result readers |
 
 Members with a verified execution may carry `parent` (`execution_id` and `retry`
-or `branch`, read from the original reservation). Members with a sidecar may carry
+or `branch`, read from the original reservation); every view of one execution
+must agree on it. Members with a sidecar may carry
 `lineage` (source `manifest` digests with `retry`, `resume`, `cache` or
 `aggregation`, sorted). Both are omitted when absent and never select a winner:
 the original and each retry stay separate members with their own outcomes. A
