@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/executioncheckpoint"
 	"github.com/microsoft/waza/internal/executionledger"
@@ -76,6 +77,7 @@ var availabilityGuidance = map[string]string{
 	"checkpoint_finalized_source_rejected": "The original finalized completion, manifest or artifacts could not be verified. Preserve the records; the original terminal cannot be reused.",
 	"checkpoint_capture_policy_rejected":   "The original source contains restricted identifiers or diagnostic text, so the capture policy will not reuse or disclose it.",
 	"checkpoint_boundary_invalid":          "The checkpoint names an unsupported boundary.",
+	"checkpoint_runtime_rejected":          "This environment would not admit the owned runtime for the retry (for example COPILOT_CLI_PATH or an ambient custom provider is set). Clear those settings and check again, or use the legacy runner.",
 	ErrorCodeBuildUnavailable:              "This build has no verifiable runner revision, so compatibility cannot be checked. Use a release or VCS-stamped build.",
 	ErrorCodeRunnerUnavailable:             "The runner service is unavailable.",
 	ErrorCodeStorageUnavailable:            "The immutable store could not be opened or read. Check the store location, permissions and credentials, then retry the check.",
@@ -142,6 +144,10 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 	if report := runnerunit.Validate(request.Request); report.Status != "ready" {
 		return result.with("rejected", "checkpoint_request_invalid"), ErrAvailabilityInput
 	}
+	caller, ok := runnerunit.AdmittedBinding(request.Request)
+	if !ok {
+		return result.with("rejected", "checkpoint_request_invalid"), ErrAvailabilityInput
+	}
 	declaration, err := executioncheckpoint.DeclareRequestWithContext(ctx, request.Request, s.revision)
 	if err != nil {
 		if interrupted(ctx, err) {
@@ -196,7 +202,11 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 			(request.Policy.Parent != nil && *request.Policy.Parent != parent)) {
 			return result.with("unavailable", "checkpoint_policy_conflict"), ErrPolicy
 		}
-		// Resume reserves the retry child through the same ancestry admission.
+		// Resume reserves the retry child through the same runtime and
+		// ancestry admission.
+		if err := execution.ValidateOwnedRuntime(reserved.Attempt.Binding.ExecutionMode); err != nil {
+			return result.with("unavailable", "checkpoint_runtime_rejected"), err
+		}
 		if err := ledger.AdmitParent(ctx, reserved.Attempt.Binding, parent); err != nil {
 			switch {
 			case interrupted(ctx, err):
@@ -232,6 +242,10 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 		// checkpoint as Resume's ReuseAdmission does.
 		if err := executioncheckpoint.ValidateContext(*checkpoint, original.Reservation.Attempt.Binding,
 			original.Reservation.Bytes, original.CompletionBytes, original.Publication.ManifestBytes); err != nil {
+			return result.with("unavailable", "checkpoint_finalized_source_rejected"), err
+		}
+		// Resume's reuse decision admits the caller against the source binding.
+		if err := executionledger.ValidateReuseCaller(caller, original.Reservation.Attempt.Binding); err != nil {
 			return result.with("unavailable", "checkpoint_finalized_source_rejected"), err
 		}
 		if err := ownedsubmission.ValidateSourceDisclosure(original); err != nil {

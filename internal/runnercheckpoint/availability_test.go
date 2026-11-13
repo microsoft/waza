@@ -511,3 +511,42 @@ func TestAvailabilityRejectsAContradictoryFinalizedReport(t *testing.T) {
 		t.Fatalf("resume reused a contradictory report: %+v", resumed)
 	}
 }
+
+func TestAvailabilityAppliesResumeRuntimeAdmission(t *testing.T) {
+	for _, name := range []string{"COPILOT_CLI_PATH", "COPILOT_BASE_URL", "COPILOT_PROVIDER_BASE_URL"} {
+		t.Setenv(name, "")
+	}
+	request, err := runnerunit.ParseSubmission(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit := strings.NewReplacer(`"inline.mock-text"`, `"inline.copilot-text"`, `executor: mock`, `executor: copilot-sdk`,
+		`model: mock-model`, `model: owned-control-model`, `"allow_paid_execution":false`, `"allow_paid_execution":true`,
+		`"allow_paid_execution": false`, `"allow_paid_execution": true`).Replace(string(request.Request))
+	request.Request = json.RawMessage(unit)
+	wire := mustWire(t, *request)
+	store := backend(t)
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		t.Fatal("availability or the paused control constructed a runtime")
+		return nil, nil
+	})
+	pause := errors.New("stop after before publication")
+	interrupted, err := service.Submit(context.Background(), wire, store, Hooks{
+		Published: func(context.Context, Reference) error { return pause },
+	})
+	if !errors.Is(err, pause) || interrupted.BeforeDigest == "" {
+		t.Fatalf("native control did not publish a before checkpoint: %+v, %v", interrupted, err)
+	}
+	if result := availability(t, service, wire, store, interrupted.BeforeDigest); result.Status != "available" {
+		t.Fatalf("admitted runtime must be available: %+v", result)
+	}
+	t.Setenv("COPILOT_CLI_PATH", "uncontrolled-native")
+	result := availability(t, service, wire, store, interrupted.BeforeDigest)
+	if result.Status != "unavailable" || diagnosticCode(result) != "checkpoint_runtime_rejected" ||
+		strings.Contains(result.Diagnostics[0].Message, "uncontrolled-native") {
+		t.Fatalf("runtime that resume rejects must not be available: %+v", result)
+	}
+	if resumed, err := service.Resume(context.Background(), wire, store, interrupted.BeforeDigest, Hooks{}); err == nil {
+		t.Fatalf("resume admitted the same runtime: %+v", resumed)
+	}
+}

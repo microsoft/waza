@@ -166,6 +166,7 @@ terminal (finalized-unit). Otherwise the first diagnostic code says what to do:
 | `checkpoint_policy_conflict` | Omit the submission policy or match the boundary (retry for before-unit, reuse for finalized-unit). |
 | `checkpoint_stale` | The original already dispatched; use the finalized checkpoint or inspect `waza runner lineage`. |
 | `checkpoint_*_source_rejected` | Original records could not be verified; preserve them and inspect operator logs. |
+| `checkpoint_runtime_rejected` | This environment would not admit the owned runtime a before-unit retry needs (for example `COPILOT_CLI_PATH` is set); clear it and check again. |
 | `checkpoint_capture_policy_rejected` | The source holds restricted text and will not be reused; rerun as new work. |
 | `checkpoint_storage_*`, `checkpoint_build_unavailable` | Fix storage access or rebuild from a clean tree, then retry the check. |
 
