@@ -20,9 +20,13 @@ on:
       - '.github/scripts/testdata/native-bundle-probe/**'
       - 'docs.go'
       - 'docs/graders/**'
+      - '.github/scripts/docker_cache_benchmark.mjs'
+      - '.github/scripts/docker_cache_benchmark.test.mjs'
+      - '.gitattributes'
       - '.github/workflows/docker-ci.yml'
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited]
     paths: *docker-paths
   workflow_call:
     inputs:
@@ -36,7 +40,8 @@ permissions:
 
 jobs:
   docker-build:
-    name: Build and Verify Docker Image
+    if: github.event.action != 'edited'
+    name: ${{ github.event.action == 'edited' && 'Metadata-only Docker validation not selected' || 'Build and Verify Docker Image' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -81,7 +86,17 @@ jobs:
 
       - name: Verify
         id: version
-        run: docker run --rm waza:ci-${{ github.sha }} --version
+        run: |
+          docker run --rm waza:ci-${{ github.sha }} --version
+          docker run --rm --pull=never --network=none --read-only \
+            --entrypoint /bin/sh waza:ci-${{ github.sha }} \
+            -c 'for path in /go/pkg/mod /root/.cache/go-build /build; do
+              if [ -e "$path" ] || [ -L "$path" ]; then
+                echo "Build cache or source leaked into runtime image: $path" >&2
+                exit 1
+              fi
+            done
+            echo "Runtime cache and source paths absent"'
 
       - name: Capture PR completeness receipt
         if: always() && inputs.pr_completeness_plan != ''
@@ -110,7 +125,8 @@ jobs:
           if-no-files-found: error
 
   runner-reference:
-    name: Local runner container contract
+    if: github.event.action != 'edited'
+    name: ${{ github.event.action == 'edited' && 'Metadata-only runner validation not selected' || 'Local runner container contract' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -175,3 +191,105 @@ jobs:
           name: ${{ steps.receipt.outputs.artifact_name }}
           path: ${{ runner.temp }}/pr-completeness-receipt/receipt.json
           if-no-files-found: error
+
+  cache-measurement:
+    name: Container cache measurement
+    permissions:
+      contents: read
+      actions: read
+    if: >-
+      github.event_name == 'pull_request' && github.event.action == 'edited' &&
+      github.repository == 'microsoft/waza' && github.actor == 'spboyer' &&
+      github.run_attempt == 1 && github.event.pull_request.number == 836 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.changes.body != null &&
+      startsWith(toJSON(github.event.changes.body.from), '"') &&
+      !contains(github.event.changes.body.from, '<!-- waza-cache-measurement:') &&
+      contains(github.event.pull_request.body, '<!-- waza-cache-measurement:')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    concurrency:
+      group: waza835-cache-measurement
+      cancel-in-progress: false
+    steps:
+      - name: Start aggregate budget before checkout
+        env:
+          CACHE_RESULTS: ${{ runner.temp }}/waza835-results-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          mkdir -m 700 -- "$CACHE_RESULTS"
+          if ! identity=$(stat -c '%d:%i' "$CACHE_RESULTS") || [[ ! "$identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+            echo "Result directory identity unavailable: $CACHE_RESULTS" >&2
+            exit 1
+          fi
+          echo "CACHE_START_SECONDS=$start" >> "$GITHUB_ENV"
+          echo "CACHE_RESULTS_ID=$identity" >> "$GITHUB_ENV"
+          echo "CACHE_RESULTS=$CACHE_RESULTS" >> "$GITHUB_ENV"
+          printf '{"runId":"%s","attempt":"%s","startedSeconds":%s}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$start" > "$CACHE_RESULTS/setup.json"
+      - name: Checkout frozen candidate and real LFS inputs
+        timeout-minutes: 6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          lfs: true
+          persist-credentials: false
+      - name: Set up Node.js
+        timeout-minutes: 3
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Admit activation and run bounded measurement
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remaining=$((CACHE_START_SECONDS + 3480 - $(date +%s)))
+          test "$remaining" -gt 0
+          timeout --signal=TERM --kill-after=120s "${remaining}s" \
+            node .github/scripts/docker_cache_benchmark.mjs
+      - name: Retain partial or final evidence
+        if: always() && env.CACHE_RESULTS != '' && env.CACHE_RESULTS_ID != ''
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.CACHE_NONCE && format('waza835-request-{0}', env.CACHE_NONCE) || format('waza835-rejected-{0}-{1}', github.run_id, github.run_attempt) }}
+          path: |
+            ${{ env.CACHE_RESULTS }}/setup.json
+            ${{ env.CACHE_RESULTS }}/measurement-started.json
+            ${{ env.CACHE_RESULTS }}/activation-rejected.json
+            ${{ env.CACHE_RESULTS }}/state.json
+            ${{ env.CACHE_RESULTS }}/resources.jsonl
+            ${{ env.CACHE_RESULTS }}/source-*.json
+            ${{ env.CACHE_RESULTS }}/builder-*.json
+            ${{ env.CACHE_RESULTS }}/builder-*.log
+            ${{ env.CACHE_RESULTS }}/r*-*.json
+            ${{ env.CACHE_RESULTS }}/r*-*.log
+            ${{ env.CACHE_RESULTS }}/r*-*.waza
+            ${{ env.CACHE_RESULTS }}/r*-assets/**
+          if-no-files-found: error
+          include-hidden-files: false
+
+  windows-offline-contract:
+    name: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' && 'Windows offline container cache controls' || 'Windows offline cache controls not selected' }}
+    if: github.event_name == 'pull_request' && github.event.action != 'edited'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout offline contract sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Execute portable offline contract controls
+        run: node --test .github/scripts/docker_cache_benchmark.test.mjs

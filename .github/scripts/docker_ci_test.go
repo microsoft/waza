@@ -3,11 +3,20 @@ package scripts
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestDockerCacheMeasurementOfflineControls(t *testing.T) {
+	cmd := exec.Command("node", "--test", "docker_cache_benchmark.test.mjs")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("offline Docker measurement controls: %v\n%s", err, output)
+	}
+}
 
 func TestDockerRunnerBuildInputs(t *testing.T) {
 	read := func(path string) string {
