@@ -1,4 +1,5 @@
 import { parseStrictJSON } from "../lib/strictJson";
+import { isPublishedLineage } from "./lineage";
 
 export interface AdapterCall {
   command: string[];
@@ -106,9 +107,10 @@ export function mapReply(operation: string, exitCode: number, json: string): Ada
     return contractError(`Operation ${operation} expects ${expectedKinds[operation]}, got ${String(value?.kind)}.`, json);
   }
   if (operation === "status") {
-    const lineage = value as { logical: { run: string; work: string }; attempts: unknown[]; diagnostics: { code: string; message: string }[] };
-    return { status: "observed", exitCode: 0, publicKind: String(value.kind), logical: lineage.logical,
-      attempts: lineage.attempts.length, diagnostics: [], json };
+    if (exitCode !== 0) return contractError(`Lineage reply exited ${exitCode}.`, json);
+    if (!isPublishedLineage(value)) return contractError("Lineage reply does not satisfy its published schema.", json);
+    return { status: "observed", exitCode: 0, publicKind: String(value.kind), logical: value.logical,
+      attempts: value.attempts.length, diagnostics: [], json };
   }
   const submission = (operation === "submit" ? value : value.submission) as PublicSubmission | undefined;
   const publicStatus = String(value.status);
@@ -133,6 +135,33 @@ export function mapReply(operation: string, exitCode: number, json: string): Ada
   return outcome;
 }
 
+// Mirrors runneradapter.MaxReplyBytes.
+export const MAX_REPLY_BYTES = 32 << 20;
+
+async function readBounded(response: Response): Promise<Uint8Array | undefined> {
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_REPLY_BYTES) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 // Sends the translated call to its public route exactly once; never retries.
 export async function dispatchCall(operation: string, call: AdapterCall, signal?: AbortSignal): Promise<AdapterOutcome> {
   const init: RequestInit = { method: call.http.method, signal };
@@ -141,7 +170,14 @@ export async function dispatchCall(operation: string, call: AdapterCall, signal?
     init.body = call.input ?? "";
   }
   const response = await fetch(call.http.path, init);
-  const json = await response.text();
+  const bytes = await readBounded(response);
+  if (bytes === undefined) return contractError(`Public reply exceeds ${MAX_REPLY_BYTES} bytes.`, "");
+  let json: string;
+  try {
+    json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return contractError("Public reply is not valid UTF-8.", "");
+  }
   const header = response.headers.get("X-Waza-Exit-Code");
   if (header === null && !response.ok) {
     return contractError(`Public route returned HTTP ${response.status} without a contract result.`, json);
