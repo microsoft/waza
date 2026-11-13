@@ -33,7 +33,7 @@ function ProvenanceReader() {
   const [loading, setLoading] = useState(false);
   const active = useRef<AbortController | null>(null);
   const generation = useRef(0);
-  useEffect(() => () => active.current?.abort(), []);
+  useEffect(() => () => { active.current?.abort(); generation.current++; }, []);
   useEffect(() => () => urls.forEach((url) => URL.revokeObjectURL(url)), [urls]);
 
   function reset() {

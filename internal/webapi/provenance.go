@@ -14,6 +14,8 @@ import (
 )
 
 // maxProvenanceRequestBytes bounds one uploaded bundle (base64 members plus key).
+// The API serves interactive Lab checks; larger bundles, up to the verifier's
+// own limits, are verified with the CLI, which reads members from disk.
 const maxProvenanceRequestBytes = 48 << 20
 
 type provenanceVerifyRequest struct {
@@ -45,7 +47,7 @@ func RegisterProvenanceRoutes(mux *http.ServeMux) {
 		}
 		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProvenanceRequestBytes))
 		if err != nil {
-			writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("reading bundle upload: %v", err))
+			writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("reading bundle upload: %v; uploads are limited to 48 MiB, verify larger bundles with waza runner provenance verify", err))
 			return
 		}
 		var req provenanceVerifyRequest

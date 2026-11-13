@@ -104,7 +104,19 @@ func BuildStatement(in GenerateInput) (*Statement, *Failure) {
 	for _, b := range in.Bindings {
 		predicate.Bindings = append(predicate.Bindings, Binding{Kind: b.Kind, Ref: Ref{Path: BindingsDir + "/" + b.Name, SHA256: sha256Hex(b.Data), MediaType: b.MediaType}})
 	}
-	return &Statement{Type: StatementType, Subject: subjects(predicate), PredicateType: PredicateType, Predicate: predicate}, nil
+	statement := &Statement{Type: StatementType, Subject: subjects(predicate), PredicateType: PredicateType, Predicate: predicate}
+	// Run each binding's verifier now so a bundle verification would reject is
+	// never signed.
+	for i, b := range in.Bindings {
+		verifier, ok := lookupBindingVerifier(b.Kind)
+		if !ok {
+			return nil, fail("bindings", "binding_unsupported", "binding kind %s has no verifier in this build", b.Kind)
+		}
+		if err := verifier.Verify(predicate.Bindings[i], b.Data, statement); err != nil {
+			return nil, fail("bindings", "binding_invalid", "%s binding %s: %v", b.Kind, predicate.Bindings[i].Path, err)
+		}
+	}
+	return statement, nil
 }
 
 // subjects lists the produced artifacts: the manifest and every object.

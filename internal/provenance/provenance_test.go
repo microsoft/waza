@@ -302,6 +302,11 @@ func TestBindingExtensionPoint(t *testing.T) {
 		t.Fatal("duplicate binding kind registered")
 	}
 	f := newFixture(t)
+	f.input.Bindings = []BindingInput{{Kind: kind, Name: "inventory.json", MediaType: "application/json", Data: []byte(`{"subject":"other"}`)}}
+	var invalid *Failure
+	if _, err := Generate(context.Background(), f.input, f.signer); !errors.As(err, &invalid) || invalid.Code != "binding_invalid" {
+		t.Fatalf("generation signed a binding its verifier rejects: %v", err)
+	}
 	f.input.Bindings = []BindingInput{{Kind: kind, Name: "inventory.json", MediaType: "application/json",
 		Data: []byte(`{"subject":"46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5"}`)}}
 	files := f.bundle(t)

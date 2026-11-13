@@ -72,6 +72,9 @@ export async function readBundleFiles(files: Iterable<File>): Promise<Map<string
   return out;
 }
 
+/** Matches the server's upload cap; larger bundles are verified with the CLI. */
+const maxUploadBytes = 48 * 1024 * 1024;
+
 function base64(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -82,6 +85,10 @@ export async function verifyProvenance(
   files: Map<string, Uint8Array>, publicKey: string, expect: ProvenanceExpectations, signal: AbortSignal,
 ): Promise<{ result: ProvenanceReport; json: string }> {
   if (files.size === 0) throw new Error("Select a provenance bundle directory first.");
+  const encoded = [...files.values()].reduce((total, data) => total + Math.ceil(data.length / 3) * 4, 0);
+  if (encoded > maxUploadBytes) {
+    throw new Error("This bundle exceeds the 48 MiB Lab upload limit. Verify it with waza runner provenance verify.");
+  }
   const body = JSON.stringify({
     public_key: publicKey.trim(),
     expect: Object.fromEntries(Object.entries(expect).filter(([, value]) => value)),

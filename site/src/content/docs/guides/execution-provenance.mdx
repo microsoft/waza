@@ -137,7 +137,8 @@ select **Verify provenance**. The browser posts the members to
 `POST /api/v1/provenance/verify` (no host paths are read), validates the report
 against its schema, and shows the verification state, signer, statement and
 member download links, bound digests, and failure reasons. It is unavailable in
-the synthetic demo.
+the synthetic demo. Uploads are limited to 48 MiB after base64 encoding; verify
+larger bundles with `waza runner provenance verify`.
 
 ## Migration
 
