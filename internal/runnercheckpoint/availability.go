@@ -214,8 +214,11 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 				return result.with("unavailable", "checkpoint_before_source_rejected"), err
 			}
 		}
-		if err := evidencestate.ValidateCaptureBinding(reserved.Attempt.Binding); err != nil {
-			return result.with("unavailable", "checkpoint_capture_policy_rejected"), err
+		// The retry child persists the caller's binding, so admit both.
+		for _, binding := range []artifactmanifest.Binding{reserved.Attempt.Binding, caller} {
+			if err := evidencestate.ValidateCaptureBinding(binding); err != nil {
+				return result.with("unavailable", "checkpoint_capture_policy_rejected"), err
+			}
 		}
 		result.ResumeAction = ResumeFreshRetryChild
 	case executioncheckpoint.FinalizedUnit:

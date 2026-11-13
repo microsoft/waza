@@ -597,3 +597,47 @@ func TestAvailabilityRuntimeAdmissionUsesCallerMode(t *testing.T) {
 		t.Fatalf("resume admitted the caller runtime: %+v", resumed)
 	}
 }
+
+func TestAvailabilityBeforeUnitAdmitsCallerCapture(t *testing.T) {
+	ctx := context.Background()
+	request, err := runnerunit.ParseSubmission(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restricted := "ghp_" + strings.Repeat("A", 36)
+	unit := strings.Replace(string(request.Request), `tasks:\n`,
+		`graders:\n  - type: text\n    name: `+restricted+`\n    config:\n      contains: [hello]\ntasks:\n`, 1)
+	request.Request = json.RawMessage(unit)
+	caller, ok := runnerunit.AdmittedBinding(request.Request)
+	if !ok || !slices.Contains(caller.GraderIDs, restricted) {
+		t.Fatalf("restricted grader request was not admitted: %+v", caller)
+	}
+	store := backend(t)
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		t.Fatal("availability constructed a runtime")
+		return nil, nil
+	})
+	// The before source declares only safe graders while the caller does not.
+	reservation := caller
+	reservation.GraderIDs = slices.DeleteFunc(slices.Clone(caller.GraderIDs), func(id string) bool { return id == restricted })
+	ledger, err := executionledger.New(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := ledger.Reserve(ctx, reservation, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := executioncheckpoint.PublishBefore(ctx, store, ledger, creator, request.Request, service.revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := mustWire(t, *request)
+	result := availability(t, service, wire, store, digest)
+	if diagnosticCode(result) != "checkpoint_capture_policy_rejected" || strings.Contains(fmt.Sprint(result), restricted) {
+		t.Fatalf("availability must apply capture admission to the caller: %+v", result)
+	}
+	if resumed, err := service.ResumeCaptured(ctx, wire, store, digest, Hooks{}); err == nil {
+		t.Fatalf("resume admitted the restricted caller: %+v", resumed)
+	}
+}
