@@ -678,20 +678,20 @@ test('extension installation guidance identifies the current registry version', 
   assert.match(section, /azd waza --version/);
   assert.match(section, /azd waza <command> --help/);
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
-  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.40\.1/);
-  assert.match(section, /registry and version metadata are synchronized\s+to `0\.40\.1`/);
-  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.40\.1/);
+  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.41\.0/);
+  assert.match(section, /registry and version metadata are synchronized\s+to `0\.41\.0`/);
+  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.41\.0/);
   const release = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(release, /commit `dc26e098d29243972b4e00ff420ca857a9b6da4f`/);
+  assert.match(release, /commit `c385f6d12d393e9c23c54b2cc19478936604cd86`/);
   assert.match(release, /exactly six platform URLs, entrypoints and SHA-256 values matching the\s+published archives/);
-  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.40\.1/);
-  assert.match(release, /repository registry lists through `0\.40\.1`/);
+  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.41\.0/);
+  assert.match(release, /repository registry lists through `0\.41\.0`/);
   assert.doesNotMatch(section + release, /not yet merged to main|merge to main\s+remains pending|registry still lists through `0\.39\.1`/);
   for (const text of [read('README.md'), section, release]) {
     assert.match(text, /source (?:URL above|below) follows `main`, not this branch/);
-    assert.match(text, /release-sync PR #908/);
-    assert.match(text, /still serves `0\.40\.0`; after the merge it includes `0\.40\.1`/);
-    assert.match(text, /installation before the merge cannot select `0\.40\.1` from that source/);
+    assert.match(text, /release-sync PR #987/);
+    assert.match(text, /still serves `0\.40\.1`; after the merge it includes `0\.41\.0`/);
+    assert.match(text, /installation before the merge cannot select `0\.41\.0` from that source/);
   }
 });
 
@@ -902,11 +902,11 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
   assert.match(release, /-ldflags "-X main\.version=\$\{VERSION\}"/);
   for (const path of ['README.md', 'site/src/content/docs/reference/releases.mdx']) {
     const text = read(path);
-    assert.match(text, /git clone --branch v0\.40\.1 https:\/\/github\.com\/microsoft\/waza\.git/, path);
-    assert.match(text, /make build VERSION=0\.40\.1/, path);
+    assert.match(text, /git clone --branch v0\.41\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
+    assert.match(text, /make build VERSION=0\.41\.0/, path);
     assert.match(text, /`version\.txt` and `extension\.yaml`/, path);
     assert.match(text, /defaults to `VERSION=0\.1\.0`/, path);
-    assert.match(text, /`e0c251df896bee4e0f9b38a693a6105bf7eadd19`/, path);
+    assert.match(text, /`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`/, path);
   }
 });
 

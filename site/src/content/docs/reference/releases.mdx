@@ -133,7 +133,7 @@ optimizer reports. See [#790](https://github.com/microsoft/waza/issues/790).
 
 ## Capabilities introduced in v0.39.0
 
-The following workflows were introduced in `v0.39.0` and remain included in `v0.40.1`.
+The following workflows were introduced in `v0.39.0` and remain included in `v0.41.0`.
 Their opt-in, platform, and evidence boundaries still apply.
 
 | Capability | Availability | Platform and scope |
@@ -145,25 +145,25 @@ Their opt-in, platform, and evidence boundaries still apply.
 | `assure` authored-case profiles | v0.39.0, explicitly selected | Bounded native file/output and offline cases; strict preserved-file publication has platform limits; private preserved-native APIs are not default reader authority |
 | `assure calibrate` | v0.39.0, separate opt-in | Reviewed inputs and explicit paid-call acknowledgment required; no default paid calibration |
 | Controlled strict collection/release policy | v0.39.0, explicit policy | Offline mock by default; explicit fixed-model, single-turn Copilot SDK native-text profile may incur provider usage; no skills, deny-all client tools (not server isolation), no assurance/runtime-version/currency claim; native durable creation Linux/macOS only |
-| azd extension commands | Registry through v0.40.1; v0.40.1 artifact published separately | Registry/version metadata synchronized; check the installed extension version |
+| azd extension commands | Registry through v0.41.0; v0.41.0 artifact published separately | Registry/version metadata synchronized; check the installed extension version |
 
 Build the tagged release source with **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+**:
 
 ```bash
-git clone --branch v0.40.1 https://github.com/microsoft/waza.git
+git clone --branch v0.41.0 https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-make build VERSION=0.40.1
+make build VERSION=0.41.0
 ./waza --version
 ```
 
 `make build` generates dashboard assets before embedding. Bare `go install`
 does not fetch LFS artifacts or build the dashboard.
 See [Quick Start](../../quick-start/) for offline validation before credentials.
-The immutable tag retains `0.39.1` in `version.txt` and `extension.yaml`; the
-release workflow synchronizes those files in a subsequent branch, not in the
-tagged source. The Makefile defaults to `VERSION=0.1.0`; pass `VERSION=0.40.1`
+The `v0.41.0` tag resolves to `d537bf00d4d442a1935ceba2fbc664b9ccb497b2`
+and already carries `0.41.0` in `version.txt` and `extension.yaml`, unlike the
+historical v0.40.1 tags. The Makefile defaults to `VERSION=0.1.0`; pass `VERSION=0.41.0`
 for this source build. Official release binaries use the tag version injected
 with linker flags. This local version label does not verify asset publication
 or extension/registry availability.
@@ -302,22 +302,23 @@ waza --version
 
 Install waza as an [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/) extension.
 
-The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1)
-is `0.40.1`, published November 6, 2026 with six platform archives, separate from
-the standalone release. The repository registry lists through `0.40.1`.
-The successful [release workflow](https://github.com/microsoft/waza/actions/runs/42255863296)
-generated registry/version updates on `release/v0.40.1`. Artifact publication and registry
+The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0)
+is `0.41.0`, published November 13, 2026 with six platform archives, separate from
+the standalone release. The repository registry lists through `0.41.0`.
+The [release workflow](https://github.com/microsoft/waza/actions/runs/43417374149)
+published both releases and generated registry/version updates on `release/v0.41.0`;
+only its final automated PR-creation step failed, so the PR was opened manually. Artifact publication and registry
 synchronization remain separate gates; publishing archives alone does not
 update the registry.
 The installation source below follows `main`, not this branch. Before the
-[release-sync PR #908](https://github.com/microsoft/waza/pull/908) merges, that URL
-still serves `0.40.0`; after the merge it includes `0.40.1`. Updating an
-installation before the merge cannot select `0.40.1` from that source.
-The generated entry at commit `dc26e098d29243972b4e00ff420ca857a9b6da4f`
+[release-sync PR #987](https://github.com/microsoft/waza/pull/987) merges, that URL
+still serves `0.40.1`; after the merge it includes `0.41.0`. Updating an
+installation before the merge cannot select `0.41.0` from that source.
+The generated entry at commit `c385f6d12d393e9c23c54b2cc19478936604cd86`
 has exactly six platform URLs, entrypoints and SHA-256 values matching the
 published archives, with prior registry data unchanged. That registry comparison
 does not establish execution on all six platforms or prove that an existing
-installation has updated to v0.40.1.
+installation has updated to v0.41.0.
 Check the installed version after adding the source:
 
 ```bash
