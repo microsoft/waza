@@ -16,12 +16,20 @@ Running waza evaluations in CI/CD allows you to:
 
 Waza's single `go-ci.yml` workflow runs on pull requests targeting any base
 branch, including feature branches used by stacked PRs. It retains the
-`opened`, `synchronize`, and `reopened` default activity types without PR branch
-or path filters. Push triggers cover `main`, `develop`, `dev`, and `insider`.
+`opened`, `synchronize`, and `reopened` activity types plus `edited`, without PR
+branch or path filters. Push triggers cover `main`, `develop`, `dev`, and `insider`.
 The former `squad-ci.yml` duplicated the same validation and has been removed.
 Superseded PR runs are cancelled within the same workflow/event/ref. Push
 validations use independent run-ID groups, so they neither serialize nor replace
 pending push runs. Release publication is not cancelled by that PR policy.
+
+An `edited` event that changes the base (`github.event.changes.base`) is a full
+validation run in the PR group, so retargeting a PR reruns the gate and cancels
+the superseded run. A body- or title-only edit uses its own run-ID group and
+cannot cancel validation. Every validation job is skipped on that run, and the
+required jobs (`Lint`, `ubuntu-latest`, `windows-latest`) are renamed
+`PR metadata (<check> not selected)`. The skipped run therefore never publishes
+a context with a required name, so the results from the last push stand.
 
 This is an ordinary `pull_request` workflow with `contents: read`, not
 `pull_request_target` or release/dispatch workflows. The existing `Lint`,
@@ -383,7 +391,7 @@ On `pull_request` events `go-ci.yml` runs `pr-scope` (the plan workflow), then:
   coverage `linux-gate`) records its tested checkout and captures a `go` receipt
   for its contract unit in an `always()` final step. Each job regenerates the
   deterministic plan locally, so the required native jobs keep their existing
-  needs and stay unconditional; `go-native-shards.yml` captures receipts only
+  needs and run on every validation event; `go-native-shards.yml` captures receipts only
   when its caller passes `pr_completeness: true`.
 - The `dashboard`, `documentation`, `assurance`, `container`, `tools` and
   `runtime` jobs call the auxiliary reusable workflows with the plan artifact
@@ -404,10 +412,15 @@ and now covers stacked PRs on any base. Their `push`, `workflow_dispatch` and
 path-filtered trigger for the separately admitted edited-body benchmark, so
 container validation can still run twice on Docker-relevant PRs.
 
-Remaining before adoption: route metadata/retarget (`edited`) events and their
-concurrency safely. Preserve the existing auxiliary receipt interfaces, current
-native Go gates and separate non-PR validation. Do not adopt a ruleset
-requirement before the genuine current-head migration evidence below exists.
+Receipt capture stays fail-closed. If GitHub builds the merge commit after
+`main` advanced, the payload `base.sha` is stale and source binding rejects it
+("Merge parents do not match event base and head"). Each `Capture PR
+completeness receipt` step is `continue-on-error: true`, so that race does not
+fail `Lint`, `ubuntu-latest`, `windows-latest` or a native shard. The upload
+step only runs on `steps.receipt.outcome == 'success'`, so admission still fails
+`PR completeness` on the missing receipt and the PR must be updated. Test
+failures inside the job still fail it; `TestGoCompletenessReceiptWiring` rejects
+removing `continue-on-error` from a receipt.
 
 The proposed ordinary-PR entrypoint is the existing Go workflow, with local
 reusable calls to the existing auxiliary validators. This avoids cross-run

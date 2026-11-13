@@ -125,8 +125,8 @@ func checkCompletenessControlSelection(source []byte) error {
 		return err
 	}
 	job := workflow.Jobs["lint"]
-	if job.If != "" || job.RunsOn != "ubuntu-latest" {
-		return fmt.Errorf("Linux GoLint must select completeness controls unconditionally")
+	if job.If != goValidationIf || job.RunsOn != "ubuntu-latest" {
+		return fmt.Errorf("Linux GoLint must select completeness controls on every validation event")
 	}
 	for _, step := range job.Steps {
 		if step.Name != "Test Go workflow trigger selection" {
@@ -550,9 +550,9 @@ rm "$log"
 			return err
 		}
 		job := workflow.Jobs["build-and-test-windows"]
-		if job.If != "" || job.RunsOn != "windows-latest" ||
+		if job.If != goValidationIf || job.RunsOn != "windows-latest" ||
 			!reflect.DeepEqual(job.Strategy.Matrix.OS, []string{"windows-latest"}) {
-			return fmt.Errorf("native shell controls require the unconditional Windows job")
+			return fmt.Errorf("native shell controls require the Windows job on every validation event")
 		}
 		positions := make(map[string]int)
 		selected := 0

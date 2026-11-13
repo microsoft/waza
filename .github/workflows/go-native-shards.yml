@@ -97,6 +97,9 @@ jobs:
       - name: Capture PR completeness receipt
         if: always() && inputs.pr_completeness
         id: receipt
+        # A stale-base receipt failure must not fail the shard; admission
+        # still fails closed on the missing receipt.
+        continue-on-error: true
         env:
           WAZA_COMPLETENESS_STEPS: ${{ toJSON(steps) }}
         run: |
