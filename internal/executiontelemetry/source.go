@@ -172,9 +172,12 @@ func Load(in Inputs) (*Source, error) {
 		if err != nil {
 			return nil, err
 		}
-		src.Run, src.ReportState = run, SourceUnmatched
+		src.ReportState = SourceUnmatched
 		if run != nil {
-			src.ReportState = SourcePresent
+			if run, err = exactRun(in.Report, terminal.Selection.Task, run.RunNumber); err != nil {
+				return nil, fmt.Errorf("%w: report: %w", ErrInvalid, err)
+			}
+			src.Run, src.ReportState = run, SourcePresent
 		}
 	}
 	if len(in.Aggregate) > 0 {
@@ -319,6 +322,35 @@ func selectRun(report models.EvaluationOutcome, terminal runnerterminal.Envelope
 		}
 	}
 	return nil, nil
+}
+
+// exactRun re-decodes the admitted run preserving dynamic numeric tokens, so
+// payload digests cover the recorded values rather than float64 roundings.
+func exactRun(data []byte, task string, runNumber int) (*models.RunResult, error) {
+	var raw struct {
+		Tasks []struct {
+			TestID string            `json:"test_id"`
+			Runs   []json.RawMessage `json:"runs"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	for _, outcome := range raw.Tasks {
+		if outcome.TestID != task {
+			continue
+		}
+		for _, message := range outcome.Runs {
+			var run models.RunResult
+			if err := run.UnmarshalJSONExact(message); err != nil {
+				return nil, err
+			}
+			if run.RunNumber == runNumber {
+				return &run, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("run %d of task %s not found", runNumber, task)
 }
 
 func sameVerdicts(results map[string]models.GraderResults, verdicts []runnerterminal.Verdict) bool {

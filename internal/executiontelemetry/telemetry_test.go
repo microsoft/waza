@@ -861,3 +861,59 @@ func TestLineageDiagnosticWithoutAttemptSpanStaysOnWorkSpan(t *testing.T) {
 	}
 	require.True(t, found)
 }
+
+func TestRaisedFloorsKeepMandatoryResourceIdentifiers(t *testing.T) {
+	f := publishFixture(t)
+	for _, limits := range []Limits{{MaxStringLength: 64}, {MaxAttributes: 3}} {
+		bundle := build(t, f.Inputs, Options{Limits: limits})
+		_, err := EncodeReport(bundle.Report)
+		require.NoError(t, err, "%+v", limits)
+		require.Equal(t, bundle.Report.Correlation.Run, bundle.Report.Resource[KeyRunID])
+	}
+}
+
+func TestModelSignalsIncludeDistinctGraderSessions(t *testing.T) {
+	f := publishFixture(t)
+	report := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Report, &report))
+	run := asMap(t, asSlice(t, asMap(t, asSlice(t, report["tasks"])[0])["runs"])[1])
+	asMap(t, run["session_digest"])["session_id"] = "primary"
+	usage := func(model string, input int) map[string]any {
+		return map[string]any{"model_metrics": map[string]any{model: map[string]any{"input_tokens": input, "request_count": 1}}}
+	}
+	run["grader_sessions"] = []any{
+		map[string]any{"session_id": "primary", "usage": usage("gpt-test", 100)},
+		map[string]any{"session_id": "grader-1", "usage": usage("grader-model", 3)},
+		map[string]any{"session_id": "grader-1", "usage": usage("grader-model", 3)},
+	}
+	f.Report = mustMarshal(t, report)
+	bundle := build(t, f.Inputs, Options{})
+	inputs := map[string]string{}
+	for _, span := range spansByName(bundle)[SpanModel] {
+		model, ok := attrValue(span.Attributes, KeyGenAIModel)
+		require.True(t, ok)
+		tokens, ok := attrValue(span.Attributes, KeyGenAIInputTokens)
+		require.True(t, ok)
+		inputs[*model.StringValue] = *tokens.IntValue
+	}
+	require.Equal(t, map[string]string{"gpt-test": "10", "grader-model": "3"}, inputs)
+}
+
+func TestDigestPolicyHashesExactToolArguments(t *testing.T) {
+	f := publishFixture(t)
+	report := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Report, &report))
+	run := asMap(t, asSlice(t, asMap(t, asSlice(t, report["tasks"])[0])["runs"])[1])
+	run["tool_events"] = []any{map[string]any{"turn": 1, "sequence": 1, "tool_call_id": "call-1",
+		"tool_name": "bash", "args": map[string]any{"limit": "__NUMBER__"}, "success": true}}
+	template := string(mustMarshal(t, report))
+	digestFor := func(number string) string {
+		in := f.Inputs
+		in.Report = []byte(strings.Replace(template, `"__NUMBER__"`, number, 1))
+		tool := spansByName(build(t, in, Options{Policy: PayloadDigest}))[SpanTool][0]
+		digest, ok := attrValue(tool.Attributes, KeyToolArgsSHA256)
+		require.True(t, ok)
+		return *digest.StringValue
+	}
+	require.NotEqual(t, digestFor("9007199254740992"), digestFor("9007199254740993"))
+}

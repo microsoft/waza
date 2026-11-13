@@ -485,15 +485,43 @@ func (b *builder) models(taskID string, times [2]time.Time) {
 	if run == nil {
 		return
 	}
-	usage := run.Usage
-	if usage == nil {
-		usage = run.SessionDigest.Usage
+	primary := run.Usage
+	if primary == nil {
+		primary = run.SessionDigest.Usage
 	}
-	if usage == nil {
-		return
+	metrics := map[string]models.ModelUsage{}
+	addUsage := func(usage *models.UsageStats) {
+		if usage == nil {
+			return
+		}
+		for model, u := range usage.ModelMetrics {
+			total := metrics[model]
+			total.InputTokens += u.InputTokens
+			total.OutputTokens += u.OutputTokens
+			total.CacheReadTokens += u.CacheReadTokens
+			total.CacheWriteTokens += u.CacheWriteTokens
+			total.RequestCount += u.RequestCount
+			metrics[model] = total
+		}
 	}
-	for _, model := range slices.Sorted(maps.Keys(usage.ModelMetrics)) {
-		u := usage.ModelMetrics[model]
+	addUsage(primary)
+	// Grader sessions are recorded separately from run usage; a grader that
+	// continued the primary session (or repeats another) is counted once.
+	seen := map[string]bool{}
+	if run.SessionDigest.SessionID != "" {
+		seen[run.SessionDigest.SessionID] = true
+	}
+	for _, session := range run.GraderSessions {
+		if session.SessionID != "" {
+			if seen[session.SessionID] {
+				continue
+			}
+			seen[session.SessionID] = true
+		}
+		addUsage(session.Usage)
+	}
+	for _, model := range slices.Sorted(maps.Keys(metrics)) {
+		u := metrics[model]
 		attrs := []KeyValue{str(KeyGenAIOperation, "chat"), str(KeyGenAIModel, model),
 			integer(KeyGenAIInputTokens, int64(u.InputTokens)), integer(KeyGenAIOutputTokens, int64(u.OutputTokens)),
 			integer(KeyCacheReadTokens, int64(u.CacheReadTokens)), integer(KeyCacheWriteTokens, int64(u.CacheWriteTokens)),

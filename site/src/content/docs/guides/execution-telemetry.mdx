@@ -72,6 +72,9 @@ the report, as the `waza.telemetry.dropped` metric and as log events. Metrics us
 a service-level resource; run, work and scheduler IDs stay on traces and logs, and
 each metric point carries a trace exemplar instead of a per-work series. Metrics
 are delta sums over the work's observed interval, so successive works add up.
+Attribute-count and string-length limits cannot be lowered below their defaults,
+so mandatory identifiers are never dropped. Token usage includes distinct grader
+sessions under their own model.
 
 ## Exporting
 

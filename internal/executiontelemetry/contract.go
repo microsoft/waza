@@ -304,6 +304,10 @@ func (l Limits) withDefaults() Limits {
 			*pair.value = pair.fallback
 		}
 	}
+	// Mandatory resource identifiers must survive the attribute caps, so
+	// these two limits cannot be lowered below their defaults.
+	l.MaxAttributes = max(l.MaxAttributes, d.MaxAttributes)
+	l.MaxStringLength = max(l.MaxStringLength, d.MaxStringLength)
 	return l
 }
 

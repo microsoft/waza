@@ -228,6 +228,13 @@ and export errors never echo receiver response bodies or request headers.
 | Series per metric | 32 | new series fold into one `otel.metric.overflow=true` series (`metric_cardinality`) |
 | Links per span | 128 | further links are dropped (`link_limit`) |
 
+Unset limits take their defaults independently. The attribute-count and
+string-length limits are floors: lower values are raised to the default so
+mandatory resource identifiers and digests are never dropped or truncated.
+
+Token usage sums the primary session and every distinct grader session recorded
+on the run, so judge-model usage is reported under its own model.
+
 Unregistered keys are dropped as `unregistered_attribute`, and keys used outside
 their allowed placement as `attribute_placement`. Every drop is reported in the
 report's `dropped` list, the `waza.telemetry.dropped` metric and
