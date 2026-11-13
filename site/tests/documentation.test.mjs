@@ -48,8 +48,14 @@ test('CI/CD guide preserves readable punctuation and copyable result labels', ()
   ].join('\n'));
 });
 
-test('local container conformance is selected by its production build inputs', () => {
-  const workflow = read('.github/workflows/docker-ci.yml');
+const runnerCommands = [
+  'node --test examples/runner/container/test.mjs',
+  'node --test examples/runner/container/native-test.mjs examples/runner/container/native-lifecycle.test.mjs',
+  'node --test examples/runner/container/native-bundle-test.mjs',
+];
+
+function assertRunnerContainerWorkflow(workflow) {
+  workflow = workflow.replace(/\r\n/g, '\n');
   for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
     '.github/scripts/testdata/runner-runtime/**', '.github/scripts/testdata/native-bundle-probe/**',
     'cmd/**', 'internal/**', 'web/**', 'schemas/**',
@@ -60,18 +66,53 @@ test('local container conformance is selected by its production build inputs', (
   assert.match(workflow, /paths: &docker-paths/);
   assert.match(workflow, /paths: \*docker-paths/);
   assert.match(workflow, /^permissions:\n  contents: read/m);
-  const job = workflow.split('\n  runner-reference:\n')[1];
-  assert.ok(job, 'real container job exists');
+  const lines = workflow.split('\n');
+  const start = lines.indexOf('  runner-reference:');
+  assert.notEqual(start, -1, 'real container job exists');
+  const end = lines.findIndex((line, index) => index > start && /^  [\w-]+:\s*(?:#.*)?$/.test(line));
+  const job = lines.slice(start + 1, end === -1 ? undefined : end).join('\n');
   assert.match(job, /timeout-minutes: 30/);
   assert.match(job, /lfs: true/);
-  assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
-  assert.match(job, /run: node --test examples\/runner\/container\/native-test\.mjs/);
-  assert.doesNotMatch(job, /continue-on-error/);
-  for (const [line] of job.matchAll(/^\s+if:.*$/gm)) {
+  for (const command of runnerCommands) {
+    assert.ok(job.split('\n').includes(`        run: ${command}`), `${command} must execute in the ordinary runner job`);
+  }
+  const editedGuard = "    if: github.event.action != 'edited'\n";
+  assert.ok(job.startsWith(editedGuard), 'only direct edited events may exclude ordinary runner proof');
+  const rest = job.slice(editedGuard.length);
+  assert.doesNotMatch(rest, /continue-on-error/);
+  for (const [line] of rest.matchAll(/^\s+if:.*$/gm)) {
     assert.match(line, /pr_completeness_plan != ''|steps\.receipt\.outcome == 'success'/, 'only completeness receipt steps may be conditional');
   }
+}
+
+test('local container conformance is selected by its production build inputs', () => {
+  assertRunnerContainerWorkflow(read('.github/workflows/docker-ci.yml'));
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
+
+test('ordinary runner guard admits the approved edited exclusion and independent measurement job', () => {
+  const workflow = read('.github/workflows/docker-ci.yml').replace(/\r\n/g, '\n');
+  assert.match(workflow, /\n  cache-measurement:\n/);
+  assertRunnerContainerWorkflow(workflow.replace(/\r?\n/g, '\r\n'));
+  assertRunnerContainerWorkflow(`${workflow}\n  unrelated-job:\n    if: false\n    continue-on-error: true\n    steps:\n      - run: ignored\n`);
+});
+
+test('ordinary runner guard rejects tolerated, conditional or neighboring required proof', () => {
+  const workflow = read('.github/workflows/docker-ci.yml').replace(/\r\n/g, '\n');
+  const changed = (from, to) => {
+    const mutation = workflow.replace(from, to);
+    assert.notEqual(mutation, workflow, 'negative control must change the actual workflow');
+    assert.throws(() => assertRunnerContainerWorkflow(mutation));
+  };
+  changed("  runner-reference:\n    if: github.event.action != 'edited'",
+    "  runner-reference:\n    if: github.event.action == 'edited'");
+  changed('  runner-reference:\n', '  runner-reference:\n    continue-on-error: true\n');
+  for (const command of runnerCommands) {
+    changed(`        run: ${command}`, `        if: success()\n        run: ${command}`);
+    changed(`        run: ${command}`, `        continue-on-error: true\n        run: ${command}`);
+    changed(`        run: ${command}`, `        run: missing-proof\n\n  neighboring-job:\n    steps:\n      - name: Borrowed proof\n        run: ${command}`);
+  }
 });
 
 test('manual runner publication and public acceptance remain independent fail-closed gates', () => {
