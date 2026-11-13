@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -276,8 +277,10 @@ func (s *runState) execute(ctx context.Context) {
 	case cfg.MaxEvaluations < ReservedQualificationEvaluations+1:
 		s.fail(CategoryInvalidConfig, fmt.Errorf("--max-evaluations must be at least %d (seed plus %d reserved qualification evaluations)", ReservedQualificationEvaluations+1, ReservedQualificationEvaluations))
 		return
-	case cfg.MinImprovement < 0:
-		s.fail(CategoryInvalidConfig, errors.New("--min-improvement must not be negative"))
+	case math.IsNaN(cfg.MinImprovement) || math.IsInf(cfg.MinImprovement, 0) || cfg.MinImprovement < 0:
+		// Keep report.json serializable: encoding/json rejects NaN and Inf.
+		s.report.MinImprovement = 0
+		s.fail(CategoryInvalidConfig, fmt.Errorf("--min-improvement must be a finite, non-negative number, got %v", cfg.MinImprovement))
 		return
 	}
 

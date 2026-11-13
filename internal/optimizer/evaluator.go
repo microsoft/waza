@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/microsoft/waza/internal/config"
@@ -151,6 +152,14 @@ func (h *HarnessEvaluator) Evaluate(ctx context.Context, req EvaluateRequest) Ev
 	}
 	outcome, err := h.run(ctx, req)
 	if err != nil {
+		if outcome != nil {
+			ev.Spend = outcomeSpend(outcome)
+			if ref, evidenceErr := h.writeEvidence(req, outcome); evidenceErr == nil {
+				ev.Evidence = ref
+			} else {
+				err = errors.Join(err, evidenceErr)
+			}
+		}
 		return fail(categoryOrDefault(err, CategoryInfrastructureFailure), err)
 	}
 	if err := h.Pin.Verify(h.ExcludeDirs); err != nil {
@@ -173,9 +182,7 @@ func (h *HarnessEvaluator) Evaluate(ctx context.Context, req EvaluateRequest) Ev
 	}
 	ev.Evidence = ref
 	ev.Tasks = taskFeedback(outcome)
-	if u := outcome.Digest.Usage; u != nil {
-		ev.Spend = Spend{Status: SpendMeasured, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, PremiumRequests: u.PremiumRequests, AICredits: u.AICredits}
-	}
+	ev.Spend = outcomeSpend(outcome)
 	d := outcome.Digest
 	if d.Errors+d.Skipped > 0 || d.TotalTests != len(req.Split.TestIDs) {
 		return fail(StateIncomplete, fmt.Errorf("%d errored and %d skipped of %d tasks", d.Errors, d.Skipped, d.TotalTests))
@@ -189,6 +196,13 @@ func (h *HarnessEvaluator) Evaluate(ctx context.Context, req EvaluateRequest) Ev
 	ev.State = StateScored
 	ev.DurationMs = time.Since(start).Milliseconds()
 	return ev
+}
+
+func outcomeSpend(outcome *models.EvaluationOutcome) Spend {
+	if u := outcome.Digest.Usage; u != nil {
+		return Spend{Status: SpendMeasured, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, PremiumRequests: u.PremiumRequests, AICredits: u.AICredits}
+	}
+	return Spend{Status: SpendUnavailable}
 }
 
 func categoryOrDefault(err error, def string) string {
@@ -222,6 +236,9 @@ func (h *HarnessEvaluator) run(ctx context.Context, req EvaluateRequest) (*model
 		}
 		if err := materialize(skillDir, req.Files); err != nil {
 			return nil, err
+		}
+		if name := strings.TrimSpace(spec.SkillName); name != "" && !execution.IsSkillAvailable([]string{skillDir}, name) {
+			return nil, newError(StateIncomplete, "candidate SKILL.md does not resolve as skill %q; keep its frontmatter name so the runner loads it", name)
 		}
 		spec.Config.SkillPaths = []string{skillDir}
 		if len(spec.Config.FilteredSkillPaths()) != 1 {
@@ -265,15 +282,18 @@ func (h *HarnessEvaluator) run(ctx context.Context, req EvaluateRequest) (*model
 	)
 	outcome, runErr := runner.RunBenchmark(ctx)
 	shutdownErr := execution.ShutdownBounded(ctx, engine, h.shutdownGrace(), h.shutdownTimeout())
+	// Shutdown can publish final provider usage; refresh it before scoring
+	// spend or writing evidence. A partial outcome is returned with any error
+	// so its spend and evidence are still recorded.
+	if outcome != nil {
+		execution.UpdateOutcomeUsage(outcome, engine)
+	}
 	if runErr != nil {
-		return nil, wrapError(CategoryInfrastructureFailure, errors.Join(runErr, shutdownErr), "running harness")
+		return outcome, wrapError(CategoryInfrastructureFailure, errors.Join(runErr, shutdownErr), "running harness")
 	}
 	if shutdownErr != nil {
-		return nil, wrapError(CategoryInfrastructureFailure, shutdownErr, "shutting down engine")
+		return outcome, wrapError(CategoryInfrastructureFailure, shutdownErr, "shutting down engine")
 	}
-	// Shutdown can publish final provider usage; refresh it before scoring
-	// spend or writing evidence.
-	execution.UpdateOutcomeUsage(outcome, engine)
 	return outcome, nil
 }
 

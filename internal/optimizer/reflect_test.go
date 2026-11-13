@@ -15,6 +15,7 @@ type scriptedEngine struct {
 	output    string
 	usage     *models.UsageStats
 	requests  []*execution.ExecutionRequest
+	errMsg    string
 	initCount int
 	shutdown  bool
 }
@@ -22,7 +23,7 @@ type scriptedEngine struct {
 func (e *scriptedEngine) Initialize(context.Context) error { e.initCount++; return nil }
 func (e *scriptedEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	e.requests = append(e.requests, req)
-	return &execution.ExecutionResponse{FinalOutput: e.output, Success: true, ExecutionSucceeded: true, Usage: e.usage}, nil
+	return &execution.ExecutionResponse{FinalOutput: e.output, Success: e.errMsg == "", ExecutionSucceeded: e.errMsg == "", ErrorMsg: e.errMsg, Usage: e.usage}, nil
 }
 func (e *scriptedEngine) Shutdown(context.Context) error                 { e.shutdown = true; return nil }
 func (e *scriptedEngine) SessionUsage(string) *models.UsageStats         { return nil }
@@ -69,4 +70,12 @@ func TestReflectAdapterDone(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Done)
 	require.Nil(t, resp.Candidate)
+}
+
+func TestReflectAdapterFailedExecutionKeepsUsage(t *testing.T) {
+	eng := (&scriptedEngine{errMsg: "model quota exceeded"}).withUsage(&models.UsageStats{InputTokens: 7, PremiumRequests: 1})
+	resp, err := NewReflectAdapter(eng, "m").Propose(context.Background(), proposeReq())
+	require.ErrorContains(t, err, "model quota exceeded")
+	require.NotNil(t, resp.Usage)
+	require.Equal(t, 7, resp.Usage.InputTokens)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,6 +257,18 @@ func TestRunPreflightFailures(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, CategoryInvalidConfig, r.Failure.Category)
 	})
+	for name, v := range map[string]float64{"NaN": math.NaN(), "+Inf": math.Inf(1)} {
+		t.Run("min improvement "+name, func(t *testing.T) {
+			ev := &stubEvaluator{}
+			cfg := testConfig(t, NewFakeAdapter(), ev)
+			cfg.MinImprovement = v
+			r, err := Run(context.Background(), cfg)
+			require.NoError(t, err)
+			require.Equal(t, CategoryInvalidConfig, r.Failure.Category)
+			require.Empty(t, ev.calls)
+			validateReportSchema(t, cfg.OutputDir)
+		})
+	}
 	t.Run("non-empty output dir", func(t *testing.T) {
 		cfg := testConfig(t, NewFakeAdapter(), &stubEvaluator{})
 		require.NoError(t, os.MkdirAll(cfg.OutputDir, 0o755))

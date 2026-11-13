@@ -1640,7 +1640,7 @@ waza optimize run examples/optimizer/eval.yaml \
 | `--max-iterations` | `5` | Maximum adapter proposals |
 | `--max-evaluations` | `10` | Maximum harness evaluations, including 2 reserved for qualification |
 | `--timeout` | `0` (none) | Deadline for the whole run |
-| `--min-improvement` | `0` | Required optimization-split gain over the seed |
+| `--min-improvement` | `0` | Required optimization-split gain over the seed (finite and non-negative) |
 | `--output-dir` | `waza-optimize-<timestamp>` | New or empty directory for `report.json`, evidence and candidates |
 | `--context-dir` | `<eval dir>/fixtures` | Context directory for the suite |
 | `--model` | spec model | Override the evaluation model |

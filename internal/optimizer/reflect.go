@@ -61,23 +61,25 @@ func (a *ReflectAdapter) Propose(ctx context.Context, req ProposeRequest) (Propo
 		EphemeralSession:     true,
 		SkipWorkspaceCapture: true,
 	})
-	if err != nil {
-		return ProposeResponse{}, err
-	}
-	if resp == nil {
-		return ProposeResponse{}, fmt.Errorf("reflect engine returned no response")
-	}
-	if !resp.ExecutionSucceeded && resp.ErrorMsg != "" {
-		return ProposeResponse{}, fmt.Errorf("reflect engine: %s", resp.ErrorMsg)
-	}
 	out := ProposeResponse{Kind: AdapterResponseKind, ContractVersion: ContractVersion}
-	if resp.Usage != nil {
+	// Record measured usage before handling errors so a failed paid call
+	// still counts toward adapter spend.
+	if resp != nil && resp.Usage != nil {
 		out.Usage = &Usage{
 			InputTokens:     resp.Usage.InputTokens,
 			OutputTokens:    resp.Usage.OutputTokens,
 			PremiumRequests: resp.Usage.PremiumRequests,
 			AICredits:       resp.Usage.AICredits,
 		}
+	}
+	if err != nil {
+		return out, err
+	}
+	if resp == nil {
+		return out, fmt.Errorf("reflect engine returned no response")
+	}
+	if !resp.ExecutionSucceeded && resp.ErrorMsg != "" {
+		return out, fmt.Errorf("reflect engine: %s", resp.ErrorMsg)
 	}
 	if reflectDonePattern.MatchString(resp.FinalOutput) && !reflectFilePattern.MatchString(resp.FinalOutput) {
 		out.Done = true

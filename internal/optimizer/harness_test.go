@@ -152,6 +152,12 @@ func TestPinSuiteAdmission(t *testing.T) {
 			contains: "update_snapshots"},
 		"checkpoint update snapshots": {edit: appendFile("tasks/bug-fix.yaml", "checkpoints:\n  - after_turn: 1\n    graders:\n      - name: snap\n        type: diff\n        config:\n          update_snapshots: true\n          expected_files:\n            - path: out.md\n              snapshot: snap.md\n"),
 			contains: "update_snapshots"},
+		"relative schema file": {edit: replaceInFile("eval.yaml", "graders:\n", "graders:\n  - type: json_schema\n    name: shape\n    config:\n      schema_file: judge.json\n"),
+			contains: "schema_file"},
+		"relative rubric file": {edit: appendFile("tasks/bug-fix.yaml", "  - name: judge\n    type: prompt\n    config:\n      prompt: Grade it.\n      rubric: rubrics/custom.md\n"),
+			contains: "rubric"},
+		"relative trigger skill": {edit: appendFile("tasks/bug-fix.yaml", "  - name: trigger\n    type: trigger\n    config:\n      skill_path: skill/SKILL.md\n      mode: positive\n"),
+			contains: "skill_path"},
 		"external task file": {edit: func(t *testing.T, suite string) {
 			shared := filepath.Join(filepath.Dir(suite), "shared")
 			require.NoError(t, os.MkdirAll(shared, 0o755))
@@ -269,6 +275,24 @@ func TestHarnessSkillDirectoryTarget(t *testing.T) {
 	require.Equal(t, OutcomeAccepted, r.Outcome, r.Failure)
 }
 
+func TestHarnessSkillCandidateMustKeepSkillName(t *testing.T) {
+	pin, seed := skillTargetSuite(t)
+	out := filepath.Join(t.TempDir(), "out")
+	factory := func(cfg models.Config) (execution.AgentEngine, error) {
+		return skillEchoEngine{execution.NewMockEngine(cfg.ModelID)}, nil
+	}
+	renamed := "---\nname: something-else\n---\nWrite release notes. Call out every breaking change with migration steps, tell users to upgrade for security fixes, and show an example.\n"
+	r, err := Run(context.Background(), Config{
+		Adapter: NewFakeAdapter(FakeProposal{Files: map[string]string{"SKILL.md": renamed}}),
+		Pin:     pin, Target: TargetSkillDirectory, Seed: seed, OutputDir: out,
+		Evaluator: &HarnessEvaluator{Pin: pin, Target: TargetSkillDirectory, EngineFactory: factory, OutputDir: out},
+	})
+	require.NoError(t, err)
+	require.Equal(t, OutcomeNoImprovement, r.Outcome, r.Failure)
+	require.Equal(t, StateIncomplete, r.Evaluations[1].State)
+	require.Contains(t, r.Evaluations[1].Error, "does not resolve as skill")
+}
+
 // TestAdaptersAreInterchangeable runs the fake, external-command, and
 // reflect adapters against the same harness evaluator.
 func TestAdaptersAreInterchangeable(t *testing.T) {
@@ -330,6 +354,8 @@ func TestHarnessEvaluatorBoundsStalledShutdown(t *testing.T) {
 	ev := h.Evaluate(context.Background(), EvaluateRequest{Index: 1, CandidateID: "sha256:" + strings.Repeat("a", 64), Files: cfg.Seed, Split: cfg.Pin.Optimization})
 	require.Equal(t, CategoryInfrastructureFailure, ev.State, ev.Error)
 	require.Contains(t, ev.Error, "shutting down engine")
+	require.NotNil(t, ev.Evidence, "the completed outcome is kept as evidence")
+	require.Nil(t, ev.Score)
 	require.Less(t, time.Since(start), 20*time.Second)
 }
 
@@ -353,4 +379,17 @@ func TestHarnessAmbientSkillAfterPinIsSchemaValid(t *testing.T) {
 	require.Equal(t, CategoryInvalidSuite, r.Failure.Category)
 	require.Equal(t, CategoryInvalidSuite, r.Evaluations[0].State)
 	validateReportSchema(t, out)
+}
+
+// TestPinSuiteRejectsIndependentJudgeUnderMock pins the invariant paid-call
+// consent relies on: evidence_context prompt graders call a separate Copilot
+// judge, so a suite can only use them with the copilot-sdk executor, which
+// already requires --allow-paid-calls.
+func TestPinSuiteRejectsIndependentJudgeUnderMock(t *testing.T) {
+	suite := copySuite(t)
+	appendFile("tasks/bug-fix.yaml", "  - name: judge\n    type: prompt\n    config:\n      prompt: Grade it.\n      evidence_context:\n        files: [notes.md]\n")(t, suite)
+	_, err := PinSuite(SuiteOptions{SpecPath: filepath.Join(suite, "eval.yaml"), Target: TargetContextOverlay,
+		OptimizationTags: []string{"optimization"}, QualificationTags: []string{"qualification"}})
+	require.ErrorContains(t, err, "evidence_context requires executor copilot-sdk")
+	require.Equal(t, CategoryInvalidSuite, CategoryOf(err))
 }

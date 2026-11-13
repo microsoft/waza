@@ -107,8 +107,10 @@ A candidate is a complete set of UTF-8 text files.
 There are two targets:
 
 - **`skill-directory`**: the candidate is the skill under test, and must
-  include `SKILL.md`. Each evaluation points `skill_directories` at a fresh
-  copy of the candidate.
+  include `SKILL.md`, and its frontmatter `name` must still match the suite's
+  `skill`. Each evaluation points `skill_directories` at a fresh copy of the
+  candidate. A candidate that no longer resolves as the suite's skill is
+  recorded as `evaluation_incomplete` and never counts as an improvement.
 - **`context-overlay`**: the suite's context directory is copied into a fresh
   workspace, and the candidate files are written over it.
 
@@ -142,6 +144,10 @@ A suite is rejected with `invalid_suite` in any of these cases:
   the pinned directories. The pin can only cover files inside it.
 - A diff grader sets `update_snapshots`, at the eval, task or checkpoint
   level, because it could rewrite pinned files.
+- A grader reads a file relative to the working directory rather than the
+  suite: a relative `schema_file`, a relative `rubric` file or a relative
+  trigger `skill_path`. Use an absolute path inside the suite, or an inline
+  schema or prompt.
 - Under the skill target, `disabled_skills` would remove the candidate
   (`"*"` or `"skill"`, the candidate directory's name), or a skill with the
   suite's `skill` name can be found from the working directory. The runner

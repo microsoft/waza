@@ -181,11 +181,50 @@ func admitSpec(spec *models.EvalSpec, target Target) error {
 		return newError(CategoryInvalidSuite, "disabled_skills would remove the candidate skill directory, so every candidate would be evaluated without its skill; remove that entry for the skill-directory target")
 	}
 	for _, g := range spec.Graders {
-		if updatesSnapshots(g.Parameters) {
-			return newError(CategoryInvalidSuite, "grader %q sets update_snapshots, which can rewrite pinned suite files during optimization", g.Identifier)
+		if reason := graderAdmissionIssue(g.Parameters); reason != "" {
+			return newError(CategoryInvalidSuite, "grader %q %s", g.Identifier, reason)
 		}
 	}
 	return nil
+}
+
+// graderAdmissionIssue explains why a grader cannot be used under the pin, or
+// returns "" when it can.
+func graderAdmissionIssue(p models.GraderParameters) string {
+	if updatesSnapshots(p) {
+		return "sets update_snapshots, which can rewrite pinned suite files during optimization"
+	}
+	if key, value, ok := cwdRelativeDependency(p); ok {
+		return fmt.Sprintf("sets %s %q, which graders read relative to the working directory rather than the pinned suite; use an absolute path inside the suite or an inline value", key, value)
+	}
+	return ""
+}
+
+// cwdRelativeDependency finds grader files that the graders resolve against
+// the process working directory: json_schema schema_file, a prompt rubric
+// file and trigger skill_path. Those files are outside the pin, so they could
+// change between candidates without suite_changed.
+func cwdRelativeDependency(p models.GraderParameters) (string, string, bool) {
+	data, err := json.Marshal(p)
+	if err != nil {
+		return "", "", false
+	}
+	var fields map[string]any
+	if json.Unmarshal(data, &fields) != nil {
+		return "", "", false
+	}
+	for _, key := range []string{"schema_file", "skill_path", "rubric"} {
+		value, _ := fields[key].(string)
+		value = strings.TrimSpace(value)
+		if value == "" || filepath.IsAbs(value) {
+			continue
+		}
+		if key == "rubric" && !strings.ContainsAny(value, `/\`) && !strings.HasPrefix(value, "~") && !strings.EqualFold(filepath.Ext(value), ".md") {
+			continue // a built-in rubric name
+		}
+		return key, value, true
+	}
+	return "", "", false
 }
 
 func updatesSnapshots(p models.GraderParameters) bool {
@@ -225,8 +264,8 @@ func admitTask(tc *models.TestCase, target Target) error {
 		graders = append(graders, cp.Graders...)
 	}
 	for _, g := range graders {
-		if updatesSnapshots(g.Parameters) {
-			return newError(CategoryInvalidSuite, "task %q grader %q sets update_snapshots, which can rewrite pinned suite files during optimization", tc.TestID, g.Identifier)
+		if reason := graderAdmissionIssue(g.Parameters); reason != "" {
+			return newError(CategoryInvalidSuite, "task %q grader %q %s", tc.TestID, g.Identifier, reason)
 		}
 	}
 	switch target {
