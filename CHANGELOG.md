@@ -39,6 +39,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [evidence states](docs/EVIDENCE-STATES.md) and the
   [evidence review guide](site/src/content/docs/guides/evidence-review.mdx).
 
+- **Optimizer adapter contract (unreleased v0.41 source preview, #790)** - Add
+  `waza optimize capabilities` and `waza optimize run`. An optimizer adapter
+  proposes skill-directory or context-overlay candidates, and the existing
+  runner and graders evaluate them against a pinned suite with exact
+  optimization and held-out qualification splits. Contract 1.0 JSON Schemas
+  cover capabilities, adapter requests and responses, and `report.json`.
+  Adapters receive only optimization feedback. Iterations, evaluations and the
+  deadline are bounded, and spend is `measured` or `unavailable` with no hard
+  cap claimed. Failures name explicit categories. Ships offline `fake`, external
+  `command` (env allowlist, strict JSON) and paid `copilot-reflect` adapters,
+  plus the offline `examples/optimizer` walkthrough. Existing runs are unchanged.
+  See [Optimizer Adapters](site/src/content/docs/guides/optimizer-adapters.mdx).
+
 - **Standalone manifest aggregation (unreleased v0.41 source preview, #766)** -
   Aggregate explicit public completed manifest/evidence references without
   agents, credential helpers or private worker ownership. Aggregate schema 1.0

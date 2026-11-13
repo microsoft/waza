@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/optimizer-adapter-request-1.0.schema.json",
+  "title": "Waza optimizer adapter request 1.0",
+  "description": "One JSON document written to a command adapter's stdin. Requests only ever carry optimization-split feedback.",
+  "type": "object",
+  "required": ["kind", "contract_version", "operation"],
+  "properties": {
+    "kind": {"const": "waza.optimizer-adapter-request"},
+    "contract_version": {"const": "1.0"},
+    "operation": {"enum": ["describe", "propose"]}
+  },
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "required": ["kind", "contract_version", "operation", "harness"],
+      "properties": {
+        "kind": true, "contract_version": true,
+        "operation": {"const": "describe"},
+        "harness": {"$ref": "optimizer-capabilities-1.0.schema.json"}
+      }
+    },
+    {
+      "additionalProperties": false,
+      "required": ["kind", "contract_version", "operation", "iteration", "target", "parent", "history", "remaining"],
+      "properties": {
+        "kind": true, "contract_version": true,
+        "operation": {"const": "propose"},
+        "iteration": {"type": "integer", "minimum": 1},
+        "target": {"enum": ["skill-directory", "context-overlay"]},
+        "parent": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "score", "files"],
+          "properties": {
+            "id": {"$ref": "#/$defs/candidateId"},
+            "score": {"type": ["number", "null"]},
+            "files": {"$ref": "#/$defs/files"}
+          }
+        },
+        "history": {"type": "array", "items": {"$ref": "#/$defs/feedback"}},
+        "remaining": {
+          "type": "object", "additionalProperties": false,
+          "required": ["iterations", "evaluations", "deadline_unix_ms"],
+          "properties": {
+            "iterations": {"type": "integer", "minimum": 0},
+            "evaluations": {"type": "integer", "minimum": 0},
+            "deadline_unix_ms": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "candidateId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "files": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "content"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 200},
+          "content": {"type": "string"}
+        }
+      }
+    },
+    "feedback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "iteration", "split", "state", "score", "pass_rate", "tasks"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/candidateId"},
+        "parent_id": {"$ref": "#/$defs/candidateId"},
+        "iteration": {"type": "integer", "minimum": 0},
+        "split": {"const": "optimization"},
+        "state": {"enum": ["scored", "evaluation_incomplete"]},
+        "score": {"type": ["number", "null"]},
+        "pass_rate": {"type": ["number", "null"]},
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["test_id", "status", "score", "failed_graders"],
+            "properties": {
+              "test_id": {"type": "string", "minLength": 1},
+              "status": {"type": "string"},
+              "score": {"type": "number"},
+              "failed_graders": {
+                "type": "array",
+                "items": {
+                  "type": "object", "additionalProperties": false,
+                  "required": ["name", "message"],
+                  "properties": {"name": {"type": "string"}, "message": {"type": "string"}}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
