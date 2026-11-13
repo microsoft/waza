@@ -12,7 +12,9 @@
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "prerefresh:docs-media": "npm run build",
-    "refresh:docs-media": "WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0"
+    "refresh:docs-media": "WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0",
+    "prerelease:media": "npm run build",
+    "release:media": "playwright test e2e/release-media.spec.ts --project=chromium --retries=0 --workers=1"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.105.3",
