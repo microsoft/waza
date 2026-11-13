@@ -123,6 +123,7 @@ test('actual API/model/schema and container paths select production consumers; u
   assert.equal(applicability([frozenReader]).assurance, true);
   assert.equal(applicability(['testdata/frozen-assurance-readers-near-miss/manifest.json']).assurance, false);
   assert.equal(applicability(['internal/embedded/path.go']).runtime, true);
+  assert.equal(applicability(['.gitattributes']).runtime, true);
   assert.equal(applicability(['.dockerignore']).container, true);
   assert.equal(applicability(['examples/runner/container/Dockerfile']).container, true);
   assert.deepEqual(applicability(['AGENTS.md']), {
