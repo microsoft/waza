@@ -168,7 +168,7 @@ test('runner identity fixtures trigger consumer validation and publication witho
 });
 
 function assertMediaSelection(web, site) {
-  assert.match(web, /testIgnore: process\.env\.WAZA_REFRESH_DOCS_MEDIA === "1"\s*\? \[\]\s*: \["\*\*\/screenshots\.spec\.ts", "\*\*\/release-screenshots\.spec\.ts"\]/);
+  assert.match(web, /testIgnore: \[\s*\.\.\.\(process\.env\.WAZA_REFRESH_DOCS_MEDIA === "1"\s*\? \[\]\s*: \["\*\*\/screenshots\.spec\.ts", "\*\*\/release-screenshots\.spec\.ts"\]\),\s*\.\.\.\(process\.env\.WAZA_RELEASE_MEDIA_DIR \? \[\] : \["\*\*\/release-media\.spec\.ts"\]\),\s*\]/);
   assert.match(site, /testIgnore: \[\s*'chat\.spec\.ts', 'chat-unavailable\.spec\.ts',\s*\.\.\.\(process\.env\.WAZA_REFRESH_DOCS_MEDIA === '1' \? \[\] : \['\*\*\/screenshots\.spec\.ts'\]\),\s*\]/);
 }
 
@@ -176,7 +176,7 @@ test('routine browser discovery excludes only media-only specs and refresh resto
   const web = read('web/playwright.config.ts');
   const site = read('site/playwright.config.ts');
   assertMediaSelection(web, site);
-  for (const file of ['screenshots.spec.ts', 'release-screenshots.spec.ts']) {
+  for (const file of ['screenshots.spec.ts', 'release-screenshots.spec.ts', 'release-media.spec.ts']) {
     assert.throws(() => assertMediaSelection(web.replace(`"**/${file}"`, '"**/*.spec.ts"'), site));
   }
   assert.throws(() => assertMediaSelection(web, site.replace("'**/screenshots.spec.ts'", "'**/*.spec.ts'")));
