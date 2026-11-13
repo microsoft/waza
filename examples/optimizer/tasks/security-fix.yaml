@@ -1,0 +1,12 @@
+id: security-fix
+name: Path traversal patch notes
+tags: [optimization]
+inputs:
+  prompt: "Write release notes for a patched path traversal."
+  files:
+    - path: style-guide.md
+graders:
+  - name: security-fix-style
+    type: text
+    config:
+      contains: ["security", "upgrade"]

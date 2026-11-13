@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/optimizer-capabilities-1.0.schema.json",
+  "title": "Waza optimizer harness capabilities 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "versions", "capabilities"],
+  "properties": {
+    "kind": {"const": "waza.optimizer-capabilities"},
+    "schema_version": {"const": "1.0"},
+    "versions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"}},
+    "capabilities": {"$ref": "#/$defs/capabilities"}
+  },
+  "$defs": {
+    "capabilities": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"}
+    }
+  }
+}

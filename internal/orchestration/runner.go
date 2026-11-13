@@ -73,6 +73,9 @@ type EvalRunner struct {
 	// Tag filtering for tasks
 	tagFilters []string
 
+	// exactTestIDs, when non-nil, keeps only tasks whose TestID is in the set.
+	exactTestIDs map[string]struct{}
+
 	// Result caching
 	cache *cache.Cache
 
@@ -183,6 +186,31 @@ func WithTagFilters(patterns ...string) RunnerOption {
 	return func(r *EvalRunner) {
 		r.tagFilters = patterns
 	}
+}
+
+// WithExactTestIDs keeps only tasks whose TestID equals one of ids. Unlike
+// [WithTaskFilters], IDs are compared literally and display names never match.
+// It composes with task and tag filters as an intersection.
+func WithExactTestIDs(ids ...string) RunnerOption {
+	return func(r *EvalRunner) {
+		r.exactTestIDs = make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			r.exactTestIDs[id] = struct{}{}
+		}
+	}
+}
+
+func (r *EvalRunner) filterExactTestIDs(testCases []*models.TestCase) []*models.TestCase {
+	if r.exactTestIDs == nil {
+		return testCases
+	}
+	kept := make([]*models.TestCase, 0, len(testCases))
+	for _, tc := range testCases {
+		if _, ok := r.exactTestIDs[tc.TestID]; ok {
+			kept = append(kept, tc)
+		}
+	}
+	return kept
 }
 
 // WithClock sets the clock used for run identity allocation.
@@ -470,6 +498,7 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		}
 		fmt.Println()
 	}
+	testCases = r.filterExactTestIDs(testCases)
 
 	if len(testCases) == 0 {
 		return nil, fmt.Errorf("no test cases found")
@@ -793,7 +822,7 @@ func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
 			return nil, fmt.Errorf("task/tag filter error: %w", err)
 		}
 	}
-	return testCases, nil
+	return r.filterExactTestIDs(testCases), nil
 }
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
 	return LoadSelectedTestCasesWithJobID(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime(), r.evalRunID)

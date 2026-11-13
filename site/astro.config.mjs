@@ -51,6 +51,7 @@ export default defineConfig({
 						{ label: 'Controlled comparisons', slug: 'guides/controlled-comparisons' },
 						{ label: 'Preserving Existing Workflows', slug: 'guides/compatibility' },
 						{ label: 'External Assertion Interoperability', slug: 'guides/external-interoperability' },
+						{ label: 'Optimizer Adapters', slug: 'guides/optimizer-adapters' },
 						{ label: 'Runner Contract & API', slug: 'guides/runner-contract' },
 						{ label: 'Runner Logical Identities', slug: 'guides/runner-identities' },
 						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },

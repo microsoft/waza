@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -15,6 +16,28 @@ import (
 
 // defaultProgramTimeoutSeconds is the default timeout for program graders when none is specified.
 const defaultProgramTimeoutSeconds = 30
+
+// ProgramOperationalErrorKey is the result detail set when a program grader
+// could not produce a verdict: the program timed out, was canceled or could
+// not be started. A nonzero exit from a program that ran is an assertion
+// failure and does not set it.
+const ProgramOperationalErrorKey = "operational_error"
+
+// programOperationalError classifies a failed run: "timeout", "canceled",
+// "launch_failed", or "" when the program ran and exited nonzero.
+func programOperationalError(runCtx context.Context, err error) string {
+	switch {
+	case errors.Is(runCtx.Err(), context.DeadlineExceeded):
+		return "timeout"
+	case runCtx.Err() != nil:
+		return "canceled"
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return ""
+	}
+	return "launch_failed"
+}
 
 // ProgramGradingContextEnv names the environment variable holding the path of
 // the grading context JSON file passed to program graders.
@@ -134,20 +157,24 @@ func (pg *programGrader) run(ctx context.Context, gradingContext *Context, conte
 			feedback = fmt.Sprintf("%s; stderr: %s", feedback, errOutput)
 		}
 
+		details := map[string]any{
+			"command":       pg.command,
+			"args":          pg.args,
+			"exit_error":    err.Error(),
+			"stdout":        notes,
+			"stderr":        errOutput,
+			"workspace_dir": gradingContext.WorkspaceDir,
+		}
+		if op := programOperationalError(timeoutCtx, err); op != "" {
+			details[ProgramOperationalErrorKey] = op
+		}
 		return &models.GraderResults{
 			Name:     pg.name,
 			Type:     models.GraderKindProgram,
 			Score:    0.0,
 			Passed:   false,
 			Feedback: feedback,
-			Details: map[string]any{
-				"command":       pg.command,
-				"args":          pg.args,
-				"exit_error":    err.Error(),
-				"stdout":        notes,
-				"stderr":        errOutput,
-				"workspace_dir": gradingContext.WorkspaceDir,
-			},
+			Details:  details,
 		}
 	}
 
