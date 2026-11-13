@@ -74,7 +74,12 @@ flowchart TD
   separate publications of one selection stay distinct; a terminal alone cannot
   tell such publications apart.
 - **Aggregation links**: each admitted aggregate member is linked to the
-  `waza.work` span of its own run and work.
+  `waza.work` span of its own run and work. An aggregate member that names the
+  supplied manifest but records a binding for another run or work is rejected
+  (exit 6).
+- **Diagnostic logs**: a lineage diagnostic is attached to an attempt span only
+  when that span was emitted; otherwise it stays on the `waza.work` span and the
+  execution ID remains an attribute.
 
 ## Signals
 
@@ -102,8 +107,11 @@ Log bodies carry the event name only, never message text or payloads.
 
 ### Metrics
 
-All metrics are monotonic cumulative sums. Identifiers travel only as resource
-attributes; data points carry bounded attributes only.
+All metrics are monotonic cumulative sums. The metrics resource is
+service-level only (`service.name`, `service.version`,
+`waza.telemetry.schema_version`), so run, work and scheduler identifiers never
+become series dimensions. Each data point carries one exemplar with the trace
+ID and `waza.work` span ID for correlation, and bounded attributes only.
 
 | Metric | Unit | Data point attributes |
 |--------|------|-----------------------|
@@ -131,9 +139,9 @@ emitted).
 | `service.name` | string | bounded | resource |
 | `service.version` | string | bounded | resource |
 | `waza.telemetry.schema_version` | string | bounded | resource |
-| `waza.run.id` | string | identifier | resource, span, link |
-| `waza.work.id` | string | identifier | resource, span, link |
-| `waza.scheduler.work_id` | string | identifier | resource |
+| `waza.run.id` | string | identifier | trace/log resource, span, link |
+| `waza.work.id` | string | identifier | trace/log resource, span, link |
+| `waza.scheduler.work_id` | string | identifier | trace/log resource |
 | `waza.execution.id` | string | identifier | span, link, log |
 | `waza.attempt.order` | int | measure | span |
 | `waza.attempt.native` | int | measure | span |

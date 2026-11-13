@@ -88,6 +88,16 @@ type NumberDataPoint struct {
 	StartTimeUnixNano string     `json:"startTimeUnixNano"`
 	TimeUnixNano      string     `json:"timeUnixNano"`
 	AsInt             string     `json:"asInt"`
+	Exemplars         []Exemplar `json:"exemplars,omitempty"`
+}
+
+// Exemplar correlates a metric point with the work span that produced it
+// without adding a series dimension.
+type Exemplar struct {
+	TimeUnixNano string `json:"timeUnixNano"`
+	AsInt        string `json:"asInt"`
+	TraceID      string `json:"traceId"`
+	SpanID       string `json:"spanId"`
 }
 
 type Sum struct {

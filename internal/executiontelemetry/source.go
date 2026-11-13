@@ -186,30 +186,40 @@ func Load(in Inputs) (*Source, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: aggregate: %w", ErrInvalid, err)
 		}
-		if !aggregateIncludes(*aggregate, src.ManifestSHA256, logical) {
-			return nil, fmt.Errorf("%w: aggregate has no member for this work", ErrUncorrelated)
+		if err := aggregateIncludes(*aggregate, src.ManifestSHA256, logical); err != nil {
+			return nil, err
 		}
 		src.Aggregate, src.AggregateSHA256 = aggregate, artifactmanifest.Hash(bytes.TrimSpace(canonical))
 	}
 	return src, nil
 }
 
-// aggregateIncludes reports whether the aggregate has a member for this work:
-// the admitted manifest when one was supplied, otherwise any member whose
-// verified binding names the same logical run and work.
-func aggregateIncludes(aggregate manifestaggregate.Report, manifest string, logical executionattempt.Logical) bool {
+// aggregateIncludes verifies the aggregate has a member for this work: the
+// admitted manifest when one was supplied, otherwise any member whose verified
+// binding names the same logical run and work. A member naming the admitted
+// manifest must not record a binding for another run or work.
+func aggregateIncludes(aggregate manifestaggregate.Report, manifest string, logical executionattempt.Logical) error {
+	found := false
 	for _, member := range aggregate.Members {
+		bound := member.Binding != nil
 		if manifest != "" {
-			if member.Manifest == manifest {
-				return true
+			if member.Manifest != manifest {
+				continue
 			}
+			if bound && executionattempt.LogicalFrom(member.Binding.Identity) != logical {
+				return fmt.Errorf("%w: aggregate records manifest %s for another run or work", ErrUncorrelated, manifest)
+			}
+			found = true
 			continue
 		}
-		if member.Binding != nil && executionattempt.LogicalFrom(member.Binding.Identity) == logical {
-			return true
+		if bound && executionattempt.LogicalFrom(member.Binding.Identity) == logical {
+			return nil
 		}
 	}
-	return false
+	if !found {
+		return fmt.Errorf("%w: aggregate has no member for this work", ErrUncorrelated)
+	}
+	return nil
 }
 
 // selfBinding reconstructs the binding a terminal claims when no manifest or

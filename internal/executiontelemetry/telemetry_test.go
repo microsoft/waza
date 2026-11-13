@@ -785,3 +785,70 @@ func TestReportBindsRunWithoutVerdicts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, SourcePresent, src.ReportState, "equal empty verdict sets bind the run")
 }
+
+func TestAggregateMemberBindingMustMatchManifestWork(t *testing.T) {
+	f := publishFixture(t)
+	src, err := Load(f.Inputs)
+	require.NoError(t, err)
+	logical := executionattempt.LogicalFrom(*src.Terminal.Identity)
+	aggregate := *src.Aggregate
+	aggregate.Members = slices.Clone(aggregate.Members)
+	changed := false
+	for i, member := range aggregate.Members {
+		if member.Manifest != src.ManifestSHA256 || member.Binding == nil {
+			continue
+		}
+		binding := *member.Binding
+		binding.Identity.Trial = "another-work"
+		aggregate.Members[i].Binding = &binding
+		changed = true
+	}
+	require.True(t, changed)
+	require.ErrorIs(t, aggregateIncludes(aggregate, src.ManifestSHA256, logical), ErrUncorrelated)
+	for i := range aggregate.Members {
+		aggregate.Members[i].Binding = nil
+	}
+	require.NoError(t, aggregateIncludes(aggregate, src.ManifestSHA256, logical), "an absent binding stays unavailable, not conflicting")
+}
+
+func TestMetricsUseServiceResourceWithWorkExemplars(t *testing.T) {
+	f := publishFixture(t)
+	bundle := build(t, f.Inputs, Options{})
+	resource := bundle.Metrics.ResourceMetrics[0].Resource
+	for _, key := range []string{KeyRunID, KeyWorkID, KeySchedulerWorkID} {
+		_, ok := attrValue(resource.Attributes, key)
+		require.False(t, ok, "%s must not become a metric series dimension", key)
+	}
+	_, ok := attrValue(resource.Attributes, KeyServiceName)
+	require.True(t, ok)
+	for _, m := range bundle.Metrics.ResourceMetrics[0].ScopeMetrics[0].Metrics {
+		for _, p := range m.Sum.DataPoints {
+			require.Len(t, p.Exemplars, 1)
+			require.Equal(t, bundle.Report.Correlation.TraceID, p.Exemplars[0].TraceID)
+			require.Equal(t, bundle.Report.Correlation.RootSpanID, p.Exemplars[0].SpanID)
+			require.Equal(t, p.AsInt, p.Exemplars[0].AsInt)
+		}
+	}
+}
+
+func TestLineageDiagnosticWithoutAttemptSpanStaysOnWorkSpan(t *testing.T) {
+	f := publishFixture(t)
+	src, err := Load(f.Inputs)
+	require.NoError(t, err)
+	src.Lineage.Diagnostics = append(src.Lineage.Diagnostics, executionledger.LineageDiagnostic{
+		Code: "decision_reservation_unavailable", ExecutionIDs: []string{"exec-without-reservation"},
+	})
+	bundle := Build(src, Options{})
+	found := false
+	for _, record := range bundle.Logs.ResourceLogs[0].ScopeLogs[0].LogRecords {
+		if code, ok := attrValue(record.Attributes, KeyDiagnosticCode); !ok || *code.StringValue != "decision_reservation_unavailable" {
+			continue
+		}
+		found = true
+		require.Equal(t, bundle.Report.Correlation.RootSpanID, record.SpanID)
+		execution, ok := attrValue(record.Attributes, KeyExecutionID)
+		require.True(t, ok)
+		require.Equal(t, "exec-without-reservation", *execution.StringValue)
+	}
+	require.True(t, found)
+}

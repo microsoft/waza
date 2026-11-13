@@ -92,6 +92,10 @@ func severityFor(outcome runnerterminal.Outcome) (int, string) {
 	}
 }
 
+func (b *builder) emitted(spanID string) bool {
+	return slices.ContainsFunc(b.spans, func(s Span) bool { return s.SpanID == spanID })
+}
+
 func (b *builder) addSpan(name, spanID, parent string, start, end time.Time, attrs []KeyValue, status Status, links []Link) bool {
 	if len(b.spans) >= b.opts.Limits.MaxSpans {
 		b.san.drop(SignalTraces, DropSpanLimit, 1)
@@ -166,6 +170,10 @@ func (b *builder) build() *Bundle {
 	}
 	cleanResource, droppedResource := b.san.clean(SignalTraces, OnResource, resourceAttrs)
 	resource := Resource{Attributes: cleanResource, DroppedAttributesCount: droppedResource}
+	// Metrics use a service-level resource so per-work identifiers never
+	// become series dimensions; exemplars carry the work correlation instead.
+	metricResourceAttrs, droppedMetricResource := b.san.clean(SignalMetrics, OnResource, resourceAttrs[:3])
+	metricResource := Resource{Attributes: metricResourceAttrs, DroppedAttributesCount: droppedMetricResource}
 
 	report := Report{
 		Kind: Kind, SchemaVersion: SchemaVersion, PayloadPolicy: b.opts.Policy,
@@ -298,12 +306,12 @@ func (b *builder) build() *Bundle {
 	series := map[string]int{}
 	total := 0
 	for _, name := range b.order {
-		m := b.metrics[name].metric(now)
+		m := b.metrics[name].metric(now, b.traceID, rootID)
 		metrics = append(metrics, m)
 		series[name] = len(m.Sum.DataPoints)
 		total += len(m.Sum.DataPoints)
 	}
-	bundle.Metrics = MetricsData{ResourceMetrics: []ResourceMetrics{{Resource: resource, ScopeMetrics: []ScopeMetrics{{Scope: scope, Metrics: metrics}}}}}
+	bundle.Metrics = MetricsData{ResourceMetrics: []ResourceMetrics{{Resource: metricResource, ScopeMetrics: []ScopeMetrics{{Scope: scope, Metrics: metrics}}}}}
 	bundle.Report.Signals = Signals{
 		Traces:  SignalCount{Emitted: len(b.spans), Dropped: b.droppedTotal(SignalTraces), Names: b.spanNames},
 		Metrics: SignalCount{Emitted: total, Dropped: b.droppedTotal(SignalMetrics), Names: series},
@@ -595,7 +603,11 @@ func (b *builder) terminalLogs(attempts []attemptView, taskID string) {
 			spanID := WorkSpanID(b.src.Lineage.Logical.Run, b.src.Lineage.Logical.Work)
 			if len(d.ExecutionIDs) > 0 {
 				attrs = append(attrs, str(KeyExecutionID, d.ExecutionIDs[0]))
-				spanID = SpanID(SpanAttempt, d.ExecutionIDs[0])
+				// Diagnostics may name an execution that never reserved an
+				// attempt; keep the work span unless the attempt span exists.
+				if attemptSpan := SpanID(SpanAttempt, d.ExecutionIDs[0]); b.emitted(attemptSpan) {
+					spanID = attemptSpan
+				}
 			}
 			b.addLog(EventDiagnostic, spanID, "", attrs)
 		}
@@ -685,12 +697,13 @@ func seriesKey(attrs []KeyValue) string {
 	return strings.Join(parts, "\x00")
 }
 
-func (m *metricBuilder) metric(now time.Time) Metric {
+func (m *metricBuilder) metric(now time.Time, traceID, spanID string) Metric {
 	points := make([]NumberDataPoint, 0, len(m.keys))
 	for _, key := range m.keys {
 		p := *m.points[key]
 		p.StartTimeUnixNano, p.TimeUnixNano = nanos(now), nanos(now)
 		p.AsInt = strconv.FormatInt(m.values[key], 10)
+		p.Exemplars = []Exemplar{{TimeUnixNano: nanos(now), AsInt: p.AsInt, TraceID: traceID, SpanID: spanID}}
 		if p.Attributes == nil {
 			p.Attributes = []KeyValue{}
 		}
