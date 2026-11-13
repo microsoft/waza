@@ -210,7 +210,10 @@ func replaceInFile(rel, old, repl string) func(*testing.T, string) {
 		p := filepath.Join(suite, rel)
 		data, err := os.ReadFile(p)
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(p, []byte(strings.Replace(string(data), old, repl, 1)), 0o600))
+		// Windows checkouts may use CRLF line endings.
+		text := strings.ReplaceAll(string(data), "\r\n", "\n")
+		require.Contains(t, text, old, "edit anchor missing from %s", rel)
+		require.NoError(t, os.WriteFile(p, []byte(strings.Replace(text, old, repl, 1)), 0o600))
 	}
 }
 
