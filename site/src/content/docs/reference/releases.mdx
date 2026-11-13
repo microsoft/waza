@@ -265,6 +265,13 @@ Pre-built binaries for all major platforms:
 | Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-windows-amd64.exe) |
 | Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-windows-arm64.exe) |
 
+All six targets are cross-built on Linux. Native execution evidence, covering
+version, help, an offline mock run and the embedded dashboard, comes from a
+separate smoke of these exact files on native runners for each OS and
+architecture. Releases up to v0.41.0 predate that smoke. See
+[Native Platform Evidence](https://github.com/microsoft/waza/blob/main/docs/RELEASE.md#native-platform-evidence)
+for the platform table and cadence.
+
 ---
 
 ## Quick Install

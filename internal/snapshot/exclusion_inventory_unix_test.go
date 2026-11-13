@@ -197,7 +197,7 @@ func TestWorkspaceRootAncestorsAndDescriptorRename(t *testing.T) {
 
 func TestWorkspaceRootExplicitSystemAliases(t *testing.T) {
 	if runtime.GOOS != "darwin" {
-		return // Only Darwin defines these explicit system aliases.
+		t.Skip("only Darwin defines these explicit system aliases")
 	}
 	for _, alias := range []string{"/var", "/tmp"} {
 		target, err := os.Readlink(alias)

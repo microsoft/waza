@@ -77,7 +77,15 @@ build → GitHub Release → extension publish → registry-sync PR → GitHub P
    GitHub Release** (`Waza azd Extension vX.Y.Z`), publishes the package-only
    release to the azd registry, uploads public provenance, then opens a PR with
    updated `registry.json`.
-6. **pages.yml** — Deploys the documentation site after the `Release` workflow completes successfully, ensuring release notes and download links published to `site/` are pushed to GitHub Pages.
+6. **native-smoke** — After both publishers' builds, calls
+   `native-package-smoke.yml` to execute the exact uploaded CLI binaries and
+   representative extension archives on native runners. See
+   [Native Platform Evidence](#native-platform-evidence); it is reported
+   evidence, not yet a publication gate. It runs with `report_only: true`, and
+   the extension-package upload may fail without stopping publication, so a
+   smoke failure shows on its jobs without failing the `Release` conclusion
+   that Pages deployment waits on.
+7. **pages.yml** — Deploys the documentation site after the `Release` workflow completes successfully, ensuring release notes and download links published to `site/` are pushed to GitHub Pages.
 
 The retained `Squad Release` (`main`) and `Squad Insider Release` (`insider`)
 publishers first perform a lightweight exact-tag check. Untagged branch pushes
@@ -93,7 +101,9 @@ before the binary can execute or publish.
 
 The six CLI matrix binaries and azd packages are release builds from the
 validated source, with recorded digests; they are not the Linux binary exercised
-by offline integration, nor proof of native execution on all six platforms.
+by offline integration. Native execution evidence for them comes only from the
+separate native smoke described in
+[Native Platform Evidence](#native-platform-evidence).
 The packaged-dashboard integration restores its original source assets even if
 the server exits between the cleanup liveness check and termination. A failed
 termination still fails the check explicitly; it does not skip restoration or
@@ -220,6 +230,113 @@ redirect publication or be recreated from the default branch. This checkout
 provides admission scripts; it does not rebuild or replace the tested binary.
 Target metadata admission explicitly selects Bash with pipeline failure
 propagation; matching output from a failed manifest read cannot pass.
+
+## Native Platform Evidence
+
+Checksums establish byte integrity, not behavioral compatibility. Platform
+claims are limited to what the table below actually executes.
+
+| Target | Runner | Source tests | Package evidence |
+|---|---|---|---|
+| linux/amd64 | `ubuntu-latest` | Native: full Go CI suite and shards | Native: CLI and extension archive smoke |
+| linux/arm64 | `ubuntu-24.04-arm` | Cross-build only | Native: CLI smoke |
+| darwin/arm64 | `macos-latest` | Native: pinned judge runtime (Go CI) and Darwin production callers | Native: CLI and extension archive smoke |
+| darwin/amd64 | `macos-15-intel` | Native: Darwin production callers | Native: CLI smoke |
+| windows/amd64 | `windows-latest` | Native: full Go CI race suite | Native: CLI and extension archive smoke |
+| windows/arm64 | `windows-11-arm` | Cross-build only | Native: CLI smoke |
+| Other OS/architectures | — | Unsupported | Unsupported: not built or distributed |
+
+Evidence classes:
+
+- **Native** — executed on a hosted runner whose OS and architecture equal the
+  target. The checker also requires the runner-reported platform to match and,
+  on macOS, `sysctl.proc_translated=0`, so Rosetta translation fails.
+- **Cross-build only** — compiled and header/build-info checked on Linux; never
+  reported as executed.
+- **Emulated** — not used. QEMU or Rosetta execution is rejected rather than
+  counted as native.
+- **Unavailable** — a supported target whose native runner is not available.
+  It is moved to `evidenceUnavailable` with a reason in
+  `.github/scripts/native-package-smoke/platforms.go` and reported as
+  `unavailable`, never as passed.
+- **Unsupported** — not built or distributed.
+
+### Package smoke
+
+`.github/workflows/native-package-smoke.yml` is reusable. It never rebuilds. Each
+job checks out the exact source, installs the rejecting Copilot runtime guard,
+downloads one package and runs `.github/scripts/native-package-smoke`:
+
+1. native host proof (above);
+2. CLI `.sha256` and `.source-sha.txt` sidecars, or extension
+   `release-provenance.txt`, must name the downloaded bytes and revision;
+3. the executable's object header and Go build info must name the target,
+   the revision and `vcs.modified=false`;
+4. `--version` must print exactly `waza version X.Y.Z`; `--help` must list
+   `run` and `serve`;
+5. the shared `release_integration_test.sh` offline mock run must produce a
+   complete error-free outcome without launching the Copilot runtime;
+6. `serve` from an empty directory must return the production dashboard index
+   and every referenced `/assets` file with a script or stylesheet media type,
+   proving the dashboard is embedded rather than read from disk.
+
+Extension archives must contain exactly `extension.yaml` (byte-equal to the
+source manifest and declaring the version) and the platform entry point as
+regular files, executable on Linux. The extension is not installed into azd
+and no credentials are used. The extension layout is checked on one
+representative target per OS: linux/amd64, darwin/arm64 and windows/amd64.
+
+Each job writes a receipt. The evidence job runs even when smoke jobs fail and
+fails unless every native target has a receipt for the same source, revision
+and version with every check, a package digest and at least one fetched
+dashboard asset. Missing runners, artifacts or receipts, digest mismatches,
+wrong architectures, emulation and runtime launches therefore fail instead of
+producing success-shaped evidence. The table is written to the job summary.
+
+### Darwin production callers
+
+`TestScenarioDarwinSystemOutputAlias`, `TestSystemRootAliasPlatform`,
+`TestWorkspaceRootExplicitSystemAliases` and
+`TestPrivateWriterPhysicalAndCleanedRoots` cover the Darwin `/tmp` and `/var`
+system-alias callers in `cmd/waza` and `internal/snapshot`. The
+`native-platform.yml` job runs them with `go test -json` on both macOS
+architectures and requires each to be selected and passed. A skip, such as the
+non-Darwin skips in the first and third tests, fails the job.
+
+### Cadence
+
+| When | What runs | Gate |
+|---|---|---|
+| Every PR | Checker unit, mutation and workflow-contract tests in `./.github/scripts` | Required (Go CI) |
+| PR changing the smoke workflows or checker | `native-platform.yml` in full | Reported on the PR |
+| Push to `main` touching platform code, weekly, or manual dispatch | `native-platform.yml`: Darwin production callers, plus candidate packages built with the release commands and smoked on every native runner | Reported; failures are visible on `main` |
+| Release tag | `release.yml` `native-smoke` on the exact published packages | Reported; not yet a publication gate |
+
+A candidate built from a commit whose tracked `web/dist/index.html` predates the
+current dashboard records the rebuilt index in a local commit. The packages
+then name that commit as `package_revision`, while fixtures come from the
+pushed `source_sha`.
+
+Measured cost on the first candidate run is recorded below. Making the release
+smoke a publication gate is a separate decision once its runner availability
+and latency are established across releases.
+
+Measured on candidate run
+[43506097460](https://github.com/microsoft/waza/actions/runs/43506097460)
+(2026-11-13): 11m43s wall time, about 24 runner-minutes, of which about 7.4
+were macOS.
+
+| Job | Wall time |
+|-----|-----------|
+| Candidate packages (web UI, six CLIs, extension pack) | 9m23s |
+| Darwin production callers (macos-latest / macos-15-intel) | 2m18s / 1m41s |
+| CLI smoke (windows/amd64, darwin/amd64, linux/amd64, windows/arm64, darwin/arm64, linux/arm64) | 1m36s, 1m33s, 28s, 1m08s, 42s, 14s |
+| Extension smoke (windows/amd64, linux/amd64, darwin/arm64) | 1m55s, 1m22s, 1m08s |
+| Evidence aggregation | 13s |
+
+The Darwin callers run in parallel with candidate packaging, so the smoke and
+evidence jobs add about 2m10s after packaging. In `release.yml` the packages
+already exist, so that tail is the release's added latency.
 
 ## Retry and Partial-Publication Behavior
 

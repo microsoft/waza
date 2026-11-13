@@ -1,0 +1,204 @@
+# Native package smoke (#905).
+#
+# Executes the exact digest-bound CLI binaries and extension archives produced
+# earlier in the calling run on native runners. Nothing is rebuilt here: each
+# job downloads the package, proves the host is the target OS/architecture
+# without emulation, checks version, help, a deterministic offline mock run and
+# the embedded dashboard, then uploads a receipt. The evidence job fails unless
+# every native target in .github/scripts/native-package-smoke/platforms.go has
+# a complete receipt for the same source and version.
+
+name: Native package smoke
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact source commit the packages were built from
+        type: string
+        required: true
+      version:
+        description: Version the packages must report
+        type: string
+        required: true
+      package_revision:
+        description: Commit embedded in the packages when a candidate build committed regenerated dashboard output on top of source_sha
+        type: string
+        required: false
+        default: ''
+      report_only:
+        description: Report failures in the jobs without failing the calling run, so a non-gating caller's conclusion reflects only its own jobs
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    continue-on-error: ${{ inputs.report_only }}
+    name: CLI ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux/amd64
+            artifact: cli-waza-linux-amd64
+            runner: ubuntu-latest
+          - target: linux/arm64
+            artifact: cli-waza-linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: darwin/amd64
+            artifact: cli-waza-darwin-amd64
+            runner: macos-15-intel
+          - target: darwin/arm64
+            artifact: cli-waza-darwin-arm64
+            runner: macos-latest
+          - target: windows/amd64
+            artifact: cli-waza-windows-amd64
+            runner: windows-latest
+          - target: windows/arm64
+            artifact: cli-waza-windows-arm64
+            runner: windows-11-arm
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Require exact source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Install and prove rejecting runtime guard
+        shell: bash
+        run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
+
+      - name: Download exact package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/package
+
+      - name: Smoke exact package natively
+        shell: bash
+        run: >-
+          go run ./.github/scripts/native-package-smoke cli
+          -dir "$RUNNER_TEMP/package" -target "${{ matrix.target }}"
+          -source-sha "${{ inputs.source_sha }}" -revision "${{ inputs.package_revision || inputs.source_sha }}"
+          -version "${{ inputs.version }}"
+          -receipt-dir "$RUNNER_TEMP/receipts"
+
+      - name: Reject tolerated runtime launches
+        shell: bash
+        run: test ! -e "$COPILOT_CLI_PATH.invoked"
+
+      - name: Upload native receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-smoke-cli-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/receipts/*.json
+          if-no-files-found: error
+
+  extension:
+    continue-on-error: ${{ inputs.report_only }}
+    name: Extension ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux/amd64
+            runner: ubuntu-latest
+          - target: darwin/arm64
+            runner: macos-latest
+          - target: windows/amd64
+            runner: windows-latest
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Require exact source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Install and prove rejecting runtime guard
+        shell: bash
+        run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
+
+      - name: Download exact packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: extension-packages
+          path: ${{ runner.temp }}/package
+
+      - name: Smoke exact package natively
+        shell: bash
+        run: >-
+          go run ./.github/scripts/native-package-smoke extension
+          -dir "$RUNNER_TEMP/package" -target "${{ matrix.target }}"
+          -source-sha "${{ inputs.source_sha }}" -revision "${{ inputs.package_revision || inputs.source_sha }}"
+          -version "${{ inputs.version }}"
+          -receipt-dir "$RUNNER_TEMP/receipts"
+
+      - name: Reject tolerated runtime launches
+        shell: bash
+        run: test ! -e "$COPILOT_CLI_PATH.invoked"
+
+      - name: Upload native receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-smoke-extension-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/receipts/*.json
+          if-no-files-found: error
+
+  evidence:
+    name: Native platform evidence
+    needs: [cli, extension]
+    if: always()
+    continue-on-error: ${{ inputs.report_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Download native receipts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: native-smoke-*
+          path: ${{ runner.temp }}/receipts
+          merge-multiple: true
+
+      - name: Require complete native evidence
+        run: >-
+          go run ./.github/scripts/native-package-smoke evidence
+          -dir "$RUNNER_TEMP/receipts" -source-sha "${{ inputs.source_sha }}"
+          -revision "${{ inputs.package_revision || inputs.source_sha }}"
+          -version "${{ inputs.version }}" -summary "$GITHUB_STEP_SUMMARY"
