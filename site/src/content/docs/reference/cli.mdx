@@ -1815,6 +1815,29 @@ A reference can survive a failed publication and is not a success claim.
 See the [complete workflow and recovery limits](../../guides/immutable-artifacts/#checkpoint-public-source-preview).
 Installed v0.40.x artifacts do not contain these commands.
 
+### External adapter commands (unreleased, v0.42.0)
+
+```bash
+waza runner adapter translate < descriptor.json
+waza runner adapter dispatch --store .waza-artifacts < descriptor.json
+waza runner adapter dispatch --endpoint http://127.0.0.1:3000 < descriptor.json
+```
+
+`translate` reads one [`waza.adapter-work-descriptor`](/waza/schemas/adapter-work-descriptor-1.0.schema.json)
+on stdin and prints one offline [`waza.adapter-translation`](/waza/schemas/adapter-translation-1.0.schema.json)
+naming the single public call (`runner submit`, `runner checkpoint create`,
+`runner checkpoint resume` or `runner lineage`) and its exact stdin. It exits 0,
+or 6 when the descriptor is rejected (scheduler fields, ambiguous or incomplete
+input). `dispatch` performs that one call and prints one
+[`waza.adapter-result`](/waza/schemas/adapter-result-1.0.schema.json) with the
+status and returned manifest digest. `--store` and `--azure-container-url` are
+forwarded verbatim to the public subcommand of this binary (or `--waza PATH`);
+`--endpoint URL` uses the public HTTP route instead and cannot be combined with
+them. Rejected descriptors exit 6 without a call; transport failures or replies
+that contradict their published schema exit 2 as `contract_error`. The adapter
+never queues, places, prioritizes or retries. See
+[portable external execution adapters](../../guides/runner-adapters/).
+
 ## waza serve
 
 Standalone v0.40.0 also exposes negotiation and exact-unit validation/run through HTTP.

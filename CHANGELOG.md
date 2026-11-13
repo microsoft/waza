@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Portable external execution adapters (#774).** `waza runner adapter translate`
+  turns one `waza.adapter-work-descriptor` 1.0 into exactly one public runner
+  contract call (`runner submit`, `runner checkpoint create|resume` or
+  `runner lineage`) and forwards the request and policy byte-for-byte. Scheduler
+  fields and ambiguous, incomplete or lossy input are rejected (exit 6).
+  `waza runner adapter dispatch` (`--store`, `--azure-container-url` or
+  `--endpoint`) performs that call once and emits `waza.adapter-result` 1.0 with
+  the mapped status, the returned manifest digest and an optional provenance
+  hook state. It adds no queueing, placement, fleet or retry logic, and an
+  architecture test enforces translation-only. The reference container image
+  works as the entrypoint. Vendor-neutral fixtures cover exact dispatch,
+  idempotent reuse, retry, checkpoint resume and independent aggregation. The
+  Lab **External adapter dispatch** view uses the new offline
+  `POST /api/v1/adapter/translate` route. See
+  [portable external execution adapters](site/src/content/docs/guides/runner-adapters.mdx).
+
 ### Fixed
 
 - The Lab checkpoint result reader re-encodes retained runner-unit reports in

@@ -140,6 +140,13 @@ for (const schema of [
 const validate = ajv.compile<CheckpointOperationResult>(resultSchema);
 const validateOperationError = ajv.compile<CheckpointOperationResult>(operationErrorSchema);
 const validateSubmissionRequest = ajv.compile<CapturedSubmission>(submissionRequestSchema);
+const validateSubmissionResult = ajv.getSchema(submissionSchema.$id);
+
+// Validates a public runner submit reply against its published schema.
+export function isPublishedSubmissionResult(value: unknown): boolean {
+  if (!validateSubmissionResult) throw new Error("Submission result schema is not registered.");
+  return validateSubmissionResult(value) === true;
+}
 const capturedDiagnosticMessage = "Checkpoint operation did not complete. Preserve source and partial records; inspect operator diagnostics. Unapproved source and invocation text are withheld.";
 
 async function goJSONDigest(value: object): Promise<string> {

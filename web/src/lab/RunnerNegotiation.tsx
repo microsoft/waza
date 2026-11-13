@@ -5,6 +5,7 @@ import ManifestPublication from "./ManifestPublication";
 import ManifestAggregate from "./ManifestAggregate";
 import CheckpointOperations from "./CheckpointOperations";
 import ExecutionLineage from "./ExecutionLineage";
+import AdapterWorkflow from "./AdapterWorkflow";
 
 const example = JSON.stringify({
   schema_version: "1.0",
@@ -87,6 +88,7 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
     <ManifestAggregate demo={demo} />
     <CheckpointOperations demo={demo} />
     <ExecutionLineage demo={demo} />
+    <AdapterWorkflow demo={demo} />
     </>
   );
 }

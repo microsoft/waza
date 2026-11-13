@@ -15,6 +15,7 @@ on:
       - 'schemas/**'
       - 'examples/runner/unit.json'
       - 'examples/runner/copilot-unit.json'
+      - 'examples/runner/adapter/**'
       - 'examples/runner/container/**'
       - '.github/scripts/testdata/runner-runtime/**'
       - '.github/scripts/testdata/native-bundle-probe/**'

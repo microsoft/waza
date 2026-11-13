@@ -219,6 +219,14 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
   return true;
 }
 
+// Validates a lineage document against its published schema and the same
+// consistency rules the lineage view applies.
+export function isPublishedLineage(value: unknown): value is ExecutionLineage {
+  if (!validateLineage(value)) return false;
+  const lineage = value as ExecutionLineage;
+  return consistent(lineage, lineage.logical);
+}
+
 export async function loadLineage(logical: { run: string; work: string }, signal: AbortSignal): Promise<LineageResult> {
   let response: Response;
   let text: string;

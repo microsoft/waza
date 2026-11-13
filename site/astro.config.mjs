@@ -61,6 +61,7 @@ export default defineConfig({
 						{ label: 'Reviewing Evidence States', slug: 'guides/evidence-review' },
 						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },
 						{ label: 'Local Runner Container', slug: 'guides/runner-container' },
+						{ label: 'External Execution Adapters', slug: 'guides/runner-adapters' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },
 						{ label: 'Validators & Graders', slug: 'guides/graders' },
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },
