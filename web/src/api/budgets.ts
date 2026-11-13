@@ -1,6 +1,7 @@
 import Ajv2020 from "ajv/dist/2020";
 import budgetSchema from "../../../schemas/execution-budget-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
+import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 import type { RunnerTerminal } from "./runner";
 
@@ -38,8 +39,8 @@ export interface BudgetReport {
   termination?: { resource: "wall_time_ms" | "model_turns" | "tool_calls"; limit: number; observed: number };
 }
 
-const validateCapabilities = new Ajv2020({ strict: false }).compile<BudgetCapabilities>(budgetSchema);
-const validateTerminal = new Ajv2020({ strict: false }).compile<RunnerTerminal>(terminalSchema);
+const validateCapabilities = lazyValidator(() => new Ajv2020({ strict: false }).compile<BudgetCapabilities>(budgetSchema));
+const validateTerminal = lazyValidator(() => new Ajv2020({ strict: false }).compile<RunnerTerminal>(terminalSchema));
 
 // The schema allows any row order; the server emits exactly one row per resource.
 function uniqueResources(rows: { resource: string }[]): boolean {
