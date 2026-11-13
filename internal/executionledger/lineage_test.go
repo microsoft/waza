@@ -6,10 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executionlifecycle"
 )
 
 type truncatedRecords struct{ records }
@@ -26,7 +29,7 @@ func (t truncatedRecords) ListAllUnverified(ctx context.Context, limit int) ([]s
 
 func lineageFor(t *testing.T, ledger *Ledger, binding artifactmanifest.Binding) *Lineage {
 	t.Helper()
-	lineage, err := ledger.Lineage(context.Background(), executionattempt.LogicalFrom(binding.Identity))
+	lineage, err := ledger.Lineage(context.Background(), executionattempt.LogicalFrom(binding.Identity), LineageOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +139,7 @@ func TestLineageFailsClosedOnTruncationAndCorruptRecords(t *testing.T) {
 
 	truncated := *ledger
 	truncated.records = truncatedRecords{ledger.records}
-	if got, err := truncated.Lineage(ctx, logical); got != nil || !errors.Is(err, ErrContext) {
+	if got, err := truncated.Lineage(ctx, logical, LineageOptions{}); got != nil || !errors.Is(err, ErrContext) {
 		t.Fatalf("truncated discovery admitted: %+v %v", got, err)
 	}
 
@@ -199,7 +202,7 @@ func TestLineageFailsClosedOnForgedContradictions(t *testing.T) {
 			}
 			forgeRecord(t, ledger, "reservation/"+id, data)
 		}
-		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || !errors.Is(err, ErrContext) {
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical, LineageOptions{}); got != nil || !errors.Is(err, ErrContext) {
 			t.Fatalf("cyclic parents hidden: %+v %v", got, err)
 		}
 	})
@@ -218,7 +221,7 @@ func TestLineageFailsClosedOnForgedContradictions(t *testing.T) {
 			t.Fatal(err)
 		}
 		forgeRecord(t, ledger, "decision/"+forged.DecisionID, data)
-		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || !errors.Is(err, ErrContext) {
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical, LineageOptions{}); got != nil || !errors.Is(err, ErrContext) {
 			t.Fatalf("contradictory dispatch admitted: %+v %v", got, err)
 		}
 	})
@@ -234,7 +237,7 @@ func TestLineageFailsClosedOnForgedContradictions(t *testing.T) {
 			t.Fatal(err)
 		}
 		forgeRecord(t, ledger, "decision/"+forged.DecisionID, data)
-		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || !errors.Is(err, ErrContext) {
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical, LineageOptions{}); got != nil || !errors.Is(err, ErrContext) {
 			t.Fatalf("unrecorded reuse source linked: %+v %v", got, err)
 		}
 	})
@@ -281,7 +284,7 @@ func TestLineageReviewedEdgeCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		forgeRecord(t, ledger, "decision/"+forged.DecisionID, data)
-		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || !errors.Is(err, ErrContext) {
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical, LineageOptions{}); got != nil || !errors.Is(err, ErrContext) {
 			t.Fatalf("incompatible reuse linked: %+v %v", got, err)
 		}
 	})
@@ -292,13 +295,13 @@ func TestLineageReviewedEdgeCases(t *testing.T) {
 		other.Identity.Trial = "trial-" + artifactmanifest.Hash([]byte("other-work"))
 		_, unrelated := reserveFixture(t, ledger, other)
 		forgeRecord(t, ledger, "completion/"+unrelated.Attempt.ExecutionID, []byte("{}"))
-		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || err == nil {
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical, LineageOptions{}); got != nil || err == nil {
 			t.Fatalf("corrupt unrelated completion hidden: %+v %v", got, err)
 		}
 		ledger, _, _, binding = ownerFixture(t)
 		_, root = reserveFixture(t, ledger, binding)
 		forgeRecord(t, ledger, "completion/exec-"+artifactmanifest.Hash([]byte("orphan")), []byte("{}"))
-		if got, err := ledger.Lineage(ctx, root.Attempt.Logical); got != nil || !errors.Is(err, ErrContext) {
+		if got, err := ledger.Lineage(ctx, root.Attempt.Logical, LineageOptions{}); got != nil || !errors.Is(err, ErrContext) {
 			t.Fatalf("orphan completion hidden: %+v %v", got, err)
 		}
 	})
@@ -320,4 +323,40 @@ func TestLineageReviewedEdgeCases(t *testing.T) {
 			t.Fatalf("busy unrelated work disabled lineage: %+v", lineage.Attempts)
 		}
 	})
+}
+
+func TestLineageWithholdsLivenessForAmbiguousDispatch(t *testing.T) {
+	ctx := context.Background()
+	ledger, backend, _, binding := ownerFixture(t)
+	capability, root := reserveFixture(t, ledger, binding)
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	deadline := now.Add(time.Hour)
+	// One journal is stale and one is fresh; neither may decide liveness.
+	for _, last := range []time.Time{now.Add(-time.Hour), now} {
+		decision, err := ledger.Distinct(ctx, capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope, err := executionlifecycle.Scope(root.Attempt.ExecutionID, root.Digest, decision.DecisionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal, err := executionlifecycle.Open(backend, scope, func(context.Context) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := journal.Append(ctx, executionlifecycle.Event{Event: executionlifecycle.Started, At: last,
+			DeadlineAt: &deadline, HeartbeatIntervalMS: 1000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lineage, err := ledger.Lineage(ctx, root.Attempt.Logical, LineageOptions{Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle := lineage.Attempts[0].Lifecycle
+	if !slices.Contains(diagnosticCodes(lineage), "duplicate_dispatch_decision") || lifecycle.State != "unobserved" ||
+		lifecycle.Observation != "unobserved" || lifecycle.Retry.Eligible || slices.Contains(diagnosticCodes(lineage), "orphaned_attempt") {
+		t.Fatalf("ambiguous dispatch derived liveness from one journal: %+v %v", lifecycle, diagnosticCodes(lineage))
+	}
 }

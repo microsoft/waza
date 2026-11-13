@@ -83,7 +83,11 @@ not the synthetic demo or live inference.
 ordered attempt lineage for one `run-<sha256>` / `trial-<sha256>` pair from
 `GET /api/v1/lineage`. It lists each attempt with its retry/branch parent,
 status (reserved, dispatched, completed or unverified), verified terminal and
-reuse decisions, plus concurrent-writer and missing-record diagnostics. Order
+reuse decisions, plus concurrent-writer and missing-record diagnostics. An
+**Attempt lifecycle** table shows each attempt's derived state (for example
+running, cancelling, orphaned, cancelled or timed out), cancellation and reason,
+deadline, partial completion, advisory retry eligibility, allowed actions and
+journal freshness. Order
 follows recorded parents, not wall-clock time. The browser re-validates the
 schema, requested IDs and parent ordering before display; failures show no
 partial lineage. **Download lineage JSON** saves the exact response. The view is

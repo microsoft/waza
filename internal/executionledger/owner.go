@@ -11,6 +11,7 @@ import (
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executionlifecycle"
 )
 
 var ErrCapability = errors.New("execution creator capability is unavailable or foreign")
@@ -27,6 +28,7 @@ type records interface {
 type Ledger struct {
 	records     records
 	store       *artifactmanifest.Store
+	lifecycle   *artifactmanifest.Diagnostics
 	executionID func() (string, error)
 	decisionID  func() (string, error)
 }
@@ -68,7 +70,13 @@ func New(backend artifactmanifest.Backend) (*Ledger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening execution ledger: %w", err)
 	}
-	return &Ledger{records: namespace, store: artifactmanifest.NewStore(backend),
+	// Backends without diagnostics storage still serve the ledger; lifecycle
+	// is then derived from ledger records only.
+	lifecycle, err := executionlifecycle.NewStore(backend)
+	if err != nil && !errors.Is(err, artifactmanifest.ErrUnsupportedBackend) {
+		return nil, fmt.Errorf("opening execution lifecycle journal: %w", err)
+	}
+	return &Ledger{records: namespace, store: artifactmanifest.NewStore(backend), lifecycle: lifecycle,
 		executionID: executionattempt.NewExecutionID, decisionID: executionattempt.NewDecisionID}, nil
 }
 

@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.0/1.1 are unchanged. Not resumable: partial in-unit work, before-unit
   checkpoints after dispatch, and checkpoints from another build revision.
   See [troubleshooting](docs/EXECUTION_CHECKPOINTS.md#resume-availability-and-troubleshooting).
+- **Execution lifecycle semantics (unreleased source preview, #767)** -
+  Submission owners record a bounded, chained lifecycle journal (started,
+  heartbeat, cancel requested/acknowledged, forced, finished). Every
+  `waza.execution-lineage` attempt now carries a required derived `lifecycle`:
+  state (running, cancelling, orphaned, cancelled, timed_out, ...),
+  cancellation, deadline, partial completion, advisory retry eligibility and
+  allowed actions. Stale dispatched attempts are reported as `orphaned`
+  (`--stale-after` / `stale_after_ms`), and the Lab lineage view shows a
+  lifecycle table. New `waza.execution-lifecycle-event` 1.0 schema. Migration:
+  attempts recorded earlier have no journal and report `observation:
+  "unobserved"`; no records are rewritten and Waza owns no retry policy. See
+  [execution lifecycle](docs/EXECUTION_LIFECYCLE.md).
 - **Public submission and attempt lineage (unreleased source preview, #764)** -
   `waza runner submit` and protected `POST /api/v1/submissions` call the
   attempt core: distinct submissions always reserve a new execution ID (duplicates

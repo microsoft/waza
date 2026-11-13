@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { LineageError, loadLineage, parseLogical, type LineageResult } from "../api/lineage";
+import { LineageError, loadLineage, parseLogical, type LineageAttempt, type LineageResult } from "../api/lineage";
 import { downloadText } from "../lib/export";
 
 const statusLabels: Record<string, string> = {
@@ -8,6 +8,27 @@ const statusLabels: Record<string, string> = {
   completed: "Completed (verified terminal)",
   completion_unverified: "Completion recorded but unverified",
 };
+
+const lifecycleLabels: Record<string, string> = {
+  reserved: "Reserved; never dispatched",
+  unobserved: "Dispatched; lifecycle not observed",
+  running: "Running (last recorded state)",
+  cancelling: "Cancellation requested",
+  orphaned: "Orphaned (owner stale or past deadline)",
+  publication_incomplete: "Finished; publication incomplete",
+  succeeded: "Succeeded",
+  evaluation_failed: "Evaluation failed (graded)",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  timed_out: "Timed out",
+  rejected: "Rejected input",
+  unverified: "Unverified completion",
+};
+
+function cancellation(lifecycle: LineageAttempt["lifecycle"]): string {
+  if (lifecycle.cancellation === "none") return "None";
+  return lifecycle.cancellation_reason ? `${lifecycle.cancellation} (${lifecycle.cancellation_reason})` : lifecycle.cancellation;
+}
 
 function short(id: string): string {
   return id.length > 20 ? `${id.slice(0, 17)}...` : id;
@@ -87,6 +108,30 @@ function LineageReader() {
           </tr>)}</tbody>
         </table>
       </div>}
+      {lineage.attempts.length > 0 && <>
+        <h3>Attempt lifecycle</h3>
+        <p>Derived on read from each owner's lifecycle journal and immutable ledger records. Retry eligibility is advisory: Waza owns no retry policy, and a retry always creates a new attempt.</p>
+        <div className="lab-table-scroll" tabIndex={0} role="region" aria-label="Attempt lifecycle">
+          <table className="lab-table"><caption>Lifecycle state per attempt</caption>
+            <thead><tr>
+              <th scope="col">Execution</th><th scope="col">State</th><th scope="col">Cancellation</th><th scope="col">Deadline</th>
+              <th scope="col">Partial</th><th scope="col">Retry</th><th scope="col">Allowed actions</th><th scope="col">Journal</th>
+            </tr></thead>
+            <tbody>{lineage.attempts.map(({ execution_id: id, lifecycle }) => <tr key={id}>
+              <th scope="row"><code title={id}>{short(id)}</code></th>
+              <td>{lifecycleLabels[lifecycle.state] ?? lifecycle.state}</td>
+              <td>{cancellation(lifecycle)}</td>
+              <td>{lifecycle.deadline_exceeded ? "Exceeded" : lifecycle.deadline_at ?? "Not recorded"}</td>
+              <td>{lifecycle.partial ? "Yes" : "No"}</td>
+              <td>{lifecycle.retry.eligible ? "Eligible" : "Not eligible"} ({lifecycle.retry.reason})</td>
+              <td>{lifecycle.allowed_actions.join(", ")}</td>
+              <td>{lifecycle.observation === "recorded"
+                ? `${lifecycle.events ?? 0} event${lifecycle.events === 1 ? "" : "s"}${lifecycle.last_event_at ? `, last ${lifecycle.last_event_at}` : ""}`
+                : lifecycle.observation}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </>}
       {lineage.decisions.length > 0 && <>
         <h3>Duplicate and reuse decisions</h3>
         <ul aria-label="Lineage decisions">{lineage.decisions.map((decision) => <li key={decision.decision_id}>
@@ -112,7 +157,7 @@ export default function ExecutionLineage({ demo }: { demo: boolean }) {
   return <section className="lab-panel lab-runner-negotiation" aria-label="Execution attempt lineage">
     <div className="lab-panel-header"><div>
       <h2>Logical work and execution attempts</h2>
-      <p>Inspect every recorded attempt for one logical work item: retry parents, reuse decisions and concurrent-writer diagnostics.
+      <p>Inspect every recorded attempt for one logical work item: retry parents, reuse decisions, lifecycle state and concurrent-writer diagnostics.
         Read-only; nothing is executed or repaired. IDs come from <code>reservation.logical</code> in a submission result.</p>
     </div></div>
     {demo ? <p>Lineage is unavailable in the synthetic demo. Use a running Waza server with an existing local immutable store.</p> : <LineageReader />}

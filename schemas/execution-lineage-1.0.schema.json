@@ -14,7 +14,7 @@
       "type": "array", "maxItems": 1024,
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["order", "depth", "execution_id", "reservation_digest", "native_attempt", "status", "reused_by"],
+        "required": ["order", "depth", "execution_id", "reservation_digest", "native_attempt", "status", "reused_by", "lifecycle"],
         "properties": {
           "order": {"type": "integer", "minimum": 1},
           "depth": {"type": "integer", "minimum": 0},
@@ -46,7 +46,8 @@
             "if": {"properties": {"failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup"]}}},
             "then": {"properties": {"engine_calls": {"const": 0}}}
           },
-          "reused_by": {"type": "array", "items": {"$ref": "#/$defs/decision_id"}}
+          "reused_by": {"type": "array", "items": {"$ref": "#/$defs/decision_id"}},
+          "lifecycle": {"$ref": "execution-lifecycle-1.0.schema.json#/$defs/lifecycle"}
         }
       }
     },
@@ -78,7 +79,8 @@
           "code": {"enum": [
             "parent_unavailable", "decision_reservation_unavailable", "duplicate_dispatch_decision",
             "reuse_source_unavailable", "completion_unverified", "completion_verification_interrupted",
-            "dispatched_without_completion", "concurrent_distinct_attempts", "sibling_attempts"
+            "dispatched_without_completion", "concurrent_distinct_attempts", "sibling_attempts",
+            "lifecycle_journal_invalid", "orphaned_attempt"
           ]},
           "message": {"type": "string", "maxLength": 512},
           "execution_ids": {"type": "array", "items": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"}}

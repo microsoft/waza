@@ -1763,10 +1763,16 @@ storage failures exit 2 with raw causes on stderr only.
 `lineage` prints one read-only [`waza.execution-lineage`](/waza/schemas/execution-lineage-1.0.schema.json)
 document: attempts in parent order (not wall-clock), retry parents, reuse
 decisions, and diagnostics for concurrent writers, missing parents and
-dispatched attempts without completion. It exits 6 for malformed IDs and 2 when
+dispatched attempts without completion. Each attempt carries a derived
+`lifecycle` (state, cancellation, deadline, partial completion, advisory retry
+eligibility and allowed actions). `--stale-after DURATION` sets when a
+dispatched attempt with a silent lifecycle journal is reported as `orphaned`
+(default: three heartbeat intervals). It exits 6 for malformed IDs or a
+negative `--stale-after`, and 2 when
 the store is unavailable, truncated or contains unreadable records.
 `--store` and `--azure-container-url` behave as for checkpoint commands. See
-[logical work and attempts](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage).
+[logical work and attempts](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage)
+and [execution lifecycle](../../guides/immutable-artifacts/#execution-lifecycle-and-recovery).
 
 ### Checkpoint commands (unreleased source preview)
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
@@ -88,9 +89,18 @@ func registerSubmissionRoutes(mux *http.ServeMux, operations submissionOperation
 			writeError(w, http.StatusBadRequest, "run must match run-<sha256> and work must match trial-<sha256>")
 			return
 		}
+		var options executionledger.LineageOptions
+		if raw := r.URL.Query().Get("stale_after_ms"); raw != "" {
+			ms, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || ms < 1 || ms > maxStaleAfterMS {
+				writeError(w, http.StatusBadRequest, "stale_after_ms must be an integer between 1 and 604800000")
+				return
+			}
+			options.StaleAfter = time.Duration(ms) * time.Millisecond
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		data, err := lineageFor(ctx, operations, logical)
+		data, err := lineageFor(ctx, operations, logical, options)
 		if err != nil {
 			// Details stay in operator logs, never in Lab-visible errors.
 			slog.Error("execution lineage inspection failed", "error", err)
@@ -109,7 +119,10 @@ func registerSubmissionRoutes(mux *http.ServeMux, operations submissionOperation
 	})
 }
 
-func lineageFor(ctx context.Context, operations submissionOperations, logical executionattempt.Logical) (data []byte, err error) {
+// maxStaleAfterMS bounds caller-supplied stale thresholds to one week.
+const maxStaleAfterMS = 7 * 24 * 60 * 60 * 1000
+
+func lineageFor(ctx context.Context, operations submissionOperations, logical executionattempt.Logical, options executionledger.LineageOptions) (data []byte, err error) {
 	backend, closeBackend, err := operations.open()
 	if err != nil {
 		return nil, err
@@ -119,7 +132,7 @@ func lineageFor(ctx context.Context, operations submissionOperations, logical ex
 	if err != nil {
 		return nil, err
 	}
-	lineage, err := ledger.Lineage(ctx, logical)
+	lineage, err := ledger.Lineage(ctx, logical, options)
 	if err != nil {
 		return nil, err
 	}
