@@ -164,7 +164,7 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	result.Caller = report.Identity
 	ctx, stop := context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
 	defer stop()
-	binding, _ := AdmittedBinding(request.Request)
+	binding := callerBinding(report.binding)
 	if hooks.Admission != nil {
 		callbackBinding := binding
 		callbackBinding.GraderIDs = slices.Clone(binding.GraderIDs)

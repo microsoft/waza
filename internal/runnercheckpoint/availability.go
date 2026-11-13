@@ -141,9 +141,6 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 	if err != nil {
 		return result.with("rejected", "checkpoint_input_invalid"), ErrAvailabilityInput
 	}
-	if report := runnerunit.Validate(request.Request); report.Status != "ready" {
-		return result.with("rejected", "checkpoint_request_invalid"), ErrAvailabilityInput
-	}
 	caller, ok := runnerunit.AdmittedBinding(request.Request)
 	if !ok {
 		return result.with("rejected", "checkpoint_request_invalid"), ErrAvailabilityInput
@@ -202,9 +199,9 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 			(request.Policy.Parent != nil && *request.Policy.Parent != parent)) {
 			return result.with("unavailable", "checkpoint_policy_conflict"), ErrPolicy
 		}
-		// Resume reserves the retry child through the same runtime and
-		// ancestry admission.
-		if err := execution.ValidateOwnedRuntime(reserved.Attempt.Binding.ExecutionMode); err != nil {
+		// Resume admits the caller's runtime and reserves the retry child
+		// through the same ancestry admission.
+		if err := execution.ValidateOwnedRuntime(caller.ExecutionMode); err != nil {
 			return result.with("unavailable", "checkpoint_runtime_rejected"), err
 		}
 		if err := ledger.AdmitParent(ctx, reserved.Attempt.Binding, parent); err != nil {
