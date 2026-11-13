@@ -2,6 +2,7 @@ import Ajv2020 from "ajv/dist/2020";
 import responseSchema from "../../../schemas/runner-negotiation-response-1.0.schema.json";
 import unitSchema from "../../../schemas/runner-unit-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
+import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 
 export interface RunnerNegotiation {
@@ -20,7 +21,7 @@ export interface RunnerNegotiation {
   diagnostics: { code: string; message: string }[];
 }
 
-const validate = new Ajv2020({ strict: false }).compile<RunnerNegotiation>(responseSchema);
+const validate = lazyValidator(() => new Ajv2020({ strict: false }).compile<RunnerNegotiation>(responseSchema));
 
 export interface WorkSelection {
   shard: string;
@@ -76,7 +77,7 @@ export interface RunnerTerminal {
   diagnostics: { code: string; message: string }[];
 }
 
-const validateTerminal = new Ajv2020({ strict: false }).compile<RunnerTerminal>(terminalSchema);
+const validateTerminal = lazyValidator(() => new Ajv2020({ strict: false }).compile<RunnerTerminal>(terminalSchema));
 
 export function sameSelection(a: WorkSelection | undefined, b: WorkSelection | undefined): boolean {
   return !!a && !!b && a.shard === b.shard && a.task === b.task && a.trial === b.trial && a.attempt === b.attempt;
@@ -137,9 +138,9 @@ export async function runRunnerUnit(request: string, signal: AbortSignal): Promi
   return value;
 }
 
-const validateUnit = new Ajv2020({ strict: false })
+const validateUnit = lazyValidator(() => new Ajv2020({ strict: false })
   .addSchema(responseSchema)
-  .compile<RunnerSelectionReport>(unitSchema);
+  .compile<RunnerSelectionReport>(unitSchema));
 
 export async function validateRunnerSelection(request: string, signal?: AbortSignal): Promise<RunnerSelectionReport> {
   const response = await fetch("/api/v1/runner/validate", {

@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `POST /api/v1/adapter/translate` route. See
   [portable external execution adapters](site/src/content/docs/guides/runner-adapters.mdx).
 
+### Changed
+
+- Dashboard CI enforces a Playwright wall-time budget for the `Test dashboard`
+  step: a 0.42 s per executed test median target with a 1.25× per-run ceiling,
+  retry-disabled on two workers. The dashboard compiles Ajv validators on first
+  use and renders a preloaded direct-load route without the Suspense reveal
+  delay, which cut the CI step from about 423 s to about 260 s (#974).
+
 ### Fixed
 
 - The Lab checkpoint result reader re-encodes retained runner-unit reports in

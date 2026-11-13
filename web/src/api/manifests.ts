@@ -1,4 +1,5 @@
 import Ajv2020 from "ajv/dist/2020";
+import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 
 export interface ManifestReceipt {
@@ -31,7 +32,7 @@ export interface ManifestCatalog {
 
 export class ManifestInspectionError extends Error {}
 
-const validateCatalog = new Ajv2020({ strict: false }).compile<ManifestCatalog>({
+const validateCatalog = lazyValidator(() => new Ajv2020({ strict: false }).compile<ManifestCatalog>({
   type: "object",
   additionalProperties: false,
   required: ["manifest_sha256", "truncated", "verification", "diagnostics"],
@@ -43,9 +44,9 @@ const validateCatalog = new Ajv2020({ strict: false }).compile<ManifestCatalog>(
     diagnostics: { type: "array", items: { type: "object", additionalProperties: false,
       required: ["code", "message"], properties: { code: { type: "string" }, message: { type: "string" } } } },
   },
-});
+}));
 
-const validateReceipt = new Ajv2020({ strict: false }).compile<ManifestReceipt>({
+const validateReceipt = lazyValidator(() => new Ajv2020({ strict: false }).compile<ManifestReceipt>({
   type: "object",
   additionalProperties: false,
   required: ["manifest_sha256", "publication", "integrity", "verification", "artifacts", "diagnostics"],
@@ -93,7 +94,7 @@ const validateReceipt = new Ajv2020({ strict: false }).compile<ManifestReceipt>(
       then: { properties: { diagnostics: { minItems: 1 } } },
     },
   ],
-});
+}));
 
 export async function inspectManifest(digest: string, signal: AbortSignal): Promise<ManifestInspection> {
   let response: Response;

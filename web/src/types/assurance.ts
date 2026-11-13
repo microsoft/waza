@@ -4,6 +4,7 @@ import reportSchema from "../../../schemas/grader-assurance-1.0.schema.json";
 import calibratedSchema from "../../../schemas/grader-assurance-1.1.schema.json";
 import referenceSchema from "../../../schemas/grader-reference-1.0.schema.json";
 import evidenceSchema from "../../../schemas/evidence-manifest-1.0.schema.json";
+import { lazy, lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 
 export const assuranceStates = [
@@ -97,12 +98,15 @@ export type AssuranceReport = AssuranceReportBase & (
     calibration: CalibrationClaims & { execution_ledger: JudgeExecution[] } }
 );
 
-const compiler = new Ajv2020({ strict: false, strictNumbers: true, allErrors: false });
-addFormats(compiler);
-compiler.addSchema(evidenceSchema);
-compiler.addSchema(referenceSchema);
-const validateReport = compiler.compile<AssuranceReport & { schema_version: "1.0" }>(reportSchema);
-const validateCalibrated = compiler.compile<AssuranceReport & { schema_version: "1.1" }>(calibratedSchema);
+const compiler = lazy(() => {
+  const ajv = new Ajv2020({ strict: false, strictNumbers: true, allErrors: false });
+  addFormats(ajv);
+  ajv.addSchema(evidenceSchema);
+  ajv.addSchema(referenceSchema);
+  return ajv;
+});
+const validateReport = lazyValidator(() => compiler().compile<AssuranceReport & { schema_version: "1.0" }>(reportSchema));
+const validateCalibrated = lazyValidator(() => compiler().compile<AssuranceReport & { schema_version: "1.1" }>(calibratedSchema));
 
 export function parseAssuranceReport(text: string, allowCalibrated = false): AssuranceReport {
   const value = parseStrictJSON(text);

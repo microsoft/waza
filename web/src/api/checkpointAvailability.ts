@@ -3,6 +3,7 @@ import availabilitySchema from "../../../schemas/runner-checkpoint-availability-
 import attemptSchema from "../../../schemas/execution-attempt-1.0.schema.json";
 import manifestSchema from "../../../schemas/artifact-manifest-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
+import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 
 export interface CheckpointAvailability {
@@ -20,9 +21,11 @@ export interface CheckpointAvailability {
   diagnostics: { code: string; message: string }[];
 }
 
-const ajv = new Ajv2020({ strict: false });
-for (const schema of [terminalSchema, manifestSchema, attemptSchema]) ajv.addSchema(schema);
-const validate = ajv.compile<CheckpointAvailability>(availabilitySchema);
+const validate = lazyValidator(() => {
+  const ajv = new Ajv2020({ strict: false });
+  for (const schema of [terminalSchema, manifestSchema, attemptSchema]) ajv.addSchema(schema);
+  return ajv.compile<CheckpointAvailability>(availabilitySchema);
+});
 
 export function parseCheckpointAvailability(text: string, digest?: string): CheckpointAvailability {
   const value = parseStrictJSON(text);

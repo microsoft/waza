@@ -362,6 +362,10 @@ func checkBrowserEvidence(source []byte) error {
 	if producerTest.If != condition || producerTest.Run != "node --test .github/scripts/ci-evidence-playwright.test.cjs" {
 		return fmt.Errorf("current Playwright producer contract must execute after install")
 	}
+	budget := steps["Check dashboard wall-time budget"]
+	if budget.If != "steps.tests.outcome == 'success'" || budget.Run != "node .github/scripts/ci-evidence-dashboard-budget.cjs web/.ci-evidence-report.json" {
+		return fmt.Errorf("successful dashboard runs must enforce the wall-time budget from the actual report")
+	}
 	var commands string
 	for _, step := range job.Steps {
 		if step.ContinueOnError {
@@ -530,6 +534,8 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 		{"          include-hidden-files: true\n", ""},
 		{"include-hidden-files: true\n          if-no-files-found: error", "include-hidden-files: true\n          if-no-files-found: warn"},
 		{"retention-days: 14", "retention-days: 90"},
+		{"if: steps.tests.outcome == 'success'", "if: false"},
+		{"ci-evidence-dashboard-budget.cjs web/.ci-evidence-report.json", "ci-evidence-dashboard-budget.cjs /dev/null"},
 	} {
 		changed := strings.Replace(string(browser), mutation[0], mutation[1], 1)
 		if changed == string(browser) || checkBrowserEvidence([]byte(changed)) == nil {
@@ -539,7 +545,7 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 }
 
 func TestCIEvidenceCollectorProductionContracts(t *testing.T) {
-	cmd := exec.CommandContext(t.Context(), "node", "--test", "ci-evidence.test.cjs")
+	cmd := exec.CommandContext(t.Context(), "node", "--test", "ci-evidence.test.cjs", "ci-evidence-dashboard-budget.test.cjs")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("structured evidence production contracts: %v\n%s", err, output)

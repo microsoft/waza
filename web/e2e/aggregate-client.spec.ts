@@ -43,7 +43,9 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
       forged: string;
     }[];
   };
-  let delayed: { wire: string; delay: number; started?: () => void; closed?: (completed: boolean) => void } | undefined;
+  let delayed: {
+    wire: string; delay: number; release?: Promise<void>; started?: () => void; closed?: (completed: boolean) => void;
+  } | undefined;
 
   test.beforeAll(async () => {
     test.setTimeout(120_000);
@@ -63,11 +65,16 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
             const control = delayed;
             if (request.url !== "/api/v1/aggregates" || !control) return next();
             request.resume();
-            const timer = setTimeout(() => {
+            let pending = true;
+            const respond = () => {
+              if (!pending || response.destroyed) return;
               response.setHeader("Content-Type", "application/json");
               response.end(control.wire);
-            }, control.delay);
+            };
+            const timer = control.release ? undefined : setTimeout(respond, control.delay);
+            void control.release?.then(respond);
             response.on("close", () => {
+              pending = false;
               clearTimeout(timer);
               control.closed?.(response.writableFinished);
             });
@@ -282,15 +289,27 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
   });
 
   test("delayed valid HTTP response outlives the old client deadline and downloads exact bytes", async ({ page }) => {
-    test.setTimeout(60_000);
-    delayed = { wire: mixed.canonical, delay: 36_000 };
+    let started: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const requestStarted = new Promise<void>((done) => { started = done; });
+    delayed = {
+      wire: mixed.canonical, delay: 0, started: () => started?.(),
+      release: new Promise<void>((done) => { release = done; }),
+    };
     try {
+      // Paused browser time is advanced deterministically; the real HTTP response is held until 36 client seconds have elapsed.
+      await page.clock.install();
       await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
       await page.getByRole("textbox").fill(mixed.inputs.map((input) =>
         `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n"));
+      await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1_000);
       await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
+      await requestStarted;
+      await page.clock.runFor(36_000);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      release?.();
       await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" }))
-        .toContainText("Aggregate admission: complete", { timeout: 40_000 });
+        .toContainText("Aggregate admission: complete");
       const download = page.waitForEvent("download");
       await page.getByRole("button", { name: "Download aggregate JSON" }).click();
       expect(await readFile((await (await download).path())!)).toEqual(Buffer.from(mixed.canonical));
@@ -325,20 +344,30 @@ test.describe("Actual aggregate fetch, component and download callers", () => {
   });
 
   test("finite client timeout clears previous report and closes actual HTTP", async ({ page }) => {
-    test.setTimeout(75_000);
+    let started: (() => void) | undefined;
     let closed: ((completed: boolean) => void) | undefined;
+    const requestStarted = new Promise<void>((done) => { started = done; });
     const requestClosed = new Promise<boolean>((done) => { closed = done; });
     delayed = { wire: mixed.canonical, delay: 0 };
     try {
+      await page.clock.install();
       await page.goto(`${base}/e2e/fixtures/aggregate-harness.html`);
       await page.getByRole("textbox").fill(mixed.inputs.map((input) =>
         `${input.manifest_sha256}${input.evidence_sha256 ? ` ${input.evidence_sha256}` : ""}`).join("\n"));
       await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
       await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toContainText("Aggregate admission: complete");
-      delayed = { wire: mixed.canonical, delay: 60_000, closed: (complete) => closed?.(complete) };
+      delayed = {
+        wire: mixed.canonical, delay: 0, release: new Promise<void>(() => {}),
+        started: () => started?.(), closed: (complete) => closed?.(complete),
+      };
+      await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1_000);
       await page.getByRole("button", { name: "Build aggregate", exact: true }).click();
       await expect(page.getByRole("status", { name: "Evaluated manifest aggregate" })).toHaveCount(0);
-      await expect(page.getByRole("alert")).toContainText("could not be loaded", { timeout: 55_000 });
+      await requestStarted;
+      await page.clock.runFor(49_999);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      await page.clock.runFor(1);
+      await expect(page.getByRole("alert")).toContainText("could not be loaded");
       expect(await requestClosed).toBe(false);
       await expect(page.getByRole("button", { name: "Download aggregate JSON" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Build aggregate", exact: true })).toBeEnabled();

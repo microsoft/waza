@@ -2,6 +2,7 @@ import Ajv2020 from "ajv/dist/2020";
 import aggregateSchema from "../../../schemas/manifest-aggregate-1.0.schema.json";
 import manifestSchema from "../../../schemas/artifact-manifest-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
+import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 
 export interface AggregateInput {
@@ -74,10 +75,10 @@ export interface AggregateResult {
 
 export class AggregateError extends Error {}
 
-const validateReport = new Ajv2020({ strict: false })
+const validateReport = lazyValidator(() => new Ajv2020({ strict: false })
   .addSchema(terminalSchema)
   .addSchema(manifestSchema)
-  .compile<AggregateReport>(aggregateSchema);
+  .compile<AggregateReport>(aggregateSchema));
 
 function referenceKey(input: AggregateInput): string {
   return `${input.manifest_sha256}:${input.evidence_sha256 ?? ""}`;
