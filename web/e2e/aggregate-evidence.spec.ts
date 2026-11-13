@@ -25,7 +25,12 @@ test.describe("Aggregate evidence states and lineage", () => {
       cwd: resolve(".."), timeout: 120_000,
     });
     fixture = JSON.parse(await readFile(output, "utf8"));
-    server = await createServer({ server: { host: "127.0.0.1", port: 0 } });
+    // A private optimizer cache keeps this config from re-optimizing the
+    // dependencies another concurrent aggregate harness is serving.
+    server = await createServer({
+      cacheDir: "node_modules/.vite-aggregate-evidence",
+      server: { host: "127.0.0.1", port: 0 },
+    });
     await server.listen();
     const address = server.httpServer?.address();
     if (!address || typeof address === "string") throw new Error("Aggregate harness listener unavailable.");
