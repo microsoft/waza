@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import lineage from "./fixtures/execution-lineage.json" with { type: "json" };
 import checkpoints from "./fixtures/checkpoint-operations.json" with { type: "json" };
@@ -64,8 +64,7 @@ async function scrollTo(page: Page, locator: ReturnType<Page["locator"]>) {
 
 // Records one 9:16 clip and writes <name>.webm, <name>.vtt and <name>.txt.
 async function clip(browser: Browser, name: string, journey: (page: Page, captions: Captions) => Promise<void>) {
-  const videos = join(out, ".raw");
-  const context = await browser.newContext({ viewport: vertical, recordVideo: { dir: videos, size: vertical } });
+  const context = await browser.newContext({ viewport: vertical, recordVideo: { dir: raw, size: vertical } });
   const page = await context.newPage();
   const captions = new Captions(page);
   await journey(page, captions);
@@ -122,6 +121,7 @@ async function resumeCheckpoint(page: Page) {
   return { panel, result };
 }
 
+let raw = "";
 let aggregate: { inputs: { manifest_sha256: string; evidence_sha256?: string }[]; canonical: string };
 
 async function routeAggregate(page: Page) {
@@ -142,9 +142,12 @@ async function buildAggregate(page: Page) {
 test.beforeAll(async () => {
   test.setTimeout(180_000);
   await mkdir(out, { recursive: true });
+  if (!relative(await realpath(resolve("..")), await realpath(out)).startsWith("..")) {
+    throw new Error("WAZA_RELEASE_MEDIA_DIR resolves inside the repository.");
+  }
+  raw = await mkdtemp(join(out, ".raw-"));
   // The aggregate report is produced by the Go aggregator, as in aggregate-evidence.spec.ts.
-  const fixture = join(out, ".raw", "aggregate-evidence.json");
-  await mkdir(join(out, ".raw"), { recursive: true });
+  const fixture = join(raw, "aggregate-evidence.json");
   execFileSync("go", ["test", "-count=1", "-run", "^TestEvidenceStatesLabFixture$",
     "./internal/manifestaggregate", "-args", "-aggregate-evidence-fixture-output", fixture], {
     cwd: resolve(".."), timeout: 150_000,
@@ -153,7 +156,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (out) await rm(join(out, ".raw"), { recursive: true, force: true });
+  if (raw) await rm(raw, { recursive: true, force: true });
 });
 
 test("screenshots: Lab opt-in boundaries, lineage, lifecycle, checkpoint resume and evidence", async ({ page }) => {
