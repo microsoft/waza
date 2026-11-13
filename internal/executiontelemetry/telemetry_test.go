@@ -38,6 +38,9 @@ var fixedNow = time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 type fixture struct {
 	Inputs
 	original, retry manifestfixture.Source
+	// originalTerminal and originalAttempt are the original execution's
+	// published bytes, used as same-binding negative controls.
+	originalTerminal, originalAttempt []byte
 }
 
 // publishFixture runs the actual mock runner twice (an original and its retry)
@@ -56,6 +59,8 @@ func publishFixture(t *testing.T) fixture {
 	})
 
 	completed, err := artifactmanifest.NewStore(backend).ReadCompleted(ctx, retry.Manifest)
+	require.NoError(t, err)
+	originalCompleted, err := artifactmanifest.NewStore(backend).ReadCompleted(ctx, original.Manifest, "terminal.json", AttemptArtifact)
 	require.NoError(t, err)
 	terminal := completed.ArtifactBytes[completed.Manifest.TerminalArtifact]
 	envelope, err := runnerterminal.Validate(terminal, completed.Manifest.Binding.TerminalBinding())
@@ -85,7 +90,9 @@ func publishFixture(t *testing.T) fixture {
 		Terminal: terminal, Manifest: completed.ManifestBytes, Attempt: reservation.Bytes,
 		Lineage: lineageBytes, Report: reportFor(t, *envelope), Aggregate: aggregateBytes,
 		SchedulerWorkID: "queue/job-42",
-	}, original: original, retry: retry}
+	}, original: original, retry: retry,
+		originalTerminal: originalCompleted.ArtifactBytes[originalCompleted.Manifest.TerminalArtifact],
+		originalAttempt:  originalCompleted.ArtifactBytes[AttemptArtifact]}
 }
 
 func reportFor(t *testing.T, envelope runnerterminal.Envelope) []byte {
@@ -96,6 +103,8 @@ func reportFor(t *testing.T, envelope runnerterminal.Envelope) []byte {
 			map[string]any{"run_number": envelope.Observation.RunNumber + 1, "prompt": "other run must not be selected"},
 			map[string]any{
 				"run_number": envelope.Observation.RunNumber, "prompt": secretPrompt, "final_output": secretOutput,
+				"attempts": envelope.Observation.Attempts, "status": envelope.Observation.Status,
+				"error_msg": envelope.Observation.ErrorMsg, "validations": verdictsFor(envelope),
 				"session_digest": map[string]any{
 					"usage": map[string]any{"model_metrics": map[string]any{"gpt-test": map[string]any{
 						"input_tokens": 10, "output_tokens": 4, "cache_read_tokens": 2, "cache_write_tokens": 1, "request_count": 1,
@@ -111,6 +120,14 @@ func reportFor(t *testing.T, envelope runnerterminal.Envelope) []byte {
 	data, err := json.Marshal(report)
 	require.NoError(t, err)
 	return data
+}
+
+func verdictsFor(envelope runnerterminal.Envelope) map[string]any {
+	validations := map[string]any{}
+	for _, v := range envelope.Observation.Validations {
+		validations[v.Identifier] = map[string]any{"name": v.Identifier, "passed": v.Passed}
+	}
+	return validations
 }
 
 func build(t *testing.T, in Inputs, opts Options) *Bundle {
@@ -512,7 +529,8 @@ func TestDeliverFailureNeverEchoesReceiverContent(t *testing.T) {
 	recv = &receiver{response: `{"partialSuccess":{"rejectedSpans":"2","errorMessage":"RECEIVER-SECRET-BODY"}}`}
 	server2 := httptest.NewServer(recv)
 	defer server2.Close()
-	require.NoError(t, Deliver(context.Background(), partial, ExportOptions{OTLPEndpoint: server2.URL}))
+	err = Deliver(context.Background(), partial, ExportOptions{OTLPEndpoint: server2.URL})
+	require.ErrorIs(t, err, ErrExport, "a partially rejected export is a failed export")
 	for _, e := range partial.Report.Exports {
 		require.Equal(t, ExportPartial, e.State)
 		require.Equal(t, ErrorPartialSuccess, e.ErrorCode)
@@ -523,10 +541,67 @@ func TestDeliverFailureNeverEchoesReceiverContent(t *testing.T) {
 	require.ErrorIs(t, err, ErrExport)
 	require.Contains(t, []string{ErrorTransport, ErrorTimeout}, unreachable.Report.Exports[0].ErrorCode)
 
-	for _, bad := range []string{"ftp://x", "http://user:pass@host", "http://host/?token=1", "relative/path"} {
+	for _, bad := range []string{"ftp://x", "http://user:pass@host", "http://host/?token=1", "relative/path",
+		"https://collector.example/tenant@org", "http://host/?", "http://host/" + strings.Repeat("a", 500)} {
 		_, err := ValidateEndpoint(bad)
 		require.Error(t, err, bad)
 	}
+	endpoint, err := ValidateEndpoint("http://host/a%3Fb%23c")
+	require.NoError(t, err)
+	require.Equal(t, "http://host/a%3Fb%23c/v1/traces", otlpTarget(endpoint, "/v1/traces"), "escaped delimiters stay escaped in the target")
+}
+
+func TestDeliverRejectsUnacknowledgedExports(t *testing.T) {
+	f := publishFixture(t)
+	landing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "<html>login</html>")
+	}))
+	defer landing.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, landing.URL, http.StatusFound)
+	}))
+	defer redirect.Close()
+	cases := map[string]struct {
+		url    string
+		status int
+		code   string
+	}{
+		"redirect": {redirect.URL, http.StatusFound, ErrorHTTPStatus},
+	}
+	for name, body := range map[string]string{
+		"html":      "<html>RECEIVER-SECRET-BODY</html>",
+		"array":     "[]",
+		"trailing":  "{} {}",
+		"negative":  `{"partialSuccess":{"rejectedSpans":"-1"}}`,
+		"oversized": `{"x":"` + strings.Repeat("a", MaxOTLPResponseBytes) + `"}`,
+	} {
+		server := httptest.NewServer(&receiver{response: body})
+		defer server.Close()
+		cases[name] = struct {
+			url    string
+			status int
+			code   string
+		}{server.URL, http.StatusOK, ErrorInvalidResponse}
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			bundle := build(t, f.Inputs, Options{})
+			err := Deliver(context.Background(), bundle, ExportOptions{OTLPEndpoint: tc.url, Client: &http.Client{}})
+			require.ErrorIs(t, err, ErrExport)
+			for _, e := range bundle.Report.Exports {
+				require.Equal(t, ExportFailed, e.State)
+				require.Equal(t, tc.code, e.ErrorCode)
+				require.Equal(t, tc.status, e.HTTPStatus)
+			}
+			encoded, err := EncodeReport(bundle.Report)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "RECEIVER-SECRET-BODY")
+		})
+	}
+	empty := httptest.NewServer(&receiver{})
+	defer empty.Close()
+	bundle := build(t, f.Inputs, Options{})
+	require.NoError(t, Deliver(context.Background(), bundle, ExportOptions{OTLPEndpoint: empty.URL}), "an empty 2xx body is an acknowledgement")
 }
 
 // TestDocumentationListsStableContract keeps docs/EXECUTION_TELEMETRY.md in
@@ -625,4 +700,64 @@ func TestToolEventsArePreferredOverLegacyToolCalls(t *testing.T) {
 	all := marshalAll(t, bundle)
 	require.NotContains(t, all, secretArgs)
 	require.NotContains(t, all, secretResult)
+}
+
+func TestLoadBindsDocumentsToTheManifestExecution(t *testing.T) {
+	f := publishFixture(t)
+	require.NotEmpty(t, f.originalTerminal)
+	require.NotEmpty(t, f.originalAttempt)
+
+	// Different bytes that still satisfy the same binding.
+	other := append(bytes.Clone(f.Terminal), '\n')
+	require.NotEqual(t, f.Terminal, other)
+	manifest, err := artifactmanifest.Parse(f.Manifest)
+	require.NoError(t, err)
+	_, err = runnerterminal.Validate(other, manifest.Binding.TerminalBinding())
+	require.NoError(t, err, "the control terminal satisfies the manifest binding")
+	swapped := f.Inputs
+	swapped.Terminal = other
+	_, err = Load(swapped)
+	require.ErrorIs(t, err, ErrUncorrelated, "a same-binding terminal that is not the declared artifact is rejected")
+
+	swapped = f.Inputs
+	swapped.Attempt = f.originalAttempt
+	_, err = Load(swapped)
+	require.ErrorIs(t, err, ErrUncorrelated, "the original sidecar cannot claim the retry's manifest")
+
+	lineageOnly := Inputs{Terminal: f.Terminal, Lineage: f.Lineage}
+	_, err = Load(lineageOnly)
+	require.ErrorIs(t, err, ErrUncorrelated, "a lineage alone cannot select the execution")
+
+	conflicting := f.Inputs
+	lineage := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Lineage, &lineage))
+	for _, entry := range asSlice(t, lineage["attempts"]) {
+		entry := asMap(t, entry)
+		if entry["execution_id"] == f.retry.Execution {
+			entry["native_attempt"] = 99
+		}
+	}
+	conflicting.Lineage = mustMarshal(t, lineage)
+	_, err = Load(conflicting)
+	require.ErrorIs(t, err, ErrUncorrelated, "a lineage entry contradicting the terminal is rejected")
+}
+
+func TestLoadBindsReportRunToTerminalObservation(t *testing.T) {
+	f := publishFixture(t)
+	report := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Report, &report))
+	run := asMap(t, asSlice(t, asMap(t, asSlice(t, report["tasks"])[0])["runs"])[1])
+	run["status"] = "status-from-another-run"
+	conflicting := f.Inputs
+	conflicting.Report = mustMarshal(t, report)
+	_, err := Load(conflicting)
+	require.ErrorIs(t, err, ErrUncorrelated, "a same-numbered run with a different observation is another execution")
+
+	report = map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Report, &report))
+	report["schemaVersion"] = "2.0"
+	future := f.Inputs
+	future.Report = mustMarshal(t, report)
+	_, err = Load(future)
+	require.ErrorIs(t, err, ErrInvalid, "unsupported results versions are rejected by the shared reader")
 }

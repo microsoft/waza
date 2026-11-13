@@ -137,7 +137,7 @@
           "target": {"type": "string", "minLength": 1, "maxLength": 512, "not": {"pattern": "[?#@]"}},
           "state": {"enum": ["exported", "partial", "failed", "skipped"]},
           "http_status": {"type": "integer", "minimum": 100, "maximum": 599},
-          "error_code": {"enum": ["output_exists", "write_error", "transport_error", "timeout", "http_status", "partial_success"]}
+          "error_code": {"enum": ["output_exists", "write_error", "transport_error", "timeout", "http_status", "partial_success", "invalid_response"]}
         }
       }
     }

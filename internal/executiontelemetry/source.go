@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
+	"sort"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
@@ -24,6 +26,10 @@ var (
 
 // MaxReportBytes bounds the optional rich report source.
 const MaxReportBytes = 64 << 20
+
+// AttemptArtifact is the manifest artifact that carries the execution-attempt
+// sidecar bytes published with a ledger-backed execution.
+const AttemptArtifact = "execution-attempt.json"
 
 var schedulerWorkPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$`)
 
@@ -47,11 +53,13 @@ const (
 
 // Source is the admitted, mutually consistent set of contract documents.
 type Source struct {
-	Terminal        runnerterminal.Envelope
-	Manifest        *artifactmanifest.Manifest
-	ManifestSHA256  string
-	Attempt         *executionattempt.Attempt
-	Lineage         *executionledger.Lineage
+	Terminal       runnerterminal.Envelope
+	Manifest       *artifactmanifest.Manifest
+	ManifestSHA256 string
+	Attempt        *executionattempt.Attempt
+	Lineage        *executionledger.Lineage
+	// LineageIndex is the lineage entry for the terminal's execution, or -1.
+	LineageIndex    int
 	Run             *models.RunResult
 	ReportState     string
 	Aggregate       *manifestaggregate.Report
@@ -62,7 +70,7 @@ type Source struct {
 // Load validates every supplied document against its published contract and
 // rejects documents that describe a different run, work or attempt.
 func Load(in Inputs) (*Source, error) {
-	src := &Source{ReportState: SourceUnavailable}
+	src := &Source{ReportState: SourceUnavailable, LineageIndex: -1}
 	if in.SchedulerWorkID != "" {
 		if !schedulerWorkPattern.MatchString(in.SchedulerWorkID) {
 			return nil, fmt.Errorf("%w: scheduler work ID must match %s", ErrInvalid, schedulerWorkPattern)
@@ -113,7 +121,20 @@ func Load(in Inputs) (*Source, error) {
 	identity := *terminal.Identity
 	logical := executionattempt.LogicalFrom(identity)
 
+	if src.Manifest != nil {
+		if err := declared(*src.Manifest, src.Manifest.TerminalArtifact, in.Terminal); err != nil {
+			return nil, fmt.Errorf("%w: terminal is not the manifest terminal artifact: %w", ErrUncorrelated, err)
+		}
+	}
 	if attempt != nil {
+		if src.Manifest != nil {
+			if !reflect.DeepEqual(attempt.Binding, src.Manifest.Binding) {
+				return nil, fmt.Errorf("%w: execution attempt binding differs from manifest binding", ErrUncorrelated)
+			}
+			if err := declared(*src.Manifest, AttemptArtifact, in.Attempt); err != nil {
+				return nil, fmt.Errorf("%w: execution attempt is not the manifest attempt artifact: %w", ErrUncorrelated, err)
+			}
+		}
 		if attempt.Binding.Identity != identity {
 			return nil, fmt.Errorf("%w: execution attempt identity differs from terminal identity", ErrUncorrelated)
 		}
@@ -130,18 +151,29 @@ func Load(in Inputs) (*Source, error) {
 		if lineage.Logical != logical {
 			return nil, fmt.Errorf("%w: lineage logical run/work differs from terminal identity", ErrUncorrelated)
 		}
-		src.Lineage = lineage
+		if attempt == nil && src.Manifest == nil {
+			return nil, fmt.Errorf("%w: a lineage needs an execution attempt or manifest to select the terminal's execution", ErrUncorrelated)
+		}
+		index, err := selectLineage(*lineage, src)
+		if err != nil {
+			return nil, err
+		}
+		src.Lineage, src.LineageIndex = lineage, index
 	}
 	if len(in.Report) > 0 {
 		if len(in.Report) > MaxReportBytes {
 			return nil, fmt.Errorf("%w: report exceeds %d bytes", ErrInvalid, MaxReportBytes)
 		}
-		var report models.EvaluationOutcome
-		if err := json.Unmarshal(in.Report, &report); err != nil {
+		report, err := models.ParseEvaluationOutcome(in.Report, "report")
+		if err != nil {
 			return nil, fmt.Errorf("%w: report: %w", ErrInvalid, err)
 		}
-		src.Run, src.ReportState = selectRun(report, *terminal), SourceUnmatched
-		if src.Run != nil {
+		run, err := selectRun(*report, *terminal)
+		if err != nil {
+			return nil, err
+		}
+		src.Run, src.ReportState = run, SourceUnmatched
+		if run != nil {
 			src.ReportState = SourcePresent
 		}
 	}
@@ -198,12 +230,66 @@ func selfBinding(data []byte) *runnerterminal.Binding {
 	return binding
 }
 
-// selectRun returns the report run for the terminal's exact selection, or nil
-// when the report does not contain it. It never falls back to another run.
-func selectRun(report models.EvaluationOutcome, terminal runnerterminal.Envelope) *models.RunResult {
-	runNumber := terminal.Selection.Trial
-	if terminal.Observation != nil {
-		runNumber = terminal.Observation.RunNumber
+// declared verifies data is the exact artifact the manifest names.
+func declared(manifest artifactmanifest.Manifest, name string, data []byte) error {
+	for _, artifact := range manifest.Artifacts {
+		if artifact.Name != name {
+			continue
+		}
+		if artifact.SizeBytes != int64(len(data)) || artifact.SHA256 != artifactmanifest.Hash(data) {
+			return fmt.Errorf("%s bytes differ from the declared SHA-256 or size", name)
+		}
+		return nil
+	}
+	return fmt.Errorf("manifest declares no %s artifact", name)
+}
+
+// selectLineage finds the entry for the terminal's execution (by attempt
+// sidecar execution ID, else by manifest digest) and rejects recorded fields
+// that contradict the supplied documents. Fields an earlier snapshot has not
+// recorded yet stay unavailable. A missing entry returns -1.
+func selectLineage(lineage executionledger.Lineage, src *Source) (int, error) {
+	index := -1
+	for i, entry := range lineage.Attempts {
+		if (src.Attempt != nil && entry.ExecutionID == src.Attempt.ExecutionID) ||
+			(src.Attempt == nil && src.ManifestSHA256 != "" && entry.ManifestDigest == src.ManifestSHA256) {
+			index = i
+			break
+		}
+	}
+	for i, entry := range lineage.Attempts {
+		if i != index && src.ManifestSHA256 != "" && entry.ManifestDigest == src.ManifestSHA256 {
+			return -1, fmt.Errorf("%w: lineage records this manifest for another execution", ErrUncorrelated)
+		}
+	}
+	if index < 0 {
+		return -1, nil
+	}
+	entry, terminal := lineage.Attempts[index], src.Terminal
+	switch {
+	case entry.NativeAttempt != terminal.Selection.Attempt:
+		return -1, fmt.Errorf("%w: lineage native attempt differs from terminal selection", ErrUncorrelated)
+	case entry.ManifestDigest != "" && src.ManifestSHA256 != "" && entry.ManifestDigest != src.ManifestSHA256:
+		return -1, fmt.Errorf("%w: lineage manifest differs from supplied manifest", ErrUncorrelated)
+	case src.Attempt != nil && entry.Parent != nil && !reflect.DeepEqual(entry.Parent, src.Attempt.Parent):
+		return -1, fmt.Errorf("%w: lineage parent differs from execution attempt parent", ErrUncorrelated)
+	}
+	if t := entry.Terminal; t != nil && (t.Outcome != terminal.Outcome || t.ExitCode != terminal.ExitCode ||
+		t.FailureBoundary != terminal.FailureBoundary || t.EngineCalls != terminal.EngineCalls) {
+		return -1, fmt.Errorf("%w: lineage terminal outcome differs from supplied terminal", ErrUncorrelated)
+	}
+	return index, nil
+}
+
+// selectRun returns the report run for the terminal's exact selection. The
+// terminal observation is projected from that run, so its run number,
+// attempts, status, error and verdicts bind the run and any difference is a
+// conflict. The report stays unmatched (nil, nil) when the terminal has no
+// observation to bind it or the run is absent. It never falls back.
+func selectRun(report models.EvaluationOutcome, terminal runnerterminal.Envelope) (*models.RunResult, error) {
+	obs := terminal.Observation
+	if obs == nil {
+		return nil, nil
 	}
 	for i := range report.TestOutcomes {
 		outcome := &report.TestOutcomes[i]
@@ -211,10 +297,31 @@ func selectRun(report models.EvaluationOutcome, terminal runnerterminal.Envelope
 			continue
 		}
 		for j := range outcome.Runs {
-			if outcome.Runs[j].RunNumber == runNumber {
-				return &outcome.Runs[j]
+			run := &outcome.Runs[j]
+			if run.RunNumber != obs.RunNumber {
+				continue
 			}
+			if run.Attempts != obs.Attempts || string(run.Status) != obs.Status || run.ErrorMsg != obs.ErrorMsg ||
+				!sameVerdicts(run.Validations, obs.Validations) {
+				return nil, fmt.Errorf("%w: report run differs from the terminal observation", ErrUncorrelated)
+			}
+			return run, nil
 		}
 	}
-	return nil
+	return nil, nil
+}
+
+func sameVerdicts(results map[string]models.GraderResults, verdicts []runnerterminal.Verdict) bool {
+	if len(results) != len(verdicts) {
+		return false
+	}
+	got := make([]runnerterminal.Verdict, 0, len(results))
+	for name, result := range results {
+		got = append(got, runnerterminal.Verdict{Identifier: name, Passed: result.Passed})
+	}
+	want := append([]runnerterminal.Verdict(nil), verdicts...)
+	for _, s := range [][]runnerterminal.Verdict{got, want} {
+		sort.Slice(s, func(i, j int) bool { return s[i].Identifier < s[j].Identifier })
+	}
+	return reflect.DeepEqual(got, want)
 }

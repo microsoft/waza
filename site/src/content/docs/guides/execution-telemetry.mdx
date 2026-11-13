@@ -29,8 +29,13 @@ must describe the same run and work, or the command exits 6.
 | `--aggregate` | `waza.manifest-aggregate` 1.0 | aggregation span linked to member work traces |
 | `--scheduler-work-id` | operator value | external scheduler work ID as a resource attribute |
 
-A report without the selected task and run number is recorded as `unmatched`;
-telemetry never falls back to another run.
+With `--manifest`, the terminal and `--attempt` sidecar must be the exact
+artifact bytes the manifest declares. `--lineage` needs `--attempt` or
+`--manifest` to select the execution, and its recorded fields for that
+execution must agree. A results run must match the terminal observation
+(attempts, status, error, verdicts); a report is `unmatched` when the terminal
+has no observation or lacks the run, and telemetry never falls back to another
+run.
 
 ## Correlation
 
@@ -76,15 +81,16 @@ waza runner telemetry --terminal terminal.json \
   --otlp-endpoint http://localhost:4318 --otlp-header "Authorization=Bearer $TOKEN"
 ```
 
-The endpoint must be `http` or `https` without credentials, query or fragment.
-Headers are never recorded. Receiver response bodies are never echoed; export
+The endpoint must be `http` or `https` without credentials, query, fragment
+or `@` in its path. Headers are never recorded. Redirects are not followed, and
+a `2xx` acknowledgement must be empty or one JSON object of at most 64 KiB. Receiver response bodies are never echoed; export
 diagnostics record only the signal, destination, sanitized target, state, HTTP
 status and an error code (`output_exists`, `write_error`, `transport_error`,
-`timeout`, `http_status`, `partial_success`).
+`timeout`, `http_status`, `partial_success`, `invalid_response`).
 
 The [`waza.execution-telemetry`](/waza/schemas/execution-telemetry-1.0.schema.json)
-report is printed to stdout. Exit codes: `0` success, `2` any export failed
-(report still printed), `6` invalid or uncorrelated input.
+report is printed to stdout. Exit codes: `0` success, `2` any export failed or
+was partially rejected (report still printed), `6` invalid or uncorrelated input.
 
 ## Lab
 

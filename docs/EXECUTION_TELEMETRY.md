@@ -27,12 +27,27 @@ detail and is checked for correlation before use.
 | `--scheduler-work-id` | operator value | the external scheduler's work identifier as a resource attribute |
 
 A document that names a different run, work or attempt is rejected (exit 6)
-instead of being merged. An attempt must carry the same binding as the manifest,
-and an aggregate must contain the supplied manifest (or, without a manifest, a
-member for the same logical run and work). Tool activity is read from the
-normalized `tool_events` record, falling back to legacy
-`session_digest.tool_calls` for older results. A report that does not contain the selected task and
-run number is recorded as `unmatched`; telemetry never falls back to another run.
+instead of being merged:
+
+- With `--manifest`, the terminal must be the exact bytes of the manifest's
+  terminal artifact (SHA-256 and size), and an `--attempt` sidecar must carry the
+  manifest's full binding and be the exact bytes of its `execution-attempt.json`
+  artifact. Pass the published files unmodified.
+- `--lineage` requires `--attempt` or `--manifest` to select the terminal's
+  execution. The selected entry's recorded native attempt, manifest digest,
+  parent and terminal outcome must agree with the supplied documents; fields an
+  earlier lineage snapshot has not recorded yet stay unavailable.
+- An aggregate must contain the supplied manifest (or, without a manifest, a
+  member for the same logical run and work).
+- The results JSON is read with the shared results reader, so unsupported
+  `schemaVersion` values are rejected. The run for the selected task and run
+  number is bound by the terminal observation projected from it: attempts,
+  status, error and grader verdicts must match, or the input is rejected. A
+  report is `unmatched` when the terminal has no observation or the run is
+  absent; telemetry never falls back to another run.
+
+Tool activity is read from the normalized `tool_events` record, falling back to
+legacy `session_digest.tool_calls` for older results.
 
 ## Correlation identifiers
 
@@ -220,16 +235,20 @@ waza runner telemetry --terminal terminal.json \
 - Each signal file is a complete OTLP/JSON export request that can be replayed
   to any OTLP/HTTP receiver that accepts JSON.
 - The OTLP endpoint must be an absolute `http` or `https` URL without
-  credentials, query or fragment; send credentials with `--otlp-header`.
-  Header values are never written to the report.
+  credentials, query, fragment or `@` in its path, and its signal URLs must
+  fit 512 bytes; send credentials with `--otlp-header`. Header values are
+  never written to the report.
+- Redirects are not followed: a `3xx` response is a failed export. A `2xx`
+  response is accepted only with an empty body or one JSON object of at most
+  64 KiB; any other acknowledgement is `invalid_response`.
 - The report records one export entry per signal and destination with state
   `exported`, `partial` (the receiver returned `partialSuccess` rejections) or
   `failed`, plus an HTTP status and a fixed error code (`output_exists`,
   `write_error`, `transport_error`, `timeout`, `http_status`,
-  `partial_success`).
+  `partial_success`, `invalid_response`).
 
 The report JSON is printed to stdout. Exit codes: `0` success, `2` export
-failure (the report is still printed), `6` invalid or uncorrelated input.
+failure, including partial receiver rejection (the report is still printed), `6` invalid or uncorrelated input.
 
 ## Troubleshooting
 
@@ -237,7 +256,7 @@ failure (the report is still printed), `6` invalid or uncorrelated input.
 |---------|-------|-----|
 | `telemetry sources do not correlate` | a document names another run, work or attempt | pass documents from the same execution |
 | `terminal has no admitted identity` | the run failed before identity derivation | no correlation IDs exist for that run |
-| report source `unmatched` | results JSON lacks the selected task and run number | pass the results file from the same run |
+| report source `unmatched` | results JSON lacks the selected task and run number, or the terminal has no observation | pass the results file from the same run |
 | export `http_status` 401/403 | collector rejected credentials | check `--otlp-header` |
 | export `output_exists` | `--out-dir` already holds telemetry | use a new directory |
 | many `metric_cardinality` drops | many distinct tool or model names | expected; totals stay exact in the overflow series |

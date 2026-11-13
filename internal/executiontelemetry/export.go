@@ -32,13 +32,20 @@ const (
 
 	ExportPartial = "partial"
 
-	ErrorOutputExists   = "output_exists"
-	ErrorWrite          = "write_error"
-	ErrorTransport      = "transport_error"
-	ErrorTimeout        = "timeout"
-	ErrorHTTPStatus     = "http_status"
-	ErrorPartialSuccess = "partial_success"
+	ErrorOutputExists    = "output_exists"
+	ErrorWrite           = "write_error"
+	ErrorTransport       = "transport_error"
+	ErrorTimeout         = "timeout"
+	ErrorHTTPStatus      = "http_status"
+	ErrorPartialSuccess  = "partial_success"
+	ErrorInvalidResponse = "invalid_response"
 )
+
+// MaxOTLPResponseBytes bounds the receiver acknowledgement read per signal.
+const MaxOTLPResponseBytes = 64 << 10
+
+// maxTargetBytes is the report schema's export target limit.
+const maxTargetBytes = 512
 
 // ErrExport reports at least one failed signal export.
 var ErrExport = errors.New("telemetry export failed")
@@ -60,10 +67,23 @@ func ValidateEndpoint(endpoint string) (*url.URL, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return nil, fmt.Errorf("OTLP endpoint must be an absolute http or https URL")
 	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
 		return nil, fmt.Errorf("OTLP endpoint must not contain credentials, a query or a fragment; use headers")
 	}
+	if strings.ContainsAny(u.Host+u.EscapedPath(), "?#@") {
+		return nil, fmt.Errorf("OTLP endpoint must not contain '@', '?' or '#' in its host or path")
+	}
+	if len(otlpTarget(u, "/v1/metrics")) > maxTargetBytes {
+		return nil, fmt.Errorf("OTLP endpoint must produce signal targets of at most %d bytes", maxTargetBytes)
+	}
 	return u, nil
+}
+
+// otlpTarget is the credential-free signal URL recorded in the report. Path
+// escapes are preserved so decoded '?' or '#' never appear in the target.
+func otlpTarget(endpoint *url.URL, path string) string {
+	target := endpoint.JoinPath(path)
+	return target.Scheme + "://" + target.Host + target.EscapedPath()
 }
 
 func signalDocuments(bundle *Bundle) []struct {
@@ -106,8 +126,8 @@ func Deliver(ctx context.Context, bundle *Bundle, opts ExportOptions) error {
 		}
 		if endpoint != nil {
 			result := postOTLP(ctx, endpoint, s.path, data, opts)
-			if result.State == ExportFailed {
-				failed = append(failed, s.signal+" otlp_http")
+			if result.State != ExportExported {
+				failed = append(failed, s.signal+" otlp_http "+result.State)
 			}
 			result.Signal = s.signal
 			bundle.Report.Exports = append(bundle.Report.Exports, result)
@@ -155,9 +175,8 @@ type partialSuccess struct {
 }
 
 func postOTLP(ctx context.Context, endpoint *url.URL, path string, data []byte, opts ExportOptions) Export {
-	target := *endpoint
-	target.Path = strings.TrimRight(target.Path, "/") + path
-	result := Export{Destination: DestinationOTLP, Target: target.Scheme + "://" + target.Host + target.Path, State: ExportExported}
+	target := endpoint.JoinPath(path)
+	result := Export{Destination: DestinationOTLP, Target: otlpTarget(endpoint, path), State: ExportExported}
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -173,10 +192,13 @@ func postOTLP(ctx context.Context, endpoint *url.URL, path string, data []byte, 
 	for key, value := range opts.Headers {
 		req.Header.Set(key, value)
 	}
-	client := opts.Client
-	if client == nil {
-		client = &http.Client{}
+	client := &http.Client{}
+	if opts.Client != nil {
+		copied := *opts.Client
+		client = &copied
 	}
+	// A redirect would replay the export as a bodiless GET; report it instead.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Do(req)
 	if err != nil {
 		result.State, result.ErrorCode = ExportFailed, ErrorTransport
@@ -185,20 +207,59 @@ func postOTLP(ctx context.Context, endpoint *url.URL, path string, data []byte, 
 		}
 		return result
 	}
-	defer resp.Body.Close() //nolint:errcheck // response body is drained best-effort
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	defer resp.Body.Close() //nolint:errcheck // the acknowledgement is already read or abandoned
 	result.HTTPStatus = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		result.State, result.ErrorCode = ExportFailed, ErrorHTTPStatus
 		return result
 	}
-	var partial partialSuccess
-	if json.Unmarshal(body, &partial) == nil && partial.PartialSuccess != nil {
-		for _, n := range []json.Number{partial.PartialSuccess.RejectedSpans, partial.PartialSuccess.RejectedDataPoints, partial.PartialSuccess.RejectedLogRecords} {
-			if v, err := strconv.ParseInt(string(n), 10, 64); err == nil && v > 0 {
-				result.State, result.ErrorCode = ExportPartial, ErrorPartialSuccess
-			}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxOTLPResponseBytes+1))
+	if err != nil {
+		result.State, result.ErrorCode = ExportFailed, ErrorTransport
+		if errors.Is(err, context.DeadlineExceeded) {
+			result.State, result.ErrorCode = ExportFailed, ErrorTimeout
 		}
+		return result
+	}
+	rejected, ok := acknowledgement(body)
+	switch {
+	case !ok:
+		result.State, result.ErrorCode = ExportFailed, ErrorInvalidResponse
+	case rejected:
+		result.State, result.ErrorCode = ExportPartial, ErrorPartialSuccess
 	}
 	return result
+}
+
+// acknowledgement validates an OTLP/HTTP JSON export response. An empty body is
+// accepted; otherwise it must be one bounded JSON object whose rejection
+// counts, when present, are non-negative integers. Content is never recorded.
+func acknowledgement(body []byte) (rejected, ok bool) {
+	if len(body) > MaxOTLPResponseBytes {
+		return false, false
+	}
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return false, true
+	}
+	var partial partialSuccess
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if decoder.Decode(&partial) != nil || decoder.More() || body[0] != '{' {
+		return false, false
+	}
+	if partial.PartialSuccess == nil {
+		return false, true
+	}
+	for _, n := range []json.Number{partial.PartialSuccess.RejectedSpans, partial.PartialSuccess.RejectedDataPoints, partial.PartialSuccess.RejectedLogRecords} {
+		if n == "" {
+			continue
+		}
+		v, err := strconv.ParseInt(string(n), 10, 64)
+		if err != nil || v < 0 {
+			return false, false
+		}
+		rejected = rejected || v > 0
+	}
+	return rejected, true
 }

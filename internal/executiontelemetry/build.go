@@ -336,7 +336,7 @@ func (b *builder) attempts() ([]attemptView, [][2]time.Time) {
 	var times [][2]time.Time
 	selected := false
 	if src.Lineage != nil {
-		for _, a := range src.Lineage.Attempts {
+		for i, a := range src.Lineage.Attempts {
 			v := attemptView{AttemptCorrelation: AttemptCorrelation{
 				SpanID: SpanID(SpanAttempt, a.ExecutionID), ExecutionID: a.ExecutionID,
 				NativeAttempt: a.NativeAttempt, Status: a.Status, ManifestSHA256: a.ManifestDigest,
@@ -347,8 +347,7 @@ func (b *builder) attempts() ([]attemptView, [][2]time.Time) {
 			if a.Terminal != nil {
 				v.Outcome, v.exitCode, v.boundary = string(a.Terminal.Outcome), a.Terminal.ExitCode, a.Terminal.FailureBoundary
 			}
-			if !selected && ((execution != "" && a.ExecutionID == execution) ||
-				(execution == "" && src.ManifestSHA256 != "" && a.ManifestDigest == src.ManifestSHA256)) {
+			if i == src.LineageIndex {
 				v.Selected, selected = true, true
 				b.applyTerminal(&v)
 			}
