@@ -95,6 +95,10 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
     if (finished !== !!attempt.manifest_digest) return false;
     if ((attempt.status === "dispatched") && !attempt.dispatch_decision) return false;
     if ((attempt.status === "reserved") && attempt.dispatch_decision) return false;
+    // The producer always explains unfinished and unverified attempts.
+    if (attempt.status === "dispatched" && !diagnosed("dispatched_without_completion", attempt.execution_id)) return false;
+    if (attempt.status === "completion_unverified" && !diagnosed("completion_unverified", attempt.execution_id)
+      && !diagnosed("completion_verification_interrupted", attempt.execution_id)) return false;
     const dispatches = distinctFor.get(attempt.execution_id) ?? [];
     if ((dispatches.length > 0) !== !!attempt.dispatch_decision) return false;
     if (attempt.dispatch_decision && !dispatches.includes(attempt.dispatch_decision)) return false;

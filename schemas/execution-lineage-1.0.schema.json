@@ -35,14 +35,16 @@
               "engine_calls": {"type": "integer", "minimum": 0, "maximum": 1}
             },
             "oneOf": [
-              {"properties": {"outcome": {"const": "success"}, "exit_code": {"const": 0}, "failure_boundary": {"const": "none"}}},
-              {"properties": {"outcome": {"const": "evaluation_failure"}, "exit_code": {"const": 1}, "failure_boundary": {"const": "none"}}},
-              {"properties": {"outcome": {"const": "infrastructure_failure"}, "exit_code": {"const": 2}, "failure_boundary": {"not": {"const": "none"}}}},
-              {"properties": {"outcome": {"const": "cancelled"}, "exit_code": {"const": 3}, "failure_boundary": {"not": {"const": "none"}}}},
-              {"properties": {"outcome": {"const": "timeout"}, "exit_code": {"const": 4}, "failure_boundary": {"not": {"const": "none"}}}},
-              {"properties": {"outcome": {"const": "unsupported_capability"}, "exit_code": {"const": 5}, "failure_boundary": {"not": {"const": "none"}}}},
-              {"properties": {"outcome": {"const": "invalid_input"}, "exit_code": {"const": 6}, "failure_boundary": {"not": {"const": "none"}}}}
-            ]
+              {"properties": {"outcome": {"const": "success"}, "exit_code": {"const": 0}, "failure_boundary": {"const": "none"}, "engine_calls": {"const": 1}}},
+              {"properties": {"outcome": {"const": "evaluation_failure"}, "exit_code": {"const": 1}, "failure_boundary": {"const": "none"}, "engine_calls": {"const": 1}}},
+              {"properties": {"outcome": {"const": "infrastructure_failure"}, "exit_code": {"const": 2}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown", "output", "terminalization"]}}},
+              {"properties": {"outcome": {"const": "cancelled"}, "exit_code": {"const": 3}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown"]}}},
+              {"properties": {"outcome": {"const": "timeout"}, "exit_code": {"const": 4}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown"]}}},
+              {"properties": {"outcome": {"const": "unsupported_capability"}, "exit_code": {"const": 5}, "failure_boundary": {"enum": ["negotiation", "validation"]}}},
+              {"properties": {"outcome": {"const": "invalid_input"}, "exit_code": {"const": 6}, "failure_boundary": {"enum": ["input", "validation"]}}}
+            ],
+            "if": {"properties": {"failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup"]}}},
+            "then": {"properties": {"engine_calls": {"const": 0}}}
           },
           "reused_by": {"type": "array", "items": {"$ref": "#/$defs/decision_id"}}
         }

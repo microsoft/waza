@@ -25,6 +25,20 @@ function orphanedParent(diagnosed: boolean) {
   return { ...fixture, attempts, diagnostics };
 }
 
+// Turns the last attempt into an unfinished or unverified one, optionally with the producer's diagnostic.
+function unfinishedAttempt(status: "dispatched" | "completion_unverified", code?: string) {
+  const last = fixture.attempts[2]!;
+  const attempts = fixture.attempts.map((attempt, index) => {
+    if (index !== 2) return attempt;
+    const unfinished: Partial<typeof attempt> = { ...attempt, status };
+    delete unfinished.terminal;
+    if (status === "dispatched") delete unfinished.manifest_digest;
+    return unfinished;
+  });
+  const diagnostics = code ? [...fixture.diagnostics, { code, execution_ids: [last.execution_id], message: "Attempt is not verified." }] : fixture.diagnostics;
+  return { ...fixture, attempts, diagnostics };
+}
+
 test.describe("Execution attempt lineage in Lab", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [] }));
@@ -88,6 +102,19 @@ test.describe("Execution attempt lineage in Lab", () => {
     await expect(result.getByRole("list", { name: "Lineage diagnostics" })).toContainText("parent_unavailable");
   });
 
+  for (const [status, code] of [
+    ["dispatched", "dispatched_without_completion"],
+    ["completion_unverified", "completion_verification_interrupted"],
+  ] as const) {
+    test(`shows a ${status} attempt with its ${code} diagnostic`, async ({ page }) => {
+      await page.route("**/api/v1/lineage**", (route) => route.fulfill({ body: JSON.stringify(unfinishedAttempt(status, code)), contentType: "application/json" }));
+      await fill(page);
+      await load(page);
+      const result = panel(page).getByRole("status", { name: "Loaded attempt lineage" });
+      await expect(result.getByRole("list", { name: "Lineage diagnostics" })).toContainText(code);
+    });
+  }
+
   for (const [name, status, body] of [
     ["storage failure", 503, "{}"],
     ["inconsistent order", 200, JSON.stringify({ ...fixture, attempts: [...fixture.attempts].reverse() })],
@@ -116,6 +143,14 @@ test.describe("Execution attempt lineage in Lab", () => {
       index === 0 ? { ...attempt, terminal: { ...attempt.terminal, exit_code: 2 } } : attempt) })],
     ["terminal with more than one engine call", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
       index === 0 ? { ...attempt, terminal: { ...attempt.terminal, engine_calls: 7 } } : attempt) })],
+    ["success terminal without an engine call", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, terminal: { ...attempt.terminal, engine_calls: 0 } } : attempt) })],
+    ["cancelled terminal at the output boundary", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, terminal: { outcome: "cancelled", exit_code: 3, failure_boundary: "output", engine_calls: 1 } } : attempt) })],
+    ["startup failure with an engine call", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, terminal: { outcome: "infrastructure_failure", exit_code: 2, failure_boundary: "startup", engine_calls: 1 } } : attempt) })],
+    ["undiagnosed dispatched attempt", 200, JSON.stringify(unfinishedAttempt("dispatched"))],
+    ["undiagnosed unverified completion", 200, JSON.stringify(unfinishedAttempt("completion_unverified"))],
     ["undiagnosed missing parent", 200, JSON.stringify(orphanedParent(false))],
     ["undiagnosed missing decision target", 200, JSON.stringify({ ...fixture, decisions: [...fixture.decisions,
       { decision_id: `decision-${"e".repeat(64)}`, execution_id: `exec-${"e".repeat(64)}`, native_attempt: 1, outcome: "distinct", policy: "distinct" }] })],
