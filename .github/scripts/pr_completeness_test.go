@@ -125,8 +125,8 @@ func checkCompletenessControlSelection(source []byte) error {
 		return err
 	}
 	job := workflow.Jobs["lint"]
-	if job.If != "" || job.RunsOn != "ubuntu-latest" {
-		return fmt.Errorf("Linux GoLint must select completeness controls unconditionally")
+	if job.If != goValidationIf || job.RunsOn != "ubuntu-latest" {
+		return fmt.Errorf("Linux GoLint must select completeness controls on every validation event")
 	}
 	for _, step := range job.Steps {
 		if step.Name != "Test Go workflow trigger selection" {
@@ -550,9 +550,9 @@ rm "$log"
 			return err
 		}
 		job := workflow.Jobs["build-and-test-windows"]
-		if job.If != "" || job.RunsOn != "windows-latest" ||
+		if job.If != goValidationIf || job.RunsOn != "windows-latest" ||
 			!reflect.DeepEqual(job.Strategy.Matrix.OS, []string{"windows-latest"}) {
-			return fmt.Errorf("native shell controls require the unconditional Windows job")
+			return fmt.Errorf("native shell controls require the Windows job on every validation event")
 		}
 		positions := make(map[string]int)
 		selected := 0
@@ -848,8 +848,7 @@ func checkAuxiliaryReceiptJob(source []byte, family string, spec receiptJob) err
 		(input.Required.Present && input.Required.Value != "false") {
 		return fmt.Errorf("%s completeness plan input must remain optional and inactive", label)
 	}
-	// Docker keeps its standalone trigger for the separately admitted edited-body benchmark.
-	if _, ok := triggers["pull_request"]; ok != (family == "container") {
+	if _, ok := triggers["pull_request"]; ok {
 		return fmt.Errorf("%s pull requests must run only through the Go completeness caller", label)
 	}
 	if _, ok := triggers["push"]; !ok {
@@ -1115,16 +1114,12 @@ func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
 				mutations = append(mutations, struct {
 					old         string
 					replacement string
-				}{"        id: native\n", "\n"}, struct {
-					old         string
-					replacement string
-				}{"  pull_request:\n    branches: [main]\n    types: [opened, synchronize, reopened, edited]\n    paths: *docker-paths\n", ""})
-			} else {
-				mutations = append(mutations, struct {
-					old         string
-					replacement string
-				}{"on:\n", "on:\n  pull_request:\n"})
+				}{"        id: native\n", "\n"})
 			}
+			mutations = append(mutations, struct {
+				old         string
+				replacement string
+			}{"on:\n", "on:\n  pull_request:\n"})
 			for _, mutation := range mutations {
 				mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
 				if mutated == string(source) {

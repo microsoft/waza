@@ -63,8 +63,7 @@ function assertRunnerContainerWorkflow(workflow) {
     '.github/workflows/docker-ci.yml']) {
     assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
   }
-  assert.match(workflow, /paths: &docker-paths/);
-  assert.match(workflow, /paths: \*docker-paths/);
+  assert.doesNotMatch(workflow, /^  pull_request:/m, 'pull requests reach Docker only through the go-ci container caller');
   assert.match(workflow, /^permissions:\n  contents: read/m);
   const lines = workflow.split('\n');
   const start = lines.indexOf('  runner-reference:');
@@ -76,11 +75,8 @@ function assertRunnerContainerWorkflow(workflow) {
   for (const command of runnerCommands) {
     assert.ok(job.split('\n').includes(`        run: ${command}`), `${command} must execute in the ordinary runner job`);
   }
-  const editedGuard = "    if: github.event.action != 'edited'\n";
-  assert.ok(job.startsWith(editedGuard), 'only direct edited events may exclude ordinary runner proof');
-  const rest = job.slice(editedGuard.length);
-  assert.doesNotMatch(rest, /continue-on-error/);
-  for (const [line] of rest.matchAll(/^\s+if:.*$/gm)) {
+  assert.doesNotMatch(job, /continue-on-error/);
+  for (const [line] of job.matchAll(/^\s+if:.*$/gm)) {
     assert.match(line, /pr_completeness_plan != ''|steps\.receipt\.outcome == 'success'/, 'only completeness receipt steps may be conditional');
   }
 }
@@ -91,9 +87,8 @@ test('local container conformance is selected by its production build inputs', (
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
 });
 
-test('ordinary runner guard admits the approved edited exclusion and independent measurement job', () => {
+test('ordinary runner guard admits CRLF and unrelated neighboring jobs', () => {
   const workflow = read('.github/workflows/docker-ci.yml').replace(/\r\n/g, '\n');
-  assert.match(workflow, /\n  cache-measurement:\n/);
   assertRunnerContainerWorkflow(workflow.replace(/\r?\n/g, '\r\n'));
   assertRunnerContainerWorkflow(`${workflow}\n  unrelated-job:\n    if: false\n    continue-on-error: true\n    steps:\n      - run: ignored\n`);
 });
@@ -105,8 +100,8 @@ test('ordinary runner guard rejects tolerated, conditional or neighboring requir
     assert.notEqual(mutation, workflow, 'negative control must change the actual workflow');
     assert.throws(() => assertRunnerContainerWorkflow(mutation));
   };
-  changed("  runner-reference:\n    if: github.event.action != 'edited'",
-    "  runner-reference:\n    if: github.event.action == 'edited'");
+  changed('  runner-reference:\n', "  runner-reference:\n    if: github.event.action != 'edited'\n");
+  changed('  workflow_call:\n', '  pull_request:\n    branches: [main]\n  workflow_call:\n');
   changed('  runner-reference:\n', '  runner-reference:\n    continue-on-error: true\n');
   for (const command of runnerCommands) {
     changed(`        run: ${command}`, `        if: success()\n        run: ${command}`);

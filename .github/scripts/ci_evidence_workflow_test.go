@@ -195,8 +195,8 @@ func TestCIEvidenceLintVisibilityContract(t *testing.T) {
 			return err
 		}
 		job := workflow.Jobs["lint"]
-		if job.Name != "Lint" || job.If != "" {
-			return fmt.Errorf("existing lint job must remain unconditional")
+		if job.Name != goRequiredName("Lint", "'Lint'") || job.If != goValidationIf {
+			return fmt.Errorf("existing lint job must run for every validation event")
 		}
 		selected := 0
 		for _, step := range job.Steps {
@@ -224,7 +224,7 @@ func TestCIEvidenceLintVisibilityContract(t *testing.T) {
 		{command, "go test -count=1 -v ./.github/scripts"},
 		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        if: false\n"},
 		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        continue-on-error: true\n"},
-		{"    name: Lint\n", "    name: Lint\n    if: false\n"},
+		{"'Lint' }}\n    if: " + goValidationIf + "\n", "'Lint' }}\n    if: false\n"},
 		{"      - name: Test Go workflow trigger selection\n", "      # " + command + "\n      - name: Unselected contract decoy\n"},
 		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        run: " + command + "\n      - name: Test Go workflow trigger selection\n"},
 	} {

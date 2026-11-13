@@ -35,7 +35,7 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 			return err
 		}
 		job := workflow.Jobs["lint"]
-		if job.Name != "Lint" {
+		if job.Name != goRequiredName("Lint", "'Lint'") {
 			return fmt.Errorf("helper tests require the required Lint job")
 		}
 		for _, step := range job.Steps {
@@ -972,15 +972,30 @@ func checkTriggers(source []byte, want workflowTriggers) error {
 
 // Evaluate only the literal expressions admitted by checkCanonicalGoWorkflow,
 // rather than approximating arbitrary GitHub Actions expression semantics.
-func goConcurrencyGroup(group, workflow, event, ref, runID string) string {
+// goValidationIf is the only admitted condition for always-required Go
+// validation jobs: pushes, new commits, and base retargets validate, while
+// metadata-only PR edits skip.
+const goValidationIf = "(github.event.action != 'edited' || github.event.changes.base != null)"
+
+const goValidationScope = "${{ github.event_name == 'pull_request' && " + goValidationIf + " && github.ref || github.run_id }}"
+
+const goValidationCancel = "${{ github.event_name == 'pull_request' && " + goValidationIf + " }}"
+
+// goRequiredName renames a required check on metadata-only edits, so the
+// skipped job can never stand in for the required result of the last push.
+func goRequiredName(check, value string) string {
+	return "${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (" + check + " not selected)' || " + value + " }}"
+}
+
+func goConcurrencyGroup(group, workflow, event, ref, runID string, metadata bool) string {
 	scope := runID
-	if event == "pull_request" {
+	if event == "pull_request" && !metadata {
 		scope = ref
 	}
 	return strings.NewReplacer(
 		"${{ github.workflow }}", workflow,
 		"${{ github.event_name }}", event,
-		"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", scope,
+		goValidationScope, scope,
 	).Replace(group)
 }
 
@@ -1005,22 +1020,30 @@ func TestGoWorkflowConcurrency(t *testing.T) {
 	if workflow.Name != "Go Build and Test" {
 		t.Fatalf("unexpected workflow identity %q", workflow.Name)
 	}
+	if workflow.Concurrency.Cancel != goValidationCancel {
+		t.Fatalf("cancel-in-progress = %q; only PR validation runs may cancel", workflow.Concurrency.Cancel)
+	}
 	runs := []struct {
 		name, workflow, event, ref, runID, wantGroup string
+		metadata                                     bool
+		supersedes                                   string
 	}{
-		{"PR old commit", workflow.Name, "pull_request", "refs/pull/829/merge", "100", "Go Build and Test-pull_request-refs/pull/829/merge"},
-		{"PR new commit", workflow.Name, "pull_request", "refs/pull/829/merge", "101", "Go Build and Test-pull_request-refs/pull/829/merge"},
-		{"different PR", workflow.Name, "pull_request", "refs/pull/830/merge", "102", "Go Build and Test-pull_request-refs/pull/830/merge"},
-		{"other PR workflow", "Web CI", "pull_request", "refs/pull/829/merge", "103", "Web CI-pull_request-refs/pull/829/merge"},
-		{"push old run", workflow.Name, "push", "refs/heads/main", "104", "Go Build and Test-push-104"},
-		{"push same commit again", workflow.Name, "push", "refs/heads/main", "105", "Go Build and Test-push-105"},
-		{"push same ref as PR", workflow.Name, "push", "refs/pull/829/merge", "106", "Go Build and Test-push-106"},
-		{"release publication", "Release", "push", "refs/heads/main", "107", "Release-push-107"},
-		{"manual publication", "Publish Runner Reference Image", "workflow_dispatch", "refs/heads/main", "108", "Publish Runner Reference Image-workflow_dispatch-108"},
+		{"PR old commit", workflow.Name, "pull_request", "refs/pull/829/merge", "100", "Go Build and Test-pull_request-refs/pull/829/merge", false, "829"},
+		{"PR new commit", workflow.Name, "pull_request", "refs/pull/829/merge", "101", "Go Build and Test-pull_request-refs/pull/829/merge", false, "829"},
+		{"different PR", workflow.Name, "pull_request", "refs/pull/830/merge", "102", "Go Build and Test-pull_request-refs/pull/830/merge", false, ""},
+		{"other PR workflow", "Web CI", "pull_request", "refs/pull/829/merge", "103", "Web CI-pull_request-refs/pull/829/merge", false, ""},
+		{"push old run", workflow.Name, "push", "refs/heads/main", "104", "Go Build and Test-push-104", false, ""},
+		{"push same commit again", workflow.Name, "push", "refs/heads/main", "105", "Go Build and Test-push-105", false, ""},
+		{"push same ref as PR", workflow.Name, "push", "refs/pull/829/merge", "106", "Go Build and Test-push-106", false, ""},
+		{"release publication", "Release", "push", "refs/heads/main", "107", "Release-push-107", false, ""},
+		{"manual publication", "Publish Runner Reference Image", "workflow_dispatch", "refs/heads/main", "108", "Publish Runner Reference Image-workflow_dispatch-108", false, ""},
+		{"PR base retarget", workflow.Name, "pull_request", "refs/pull/829/merge", "109", "Go Build and Test-pull_request-refs/pull/829/merge", false, "829"},
+		{"PR body edit", workflow.Name, "pull_request", "refs/pull/829/merge", "110", "Go Build and Test-pull_request-110", true, ""},
+		{"PR title edit", workflow.Name, "pull_request", "refs/pull/829/merge", "111", "Go Build and Test-pull_request-111", true, ""},
 	}
 	for i, older := range runs {
 		t.Run(older.name, func(t *testing.T) {
-			group := goConcurrencyGroup(workflow.Concurrency.Group, older.workflow, older.event, older.ref, older.runID)
+			group := goConcurrencyGroup(workflow.Concurrency.Group, older.workflow, older.event, older.ref, older.runID, older.metadata)
 			if group != older.wantGroup {
 				t.Fatalf("group = %q; want %q", group, older.wantGroup)
 			}
@@ -1028,9 +1051,9 @@ func TestGoWorkflowConcurrency(t *testing.T) {
 				if i == j {
 					continue
 				}
-				incomingGroup := goConcurrencyGroup(workflow.Concurrency.Group, newer.workflow, newer.event, newer.ref, newer.runID)
-				cancel := newer.event == "pull_request"
-				wantCancel := (i == 0 && j == 1) || (i == 1 && j == 0)
+				incomingGroup := goConcurrencyGroup(workflow.Concurrency.Group, newer.workflow, newer.event, newer.ref, newer.runID, newer.metadata)
+				cancel := newer.event == "pull_request" && !newer.metadata
+				wantCancel := older.supersedes != "" && older.supersedes == newer.supersedes
 				if got := cancel && group == incomingGroup; got != wantCancel {
 					t.Errorf("%s supersedes %s = %v; want %v", newer.name, older.name, got, wantCancel)
 				}
@@ -1079,20 +1102,25 @@ func checkCanonicalGoWorkflow(source []byte) error {
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
-	if workflow.Concurrency.Group != "${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}" ||
-		workflow.Concurrency.Cancel != "${{ github.event_name == 'pull_request' }}" {
+	if workflow.Concurrency.Group != "${{ github.workflow }}-${{ github.event_name }}-"+goValidationScope ||
+		workflow.Concurrency.Cancel != goValidationCancel {
 		return fmt.Errorf("cancel only superseded PR runs, scoped to workflow/event/ref; non-PR runs require independent groups")
 	}
 	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) {
 		return fmt.Errorf("validation must remain read-only")
 	}
-	if workflow.Jobs["lint"].Name != "Lint" ||
-		workflow.Jobs["build-and-test-windows"].Name != "${{ matrix.os }}" ||
+	if workflow.Jobs["lint"].Name != goRequiredName("Lint", "'Lint'") ||
+		workflow.Jobs["build-and-test-windows"].Name != goRequiredName("windows-latest", "matrix.os") ||
 		workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" {
 		return fmt.Errorf("required native and lint jobs must be retained")
 	}
+	for _, job := range []string{"lint", "build-and-test", "build-and-test-windows", "native-test-shards"} {
+		if workflow.Jobs[job].If != goValidationIf {
+			return fmt.Errorf("%s must skip only metadata-only PR edits", job)
+		}
+	}
 	gate := workflow.Jobs["linux-gate"]
-	if gate.Name != "ubuntu-latest" || gate.If != "${{ always() }}" ||
+	if gate.Name != goRequiredName("ubuntu-latest", "'ubuntu-latest'") || gate.If != "${{ always() && "+goValidationIf+" }}" ||
 		!reflect.DeepEqual(gate.Needs, []string{"build-and-test", "native-test-shards"}) {
 		return fmt.Errorf("required Linux gate must inspect both validation branches even after failure")
 	}
@@ -1121,19 +1149,25 @@ func TestCanonicalGoWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, mutation := range [][2]string{
-		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
+		{"${{ github.workflow }}-${{ github.event_name }}-" + goValidationScope, "${{ github.ref }}"},
 		{"${{ github.workflow }}-", ""},
 		{"${{ github.event_name }}-", ""},
-		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "go-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}"},
-		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
-		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.run_id }}"},
-		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.event_name == 'pull_request' && github.ref || github.sha }}"},
-		{"cancel-in-progress: ${{ github.event_name == 'pull_request' }}", "cancel-in-progress: true"},
-		{"cancel-in-progress: ${{ github.event_name == 'pull_request' }}", "cancel-in-progress: false"},
-		{"name: Lint", "name: Lint renamed"},
-		{"name: ubuntu-latest", "name: Linux renamed"},
+		{"${{ github.workflow }}-${{ github.event_name }}-" + goValidationScope, "go-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}"},
+		{goValidationScope, "${{ github.ref }}"},
+		{goValidationScope, "${{ github.run_id }}"},
+		{goValidationScope, "${{ github.event_name == 'pull_request' && github.ref || github.run_id }}"},
+		{goValidationScope, "${{ github.event_name == 'pull_request' && " + goValidationIf + " && github.ref || github.sha }}"},
+		{"cancel-in-progress: " + goValidationCancel, "cancel-in-progress: true"},
+		{"cancel-in-progress: " + goValidationCancel, "cancel-in-progress: false"},
+		{"cancel-in-progress: " + goValidationCancel, "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"},
+		{"'Lint' }}", "'Lint renamed' }}"},
+		{"'PR metadata (Lint not selected)' || 'Lint' }}", "'Lint' || 'Lint' }}"},
+		{"'ubuntu-latest' }}", "'Linux renamed' }}"},
+		{"'PR metadata (windows-latest not selected)' || matrix.os }}", "matrix.os || matrix.os }}"},
+		{"    name: Linux build and remaining tests\n    if: " + goValidationIf, "    name: Linux build and remaining tests\n    if: github.event_name != 'pull_request'"},
+		{"  native-test-shards:\n    if: " + goValidationIf, "  native-test-shards:\n    if: github.event.action != 'edited'"},
 		{"needs: [build-and-test, native-test-shards]", "needs: [build-and-test]"},
-		{"if: ${{ always() }}", "if: ${{ success() }}"},
+		{"if: ${{ always() && " + goValidationIf + " }}", "if: ${{ always() }}"},
 		{`test "$NATIVE_RESULT" = success`, ":"},
 		{"bash .github/scripts/go_test_shard_verify.sh coverage-reports", ":"},
 	} {
@@ -1210,9 +1244,9 @@ done
 			return err
 		}
 		job := workflow.Jobs["build-and-test-windows"]
-		if job.If != "" || job.RunsOn != "windows-latest" ||
+		if job.If != goValidationIf || job.RunsOn != "windows-latest" ||
 			!reflect.DeepEqual(job.Strategy.Matrix.OS, []string{"windows-latest"}) {
-			return fmt.Errorf("dashboard checker requires the unconditional native Windows job")
+			return fmt.Errorf("dashboard checker requires the native Windows job on every validation event")
 		}
 
 		positions := make(map[string]int, len(job.Steps))
@@ -1285,16 +1319,16 @@ done
 			"          for control in TestReadFileOpensOrdinaryWindowsFile; do\n            grep -Fxq",
 		},
 		{
-			"  build-and-test-windows:\n    name: ${{ matrix.os }}",
-			"  build-and-test-windows:\n    if: ${{ false }}\n    name: ${{ matrix.os }}",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: ${{ false }}\n",
 		},
 		{
-			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest",
-			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: ubuntu-latest",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n    runs-on: windows-latest",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n    runs-on: ubuntu-latest",
 		},
 		{
-			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [windows-latest]",
-			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [ubuntu-latest]",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [windows-latest]",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [ubuntu-latest]",
 		},
 		{
 			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n",
@@ -1345,7 +1379,7 @@ func TestGoWorkflowTriggers(t *testing.T) {
 		pushBranches []string
 		prFilters    map[string][]string
 	}{
-		{"go-ci.yml", []string{"main", "develop", "dev", "insider"}, nil},
+		{"go-ci.yml", []string{"main", "develop", "dev", "insider"}, map[string][]string{"types": {"opened", "synchronize", "reopened", "edited"}}},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			source, err := os.ReadFile(filepath.Join("..", "workflows", tc.file))
@@ -1354,7 +1388,7 @@ func TestGoWorkflowTriggers(t *testing.T) {
 			}
 			want := workflowTriggers{
 				"push":         {Mapping: true, Filters: map[string][]string{"branches": tc.pushBranches}},
-				"pull_request": {Filters: tc.prFilters},
+				"pull_request": {Mapping: true, Filters: tc.prFilters},
 				"workflow_dispatch": {Mapping: true, Inputs: map[string]workflowInput{
 					"cold_observation": {
 						Type: "boolean", Description: "Observe initially empty isolated Linux dependency stores",
@@ -1376,7 +1410,7 @@ func TestGoWorkflowTriggers(t *testing.T) {
 				"release/0.40.0", "main-near-miss",
 			} {
 				for _, action := range []string{"opened", "synchronize", "reopened", "closed", "edited", "labeled", "ready_for_review"} {
-					want := slices.Contains([]string{"opened", "synchronize", "reopened"}, action)
+					want := slices.Contains([]string{"opened", "synchronize", "reopened", "edited"}, action)
 					if got := selects(triggers, "pull_request", branch, action); got != want {
 						t.Errorf("pull_request base=%q action=%q selected=%v; want %v", branch, action, got, want)
 					}
@@ -1407,7 +1441,7 @@ func TestGoWorkflowTriggers(t *testing.T) {
 						t.Fatal("mutation did not change workflow source")
 					}
 					if name == "event widening" {
-						mutated = strings.Replace(mutated, "    types: [opened, synchronize, reopened]\n", "", 1)
+						mutated = strings.Replace(mutated, "    types: [opened, synchronize, reopened, edited]\n", "", 1)
 					}
 					if _, err := readTriggers([]byte(mutated)); err != nil {
 						t.Fatalf("mutation must remain valid YAML: %v", err)

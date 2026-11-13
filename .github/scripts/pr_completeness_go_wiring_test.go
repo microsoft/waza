@@ -52,7 +52,7 @@ func checkGoReceiptJob(job releaseJob, label, guard, unit string, contracts ...s
 		return fmt.Errorf("%s must record the tested checkout only for completeness callers", label)
 	}
 	if receipt == nil || upload == nil || job.Steps[len(job.Steps)-1].Name != upload.Name ||
-		receipt.ID != "receipt" || receipt.If != "always() && "+guard || receipt.ContinueOnError ||
+		receipt.ID != "receipt" || receipt.If != "always() && "+guard || !receipt.ContinueOnError ||
 		receipt.Env["WAZA_COMPLETENESS_STEPS"] != "${{ toJSON(steps) }}" ||
 		!strings.Contains(receipt.Run, `pr-completeness.cjs receipt \`+"\n"+`  "$receipt_dir/plan.json" go "`+unit+`"`) {
 		return fmt.Errorf("%s must capture its go/%s receipt after every step", label, unit)
@@ -90,7 +90,7 @@ func checkGoCompletenessWiring(goCI, native []byte) error {
 	if jobs["native-test-shards"].With["pr_completeness"] != "${{ github.event_name == 'pull_request' }}" {
 		return fmt.Errorf("native shards must capture receipts for pull requests")
 	}
-	if jobs["pr-scope"].If != pr || jobs["pr-scope"].Uses != "./.github/workflows/pr-completeness-plan.yml" {
+	if jobs["pr-scope"].If != pr+" && "+goValidationIf || jobs["pr-scope"].Uses != "./.github/workflows/pr-completeness-plan.yml" {
 		return fmt.Errorf("pull requests must determine a source-bound plan")
 	}
 	plan := "${{ needs.pr-scope.outputs.plan_artifact }}"
@@ -115,7 +115,7 @@ func checkGoCompletenessWiring(goCI, native []byte) error {
 			return fmt.Errorf("completeness must wait for %s", job)
 		}
 	}
-	if completeness.If != "${{ always() && "+pr+" }}" ||
+	if completeness.If != "${{ always() && "+pr+" && "+goValidationIf+" }}" ||
 		completeness.Uses != "./.github/workflows/pr-completeness-admission.yml" ||
 		completeness.With["pr_completeness_plan"] != plan ||
 		completeness.With["dependency_results"] != "${{ toJSON(needs) }}" {
@@ -149,7 +149,10 @@ func TestGoCompletenessReceiptWiring(t *testing.T) {
 		{false, "      pr_completeness: ${{ github.event_name == 'pull_request' }}", "      pr_completeness: false"},
 		{false, "      dependency_results: ${{ toJSON(needs) }}", "      dependency_results: '{}'"},
 		{false, "      dashboard, documentation,", "      documentation,"},
-		{false, "if: ${{ always() && github.event_name == 'pull_request' }}", "if: github.event_name == 'pull_request'"},
+		{false, "if: ${{ always() && github.event_name == 'pull_request' && " + goValidationIf + " }}", "if: ${{ always() && github.event_name == 'pull_request' }}"},
+		{false, "    if: github.event_name == 'pull_request' && " + goValidationIf + "\n", "    if: github.event_name == 'pull_request'\n"},
+		{false, "        id: receipt\n        # A stale-base receipt failure must not fail this required check;\n        # admission still fails closed on the missing receipt.\n        continue-on-error: true\n", "        id: receipt\n"},
+		{true, "        continue-on-error: true\n", ""},
 		{false, "    uses: ./.github/workflows/docker-ci.yml\n    with:\n      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}", "    uses: ./.github/workflows/docker-ci.yml"},
 		{false, `"$receipt_dir/plan.json" go "lint"`, `"$receipt_dir/plan.json" go "linux"`},
 	} {
