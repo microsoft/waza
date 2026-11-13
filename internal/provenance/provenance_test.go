@@ -430,6 +430,50 @@ func TestManifestMustMatchAdmittedBinding(t *testing.T) {
 	}
 }
 
+func TestReportSchemaRequiresEveryCheckOnce(t *testing.T) {
+	f := newFixture(t)
+	report := verifyFiles(t, f.bundle(t), Options{Verifier: f.verifier})
+	for i := range report.Checks {
+		report.Checks[i] = failure(report, "signature")
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateReport(data); err == nil {
+		t.Fatal("report with duplicated checks accepted")
+	}
+}
+
+func TestModelIdentityIsKeptVerbatim(t *testing.T) {
+	f := newFixture(t)
+	request := bytes.Replace(f.input.Request, []byte(`model: mock-model\n`), []byte(`model: \" mock-model \"\n`), 1)
+	inputs, failure := deriveInputs(request)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if inputs.runtime.Model != " mock-model " {
+		t.Fatalf("model identity was normalized: %q", inputs.runtime.Model)
+	}
+}
+
+func TestDirectoryEntriesAreBounded(t *testing.T) {
+	dir := t.TempDir()
+	for i := range MaxMembers + 1 {
+		if err := os.Mkdir(filepath.Join(dir, fmt.Sprintf("d-%d", i)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src, closeSrc, err := OpenDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = closeSrc() }()
+	if _, _, err := src.List(); !errors.Is(err, errTooManyMembers) {
+		t.Fatalf("empty directory tree bypassed the entry bound: %v", err)
+	}
+}
+
 func TestBundleBoundsEnforcedAtGeneration(t *testing.T) {
 	f := newFixture(t)
 	statement, failure := BuildStatement(f.input)

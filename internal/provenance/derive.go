@@ -62,8 +62,9 @@ func deriveInputs(request []byte) (*inputClaims, *Failure) {
 	if !ok {
 		return nil, fail("runtime", "runtime_unavailable", "config.executor %q has no runner execution mode", spec.Config.EngineType)
 	}
-	model := strings.TrimSpace(spec.Config.ModelID)
-	if model == "" {
+	// The runner executes config.model unchanged, so the claim keeps it verbatim.
+	model := spec.Config.ModelID
+	if strings.TrimSpace(model) == "" {
 		return nil, fail("runtime", "runtime_model_unavailable", "config.model is blank; a model identity is required")
 	}
 	admitted, ok := runnerunit.AdmittedBinding(request)

@@ -68,6 +68,19 @@ func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
 	if _, code := generate("sigstore-keyless", filepath.Join(dir, "keyless")); code != 5 {
 		t.Fatalf("keyless signer should be unavailable (exit 5), got %d", code)
 	}
+	if err := os.WriteFile(filepath.Join(artifacts, "terminal.json"), append(bytes.Clone(terminal), make([]byte, 1<<20)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oversized := newRunnerCommand()
+	oversized.SetOut(&bytes.Buffer{})
+	oversized.SetErr(&bytes.Buffer{})
+	oversized.SetArgs([]string{"provenance", "generate", "--request", "../../examples/runner/unit.json",
+		"--manifest", "../../internal/artifactmanifest/testdata/publication-manifest.json",
+		"--artifacts", artifacts, "--policy", policy, "--image-reference", "ghcr.io/microsoft/waza-runner:test",
+		"--image-digest", digest, "--waza-version", "0.42.0", "--signing-key", private, "--out", filepath.Join(dir, "oversized")})
+	if err := oversized.Execute(); err == nil || !strings.Contains(err.Error(), "reading artifact terminal.json") {
+		t.Fatalf("artifact larger than its declared size was read: %v", err)
+	}
 
 	verify := func(extra ...string) map[string]any {
 		out, code := runProvenanceCLI(t, append([]string{"verify", "--bundle", bundle, "--public-key", public}, extra...)...)

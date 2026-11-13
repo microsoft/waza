@@ -49,7 +49,23 @@
       "type": "integer", "minimum": 1
     },
     "checks": {
+      "description": "Exactly one entry per check ID.",
       "type": "array", "minItems": 13, "maxItems": 13,
+      "allOf": [
+        {"contains": {"properties": {"id": {"const": "bundle"}}}},
+        {"contains": {"properties": {"id": {"const": "signature"}}}},
+        {"contains": {"properties": {"id": {"const": "statement"}}}},
+        {"contains": {"properties": {"id": {"const": "inputs"}}}},
+        {"contains": {"properties": {"id": {"const": "runner"}}}},
+        {"contains": {"properties": {"id": {"const": "runtime"}}}},
+        {"contains": {"properties": {"id": {"const": "policy"}}}},
+        {"contains": {"properties": {"id": {"const": "image"}}}},
+        {"contains": {"properties": {"id": {"const": "waza_version"}}}},
+        {"contains": {"properties": {"id": {"const": "artifacts"}}}},
+        {"contains": {"properties": {"id": {"const": "outcome"}}}},
+        {"contains": {"properties": {"id": {"const": "bindings"}}}},
+        {"contains": {"properties": {"id": {"const": "members"}}}}
+      ],
       "items": {
         "type": "object", "additionalProperties": false, "required": ["id", "status", "code", "message"],
         "properties": {

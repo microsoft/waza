@@ -127,7 +127,7 @@ mode is unavailable in this build.`,
 				return fail(2, "parsing manifest: %w", err)
 			}
 			for _, a := range manifest.Artifacts {
-				if in.Objects[a.Name], err = readArtifactFile(filepath.Join(artifactsDir, a.Name), artifactmanifest.MaxArtifactBytes); err != nil {
+				if in.Objects[a.Name], err = readArtifactFile(filepath.Join(artifactsDir, a.Name), a.SizeBytes); err != nil {
 					return fail(2, "reading artifact %s: %w", a.Name, err)
 				}
 			}

@@ -35,11 +35,16 @@ func OpenDir(dir string) (Source, func() error, error) {
 }
 
 func (s *dirSource) List() (regular, irregular []string, err error) {
+	// Directories count too, so empty trees cannot bypass the entry bound.
+	entries := 0
 	err = fs.WalkDir(s.root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if len(regular)+len(irregular) >= MaxMembers && !entry.IsDir() {
+		if name == "." {
+			return nil
+		}
+		if entries++; entries > MaxMembers {
 			return errTooManyMembers
 		}
 		switch {
