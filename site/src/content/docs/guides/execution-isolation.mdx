@@ -133,8 +133,11 @@ waza run eval.yaml --isolation-request request.json --isolation-host host.json -
 `waza isolation preflight` exits `0` when admitted, `1` when rejected and `2`
 for invalid input. `waza run` exits `2` when the isolation preflight rejects
 the request; the report is still written when `--isolation-report` is given.
-The report path must differ from the eval files, `--output`, and the request
-and host files, so the report never replaces an input or a result. When
+The report never replaces an input or a result: Waza refuses to overwrite an
+existing file that is not an isolation preflight report, refuses the request,
+host and selected eval files, `--output` and the `<base>_*` files derived from
+it, `--reporter junit:` destinations and anything inside `--output-dir`, and
+fails the run if another writer replaces the report anyway. When
 `environment` is effectively restricted, `run` loads every selected eval
 (including all `--discover` skills) before the first one starts and rejects
 the run if any stdio `config.mcp_servers` entry sets environment variables

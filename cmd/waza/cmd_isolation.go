@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -59,6 +61,9 @@ code 2 means invalid input.`,
 			}
 			if output != "" {
 				if err := distinctReportPath(output, requestPath, hostPath); err != nil {
+					return &ExitCodeError{Code: ExitError, Err: err}
+				}
+				if err := reportOverwritable(output); err != nil {
 					return &ExitCodeError{Code: ExitError, Err: err}
 				}
 				if err := os.WriteFile(output, data, 0o644); err != nil {
@@ -161,6 +166,86 @@ func distinctReportPath(reportPath string, others ...string) error {
 // isolationProviders discovers the capability providers; tests replace it.
 var isolationProviders = executionisolation.DefaultProviders
 
+// reportOverwritable refuses to replace an existing file that is not an
+// isolation preflight report, so a mistyped report path can never truncate an
+// eval, task, fixture or other input.
+func reportOverwritable(path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("checking isolation report path: %w", err)
+	}
+	var existing struct {
+		Kind string `json:"kind"`
+	}
+	if json.Unmarshal(data, &existing) != nil || existing.Kind != executionisolation.PreflightKind {
+		return fmt.Errorf("refusing to overwrite %s: it is not a %s report", path, executionisolation.PreflightKind)
+	}
+	return nil
+}
+
+// reportClearOfRunOutputs refuses a report path that a run output writer
+// would replace: --output and the files derived from it, JUnit reporters,
+// and anything inside --output-dir.
+func reportClearOfRunOutputs(reportPath string) error {
+	destinations := []string{outputPath}
+	for _, reporter := range reporters {
+		if path, ok := strings.CutPrefix(reporter, "junit:"); ok {
+			destinations = append(destinations, path)
+		}
+	}
+	if err := distinctReportPath(reportPath, destinations...); err != nil {
+		return err
+	}
+	report, err := filepath.Abs(reportPath)
+	if err != nil {
+		return fmt.Errorf("resolving isolation report path: %w", err)
+	}
+	if outputPath != "" {
+		output, err := filepath.Abs(outputPath)
+		if err == nil {
+			ext := filepath.Ext(output)
+			derivedPrefix := strings.TrimSuffix(output, ext) + "_"
+			if strings.HasPrefix(strings.ToLower(report), strings.ToLower(derivedPrefix)) && strings.EqualFold(filepath.Ext(report), ext) {
+				return fmt.Errorf("isolation report path %s may be replaced by a file derived from --output %s", reportPath, outputPath)
+			}
+		}
+	}
+	if outputDir != "" {
+		dir, err := filepath.Abs(outputDir)
+		if err == nil {
+			if rel, err := filepath.Rel(dir, report); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("isolation report path %s must be outside --output-dir %s", reportPath, outputDir)
+			}
+		}
+	}
+	return nil
+}
+
+// publishedIsolationReport records the report bytes written for an admitted
+// run so the run can confirm no later writer replaced them.
+var publishedIsolationReport *struct {
+	path string
+	data []byte
+}
+
+// verifyPublishedIsolationReport fails the run when the admitted report was
+// replaced after it was written.
+func verifyPublishedIsolationReport() error {
+	published := publishedIsolationReport
+	if published == nil {
+		return nil
+	}
+	publishedIsolationReport = nil
+	data, err := os.ReadFile(published.path)
+	if err != nil || !bytes.Equal(data, published.data) {
+		return &ExitCodeError{Code: ExitError, Err: fmt.Errorf("isolation report %s was replaced or removed during the run; choose a report path no other output uses", published.path)}
+	}
+	return nil
+}
+
 // admittedIsolation is the report admitted by the run gate, consulted once
 // each eval spec is loaded.
 var admittedIsolation *executionisolation.Report
@@ -187,6 +272,9 @@ func runIsolationGate(ctx context.Context, requestPath, hostPath, reportPath str
 	}
 	if reportPath != "" {
 		if err := distinctReportPath(reportPath, append(protected, requestPath, hostPath)...); err != nil {
+			return &ExitCodeError{Code: ExitError, Err: err}
+		}
+		if err := reportOverwritable(reportPath); err != nil {
 			return &ExitCodeError{Code: ExitError, Err: err}
 		}
 	}
@@ -241,9 +329,19 @@ func admitIsolationSpecs(specPaths []string) error {
 	}
 	if pending := pendingIsolationReport; pending != nil {
 		pendingIsolationReport = nil
+		if err := distinctReportPath(pending.path, specPaths...); err != nil {
+			return &ExitCodeError{Code: ExitError, Err: err}
+		}
+		if err := reportClearOfRunOutputs(pending.path); err != nil {
+			return &ExitCodeError{Code: ExitError, Err: err}
+		}
+		if err := reportOverwritable(pending.path); err != nil {
+			return &ExitCodeError{Code: ExitError, Err: err}
+		}
 		if err := os.WriteFile(pending.path, pending.data, 0o644); err != nil {
 			return fmt.Errorf("writing isolation report: %w", err)
 		}
+		publishedIsolationReport = pending
 	}
 	return nil
 }

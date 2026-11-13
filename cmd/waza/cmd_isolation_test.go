@@ -129,6 +129,67 @@ func TestIsolationReportMustNotReplaceRunFiles(t *testing.T) {
 	require.ErrorContains(t, cmd.Execute(), "must not be the same file")
 }
 
+func TestIsolationReportNeverReplacesSelectedEvalsOrOutputs(t *testing.T) {
+	t.Cleanup(resetRunGlobals)
+	dir := t.TempDir()
+	rejectedRequest := writeIsolationFile(t, dir, "rejected.json",
+		`{"kind":"waza.execution-isolation-request","schema_version":"1.0","dimensions":{"network":"restricted"}}`)
+	admittedRequest := writeIsolationFile(t, dir, "admitted.json",
+		`{"kind":"waza.execution-isolation-request","schema_version":"1.0","dimensions":{}}`)
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "skill")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: skill\ndescription: test\n---\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "tasks", "task.yaml"), []byte("id: task\nname: Task\ninputs:\n  prompt: hi\n"), 0o600))
+	evalPath := filepath.Join(skillDir, "eval.yaml")
+	evalBody := []byte("name: skill\nskill: skill\nversion: \"1.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n  executor: mock\n  model: test-model\ntasks:\n  - \"tasks/*.yaml\"\n")
+	require.NoError(t, os.WriteFile(evalPath, evalBody, 0o600))
+
+	run := func(args ...string) error {
+		resetRunGlobals()
+		cmd := newRootCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs(append([]string{"run"}, args...))
+		return cmd.Execute()
+	}
+
+	for _, request := range []string{rejectedRequest, admittedRequest} {
+		err := run("--discover", root, "--isolation-request", request, "--isolation-report", evalPath)
+		require.ErrorContains(t, err, "is not a waza.execution-isolation-preflight report")
+		after, readErr := os.ReadFile(evalPath)
+		require.NoError(t, readErr)
+		require.Equal(t, evalBody, after, "a selected eval must never be replaced by the report")
+	}
+
+	spec := createTestSpec(t, "mock")
+	results := filepath.Join(dir, "results.json")
+	for name, tc := range map[string]struct {
+		report string
+		args   []string
+		want   string
+	}{
+		"junit reporter": {filepath.Join(dir, "junit.xml"), []string{"--reporter", "junit:" + filepath.Join(dir, "junit.xml")}, "must not be the same file"},
+		"derived output": {filepath.Join(dir, "results_summary.json"), []string{"--output", results}, "derived from --output"},
+		"output dir":     {filepath.Join(dir, "out", "isolation.json"), []string{"--output-dir", filepath.Join(dir, "out")}, "outside --output-dir"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := run(append([]string{spec, "--isolation-request", admittedRequest, "--isolation-report", tc.report}, tc.args...)...)
+			require.ErrorContains(t, err, tc.want)
+			_, statErr := os.Stat(tc.report)
+			require.True(t, os.IsNotExist(statErr), "the report must not be written when an output would replace it")
+		})
+	}
+
+	report := filepath.Join(dir, "published.json")
+	require.NoError(t, os.WriteFile(report, []byte("replaced"), 0o644))
+	publishedIsolationReport = &struct {
+		path string
+		data []byte
+	}{report, []byte("original")}
+	require.ErrorContains(t, verifyPublishedIsolationReport(), "was replaced or removed during the run")
+}
+
 type stubIsolationProvider struct{ dimension executionisolation.Dimension }
 
 func (stubIsolationProvider) Name() string { return "stub-sandbox" }

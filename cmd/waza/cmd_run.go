@@ -222,6 +222,11 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	if err := runIsolationGate(cmd.Context(), isolationRequestPath, isolationHostPath, isolationReportPath, cmd.ErrOrStderr(), append(slices.Clone(args), outputPath)...); err != nil {
 		return err
 	}
+	defer func() {
+		if err := verifyPublishedIsolationReport(); err != nil && retErr == nil {
+			retErr = err
+		}
+	}()
 	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
 		return err
 	} else if enabled {

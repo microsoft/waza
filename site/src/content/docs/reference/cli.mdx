@@ -151,7 +151,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 | `--redact` | | string | | Custom snapshot redaction policy; replaces defaults unless `extend: true`. |
 | `--isolation-request` | | string | | Unreleased (v0.42.0): isolation request JSON; the run is rejected (exit 2) before any execution when a requested boundary cannot be proved. See [Execution isolation](/waza/guides/execution-isolation/). |
 | `--isolation-host` | | string | | Unreleased (v0.42.0): host isolation declaration JSON whose claimed boundaries are probed before execution. |
-| `--isolation-report` | | string | | Unreleased (v0.42.0): write the isolation preflight report JSON; requires `--isolation-request` or `--isolation-host` and must differ from the eval, `--output`, request and host files. Written on rejection, or after every selected eval passes isolation checks. |
+| `--isolation-report` | | string | | Unreleased (v0.42.0): write the isolation preflight report JSON; requires `--isolation-request` or `--isolation-host` and never replaces an input or another output (existing non-report files, selected evals, `--output` and derived files, JUnit reporters and `--output-dir` are refused). Written on rejection, or after every selected eval passes isolation checks. |
 
 ### Examples
 
@@ -1718,7 +1718,7 @@ enforces no boundary itself; the Copilot-native sandbox (#544) is reported
 | `--request` | | string | | Isolation request JSON; without it every dimension is unrestricted (discovery only) |
 | `--host` | | string | | Host isolation declaration JSON; each claimed dimension is probed |
 | `--workspace` | | string | fresh temp dir | Workspace used by the filesystem probe |
-| `--output` | `-o` | string | | Also write the report to this file; it must not be the request or host file |
+| `--output` | `-o` | string | | Also write the report to this file; it must not be the request or host file or an existing non-report file |
 
 Exit codes: `0` admitted, `1` a requested boundary is unavailable, `2` invalid input.
 
