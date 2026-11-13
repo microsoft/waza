@@ -73,13 +73,17 @@ func (s *dirSource) List() (regular, irregular []string, err error) {
 
 // readDir returns at most budget entries of dir, failing once more exist.
 func (s *dirSource) readDir(dir string, budget int) ([]fs.DirEntry, error) {
-	file, err := s.root.Open(dir)
+	// Nonblocking, so a directory swapped for a FIFO is rejected, not waited on.
+	file, err := s.root.OpenFile(dir, os.O_RDONLY|openNonblock, 0)
 	if err != nil {
 		return nil, err
 	}
 	var out []fs.DirEntry
 	var readErr error
-	for {
+	if info, err := file.Stat(); err != nil || !info.IsDir() {
+		readErr = errors.Join(errors.New("bundle directory changed while it was being listed"), err)
+	}
+	for readErr == nil {
 		batch, err := file.ReadDir(listBatch)
 		out = append(out, batch...)
 		if len(out) > budget {

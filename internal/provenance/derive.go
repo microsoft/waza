@@ -3,6 +3,7 @@ package provenance
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -118,7 +119,7 @@ func deriveArtifacts(manifest []byte, objects map[string][]byte, admitted artifa
 		}
 		claims.artifacts.Objects = append(claims.artifacts.Objects, Ref{Path: ObjectsDir + "/" + a.Name, SHA256: a.SHA256, MediaType: a.MediaType})
 	}
-	for name := range objects {
+	for _, name := range slices.Sorted(maps.Keys(objects)) {
 		if !slices.ContainsFunc(m.Artifacts, func(a artifactmanifest.Artifact) bool { return a.Name == name }) {
 			return nil, fail("artifacts", "artifact_undeclared", "artifact %q is not declared in the manifest", name)
 		}

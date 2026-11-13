@@ -520,3 +520,16 @@ func TestReportStaysWithinSchemaBounds(t *testing.T) {
 		t.Fatalf("bounded report violates schema: %v", err)
 	}
 }
+
+func TestUndeclaredArtifactReportIsDeterministic(t *testing.T) {
+	f := newFixture(t)
+	files := f.bundle(t)
+	for _, name := range []string{"z-extra.json", "b-extra.json", "m-extra.json", "a-extra.json"} {
+		files[ObjectsDir+"/"+name] = []byte("{}")
+	}
+	for range 8 {
+		if got := failure(verifyFiles(t, files, Options{Verifier: f.verifier}), "artifacts"); !strings.Contains(got.Message, `"a-extra.json"`) {
+			t.Fatalf("undeclared artifact report is not deterministic: %+v", got)
+		}
+	}
+}
