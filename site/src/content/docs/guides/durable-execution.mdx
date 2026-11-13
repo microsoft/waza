@@ -15,10 +15,10 @@ runner, schema, model, tool or policy versions.
 ```mermaid
 flowchart LR
     S["1. Submit attempt"] --> P["2. Publish and inspect"]
-    S --> C["3. Checkpoint"]
+    C["3. Or submit with checkpoints"] --> P
     S --> L["4. Lineage and lifecycle"]
+    C --> L
     L -->|"orphaned, cancelled, timed out"| R["5. Retry or resume"]
-    C --> R
     R --> S
     P --> A["6. Aggregate"]
     A --> E["7. Review evidence"]
@@ -61,6 +61,12 @@ separate fields. `unknown` is never treated as unfinalized or verified. See
 
 ## 3. Create checkpoints at safe boundaries
 
+`checkpoint create` is an **alternative** to step 1's `runner submit`, not a
+follow-up: it submits its own distinct attempt and publishes checkpoints for
+it. Use it instead of `runner submit` for work you want to be resumable, and
+read downstream references from its nested `submission`. Running both executes
+the unit twice as two attempts.
+
 Checkpoints exist only at two whole-unit boundaries: `before-unit` and
 `finalized-unit`. No in-flight process, SDK session, partial grader or
 workspace is restored.
@@ -69,6 +75,7 @@ workspace is restored.
 waza runner checkpoint create --store .waza-artifacts \
   < submission.json > checkpoint-result.json
 CHECKPOINT="$(jq -er '.finalized_checkpoint_sha256' checkpoint-result.json)"
+DIGEST="$(jq -er '.submission.completion.manifest_digest' checkpoint-result.json)"
 ```
 
 Build the CLI from a clean, VCS-stamped tree; other builds are rejected before
