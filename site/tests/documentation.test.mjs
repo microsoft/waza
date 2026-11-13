@@ -543,47 +543,61 @@ test('release articles are linked from Releases and retain their existing screen
   assert.match(article, /Fixture-backed native-profile view/);
 });
 
-test('pending release separates source readiness, historical metadata and released-consumer completion', () => {
+test('v0.41.0 article is a published release record with its limits', () => {
   const article = read('site/src/content/docs/releases/v0-41-0.mdx');
-  const before = article.split('### Before selecting a release candidate')[1]?.split('### After publication: released-consumer completion')[0];
-  const after = article.split('### After publication: released-consumer completion')[1];
-  const merged = article.split('### Latest merged-source frontier')[1]?.split('\n## Preserve the published hotfix baseline')[0];
-  assert.ok(before && after, 'both ordered readiness stages must be present');
-  assert.ok(merged, 'current merged-source inventory must be present');
-  assert.doesNotMatch(before, /#902/);
-  assert.match(after, /#902 released-consumer validation/);
-  assert.match(after, /installer, binary, and checksums are published/);
-  assert.match(after, /does not waive #902/);
-  assert.match(merged, /efb2d2b61821d556c654075ca02f77b5f37764f1/);
+  const text = article.replace(/\s+/g, ' ');
+  assert.match(article, /^title: "Waza v0\.41\.0: recover durable work, keep the evidence"$/m);
+  assert.match(article, /\*\*Released November 13, 2026\*\*/);
+  assert.match(read('CHANGELOG.md'), /^## \[0\.41\.0\] - 2026-11-13$/m);
+  assert.doesNotMatch(article, /pending|Draft|preview|gates remain open|Release media|After publication/i);
+  const record = article.split('## Publication record')[1]?.split('\n## ')[0];
+  assert.ok(record, 'publication record must be present');
+  for (const fact of [
+    'd537bf00d4d442a1935ceba2fbc664b9ccb497b2',
+    'https://github.com/microsoft/waza/releases/tag/v0.41.0',
+    'https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0',
+    'https://github.com/microsoft/waza/pull/987',
+    'https://github.com/microsoft/waza/actions/runs/43417374149',
+    '#902 released-consumer validation',
+    'actions/runs/43422782810', 'actions/runs/43422781752',
+  ]) assert.ok(record.includes(fact), fact);
   for (const pr of ['#929', '#942', '#944', '#945', '#958', '#959', '#960', '#961', '#962',
     '#966', '#968', '#969', '#970', '#971', '#972', '#973', '#975', '#976', '#977', '#978', '#979', '#980', '#982', '#921', '#983']) {
-    assert.ok(merged.includes(pr), `${pr} must be included in the current merged-source inventory`);
+    assert.ok(article.includes(pr), `${pr} must be included in the release inventory`);
   }
-  assert.match(before, /\[#904\]\([^)]+\) dashboard build are\s+closed/);
-  const deferred = merged.split('### Moved to v0.42.0')[1]?.split('\n## Release media')[0];
-  assert.ok(deferred, 'v0.42.0 carry-over must be listed');
-  for (const issue of ['#825', '#835', '#974', '#981']) assert.ok(deferred.includes(issue), `${issue} must be listed as moved to v0.42.0`);
-  assert.match(article, /Release media for v0\.41\.0 is pending publication approval\./);
-  assert.match(before, /The merged #839,\s+#935, and #841 changes are inventoried above and are not outstanding PRs\./);
-  assert.match(before, /The #929 evidence and #936 Windows diagnostics are merged/);
-  assert.match(before, /timeouts remain under investigation in\s+\[#965\]/);
-  assert.match(article, /0\.39\.1` in `version\.txt` and `extension\.yaml`/);
-  assert.match(article, /not a new verification of binary provenance/);
-  assert.match(article, /applies prospectively to v0\.41\.0/);
+  const limits = article.split("## Upgrade with the release's limits in view")[1];
+  assert.ok(limits, 'limits must be present');
+  assert.match(limits, /\[#965\]/);
+  for (const issue of ['#825', '#835', '#974', '#981']) assert.ok(limits.includes(issue), `${issue} must be listed as moved to v0.42.0`);
+  assert.match(text, /0\.39\.1` in `version\.txt` and `extension\.yaml`/);
+  assert.match(text, /not a new verification of binary provenance/);
+  assert.match(text, /applies prospectively to v0\.41\.0/);
   assert.match(article, /reference\/releases\/#capabilities-introduced-in-v0390/);
   const changelog = read('CHANGELOG.md');
   assert.match(changelog, /historical v0\.40\.1 tags retain `0\.39\.1`/);
-  assert.match(changelog, /post-publication released-consumer\s+completion requirement \(#902\)/);
-  assert.match(changelog, /current `main`\s+`efb2d2b61821d556c654075ca02f77b5f37764f1`/);
   assert.match(changelog.split('## [0.41.0]')[1]?.split('## [0.40.1]')[0] ?? '', /### Moved to v0\.42\.0[\s\S]*#825[\s\S]*#835[\s\S]*#974[\s\S]*#981/);
+  assert.doesNotMatch(read('site/astro.config.mjs'), /\(pending\)/);
 });
 
-test('v0.40.1 article owns hotfix detail while the homepage leads with the product', () => {
+test('v0.41 features are labeled as released in v0.41.0', () => {
+  const paths = ['README.md', 'docs/EXECUTION_ATTEMPTS.md', 'docs/EXECUTION_CHECKPOINTS.md',
+    'docs/EXECUTION_LIFECYCLE.md', 'docs/MANIFEST_AGGREGATION.md', 'docs/GUIDE.md', 'docs/PRD.md',
+    'docs/DEMO-GUIDE.md', 'docs/COMPATIBILITY.md',
+    ...markdownFiles(resolve(root, 'site/src/content/docs/guides')),
+    ...markdownFiles(resolve(root, 'site/src/content/docs/reference')),
+    'site/src/content/docs/concepts.mdx'];
+  for (const path of paths) {
+    assert.doesNotMatch(read(path),
+      /unreleased v0\.41|source preview|embedding preview|unreleased (?:source|checkpoint|execution-lineage)|source-only attempt|\bsource Lab\b|not (?:in|available in) installed v0\.40\.1/i, path);
+  }
+});
+
+test('v0.40.1 article owns hotfix detail while the homepage leads with the current release', () => {
   const homepage = read('site/src/content/docs/index.mdx');
   const intro = homepage.split('## What can waza do?')[0];
   assert.doesNotMatch(intro, /<Aside\b/);
-  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-40-1\/\)/g) ?? []).length, 1);
-  assert.match(intro, /\*\*New in v0\.40\.1:\*\*/);
+  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-41-0\/\)/g) ?? []).length, 1);
+  assert.match(intro, /\*\*New in v0\.41\.0:\*\*/);
   assert.match(homepage, /A mock pass proves harness wiring, not agent quality/);
   assert.match(homepage, /authentication, permissions and possible-cost prerequisites/);
   assert.match(read('README.md'), /https:\/\/microsoft\.github\.io\/waza\/releases\/v0-40-1\//);

@@ -1,7 +1,7 @@
 # Logical work and immutable execution attempts
 
-This is an unreleased source preview for #764. It is not a released CLI
-command, checkpoint contract, or scheduler. Source builds expose public
+This layer for #764 was released in v0.41.0. It is not a checkpoint contract
+or scheduler. The CLI exposes public
 submission and lineage through the CLI, loopback API and a read-only Lab view
 (see [public submission and lineage](#public-submission-and-lineage)). Ordinary
 `runner run` and mutable result files keep their existing behavior.

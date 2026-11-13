@@ -3,7 +3,7 @@ title: Optimizer Adapters
 description: Let an external optimizer propose skill or context candidates while Waza evaluates them against a pinned suite with explicit held-out qualification.
 ---
 
-**Unreleased v0.41 source preview.** `waza optimize` places an optimizer
+**Released in v0.41.0.** `waza optimize` places an optimizer
 adapter in front of the existing evaluation harness. The adapter proposes a
 candidate, and Waza evaluates it with the normal runner, graders and result
 writer against a pinned suite. Waza then decides whether to keep the candidate.

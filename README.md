@@ -25,22 +25,26 @@ Install the published binary or run `waza update`; a source build is optional.
 Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
 [feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
 
-The unreleased [logical execution-attempt embedding API](docs/EXECUTION_ATTEMPTS.md)
+Released in v0.41.0, the [logical execution-attempt embedding API](docs/EXECUTION_ATTEMPTS.md)
 adds immutable reservations and explicit verified reuse without changing
-`runner run`. Unreleased source commands `runner submit` and `runner lineage`
+`runner run`. The commands `runner submit` and `runner lineage`
 record distinct, retry and reuse attempts and print ordered lineage with
 derived [lifecycle state](docs/EXECUTION_LIFECYCLE.md) (cancellation, deadline,
-orphan detection and advisory retry eligibility); this is not available in
-installed v0.40.1 artifacts.
-The [checkpoint embedding preview](docs/EXECUTION_CHECKPOINTS.md) adds compatible
-whole-unit recovery. Its unreleased source CLI adds `runner checkpoint create`
+orphan detection and advisory retry eligibility).
+The [checkpoint embedding API](docs/EXECUTION_CHECKPOINTS.md) adds compatible
+whole-unit recovery. The v0.41.0 CLI adds `runner checkpoint create`
 and `runner checkpoint resume`, with protected HTTP create/resume operations.
-The source Lab can create/resume checkpoints and export protected results.
+The Lab can create/resume checkpoints and export protected results.
 Ordered evaluation-level lineage and full platform acceptance remain pending.
 For 1.0 results containing a report, the Lab reader labels statuses as unverified
 claims: native canonical-report checks are not performed in the browser.
 
-**v0.40.0 adds** bounded
+**v0.41.0 adds** durable execution: logical attempts and lineage, checkpoints,
+lifecycle and evidence states, standalone aggregation, and optimizer adapters.
+Read [Waza v0.41.0: recover durable work, keep the evidence](https://microsoft.github.io/waza/releases/v0-41-0/)
+for the release story, publication record and known limits.
+
+**v0.40.0 added** bounded
 runner/text execution, selected AgentV assertion conversion, task-level MCP
 mocks, program-grader context, host lifecycle evidence, and Lab conversations.
 Read [Waza v0.40.0: run exactly the work you declared](https://microsoft.github.io/waza/releases/v0-40-0/)
@@ -264,7 +268,7 @@ waza grade eval.yaml --results results.json
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
-# Optimize a skill or context candidate with held-out qualification (source preview)
+# Optimize a skill or context candidate with held-out qualification (v0.41.0+)
 waza optimize run eval.yaml --seed ./my-skill --optimization-tag train --qualification-tag holdout
 
 # Capture snapshots during a run and inspect offline consistency
@@ -306,7 +310,7 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ## Commands
 
-### `waza aggregate` (unreleased v0.41 source preview)
+### `waza aggregate` (v0.41.0+)
 
 Aggregate explicit completed public manifests from an existing local immutable
 store without starting agents or requiring the original worker:
@@ -326,7 +330,7 @@ diagnostics and the exact JSON download.
 See [worked examples](site/src/content/docs/guides/manifest-aggregation.mdx) and
 [ordering, compatibility and migration](docs/MANIFEST_AGGREGATION.md).
 
-### `waza artifact` (unreleased v0.41 source preview)
+### `waza artifact` (v0.41.0+)
 
 Publish immutable artifact manifests without executing agents. The opt-in store
 is separate from legacy mutable result files; content verification is not
@@ -347,7 +351,7 @@ stored declaration pointers and inspect current integrity. Unreadable publicatio
 or an ambiguous finalization write reports `unknown`, not observed marker absence. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
 
-### `waza optimize` (unreleased v0.41 source preview)
+### `waza optimize` (v0.41.0+)
 
 An optimizer adapter proposes skill or context candidates, and Waza evaluates
 each one with the normal harness against a pinned suite. A candidate is
@@ -447,7 +451,7 @@ The task entry must be eval-relative, and successful adaptation passes shared
 offline admission within the complete 4 MiB emitted-byte limit.
 See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
 
-**Unreleased checkpoint source preview:** `waza runner checkpoint create --store
+**Checkpoint commands (released in v0.41.0):** `waza runner checkpoint create --store
 .waza-artifacts < submission.json` publishes whole-unit checkpoints;
 `waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
 submission.json` admits compatible recovery. `waza runner checkpoint availability

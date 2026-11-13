@@ -5,8 +5,8 @@ workflows. See [External evaluation interoperability](INTEROPERABILITY.md) for
 the assertion-only AgentV preview, exact version pin, oracle evidence, rejected
 lossy mappings and unsupported whole-suite semantics.
 
-The unreleased [logical execution-attempt embedding API](EXECUTION_ATTEMPTS.md)
-is additive. Its attempt, completion, and submission sidecars have independent
+The [logical execution-attempt embedding API](EXECUTION_ATTEMPTS.md), released
+in v0.41.0, is additive. Its attempt, completion, and submission sidecars have independent
 `1.0` versions; they do not change legacy result readers, runner request
 ordinals, manifest v1, or ordinary `runner run` retry behavior. No historical
 reservation, ownership, or billing evidence is synthesized.
@@ -16,7 +16,7 @@ Ordinary `RunResult` JSON decoding intentionally retains legacy float64 values.
 Typed submission/checkpoint writers reject invalid original terminal UTF-8
 before JSON marshaling can normalize it.
 
-The [checkpoint embedding preview](EXECUTION_CHECKPOINTS.md) uses independently
+The [checkpoint embedding API](EXECUTION_CHECKPOINTS.md) uses independently
 versioned checkpoint sidecars. It admits only whole-unit boundaries, exact
 runner/configuration compatibility, and original-source recovery. An absent
 completion does not authorize rerunning an original recorded dispatch.

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 test('checkpoint source commands link to bounded recovery and protected HTTP limits', async ({ page }) => {
   await page.goto('/waza/reference/cli/');
-  await expect(page.getByRole('heading', { name: 'Checkpoint commands (unreleased source preview)', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Checkpoint commands (v0.41.0+)', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'complete workflow and recovery limits', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/guides\/immutable-artifacts\/#checkpoint-public-source-preview$/);
   const content = page.locator('main');
@@ -15,12 +15,12 @@ test('checkpoint source commands link to bounded recovery and protected HTTP lim
   await expect(content).toContainText('Unsupported active providers fail closed');
   await expect(content).toContainText('no raw checkpoint GET endpoint is available');
   await expect(content).toContainText('A previously dispatched source is refused, not replayed.');
-  await expect(content).toContainText('available in the source Lab');
-  await expect(content).toContainText('Full native-platform and release acceptance remain pending');
+  await expect(content).toContainText('available in the Lab');
+  await expect(content).toContainText('Full native-platform acceptance is not claimed');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint create' })).toContainText('schema_version:"1.0"');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint resume' })).toContainText('restored-result.json');
   await page.goto('/waza/guides/dashboard-lab/');
-  const image = page.getByRole('img', { name: 'Source Lab showing a recorded protected mock API response: failed original terminal reused with zero new calls and exact JSON download.' });
+  const image = page.getByRole('img', { name: 'Lab showing a recorded protected mock API response: failed original terminal reused with zero new calls and exact JSON download.' });
   await expect(image).toBeVisible();
   expect(new URL((await image.getAttribute('src'))!, page.url()).pathname).toBe('/waza/images/dashboard-lab-checkpoint.png');
   expect(await image.evaluate((img) => img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0)).toBe(true);
@@ -29,7 +29,7 @@ test('checkpoint source commands link to bounded recovery and protected HTTP lim
 
 test('attempt preview links serve exact independent sidecar schemas below the deployed base', async ({ page, request }) => {
   await page.goto('/waza/guides/immutable-artifacts/');
-  await expect(page.getByRole('heading', { name: 'Logical attempts: embedding preview', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Logical attempts', exact: true })).toBeVisible();
   for (const [label, filename] of [
     ['attempt/decision schema', 'execution-attempt-1.0.schema.json'],
     ['completion schema', 'execution-completion-1.0.schema.json'],

@@ -1618,7 +1618,7 @@ waza session view <session-file>
 
 ## waza optimize
 
-**Unreleased v0.41 source preview.** Let an optimizer adapter propose skill or
+**Released in v0.41.0.** Let an optimizer adapter propose skill or
 context candidates, which the normal harness evaluates against a pinned suite,
 with held-out qualification.
 
@@ -1658,7 +1658,7 @@ failure category. Waza never enforces a provider spending cap. See
 
 ## waza aggregate
 
-**Unreleased v0.41 source preview.** Aggregate completed public manifests without
+**Released in v0.41.0.** Aggregate completed public manifests without
 agents or original worker ownership. Explicit existing local stores only.
 
 ```bash
@@ -1677,7 +1677,7 @@ See [worked examples, conflict rules and migration](../../guides/manifest-aggreg
 
 ## waza artifact
 
-**Unreleased v0.41 source preview.** Publish and verify immutable artifacts without
+**Released in v0.41.0.** Publish and verify immutable artifacts without
 executing a runner. Create the private local root first:
 
 ```bash
@@ -1745,7 +1745,7 @@ Save stdout with `> validation.json`; identity is not proof of execution or
 duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
 See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
 
-### Submission and lineage commands (unreleased source preview)
+### Submission and lineage commands (v0.41.0+)
 
 ```bash
 waza runner submit --store .waza-artifacts < submission.json
@@ -1774,7 +1774,7 @@ the store is unavailable, truncated or contains unreadable records.
 [logical work and attempts](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage)
 and [execution lifecycle](../../guides/immutable-artifacts/#execution-lifecycle-and-recovery).
 
-### Checkpoint commands (unreleased source preview)
+### Checkpoint commands (v0.41.0+)
 
 ```bash
 waza runner checkpoint create --store .waza-artifacts < submission.json
@@ -1812,7 +1812,7 @@ Treat these levels separately: top-level exit `2` can coexist with a preserved
 completed or reused submission whose nested exit is `0`.
 A reference can survive a failed publication and is not a success claim.
 See the [complete workflow and recovery limits](../../guides/immutable-artifacts/#checkpoint-public-source-preview).
-Installed v0.40.1 artifacts do not contain these commands.
+Installed v0.40.x artifacts do not contain these commands.
 
 ## waza serve
 

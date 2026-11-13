@@ -82,44 +82,38 @@ test('all built internal page routes, fragments and image assets resolve under t
   expect(failures).toEqual([]);
 });
 
-test('pending release navigation does not promote unavailable downloads', async ({ page }) => {
+test('published release navigation links the v0.41.0 article and downloads', async ({ page }) => {
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
   await expect(main).toContainText('Current published standalone release: v0.41.0');
   const downloads = main.locator('a[href*="/releases/download/v0.41.0/waza-"]');
   await expect(downloads).toHaveCount(6);
-  await main.getByRole('link', { name: 'Waza v0.41.0 preview: prepare the release, preserve the evidence', exact: true }).click();
+  await main.getByRole('link', { name: 'Waza v0.41.0: recover durable work, keep the evidence', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0 preview: prepare the release, preserve the evidence');
-  await expect(page.locator('main')).toContainText('Draft — publication pending.');
-  await expect(page.locator('main')).toContainText('6750ff6115b3a98a5609bd751227bca629839a9c');
-  await expect(page.locator('main')).toContainText('Finalize only after the remaining admissions');
-  await expect(page.locator('main')).toContainText('0.39.1 in version.txt and extension.yaml');
-  const renderedStages = await page.locator('main').innerText();
-  const before = renderedStages.split('Before selecting a release candidate')[1]?.split('After publication: released-consumer completion')[0];
-  expect(before).toBeTruthy();
-  expect(before).not.toContain('#902');
-  await expect(page.locator('main')).toContainText('After the actual v0.41.0 installer, binary, and checksums are published');
-  await expect(page.locator('main').getByRole('link', { name: '#902 released-consumer validation', exact: true }))
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0: recover durable work, keep the evidence');
+  const article = page.locator('main');
+  await expect(article).toContainText('Released November 13, 2026');
+  await expect(article).not.toContainText(/pending|Draft/i);
+  await expect(article).toContainText('d537bf00d4d442a1935ceba2fbc664b9ccb497b2');
+  await expect(article).toContainText('0.39.1 in version.txt and extension.yaml');
+  await expect(article.getByRole('link', { name: '#902 released-consumer validation', exact: true }))
     .toHaveAttribute('href', 'https://github.com/microsoft/waza/issues/902');
-  await expect(page.locator('main')).toContainText('does not waive #902');
-  await expect(page.locator('a[href*="/releases/download/v0.41.0/"]')).toHaveCount(0);
-  await page.locator('#starlight__sidebar').getByRole('link', { name: 'Waza v0.41.0 (pending)', exact: true }).click();
+  await page.locator('#starlight__sidebar').getByRole('link', { name: 'Waza v0.41.0', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
-  await page.locator('main').getByRole('link', { name: 'current published standalone and azd releases', exact: true }).click();
+  await article.getByRole('link', { name: 'release and download reference', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/reference\/releases\/$/);
 });
 
 test('beginner learning order and published release availability are visible', async ({ page }) => {
   await page.goto('/waza/');
-  await expect(page.locator('main')).toContainText('New in v0.40.1');
+  await expect(page.locator('main')).toContainText('New in v0.41.0');
   await expect(page.locator('main')).not.toContainText('building upcoming main');
   await page.goto('/waza/quick-start/');
   const navigation = page.getByRole('navigation', { name: 'Main' });
   for (const name of ['Concepts and Learning Path', 'Project Configuration', 'Statistical Fields']) {
     await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible();
   }
-  await expect(page.locator('main')).toContainText('Published standalone v0.40.1');
+  await expect(page.locator('main')).toContainText('Published standalone v0.41.0');
   await expect(page.locator('main')).toContainText('no source build is required');
   await expect(page.locator('main')).toContainText('If you prefer to build from source');
   await expect(page.locator('main')).toContainText('expect exit 1');
@@ -142,7 +136,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     const main = page.locator('main');
     await expect(main.locator('.starlight-aside')).toHaveCount(0);
     const announcement = main.getByRole('link', { name: 'Read the release article', exact: true });
-    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-40-1/');
+    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-41-0/');
     await expect(announcement).toBeInViewport();
     await expect(main.getByRole('heading', { name: 'What can waza do?', exact: true })).toBeInViewport();
     const paragraph = announcement.locator('..');
@@ -155,18 +149,16 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     }
 
     await announcement.click();
-    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-1\/$/);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.40.1: make release workflows match their contracts');
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0: recover durable work, keep the evidence');
     for (const text of [
-      'Released November 6, 2026',
-      'zero tasks and Partial coverage',
-      'tokens check --strict',
-      'group_by: tags',
-      'top-level eval inputs',
-      'nanosecond-resolution run IDs',
-      'adversarial --artifacts-dir',
-      'without canceling the active request',
-      'file descriptor 0',
+      'Released November 13, 2026',
+      'waza runner submit',
+      'waza runner checkpoint availability',
+      'observation: "unobserved"',
+      'byte-identical, order-independent',
+      'waza optimize run',
+      'user_input_requests',
     ]) await expect(page.locator('main')).toContainText(text);
 
     await page.goto('/waza/releases/v0-40-0/');
