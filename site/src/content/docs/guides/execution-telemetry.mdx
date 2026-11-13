@@ -70,7 +70,8 @@ spans, logs, links and metric series are dropped and counted. Metric series past
 the cap are folded into one `otel.metric.overflow=true` series. Drops appear in
 the report, as the `waza.telemetry.dropped` metric and as log events. Metrics use
 a service-level resource; run, work and scheduler IDs stay on traces and logs, and
-each metric point carries a trace exemplar instead of a per-work series.
+each metric point carries a trace exemplar instead of a per-work series. Metrics
+are delta sums over the work's observed interval, so successive works add up.
 
 ## Exporting
 

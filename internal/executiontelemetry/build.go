@@ -297,6 +297,17 @@ func (b *builder) build() *Bundle {
 			add(b, []KeyValue{str(KeyOutcome, outcome), str(KeyAttemptStatus, a.Status)}, 1)
 	}
 	b.finishDrops(&report)
+	// Caps may drop task or aggregation spans after logs referenced them;
+	// re-point such logs at the always-emitted work span.
+	for i := range b.logs {
+		if b.logs[i].SpanID != "" && !b.emitted(b.logs[i].SpanID) {
+			b.logs[i].SpanID = rootID
+		}
+	}
+	intervalEnd := now
+	if !intervalEnd.After(start) {
+		intervalEnd = start.Add(time.Nanosecond)
+	}
 
 	bundle := &Bundle{Report: report}
 	scope := Scope{Name: ScopeName, Version: SchemaVersion}
@@ -306,7 +317,7 @@ func (b *builder) build() *Bundle {
 	series := map[string]int{}
 	total := 0
 	for _, name := range b.order {
-		m := b.metrics[name].metric(now, b.traceID, rootID)
+		m := b.metrics[name].metric(start, intervalEnd, b.traceID, rootID)
 		metrics = append(metrics, m)
 		series[name] = len(m.Sum.DataPoints)
 		total += len(m.Sum.DataPoints)
@@ -669,6 +680,9 @@ func (b *builder) metric(name, unit, description string) *metricBuilder {
 
 const overflowKey = "\x00overflow"
 
+// temporalityDelta is AGGREGATION_TEMPORALITY_DELTA in OTLP.
+const temporalityDelta = 1
+
 func (m *metricBuilder) add(b *builder, attrs []KeyValue, value int64) {
 	clean, _ := b.san.clean(SignalMetrics, OnMetric, attrs)
 	key := seriesKey(clean)
@@ -697,18 +711,20 @@ func seriesKey(attrs []KeyValue) string {
 	return strings.Join(parts, "\x00")
 }
 
-func (m *metricBuilder) metric(now time.Time, traceID, spanID string) Metric {
+// metric emits delta sums: each derivation reports only this work's
+// contribution over its observed interval, so successive works add up.
+func (m *metricBuilder) metric(start, end time.Time, traceID, spanID string) Metric {
 	points := make([]NumberDataPoint, 0, len(m.keys))
 	for _, key := range m.keys {
 		p := *m.points[key]
-		p.StartTimeUnixNano, p.TimeUnixNano = nanos(now), nanos(now)
+		p.StartTimeUnixNano, p.TimeUnixNano = nanos(start), nanos(end)
 		p.AsInt = strconv.FormatInt(m.values[key], 10)
-		p.Exemplars = []Exemplar{{TimeUnixNano: nanos(now), AsInt: p.AsInt, TraceID: traceID, SpanID: spanID}}
+		p.Exemplars = []Exemplar{{TimeUnixNano: nanos(end), AsInt: p.AsInt, TraceID: traceID, SpanID: spanID}}
 		if p.Attributes == nil {
 			p.Attributes = []KeyValue{}
 		}
 		points = append(points, p)
 	}
 	return Metric{Name: m.name, Description: m.description, Unit: m.unit,
-		Sum: Sum{DataPoints: points, AggregationTemporality: 2, IsMonotonic: true}}
+		Sum: Sum{DataPoints: points, AggregationTemporality: temporalityDelta, IsMonotonic: true}}
 }

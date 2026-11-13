@@ -77,7 +77,8 @@ flowchart TD
   `waza.work` span of its own run and work. An aggregate member that names the
   supplied manifest but records a binding for another run or work is rejected
   (exit 6).
-- **Diagnostic logs**: a lineage diagnostic is attached to an attempt span only
+- **Log references**: a log whose task, attempt or aggregation span was dropped
+  by a cap is re-pointed at the `waza.work` span. A lineage diagnostic is attached to an attempt span only
   when that span was emitted; otherwise it stays on the `waza.work` span and the
   execution ID remains an attribute.
 
@@ -107,7 +108,9 @@ Log bodies carry the event name only, never message text or payloads.
 
 ### Metrics
 
-All metrics are monotonic cumulative sums. The metrics resource is
+All metrics are monotonic delta sums: each derivation reports only this work's
+contribution over its observed interval (earliest attempt start to derivation
+time), so exports for successive works add up in a backend. The metrics resource is
 service-level only (`service.name`, `service.version`,
 `waza.telemetry.schema_version`), so run, work and scheduler identifiers never
 become series dimensions. Each data point carries one exemplar with the trace

@@ -360,6 +360,13 @@ func TestSafeguardsBoundCardinality(t *testing.T) {
 	require.Equal(t, 8, bundle.Report.Signals.Metrics.Names[MetricToolCalls])
 
 	bundle = build(t, f.Inputs, Options{Limits: Limits{MaxSpans: 3, MaxLogs: 2}})
+	emitted := map[string]bool{}
+	for _, span := range bundle.Traces.ResourceSpans[0].ScopeSpans[0].Spans {
+		emitted[span.SpanID] = true
+	}
+	for _, record := range bundle.Logs.ResourceLogs[0].ScopeLogs[0].LogRecords {
+		require.True(t, record.SpanID == "" || emitted[record.SpanID], "log references dropped span %s", record.SpanID)
+	}
 	require.Equal(t, 3, bundle.Report.Signals.Traces.Emitted)
 	require.Equal(t, 2, bundle.Report.Signals.Logs.Emitted)
 	require.Positive(t, bundle.Report.Signals.Traces.Dropped)
@@ -822,11 +829,13 @@ func TestMetricsUseServiceResourceWithWorkExemplars(t *testing.T) {
 	_, ok := attrValue(resource.Attributes, KeyServiceName)
 	require.True(t, ok)
 	for _, m := range bundle.Metrics.ResourceMetrics[0].ScopeMetrics[0].Metrics {
+		require.Equal(t, temporalityDelta, m.Sum.AggregationTemporality, "per-work exports add up instead of resetting")
 		for _, p := range m.Sum.DataPoints {
 			require.Len(t, p.Exemplars, 1)
 			require.Equal(t, bundle.Report.Correlation.TraceID, p.Exemplars[0].TraceID)
 			require.Equal(t, bundle.Report.Correlation.RootSpanID, p.Exemplars[0].SpanID)
 			require.Equal(t, p.AsInt, p.Exemplars[0].AsInt)
+			require.Less(t, mustInt(t, p.StartTimeUnixNano), mustInt(t, p.TimeUnixNano), "delta points carry a valid interval")
 		}
 	}
 }
