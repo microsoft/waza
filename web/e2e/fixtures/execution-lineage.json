@@ -1,0 +1,110 @@
+{
+  "attempts": [
+    {
+      "depth": 0,
+      "dispatch_decision": "decision-525e745f5714e7ebdd9148cc35e90991415c906b04bf5095d5c4900f413236c0",
+      "execution_id": "exec-935e36d97769f25c0e3f853599f46551cc5735aca61221a9b04a1a3c658eb53d",
+      "manifest_digest": "3d497b79962ff7234ded6bfd7b51f5b36de1a43078b592b04f3b3bf63527e794",
+      "native_attempt": 2,
+      "order": 1,
+      "reservation_digest": "d6b8ec7a5c69c1145dfc954e05502d21e2ee3b78505e16a953e87754b2d4a00d",
+      "reused_by": [
+        "decision-6ffe649b1db21e0a7404e74c2a58a9ad7e12abad5dff9048ef49df05c4afcc73"
+      ],
+      "status": "completed",
+      "terminal": {
+        "engine_calls": 1,
+        "exit_code": 0,
+        "failure_boundary": "none",
+        "outcome": "success"
+      }
+    },
+    {
+      "depth": 1,
+      "dispatch_decision": "decision-50b3f5185e0f60c32ffb3799f534f7d30b6d9c0629116c8363aba9ab15f3ebb7",
+      "execution_id": "exec-8ab9435de990b29589b538feba32fdfae70c75a61c843e511002e1537734ead7",
+      "manifest_digest": "1efaf062547299ae4f43a822c4fcf9e2636aceec01f84f5e4abf6b609a82b6da",
+      "native_attempt": 3,
+      "order": 2,
+      "parent": {
+        "execution_id": "exec-935e36d97769f25c0e3f853599f46551cc5735aca61221a9b04a1a3c658eb53d",
+        "relationship": "retry"
+      },
+      "reservation_digest": "14aa4c3d1fd8aa20cc2261b0beed70d658941492ac17fdc14d4a15fd886f6e36",
+      "reused_by": [],
+      "status": "completed",
+      "terminal": {
+        "engine_calls": 1,
+        "exit_code": 0,
+        "failure_boundary": "none",
+        "outcome": "success"
+      }
+    },
+    {
+      "depth": 0,
+      "dispatch_decision": "decision-3f0e9b9de362866d8817bfdf5f45ad9f575085a6b014a701ef4b276f5684becd",
+      "execution_id": "exec-b341b5f4ab6e66512ba0538a5357513f2a39fd9d12e9d8bf4c797eadbb30f223",
+      "manifest_digest": "cb1195a6919b401d8d883e3a29f4263e3a4ebeab3913c2e39b47c6cdb0549147",
+      "native_attempt": 2,
+      "order": 3,
+      "reservation_digest": "c3b0304e91535c63761a813964939886abde7f7054b6f02d1e295a9cf3cff82c",
+      "reused_by": [],
+      "status": "completed",
+      "terminal": {
+        "engine_calls": 1,
+        "exit_code": 0,
+        "failure_boundary": "none",
+        "outcome": "success"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "decision_id": "decision-3f0e9b9de362866d8817bfdf5f45ad9f575085a6b014a701ef4b276f5684becd",
+      "execution_id": "exec-b341b5f4ab6e66512ba0538a5357513f2a39fd9d12e9d8bf4c797eadbb30f223",
+      "native_attempt": 2,
+      "outcome": "distinct",
+      "policy": "distinct"
+    },
+    {
+      "decision_id": "decision-50b3f5185e0f60c32ffb3799f534f7d30b6d9c0629116c8363aba9ab15f3ebb7",
+      "execution_id": "exec-8ab9435de990b29589b538feba32fdfae70c75a61c843e511002e1537734ead7",
+      "native_attempt": 3,
+      "outcome": "distinct",
+      "policy": "distinct"
+    },
+    {
+      "decision_id": "decision-525e745f5714e7ebdd9148cc35e90991415c906b04bf5095d5c4900f413236c0",
+      "execution_id": "exec-935e36d97769f25c0e3f853599f46551cc5735aca61221a9b04a1a3c658eb53d",
+      "native_attempt": 2,
+      "outcome": "distinct",
+      "policy": "distinct"
+    },
+    {
+      "decision_id": "decision-6ffe649b1db21e0a7404e74c2a58a9ad7e12abad5dff9048ef49df05c4afcc73",
+      "native_attempt": 3,
+      "outcome": "reused",
+      "policy": "reuse",
+      "source": {
+        "execution_id": "exec-935e36d97769f25c0e3f853599f46551cc5735aca61221a9b04a1a3c658eb53d",
+        "manifest_digest": "3d497b79962ff7234ded6bfd7b51f5b36de1a43078b592b04f3b3bf63527e794"
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "concurrent_distinct_attempts",
+      "execution_ids": [
+        "exec-935e36d97769f25c0e3f853599f46551cc5735aca61221a9b04a1a3c658eb53d",
+        "exec-b341b5f4ab6e66512ba0538a5357513f2a39fd9d12e9d8bf4c797eadbb30f223"
+      ],
+      "message": "Multiple attempts for this logical work have no parent relationship; duplicate or concurrent writers each kept their own immutable evidence."
+    }
+  ],
+  "kind": "waza.execution-lineage",
+  "logical": {
+    "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+    "work": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51"
+  },
+  "schema_version": "1.0"
+}
