@@ -72,8 +72,8 @@ availability and acceptance of a public image digest are separate gates.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
-The unreleased v0.41 immutable publication profile (#763) is an additive
-source-preview contract, not a completed release announcement. A separate local
+The immutable publication profile (#763), released in v0.41.0, is an additive
+opt-in contract. A separate local
 or Azure store conditionally creates content-addressed blobs and manifests,
 verifies current content plus declared terminal context, and finalizes by
 manifest digest. Neither repeated publication nor shared logical identities
@@ -92,11 +92,11 @@ input-member/manifest/execution-record populations, and reports omissions and
 incompatible claims without selecting a winner or inventing usage. Lab exposes
 composition and downloads; supported legacy metadata remains explicitly
 unqualified. Aggregate schema 1.0 and complete historical usage are independent
-of terminal pass and execution attestation. This is unreleased source behavior,
-not publication or full current-head acceptance.
+of terminal pass and execution attestation. This behavior was released in
+v0.41.0; it is not full platform acceptance.
 See [aggregation contracts and migration](MANIFEST_AGGREGATION.md).
 
-The #765 source preview adds protected checkpoint create/resume in the CLI,
+Released in v0.41.0, #765 adds protected checkpoint create/resume in the CLI,
 HTTP API and Lab. Lab displays original outcomes, retry/reuse references and
 explicitly unavailable progress, and downloads the unchanged protected result.
 Finalized restore preserves the original terminal with zero new calls;

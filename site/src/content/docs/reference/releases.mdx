@@ -7,10 +7,10 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## Release articles
 
-[**Waza v0.41.0 preview: prepare the release, preserve the evidence**](../../releases/v0-41-0/)
-inventories the merged v0.41.0 source scope. The article is still being
-finalized with release media; current downloads and azd availability are listed
-below.
+[**Waza v0.41.0: recover durable work, keep the evidence**](../../releases/v0-41-0/)
+explains execution attempts and lineage, checkpoints, lifecycle semantics,
+evidence states, standalone aggregation, the optimizer adapter contract and
+native question callbacks, with the release's publication record and limits.
 
 [**Waza v0.40.1: make release workflows match their contracts**](../../releases/v0-40-1/)
 explains the selected-task coverage, strict token-budget exit, grouping, hook,
@@ -119,7 +119,7 @@ in legacy eval/result inputs still default to **1.4**. Runner request and termin
 schemas remain independently versioned **1.0**; task YAML has no independent
 version field. See [schema versions](../schema-changes/#versioned-artifacts).
 
-## Unreleased v0.41 source preview: optimizer adapters
+## Released in v0.41.0: optimizer adapters
 
 [`waza optimize`](../../guides/optimizer-adapters/) adds the versioned 1.0
 optimizer/evaluator contract. It includes capability negotiation,

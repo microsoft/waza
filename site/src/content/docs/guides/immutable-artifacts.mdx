@@ -4,8 +4,8 @@ description: Publish and inspect opt-in v0.41 artifact manifests with local or A
 ---
 
 Immutable artifact publication is an **opt-in v0.41 addition**, separate from
-ordinary mutable evaluation results. It is currently an **unreleased source
-preview**, not available in the published v0.40 artifacts.
+ordinary mutable evaluation results. It was **released in v0.41.0** and is not
+available in v0.40.x artifacts.
 Publish a declaration, upload the exact
 declared bytes, and finalize only after verification. The store verifies content
 and caller-declared context; it does not run an evaluation or attest that it
@@ -43,7 +43,7 @@ Parent relationships are explicit `retry` or `branch` declarations within one
 logical work item. They form a partial order, not a global schedule. Knowing an
 execution ID or reading a record does not grant completion authority.
 
-Unreleased source commands expose this layer:
+The v0.41.0 CLI exposes this layer:
 
 ```bash
 waza runner submit --store .waza-artifacts < submission.json
@@ -128,9 +128,11 @@ Attempts recorded before this preview have no journal and report
 `observation: "unobserved"`; nothing is rewritten. See
 [execution lifecycle semantics](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_LIFECYCLE.md).
 
-### Checkpoint public source preview
+<span id="checkpoint-public-source-preview"></span>
 
-The source-only checkpoint service supports two whole-unit safe boundaries:
+### Checkpoint public commands
+
+The checkpoint service supports two whole-unit safe boundaries:
 `before-unit` (fresh retry child, after the original worker has stopped) and
 `finalized-unit` (verified original-source reuse, zero new engine calls).
 Compatibility checks bind the runner revision, independent schema versions and
@@ -152,10 +154,9 @@ does **not** mean it can be resumed: before-unit recovery still rejects truncate
 discovery. Mutex waits and blocked providers are not made cancellable by the gate.
 
 No in-flight process, SDK session, partial grader or workspace is restored.
-The source CLI exposes capture-approved checkpoint creation and resume; it is
-not in installed v0.40.1 artifacts. Protected HTTP create/resume operations are
-registered and available in the source Lab. Full native-platform and release
-acceptance remain pending. The
+The v0.41.0 CLI exposes capture-approved checkpoint creation and resume.
+Protected HTTP create/resume operations are registered and available in the Lab.
+Full native-platform acceptance is not claimed. The
 [checkpoint schema](../../schemas/execution-checkpoint-1.0.schema.json) and
 [checkpoint-result schema](../../schemas/runner-checkpoint-result-1.0.schema.json)
 and [checkpoint operation error schema](../../schemas/runner-checkpoint-result-1.1.schema.json)

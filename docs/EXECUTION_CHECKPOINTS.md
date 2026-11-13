@@ -1,13 +1,12 @@
-# Exact-unit checkpoint embedding preview
+# Exact-unit checkpoint embedding API
 
-This unreleased, partial #765 layer builds on the
+This #765 layer, released in v0.41.0, builds on the
 [logical-attempt core](EXECUTION_ATTEMPTS.md) and immutable manifest v1. It
-provides an embedding service and unreleased source commands
+provides an embedding service and the commands
 `runner checkpoint create`, `runner checkpoint availability` and
-`runner checkpoint resume`. Installed v0.40.1
-artifacts do not contain these commands. Protected HTTP create/resume operations
-are registered and consumed by the source Lab. Broader native-platform evidence
-and full #755 acceptance remain pending.
+`runner checkpoint resume`. Protected HTTP create/resume operations
+are registered and consumed by the Lab. It admits whole-unit boundaries only;
+broader native-platform evidence is not claimed.
 
 ## Supported boundaries
 

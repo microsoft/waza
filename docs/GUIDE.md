@@ -16,7 +16,7 @@ Explicit opt-in and platform limits still apply; see
 
 ## What is Waza?
 
-For the opt-in v0.41 source preview of standalone aggregation over completed
+For opt-in standalone aggregation (released in v0.41.0) over completed
 public manifests, see [commands, populations and migration](MANIFEST_AGGREGATION.md).
 It does not start agents or recover worker ownership; admission completeness,
 terminal outcomes and recorded historical usage remain separate.
@@ -519,13 +519,12 @@ unchanged. See [outcomes, exits and migration](../site/src/content/docs/guides/r
 [identity guide](../site/src/content/docs/guides/runner-identities.mdx) and
 [canonical contract and migration guide](../site/src/content/docs/guides/runner-contract.mdx).
 
-The unreleased source checkpoint commands accept a captured submission wrapper:
+The checkpoint commands (released in v0.41.0) accept a captured submission wrapper:
 `waza runner checkpoint create --store .waza-artifacts < submission.json` and
 `waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
 submission.json`. They require a clean VCS-stamped owning CLI and preserve
 original terminal failures on finalized reuse. See the
-[checkpoint workflow, boundaries and troubleshooting](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview);
-these commands are not in installed v0.40.1 artifacts.
+[checkpoint workflow, boundaries and troubleshooting](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
 ### `waza init [directory]`
 

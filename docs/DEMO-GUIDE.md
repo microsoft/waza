@@ -21,7 +21,7 @@ the [terminal outcome and diagnostics](../site/src/content/docs/guides/runner-te
 with an exact terminal JSON export. This demo remains mock-only; opted-in exact
 Copilot/text CLI execution has its own paid-call and disabled-tool/skill boundaries.
 
-For the unreleased checkpoint source preview, build a clean versioned CLI and
+For checkpoints (released in v0.41.0), use a clean versioned CLI and
 open **Runner contract → Create or resume an exact-unit checkpoint**. Use an
 existing private `.waza-artifacts` store under the served results directory.
 Create the captured mock example, then resume its finalized digest: new calls

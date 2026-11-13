@@ -1,6 +1,6 @@
 # Standalone completed-manifest aggregation
 
-The opt-in, unreleased v0.41 aggregate profile (#766) reads **public completed
+The opt-in aggregate profile (#766), released in v0.41.0, reads **public completed
 manifests**, not mutable `results.json`, worker state or creator capabilities.
 It does not construct an engine, invoke a subprocess, read ambient project
 configuration or obtain credentials. The command accepts an explicitly selected
@@ -212,6 +212,5 @@ separate; a stored hash alone does not establish current completeness.
 - `complete_historical_usage_unavailable`: inspect each view's source/state and
   cached lineage. An unavailable total is not zero or a passing quality verdict.
 
-This source preview is not a v0.41 publication announcement or full platform
-acceptance claim. Hosted checks, independent review and release delivery remain
-separate gates.
+This profile was released in v0.41.0. That release is not a full platform
+acceptance claim.

@@ -16,7 +16,7 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 ## Versioned artifacts
 
-The unreleased v0.41 standalone aggregate profile independently uses
+The standalone aggregate profile (released in v0.41.0) independently uses
 `kind: waza.manifest-aggregate`, exact `schema_version: "1.0"`. Canonical
 reference/profile/diagnostic ordering and three explicitly named populations
 preserve repeated executions and compatible views without synthesizing legacy
@@ -95,7 +95,7 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
 
-### Execution evidence 1.0 and aggregate lineage (unreleased, #768)
+### Execution evidence 1.0 and aggregate lineage (v0.41.0, #768)
 
 - Evidence sidecars (`kind: waza.execution-evidence`, `schema_version: "1.0"`)
   record exactly six categories (conversation, tool, grader, reliability, usage,

@@ -3,7 +3,7 @@ title: Aggregate completed manifests
 description: Build deterministic public-manifest aggregates without agents, worker ownership or invented usage.
 ---
 
-**Unreleased v0.41 source preview.** Standalone aggregation reads an explicit set
+**Released in v0.41.0.** Standalone aggregation reads an explicit set
 of completed public manifests from an existing local immutable store. It does
 not start agents, credential helpers or the original worker. Mutable result
 files and Azure credential-backed aggregation are not inputs to this profile.
@@ -142,5 +142,5 @@ For `read_budget_exhausted`, the original population remains incomplete; a subse
 must not be relabeled as its complete aggregate. Missing namespace capability or
 usage stays unavailable, not zero. Reordering cannot repair a missing source.
 
-This is an opt-in source preview, not a published release or full acceptance claim.
+This opt-in profile was released in v0.41.0; it is not a full acceptance claim.
 Existing result readers and ordinary evaluation behavior remain unchanged.

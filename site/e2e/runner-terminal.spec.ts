@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 test('checkpoint source commands link to bounded recovery and protected HTTP limits', async ({ page }) => {
   await page.goto('/waza/reference/cli/');
-  await expect(page.getByRole('heading', { name: 'Checkpoint commands (unreleased source preview)', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Checkpoint commands (v0.41.0+)', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'complete workflow and recovery limits', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/guides\/immutable-artifacts\/#checkpoint-public-source-preview$/);
   const content = page.locator('main');
@@ -15,8 +15,8 @@ test('checkpoint source commands link to bounded recovery and protected HTTP lim
   await expect(content).toContainText('Unsupported active providers fail closed');
   await expect(content).toContainText('no raw checkpoint GET endpoint is available');
   await expect(content).toContainText('A previously dispatched source is refused, not replayed.');
-  await expect(content).toContainText('available in the source Lab');
-  await expect(content).toContainText('Full native-platform and release acceptance remain pending');
+  await expect(content).toContainText('available in the Lab');
+  await expect(content).toContainText('Full native-platform acceptance is not claimed');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint create' })).toContainText('schema_version:"1.0"');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint resume' })).toContainText('restored-result.json');
   await page.goto('/waza/guides/dashboard-lab/');

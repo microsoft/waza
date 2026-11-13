@@ -1,6 +1,6 @@
 # Execution lifecycle semantics
 
-Status: unreleased source preview (#767). Builds on
+Status: released in v0.41.0 (#767). Builds on
 [logical work and execution attempts](EXECUTION_ATTEMPTS.md) and the
 diagnostics storage layer from #957.
 
@@ -153,7 +153,7 @@ Without a request, the shutdown bound has no reason and
 
 ## Migration
 
-The execution-lifecycle 1.0 schema is new. The unreleased execution-lineage
+The execution-lifecycle 1.0 schema is new. The execution-lineage
 1.0 document gains a required `lifecycle` object per attempt and the
 `lifecycle_journal_invalid` and `orphaned_attempt` diagnostic codes. Attempts
 recorded before this change have no journal and derive state from ledger
