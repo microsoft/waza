@@ -307,14 +307,14 @@ func TestSafeguardsBoundCardinality(t *testing.T) {
 	f := publishFixture(t)
 	var report map[string]any
 	require.NoError(t, json.Unmarshal(f.Report, &report))
-	runs := report["tasks"].([]any)[0].(map[string]any)["runs"].([]any)
-	digest := runs[1].(map[string]any)["session_digest"].(map[string]any)
+	runs := asSlice(t, asMap(t, asSlice(t, report["tasks"])[0])["runs"])
+	digest := asMap(t, asMap(t, runs[1])["session_digest"])
 	var calls []any
 	for i := range 40 {
 		calls = append(calls, map[string]any{"name": "tool-" + strconv.Itoa(i), "success": true})
 	}
 	digest["tool_calls"] = calls
-	f.Report, _ = json.Marshal(report)
+	f.Report = mustMarshal(t, report)
 
 	limits := DefaultLimits()
 	limits.MaxToolSpansPerTask = 5
@@ -352,6 +352,27 @@ func TestSafeguardsBoundCardinality(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func asMap(t *testing.T, v any) map[string]any {
+	t.Helper()
+	m, ok := v.(map[string]any)
+	require.True(t, ok, "expected object, got %T", v)
+	return m
+}
+
+func asSlice(t *testing.T, v any) []any {
+	t.Helper()
+	s, ok := v.([]any)
+	require.True(t, ok, "expected array, got %T", v)
+	return s
+}
+
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	return data
+}
+
 func mustInt(t *testing.T, value string) int {
 	t.Helper()
 	var n int
@@ -363,8 +384,8 @@ func TestLoadRejectsUncorrelatedSources(t *testing.T) {
 	f := publishFixture(t)
 	other := map[string]any{}
 	require.NoError(t, json.Unmarshal(f.Lineage, &other))
-	other["logical"].(map[string]any)["work"] = "trial-" + strings.Repeat("0", 64)
-	f.Lineage, _ = json.Marshal(other)
+	asMap(t, other["logical"])["work"] = "trial-" + strings.Repeat("0", 64)
+	f.Lineage = mustMarshal(t, other)
 	_, err := Load(f.Inputs)
 	require.ErrorIs(t, err, ErrUncorrelated)
 
@@ -573,8 +594,8 @@ func TestLoadRejectsUnrelatedAttemptBindingAndAggregate(t *testing.T) {
 	f := publishFixture(t)
 	attempt := map[string]any{}
 	require.NoError(t, json.Unmarshal(f.Attempt, &attempt))
-	attempt["binding"].(map[string]any)["grader_ids"] = []string{"unrelated-grader"}
-	f.Attempt, _ = json.Marshal(attempt)
+	asMap(t, attempt["binding"])["grader_ids"] = []string{"unrelated-grader"}
+	f.Attempt = mustMarshal(t, attempt)
 	_, err := Load(f.Inputs)
 	require.ErrorIs(t, err, ErrUncorrelated, "an attempt with a different binding is not merged under a manifest")
 
@@ -588,13 +609,13 @@ func TestToolEventsArePreferredOverLegacyToolCalls(t *testing.T) {
 	f := publishFixture(t)
 	report := map[string]any{}
 	require.NoError(t, json.Unmarshal(f.Report, &report))
-	run := report["tasks"].([]any)[0].(map[string]any)["runs"].([]any)[1].(map[string]any)
-	delete(run["session_digest"].(map[string]any), "tool_calls")
+	run := asMap(t, asSlice(t, asMap(t, asSlice(t, report["tasks"])[0])["runs"])[1])
+	delete(asMap(t, run["session_digest"]), "tool_calls")
 	run["tool_events"] = []any{
 		map[string]any{"turn": 1, "sequence": 1, "tool_call_id": "call-9", "tool_name": "grep",
 			"args": map[string]any{"pattern": secretArgs}, "result": secretResult, "success": true},
 	}
-	f.Report, _ = json.Marshal(report)
+	f.Report = mustMarshal(t, report)
 	bundle := build(t, f.Inputs, Options{})
 	tools := spansByName(bundle)[SpanTool]
 	require.Len(t, tools, 1)
