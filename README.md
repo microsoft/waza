@@ -36,8 +36,9 @@ whole-unit recovery. The v0.41.0 CLI adds `runner checkpoint create`
 and `runner checkpoint resume`, with protected HTTP create/resume operations.
 The Lab can create/resume checkpoints and export protected results.
 Ordered evaluation-level lineage and full platform acceptance remain pending.
-For 1.0 results containing a report, the Lab reader labels statuses as unverified
-claims: native canonical-report checks are not performed in the browser.
+For 1.0 results containing a report, the Lab reader re-encodes the report like
+the native canonical writer; reports with evidence it cannot re-encode exactly
+are labeled unverified claims.
 
 **v0.41.0 adds** durable execution: logical attempts and lineage, checkpoints,
 lifecycle and evidence states, standalone aggregation, and optimizer adapters.

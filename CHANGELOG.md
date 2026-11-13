@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The Lab checkpoint result reader re-encodes retained runner-unit reports in
+  1.0 results like the native canonical writer, so reordered properties,
+  noncanonical escapes and unknown fields are rejected and canonical reports are
+  verified instead of labeled unverified; reports with evidence the browser
+  cannot re-encode stay unverified (#964).
+
 ## [0.41.0] - 2026-11-13
 
 The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.41.0)

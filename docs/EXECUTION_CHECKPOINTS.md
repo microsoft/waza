@@ -198,10 +198,17 @@ server operational logs may include causes, but submission-parser failures log
 only the failure stage, action and guidance, not the parser error or request.
 Consumers must treat the levels separately: top-level exit `2` can coexist with
 a preserved completed or reused submission whose nested exit is `0`.
-The Lab reader performs schema and cross-field checks locally, but does not
-perform native canonical-report checks. For report-bearing 1.0 results it
-therefore labels operation and submission statuses and exit codes as unverified
-claims, not verified outcomes.
+The Lab reader performs schema and cross-field checks locally and re-encodes a
+retained 1.0 runner-unit report the way the native canonical writer does:
+field order, omitted empty fields, integer ranges, sorted dynamic map keys and
+Go string escaping must match, while whitespace differences are accepted. A
+report that contradicts the native writer is rejected. When the report contains
+evidence with custom native encodings (transcript events, judge evidence,
+evidence manifests, tool-call results or failure-artifact timestamps), the Lab
+cannot finish the comparison and labels statuses and exit codes as unverified
+claims. Numeric tokens beyond exact float64 integers inside dynamic evidence are
+rejected by the browser parser even where the native reader keeps them. Pasted
+results stay in the browser.
 An output failure exits 2 and is not successful delivery.
 See the [operator workflow](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
