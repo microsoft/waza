@@ -425,6 +425,18 @@ func TestOutcomeSpend(t *testing.T) {
 	})
 }
 
+func TestOutcomeSpendMixedProviders(t *testing.T) {
+	credits := 2.0
+	mixed := &models.UsageStats{InputTokens: 10, PremiumRequests: 3, AICredits: &credits, Provider: models.UsageProviderMixed}
+	sp := outcomeSpend(&models.EvaluationOutcome{Digest: models.OutcomeDigest{Usage: mixed}})
+	require.Equal(t, SpendPartial, sp.Status)
+	require.Equal(t, 10, sp.InputTokens)
+	require.Equal(t, 2.0, *sp.AICredits)
+	require.Zero(t, sp.PremiumRequests)
+	require.Zero(t, sp.ProviderRequests)
+	require.Empty(t, sp.Provider)
+}
+
 func TestSumSpend(t *testing.T) {
 	t.Run("partial parts contribute counters", func(t *testing.T) {
 		total := sumSpend([]Spend{{Status: SpendMeasured, InputTokens: 3}, {Status: SpendPartial, InputTokens: 4}})

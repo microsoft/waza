@@ -236,7 +236,9 @@ Spend is reported, never capped. Each evaluation and proposal has a spend
 
 `premium_requests` counts GitHub Copilot premium requests only. When usage
 comes from a custom model provider, the report sets `provider` and puts the
-provider's request count in `provider_requests` instead. Totals add
+provider's request count in `provider_requests` instead. An evaluation whose
+sessions used both Copilot and a custom provider reports no request count
+and is `partial`. Totals add
 `provider_requests` only when every part names the same provider; otherwise
 the count is dropped and the total is `partial`. Command adapters report
 their own usage with the same fields.

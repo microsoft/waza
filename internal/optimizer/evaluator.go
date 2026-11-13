@@ -228,10 +228,15 @@ func outcomeSpend(outcome *models.EvaluationOutcome) Spend {
 // apart from Copilot premium requests.
 func statsSpend(u *models.UsageStats) Spend {
 	sp := Spend{Status: SpendMeasured, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, AICredits: u.AICredits}
-	if u.Provider != "" {
-		sp.Provider, sp.ProviderRequests = u.Provider, u.PremiumRequests
-	} else {
+	switch u.Provider {
+	case models.UsageProviderMixed:
+		// Copilot premium and custom-provider requests cannot be added, so
+		// the combined count is dropped.
+		sp.Status = SpendPartial
+	case "":
 		sp.PremiumRequests = u.PremiumRequests
+	default:
+		sp.Provider, sp.ProviderRequests = u.Provider, u.PremiumRequests
 	}
 	return sp
 }
