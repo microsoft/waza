@@ -4,6 +4,7 @@ import unitSchema from "../../../schemas/runner-unit-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
 import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
+import type { BudgetReport } from "./budgets";
 
 export interface RunnerNegotiation {
   kind: "waza.runner-negotiation";
@@ -74,6 +75,7 @@ export interface RunnerTerminal {
     validations: { identifier: string; passed: boolean }[];
     error_msg?: string;
   };
+  budget?: BudgetReport;
   diagnostics: { code: string; message: string }[];
 }
 

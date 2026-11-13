@@ -48,6 +48,9 @@ func terminal(report Report) (runnerterminal.Envelope, *runnerterminal.Binding) 
 		outcome, boundary := runnerterminal.InvalidInput, "validation"
 		if report.Compatibility.ExitCode() == 5 {
 			outcome, boundary = runnerterminal.UnsupportedCapability, "negotiation"
+		} else if report.budgetUnsupported {
+			// The contract negotiated; this host cannot enforce a declared limit.
+			outcome = runnerterminal.UnsupportedCapability
 		}
 		envelope = runnerterminal.NewFailure(outcome, boundary, report.Validation, string(outcome), "Runner request was rejected.")
 	case report.Status == "completed":
@@ -110,6 +113,13 @@ func terminal(report Report) (runnerterminal.Envelope, *runnerterminal.Binding) 
 		})
 		envelope.Observation = observed
 	}
+	envelope.Budget = report.budget
+	if budget := report.budget; budget != nil && budget.Termination != nil && len(envelope.Diagnostics) < runnerterminal.MaxDiagnostics {
+		envelope.Diagnostics = append(envelope.Diagnostics, runnerterminal.Diagnostic{
+			Code: "budget_exceeded", Message: fmt.Sprintf("Enforced execution budget %s was exceeded (observed %d, limit %d); inspect budget.resources.",
+				budget.Termination.Resource, budget.Termination.Observed, budget.Termination.Limit),
+		})
+	}
 	if _, err := runnerterminal.Encode(envelope, report.binding); err != nil {
 		// Bounds never silently turn incomplete/oversize evidence into success.
 		// The admitted binding and call count survive; the unavailable summary
@@ -117,6 +127,7 @@ func terminal(report Report) (runnerterminal.Envelope, *runnerterminal.Binding) 
 		envelope = runnerterminal.NewFailure(runnerterminal.InfrastructureFailure, "terminalization", report.Validation,
 			"unrepresentable_evidence", fmt.Sprintf("Original outcome %s at %s cannot be represented; observation/diagnostic detail unavailable: %.600s", envelope.Outcome, envelope.FailureBoundary, err))
 		envelope.Selection, envelope.Identity, envelope.EngineCalls = report.Resolved, report.Identity, report.Calls
+		envelope.Budget = report.budget
 	}
 	return envelope, report.binding
 }

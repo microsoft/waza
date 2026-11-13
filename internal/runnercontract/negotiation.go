@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
@@ -54,6 +55,8 @@ type Request struct {
 	Input                Input     `json:"input"`
 	TimeoutMS            int       `json:"timeout_ms"`
 	AllowPaidExecution   bool      `json:"allow_paid_execution"`
+	// Budgets is optional execution policy; it is excluded from logical identity.
+	Budgets *executionbudget.Request `json:"budgets,omitempty"`
 }
 
 type Advertisement struct {
@@ -184,7 +187,7 @@ func Parse(data []byte) (*Request, error) {
 	}
 	// JSON Schema integers include integral decimal/exponent tokens, whereas
 	// encoding/json's int decoder only accepts integer lexical forms.
-	for _, field := range []struct {
+	integers := []struct {
 		object map[string]any
 		key    string
 		path   string
@@ -192,7 +195,21 @@ func Parse(data []byte) (*Request, error) {
 		{fields, "timeout_ms", "timeout_ms"},
 		{selection, "trial", "selection.trial"},
 		{selection, "attempt", "selection.attempt"},
-	} {
+	}
+	if budgets, ok := fields["budgets"].(map[string]any); ok {
+		if limits, ok := budgets["limits"].(map[string]any); ok {
+			for _, resource := range executionbudget.Resources {
+				if _, present := limits[string(resource)]; present {
+					integers = append(integers, struct {
+						object map[string]any
+						key    string
+						path   string
+					}{limits, string(resource), "budgets.limits." + string(resource)})
+				}
+			}
+		}
+	}
+	for _, field := range integers {
 		value, err := exactInteger(field.object[field.key])
 		if err != nil {
 			return nil, fmt.Errorf("decoding runner request %s: %w", field.path, err)
@@ -233,7 +250,7 @@ func parseNegotiation(data []byte) (*NegotiationRequest, error) {
 	}
 	load := negotiationSchema
 	if fields, ok := doc.(map[string]any); ok {
-		for _, field := range []string{"run_key", "selection", "input", "timeout_ms", "allow_paid_execution"} {
+		for _, field := range []string{"run_key", "selection", "input", "timeout_ms", "allow_paid_execution", "budgets"} {
 			if _, present := fields[field]; present {
 				load = requestSchema
 				break

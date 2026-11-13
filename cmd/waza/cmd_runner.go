@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
@@ -40,6 +41,13 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(runnercontract.Capabilities())
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use: "budgets", Short: "Print this host's execution budget enforcement and measurement matrix as JSON",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(executionbudget.HostCapabilities())
 		},
 	})
 	negotiate := &cobra.Command{

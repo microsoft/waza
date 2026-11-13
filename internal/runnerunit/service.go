@@ -13,6 +13,7 @@ import (
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/runnercontract"
@@ -41,6 +42,10 @@ type Report struct {
 	boundary      string
 	localOutcome  *models.EvaluationOutcome
 	forced        bool
+	// budget is projected only into the terminal envelope; the runner-unit
+	// report schema is unchanged.
+	budget            *executionbudget.Report
+	budgetUnsupported bool
 }
 
 func (r Report) ExitCode() int {
@@ -64,6 +69,7 @@ type admitted struct {
 	spec    *models.EvalSpec
 	task    *models.TestCase
 	input   *orchestration.ControlledInput
+	budget  *executionbudget.Report
 }
 
 // Validate never constructs a runtime or reads input paths.
@@ -104,11 +110,24 @@ func admit(data []byte) (Report, *admitted) {
 		return report, nil
 	}
 	report.Requested = &req.Selection
+	var plan *executionbudget.Report
+	if req.Budgets != nil {
+		var unsupported []string
+		plan, unsupported = executionbudget.Plan(*req.Budgets, executionbudget.HostCapabilities())
+		if plan.State == executionbudget.StateRejectedUnsupported {
+			// Capability rejection precedes input resolution and any runtime.
+			report.reject(errors.New(executionbudget.Summary(unsupported)))
+			report.Diagnostics[0].Code = "unsupported_budget"
+			report.budget, report.budgetUnsupported = plan, true
+			return report, nil
+		}
+	}
 	input, err := resolve(req)
 	if err != nil {
 		report.reject(err)
 		return report, nil
 	}
+	input.budget = plan
 	identity, err := runneridentity.DeriveJSON(data)
 	if err != nil {
 		report.reject(fmt.Errorf("deriving admitted input identity: %w", err))
@@ -293,6 +312,30 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 }
 
 func (s *Service) executeAdmitted(ctx context.Context, report Report, input *admitted, local bool) Report {
+	return metered(ctx, input, func(ctx context.Context) Report {
+		return s.executeUnmetered(ctx, report, input, local)
+	})
+}
+
+// metered applies the admitted budget around the whole attempt, from runtime
+// construction through grading and shutdown, and records measured usage.
+func metered(ctx context.Context, input *admitted, attempt func(context.Context) Report) Report {
+	if input.budget == nil {
+		return attempt(ctx)
+	}
+	ctx, meter := executionbudget.Start(ctx, *input.budget)
+	result := attempt(execution.WithActivityObserver(ctx, meter))
+	enforced := meter.Err()
+	result.budget = meter.Finish()
+	// A limit reached after the engine returned (for example during grading)
+	// still ends the attempt as enforced rather than as a success.
+	if enforced != nil && result.failure == nil {
+		result.executionError("execution", enforced)
+	}
+	return result
+}
+
+func (s *Service) executeUnmetered(ctx context.Context, report Report, input *admitted, local bool) Report {
 	if local && input.spec.Config.EngineType != "mock" {
 		report.executionError("startup", fmt.Errorf("local compatibility execution supports only inline.mock-text"))
 		return report

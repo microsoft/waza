@@ -1771,6 +1771,23 @@ Save stdout with `> validation.json`; identity is not proof of execution or
 duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
 See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
 
+### Execution budgets (main-only, after v0.41.0)
+
+```bash
+waza runner budgets
+waza runner run < examples/runner/budget-unit.json
+```
+
+`budgets` prints this host's `waza.execution-budget-capabilities` matrix (also
+`GET /api/v1/runner/budgets`): which of `wall_time_ms`, `model_turns`,
+`tool_calls`, `cpu_time_ms`, `memory_bytes`, `disk_bytes` and `process_count`
+are enforced or measured on this OS. A request's optional `budgets.limits` are
+checked before execution; with the default `budgets.unsupported: "reject"`, an
+unenforceable limit exits 5 with diagnostic `unsupported_budget` and zero engine
+calls. Wall time exceeded exits 4 and model/tool budgets exceeded exit 3, each
+with diagnostic `budget_exceeded`. The terminal `budget` field reports limits,
+usage and termination. See [execution budgets](../../guides/execution-budgets/).
+
 ### Submission and lineage commands (v0.41.0+)
 
 ```bash

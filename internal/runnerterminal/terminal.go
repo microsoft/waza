@@ -11,6 +11,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
@@ -97,6 +98,7 @@ type Envelope struct {
 	Selection       *runnercontract.Selection `json:"selection,omitempty"`
 	Identity        *runneridentity.Identity  `json:"identity,omitempty"`
 	Observation     *Observation              `json:"observation,omitempty"`
+	Budget          *executionbudget.Report   `json:"budget,omitempty"`
 	Diagnostics     []Diagnostic              `json:"diagnostics"`
 }
 

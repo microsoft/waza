@@ -1,0 +1,256 @@
+{
+  "capabilities": {
+    "kind": "waza.execution-budget-capabilities",
+    "schema_version": "1.0",
+    "platform": {
+      "os": "windows",
+      "arch": "amd64"
+    },
+    "resources": [
+      {
+        "resource": "wall_time_ms",
+        "enforcement": "enforced",
+        "measurement": "measured",
+        "scope": "attempt",
+        "detail": "enforced by an attempt deadline covering startup, execution, grading and shutdown; exceeding it ends the attempt with outcome timeout"
+      },
+      {
+        "resource": "model_turns",
+        "enforcement": "enforced",
+        "measurement": "measured",
+        "scope": "attempt",
+        "detail": "counted from each observed model turn start; the first turn beyond the limit cancels the attempt (outcome cancelled)"
+      },
+      {
+        "resource": "tool_calls",
+        "enforcement": "enforced",
+        "measurement": "measured",
+        "scope": "attempt",
+        "detail": "counted from each observed tool execution start; the first call beyond the limit cancels the attempt, and that call may already have begun"
+      },
+      {
+        "resource": "cpu_time_ms",
+        "enforcement": "unsupported",
+        "measurement": "measured",
+        "scope": "runner_process",
+        "detail": "not enforced: the runner does not own an OS quota (cgroup, job object or rlimit) for the runtime process tree; CPU time is measured as runner process kernel plus user time during the attempt; child processes and concurrent work are not separated"
+      },
+      {
+        "resource": "memory_bytes",
+        "enforcement": "unsupported",
+        "measurement": "unsupported",
+        "detail": "not enforced: the runner does not own an OS quota (cgroup, job object or rlimit) for the runtime process tree; peak memory is not measurable on windows"
+      },
+      {
+        "resource": "disk_bytes",
+        "enforcement": "unsupported",
+        "measurement": "unsupported",
+        "detail": "not enforced or measured: inline runner profiles declare no workspace quota and the host exposes no per-attempt disk accounting"
+      },
+      {
+        "resource": "process_count",
+        "enforcement": "unsupported",
+        "measurement": "unsupported",
+        "detail": "not enforced or measured: runtimes may spawn subprocesses outside a runner-owned process group or job object"
+      }
+    ]
+  },
+  "terminated": {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "cancelled",
+    "exit_code": 3,
+    "failure_boundary": "execution",
+    "validation": "valid",
+    "engine_calls": 1,
+    "selection": {
+      "shard": "shard-a",
+      "task": "selected",
+      "trial": 2,
+      "attempt": 2
+    },
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+      "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+      "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+    },
+    "observation": {
+      "execution_mode": "mock",
+      "engine_calls": 1,
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "run_number": 2,
+      "attempts": 2,
+      "status": "error",
+      "validations": [],
+      "error_msg": "context canceled"
+    },
+    "budget": {
+      "schema_version": "1.0",
+      "platform": {
+        "os": "windows",
+        "arch": "amd64"
+      },
+      "unsupported": "reject",
+      "state": "terminated",
+      "resources": [
+        {
+          "resource": "wall_time_ms",
+          "enforcement": "enforced",
+          "measurement": "measured",
+          "scope": "attempt",
+          "detail": "enforced by an attempt deadline covering startup, execution, grading and shutdown; exceeding it ends the attempt with outcome timeout",
+          "limit": 60000,
+          "used": 1,
+          "remaining": 59999,
+          "exceeded": false
+        },
+        {
+          "resource": "model_turns",
+          "enforcement": "enforced",
+          "measurement": "measured",
+          "scope": "attempt",
+          "detail": "counted from each observed model turn start; the first turn beyond the limit cancels the attempt (outcome cancelled)",
+          "limit": 0,
+          "used": 1,
+          "remaining": 0,
+          "exceeded": true
+        },
+        {
+          "resource": "tool_calls",
+          "enforcement": "enforced",
+          "measurement": "measured",
+          "scope": "attempt",
+          "detail": "counted from each observed tool execution start; the first call beyond the limit cancels the attempt, and that call may already have begun",
+          "limit": 10,
+          "used": 0,
+          "remaining": 10,
+          "exceeded": false
+        },
+        {
+          "resource": "cpu_time_ms",
+          "enforcement": "unsupported",
+          "measurement": "measured",
+          "scope": "runner_process",
+          "detail": "not enforced: the runner does not own an OS quota (cgroup, job object or rlimit) for the runtime process tree; CPU time is measured as runner process kernel plus user time during the attempt; child processes and concurrent work are not separated",
+          "used": 0
+        },
+        {
+          "resource": "memory_bytes",
+          "enforcement": "unsupported",
+          "measurement": "unsupported",
+          "detail": "not enforced: the runner does not own an OS quota (cgroup, job object or rlimit) for the runtime process tree; peak memory is not measurable on windows"
+        },
+        {
+          "resource": "disk_bytes",
+          "enforcement": "unsupported",
+          "measurement": "unsupported",
+          "detail": "not enforced or measured: inline runner profiles declare no workspace quota and the host exposes no per-attempt disk accounting"
+        },
+        {
+          "resource": "process_count",
+          "enforcement": "unsupported",
+          "measurement": "unsupported",
+          "detail": "not enforced or measured: runtimes may spawn subprocesses outside a runner-owned process group or job object"
+        }
+      ],
+      "termination": {
+        "resource": "model_turns",
+        "limit": 0,
+        "observed": 1
+      }
+    },
+    "diagnostics": [
+      {
+        "code": "cancelled",
+        "message": "context canceled\ncontext canceled"
+      },
+      {
+        "code": "budget_exceeded",
+        "message": "Enforced execution budget model_turns was exceeded (observed 1, limit 0); inspect budget.resources."
+      }
+    ]
+  },
+  "rejected": {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "unsupported_capability",
+    "exit_code": 5,
+    "failure_boundary": "validation",
+    "validation": "invalid",
+    "engine_calls": 0,
+    "budget": {
+      "schema_version": "1.0",
+      "platform": {
+        "os": "windows",
+        "arch": "amd64"
+      },
+      "unsupported": "reject",
+      "state": "rejected_unsupported",
+      "resources": [
+        {
+          "resource": "wall_time_ms",
+          "enforcement": "enforced",
+          "measurement": "measured",
+          "scope": "attempt",
+          "detail": "enforced by an attempt deadline covering startup, execution, grading and shutdown; exceeding it ends the attempt with outcome timeout"
+        },
+        {
+          "resource": "model_turns",
+          "enforcement": "enforced",
+          "measurement": "measured",
+          "scope": "attempt",
+          "detail": "counted from each observed model turn start; the first turn beyond the limit cancels the attempt (outcome cancelled)",
+          "limit": 4
+        },
+        {
+          "resource": "tool_calls",
+          "enforcement": "enforced",
+          "measurement": "measured",
+          "scope": "attempt",
+          "detail": "counted from each observed tool execution start; the first call beyond the limit cancels the attempt, and that call may already have begun"
+        },
+        {
+          "resource": "cpu_time_ms",
+          "enforcement": "unsupported",
+          "measurement": "measured",
+          "scope": "runner_process",
+          "detail": "not enforced: the runner does not own an OS quota (cgroup, job object or rlimit) for the runtime process tree; CPU time is measured as runner process kernel plus user time during the attempt; child processes and concurrent work are not separated"
+        },
+        {
+          "resource": "memory_bytes",
+          "enforcement": "unsupported",
+          "measurement": "unsupported",
+          "detail": "not enforced: the runner does not own an OS quota (cgroup, job object or rlimit) for the runtime process tree; peak memory is not measurable on windows"
+        },
+        {
+          "resource": "disk_bytes",
+          "enforcement": "unsupported",
+          "measurement": "unsupported",
+          "detail": "not enforced or measured: inline runner profiles declare no workspace quota and the host exposes no per-attempt disk accounting",
+          "limit": 1048576
+        },
+        {
+          "resource": "process_count",
+          "enforcement": "unsupported",
+          "measurement": "unsupported",
+          "detail": "not enforced or measured: runtimes may spawn subprocesses outside a runner-owned process group or job object"
+        }
+      ]
+    },
+    "diagnostics": [
+      {
+        "code": "unsupported_budget",
+        "message": "unsupported execution budget: disk_bytes limit 1048576 cannot be enforced on windows/amd64 (not enforced or measured: inline runner profiles declare no workspace quota and the host exposes no per-attempt disk accounting); remove the limit, run on a host that enforces it, or set budgets.unsupported to \"report\""
+      }
+    ]
+  }
+}

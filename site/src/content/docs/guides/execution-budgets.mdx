@@ -1,0 +1,155 @@
+---
+title: Execution budgets
+description: Declare runner resource budgets, check which limits this host can enforce before execution, and read measured usage and terminations.
+---
+
+**Main-only, after v0.41.0 (#772).** Not available in installed v0.41.0 artifacts.
+
+A runner request can declare **execution budgets**: upper bounds on wall time,
+model turns, tool calls, CPU time, memory, disk and process count for the one
+selected attempt. Before anything executes, Waza checks every declared limit
+against what the host can genuinely enforce. Limits the host cannot enforce are
+rejected with an explicit unsupported state, never silently ignored. After
+execution, the terminal envelope reports configured limits, measured usage,
+remaining headroom and which limit (if any) terminated the attempt.
+
+Schema: [`execution-budget-1.0.schema.json`](../../schemas/execution-budget-1.0.schema.json)
+(`waza.execution-budget-capabilities`). Its `$defs.request` is inlined as the
+runner-request `budgets` field and its `$defs.report` as the runner-terminal
+`budget` field.
+
+## For users: declaring budgets
+
+Add an optional `budgets` object to a `runner-request` 1.0 document:
+
+```json
+{
+  "schema_version": "1.0",
+  "versions": ["1.0"],
+  "required_capabilities": ["exact-unit", "inline.mock-text"],
+  "...": "selection, input, timeout_ms and allow_paid_execution as usual",
+  "budgets": {
+    "limits": {"wall_time_ms": 20000, "model_turns": 4, "tool_calls": 10},
+    "unsupported": "reject"
+  }
+}
+```
+
+A complete request lives at `examples/runner/budget-unit.json`:
+
+```bash
+waza runner budgets                                   # what this host enforces/measures
+waza runner run < examples/runner/budget-unit.json    # terminal JSON includes "budget"
+```
+
+`limits` must contain at least one resource. Integer values follow the same
+exact-integer rules as `timeout_ms` (`6e4` is accepted as 60000).
+
+| Limit | Meaning | Range |
+|---|---|---|
+| `wall_time_ms` | Attempt wall clock, from runtime construction through grading and shutdown | 1 - 86,400,000 |
+| `model_turns` | Observed model turn starts | 0 - 1,000,000 |
+| `tool_calls` | Observed tool execution starts | 0 - 1,000,000 |
+| `cpu_time_ms` | Runner process CPU time | 1 - 86,400,000 |
+| `memory_bytes` | Peak resident memory | 1 - 2^53-1 |
+| `disk_bytes` | Workspace disk usage | 1 - 2^53-1 |
+| `process_count` | Processes spawned by the runtime | 1 - 1,000,000 |
+
+`unsupported` controls limits this host cannot enforce:
+
+- `reject` (default): the request is rejected **before** input resolution,
+  runtime construction or any engine call.
+- `report`: the attempt runs; unenforceable limits are reported with
+  `enforcement: "unsupported"` and, where measurable, compared against usage.
+
+`timeout_ms` still applies. Both deadlines run; whichever is shorter fires first.
+Only a budget-triggered stop is reported as `budget.termination`.
+
+## Host capability matrix
+
+`waza runner budgets` and `GET /api/v1/runner/budgets` return the matrix for the
+current host. Waza never claims enforcement it cannot apply:
+
+| Resource | Enforcement | Measurement (linux / darwin) | Measurement (windows) | Other OS |
+|---|---|---|---|---|
+| `wall_time_ms` | enforced (attempt deadline) | measured, attempt | measured, attempt | measured, attempt |
+| `model_turns` | enforced (cancel) | measured, attempt | measured, attempt | measured, attempt |
+| `tool_calls` | enforced (cancel) | measured, attempt | measured, attempt | measured, attempt |
+| `cpu_time_ms` | unsupported | measured, runner_process (getrusage self + children) | measured, runner_process (GetProcessTimes, self only) | unsupported |
+| `memory_bytes` | unsupported | measured, runner_process (peak RSS high-water mark) | unsupported | unsupported |
+| `disk_bytes` | unsupported | unsupported | unsupported | unsupported |
+| `process_count` | unsupported | unsupported | unsupported | unsupported |
+
+CPU, memory, disk and process limits are not enforced on any OS because the
+runner does not own an OS quota (cgroup, job object or rlimit) for the runtime
+process tree. `scope: "runner_process"` means the measurement covers the whole
+runner process, including concurrent work and (for memory) usage before the
+attempt started; treat it as an upper bound, not per-attempt accounting.
+
+## Interpreting outcomes
+
+The terminal `budget` object has a `state`:
+
+| State | Meaning | Terminal outcome |
+|---|---|---|
+| `rejected_unsupported` | A declared limit cannot be enforced and `unsupported` is `reject` | `unsupported_capability` (exit 5), boundary `validation`, diagnostic `unsupported_budget`, `engine_calls: 0`, no identity |
+| `within_budget` | Every measured limit held | Unchanged (`success` or `evaluation_failure`) |
+| `exceeded` | A measured but unenforced limit was exceeded (only with `report`) | Unchanged; the row has `exceeded: true` |
+| `terminated` | An enforced limit stopped the attempt; see `termination` | `timeout` (exit 4) for `wall_time_ms`, `cancelled` (exit 3) for `model_turns`/`tool_calls`, plus diagnostic `budget_exceeded` |
+
+Each `resources[]` row repeats the host capability (`enforcement`,
+`measurement`, `scope`, `detail`) and adds the configured `limit`, measured
+`used`, `remaining` and `exceeded`. Unmeasured rows never carry `used`. Rows are
+always present for all seven resources so unsupported states are explicit.
+
+Correlate a budget report with its run/attempt through the enclosing terminal
+`identity` (`run-...` / `attempt-...`) and `selection`; the budget object itself
+carries no identity.
+
+## For operators
+
+- Run `waza runner budgets` on each worker image to confirm the matrix before
+  scheduling budgeted work. A request that relies on `memory_bytes` enforcement
+  will be rejected everywhere today; use `unsupported: "report"` to collect
+  measurements without enforcement.
+- Counted limits are enforced on the **start** of the first turn or tool call
+  beyond the limit. That call may already have begun when the attempt is
+  cancelled; budgets are cost controls, not a sandbox.
+- Wall time covers runtime construction, execution, grading and runtime
+  shutdown, for `runner run`, `runner submit` and `POST /api/v1/runner/run`.
+
+## For developers
+
+- Budgets are execution policy, not logical input: they are **excluded from
+  logical identity** (`runneridentity` v1 is unchanged), so ledger reuse by
+  identity ignores budgets. Do not reuse an attempt to satisfy a stricter budget.
+- Runtimes report activity through `execution.WithActivityObserver`; the
+  Copilot engine reports `assistant.turn_start` and `tool.execution_start`
+  events and the mock engine reports one model turn per call.
+- `internal/executionbudget` owns capability declaration (`HostCapabilities`),
+  pre-execution planning (`Plan`) and the per-attempt `Meter`.
+
+## Lab view
+
+The Lab runner section has an **Execution budgets** panel. It loads the host
+matrix from `GET /api/v1/runner/budgets` and, for a pasted `waza.runner-terminal`
+envelope, shows configured limits, measured usage, remaining headroom, the
+enforcement and measurement state of every resource, the termination (if any)
+and the run/attempt identity the report belongs to.
+
+## Migration
+
+The `budgets` request field and the terminal `budget` field are optional
+additions to the 1.0 schemas. Requests without budgets behave exactly as before
+and terminal envelopes omit `budget`. Older runners reject a request containing
+`budgets` (closed schema), so budgets fail closed on hosts that predate them.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `unsupported_budget` diagnostic, exit 5 | A limit for `cpu_time_ms`, `memory_bytes`, `disk_bytes` or `process_count` (or one this OS cannot enforce) | Remove the limit, or set `budgets.unsupported` to `report` |
+| `budget_exceeded` with outcome `cancelled` | `model_turns` or `tool_calls` exceeded | Raise the limit or simplify the task; inspect `budget.termination` |
+| `budget_exceeded` with outcome `timeout` | `wall_time_ms` exceeded | Raise `wall_time_ms`; compare with `timeout_ms` |
+| `memory_bytes` row reports `measurement: unsupported` on Windows | No peak-RSS counter is collected on Windows | Expected; see the matrix |
+| `used` for memory exceeds expectations | Peak RSS is a runner-process high-water mark | Run one attempt per process for tighter numbers |
