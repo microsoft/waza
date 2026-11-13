@@ -144,7 +144,8 @@ completion requirement (#902).
   same-run artifact (#904, #944, #962). Ordinary pull requests now publish a
   required `completeness / PR completeness` check backed by source-bound
   receipts from Go, dashboard, site/examples, Docker, assurance, tools and
-  runtime suites, which run only through the plan-selected caller (#900,
+  runtime suites run through the plan-selected caller (Docker also keeps a
+  standalone PR trigger, whose removal is deferred to #981) (#900,
   [#977](https://github.com/microsoft/waza/pull/977),
   [#978](https://github.com/microsoft/waza/pull/978),
   [#980](https://github.com/microsoft/waza/pull/980)). Attempt-aware CI
@@ -246,7 +247,7 @@ completion requirement (#902).
   ordinary assertion failures ([#925](https://github.com/microsoft/waza/pull/925)).
 - **Workspace capture** - Bound workspace capture and retain explicit
   diagnostics for unavailable or incomplete captured evidence
-  ([#830](https://github.com/microsoft/waza/pull/830)).
+  ([#845](https://github.com/microsoft/waza/pull/845), issue #830).
 - Write configured reports after completed grading failures while retaining the
   grading error and any report write error (#892, #941).
 

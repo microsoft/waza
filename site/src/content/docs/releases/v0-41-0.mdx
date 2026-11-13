@@ -89,7 +89,8 @@ Operational grader failures remain distinct from ordinary false assertions
 ([#925](https://github.com/microsoft/waza/pull/925)).
 Workspace capture is bounded and retains explicit diagnostics rather than
 inventing complete file evidence
-([#830](https://github.com/microsoft/waza/pull/830)).
+([#845](https://github.com/microsoft/waza/pull/845), issue
+[#830](https://github.com/microsoft/waza/issues/830)).
 These source changes do not settle the remaining cleanup-summary, recovery,
 or native Windows admissions listed below.
 
@@ -261,7 +262,9 @@ walks the connected path below
   boundaries ([#945](https://github.com/microsoft/waza/pull/945)) are wired into
   a required `completeness / PR completeness` check
   ([#978](https://github.com/microsoft/waza/pull/978)); auxiliary suites now run
-  only through that caller ([#980](https://github.com/microsoft/waza/pull/980)).
+  through that caller ([#980](https://github.com/microsoft/waza/pull/980)),
+  although Docker also keeps a standalone PR trigger whose removal is deferred
+  to [#981](https://github.com/microsoft/waza/issues/981).
   This completes [#900](https://github.com/microsoft/waza/issues/900).
 - **Non-blocking CI budgets** - CI trends publish a versioned latency and
   runner-consumption budget policy that never changes the exit code
