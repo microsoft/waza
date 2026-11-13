@@ -82,6 +82,35 @@ test('all built internal page routes, fragments and image assets resolve under t
   expect(failures).toEqual([]);
 });
 
+test('pending release navigation does not promote unavailable downloads', async ({ page }) => {
+  await page.goto('/waza/reference/releases/');
+  const main = page.locator('main');
+  await expect(main).toContainText('Current published standalone release: v0.40.1');
+  const downloads = main.locator('a[href*="/releases/download/v0.40.1/waza-"]');
+  await expect(downloads).toHaveCount(6);
+  await expect(page.locator('a[href*="/releases/download/v0.41.0/"]')).toHaveCount(0);
+  await main.getByRole('link', { name: 'Waza v0.41.0 preview: prepare the release, preserve the evidence', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0 preview: prepare the release, preserve the evidence');
+  await expect(page.locator('main')).toContainText('Draft — publication pending.');
+  await expect(page.locator('main')).toContainText('6750ff6115b3a98a5609bd751227bca629839a9c');
+  await expect(page.locator('main')).toContainText('Finalize only after the remaining admissions');
+  await expect(page.locator('main')).toContainText('0.39.1 in version.txt and extension.yaml');
+  const renderedStages = await page.locator('main').innerText();
+  const before = renderedStages.split('Before selecting a release candidate')[1]?.split('After publication: released-consumer completion')[0];
+  expect(before).toBeTruthy();
+  expect(before).not.toContain('#902');
+  await expect(page.locator('main')).toContainText('After the actual v0.41.0 installer, binary, and checksums are published');
+  await expect(page.locator('main').getByRole('link', { name: '#902 released-consumer validation', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/issues/902');
+  await expect(page.locator('main')).toContainText('does not waive #902');
+  await expect(page.locator('a[href*="/releases/download/v0.41.0/"]')).toHaveCount(0);
+  await page.locator('#starlight__sidebar').getByRole('link', { name: 'Waza v0.41.0 (pending)', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
+  await page.locator('main').getByRole('link', { name: 'current published standalone and azd releases', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/reference\/releases\/$/);
+});
+
 test('beginner learning order and published release availability are visible', async ({ page }) => {
   await page.goto('/waza/');
   await expect(page.locator('main')).toContainText('New in v0.40.1');
