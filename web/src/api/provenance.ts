@@ -2,6 +2,7 @@ import Ajv2020 from "ajv/dist/2020";
 import reportSchema from "../../../schemas/provenance-verification-1.0.schema.json";
 import statementSchema from "../../../schemas/provenance-statement-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
+import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 
 export interface ProvenanceRef { path: string; sha256: string; media_type: string }
@@ -51,10 +52,12 @@ export interface ProvenanceExpectations {
   policy_sha256?: string;
 }
 
-const ajv = new Ajv2020({ strict: false });
-ajv.addSchema(terminalSchema);
-ajv.addSchema(statementSchema);
-const validate = ajv.compile<ProvenanceReport>(reportSchema);
+const validate = lazyValidator(() => {
+  const ajv = new Ajv2020({ strict: false });
+  ajv.addSchema(terminalSchema);
+  ajv.addSchema(statementSchema);
+  return ajv.compile<ProvenanceReport>(reportSchema);
+});
 
 export function parseProvenanceReport(text: string): ProvenanceReport {
   const value = parseStrictJSON(text);

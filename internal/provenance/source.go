@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -34,29 +35,69 @@ func OpenDir(dir string) (Source, func() error, error) {
 	return &dirSource{root: root}, root.Close, nil
 }
 
+// listBatch bounds each directory read so an oversized directory is rejected
+// without first being read and sorted in full.
+const listBatch = 64
+
 func (s *dirSource) List() (regular, irregular []string, err error) {
 	// Directories count too, so empty trees cannot bypass the entry bound.
 	entries := 0
-	err = fs.WalkDir(s.root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	pending := []string{"."}
+	for len(pending) > 0 {
+		dir := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		children, err := s.readDir(dir, MaxMembers-entries)
+		if err != nil {
+			return nil, nil, err
 		}
-		if name == "." {
-			return nil
+		entries += len(children)
+		for _, entry := range children {
+			name := entry.Name()
+			if dir != "." {
+				name = dir + "/" + name
+			}
+			switch {
+			case entry.IsDir():
+				pending = append(pending, name)
+			case entry.Type().IsRegular():
+				regular = append(regular, name)
+			default:
+				irregular = append(irregular, name)
+			}
 		}
-		if entries++; entries > MaxMembers {
-			return errTooManyMembers
+	}
+	slices.Sort(regular)
+	slices.Sort(irregular)
+	return regular, irregular, nil
+}
+
+// readDir returns at most budget entries of dir, failing once more exist.
+func (s *dirSource) readDir(dir string, budget int) ([]fs.DirEntry, error) {
+	file, err := s.root.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []fs.DirEntry
+	var readErr error
+	for {
+		batch, err := file.ReadDir(listBatch)
+		out = append(out, batch...)
+		if len(out) > budget {
+			readErr = errTooManyMembers
+			break
 		}
-		switch {
-		case entry.IsDir():
-		case entry.Type().IsRegular():
-			regular = append(regular, name)
-		default:
-			irregular = append(irregular, name)
+		if errors.Is(err, io.EOF) || (err == nil && len(batch) == 0) {
+			break
 		}
-		return nil
-	})
-	return regular, irregular, err
+		if err != nil {
+			readErr = err
+			break
+		}
+	}
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *dirSource) ReadFile(name string, limit int64) ([]byte, error) {
