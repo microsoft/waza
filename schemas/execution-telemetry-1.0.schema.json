@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-telemetry-1.0.schema.json",
+  "title": "Waza execution telemetry report 1.0",
+  "description": "Payload-free summary of OTLP-compatible traces, metrics and logs derived from Waza runner contract documents: correlation identifiers, source availability, signal counts, safeguard drops and export health. It never carries prompts, outputs, tool arguments or results, headers or credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "payload_policy", "resource", "correlation", "sources", "signals", "dropped", "exports"],
+  "properties": {
+    "kind": {"const": "waza.execution-telemetry"},
+    "schema_version": {"const": "1.0"},
+    "payload_policy": {"enum": ["exclude", "digest"]},
+    "resource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["service.name", "service.version", "waza.telemetry.schema_version", "waza.run.id", "waza.work.id"],
+      "properties": {
+        "service.name": {"const": "waza"},
+        "service.version": {"type": "string", "minLength": 1, "maxLength": 256},
+        "waza.telemetry.schema_version": {"const": "1.0"},
+        "waza.run.id": {"$ref": "#/$defs/run"},
+        "waza.work.id": {"$ref": "#/$defs/work"},
+        "waza.scheduler.work_id": {"$ref": "#/$defs/scheduler_work_id"}
+      }
+    },
+    "correlation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["trace_id", "root_span_id", "run", "work", "identity_digest", "shard", "task", "trial", "attempt", "task_span_id", "attempts", "artifacts"],
+      "properties": {
+        "trace_id": {"$ref": "#/$defs/trace_id"},
+        "root_span_id": {"$ref": "#/$defs/span_id"},
+        "run": {"$ref": "#/$defs/run"},
+        "work": {"$ref": "#/$defs/work"},
+        "scheduler_work_id": {"$ref": "#/$defs/scheduler_work_id"},
+        "identity_digest": {"$ref": "#/$defs/sha256"},
+        "shard": {"type": "string", "pattern": "^shard-[0-9a-f]{64}$"},
+        "task": {"type": "string", "pattern": "^task-[0-9a-f]{64}$"},
+        "trial": {"$ref": "#/$defs/work"},
+        "attempt": {"type": "string", "pattern": "^attempt-[0-9a-f]{64}$"},
+        "task_span_id": {"$ref": "#/$defs/span_id"},
+        "attempts": {
+          "type": "array", "maxItems": 1024,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["span_id", "native_attempt", "status", "selected"],
+            "properties": {
+              "span_id": {"$ref": "#/$defs/span_id"},
+              "execution_id": {"$ref": "#/$defs/execution_id"},
+              "parent_execution_id": {"$ref": "#/$defs/execution_id"},
+              "relationship": {"enum": ["retry", "branch"]},
+              "native_attempt": {"type": "integer", "minimum": 0},
+              "status": {"enum": ["reserved", "dispatched", "completed", "completion_unverified", "observed"]},
+              "outcome": {"$ref": "#/$defs/outcome"},
+              "manifest_sha256": {"$ref": "#/$defs/sha256"},
+              "selected": {"type": "boolean"}
+            }
+          }
+        },
+        "artifacts": {
+          "type": "array", "maxItems": 1024,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["span_id", "name", "sha256", "size_bytes", "terminal"],
+            "properties": {
+              "span_id": {"$ref": "#/$defs/span_id"},
+              "name": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"},
+              "sha256": {"$ref": "#/$defs/sha256"},
+              "size_bytes": {"type": "integer", "minimum": 0},
+              "terminal": {"type": "boolean"}
+            }
+          }
+        },
+        "aggregation": {
+          "type": "object", "additionalProperties": false,
+          "required": ["span_id", "sha256", "state", "members"],
+          "properties": {
+            "span_id": {"$ref": "#/$defs/span_id"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "state": {"enum": ["complete", "incomplete", "conflicting"]},
+            "members": {
+              "type": "array", "maxItems": 4096,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["manifest_sha256", "state"],
+                "properties": {
+                  "manifest_sha256": {"$ref": "#/$defs/sha256"},
+                  "state": {"enum": ["admitted", "omitted", "conflicting"]},
+                  "trace_id": {"$ref": "#/$defs/trace_id"},
+                  "span_id": {"$ref": "#/$defs/span_id"},
+                  "execution_id": {"$ref": "#/$defs/execution_id"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["source", "state"],
+        "properties": {
+          "source": {"enum": ["terminal", "manifest", "attempt", "lineage", "report", "aggregate"]},
+          "state": {"enum": ["present", "unavailable", "unmatched"]}
+        }
+      }
+    },
+    "signals": {
+      "type": "object", "additionalProperties": false,
+      "required": ["traces", "metrics", "logs"],
+      "properties": {
+        "traces": {"$ref": "#/$defs/signal_count"},
+        "metrics": {"$ref": "#/$defs/signal_count"},
+        "logs": {"$ref": "#/$defs/signal_count"}
+      }
+    },
+    "dropped": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["signal", "reason", "count"],
+        "properties": {
+          "signal": {"$ref": "#/$defs/signal"},
+          "reason": {"enum": ["payload_excluded", "unregistered_attribute", "attribute_placement", "attribute_limit", "attribute_truncated", "span_limit", "tool_span_limit", "log_limit", "metric_cardinality", "link_limit"]},
+          "count": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "exports": {
+      "type": "array", "maxItems": 6,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["signal", "destination", "target", "state"],
+        "properties": {
+          "signal": {"$ref": "#/$defs/signal"},
+          "destination": {"enum": ["file", "otlp_http"]},
+          "target": {"type": "string", "minLength": 1, "maxLength": 512, "not": {"pattern": "[?#@]"}},
+          "state": {"enum": ["exported", "partial", "failed", "skipped"]},
+          "http_status": {"type": "integer", "minimum": 100, "maximum": 599},
+          "error_code": {"enum": ["output_exists", "write_error", "transport_error", "timeout", "http_status", "partial_success"]}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "not": {"const": "00000000000000000000000000000000"}},
+    "span_id": {"type": "string", "pattern": "^[0-9a-f]{16}$", "not": {"const": "0000000000000000"}},
+    "run": {"type": "string", "pattern": "^run-[0-9a-f]{64}$"},
+    "work": {"type": "string", "pattern": "^trial-[0-9a-f]{64}$"},
+    "execution_id": {"type": "string", "pattern": "^exec-[0-9a-f]{64}$"},
+    "scheduler_work_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$"},
+    "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input"]},
+    "signal": {"enum": ["traces", "metrics", "logs"]},
+    "signal_count": {
+      "type": "object", "additionalProperties": false,
+      "required": ["emitted", "dropped", "names"],
+      "properties": {
+        "emitted": {"type": "integer", "minimum": 0},
+        "dropped": {"type": "integer", "minimum": 0},
+        "names": {
+          "type": "object", "maxProperties": 32,
+          "propertyNames": {"pattern": "^[a-z][a-z0-9_.]{0,127}$"},
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

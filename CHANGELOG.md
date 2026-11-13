@@ -74,6 +74,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Migration: none; without the new flags behavior is unchanged. Rejected
   preflights exit 1 (`isolation preflight`) or 2 (`run`). See
   [docs/EXECUTION_ISOLATION.md](docs/EXECUTION_ISOLATION.md).
+- **Execution telemetry and correlation contracts (#771)** -
+  New `waza runner telemetry` derives vendor-neutral, OpenTelemetry-shaped
+  traces, metrics and logs from runner contract documents (terminal, manifest,
+  attempt, lineage, results JSON and aggregate). Trace and span IDs are
+  deterministic from run, work, execution and attempt identifiers; aggregation
+  spans link to member work traces and `--scheduler-work-id` records an external
+  scheduler ID. Payloads are excluded by default (`--payload-policy digest`
+  adds SHA-256/length surrogates only), every attribute is cataloged with a
+  cardinality class, and span, log, link and metric-series caps report drops.
+  Signals export as OTLP/JSON files (`--out-dir`) or OTLP/HTTP JSON
+  (`--otlp-endpoint`, `--otlp-header`) with sanitized export diagnostics. New
+  `waza.execution-telemetry` 1.0 schema and a Lab correlation view. Migration:
+  additive only; `waza run --otel-*` tracing is unchanged and no existing
+  document is rewritten. Not included: live hot-path emission, OTLP gRPC or
+  protobuf, and raw payload export. See
+  [execution telemetry](docs/EXECUTION_TELEMETRY.md).
 
 ### Changed
 

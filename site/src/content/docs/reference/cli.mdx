@@ -1800,6 +1800,29 @@ the store is unavailable, truncated or contains unreadable records.
 [logical work and attempts](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage)
 and [execution lifecycle](../../guides/immutable-artifacts/#execution-lifecycle-and-recovery).
 
+### Telemetry command (main branch, not yet released)
+
+```bash
+waza runner telemetry --terminal terminal.json --manifest manifest.json --out-dir telemetry/
+waza runner telemetry --terminal terminal.json --otlp-endpoint http://localhost:4318
+```
+
+`telemetry` derives correlated, payload-free OpenTelemetry-shaped traces,
+metrics and logs from published contract documents and prints one
+[`waza.execution-telemetry`](/waza/schemas/execution-telemetry-1.0.schema.json)
+report. `--terminal` is required; `--manifest`, `--attempt`, `--lineage`,
+`--report` (results JSON) and `--aggregate` add attempt, artifact, model, tool
+and aggregation detail and must describe the same run and work.
+`--scheduler-work-id` records an external scheduler ID as a resource attribute.
+`--payload-policy` is `exclude` (default) or `digest` (SHA-256 and length
+surrogates only; there is no raw mode). `--out-dir` writes
+`traces.otlp.json`, `metrics.otlp.json`, `logs.otlp.json` and
+`telemetry-report.json` to a new-file directory; `--otlp-endpoint` posts OTLP/HTTP
+JSON to `/v1/traces`, `/v1/metrics` and `/v1/logs` with repeatable
+`--otlp-header key=value` values that are never recorded. It exits 6 for invalid
+or uncorrelated input and 2 when any export fails (the report is still printed).
+See [execution telemetry correlation](../../guides/execution-telemetry/).
+
 ### Checkpoint commands (v0.41.0+)
 
 ```bash
