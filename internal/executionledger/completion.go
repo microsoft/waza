@@ -184,10 +184,18 @@ func ValidateReuseBinding(decision executionattempt.Decision, attempt executiona
 		decision.Source.ExecutionID != attempt.ExecutionID {
 		return fmt.Errorf("%w: decision does not reuse the original execution", ErrContext)
 	}
-	caller, source := decision.Binding, attempt.Binding
+	if decision.Logical != attempt.Logical {
+		return fmt.Errorf("%w: caller differs from source logical work or execution context", ErrContext)
+	}
+	return ValidateReuseCaller(decision.Binding, attempt.Binding)
+}
+
+// ValidateReuseCaller is the read-only caller/source binding admission shared
+// by reuse decisions and checkpoint availability.
+func ValidateReuseCaller(caller, source artifactmanifest.Binding) error {
 	graders := slices.Clone(caller.GraderIDs)
 	slices.Sort(graders)
-	if decision.Logical != attempt.Logical || caller.Identity.Version != source.Identity.Version ||
+	if caller.Identity.Version != source.Identity.Version ||
 		caller.Identity.Run != source.Identity.Run || caller.Identity.Shard != source.Identity.Shard ||
 		caller.Identity.Task != source.Identity.Task || caller.Identity.Trial != source.Identity.Trial ||
 		caller.Selection.Shard != source.Selection.Shard || caller.Selection.Task != source.Selection.Task ||

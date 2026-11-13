@@ -1,8 +1,6 @@
 name: Squad Tools CI
 
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
   workflow_call:

@@ -147,12 +147,18 @@ On `pull_request` events `go-ci.yml` runs `pr-scope` (the plan workflow), then:
 `TestGoCompletenessReceiptWiring` rejects removed step ids, unguarded or
 non-`always()` receipts, dropped dependencies and unwired callers.
 
+The dashboard, site/examples, assurance, tools and runtime workflows no longer
+have standalone `pull_request` triggers. Pull requests reach them only through
+these plan-selected `go-ci.yml` callers, so each suite runs once per PR attempt
+and now covers stacked PRs on any base. Their `push`, `workflow_dispatch` and
+`workflow_call` entrypoints are unchanged. `docker-ci.yml` keeps its standalone
+path-filtered trigger for the separately admitted edited-body benchmark, so
+container validation can still run twice on Docker-relevant PRs.
+
 Remaining before adoption: route metadata/retarget (`edited`) events and their
-concurrency safely, then consolidate the auxiliary workflows' standalone
-`pull_request` triggers so full suites do not run twice. Preserve the existing
-auxiliary receipt interfaces, current native Go gates and separate non-PR
-validation. Do not adopt a ruleset requirement before the genuine current-head
-migration evidence below exists.
+concurrency safely. Preserve the existing auxiliary receipt interfaces, current
+native Go gates and separate non-PR validation. Do not adopt a ruleset
+requirement before the genuine current-head migration evidence below exists.
 
 The proposed ordinary-PR entrypoint is the existing Go workflow, with local
 reusable calls to the existing auxiliary validators. This avoids cross-run
@@ -163,8 +169,8 @@ full-diff review:
 | Validation | Changed inputs |
 |---|---|
 | Go, lint, native Linux shards and Windows | Every ordinary PR, preserving the existing native gates. |
-| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, and runner examples. |
-| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config and lockfile content read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
+| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, runner examples, and `.github/scripts/ci-evidence*` collectors. |
+| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config, `package.json`, lockfile and screenshot specs read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
 | Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
 | Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
 | Docker image and native runner contracts | Container/context files, `.gitattributes` LFS checkout rules for embedded assets, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |

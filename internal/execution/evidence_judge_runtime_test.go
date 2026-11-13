@@ -37,13 +37,12 @@ func TestEvidenceJudgeRuntimeWorkflowCoversPinnedAssets(t *testing.T) {
 		} `yaml:"on"`
 	}
 	require.NoError(t, yaml.Unmarshal(data, &workflow))
-	for _, event := range []string{"pull_request", "push"} {
-		t.Run(event, func(t *testing.T) {
-			require.Contains(t, workflow.On, event)
-			for _, pattern := range []string{"internal/embedded/**", ".gitattributes"} {
-				require.Contains(t, workflow.On[event].Paths, pattern, "pinned executable/assets and LFS changes must rerun the native isolation proof")
-			}
-		})
+	// Pull requests reach this workflow through the go-ci completeness plan,
+	// whose runtime applicability is pinned by .github/scripts tests.
+	require.NotContains(t, workflow.On, "pull_request", "pull requests must run the pinned runtime proof through the go-ci completeness gate")
+	require.Contains(t, workflow.On, "push")
+	for _, pattern := range []string{"internal/embedded/**", ".gitattributes"} {
+		require.Contains(t, workflow.On["push"].Paths, pattern, "pinned executable/assets and LFS changes must rerun the native isolation proof")
 	}
 }
 
