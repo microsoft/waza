@@ -92,22 +92,21 @@ Requires Go 1.26+, Git LFS, Make, Node.js 22.23.4+ on the 22.x line or Node.js 2
 Note: due to the use of LFS artifacts you cannot install waza using `go install`. To install waza outside of a normal release, clone the repository:
 
 ```bash
-git clone --branch v0.40.1 https://github.com/microsoft/waza.git
+git clone --branch v0.41.0 https://github.com/microsoft/waza.git
 cd waza
 
 # ensure git LFS-based artifacts are available (for embedded copilot binaries)
 git lfs install
 git lfs pull
 
-make build VERSION=0.40.1
+make build VERSION=0.41.0
 ./waza <waza command line>
 ```
 
-The verified `v0.40.1` tag resolves to
-`e0c251df896bee4e0f9b38a693a6105bf7eadd19`. The immutable tag's
-`version.txt` and `extension.yaml` remain `0.39.1`. The release workflow updates
-those files only in a later version-sync branch, not in the tag.
-`make build` defaults to `VERSION=0.1.0`, so pass `VERSION=0.40.1` explicitly
+The verified `v0.41.0` tag resolves to
+`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`. Unlike the historical v0.40.1 tags, the
+tag's `version.txt` and `extension.yaml` already carry `0.41.0`.
+`make build` defaults to `VERSION=0.1.0`, so pass `VERSION=0.41.0` explicitly
 when building this tag. Official release builds inject the version from the
 tag with linker flags. A locally stamped binary is not a verified release asset,
 and does not prove extension registry synchronization.
@@ -132,16 +131,16 @@ azd waza --help
 The extension has its own version and artifact history; a command prefix does
 not establish parity with standalone main. Check `azd waza --version` and
 `azd waza --help` before following examples. The registry currently lists
-through `0.40.1`, matching the separately published `0.40.1` extension artifact.
-The [separate v0.40.1 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.40.1)
+through `0.41.0`, matching the separately published `0.41.0` extension artifact.
+The [separate v0.41.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0)
 is published with six platform archives, and this repository's registry and
-version metadata are synchronized to `0.40.1`. The standalone v0.40.0 additions
-below are not included in a v0.39.1 extension installation. Artifact publication
+version metadata are synchronized to `0.41.0`. The standalone v0.41.0 additions
+are not included in a v0.40.1 extension installation. Artifact publication
 and registry synchronization are separate gates; check the installed version.
 The source URL above follows `main`, not this branch. Before
-[release-sync PR #908](https://github.com/microsoft/waza/pull/908) merges, that URL
-still serves `0.40.0`; after the merge it includes `0.40.1`. Updating an
-installation before the merge cannot select `0.40.1` from that source.
+[release-sync PR #987](https://github.com/microsoft/waza/pull/987) merges, that URL
+still serves `0.40.1`; after the merge it includes `0.41.0`. Updating an
+installation before the merge cannot select `0.41.0` from that source.
 For supported commands, for example:
 
 ```bash
