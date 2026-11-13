@@ -111,7 +111,7 @@ func TestGenerateAndVerifyDirectoryBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeSrc()
+	defer func() { _ = closeSrc() }()
 	report := Verify(src, Options{Verifier: f.verifier, ExpectImageDigest: testImageDigest, ExpectWazaVersion: "0.42.0", ExpectPolicySHA256: b.Statement.Predicate.Policy.SHA256})
 	if report.Status != "verified" || report.ExitCode != 0 || !report.Signer.Trusted {
 		t.Fatalf("expected verified bundle, got %+v", report.Failures())
@@ -328,7 +328,7 @@ func TestMemberCountIsBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeSrc()
+	defer func() { _ = closeSrc() }()
 	report := Verify(src, Options{Verifier: f.verifier})
 	if got := failure(report, "members"); got.Code != "members_unlisted" {
 		t.Fatalf("oversized bundle accepted: %+v", got)
@@ -365,7 +365,7 @@ func TestDirectoryRejectsSymlinkMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeSrc()
+	defer func() { _ = closeSrc() }()
 	if got := failure(Verify(src, Options{Verifier: f.verifier}), "members"); got.Code != "member_irregular" {
 		t.Fatalf("symlink member accepted: %+v", got)
 	}
@@ -383,7 +383,7 @@ func TestLabFixtureReportMatchesVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeSrc()
+	defer func() { _ = closeSrc() }()
 	report := Verify(src, Options{Verifier: verifier, ExpectImageDigest: "sha256:4f2b8c9e1d0a7b6c5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d"})
 	got, err := EncodeReport(report)
 	if err != nil {

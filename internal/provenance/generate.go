@@ -177,7 +177,7 @@ func (b *Bundle) WriteDir(dir string) error {
 	if err != nil {
 		return fmt.Errorf("opening bundle directory: %w", err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	for _, path := range slices.Sorted(maps.Keys(b.Files)) {
 		if parent := filepath.Dir(filepath.FromSlash(path)); parent != "." {
 			if err := root.MkdirAll(parent, 0o755); err != nil {
