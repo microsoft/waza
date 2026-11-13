@@ -18,7 +18,9 @@ in `.squad/config.json`, with code-review and fallback rules in
 ## Project Tracking
 
 **Keep issues and tracking up to date:**
-- **Tracking Issue:** [#66 - Waza Platform Roadmap](https://github.com/microsoft/waza/issues/66)
+- **Active feature tracker:** [#657 - Trustworthy regression testing](https://github.com/microsoft/waza/issues/657)
+- **Delivery tracker:** [#866 - Post-v0.40.0 roadmap](https://github.com/microsoft/waza/issues/866)
+- **Historical platform roadmap:** [#8](https://github.com/microsoft/waza/issues/8) (closed)
 - **PRD:** [docs/PRD.md](docs/PRD.md)
 - When completing work, update the relevant GitHub issue
 - Reference issue numbers in commit messages (e.g., `feat: Add tokens command #47`)
@@ -480,7 +482,7 @@ When adding or updating any feature:
 - [ ] Update the root `README.md` usage section if CLI changes
 - [ ] Build the docs site to verify: `cd site && npm run build`
 - [ ] Add example in appropriate docs
-- [ ] Update tracking issue #66 if related to roadmap
+- [ ] Update the relevant feature or delivery tracker if related to the roadmap
 
 When adding a new CLI command or flag:
 - [ ] Add to `site/src/content/docs/reference/cli.mdx`
@@ -489,7 +491,7 @@ When adding a new CLI command or flag:
 
 When completing a feature:
 - [ ] Close related GitHub issue with comment
-- [ ] Update tracking issue #66 checkbox
+- [ ] Update the relevant feature or delivery tracker
 - [ ] Verify GitHub Pages site reflects the change (pages deploy on merge to main)
 
 ## Documentation Maintenance
@@ -647,7 +649,9 @@ make test
 
 ## Epics and Priorities
 
-See [Tracking Issue #66](https://github.com/microsoft/waza/issues/66) for the full roadmap.
+See the active [feature tracker #657](https://github.com/microsoft/waza/issues/657)
+and [delivery tracker #866](https://github.com/microsoft/waza/issues/866). The
+[platform roadmap #8](https://github.com/microsoft/waza/issues/8) is historical.
 
 | Epic | Priority | Description |
 |------|----------|-------------|

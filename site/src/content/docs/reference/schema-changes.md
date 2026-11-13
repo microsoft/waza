@@ -25,8 +25,9 @@ not aggregate admission failures. Historical mutable results are not converted;
 unsupported supplied source profiles remain explicit.
 See [aggregate compatibility and worked examples](../../guides/manifest-aggregation/).
 
-This table describes standalone v0.40.0. Published standalone
-`v0.39.1` writes results `1.7`; see [release availability](/waza/reference/releases/).
+This table describes current source. Published standalone `v0.41.0` writes
+results `1.9`; standalone `v0.40.0` and `v0.40.1` write `1.8`, and `v0.39.1`
+writes `1.7`. See [release availability](/waza/reference/releases/).
 
 | Artifact | Field | Current version |
 |---|---|---|

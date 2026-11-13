@@ -573,6 +573,12 @@ Skills are scored on frontmatter compliance. Target: **Medium-High** or better f
 
 ## Phased Roadmap
 
+The phases below are historical product context, not a live delivery checklist.
+See the [active feature tracker #657](https://github.com/microsoft/waza/issues/657)
+and [delivery tracker #866](https://github.com/microsoft/waza/issues/866).
+The original [platform roadmap #8](https://github.com/microsoft/waza/issues/8)
+is closed.
+
 ### Primary Phase (Core Features)
 | Epic | Description | Priority |
 |------|-------------|----------|
