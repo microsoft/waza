@@ -318,7 +318,22 @@ Measured cost on the first candidate run is recorded below. Making the release
 smoke a publication gate is a separate decision once its runner availability
 and latency are established across releases.
 
-LATENCY_PLACEHOLDER
+Measured on candidate run
+[43506097460](https://github.com/microsoft/waza/actions/runs/43506097460)
+(2026-11-13): 11m43s wall time, about 24 runner-minutes, of which about 7.4
+were macOS.
+
+| Job | Wall time |
+|-----|-----------|
+| Candidate packages (web UI, six CLIs, extension pack) | 9m23s |
+| Darwin production callers (macos-latest / macos-15-intel) | 2m18s / 1m41s |
+| CLI smoke (windows/amd64, darwin/amd64, linux/amd64, windows/arm64, darwin/arm64, linux/arm64) | 1m36s, 1m33s, 28s, 1m08s, 42s, 14s |
+| Extension smoke (windows/amd64, linux/amd64, darwin/arm64) | 1m55s, 1m22s, 1m08s |
+| Evidence aggregation | 13s |
+
+The Darwin callers run in parallel with candidate packaging, so the smoke and
+evidence jobs add about 2m10s after packaging. In `release.yml` the packages
+already exist, so that tail is the release's added latency.
 
 ## Retry and Partial-Publication Behavior
 
