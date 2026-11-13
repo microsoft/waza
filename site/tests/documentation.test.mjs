@@ -650,14 +650,14 @@ test('Dashboard Lab article distinguishes saved results, synthetic examples, and
 
 test('release overview identifies the published version and retains the former availability anchor', () => {
   const overview = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(overview, /## Current published standalone release: v0\.40\.1/);
+  assert.match(overview, /## Current published standalone release: v0\.41\.0/);
   assert.match(overview, /id="upcoming-main-only-capabilities"/);
-  const downloads = [...overview.matchAll(/releases\/download\/v0\.40\.1\/(waza-[^)\s]+)/g)].map((match) => match[1]);
+  const downloads = [...overview.matchAll(/releases\/download\/v0\.41\.0\/(waza-[^)\s]+)/g)].map((match) => match[1]);
   assert.deepEqual(downloads.toSorted(), [
     'waza-darwin-amd64', 'waza-darwin-arm64', 'waza-linux-amd64',
     'waza-linux-arm64', 'waza-windows-amd64.exe', 'waza-windows-arm64.exe',
   ]);
-  assert.match(overview, /releases\/download\/v0\.40\.1\/checksums\.txt/);
+  assert.match(overview, /releases\/download\/v0\.41\.0\/checksums\.txt/);
   assert.match(overview, /publication does not\s+by itself establish execution on every platform/);
   assert.doesNotMatch(overview, /releases\/(?:download|tag)\/v0\.38\.10/);
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
@@ -834,7 +834,7 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
   assert.doesNotMatch(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(hotfix ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(hotfix ?? '', /pull\/882/);
-  assert.match(changelog, /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.40\.1\.\.\.HEAD$/m);
+  assert.match(changelog, /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.41\.0\.\.\.HEAD$/m);
   const published = changelog.split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
   assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);

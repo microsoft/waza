@@ -8,9 +8,9 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 ## Release articles
 
 [**Waza v0.41.0 preview: prepare the release, preserve the evidence**](../../releases/v0-41-0/)
-is a **draft, pending publication**. It inventories only verified merged source
-and lists remaining finalization gates; it does not change current downloads or
-azd availability below.
+inventories the merged v0.41.0 source scope. The article is still being
+finalized with release media; current downloads and azd availability are listed
+below.
 
 [**Waza v0.40.1: make release workflows match their contracts**](../../releases/v0-40-1/)
 explains the selected-task coverage, strict token-budget exit, grouping, hook,
@@ -31,21 +31,33 @@ is listed separately below.
 takes a closer look at `waza serve --lab`: finding failures, inspecting task
 evidence, comparing saved runs, and sharing reports.
 
-## Current published standalone release: v0.40.1
+## Current published standalone release: v0.41.0
 
-**Released:** November 6, 2026.
+**Released:** November 13, 2026.
 
-The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.1)
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.41.0)
 is published, with six platform binaries and `checksums.txt`.
 The installers select published standalone releases, not unreleased main.
 Run `waza update` to upgrade an existing standalone installation.
-See the [full comparison](https://github.com/microsoft/waza/compare/v0.40.0...v0.40.1)
+See the [full comparison](https://github.com/microsoft/waza/compare/v0.40.1...v0.41.0)
+and the [v0.41.0 changelog entry](https://github.com/microsoft/waza/blob/main/CHANGELOG.md#0410---2026-11-13).
+The release assets expose GitHub-computed SHA-256 digests in
+[checksums.txt](https://github.com/microsoft/waza/releases/download/v0.41.0/checksums.txt);
+publication does not by itself establish execution on every platform.
+Unlike the historical v0.40.1 tags, the `v0.41.0` tag carries `0.41.0` in
+`version.txt` and `extension.yaml`.
+
+## Previous highlighted release: v0.40.1
+
+**Released:** November 6, 2026.
+
+The [v0.40.1 standalone release](https://github.com/microsoft/waza/releases/tag/v0.40.1)
+was published with six platform binaries and `checksums.txt`. See the
+[full comparison](https://github.com/microsoft/waza/compare/v0.40.0...v0.40.1)
 and the [v0.40.1 release article](../../releases/v0-40-1/).
 The successful [release workflow](https://github.com/microsoft/waza/actions/runs/42255863296)
 built all six standalone platforms and published
 [checksums.txt](https://github.com/microsoft/waza/releases/download/v0.40.1/checksums.txt).
-The release assets expose GitHub-computed SHA-256 digests; publication does not
-by itself establish execution on every platform.
 The `v0.40.1` tag resolves to
 `e0c251df896bee4e0f9b38a693a6105bf7eadd19`.
 
@@ -246,12 +258,12 @@ Pre-built binaries for all major platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-darwin-arm64) |
-| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-darwin-amd64) |
-| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-linux-amd64) |
-| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-linux-arm64) |
-| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-windows-amd64.exe) |
-| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.40.1/waza-windows-arm64.exe) |
+| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-darwin-arm64) |
+| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-darwin-amd64) |
+| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-linux-amd64) |
+| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-linux-arm64) |
+| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-windows-amd64.exe) |
+| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-windows-arm64.exe) |
 
 ---
 
@@ -273,7 +285,7 @@ On Windows, use this command only from Git Bash, MSYS2, or Cygwin. If PowerShell
 irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
 ```
 
-The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.40.1), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.41.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 </TabItem>
 </Tabs>
