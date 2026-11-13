@@ -50,6 +50,12 @@ func TestInventoryVerifyRoute(t *testing.T) {
 			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
 		}
 	}
+	if rec, _ := post(map[string]any{"inventory": data, "expect": map[string]string{"kind": "chart", "digest": digest}}, "application/json"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported kind = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, report := post(map[string]any{"inventory": data, "expect": map[string]string{"digest": digest}}, "application/json"); rec.Code != http.StatusOK || report["status"] != "verified" {
+		t.Fatalf("omitted kind did not default to image: %d %s", rec.Code, rec.Body.String())
+	}
 	if rec, _ := post(map[string]any{"inventory": data}, "text/plain"); rec.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("non-JSON request = %d", rec.Code)
 	}

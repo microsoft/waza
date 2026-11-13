@@ -212,6 +212,10 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 		!strings.Contains(inventoryStep.Run, `--image-digest "$IMAGE_DIGEST"`) {
 		t.Fatalf("component inventory must be generated from and verified against the pushed digest: %#v", inventoryStep)
 	}
+	if !strings.Contains(inventoryStep.Run, "--embedded-dir internal/embedded") ||
+		!strings.Contains(inventoryStep.Run, `startswith("github-copilot-cli-")`) {
+		t.Fatalf("component inventory must record and assert the embedded Copilot CLI payload: %#v", inventoryStep)
+	}
 	inventoryAttestation := findStep(publish.Steps, "Attest runner image component inventory")
 	if inventoryAttestation == nil || !strings.HasPrefix(inventoryAttestation.Uses, "actions/attest@") ||
 		inventoryAttestation.With["subject-name"] != "ghcr.io/microsoft/waza-runner-reference" ||

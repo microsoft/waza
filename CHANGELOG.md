@@ -26,7 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Runner image and plugin component inventories (#770).** `waza runner
   inventory generate` writes a deterministic CycloneDX 1.6 inventory (profile
   `waza.component-inventory/1.0`) from Go build information, the dpkg status
-  database, os-release, hashed files and imported CycloneDX components, bound to
+  database, os-release, the bundled Copilot CLI and runtime payloads (recorded
+  only when embedded byte-for-byte in the binary), hashed files and imported
+  CycloneDX components, bound to
   an immutable image or plugin sha256 digest. `waza runner inventory verify`
   checks offline that the inventory describes exactly the consumed image
   (`--image-digest`) or plugin (`--plugin`) and prints a

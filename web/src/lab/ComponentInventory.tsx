@@ -42,6 +42,7 @@ function InventoryReader() {
     reset();
     const current = ++generation.current;
     setFile(null);
+    setLoading(false);
     const selected = list?.[0];
     if (!selected) return;
     if (selected.size > maxInventoryBytes) {

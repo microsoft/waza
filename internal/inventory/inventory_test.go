@@ -92,7 +92,7 @@ func edit(t *testing.T, data []byte, change func(map[string]any)) []byte {
 }
 
 func metadataComponent(doc map[string]any) map[string]any {
-	return doc["metadata"].(map[string]any)["component"].(map[string]any)
+	return obj(obj(doc["metadata"])["component"])
 }
 
 func TestImageInventoryRoundTrip(t *testing.T) {
@@ -171,11 +171,11 @@ func TestVerifyFailsClosed(t *testing.T) {
 		{"extra field", edit(t, valid, func(d map[string]any) { d["vulnerabilities"] = []any{} }), expect, "inventory_malformed"},
 		{"too large", make([]byte, inventory.MaxInventoryBytes+1), expect, "inventory_too_large"},
 		{"other profile", edit(t, valid, func(d map[string]any) {
-			d["metadata"].(map[string]any)["properties"].([]any)[0].(map[string]any)["value"] = "other/1.0"
+			obj(list(obj(d["metadata"])["properties"])[0])["value"] = "other/1.0"
 		}), expect, "profile_unsupported"},
 		{"unbound", edit(t, valid, func(d map[string]any) { delete(metadataComponent(d), "hashes") }), expect, "subject_unbound"},
 		{"subject digest altered", edit(t, valid, func(d map[string]any) {
-			metadataComponent(d)["hashes"].([]any)[0].(map[string]any)["content"] = strings.TrimPrefix(otherDigest, "sha256:")
+			obj(list(metadataComponent(d)["hashes"])[0])["content"] = strings.TrimPrefix(otherDigest, "sha256:")
 		}), expect, "subject_purl_mismatch"},
 		{"subject kind altered", edit(t, valid, func(d map[string]any) { metadataComponent(d)["type"] = "application" }), expect, "subject_kind_invalid"},
 		{"mismatched image", valid, inventory.Expectation{Kind: inventory.SubjectImage, Digest: otherDigest}, "subject_digest_mismatch"},
@@ -183,12 +183,26 @@ func TestVerifyFailsClosed(t *testing.T) {
 		{"unverifiable image", valid, inventory.Expectation{Kind: inventory.SubjectImage}, "expected_digest_missing"},
 		{"tag instead of digest", valid, inventory.Expectation{Kind: inventory.SubjectImage, Digest: "latest"}, "expected_digest_invalid"},
 		{"component altered", edit(t, valid, func(d map[string]any) {
-			for _, c := range d["components"].([]any) {
-				if c.(map[string]any)["name"] == "bash" {
-					c.(map[string]any)["purl"] = "pkg:deb/debian/bash@9.9?arch=amd64"
+			for _, c := range list(d["components"]) {
+				if obj(c)["name"] == "bash" {
+					obj(c)["purl"] = "pkg:deb/debian/bash@9.9?arch=amd64"
 				}
 			}
 		}), expect, "component_ref_mismatch"},
+		{"component version only altered", edit(t, valid, func(d map[string]any) {
+			for _, c := range list(d["components"]) {
+				if obj(c)["name"] == "bash" {
+					obj(c)["version"] = "9.9"
+				}
+			}
+		}), expect, "component_purl_mismatch"},
+		{"component name only altered", edit(t, valid, func(d map[string]any) {
+			for _, c := range list(d["components"]) {
+				if obj(c)["name"] == "bash" {
+					obj(c)["name"] = "zsh"
+				}
+			}
+		}), expect, "component_purl_mismatch"},
 		{"components removed", edit(t, valid, func(d map[string]any) { d["components"] = []any{} }), expect, "components_empty"},
 	}
 	for _, tc := range cases {
@@ -442,6 +456,104 @@ func TestLabFixturesMatchVerification(t *testing.T) {
 		}
 		if got := read(t, dir+name); !bytes.Equal(got, want) {
 			t.Errorf("%s is stale; regenerate with WAZA_UPDATE_LAB_FIXTURES=1 go test ./internal/inventory", name)
+		}
+	}
+}
+
+func TestInvalidExpectedKindFailsClosed(t *testing.T) {
+	report := inventory.Verify(imageInventory(t, imageDigest), inventory.Expectation{Kind: "container", Digest: imageDigest})
+	if report.Status != "failed" || report.ExitCode != 1 {
+		t.Fatalf("invalid kind verified: %+v", report)
+	}
+	if got := code(report); got != "expected_kind_invalid" {
+		t.Fatalf("code = %q", got)
+	}
+	if _, err := inventory.EncodeReport(report); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDiskInputsMustBeRegularFiles(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := inventory.GoBinaryComponents(dir); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("directory accepted as Go binary: %v", err)
+	}
+	if _, err := inventory.FileComponent(dir); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("directory accepted as file: %v", err)
+	}
+	path := filepath.Join(dir, "payload.bin")
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	component, err := inventory.FileComponent(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.TrimPrefix(inventory.DigestOf([]byte("payload")), "sha256:"); component.Hashes[0].Content != want {
+		t.Fatalf("hash = %s, want %s", component.Hashes[0].Content, want)
+	}
+}
+
+func TestEmbeddedComponentsRequirePresenceInBinary(t *testing.T) {
+	dir := t.TempDir()
+	payload := []byte("copilot cli payload bytes")
+	for name, data := range map[string][]byte{
+		"zcopilot_1.0.105_linux_amd64.zst":                             payload,
+		"zcopilotruntimewrapper_1.0.105_linux-x64_copilot-runtime.zst": []byte("not embedded"),
+		"zcopilot_1.0.105_linux_amd64.license":                         []byte("license"),
+		"binary":                                                       append(append([]byte("prefix"), payload...), "suffix"...),
+		"other-binary":                                                 []byte("nothing here"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	components, err := inventory.EmbeddedComponents(dir, []string{filepath.Join(dir, "binary")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(components) != 1 || components[0].Name != "github-copilot-cli-linux_amd64" || components[0].Version != "1.0.105" ||
+		components[0].Hashes[0].Content != strings.TrimPrefix(inventory.DigestOf(payload), "sha256:") {
+		t.Fatalf("components = %+v", components)
+	}
+	if _, err := inventory.EmbeddedComponents(dir, []string{filepath.Join(dir, "other-binary")}); err == nil {
+		t.Fatal("inventory claimed a Copilot CLI that is not embedded")
+	}
+}
+
+// obj and list are checked JSON accessors for test edits.
+func obj(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
+}
+
+func list(v any) []any {
+	l, _ := v.([]any)
+	return l
+}
+
+func TestReportSchemaRejectsContradictoryEvidence(t *testing.T) {
+	encoded, err := inventory.EncodeReport(inventory.Verify(imageInventory(t, imageDigest), inventory.Expectation{Kind: inventory.SubjectImage, Digest: imageDigest}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"verified with a failed check":  func(r map[string]any) { obj(list(r["checks"])[4])["status"] = "failed" },
+		"verified with a skipped check": func(r map[string]any) { obj(list(r["checks"])[1])["status"] = "skipped" },
+		"duplicate check ids":           func(r map[string]any) { obj(list(r["checks"])[3])["id"] = "inventory" },
+		"failed without a failed check": func(r map[string]any) { r["status"], r["exit_code"] = "failed", 1 },
+	} {
+		var report map[string]any
+		if err := json.Unmarshal(encoded, &report); err != nil {
+			t.Fatal(err)
+		}
+		mutate(report)
+		data, err := json.Marshal(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inventory.ValidateReport(data) == nil {
+			t.Errorf("%s: schema accepted the report", name)
 		}
 	}
 }

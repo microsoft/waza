@@ -10,13 +10,11 @@ import (
 	"os"
 
 	"github.com/microsoft/waza/internal/inventory"
+	"github.com/microsoft/waza/internal/rootedfile"
 	"github.com/spf13/cobra"
 )
 
-const (
-	maxInventorySourceBytes = 64 << 20
-	maxGoBinaryBytes        = 512 << 20
-)
+const maxInventorySourceBytes = 64 << 20
 
 func newRunnerInventoryCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -31,6 +29,28 @@ image inventory into a provenance bundle with
 	}
 	cmd.AddCommand(newInventoryGenerateCommand(), newInventoryVerifyCommand())
 	return cmd
+}
+
+// readInventoryPrefix reads at most one byte past the inventory limit so an
+// oversized inventory still reaches the verifier and fails as
+// inventory_too_large rather than as a flag error.
+func readInventoryPrefix(path string) ([]byte, error) {
+	file, err := rootedfile.OpenPath(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err == nil && !info.Mode().IsRegular() {
+		err = errors.New("inventory must be a regular file")
+	}
+	var data []byte
+	if err == nil {
+		data, err = io.ReadAll(io.LimitReader(file, inventory.MaxInventoryBytes+1))
+	}
+	if err := errors.Join(err, file.Close()); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // fileDigest streams a regular file into its sha256 digest.
@@ -55,7 +75,7 @@ func fileDigest(path string) (string, error) {
 
 func newInventoryGenerateCommand() *cobra.Command {
 	var subjectKind, name, digest, subjectFile, out string
-	var dpkgStatus, osRelease string
+	var dpkgStatus, osRelease, embeddedDir string
 	var goBinaries, cyclonedx, files []string
 	cmd := &cobra.Command{
 		Use:   "generate",
@@ -124,6 +144,16 @@ inventory.`,
 				}
 				in.Components = append(in.Components, components...)
 			}
+			if embeddedDir != "" {
+				if len(goBinaries) == 0 {
+					return fail("--embedded-dir requires --go-binary")
+				}
+				components, err := inventory.EmbeddedComponents(embeddedDir, goBinaries)
+				if err != nil {
+					return fail("inventorying embedded payloads: %w", err)
+				}
+				in.Components = append(in.Components, components...)
+			}
 			for _, path := range files {
 				component, err := inventory.FileComponent(path)
 				if err != nil {
@@ -154,6 +184,7 @@ inventory.`,
 	f.StringVar(&digest, "digest", "", "Immutable subject digest, sha256:<64 hex> (image manifest digest or plugin artifact digest)")
 	f.StringVar(&subjectFile, "subject-file", "", "Plugin artifact whose sha256 becomes the subject digest")
 	f.StringArrayVar(&goBinaries, "go-binary", nil, "Go binary to inventory (repeatable)")
+	f.StringVar(&embeddedDir, "embedded-dir", "", "Directory of bundled Copilot CLI/runtime payloads (internal/embedded); records those embedded in a --go-binary")
 	f.StringVar(&dpkgStatus, "dpkg-status", "", "dpkg status database (for example /var/lib/dpkg/status from the image)")
 	f.StringVar(&osRelease, "os-release", "", "os-release file from the image (adds the OS component and distro qualifiers)")
 	f.StringArrayVar(&cyclonedx, "from-cyclonedx", nil, "Import components from a CycloneDX JSON document (repeatable)")
@@ -198,7 +229,7 @@ when no consumed digest was supplied, and 2 for invalid flags. Pass
 					expect.Digest = computed
 				}
 			}
-			data, err := readArtifactFile(inventoryPath, inventory.MaxInventoryBytes+1)
+			data, err := readInventoryPrefix(inventoryPath)
 			if errors.Is(err, fs.ErrNotExist) {
 				data, err = nil, nil
 			}

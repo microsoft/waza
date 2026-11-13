@@ -3,6 +3,7 @@ package inventory
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 )
@@ -101,7 +102,10 @@ func (v *verification) fail(id, code, format string, args ...any) bool {
 // nil to represent a missing inventory, which fails explicitly.
 func Verify(data []byte, expect Expectation) *Report {
 	r := &Report{Kind: ReportKind, SchemaVersion: ReportVersion, Expected: expect}
-	if r.Expected.Kind != SubjectPlugin {
+	invalidKind := r.Expected.Kind != SubjectImage && r.Expected.Kind != SubjectPlugin
+	if invalidKind {
+		// The report schema only admits image or plugin; the failed check
+		// below records that the requested kind was neither.
 		r.Expected.Kind = SubjectImage
 	}
 	// Over-long values cannot match and are clipped to keep the report in bounds.
@@ -111,7 +115,11 @@ func Verify(data []byte, expect Expectation) *Report {
 		r.Checks = append(r.Checks, Check{ID: id, Status: "skipped", Code: "not_reached", Message: "an earlier check failed"})
 	}
 	v := &verification{report: r}
-	v.run(data)
+	if invalidKind {
+		v.fail("subject", "expected_kind_invalid", "expected subject kind must be %q or %q", SubjectImage, SubjectPlugin)
+	} else {
+		v.run(data)
+	}
 	r.Status, r.ExitCode = "verified", 0
 	if v.failed {
 		r.Status, r.ExitCode = "failed", 1
@@ -205,6 +213,10 @@ func (v *verification) components(doc *Document) {
 			v.fail("components", "component_ref_mismatch", "component %d bom-ref %q does not match its identity", i, c.BOMRef)
 			return
 		}
+		if !purlMatches(c) {
+			v.fail("components", "component_purl_mismatch", "component %d name %q or version %q contradicts its package URL %q", i, c.Name, c.Version, c.PURL)
+			return
+		}
 		summary.Total++
 		summary.ByType[c.Type]++
 		summary.ByEcosystem[ecosystem(c.PURL)]++
@@ -220,6 +232,39 @@ func ecosystem(purl string) string {
 		}
 	}
 	return "none"
+}
+
+// purlMatches reports whether a component's name and version agree with its
+// package URL, so scanners reading either field see the same release. The
+// name may be the purl name or its full namespace path (Go modules, scoped
+// npm packages) and is compared case-insensitively; versions must be exact.
+func purlMatches(c Component) bool {
+	if c.PURL == "" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(c.PURL, "pkg:")
+	if !ok {
+		return false
+	}
+	rest, _, _ = strings.Cut(rest, "#")
+	rest, _, _ = strings.Cut(rest, "?")
+	_, rest, ok = strings.Cut(rest, "/")
+	if !ok {
+		return false
+	}
+	path, version := rest, ""
+	if at := strings.LastIndex(rest, "@"); at >= 0 {
+		path, version = rest[:at], rest[at+1:]
+	}
+	version, err := url.PathUnescape(version)
+	if err != nil || version != c.Version {
+		return false
+	}
+	path, err = url.PathUnescape(path)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(path, c.Name) || strings.EqualFold(path[strings.LastIndex(path, "/")+1:], c.Name)
 }
 
 func subjectRef(s Subject) string {

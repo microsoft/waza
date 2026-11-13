@@ -51,7 +51,8 @@ docker cp -L "$container:/var/lib/dpkg/status" ./dpkg-status
 docker cp -L "$container:/etc/os-release" ./os-release
 docker rm "$container"
 waza runner inventory generate --name ghcr.io/microsoft/waza-runner-reference \
-  --digest sha256:<hex> --go-binary ./waza-bin --dpkg-status ./dpkg-status \
+  --digest sha256:<hex> --go-binary ./waza-bin --embedded-dir internal/embedded \
+  --dpkg-status ./dpkg-status \
   --os-release ./os-release --out runner.cdx.json
 ```
 
@@ -63,8 +64,11 @@ waza runner inventory generate --subject plugin --name example-plugin \
   --out example-plugin.cdx.json
 ```
 
-Sources: `--go-binary` (Go build information and file digest), `--dpkg-status`
-(installed Debian packages), `--os-release`, `--file` (sha256 of a file), and
+Sources: `--go-binary` (Go build information and file digest), `--embedded-dir`
+(the bundled Copilot CLI and runtime payloads from `internal/embedded`, each
+recorded with its version and sha256 only when found byte-for-byte inside a
+`--go-binary`; generation fails if no Copilot CLI payload is embedded),
+`--dpkg-status` (installed Debian packages), `--os-release`, `--file` (sha256 of a file), and
 `--from-cyclonedx` (components imported from another CycloneDX JSON document,
 for example a Syft or BuildKit SBOM). `--out` is never overwritten. Generation
 fails rather than emit an inventory without an immutable digest.
@@ -138,9 +142,11 @@ a mismatched inventory.
 | `subject_kind_invalid`, `subject_unbound`, `subject_purl_mismatch`, `subject_ref_mismatch` | Subject not bound to one digest, or altered | Treat as tampered |
 | `expected_digest_missing`, `expected_digest_invalid` | No consumed digest, or a tag was given | Pass the `sha256:` digest you pulled or loaded |
 | `subject_kind_mismatch` | Image inventory used for a plugin, or the reverse | Use the inventory for the artifact you consumed |
+| `expected_kind_invalid` | The verifier was asked for a kind other than image or plugin | Request `image` or `plugin` |
 | `subject_digest_mismatch` | Inventory describes another image or plugin | Treat as unverified; do not use |
 | `subject_name_mismatch` | Pinned repository or plugin name differs | Confirm what you consumed |
 | `components_empty`, `component_duplicate`, `component_ref_mismatch` | Component list altered | Treat as tampered |
+| `component_purl_mismatch` | A component's name or version contradicts its package URL | Treat as tampered |
 | `binding_required_missing` | `--require-inventory` and the bundle binds none | Regenerate the bundle with `--bind component-inventory=PATH` |
 
 ## Requirements for consumed images and plugins

@@ -62,13 +62,14 @@ generated with `--subject plugin` and verify it before loading.
 
 ```bash
 waza runner inventory generate --name ghcr.io/org/waza-runner --digest sha256:<hex> \
-  --go-binary ./waza --dpkg-status ./dpkg-status --os-release ./os-release \
-  --out runner.cdx.json
+  --go-binary ./waza --embedded-dir internal/embedded --dpkg-status ./dpkg-status \
+  --os-release ./os-release --out runner.cdx.json
 waza runner inventory generate --subject plugin --name example-plugin \
   --subject-file example-plugin.tgz --from-cyclonedx deps.cdx.json --out plugin.cdx.json
 ```
 
-Sources: `--go-binary` (Go build information and file digest), `--dpkg-status`,
+Sources: `--go-binary` (Go build information and file digest), `--embedded-dir`
+(bundled Copilot CLI and runtime payloads proven present in the binary), `--dpkg-status`,
 `--os-release`, `--file` and `--from-cyclonedx`. Generation refuses tags and
 never overwrites `--out`.
 
@@ -96,7 +97,8 @@ report with checks `inventory`, `profile`, `subject`, `binding` and
 | `subject_unbound`, `subject_purl_mismatch`, `subject_ref_mismatch`, `subject_kind_invalid` | Subject not bound to one digest, or altered |
 | `expected_digest_missing`, `expected_digest_invalid` | No consumed digest, or a tag |
 | `subject_digest_mismatch`, `subject_kind_mismatch`, `subject_name_mismatch` | Inventory is for another image or plugin |
-| `components_empty`, `component_duplicate`, `component_ref_mismatch` | Component list altered |
+| `expected_kind_invalid` | The requested kind is neither image nor plugin |
+| `components_empty`, `component_duplicate`, `component_ref_mismatch`, `component_purl_mismatch` | Component list altered or internally contradictory |
 | `binding_required_missing` | `--require-inventory` and the bundle binds none |
 
 The inventory's integrity comes from the signature that delivered it (the GHCR

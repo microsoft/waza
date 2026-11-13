@@ -170,9 +170,14 @@ jobs:
             --name ghcr.io/microsoft/waza-runner-reference \
             --digest "$IMAGE_DIGEST" \
             --go-binary "$sources/waza" \
+            --embedded-dir internal/embedded \
             --dpkg-status "$sources/dpkg-status" \
             --os-release "$sources/os-release" \
             --out "$inventory"
+          jq -e '[.components[] | select(.type == "application" and (.name | startswith("github-copilot-cli-")) and .version != null and (.hashes | length) == 1)] | length > 0' "$inventory" >/dev/null || {
+            echo "::error::Runner image inventory omits the embedded Copilot CLI payload."
+            exit 1
+          }
           go run ./cmd/waza runner inventory verify \
             --inventory "$inventory" \
             --image-digest "$IMAGE_DIGEST" \

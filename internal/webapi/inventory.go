@@ -50,7 +50,15 @@ func RegisterInventoryRoutes(mux *http.ServeMux) {
 			writeError(w, http.StatusBadRequest, "body must be {inventory: base64, expect: {kind, digest, name}}")
 			return
 		}
-		if req.Expect.Kind != inventory.SubjectPlugin && req.Expect.Name != "" {
+		switch req.Expect.Kind {
+		case "":
+			req.Expect.Kind = inventory.SubjectImage
+		case inventory.SubjectImage, inventory.SubjectPlugin:
+		default:
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("expect.kind must be %q or %q", inventory.SubjectImage, inventory.SubjectPlugin))
+			return
+		}
+		if req.Expect.Kind == inventory.SubjectImage && req.Expect.Name != "" {
 			req.Expect.Name = inventory.ImageRepository(req.Expect.Name)
 		}
 		report := inventory.Verify(req.Inventory, req.Expect)

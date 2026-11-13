@@ -38,7 +38,15 @@
       }
     },
     "checks": {
+      "description": "Exactly one entry per check ID.",
       "type": "array", "minItems": 5, "maxItems": 5,
+      "allOf": [
+        {"contains": {"properties": {"id": {"const": "inventory"}}}},
+        {"contains": {"properties": {"id": {"const": "profile"}}}},
+        {"contains": {"properties": {"id": {"const": "subject"}}}},
+        {"contains": {"properties": {"id": {"const": "binding"}}}},
+        {"contains": {"properties": {"id": {"const": "components"}}}}
+      ],
       "items": {
         "type": "object", "additionalProperties": false, "required": ["id", "status", "code", "message"],
         "properties": {
@@ -51,8 +59,22 @@
     }
   },
   "allOf": [
-    {"if": {"properties": {"status": {"const": "verified"}}}, "then": {"properties": {"exit_code": {"const": 0}}, "required": ["subject", "summary", "inventory_sha256"]}},
-    {"if": {"properties": {"status": {"const": "failed"}}}, "then": {"properties": {"exit_code": {"const": 1}}}}
+    {
+      "if": {"properties": {"status": {"const": "verified"}}},
+      "then": {
+        "required": ["subject", "summary", "inventory_sha256"],
+        "properties": {
+          "exit_code": {"const": 0},
+          "checks": {"items": {"properties": {"status": {"const": "passed"}}}}
+        }
+      },
+      "else": {
+        "properties": {
+          "exit_code": {"const": 1},
+          "checks": {"contains": {"properties": {"status": {"const": "failed"}}}}
+        }
+      }
+    }
   ],
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}

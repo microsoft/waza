@@ -3,10 +3,13 @@ package inventory
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"debug/buildinfo"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -88,7 +91,7 @@ func Generate(in GenerateInput) ([]byte, error) {
 // GoBinaryComponents inventories a Go binary: the file itself by sha256, its
 // main module, every linked dependency module and the Go standard library.
 func GoBinaryComponents(path string) ([]Component, error) {
-	data, err := os.ReadFile(path)
+	data, err := readRegular(path, MaxGoBinaryBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -200,12 +203,45 @@ func DpkgComponents(data []byte, distroID, distroVersion string) ([]Component, e
 // FileComponent inventories an arbitrary file by sha256 (for example a plugin
 // payload member).
 func FileComponent(path string) (Component, error) {
-	data, err := os.ReadFile(path)
+	file, err := openRegular(path, MaxFileBytes)
 	if err != nil {
 		return Component{}, err
 	}
+	hash := sha256.New()
+	n, err := io.Copy(hash, io.LimitReader(file, MaxFileBytes+1))
+	if err = errors.Join(err, file.Close()); err != nil {
+		return Component{}, err
+	}
+	if n > MaxFileBytes {
+		return Component{}, fmt.Errorf("%s exceeds %d bytes", path, int64(MaxFileBytes))
+	}
 	return Component{Type: "file", Name: filepath.Base(path),
-		Hashes: []Hash{{Alg: "SHA-256", Content: strings.TrimPrefix(DigestOf(data), "sha256:")}}}, nil
+		Hashes: []Hash{{Alg: "SHA-256", Content: hex.EncodeToString(hash.Sum(nil))}}}, nil
+}
+
+// Size limits for inventory inputs read from disk.
+const (
+	MaxGoBinaryBytes = 512 << 20
+	MaxFileBytes     = 4 << 30
+)
+
+// openRegular opens path only if it is a regular file no larger than limit,
+// so devices, FIFOs and directories cannot block or exhaust generation.
+func openRegular(path string, limit int64) (*os.File, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err == nil && !info.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file", path)
+	} else if err == nil && info.Size() > limit {
+		err = fmt.Errorf("%s exceeds %d bytes", path, limit)
+	}
+	if err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	return file, nil
 }
 
 // CycloneDXComponents imports top-level components from another CycloneDX
@@ -251,4 +287,71 @@ func CycloneDXComponents(data []byte) ([]Component, error) {
 		out = append(out, component)
 	}
 	return out, nil
+}
+
+var embeddedPayload = regexp.MustCompile(`^z(copilot|copilotruntime|copilotruntimewrapper|copilotruntimeassets)_(\d+\.\d+\.\d+)_(.+?)(?:\.exe)?\.(?:zst|tgz)$`)
+
+var embeddedProducts = map[string]string{
+	"copilot":               "github-copilot-cli",
+	"copilotruntime":        "github-copilot-runtime",
+	"copilotruntimewrapper": "github-copilot-runtime-wrapper",
+	"copilotruntimeassets":  "github-copilot-runtime-assets",
+}
+
+// EmbeddedComponents inventories the bundled Copilot CLI and runtime payloads
+// in dir (internal/embedded) that are embedded byte-for-byte in one of the Go
+// binaries. Only payloads proven present are recorded, so each component is
+// bound to the inventoried binary. It fails unless the Copilot CLI is found.
+func EmbeddedComponents(dir string, binaries []string) ([]Component, error) {
+	var images [][]byte
+	for _, path := range binaries {
+		data, err := readRegular(path, MaxGoBinaryBytes)
+		if err != nil {
+			return nil, err
+		}
+		images = append(images, data)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []Component
+	cli := false
+	for _, entry := range entries {
+		match := embeddedPayload.FindStringSubmatch(entry.Name())
+		if match == nil {
+			continue
+		}
+		payload, err := readRegular(filepath.Join(dir, entry.Name()), MaxGoBinaryBytes)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.ContainsFunc(images, func(image []byte) bool { return bytes.Contains(image, payload) }) {
+			continue
+		}
+		cli = cli || match[1] == "copilot"
+		out = append(out, Component{
+			Type: "application", Name: embeddedProducts[match[1]] + "-" + strings.TrimSuffix(match[3], "_copilot-runtime"), Version: match[2],
+			Hashes: []Hash{{Alg: "SHA-256", Content: strings.TrimPrefix(DigestOf(payload), "sha256:")}},
+		})
+	}
+	if !cli {
+		return nil, fmt.Errorf("no Copilot CLI payload from %s is embedded in the inventoried binaries", dir)
+	}
+	return out, nil
+}
+
+func readRegular(path string, limit int64) ([]byte, error) {
+	file, err := openRegular(path, limit)
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err = errors.Join(err, file.Close()); err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s exceeds %d bytes", path, limit)
+	}
+	return data, nil
 }

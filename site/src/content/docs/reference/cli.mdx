@@ -1925,7 +1925,8 @@ unless the bundle binds one for the signed image digest.
 
 ```bash
 waza runner inventory generate --name ghcr.io/org/waza-runner --digest sha256:<64 hex> \
-  --go-binary ./waza --dpkg-status ./dpkg-status --os-release ./os-release --out runner.cdx.json
+  --go-binary ./waza --embedded-dir internal/embedded --dpkg-status ./dpkg-status \
+  --os-release ./os-release --out runner.cdx.json
 waza runner inventory generate --subject plugin --name example-plugin \
   --subject-file example-plugin.tgz --from-cyclonedx deps.cdx.json --out plugin.cdx.json
 waza runner inventory verify --inventory runner.cdx.json --image-digest sha256:<64 hex> \
@@ -1936,7 +1937,8 @@ waza runner inventory verify --inventory plugin.cdx.json --plugin example-plugin
 `generate` writes a new, deterministic CycloneDX 1.6 inventory
 ([`component-inventory`](/waza/schemas/component-inventory-1.0.schema.json))
 bound to the image or plugin sha256 digest (`--digest` or `--subject-file`).
-Sources are `--go-binary`, `--dpkg-status`, `--os-release`, `--file` and
+Sources are `--go-binary`, `--embedded-dir` (bundled Copilot CLI and runtime payloads
+found byte-for-byte in a `--go-binary`), `--dpkg-status`, `--os-release`, `--file` and
 `--from-cyclonedx` (all repeatable where meaningful). It exits 2 rather than
 emit an inventory without an immutable digest, and never overwrites `--out`.
 

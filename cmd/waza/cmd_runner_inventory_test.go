@@ -109,3 +109,37 @@ func TestRunnerInventoryImageAndPlugin(t *testing.T) {
 		t.Fatalf("image and plugin flags together = %d", code)
 	}
 }
+
+func TestRunnerInventoryRecordsEmbeddedCopilotPayloads(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := filepath.Join(t.TempDir(), "image.cdx.json")
+	if out, code := runRunnerCLI(t, "inventory", "generate", "--name", "ghcr.io/microsoft/waza-runner", "--digest", "sha256:"+strings.Repeat("b", 64),
+		"--go-binary", self, "--embedded-dir", "../../internal/embedded", "--out", inv); code != 0 {
+		t.Fatalf("generate: %d %s", code, out)
+	}
+	data, err := os.ReadFile(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"name": "github-copilot-cli-`)) || !bytes.Contains(data, []byte(`"version": "1.0.`)) {
+		t.Fatalf("embedded Copilot CLI missing from inventory:\n%s", data)
+	}
+	if out, code := runRunnerCLI(t, "inventory", "generate", "--name", "x", "--digest", "sha256:"+strings.Repeat("b", 64),
+		"--embedded-dir", "../../internal/embedded", "--file", self, "--out", filepath.Join(t.TempDir(), "x.json")); code != 2 {
+		t.Fatalf("--embedded-dir without --go-binary = %d %s", code, out)
+	}
+}
+
+func TestRunnerInventoryOversizedReportsTooLarge(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "huge.cdx.json")
+	if err := os.WriteFile(path, bytes.Repeat([]byte(" "), 17<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runRunnerCLI(t, "inventory", "verify", "--inventory", path, "--image-digest", "sha256:"+strings.Repeat("b", 64))
+	if code != 1 || inventoryCode(t, out) != "inventory_too_large" {
+		t.Fatalf("oversized inventory = %d %s", code, out)
+	}
+}
