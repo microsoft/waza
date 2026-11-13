@@ -38,7 +38,7 @@
         "attempt": {"type": "string", "pattern": "^attempt-[0-9a-f]{64}$"},
         "task_span_id": {"$ref": "#/$defs/span_id"},
         "attempts": {
-          "type": "array", "maxItems": 1024,
+          "type": "array", "maxItems": 1025,
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["span_id", "native_attempt", "status", "selected"],

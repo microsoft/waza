@@ -568,3 +568,40 @@ func TestWebFixtureIsConformant(t *testing.T) {
 		require.NotContains(t, string(data), secret)
 	}
 }
+
+func TestLoadRejectsUnrelatedAttemptBindingAndAggregate(t *testing.T) {
+	f := publishFixture(t)
+	attempt := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Attempt, &attempt))
+	attempt["binding"].(map[string]any)["grader_ids"] = []string{"unrelated-grader"}
+	f.Attempt, _ = json.Marshal(attempt)
+	_, err := Load(f.Inputs)
+	require.ErrorIs(t, err, ErrUncorrelated, "an attempt with a different binding is not merged under a manifest")
+
+	f = publishFixture(t)
+	f.Aggregate = publishFixture(t).Aggregate
+	_, err = Load(f.Inputs)
+	require.ErrorIs(t, err, ErrUncorrelated, "an aggregate without this manifest is not attached to the work trace")
+}
+
+func TestToolEventsArePreferredOverLegacyToolCalls(t *testing.T) {
+	f := publishFixture(t)
+	report := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Report, &report))
+	run := report["tasks"].([]any)[0].(map[string]any)["runs"].([]any)[1].(map[string]any)
+	delete(run["session_digest"].(map[string]any), "tool_calls")
+	run["tool_events"] = []any{
+		map[string]any{"turn": 1, "sequence": 1, "tool_call_id": "call-9", "tool_name": "grep",
+			"args": map[string]any{"pattern": secretArgs}, "result": secretResult, "success": true},
+	}
+	f.Report, _ = json.Marshal(report)
+	bundle := build(t, f.Inputs, Options{})
+	tools := spansByName(bundle)[SpanTool]
+	require.Len(t, tools, 1)
+	name, ok := attrValue(tools[0].Attributes, KeyToolName)
+	require.True(t, ok)
+	require.Equal(t, "grep", *name.StringValue)
+	all := marshalAll(t, bundle)
+	require.NotContains(t, all, secretArgs)
+	require.NotContains(t, all, secretResult)
+}

@@ -27,7 +27,11 @@ detail and is checked for correlation before use.
 | `--scheduler-work-id` | operator value | the external scheduler's work identifier as a resource attribute |
 
 A document that names a different run, work or attempt is rejected (exit 6)
-instead of being merged. A report that does not contain the selected task and
+instead of being merged. An attempt must carry the same binding as the manifest,
+and an aggregate must contain the supplied manifest (or, without a manifest, a
+member for the same logical run and work). Tool activity is read from the
+normalized `tool_events` record, falling back to legacy
+`session_digest.tool_calls` for older results. A report that does not contain the selected task and
 run number is recorded as `unmatched`; telemetry never falls back to another run.
 
 ## Correlation identifiers

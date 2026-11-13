@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/executionledger"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnerterminal"
 )
 
@@ -486,7 +487,7 @@ func (b *builder) tools(taskID string, times [2]time.Time) {
 	if run == nil {
 		return
 	}
-	for i, call := range run.SessionDigest.ToolCalls {
+	for i, call := range toolActivity(run) {
 		b.metric(MetricToolCalls, "{call}", "Recorded tool calls by tool name and success").
 			add(b, []KeyValue{str(KeyToolName, call.Name), boolean(KeyToolSuccess, call.Success)}, 1)
 		if i >= b.opts.Limits.MaxToolSpansPerTask {
@@ -508,6 +509,33 @@ func (b *builder) tools(taskID string, times [2]time.Time) {
 		}
 		b.addSpan(SpanTool, SpanID(SpanTool, taskID, strconv.Itoa(i)), taskID, times[0], times[1], attrs, status, nil)
 	}
+}
+
+type toolCall struct {
+	ID, Name          string
+	Success           bool
+	Arguments, Result any
+}
+
+// toolActivity prefers the normalized ToolEvents record and falls back to the
+// legacy SessionDigest.ToolCalls for results written before schema 1.1.
+func toolActivity(run *models.RunResult) []toolCall {
+	var calls []toolCall
+	if len(run.ToolEvents) > 0 {
+		for _, event := range run.ToolEvents {
+			calls = append(calls, toolCall{ID: event.ToolCallID, Name: event.ToolName, Success: event.Success,
+				Arguments: event.Args, Result: event.Result})
+		}
+		return calls
+	}
+	for _, call := range run.SessionDigest.ToolCalls {
+		tc := toolCall{ID: call.ID, Name: call.Name, Success: call.Success, Arguments: call.Arguments}
+		if call.Result != nil {
+			tc.Result = call.Result
+		}
+		calls = append(calls, tc)
+	}
+	return calls
 }
 
 func marshalPayload(value any) string {
