@@ -112,13 +112,17 @@ Each lifecycle also reports `cancellation` (`none`, `requested`,
   `"policy":{"mode":"distinct","parent":{"execution_id":"exec-...","relationship":"retry"}}`;
   the orphan's records stay byte-for-byte unchanged.
 - **Runtime ignores shutdown**: after the 5s bound the owner force-stops it and
-  records `forced`; lineage shows `cancellation: "forced"` and `partial: true`.
+  records `forced`; lineage shows `cancellation: "forced"` and `partial: true`,
+  with `deadline_exceeded: false` unless the execution deadline had passed.
   A native runtime whose transport is hard-stopped on cancellation is also
   `forced`, even when shutdown then returns promptly.
 
 Only the attempt's owner writes its journal; each write revalidates the
-owner's creator and is bounded to 2s even when storage stalls. A failed or
-stalled write ends the journal without changing the outcome.
+owner's creator and is bounded to 2s even when storage stalls. Events are
+recorded off the execution path, so slow storage never consumes the execution
+deadline. A failed or stalled write ends the journal without changing the
+outcome. An attempt with duplicate dispatch decisions has no single owning
+journal and reports `observation: "unobserved"`.
 
 Attempts recorded before this preview have no journal and report
 `observation: "unobserved"`; nothing is rewritten. See

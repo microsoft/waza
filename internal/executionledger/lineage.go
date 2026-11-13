@@ -279,6 +279,7 @@ func (l *Ledger) project(ctx context.Context, logical executionattempt.Logical, 
 	}
 	slices.Sort(roots)
 	dispatch := map[string]string{}
+	ambiguousDispatch := map[string]bool{}
 	reusedBy := map[string][]string{}
 	slices.SortFunc(decisions, func(a, b executionattempt.Decision) int { return strings.Compare(a.DecisionID, b.DecisionID) })
 	for _, decision := range decisions {
@@ -297,6 +298,7 @@ func (l *Ledger) project(ctx context.Context, logical executionattempt.Logical, 
 			}
 			if _, ok := dispatch[decision.ExecutionID]; ok {
 				diagnose("duplicate_dispatch_decision", "More than one distinct decision names the same execution; all are preserved.", decision.ExecutionID)
+				ambiguousDispatch[decision.ExecutionID] = true
 				continue
 			}
 			dispatch[decision.ExecutionID] = decision.DecisionID
@@ -359,7 +361,9 @@ func (l *Ledger) project(ctx context.Context, logical executionattempt.Logical, 
 			facts.Outcome, facts.FailureBoundary, facts.EngineCalls = attempt.Terminal.Outcome, attempt.Terminal.FailureBoundary, attempt.Terminal.EngineCalls
 		}
 		var observed *executionlifecycle.Observed
-		if attempt.DispatchDecision != "" && readErr == nil {
+		// With more than one dispatch, no single journal owns liveness, so
+		// lifecycle is derived from ledger records only.
+		if attempt.DispatchDecision != "" && !ambiguousDispatch[id] && readErr == nil {
 			scope, err := executionlifecycle.Scope(id, reserved.Digest, attempt.DispatchDecision)
 			if err == nil {
 				observed, err = executionlifecycle.Read(ctx, l.lifecycle, scope, &budget)

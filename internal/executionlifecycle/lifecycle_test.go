@@ -167,6 +167,17 @@ func TestDerive(t *testing.T) {
 		{"input boundary failure", Facts{Status: "completed", Outcome: runnerterminal.InfrastructureFailure, FailureBoundary: "validation"}, nil, epoch, 0, "failed", Retry{false, "input_rejected"}, "none", false, false, []string{"inspect", "fix_input"}},
 		{"infrastructure failure", Facts{Status: "completed", Outcome: runnerterminal.InfrastructureFailure, FailureBoundary: "shutdown", EngineCalls: 1}, nil, epoch, 0, "failed", Retry{true, "infrastructure_failure"}, "none", true, false, []string{"inspect", "retry_with_parent"}},
 		{"unverified", Facts{Status: "completion_unverified"}, nil, epoch, 0, "unverified", Retry{false, "evidence_unverified"}, "none", false, false, []string{"inspect"}},
+		// A completed terminal proves the owner joined even when the
+		// acknowledgement write was lost after the request.
+		{"request truncated before acknowledgement", Facts{Status: "completed", Outcome: runnerterminal.Canceled, EngineCalls: 1}, recorded(base, request), epoch, 0, "cancelled", Retry{true, "cancelled"}, "acknowledged", true, false, []string{"inspect", "retry_with_parent"}}, //nolint:misspell // wire value
+		{"deadline request truncated before acknowledgement", Facts{Status: "completed", Outcome: runnerterminal.Timeout}, recorded(base, Event{Event: CancelRequested, At: at(time.Minute), Reason: ReasonDeadline}), epoch, 0, "timed_out", Retry{true, "timed_out"}, "acknowledged", false, true, []string{"inspect", "retry_with_parent"}},
+		// Recorded force-stop is partial evidence before completion is verified.
+		{"forced dispatched", Facts{Status: "dispatched"}, recorded(base, request, Event{Event: Forced, At: at(3 * time.Second)}), at(4 * time.Second), 0, "cancelling", Retry{false, "in_progress"}, "forced", true, false, []string{"inspect", "wait"}}, //nolint:misspell // wire value
+		{"forced unverified", Facts{Status: "completion_unverified"}, recorded(base, request, Event{Event: Forced, At: at(3 * time.Second)}), epoch, 0, "unverified", Retry{false, "evidence_unverified"}, "forced", true, false, []string{"inspect"}},
+		// A shutdown bound that ends the attempt before its execution deadline
+		// is not deadline expiry.
+		{"shutdown bound before deadline", Facts{Status: "completed", Outcome: runnerterminal.Timeout}, recorded(base, Event{Event: Forced, At: at(5 * time.Second)}, Event{Event: Finished, At: at(5 * time.Second), Outcome: runnerterminal.Timeout}), epoch, 0, "timed_out", Retry{true, "timed_out"}, "forced", true, false, []string{"inspect", "retry_with_parent"}},
+		{"timeout finished after deadline", Facts{Status: "completed", Outcome: runnerterminal.Timeout}, recorded(base, Event{Event: Finished, At: at(2 * time.Minute), Outcome: runnerterminal.Timeout}), epoch, 0, "timed_out", Retry{true, "timed_out"}, "acknowledged", false, true, []string{"inspect", "retry_with_parent"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

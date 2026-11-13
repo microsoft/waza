@@ -3,11 +3,15 @@ package runnerunit
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
@@ -77,9 +81,9 @@ func TestSubmitRecordsOwnerLifecycle(t *testing.T) {
 		{name: "completed", state: "succeeded", cancellation: "none"},
 		{name: "caller cancellation", mode: "canceled", cancel: true, state: "cancelled", cancellation: "acknowledged", reason: "caller", retry: true, partial: true}, //nolint:misspell // wire value
 		{name: "deadline", mode: "timeout", timeoutMS: 30, state: "timed_out", cancellation: "acknowledged", reason: "deadline", retry: true, partial: true, deadline: true},
-		// The shutdown bound surfaces as a timeout terminal; the journal keeps
-		// the caller's reason and the forced stop.
-		{name: "forced without request", hang: true, state: "timed_out", cancellation: "forced", reason: "deadline", retry: true, partial: true, deadline: true},
+		// The shutdown bound surfaces as a timeout terminal before the
+		// execution deadline; the journal keeps only the forced stop.
+		{name: "forced without request", hang: true, state: "timed_out", cancellation: "forced", retry: true, partial: true},
 		{name: "forced", mode: "canceled", cancel: true, hang: true, state: "timed_out", cancellation: "forced", reason: "caller", retry: true, partial: true},
 		{name: "native hard stop", mode: "canceled", cancel: true, native: true, state: "cancelled", cancellation: "forced", reason: "caller", retry: true, partial: true}, //nolint:misspell // wire value
 	}
@@ -146,11 +150,15 @@ func TestLifecycleJournalFailureKeepsOutcome(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	want := Report{Status: "completed", Calls: 1, Diagnostics: []runnercontract.Diagnostic{}}
-	got := trackLifecycle(ctx, journal, time.Millisecond, func(context.Context) Report {
+	recorder := newLifecycleRecorder(ctx, journal)
+	got := trackLifecycle(ctx, recorder, time.Millisecond, func(context.Context) Report {
 		time.Sleep(5 * time.Millisecond)
 		return want
 	})
-	finishLifecycle(ctx, journal, runnerterminal.Success)
+	finishLifecycle(recorder, runnerterminal.Success)
+	if err := recorder.close(executionlifecycle.DefaultWriteBound); err != nil {
+		t.Fatal(err)
+	}
 	// The provider write itself must fail; an admission rejection would hide
 	// a broken journal behind an invalid-input error.
 	failure := journal.Err()
@@ -158,5 +166,72 @@ func TestLifecycleJournalFailureKeepsOutcome(t *testing.T) {
 		errors.Is(failure, artifactmanifest.ErrInvalid) || errors.Is(failure, executionlifecycle.ErrUnauthorized) ||
 		!strings.Contains(failure.Error(), "recording lifecycle started event") {
 		t.Fatalf("journal failure changed outcome or was not a write failure: %+v %v", got, failure)
+	}
+}
+
+type recorderCredential struct{}
+
+func (recorderCredential) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
+	return azcore.AccessToken{Token: "offline", ExpiresOn: time.Now().Add(time.Hour)}, nil
+}
+
+// stalledWrites is an Azure container whose creates ignore their context and
+// block until release is closed; reads find nothing.
+type stalledWrites struct{ release chan struct{} }
+
+func (b stalledWrites) Do(request *http.Request) (*http.Response, error) {
+	header := http.Header{"Etag": {`"test"`}, "Content-Length": {"0"}}
+	status := http.StatusNotFound
+	if request.Method == http.MethodPut {
+		<-b.release
+		status = http.StatusCreated
+	} else {
+		header.Set("X-Ms-Error-Code", "BlobNotFound")
+	}
+	return &http.Response{StatusCode: status, Header: header, Body: http.NoBody, Request: request}, nil
+}
+
+func TestLifecycleRecordingDoesNotConsumeExecutionDeadline(t *testing.T) {
+	fake := stalledWrites{release: make(chan struct{})}
+	backend, err := artifactmanifest.NewAzure("https://offline.invalid/container", recorderCredential{}, &container.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Transport: fake, Retry: policy.RetryOptions{MaxRetries: -1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execID, _ := executionattempt.NewExecutionID()
+	decisionID, _ := executionattempt.NewDecisionID()
+	scope, err := executionlifecycle.Scope(execID, artifactmanifest.Hash([]byte("reservation")), decisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := executionlifecycle.Open(backend, scope, func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		close(fake.release)
+		if err := journal.Wait(executionlifecycle.DefaultWriteBound); err != nil {
+			t.Error(err)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	begin := time.Now()
+	var waited time.Duration
+	recorder := newLifecycleRecorder(ctx, journal)
+	trackLifecycle(ctx, recorder, time.Millisecond, func(ctx context.Context) Report {
+		waited = time.Since(begin)
+		if err := ctx.Err(); err != nil {
+			t.Errorf("execution started without its deadline: %v", err)
+		}
+		return Report{Status: "completed"}
+	})
+	finishLifecycle(recorder, runnerterminal.Success)
+	if waited > 200*time.Millisecond {
+		t.Fatalf("lifecycle recording delayed execution by %s", waited)
+	}
+	if err := recorder.close(10 * time.Millisecond); !errors.Is(err, executionlifecycle.ErrWriteStalled) {
+		t.Fatalf("stalled recording was not reported: %v", err)
 	}
 }

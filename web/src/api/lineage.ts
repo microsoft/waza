@@ -97,6 +97,36 @@ function terminalState(outcome: string): string {
   }
 }
 
+// Retry guidance and actions each lifecycle state derives; a response that
+// offers another action for a state is inconsistent.
+type Policy = { eligible: boolean; reason: string; actions: string[] };
+const fixInput: Policy = { eligible: false, reason: "input_rejected", actions: ["inspect", "fix_input"] };
+const retryPolicy = (reason: string): Policy => ({ eligible: true, reason, actions: ["inspect", "retry_with_parent"] });
+const statePolicies: Record<string, Policy> = {
+  succeeded: { eligible: false, reason: "succeeded", actions: ["inspect", "reuse"] },
+  evaluation_failed: { eligible: false, reason: "graded_result", actions: ["inspect", "reuse"] },
+  rejected: fixInput,
+  cancelled: retryPolicy("cancelled"),
+  timed_out: retryPolicy("timed_out"),
+  unverified: { eligible: false, reason: "evidence_unverified", actions: ["inspect"] },
+  reserved: retryPolicy("not_dispatched"),
+  unobserved: { eligible: false, reason: "liveness_unobserved", actions: ["inspect", "wait"] },
+  publication_incomplete: retryPolicy("publication_incomplete"),
+  orphaned: retryPolicy("orphaned"),
+  cancelling: { eligible: false, reason: "in_progress", actions: ["inspect", "wait"] },
+  running: { eligible: false, reason: "in_progress", actions: ["inspect", "wait", "cancel_owner"] },
+};
+const inputBoundaries = new Set(["input", "validation", "negotiation", "identity"]);
+
+function policyFor(attempt: LineageAttempt): Policy | undefined {
+  if (attempt.lifecycle.state !== "failed") return statePolicies[attempt.lifecycle.state];
+  return inputBoundaries.has(attempt.terminal?.failure_boundary ?? "") ? fixInput : retryPolicy("infrastructure_failure");
+}
+
+// Liveness states of a dispatched attempt are claims only a recorded journal
+// supports; without one the attempt is unobserved.
+const observedLiveness = new Set(["running", "cancelling", "orphaned", "publication_incomplete"]);
+
 // The browser re-checks producer invariants so a malformed response cannot
 // present an attempt before its parent or misattribute terminals and reuse.
 function consistent(lineage: ExecutionLineage, logical: { run: string; work: string }): boolean {
@@ -144,9 +174,17 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
     if (attempt.terminal && attempt.lifecycle.state !== terminalState(attempt.terminal.outcome)) return false;
     if (attempt.lifecycle.state === "orphaned" && !diagnosed("orphaned_attempt", attempt.execution_id)) return false;
     if (attempt.lifecycle.observation === "invalid" && !diagnosed("lifecycle_journal_invalid", attempt.execution_id)) return false;
+    const policy = policyFor(attempt);
+    const { retry, allowed_actions: actions } = attempt.lifecycle;
+    if (!policy || retry.eligible !== policy.eligible || retry.reason !== policy.reason
+      || actions.length !== policy.actions.length || actions.some((action, index) => action !== policy.actions[index])) return false;
+    if (attempt.status === "dispatched"
+      && observedLiveness.has(attempt.lifecycle.state) !== (attempt.lifecycle.observation === "recorded")) return false;
     const dispatches = distinctFor.get(attempt.execution_id) ?? [];
     if ((dispatches.length > 0) !== !!attempt.dispatch_decision) return false;
     if (attempt.dispatch_decision && !dispatches.includes(attempt.dispatch_decision)) return false;
+    // With competing dispatches no single journal owns liveness.
+    if (dispatches.length > 1 && attempt.lifecycle.observation === "recorded") return false;
     // Unfinished or conflicting reuse decisions are listed but never linked.
     const reuses = lineage.decisions.filter((decision) => decision.policy === "reuse"
       && decision.outcome === "reused" && decision.source?.execution_id === attempt.execution_id);

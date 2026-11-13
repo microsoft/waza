@@ -54,14 +54,33 @@ function siblingRetries(ids?: string[]) {
   return { ...fixture, attempts, diagnostics };
 }
 
-// Adds a second distinct decision for the first attempt, optionally with the producer's diagnostic.
-function duplicateDispatch(diagnosed: boolean) {
+// Adds a second distinct decision for the first attempt, optionally with the
+// producer's diagnostic. No single journal then owns liveness, so lifecycle is
+// unobserved unless recorded is set.
+function duplicateDispatch(diagnosed: boolean, recorded = false) {
   const target = fixture.attempts[0]!.execution_id;
+  const { allowed_actions, cancellation, deadline_exceeded, partial, retry, state } = fixture.attempts[0]!.lifecycle;
+  const attempts = recorded ? fixture.attempts : fixture.attempts.map((attempt, index) => index === 0
+    ? { ...attempt, lifecycle: { state, observation: "unobserved", cancellation, deadline_exceeded, partial, retry, allowed_actions } }
+    : attempt);
   const decisions = [...fixture.decisions, { decision_id: `decision-${"f".repeat(64)}`, execution_id: target,
     native_attempt: 2, outcome: "distinct", policy: "distinct" }];
   const diagnostics = diagnosed ? [...fixture.diagnostics, { code: "duplicate_dispatch_decision", execution_ids: [target],
     message: "More than one distinct decision names the same execution; all are preserved." }] : fixture.diagnostics;
-  return { ...fixture, decisions, diagnostics };
+  return { ...fixture, attempts, decisions, diagnostics };
+}
+
+// Gives the last attempt a dispatched lifecycle state and observation with
+// every diagnostic the producer would emit.
+function dispatchedLiveness(state: string, observation: "unobserved" | "invalid") {
+  const base = unfinishedAttempt("dispatched", "dispatched_without_completion");
+  const id = fixture.attempts[2]!.execution_id;
+  const attempts = base.attempts.map((attempt, index) => index === 2
+    ? { ...attempt, lifecycle: { ...attempt.lifecycle, state, observation, partial: true,
+      retry: { eligible: true, reason: state }, allowed_actions: ["inspect", "retry_with_parent"] } } : attempt);
+  const diagnostics = [...base.diagnostics, { code: `${state}_attempt`, execution_ids: [id], message: "Lifecycle journal is stale." },
+    { code: "lifecycle_journal_invalid", execution_ids: [id], message: "Lifecycle journal is invalid." }];
+  return { ...base, attempts, diagnostics };
 }
 
 test.describe("Execution attempt lineage in Lab", () => {
@@ -244,6 +263,14 @@ test.describe("Execution attempt lineage in Lab", () => {
       index === 0 ? { ...attempt, lifecycle: { ...attempt.lifecycle, state: "timed_out" } } : attempt) })],
     ["lifecycle contradicting status", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
       index === 0 ? { ...attempt, lifecycle: { ...attempt.lifecycle, state: "running" } } : attempt) })],
+    ["retry guidance contradicting its state", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, lifecycle: { ...attempt.lifecycle, retry: { eligible: true, reason: "infrastructure_failure" },
+        allowed_actions: ["retry_with_parent"] } } : attempt) })],
+    ["actions contradicting their state", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, lifecycle: { ...attempt.lifecycle, allowed_actions: ["inspect", "retry_with_parent"] } } : attempt) })],
+    ["orphaned without a recorded journal", 200, JSON.stringify(dispatchedLiveness("orphaned", "unobserved"))],
+    ["orphaned with an invalid journal", 200, JSON.stringify(dispatchedLiveness("orphaned", "invalid"))],
+    ["recorded liveness for an ambiguous dispatch", 200, JSON.stringify(duplicateDispatch(true, true))],
     ["duplicate keys", 200, `{"kind":"waza.execution-lineage",${JSON.stringify(fixture).slice(1)}`],
   ] as const) {
     test(`fails closed on ${name}`, async ({ page }) => {

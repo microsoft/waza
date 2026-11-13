@@ -6,10 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executionlifecycle"
 )
 
 type truncatedRecords struct{ records }
@@ -320,4 +323,40 @@ func TestLineageReviewedEdgeCases(t *testing.T) {
 			t.Fatalf("busy unrelated work disabled lineage: %+v", lineage.Attempts)
 		}
 	})
+}
+
+func TestLineageWithholdsLivenessForAmbiguousDispatch(t *testing.T) {
+	ctx := context.Background()
+	ledger, backend, _, binding := ownerFixture(t)
+	capability, root := reserveFixture(t, ledger, binding)
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	deadline := now.Add(time.Hour)
+	// One journal is stale and one is fresh; neither may decide liveness.
+	for _, last := range []time.Time{now.Add(-time.Hour), now} {
+		decision, err := ledger.Distinct(ctx, capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope, err := executionlifecycle.Scope(root.Attempt.ExecutionID, root.Digest, decision.DecisionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal, err := executionlifecycle.Open(backend, scope, func(context.Context) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := journal.Append(ctx, executionlifecycle.Event{Event: executionlifecycle.Started, At: last,
+			DeadlineAt: &deadline, HeartbeatIntervalMS: 1000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lineage, err := ledger.Lineage(ctx, root.Attempt.Logical, LineageOptions{Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle := lineage.Attempts[0].Lifecycle
+	if !slices.Contains(diagnosticCodes(lineage), "duplicate_dispatch_decision") || lifecycle.State != "unobserved" ||
+		lifecycle.Observation != "unobserved" || lifecycle.Retry.Eligible || slices.Contains(diagnosticCodes(lineage), "orphaned_attempt") {
+		t.Fatalf("ambiguous dispatch derived liveness from one journal: %+v %v", lifecycle, diagnosticCodes(lineage))
+	}
 }

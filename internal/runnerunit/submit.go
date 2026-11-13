@@ -277,14 +277,18 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	if interval <= 0 {
 		interval = executionlifecycle.DefaultHeartbeatInterval
 	}
-	report = trackLifecycle(ctx, journal, interval, func(ctx context.Context) Report {
+	recorder := newLifecycleRecorder(ctx, journal)
+	report = trackLifecycle(ctx, recorder, interval, func(ctx context.Context) Report {
 		if executor.dispatch != nil {
 			return executor.dispatch(ctx, report, input)
 		}
 		return executor.executeAdmitted(ctx, report, input, false)
 	})
 	envelope, terminalBinding := terminal(report)
-	finishLifecycle(ctx, journal, envelope.Outcome)
+	finishLifecycle(recorder, envelope.Outcome)
+	if err := recorder.close(executionlifecycle.DefaultWriteBound); err != nil && result.lifecycleErr == nil {
+		result.lifecycleErr = err
+	}
 	if err := journal.Err(); err != nil {
 		result.lifecycleErr = err
 	}

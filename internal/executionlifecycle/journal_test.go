@@ -75,7 +75,7 @@ func TestJournalBoundsStalledProviderWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal.bound = 20 * time.Millisecond
+	journal.bound = 300 * time.Millisecond
 	begin := time.Now()
 	if err := journal.Append(context.Background(), started(time.Second, at(time.Minute))); !errors.Is(err, ErrWriteStalled) {
 		t.Fatalf("stalled write was not bounded: %v", err)
@@ -83,8 +83,9 @@ func TestJournalBoundsStalledProviderWrites(t *testing.T) {
 	if err := journal.Append(context.Background(), Event{Event: Heartbeat, At: epoch}); !errors.Is(err, ErrWriteStalled) {
 		t.Fatalf("journal continued after a stalled write: %v", err)
 	}
-	if elapsed := time.Since(begin); elapsed > time.Second {
-		t.Fatalf("caller waited %s for stalled I/O", elapsed)
+	// Scheduling slack stays below any grace beyond the bound.
+	if elapsed := time.Since(begin); elapsed > journal.bound+journal.bound/3 {
+		t.Fatalf("caller waited %s for stalled I/O beyond the %s bound", elapsed, journal.bound)
 	}
 	if err := journal.Wait(10 * time.Millisecond); !errors.Is(err, ErrWriteStalled) {
 		t.Fatalf("Wait hid the in-flight write: %v", err)

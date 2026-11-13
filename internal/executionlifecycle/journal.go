@@ -145,8 +145,9 @@ func (j *Journal) Append(ctx context.Context, event Event) error {
 			close(j.idle)
 		}
 	}()
-	// A short grace lets a context-honoring provider report its own cause.
-	wait := time.NewTimer(j.bound + j.bound/2)
+	// The caller's wait is the write bound itself, even when provider I/O
+	// ignores the expired context.
+	wait := time.NewTimer(j.bound)
 	defer wait.Stop()
 	select {
 	case commit := <-done:

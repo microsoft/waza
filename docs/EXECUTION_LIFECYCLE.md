@@ -34,11 +34,14 @@ corrupt, unchained or out-of-order journal is reported as
 supports no liveness claim. Only the attempt's owner can write its journal: the
 writer is bound to the reserved execution, reservation digest and dispatch
 decision, and every write revalidates the retained creator before provider I/O.
-Public IDs alone never authorize a write. The owner waits at most 2s per write,
-even when provider I/O ignores cancellation, and writes are independent of
-cancellation. Journal failures never change the execution outcome: the first
-failed, unknown or stalled write stops recording and is logged, and the owner
-waits a further bound for an abandoned write before reporting the journal
+Public IDs alone never authorize a write. Events are recorded in order off the
+execution path, so storage latency never delays execution or consumes its
+deadline; a queued event already proves liveness, so heartbeats coalesce behind
+it. Each write is bounded to 2s, even when provider I/O ignores cancellation,
+and writes are independent of cancellation. Journal failures never change the execution outcome: the first
+failed, unknown or stalled write stops recording and is logged. After
+execution the owner waits up to 2s for queued events, then drops any remainder
+and waits a further bound for an abandoned write before reporting the journal
 incomplete. Lineage derives from the events recorded before the
 failure, so a still-running attempt whose journal failed can later appear
 `orphaned`; confirm the owner is gone before retrying.
@@ -92,12 +95,15 @@ stateDiagram-v2
 Terminal metadata on every attempt:
 
 - `cancellation`: `none`, `requested`, `acknowledged` or `forced`, plus
-  `cancellation_reason`. A completed cancelled or timed-out attempt without a
-  journal reports `acknowledged`, because its owner joined before publishing.
+  `cancellation_reason`. A completed cancelled or timed-out attempt reports
+  `acknowledged` when its journal is missing or ends at the request, because
+  its owner joined before publishing.
 - `deadline_at` and `deadline_exceeded`: the owner's end-to-end deadline and
-  whether the deadline (not the caller) ended it.
+  whether the deadline (not the caller) ended it. A timeout terminal recorded
+  before `deadline_at`, such as the shutdown bound, is not deadline expiry.
 - `partial`: engine calls were made but no graded result exists, or the runtime
-  was force-stopped. Partial work is never resumed; retry from scratch.
+  was force-stopped (on any attempt status, including dispatched and
+  unverified). Partial work is never resumed; retry from scratch.
 - `started_at`, `last_event_at`, `heartbeat_interval_ms`, `stale_after_ms` and
   `events` for liveness inspection.
 
@@ -112,7 +118,9 @@ defaults to three heartbeat
 intervals; override it with `waza runner lineage --stale-after 2m` or
 `GET /api/v1/lineage?...&stale_after_ms=120000`. A dispatched attempt with no
 journal (for example, written before this release) stays `unobserved`: Waza
-does not guess liveness without evidence. Orphaned records are preserved
+does not guess liveness without evidence. An attempt named by more than one
+dispatch decision (`duplicate_dispatch_decision`) has no single owning journal,
+so lineage ignores all of them and derives lifecycle from ledger records only. Orphaned records are preserved
 byte-for-byte; a retry always reserves a new execution ID.
 
 ## Recovery examples
@@ -138,8 +146,10 @@ even when shutdown then returns promptly with a `cancelled` terminal.
 
 Runtime that ignores shutdown: after the 5s shutdown bound the owner
 force-stops the runtime and records `forced`. The terminal reports the
-shutdown deadline as `timed_out`; lineage keeps the original
+shutdown bound as `timed_out`; lineage keeps any original
 `cancellation_reason` and shows `cancellation: "forced"` and `partial: true`.
+Without a request, the shutdown bound has no reason and
+`deadline_exceeded: false`.
 
 ## Migration
 

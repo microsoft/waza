@@ -103,13 +103,16 @@ func Derive(facts Facts, observed *Observed, now time.Time, staleAfter time.Dura
 		result.CancellationReason = requested.Reason
 		result.DeadlineExceeded = requested.Reason == ReasonDeadline
 	}
+	// A recorded force-stop is partial-work evidence whatever the ledger
+	// status; a verified graded terminal below is the only exception.
+	result.Partial = forced
 	set := func(state string, eligible bool, reason string, actions ...string) {
 		result.State, result.Retry = state, Retry{Eligible: eligible, Reason: reason}
 		result.AllowedActions = append(result.AllowedActions, actions...)
 	}
 	switch facts.Status {
 	case attemptCompleted:
-		deriveTerminal(&result, facts, set)
+		deriveTerminal(&result, facts, finished, set)
 	case attemptCompletionUnverified:
 		set("unverified", false, "evidence_unverified", "inspect")
 	case attemptReserved:
@@ -141,16 +144,20 @@ func Derive(facts Facts, observed *Observed, now time.Time, staleAfter time.Dura
 	return result
 }
 
-func deriveTerminal(result *Lifecycle, facts Facts, set func(string, bool, string, ...string)) {
-	// A published terminal means the owner joined its lifecycle; without a
-	// journal, cancellation is acknowledged unless force was recorded.
-	if (facts.Outcome == runnerterminal.Canceled || facts.Outcome == runnerterminal.Timeout) && result.Cancellation == "none" {
+func deriveTerminal(result *Lifecycle, facts Facts, finished *Event, set func(string, bool, string, ...string)) {
+	// A published terminal means the owner joined its lifecycle, so a
+	// recorded request whose acknowledgement write was lost, or a journal-less
+	// cancellation, is acknowledged unless force was recorded.
+	if result.Cancellation == "requested" || (facts.Outcome == runnerterminal.Canceled ||
+		facts.Outcome == runnerterminal.Timeout) && result.Cancellation == "none" {
 		result.Cancellation = "acknowledged"
 	}
-	// Without a recorded request, a timeout terminal is the only deadline
-	// evidence. A recorded caller request keeps its reason even when a forced
-	// shutdown later surfaces as a timeout terminal.
-	if facts.Outcome == runnerterminal.Timeout && result.CancellationReason == "" {
+	// Without a recorded request, a timeout terminal is deadline evidence
+	// unless the recorded finish precedes the deadline: then a shutdown bound,
+	// not the execution deadline, ended the attempt. A recorded caller request
+	// keeps its reason even when a forced shutdown surfaces as a timeout.
+	if facts.Outcome == runnerterminal.Timeout && result.CancellationReason == "" &&
+		(finished == nil || result.DeadlineAt == nil || !finished.At.Before(*result.DeadlineAt)) {
 		result.DeadlineExceeded, result.CancellationReason = true, ReasonDeadline
 	}
 	graded := facts.Outcome == runnerterminal.Success || facts.Outcome == runnerterminal.EvaluationFailure
