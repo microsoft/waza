@@ -39,11 +39,10 @@ type Meter struct {
 	sampler  func() sample
 	now      func() time.Time
 
-	mu          sync.Mutex
-	finished    bool
-	turns       int64
-	tools       int64
-	termination *Termination
+	mu       sync.Mutex
+	finished bool
+	turns    int64
+	tools    int64
 }
 
 type sample struct {
@@ -92,15 +91,13 @@ func (m *Meter) count(resource Resource, counter *int64) {
 	*counter++
 	observed := *counter
 	limit, limited := m.limit(resource)
-	var cause error
-	if limited && observed > limit && m.termination == nil {
-		m.termination = &Termination{Resource: resource, Limit: limit, Observed: observed}
-		cause = &ExceededError{Termination: *m.termination}
+	// Usage is always counted, but a budget terminates the attempt only when
+	// it is the first cancellation; a later event after a wall deadline or
+	// caller cancellation must not claim the termination.
+	if limited && observed > limit && m.ctx.Err() == nil {
+		m.cancel(&ExceededError{Termination: Termination{Resource: resource, Limit: limit, Observed: observed}})
 	}
 	m.mu.Unlock()
-	if cause != nil {
-		m.cancel(cause)
-	}
 }
 
 // Err returns the enforced-budget error that ended the attempt, if any.
@@ -110,12 +107,11 @@ func (m *Meter) Err() error {
 	return m.errLocked()
 }
 
+// The attempt context's cause is authoritative: whichever of the wall
+// deadline, a counted budget or the caller canceled first.
 func (m *Meter) errLocked() error {
-	if m.termination != nil {
-		return &ExceededError{Termination: *m.termination}
-	}
 	var exceeded *ExceededError
-	if errors.As(context.Cause(m.ctx), &exceeded) && exceeded.Termination.Resource == WallTime {
+	if errors.As(context.Cause(m.ctx), &exceeded) {
 		return exceeded
 	}
 	return nil
@@ -128,16 +124,19 @@ func (m *Meter) Finish() *Report {
 	m.mu.Lock()
 	m.finished = true
 	m.stopWall()
-	wallErr := m.errLocked()
+	cause := m.errLocked()
 	elapsed := m.now().Sub(m.start).Milliseconds()
 	after := m.sampler()
 	report := m.plan
 	report.Resources = make([]Usage, len(m.plan.Resources))
-	termination := m.termination
+	var termination *Termination
 	var exceeded *ExceededError
-	if termination == nil && errors.As(wallErr, &exceeded) {
-		termination = &exceeded.Termination
-		termination.Observed = max(elapsed, termination.Limit)
+	if errors.As(cause, &exceeded) {
+		copied := exceeded.Termination
+		if copied.Resource == WallTime {
+			copied.Observed = max(elapsed, copied.Limit)
+		}
+		termination = &copied
 	}
 	turns, tools := m.turns, m.tools
 	m.mu.Unlock()

@@ -166,6 +166,11 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	if input == nil {
 		envelope, _ := terminal(report)
 		result.Terminal, result.ExitCode = &envelope, envelope.ExitCode
+		if report.budgetUnsupported {
+			// Structured and safe before approval: the terminal is withheld
+			// from public projections, but the rejection reason is not.
+			result.Diagnostics = append(result.Diagnostics, report.Diagnostics[0])
+		}
 		return result, fmt.Errorf("execution submission request was rejected")
 	}
 	result.Caller = report.Identity

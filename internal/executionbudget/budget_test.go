@@ -213,6 +213,61 @@ func TestMeterWithinBudgetAndMeasurementOnlyExceedance(t *testing.T) {
 	require.NoError(t, validate(t, compile(t, "#/$defs/report"), report))
 }
 
+func TestMeterLateEventsDoNotClaimTermination(t *testing.T) {
+	caps := capabilitiesFor("linux", "amd64", unixSupport)
+	plan, _ := Plan(Request{Limits: Limits{WallTimeMS: ptr(5), ToolCalls: ptr(0)}}, caps)
+	ctx, meter := Start(context.Background(), *plan)
+	<-ctx.Done()
+	meter.ToolCallStarted()
+	report := meter.Finish()
+	require.Equal(t, WallTime, report.Termination.Resource, "the wall deadline fired first")
+	require.Equal(t, int64(1), *report.Resources[2].Used, "late usage is still counted")
+	require.True(t, *report.Resources[2].Exceeded)
+	require.NoError(t, report.CheckTerminal("timeout"))
+
+	parent, cancel := context.WithCancel(context.Background())
+	plan, _ = Plan(Request{Limits: Limits{ModelTurns: ptr(0)}}, caps)
+	_, meter = Start(parent, *plan)
+	cancel()
+	meter.ModelTurnStarted()
+	require.NoError(t, meter.Err())
+	report = meter.Finish()
+	require.Nil(t, report.Termination, "caller cancellation is not attributed to a budget")
+	require.Equal(t, StateExceeded, report.State)
+	require.NoError(t, report.CheckTerminal("cancelled")) //nolint:misspell // wire value
+}
+
+func TestCheckTerminalRejectsContradictions(t *testing.T) {
+	caps := capabilitiesFor("linux", "amd64", unixSupport)
+	plan, _ := Plan(Request{Limits: Limits{ModelTurns: ptr(0)}}, caps)
+	_, meter := start(context.Background(), *plan, func() sample { return sample{} }, time.Now)
+	meter.ModelTurnStarted()
+	terminated := meter.Finish()
+	require.NoError(t, terminated.CheckTerminal("cancelled")) //nolint:misspell // wire value
+	require.Error(t, terminated.CheckTerminal("success"))
+	require.Error(t, terminated.CheckTerminal("timeout"))
+
+	mutate := func(change func(*Report)) *Report {
+		copied := terminated.Clone()
+		change(copied)
+		return copied
+	}
+	for name, report := range map[string]*Report{
+		"remaining arithmetic":           mutate(func(r *Report) { *r.Resources[1].Remaining = 5 }),
+		"exceeded flag":                  mutate(func(r *Report) { *r.Resources[1].Exceeded = false }),
+		"within with termination":        mutate(func(r *Report) { r.State = StateWithinBudget }),
+		"terminated without termination": mutate(func(r *Report) { r.Termination = nil }),
+		"duplicate resource":             mutate(func(r *Report) { r.Resources[2] = r.Resources[1] }),
+		"used while unmeasured":          mutate(func(r *Report) { r.Resources[1].Measurement = Unsupported }),
+	} {
+		require.Error(t, report.CheckTerminal("cancelled"), name) //nolint:misspell // wire value
+	}
+
+	rejected, _ := Plan(Request{Limits: Limits{DiskBytes: ptr(1)}}, caps)
+	require.NoError(t, rejected.CheckTerminal("unsupported_capability"))
+	require.Error(t, rejected.CheckTerminal("success"))
+}
+
 func TestExceededErrorClassification(t *testing.T) {
 	require.True(t, errors.Is(&ExceededError{Termination: Termination{Resource: WallTime}}, context.DeadlineExceeded))
 	require.True(t, errors.Is(&ExceededError{Termination: Termination{Resource: ToolCalls}}, context.Canceled))

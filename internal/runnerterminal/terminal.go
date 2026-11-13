@@ -259,6 +259,14 @@ func bounds(e Envelope, expected *Binding) error {
 }
 
 func consistent(e Envelope, expected *Binding) error {
+	if e.Budget != nil {
+		if err := e.Budget.CheckTerminal(string(e.Outcome)); err != nil {
+			return err
+		}
+		if e.Budget.State == executionbudget.StateRejectedUnsupported && (e.Identity != nil || e.EngineCalls != 0) {
+			return errors.New("budget rejected before execution but the envelope reports admitted work")
+		}
+	}
 	if expected == nil {
 		if e.Selection != nil || e.Identity != nil || e.Observation != nil || e.EngineCalls != 0 {
 			return errors.New("unadmitted envelope contains identity, selection, or observation")

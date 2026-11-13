@@ -57,15 +57,60 @@ export async function loadBudgetCapabilities(signal?: AbortSignal): Promise<Budg
   return value;
 }
 
+const terminationOutcome = { wall_time_ms: "timeout", model_turns: "cancelled", tool_calls: "cancelled" } as const;
+
+// Mirrors the native executionbudget.CheckTerminal cross-field rules.
+export function checkBudget(budget: BudgetReport, outcome: string): string | null {
+  if (!uniqueResources(budget.resources)) return "Budget report must list each resource exactly once.";
+  const termination = budget.termination;
+  let anyUsed = false;
+  let anyExceeded = false;
+  for (const row of budget.resources) {
+    anyUsed ||= row.used !== undefined;
+    anyExceeded ||= row.exceeded === true;
+    const derived = row.remaining !== undefined || row.exceeded !== undefined;
+    if (row.used === undefined || row.limit === undefined) {
+      if (derived) return `Budget ${row.resource} reports remaining/exceeded without a limit and measured usage.`;
+      if (row.used !== undefined && row.measurement !== "measured") return `Budget ${row.resource} reports usage for an unmeasured resource.`;
+      continue;
+    }
+    if (row.measurement !== "measured") return `Budget ${row.resource} reports usage for an unmeasured resource.`;
+    if (row.remaining !== Math.max(row.limit - row.used, 0)) return `Budget ${row.resource} remaining does not equal limit minus used.`;
+    if (row.exceeded !== (row.used > row.limit || termination?.resource === row.resource)) {
+      return `Budget ${row.resource} exceeded flag contradicts its usage.`;
+    }
+  }
+  if (termination) {
+    const row = budget.resources.find((candidate) => candidate.resource === termination.resource);
+    if (row?.enforcement !== "enforced" || row.limit !== termination.limit) return "Budget termination does not match an enforced limit.";
+    const over = termination.resource === "wall_time_ms" ? termination.observed >= termination.limit : termination.observed > termination.limit;
+    if (!over) return "Budget termination does not exceed its limit.";
+  }
+  switch (budget.state) {
+    case "rejected_unsupported":
+      return outcome === "unsupported_capability" && !anyUsed && !termination && budget.unsupported === "reject"
+        ? null : "Budget state contradicts the terminal outcome.";
+    case "not_started":
+      return anyUsed || termination ? "Budget state contradicts the terminal outcome." : null;
+    case "within_budget":
+      return anyExceeded || termination ? "Budget state contradicts its resources." : null;
+    case "exceeded":
+      return !anyExceeded || termination ? "Budget state contradicts its resources." : null;
+    case "terminated":
+      return termination && terminationOutcome[termination.resource] === outcome ? null : "Budget state contradicts the terminal outcome.";
+  }
+}
+
 // Reads a saved or exported terminal envelope. The browser checks the schema
-// and internal consistency only; it does not re-derive identity or usage.
+// and the same budget consistency rules as the native reader; it does not
+// re-derive identity or re-measure usage.
 export function readTerminalBudget(text: string): RunnerTerminal & { budget: BudgetReport } {
   const value = parseStrictJSON(text);
   if (!validateTerminal(value)) throw new Error("Input is not a valid waza.runner-terminal 1.0 envelope.");
   if (!value.budget) throw new Error("Terminal envelope has no budget report; the request declared no budgets.");
-  const budget = value.budget;
-  if (!uniqueResources(budget.resources)) throw new Error("Budget report must list each resource exactly once.");
-  if ((budget.state === "rejected_unsupported") !== (value.outcome === "unsupported_capability" && !value.identity)) {
+  const problem = checkBudget(value.budget, value.outcome);
+  if (problem) throw new Error(problem);
+  if (value.budget.state === "rejected_unsupported" && (value.identity || value.engine_calls !== 0)) {
     throw new Error("Budget state contradicts the terminal outcome.");
   }
   return value as RunnerTerminal & { budget: BudgetReport };

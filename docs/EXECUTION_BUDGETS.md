@@ -103,6 +103,14 @@ Correlate a budget report with its run/attempt through the enclosing terminal
 `identity` (`run-...` / `attempt-...`) and `selection`; the budget object itself
 carries no identity.
 
+Terminal readers (the native `runnerterminal` reader and the Lab) reject a budget
+report whose rows or state contradict each other or the terminal outcome: for
+example `remaining` that is not `limit - used`, a `terminated` state whose
+outcome is not `timeout`/`cancelled` for that resource, or usage on a
+`rejected_unsupported` report. Through `runner submit`, a rejected budget is
+published with only the `unsupported_budget` diagnostic code (messages are
+sanitized); run `waza runner budgets` on the worker for the per-resource detail.
+
 ## For operators
 
 - Run `waza runner budgets` on each worker image to confirm the matrix before

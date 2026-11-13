@@ -65,7 +65,11 @@ test.describe("Lab execution budgets", () => {
     delete plain.budget;
     await readTerminal(page, plain);
     await expect(panel(page).getByRole("alert")).toContainText("has no budget report");
-    await readTerminal(page, { ...fixture.rejected, budget: { ...fixture.rejected.budget, state: "within_budget" } });
+    await readTerminal(page, { ...fixture.terminated, outcome: "timeout", exit_code: 4 });
     await expect(panel(page).getByRole("alert")).toHaveText("Budget state contradicts the terminal outcome.");
+    const resources = fixture.terminated.budget.resources.map((row) =>
+      row.resource === "wall_time_ms" ? { ...row, remaining: 1 } : row);
+    await readTerminal(page, { ...fixture.terminated, budget: { ...fixture.terminated.budget, resources } });
+    await expect(panel(page).getByRole("alert")).toHaveText("Budget wall_time_ms remaining does not equal limit minus used.");
   });
 });

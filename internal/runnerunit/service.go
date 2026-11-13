@@ -328,8 +328,15 @@ func metered(ctx context.Context, input *admitted, attempt func(context.Context)
 	result.budget = meter.Finish()
 	// A limit reached after the engine returned (for example during grading)
 	// still ends the attempt as enforced rather than as a success.
-	if termination := result.budget.Termination; termination != nil && result.failure == nil {
-		result.executionError("execution", &executionbudget.ExceededError{Termination: *termination})
+	// The enforced budget is the attempt's terminal cause, so it also decides
+	// the outcome when the engine surfaced the cancellation as another error.
+	if termination := result.budget.Termination; termination != nil {
+		exceeded := &executionbudget.ExceededError{Termination: *termination}
+		if result.failure == nil {
+			result.executionError("execution", exceeded)
+		} else {
+			result.failure = fmt.Errorf("%w; attempt error: %v", exceeded, result.failure)
+		}
 	}
 	return result
 }
