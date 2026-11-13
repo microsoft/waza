@@ -76,11 +76,15 @@ func Validate(data []byte) Report {
 // false when the request is not admitted.
 func AdmittedBinding(data []byte) (artifactmanifest.Binding, bool) {
 	report, input := admit(data)
-	if input == nil || report.binding.Identity == nil {
+	if input == nil || report.binding == nil || report.binding.Identity == nil {
 		return artifactmanifest.Binding{}, false
 	}
-	return artifactmanifest.Binding{Identity: *report.binding.Identity, Selection: report.binding.Selection,
-		ExecutionMode: report.binding.ExecutionMode, GraderIDs: slices.Clone(report.binding.GraderIDs)}, true
+	return callerBinding(report.binding), true
+}
+
+func callerBinding(binding *runnerterminal.Binding) artifactmanifest.Binding {
+	return artifactmanifest.Binding{Identity: *binding.Identity, Selection: binding.Selection,
+		ExecutionMode: binding.ExecutionMode, GraderIDs: slices.Clone(binding.GraderIDs)}
 }
 
 // Admission is adapted from frozen #779 service.go, excluding native lifecycle,

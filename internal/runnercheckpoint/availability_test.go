@@ -550,3 +550,50 @@ func TestAvailabilityAppliesResumeRuntimeAdmission(t *testing.T) {
 		t.Fatalf("resume admitted the same runtime: %+v", resumed)
 	}
 }
+
+func TestAvailabilityRuntimeAdmissionUsesCallerMode(t *testing.T) {
+	for _, name := range []string{"COPILOT_CLI_PATH", "COPILOT_BASE_URL", "COPILOT_PROVIDER_BASE_URL"} {
+		t.Setenv(name, "")
+	}
+	ctx := context.Background()
+	request, err := runnerunit.ParseSubmission(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit := strings.NewReplacer(`"inline.mock-text"`, `"inline.copilot-text"`, `executor: mock`, `executor: copilot-sdk`,
+		`model: mock-model`, `model: owned-control-model`, `"allow_paid_execution":false`, `"allow_paid_execution":true`,
+		`"allow_paid_execution": false`, `"allow_paid_execution": true`).Replace(string(request.Request))
+	request.Request = json.RawMessage(unit)
+	caller, ok := runnerunit.AdmittedBinding(request.Request)
+	if !ok || caller.ExecutionMode != "copilot" {
+		t.Fatalf("copilot request was not admitted: %+v", caller)
+	}
+	store := backend(t)
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		t.Fatal("availability constructed a runtime")
+		return nil, nil
+	})
+	// The before source declares mock while the caller resumes as copilot.
+	reservation := caller
+	reservation.ExecutionMode = "mock"
+	ledger, err := executionledger.New(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := ledger.Reserve(ctx, reservation, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := executioncheckpoint.PublishBefore(ctx, store, ledger, creator, request.Request, service.revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := mustWire(t, *request)
+	t.Setenv("COPILOT_CLI_PATH", "uncontrolled-native")
+	if result := availability(t, service, wire, store, digest); diagnosticCode(result) != "checkpoint_runtime_rejected" {
+		t.Fatalf("availability must evaluate the caller's runtime: %+v", result)
+	}
+	if resumed, err := service.Resume(ctx, wire, store, digest, Hooks{}); err == nil {
+		t.Fatalf("resume admitted the caller runtime: %+v", resumed)
+	}
+}
