@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -166,6 +167,7 @@ func TestVerifyTamperFailsClosed(t *testing.T) {
 			resignPredicate(t, f, m, func(p *Predicate) { p.Inputs.Identity.Run = "run-" + strings.Repeat("0", 64) })
 		}, "inputs", "input_identity_mismatch"},
 		{"runtime model", func(m map[string][]byte) { resignPredicate(t, f, m, func(p *Predicate) { p.Runtime.Model = "gpt-4o" }) }, "runtime", "runtime_mismatch"},
+		{"blank waza version", func(m map[string][]byte) { resignPredicate(t, f, m, func(p *Predicate) { p.Waza.Version = " " }) }, "waza_version", "claim_missing"},
 		{"bundle index", func(m map[string][]byte) { m[IndexPath] = []byte("{}") }, "bundle", "bundle_index_invalid"},
 	}
 	for _, tc := range cases {
@@ -304,6 +306,42 @@ func TestBindingExtensionPoint(t *testing.T) {
 	unregisterBindingVerifier(kind)
 	if got := failure(verifyFiles(t, pristine, Options{Verifier: f.verifier}), "bindings"); got.Code != "binding_unsupported" {
 		t.Fatalf("unknown binding kind accepted: %+v", got)
+	}
+}
+
+func TestMemberCountIsBounded(t *testing.T) {
+	f := newFixture(t)
+	b, err := Generate(context.Background(), f.input, f.signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := b.WriteDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	for i := range MaxMembers {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("extra-%d.txt", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src, closeSrc, err := OpenDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeSrc()
+	report := Verify(src, Options{Verifier: f.verifier})
+	if got := failure(report, "members"); got.Code != "members_unlisted" {
+		t.Fatalf("oversized bundle accepted: %+v", got)
+	}
+	if _, err := EncodeReport(report); err != nil {
+		t.Fatalf("report for oversized bundle does not encode: %v", err)
+	}
+	files := map[string][]byte{}
+	for i := range MaxMembers + 1 {
+		files[fmt.Sprintf("m%d", i)] = nil
+	}
+	if _, err := MapSource(files); err == nil {
+		t.Fatal("MapSource accepted more than MaxMembers entries")
 	}
 }
 

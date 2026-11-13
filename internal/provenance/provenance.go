@@ -43,6 +43,9 @@ const (
 	maxPolicyBytes   = 1 << 20
 	maxBindingBytes  = 16 << 20
 	maxBindings      = 16
+	// MaxMembers bounds the entries a bundle may contain, matching the
+	// verification report's members limit.
+	MaxMembers = 512
 	// MaxBundleBytes bounds the total member bytes read for one verification.
 	MaxBundleBytes = 320 << 20
 )

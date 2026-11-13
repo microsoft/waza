@@ -96,6 +96,7 @@ Verification fails closed:
 | `image_digest_unexpected`, `waza_version_unexpected`, `policy_unexpected` | Pin differs from the signed claim | Confirm the image, version or policy you consumed |
 | `binding_unsupported` | Binding kind has no verifier in this build | Upgrade or drop the binding |
 | `member_unbound`, `member_irregular` | Unexpected member | Remove it or regenerate the bundle |
+| `members_unlisted` | Bundle cannot be listed or has more than 512 entries | Remove extra files or regenerate the bundle |
 
 ## Extension point: additional bindings
 

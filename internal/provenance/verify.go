@@ -338,14 +338,16 @@ func (v *verification) verifyClaims(s *Statement) {
 		v.passed("policy", pinned(v.opts.ExpectPolicySHA256), "policy %s sha256 %s", p.Policy.Path, p.Policy.SHA256)
 	}
 
-	if f := validateDeclared(p.Waza.Version, p.Runner.Image.Reference, p.Runner.Image.Digest); f != nil && f.Check == "image" {
+	if f := validateImage(p.Runner.Image.Reference, p.Runner.Image.Digest); f != nil {
 		v.failed(f)
 	} else if v.opts.ExpectImageDigest != "" && v.opts.ExpectImageDigest != p.Runner.Image.Digest {
 		v.set("image", "failed", "image_digest_unexpected", "signed image digest %s does not match the consumed image %s", p.Runner.Image.Digest, v.opts.ExpectImageDigest)
 	} else {
 		v.passed("image", pinned(v.opts.ExpectImageDigest), "%s@%s", p.Runner.Image.Reference, p.Runner.Image.Digest)
 	}
-	if v.opts.ExpectWazaVersion != "" && v.opts.ExpectWazaVersion != p.Waza.Version {
+	if f := validateWazaVersion(p.Waza.Version); f != nil {
+		v.failed(f)
+	} else if v.opts.ExpectWazaVersion != "" && v.opts.ExpectWazaVersion != p.Waza.Version {
 		v.set("waza_version", "failed", "waza_version_unexpected", "signed Waza version %s does not match the expected %s", p.Waza.Version, v.opts.ExpectWazaVersion)
 	} else {
 		v.passed("waza_version", pinned(v.opts.ExpectWazaVersion), "Waza %s", p.Waza.Version)

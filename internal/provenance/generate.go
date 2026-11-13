@@ -39,9 +39,20 @@ type Bundle struct {
 }
 
 func validateDeclared(wazaVersion, reference, digest string) *Failure {
+	if f := validateWazaVersion(wazaVersion); f != nil {
+		return f
+	}
+	return validateImage(reference, digest)
+}
+
+func validateWazaVersion(wazaVersion string) *Failure {
 	if strings.TrimSpace(wazaVersion) == "" || len(wazaVersion) > 128 {
 		return fail("waza_version", "claim_missing", "Waza version is unavailable")
 	}
+	return nil
+}
+
+func validateImage(reference, digest string) *Failure {
 	if strings.TrimSpace(reference) == "" || len(reference) > 512 || strings.ContainsAny(reference, " \t\r\n") {
 		return fail("image", "claim_missing", "runner image reference is unavailable or invalid")
 	}

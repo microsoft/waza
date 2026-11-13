@@ -20,6 +20,7 @@ type Source interface {
 
 var errMemberMissing = errors.New("member missing")
 var errMemberTooLarge = errors.New("member exceeds size bound")
+var errTooManyMembers = fmt.Errorf("bundle contains more than %d entries", MaxMembers)
 
 type dirSource struct{ root *os.Root }
 
@@ -37,6 +38,9 @@ func (s *dirSource) List() (regular, irregular []string, err error) {
 	err = fs.WalkDir(s.root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if len(regular)+len(irregular) >= MaxMembers && !entry.IsDir() {
+			return errTooManyMembers
 		}
 		switch {
 		case entry.IsDir():
@@ -86,6 +90,9 @@ type mapSource map[string][]byte
 // MapSource exposes an in-memory bundle. Paths must be valid slash-separated
 // relative paths.
 func MapSource(files map[string][]byte) (Source, error) {
+	if len(files) > MaxMembers {
+		return nil, errTooManyMembers
+	}
 	for name := range files {
 		if !fs.ValidPath(name) || name == "." || strings.Contains(name, "\\") {
 			return nil, fmt.Errorf("invalid bundle member path %q", name)
