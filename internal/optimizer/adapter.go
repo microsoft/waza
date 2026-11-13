@@ -88,10 +88,15 @@ type ProposedCandidate struct {
 // Usage is adapter-reported provider usage. Absent usage is unavailable,
 // never zero.
 type Usage struct {
-	InputTokens     int      `json:"input_tokens"`
-	OutputTokens    int      `json:"output_tokens"`
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	// PremiumRequests counts GitHub Copilot premium requests only.
 	PremiumRequests float64  `json:"premium_requests"`
 	AICredits       *float64 `json:"ai_credits,omitempty"`
+	// Provider names a custom model provider whose request count is in
+	// ProviderRequests.
+	Provider         string  `json:"provider,omitempty"`
+	ProviderRequests float64 `json:"provider_requests,omitempty"`
 }
 
 // ProposeResponse returns zero or one candidate. Done=true without a

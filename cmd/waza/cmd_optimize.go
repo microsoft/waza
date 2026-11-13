@@ -113,6 +113,9 @@ func runOptimize(cmd *cobra.Command, specPath string, opts *optimizeRunOptions) 
 	if opts.seed == "" {
 		return errors.New("--seed is required")
 	}
+	if opts.timeout < 0 {
+		return fmt.Errorf("--timeout must not be negative, got %s", opts.timeout)
+	}
 	outputDir := opts.outputDir
 	if outputDir == "" {
 		outputDir = "waza-optimize-" + time.Now().UTC().Format("20060102T150405Z")

@@ -198,8 +198,10 @@
         "status": {"enum": ["measured", "unavailable", "partial"]},
         "input_tokens": {"type": "integer", "minimum": 0},
         "output_tokens": {"type": "integer", "minimum": 0},
-        "premium_requests": {"type": "number", "minimum": 0},
-        "ai_credits": {"type": "number", "minimum": 0}
+        "premium_requests": {"type": "number", "minimum": 0, "description": "GitHub Copilot premium requests only."},
+        "ai_credits": {"type": "number", "minimum": 0},
+        "provider": {"type": "string", "minLength": 1, "description": "Custom model provider whose request count is in provider_requests."},
+        "provider_requests": {"type": "number", "minimum": 0}
       }
     }
   }

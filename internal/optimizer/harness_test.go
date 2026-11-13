@@ -194,6 +194,16 @@ func TestPinSuiteAdmission(t *testing.T) {
 			target: TargetSkillDirectory, contains: "disabled_skills"},
 		"disabled candidate dir": {edit: replaceInFile("eval.yaml", "  model: mock\n", "  model: mock\n  disabled_skills: [\"skill\"]\n"),
 			target: TargetSkillDirectory, contains: "disabled_skills"},
+		"retrying suite": {edit: replaceInFile("eval.yaml", "  model: mock\n", "  model: mock\n  max_attempts: 2\n"), contains: "max_attempts"},
+		"repos on skill target": {edit: replaceInFile("tasks/bug-fix.yaml", "inputs:\n", "inputs:\n  repos:\n    - type: worktree\n      source: repo\n      dest: repo\n"),
+			target: TargetSkillDirectory, contains: "inputs.repos"},
+		"relative task context_dir": {edit: replaceInFile("tasks/bug-fix.yaml", "inputs:\n", "context_dir: fixtures\ninputs:\n"),
+			target: TargetSkillDirectory, contains: "relative context_dir"},
+		"external task context_dir": {edit: func(t *testing.T, suite string) {
+			outside := filepath.Join(filepath.Dir(suite), "elsewhere")
+			require.NoError(t, os.MkdirAll(outside, 0o755))
+			replaceInFile("tasks/bug-fix.yaml", "inputs:\n", "context_dir: '"+outside+"'\ninputs:\n")(t, suite)
+		}, target: TargetSkillDirectory, contains: "outside the pinned"},
 		"ambient skill": {edit: func(t *testing.T, _ string) {
 			cwd := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(cwd, "SKILL.md"), []byte("---\nname: release-notes-writer\n---\nAmbient.\n"), 0o600))

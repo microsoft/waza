@@ -277,6 +277,10 @@ func (s *runState) execute(ctx context.Context) {
 	case cfg.MaxEvaluations < ReservedQualificationEvaluations+1:
 		s.fail(CategoryInvalidConfig, fmt.Errorf("--max-evaluations must be at least %d (seed plus %d reserved qualification evaluations)", ReservedQualificationEvaluations+1, ReservedQualificationEvaluations))
 		return
+	case cfg.Deadline < 0:
+		s.report.Budget.DeadlineMs = 0
+		s.fail(CategoryInvalidConfig, fmt.Errorf("--timeout must not be negative, got %s", cfg.Deadline))
+		return
 	case math.IsNaN(cfg.MinImprovement) || math.IsInf(cfg.MinImprovement, 0) || cfg.MinImprovement < 0:
 		// Keep report.json serializable: encoding/json rejects NaN and Inf.
 		s.report.MinImprovement = 0
@@ -596,22 +600,29 @@ func usageSpend(u *Usage) Spend {
 	if u == nil {
 		return Spend{Status: SpendUnavailable}
 	}
-	return Spend{Status: SpendMeasured, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, PremiumRequests: u.PremiumRequests, AICredits: u.AICredits}
+	return Spend{Status: SpendMeasured, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, PremiumRequests: u.PremiumRequests,
+		AICredits: u.AICredits, Provider: u.Provider, ProviderRequests: u.ProviderRequests}
 }
 
-// sumSpend totals measured parts. Any unavailable part makes the total
-// partial; credits are summed only when every measured part reports them.
+// sumSpend totals measured and partial parts. Any part that is not fully
+// measured makes the total partial. Credits are summed only when every observed
+// part reports them, and provider request counts only when every part with a
+// provider names the same one; otherwise the units cannot be added and the
+// total is partial.
 func sumSpend(parts []Spend) Spend {
 	if len(parts) == 0 {
 		return Spend{Status: SpendUnavailable}
 	}
 	total := Spend{}
-	measured, credits, allCredits := 0, 0.0, true
+	observed, measured, credits, allCredits := 0, 0, 0.0, true
 	for _, p := range parts {
-		if p.Status != SpendMeasured {
+		if p.Status == SpendUnavailable {
 			continue
 		}
-		measured++
+		observed++
+		if p.Status == SpendMeasured {
+			measured++
+		}
 		total.InputTokens += p.InputTokens
 		total.OutputTokens += p.OutputTokens
 		total.PremiumRequests += p.PremiumRequests
@@ -621,16 +632,31 @@ func sumSpend(parts []Spend) Spend {
 			credits += *p.AICredits
 		}
 	}
-	switch {
-	case measured == 0:
+	if observed == 0 {
 		return Spend{Status: SpendUnavailable}
-	case measured < len(parts):
+	}
+	total.Status = SpendMeasured
+	if measured < len(parts) {
 		total.Status = SpendPartial
-	default:
-		total.Status = SpendMeasured
 	}
 	if allCredits {
 		total.AICredits = &credits
+	}
+	mixed := false
+	for _, p := range parts {
+		if p.Status == SpendUnavailable || p.Provider == "" {
+			continue
+		}
+		if total.Provider != "" && total.Provider != p.Provider {
+			mixed = true
+			break
+		}
+		total.Provider = p.Provider
+		total.ProviderRequests += p.ProviderRequests
+	}
+	if mixed {
+		total.Provider, total.ProviderRequests = "", 0
+		total.Status = SpendPartial
 	}
 	return total
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/schemas"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
@@ -269,6 +270,17 @@ func TestRunPreflightFailures(t *testing.T) {
 			validateReportSchema(t, cfg.OutputDir)
 		})
 	}
+	t.Run("negative deadline", func(t *testing.T) {
+		ev := &stubEvaluator{}
+		cfg := testConfig(t, NewFakeAdapter(), ev)
+		cfg.Deadline = -time.Second
+		r, err := Run(context.Background(), cfg)
+		require.NoError(t, err)
+		require.Equal(t, CategoryInvalidConfig, r.Failure.Category)
+		require.Zero(t, r.Budget.DeadlineMs)
+		require.Empty(t, ev.calls)
+		validateReportSchema(t, cfg.OutputDir)
+	})
 	t.Run("non-empty output dir", func(t *testing.T) {
 		cfg := testConfig(t, NewFakeAdapter(), &stubEvaluator{})
 		require.NoError(t, os.MkdirAll(cfg.OutputDir, 0o755))
@@ -389,4 +401,47 @@ func TestRunFailsWhenCandidateCannotBeSaved(t *testing.T) {
 	require.Equal(t, CategoryInfrastructureFailure, report.Failure.Category)
 	require.Len(t, report.Evaluations, 1, "an unsaved candidate must not be evaluated")
 	require.Equal(t, ProposalFailed, report.Proposals[0].State)
+}
+
+func TestOutcomeSpend(t *testing.T) {
+	credits := 2.0
+	usage := &models.UsageStats{InputTokens: 10, OutputTokens: 5, PremiumRequests: 1, AICredits: &credits}
+	t.Run("session without usage is partial", func(t *testing.T) {
+		out := &models.EvaluationOutcome{Digest: models.OutcomeDigest{Usage: usage},
+			EvaluationUsage: &models.EvaluationUsage{Sessions: []models.EvaluationSessionUsage{{Usage: usage}, {}}}}
+		sp := outcomeSpend(out)
+		require.Equal(t, SpendPartial, sp.Status)
+		require.Equal(t, 10, sp.InputTokens)
+		require.Nil(t, sp.AICredits)
+	})
+	t.Run("custom provider requests are not premium requests", func(t *testing.T) {
+		custom := *usage
+		custom.Provider = "openai"
+		sp := outcomeSpend(&models.EvaluationOutcome{Digest: models.OutcomeDigest{Usage: &custom}})
+		require.Equal(t, SpendMeasured, sp.Status)
+		require.Zero(t, sp.PremiumRequests)
+		require.Equal(t, "openai", sp.Provider)
+		require.Equal(t, 1.0, sp.ProviderRequests)
+	})
+}
+
+func TestSumSpend(t *testing.T) {
+	t.Run("partial parts contribute counters", func(t *testing.T) {
+		total := sumSpend([]Spend{{Status: SpendMeasured, InputTokens: 3}, {Status: SpendPartial, InputTokens: 4}})
+		require.Equal(t, SpendPartial, total.Status)
+		require.Equal(t, 7, total.InputTokens)
+	})
+	t.Run("same provider is summed", func(t *testing.T) {
+		total := sumSpend([]Spend{{Status: SpendMeasured, Provider: "openai", ProviderRequests: 1}, {Status: SpendMeasured, Provider: "openai", ProviderRequests: 2}, {Status: SpendMeasured, PremiumRequests: 1}})
+		require.Equal(t, SpendMeasured, total.Status)
+		require.Equal(t, "openai", total.Provider)
+		require.Equal(t, 3.0, total.ProviderRequests)
+		require.Equal(t, 1.0, total.PremiumRequests)
+	})
+	t.Run("mixed providers are not added", func(t *testing.T) {
+		total := sumSpend([]Spend{{Status: SpendMeasured, Provider: "openai", ProviderRequests: 1}, {Status: SpendMeasured, Provider: "anthropic", ProviderRequests: 2}})
+		require.Equal(t, SpendPartial, total.Status)
+		require.Empty(t, total.Provider)
+		require.Zero(t, total.ProviderRequests)
+	})
 }

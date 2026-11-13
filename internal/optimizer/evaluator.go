@@ -37,11 +37,16 @@ type EvidenceRef struct {
 // Spend reports measured usage or marks it unavailable. Unavailable is never
 // rendered as zero.
 type Spend struct {
-	Status          string   `json:"status"`
-	InputTokens     int      `json:"input_tokens,omitempty"`
-	OutputTokens    int      `json:"output_tokens,omitempty"`
+	Status       string `json:"status"`
+	InputTokens  int    `json:"input_tokens,omitempty"`
+	OutputTokens int    `json:"output_tokens,omitempty"`
+	// PremiumRequests counts GitHub Copilot premium requests only.
 	PremiumRequests float64  `json:"premium_requests,omitempty"`
 	AICredits       *float64 `json:"ai_credits,omitempty"`
+	// Provider names a custom model provider; its request count is reported
+	// in ProviderRequests, never as Copilot premium requests.
+	Provider         string  `json:"provider,omitempty"`
+	ProviderRequests float64 `json:"provider_requests,omitempty"`
 }
 
 // Spend statuses.
@@ -195,11 +200,40 @@ func (h *HarnessEvaluator) Evaluate(ctx context.Context, req EvaluateRequest) Ev
 	return ev
 }
 
+// outcomeSpend reports an evaluation's usage. Sessions that reported no usage
+// make it partial: observed counters are kept, and credits are reported only
+// when every session reported them.
 func outcomeSpend(outcome *models.EvaluationOutcome) Spend {
-	if u := outcome.Digest.Usage; u != nil {
-		return Spend{Status: SpendMeasured, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, PremiumRequests: u.PremiumRequests, AICredits: u.AICredits}
+	u := outcome.Digest.Usage
+	if u == nil {
+		return Spend{Status: SpendUnavailable}
 	}
-	return Spend{Status: SpendUnavailable}
+	sp := statsSpend(u)
+	if eu := outcome.EvaluationUsage; eu != nil {
+		for _, session := range eu.Sessions {
+			if session.Usage == nil {
+				sp.Status = SpendPartial
+				sp.AICredits = nil
+				break
+			}
+			if session.Usage.AICredits == nil {
+				sp.AICredits = nil
+			}
+		}
+	}
+	return sp
+}
+
+// statsSpend converts engine usage, keeping custom-provider request counts
+// apart from Copilot premium requests.
+func statsSpend(u *models.UsageStats) Spend {
+	sp := Spend{Status: SpendMeasured, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, AICredits: u.AICredits}
+	if u.Provider != "" {
+		sp.Provider, sp.ProviderRequests = u.Provider, u.PremiumRequests
+	} else {
+		sp.PremiumRequests = u.PremiumRequests
+	}
+	return sp
 }
 
 func categoryOrDefault(err error, def string) string {

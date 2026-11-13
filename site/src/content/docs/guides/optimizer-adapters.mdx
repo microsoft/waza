@@ -134,11 +134,18 @@ tasks run by exact `TestID`, never by display name or glob.
 A suite is rejected with `invalid_suite` in any of these cases:
 
 - It uses hooks, `baseline: true` or a scenario.
+- `config.max_attempts` is above 1. The runner keeps only the final attempt,
+  so an operational error followed by a passing retry would be lost.
 - A task has no ID, or two tasks share an ID.
 - A split is empty, or the two splits overlap.
 - A task would bypass the candidate: its own `skill_directories` under the
-  skill target, or its own `context_dir`, `repos` or `inputs.context.fixture`
-  under the overlay target.
+  skill target, or its own `context_dir` or `inputs.context.fixture` under the
+  overlay target.
+- A task uses `inputs.repos`. The pin cannot cover a repository's contents or
+  refs, which can change between evaluations.
+- Under the skill target, a task sets a relative `context_dir`. The runner
+  resolves it from the working directory, not the suite, so use an absolute
+  path inside the suite.
 - The suite or context directory contains a symlink, a task file lives outside
   the suite directory, or a path field uses `..` or an absolute path outside
   the pinned directories. The pin can only cover files inside it.
@@ -212,7 +219,7 @@ If the harness does not return the exact selected tasks, the run fails with
 |---|---|---|
 | `--max-iterations` | 5 | Maximum `propose` calls. Duplicate candidates use an iteration but no evaluation. |
 | `--max-evaluations` | 10 | Total harness evaluations, including the seed and 2 reserved for qualification |
-| `--timeout` | none | Deadline for the whole run, including qualification |
+| `--timeout` | none | Deadline for the whole run, including qualification; must not be negative |
 | `--adapter-timeout` | 10m | Per-call limit for command adapters |
 
 The report states why the loop ended: `adapter_done`, `iteration_budget`,
@@ -223,7 +230,16 @@ Spend is reported, never capped. Each evaluation and proposal has a spend
 
 - `measured`: usage came from the engine or adapter.
 - `unavailable`: no usage was reported, which is never treated as zero.
-- `partial`: some parts were measured and some were not.
+- `partial`: some parts were measured and some were not, for example an
+  evaluation where one agent or grader session reported no usage. Observed
+  counters are still reported.
+
+`premium_requests` counts GitHub Copilot premium requests only. When usage
+comes from a custom model provider, the report sets `provider` and puts the
+provider's request count in `provider_requests` instead. Totals add
+`provider_requests` only when every part names the same provider; otherwise
+the count is dropped and the total is `partial`. Command adapters report
+their own usage with the same fields.
 
 Failed calls still count. An evaluation that fails after the harness produced
 an outcome (a suite change, a task mismatch or an engine shutdown error) keeps

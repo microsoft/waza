@@ -65,11 +65,14 @@ func (a *ReflectAdapter) Propose(ctx context.Context, req ProposeRequest) (Propo
 	// Record measured usage before handling errors so a failed paid call
 	// still counts toward adapter spend.
 	if resp != nil && resp.Usage != nil {
+		sp := statsSpend(resp.Usage)
 		out.Usage = &Usage{
-			InputTokens:     resp.Usage.InputTokens,
-			OutputTokens:    resp.Usage.OutputTokens,
-			PremiumRequests: resp.Usage.PremiumRequests,
-			AICredits:       resp.Usage.AICredits,
+			InputTokens:      sp.InputTokens,
+			OutputTokens:     sp.OutputTokens,
+			PremiumRequests:  sp.PremiumRequests,
+			AICredits:        sp.AICredits,
+			Provider:         sp.Provider,
+			ProviderRequests: sp.ProviderRequests,
 		}
 	}
 	if err != nil {

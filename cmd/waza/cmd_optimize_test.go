@@ -71,15 +71,19 @@ func TestOptimizeRunValidation(t *testing.T) {
 	suite := copyOptimizerExample(t)
 	spec := filepath.Join(suite, "eval.yaml")
 	cases := map[string][]string{
-		"missing seed":    {"run", spec, "--optimization-tag", "optimization", "--qualification-tag", "qualification"},
-		"missing tags":    {"run", spec, "--seed", filepath.Join(suite, "seed")},
-		"unknown adapter": {"run", spec, "--seed", filepath.Join(suite, "seed"), "--optimization-tag", "optimization", "--qualification-tag", "qualification", "--adapter", "nope", "--output-dir", filepath.Join(t.TempDir(), "o")},
-		"unknown target":  {"run", spec, "--target", "prompt"},
+		"missing seed":     {"run", spec, "--optimization-tag", "optimization", "--qualification-tag", "qualification"},
+		"missing tags":     {"run", spec, "--seed", filepath.Join(suite, "seed")},
+		"unknown adapter":  {"run", spec, "--seed", filepath.Join(suite, "seed"), "--optimization-tag", "optimization", "--qualification-tag", "qualification", "--adapter", "nope", "--output-dir", filepath.Join(t.TempDir(), "o")},
+		"unknown target":   {"run", spec, "--target", "prompt"},
+		"negative timeout": {"run", spec, "--seed", filepath.Join(suite, "seed"), "--optimization-tag", "optimization", "--qualification-tag", "qualification", "--timeout", "-1s", "--output-dir", filepath.Join(t.TempDir(), "neg")},
 	}
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, err := executeOptimize(t, args...)
 			require.Error(t, err)
+			if name == "negative timeout" {
+				require.ErrorContains(t, err, "--timeout must not be negative")
+			}
 		})
 	}
 }

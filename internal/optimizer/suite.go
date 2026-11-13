@@ -177,6 +177,9 @@ func admitSpec(spec *models.EvalSpec, target Target) error {
 	if spec.Scenario != "" {
 		return newError(CategoryInvalidSuite, "scenario suites are not supported by the optimizer")
 	}
+	if spec.Config.MaxAttempts > 1 {
+		return newError(CategoryInvalidSuite, "max_attempts %d is not supported by the optimizer: the runner keeps only the final attempt, so an operational error followed by a passing retry would be lost; set max_attempts to 1", spec.Config.MaxAttempts)
+	}
 	if target == TargetSkillDirectory && candidateSkillDisabled(spec.Config) {
 		return newError(CategoryInvalidSuite, "disabled_skills would remove the candidate skill directory, so every candidate would be evaluated without its skill; remove that entry for the skill-directory target")
 	}
@@ -364,17 +367,20 @@ func admitTask(tc *models.TestCase, target Target) error {
 			return newError(CategoryInvalidSuite, "task %q grader %q %s", tc.TestID, g.Identifier, reason)
 		}
 	}
+	if len(tc.Stimulus.Repos) > 0 {
+		return newError(CategoryInvalidSuite, "task %q uses inputs.repos, which the pin cannot cover (repository contents and refs can change between evaluations)", tc.TestID)
+	}
 	switch target {
 	case TargetSkillDirectory:
 		if len(tc.SkillPaths) > 0 {
 			return newError(CategoryInvalidSuite, "task %q sets skill_directories, which would bypass the candidate skill", tc.TestID)
 		}
+		if tc.ContextRoot != "" && !filepath.IsAbs(tc.ContextRoot) {
+			return newError(CategoryInvalidSuite, "task %q sets a relative context_dir %q, which the runner resolves from the working directory rather than the pinned suite; use an absolute path inside the suite", tc.TestID, tc.ContextRoot)
+		}
 	case TargetContextOverlay:
 		if tc.ContextRoot != "" {
 			return newError(CategoryInvalidSuite, "task %q sets context_dir, which would bypass the candidate overlay", tc.TestID)
-		}
-		if len(tc.Stimulus.Repos) > 0 {
-			return newError(CategoryInvalidSuite, "task %q clones repos, which would bypass the candidate overlay", tc.TestID)
 		}
 		if _, ok := tc.Stimulus.Metadata["fixture"]; ok {
 			return newError(CategoryInvalidSuite, "task %q sets inputs.context.fixture, which is read from the suite directory rather than the candidate overlay", tc.TestID)
