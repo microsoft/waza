@@ -39,6 +39,26 @@ function unfinishedAttempt(status: "dispatched" | "completion_unverified", code?
   return { ...fixture, attempts, diagnostics };
 }
 
+// Retries the third attempt under the first, so both retries share one parent.
+function siblingRetries(ids?: string[]) {
+  const parent = fixture.attempts[0]!.execution_id;
+  const attempts = fixture.attempts.map((attempt, index) =>
+    index === 2 ? { ...attempt, depth: 1, parent: { execution_id: parent, relationship: "retry" } } : attempt);
+  const diagnostics = ids ? [{ code: "sibling_attempts", execution_ids: ids,
+    message: "Multiple attempts name the same parent; concurrent retries each kept their own immutable evidence." }] : [];
+  return { ...fixture, attempts, diagnostics };
+}
+
+// Adds a second distinct decision for the first attempt, optionally with the producer's diagnostic.
+function duplicateDispatch(diagnosed: boolean) {
+  const target = fixture.attempts[0]!.execution_id;
+  const decisions = [...fixture.decisions, { decision_id: `decision-${"f".repeat(64)}`, execution_id: target,
+    native_attempt: 2, outcome: "distinct", policy: "distinct" }];
+  const diagnostics = diagnosed ? [...fixture.diagnostics, { code: "duplicate_dispatch_decision", execution_ids: [target],
+    message: "More than one distinct decision names the same execution; all are preserved." }] : fixture.diagnostics;
+  return { ...fixture, decisions, diagnostics };
+}
+
 test.describe("Execution attempt lineage in Lab", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [] }));
@@ -102,6 +122,19 @@ test.describe("Execution attempt lineage in Lab", () => {
     await expect(result.getByRole("list", { name: "Lineage diagnostics" })).toContainText("parent_unavailable");
   });
 
+  for (const [name, body, code] of [
+    ["sibling retries", siblingRetries(fixture.attempts.map((attempt) => attempt.execution_id)), "sibling_attempts"],
+    ["duplicate dispatch decisions", duplicateDispatch(true), "duplicate_dispatch_decision"],
+  ] as const) {
+    test(`shows ${name} with the complete ${code} diagnostic`, async ({ page }) => {
+      await page.route("**/api/v1/lineage**", (route) => route.fulfill({ body: JSON.stringify(body), contentType: "application/json" }));
+      await fill(page);
+      await load(page);
+      const result = panel(page).getByRole("status", { name: "Loaded attempt lineage" });
+      await expect(result.getByRole("list", { name: "Lineage diagnostics" })).toContainText(code);
+    });
+  }
+
   for (const [status, code] of [
     ["dispatched", "dispatched_without_completion"],
     ["completion_unverified", "completion_verification_interrupted"],
@@ -157,6 +190,12 @@ test.describe("Execution attempt lineage in Lab", () => {
     ["undiagnosed missing reuse source", 200, JSON.stringify({ ...fixture, decisions: [...fixture.decisions,
       { decision_id: `decision-${"e".repeat(64)}`, native_attempt: 4, outcome: "reused", policy: "reuse",
         source: { execution_id: `exec-${"e".repeat(64)}`, manifest_digest: "0".repeat(64) } }] })],
+    ["undiagnosed concurrent roots", 200, JSON.stringify({ ...fixture, diagnostics: [] })],
+    ["incomplete concurrent-root diagnostic", 200, JSON.stringify({ ...fixture, diagnostics: [{ ...fixture.diagnostics[0]!,
+      execution_ids: [fixture.attempts[0]!.execution_id] }] })],
+    ["undiagnosed sibling attempts", 200, JSON.stringify(siblingRetries())],
+    ["incomplete sibling diagnostic", 200, JSON.stringify(siblingRetries(fixture.attempts.slice(1).map((attempt) => attempt.execution_id)))],
+    ["undiagnosed duplicate dispatch", 200, JSON.stringify(duplicateDispatch(false))],
     ["duplicate keys", 200, `{"kind":"waza.execution-lineage",${JSON.stringify(fixture).slice(1)}`],
   ] as const) {
     test(`fails closed on ${name}`, async ({ page }) => {
