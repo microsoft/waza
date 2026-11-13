@@ -94,6 +94,16 @@ partial lineage. **Download lineage JSON** saves the exact response. The view is
 read-only and unavailable in the synthetic demo. See
 [logical attempts](../immutable-artifacts/#logical-attempts-embedding-preview).
 
+**External adapter dispatch** (unreleased, v0.42.0) in **Runner contract**
+translates a pasted work descriptor offline through
+`POST /api/v1/adapter/translate` and shows either the rejection diagnostics or
+the exact public call. **Dispatch through public contract** sends that call once
+to its public HTTP route and shows the adapter status and **Returned manifest**
+(public status, outcome, engine calls, execution ID, manifest digest, logical
+work and provenance hook state). **Download public result JSON** saves the verbatim public reply. The view never
+retries or schedules, and is unavailable in the synthetic demo. See
+[portable external execution adapters](../runner-adapters/).
+
 For a dashboard built from this source tree:
 
 ```bash

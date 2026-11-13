@@ -163,6 +163,26 @@ publication: use a fresh work directory, never overwrite valuable outputs, and
 retain partial bytes on failure for diagnosis. A successful write is not proof
 that another process received the result.
 
+### External scheduler adapter entrypoint (unreleased, v0.42.0)
+
+The same `reference` image is the thin entrypoint for an external scheduler.
+Supply one work descriptor on stdin and an existing writable store:
+
+```bash
+docker run --rm -i --network=none --read-only \
+  --mount type=bind,source="$PWD/store",target=/store \
+  "$IMAGE" runner adapter dispatch --store /store \
+  < examples/runner/adapter/submit.json > adapter-result.json
+```
+
+The container makes exactly one public `runner submit` call (or checkpoint or
+lineage call, depending on the descriptor) and prints one
+`waza.adapter-result`. It does not queue, place or retry anything. A descriptor
+that carries scheduler fields is rejected with exit 6 before any call. The
+production-boundary controls below run `translate`, `dispatch` and that
+rejection against the built image. See
+[portable external execution adapters](../runner-adapters/).
+
 ## Smoke and production-boundary controls
 
 With Node.js 24 available on the host, run:

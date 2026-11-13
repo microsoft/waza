@@ -28,6 +28,7 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(newRunnerAdaptCommand())
+	cmd.AddCommand(newRunnerAdapterCommand())
 	cmd.AddCommand(newRunnerCheckpointCommand(service))
 	cmd.AddCommand(newRunnerSubmitCommand(service, artifactmanifest.OpenBackend))
 	cmd.AddCommand(newRunnerLineageCommand(artifactmanifest.OpenBackend))

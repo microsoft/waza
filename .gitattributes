@@ -36,3 +36,5 @@ internal/executionledger/testdata/** -text
 internal/executioncheckpoint/testdata/** -text
 # Evidence fixtures are exact-byte canonical writer and digest oracles.
 internal/evidencestate/testdata/** -text
+# Adapter descriptor examples are exact-byte inputs to the Lab fixture.
+examples/runner/adapter/*.json text eol=lf

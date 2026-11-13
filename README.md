@@ -469,6 +469,14 @@ top-level exit `2` while the preserved completed or reused submission still has
 nested exit `0`.
 See the [checkpoint workflow and limits](site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
+**External execution adapters (unreleased, v0.42.0):** `waza runner adapter
+translate < descriptor.json` translates one external work descriptor offline
+into exactly one public runner call, and `waza runner adapter dispatch --store
+.waza-artifacts < descriptor.json` (or `--endpoint URL`) performs that call once
+and returns the mapped status and manifest digest. Scheduler fields such as
+queue, priority or placement are rejected (exit 6) rather than dropped; Waza
+stays translation-only. See [portable external execution adapters](site/src/content/docs/guides/runner-adapters.mdx).
+
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
 keeps the default scratch image mock-only and provides an explicit
 `native-reference` target for the exact-unit native Copilot text profile. The
