@@ -310,10 +310,8 @@ published both releases and generated registry/version updates on `release/v0.41
 only its final automated PR-creation step failed, so the PR was opened manually. Artifact publication and registry
 synchronization remain separate gates; publishing archives alone does not
 update the registry.
-The installation source below follows `main`, not this branch. Before the
-[release-sync PR #987](https://github.com/microsoft/waza/pull/987) merges, that URL
-still serves `0.40.1`; after the merge it includes `0.41.0`. Updating an
-installation before the merge cannot select `0.41.0` from that source.
+The installation source below follows `main`. The v0.41.0 registry update
+merged in [release-sync PR #987](https://github.com/microsoft/waza/pull/987).
 The generated entry at commit `c385f6d12d393e9c23c54b2cc19478936604cd86`
 has exactly six platform URLs, entrypoints and SHA-256 values matching the
 published archives, with prior registry data unchanged. That registry comparison

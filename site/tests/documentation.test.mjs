@@ -702,10 +702,9 @@ test('extension installation guidance identifies the current registry version', 
   assert.match(release, /repository registry lists through `0\.41\.0`/);
   assert.doesNotMatch(section + release, /not yet merged to main|merge to main\s+remains pending|registry still lists through `0\.39\.1`/);
   for (const text of [read('README.md'), section, release]) {
-    assert.match(text, /source (?:URL above|below) follows `main`, not this branch/);
+    assert.match(text, /source (?:URL above|below) follows `main`/);
     assert.match(text, /release-sync PR #987/);
-    assert.match(text, /still serves `0\.40\.1`; after the merge it includes `0\.41\.0`/);
-    assert.match(text, /installation before the merge cannot select `0\.41\.0` from that source/);
+    assert.doesNotMatch(text, /before (?:the\s+)?(?:\[release-sync PR #987\][^\n]*|merge)|after the merge it includes/i);
   }
 });
 
@@ -922,6 +921,57 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
     assert.match(text, /defaults to `VERSION=0\.1\.0`/, path);
     assert.match(text, /`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`/, path);
   }
+});
+
+function taggedBuildVersions(text) {
+  const versions = [];
+  for (const [, block] of text.matchAll(/^```(?:bash|sh)\s*\n([\s\S]*?)^```/gm)) {
+    const tag = block.match(/git clone --branch v(\d+\.\d+\.\d+)\b/)?.[1];
+    if (!tag) continue;
+    const stamp = block.match(/make build VERSION=(\d+\.\d+\.\d+)\b/)?.[1];
+    assert.equal(stamp, tag, `source tag v${tag} must match its build VERSION`);
+    versions.push(tag);
+  }
+  return versions;
+}
+
+test('current onboarding uses matching published source tags and build stamps', () => {
+  const published = read('CHANGELOG.md').match(/^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$/m)?.[1];
+  assert.ok(published);
+  for (const path of ['README.md', 'docs/GUIDE.md', 'site/src/content/docs/quick-start.mdx',
+    'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/reference/releases.mdx']) {
+    assert.ok(taggedBuildVersions(read(path)).includes(published), `${path} must show the published release`);
+  }
+  const gettingStarted = read('site/src/content/docs/getting-started.mdx');
+  assert.equal(gettingStarted.match(/standalone stable is `v([^`]+)`/)?.[1], published);
+  const cliReference = read('site/src/content/docs/reference/cli.mdx');
+  assert.equal(cliReference.match(/published standalone `v([^`]+)`/)?.[1], published);
+  for (const path of ['site/src/content/docs/index.mdx', 'site/src/content/docs/concepts.mdx']) {
+    assert.match(read(path), new RegExp(`install(?:ing)? v${published.replaceAll('.', '\\.')}`), path);
+  }
+
+  const historical = '```bash\ngit clone --branch v0.40.0 https://github.com/microsoft/waza.git\nmake build VERSION=0.40.0\n```';
+  assert.deepEqual(taggedBuildVersions(historical), ['0.40.0']);
+  assert.throws(() => taggedBuildVersions(historical.replace('VERSION=0.40.0', 'VERSION=0.41.0')));
+  assert.throws(() => taggedBuildVersions(historical.replace(' VERSION=0.40.0', '')));
+});
+
+function assertSchemaAttribution(text, sourceWriter) {
+  assert.match(text, /This table describes current source\./);
+  assert.match(text, /Published standalone `v0\.41\.0` writes\s+results `1\.9`/);
+  assert.match(text, /`v0\.40\.0` and `v0\.40\.1` write `1\.8`/);
+  assert.match(text, /`v0\.39\.1`\s+writes `1\.7`/);
+  const writer = text.match(/^\| Newly generated `results\.json` \| `schemaVersion` \| `([^`]+)` \|$/m)?.[1];
+  assert.equal(writer, sourceWriter);
+}
+
+test('schema reference distinguishes current and published result writers', () => {
+  const writer = read('internal/models/schema_version.go').match(/CurrentResultSchemaVersion = "([^"]+)"/)?.[1];
+  assert.ok(writer);
+  const reference = read('site/src/content/docs/reference/schema-changes.md');
+  assertSchemaAttribution(reference, writer);
+  assert.throws(() => assertSchemaAttribution(reference.replace('This table describes current source.', 'This table describes standalone v0.40.0.'), writer));
+  assert.throws(() => assertSchemaAttribution(reference.replace('results `1.9`', 'results `1.8`'), writer));
 });
 
 test('published workflow guides do not require unreleased main for v0.39.0 features', () => {

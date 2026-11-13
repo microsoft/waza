@@ -78,6 +78,6 @@ test('release separates standalone assets, extension sync and image acceptance',
     .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0');
   await expect(main).toContainText('The repository registry lists through 0.41.0.');
   await expect(main).toContainText('generated registry/version updates on release/v0.41.0');
-  await expect(main).toContainText('still serves 0.40.1; after the merge it includes 0.41.0');
-  await expect(main).toContainText('installation before the merge cannot select 0.41.0 from that source');
+  await expect(main).toContainText('The v0.41.0 registry update merged in release-sync PR #987.');
+  await expect(main).not.toContainText('still serves 0.40.1; after the merge it includes 0.41.0');
 });

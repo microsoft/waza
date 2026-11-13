@@ -9,7 +9,7 @@ then the [offline Quick Start](../site/src/content/docs/quick-start.mdx).
 Mock trials prove harness wiring, not agent quality. Read the
 [authentication and usage prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution)
 before model-backed runs. Scenario/preflight/evidence features were introduced in
-`v0.39.0` and remain in published `v0.40.0` (November 4, 2026); install the
+`v0.39.0` and remain in published `v0.41.0` (November 13, 2026); install the
 current release or run `waza update`.
 Explicit opt-in and platform limits still apply; see
 [availability](../site/src/content/docs/reference/releases.mdx).
@@ -123,15 +123,14 @@ Requires **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended)
 locked dashboard dependencies and generates embedded assets before Go compilation:
 
 ```bash
-git clone --branch v0.40.0 https://github.com/microsoft/waza.git
+git clone --branch v0.41.0 https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-make build VERSION=0.40.0
+make build VERSION=0.41.0
 ```
 
-For source checkouts that include the dashboard dependency cache (not the
-pinned v0.40.0 checkout above), later builds reuse locked dependencies while
+In the pinned v0.41.0 checkout above, later builds reuse locked dependencies while
 `web/package.json` and `web/package-lock.json` are unchanged. If
 `web/node_modules` becomes stale or corrupt, restore it with:
 

@@ -15,7 +15,7 @@ and separately versioned
 are published from the `v0.41.0` tag. See the
 [release article](site/src/content/docs/releases/v0-41-0.mdx) and
 [download reference](site/src/content/docs/reference/releases.mdx).
-This entry covers the complete v0.41.0 milestone scope merged on current `main`
+This entry covers the v0.41.0 scope through the release preparation snapshot
 `efb2d2b61821d556c654075ca02f77b5f37764f1`, compared with published v0.40.1
 (`e0c251df896bee4e0f9b38a693a6105bf7eadd19`). Entries previously listed under
 Unreleased are folded in here. The published baseline is not an ancestor of
@@ -28,7 +28,7 @@ comparison, not a new binary-provenance verification. The v0.41.0 tag carries
 its exact target metadata (`0.41.0`); old tags are not rewritten. Registry
 availability follows the separate registry-sync pull request. The
 post-publication released-consumer
-completion requirement (#902) is tracked separately.
+completion requirement was verified and closed in [#902](https://github.com/microsoft/waza/issues/902).
 
 ### Added
 
