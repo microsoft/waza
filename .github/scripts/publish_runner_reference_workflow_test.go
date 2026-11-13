@@ -220,7 +220,9 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 	if inventoryAttestation == nil || !strings.HasPrefix(inventoryAttestation.Uses, "actions/attest@") ||
 		inventoryAttestation.With["subject-name"] != "ghcr.io/microsoft/waza-runner-reference" ||
 		inventoryAttestation.With["subject-digest"] != "${{ steps.build.outputs.digest }}" ||
-		inventoryAttestation.With["sbom-path"] != "${{ runner.temp }}/runner-inventory.cdx.json" ||
+		inventoryAttestation.With["predicate-type"] != "https://cyclonedx.org/bom" ||
+		inventoryAttestation.With["predicate-path"] != "${{ runner.temp }}/runner-inventory.cdx.json" ||
+		inventoryAttestation.With["sbom-path"] != "" ||
 		inventoryAttestation.With["push-to-registry"] != "true" ||
 		inventoryAttestation.With["create-storage-record"] != "false" {
 		t.Fatalf("component inventory must be attested to the exact pushed digest: %#v", inventoryAttestation)

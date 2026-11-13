@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -248,7 +249,7 @@ func purlMatches(c Component) bool {
 	}
 	rest, _, _ = strings.Cut(rest, "#")
 	rest, _, _ = strings.Cut(rest, "?")
-	_, rest, ok = strings.Cut(rest, "/")
+	purlType, rest, ok := strings.Cut(rest, "/")
 	if !ok {
 		return false
 	}
@@ -264,7 +265,19 @@ func purlMatches(c Component) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(path, c.Name) || strings.EqualFold(path[strings.LastIndex(path, "/")+1:], c.Name)
+	last := path[strings.LastIndex(path, "/")+1:]
+	if strings.EqualFold(purlType, "pypi") {
+		name := normalizePyPIName(c.Name)
+		return normalizePyPIName(path) == name || normalizePyPIName(last) == name
+	}
+	return strings.EqualFold(path, c.Name) || strings.EqualFold(last, c.Name)
+}
+
+var pypiSeparators = regexp.MustCompile(`[-_.]+`)
+
+// normalizePyPIName applies PEP 503 name normalization.
+func normalizePyPIName(name string) string {
+	return strings.ToLower(pypiSeparators.ReplaceAllString(name, "-"))
 }
 
 func subjectRef(s Subject) string {

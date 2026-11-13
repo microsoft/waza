@@ -215,6 +215,24 @@ func TestVerifyFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPyPINamesNormalizeAgainstPURL(t *testing.T) {
+	gen := func(purl string) error {
+		_, err := inventory.Generate(inventory.GenerateInput{
+			SubjectKind: inventory.SubjectImage, SubjectName: imageRepo, SubjectDigest: imageDigest,
+			Components: []inventory.Component{{Type: "library", Name: "typing_extensions", Version: "4.12.2", PURL: purl}},
+		})
+		return err
+	}
+	if err := gen("pkg:pypi/typing-extensions@4.12.2"); err != nil {
+		t.Fatalf("normalized PyPI name rejected: %v", err)
+	}
+	for _, purl := range []string{"pkg:pypi/typing-extension@4.12.2", "pkg:pypi/typing-extensions@4.12.3", "pkg:npm/typing-extensions@4.12.2"} {
+		if err := gen(purl); err == nil || !strings.Contains(err.Error(), "component_purl_mismatch") {
+			t.Errorf("%s: err = %v; want component_purl_mismatch", purl, err)
+		}
+	}
+}
+
 func TestGenerateRejectsUnboundInventories(t *testing.T) {
 	component := []inventory.Component{{Type: "library", Name: "x", Version: "1"}}
 	for name, in := range map[string]inventory.GenerateInput{

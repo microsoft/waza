@@ -188,7 +188,8 @@ jobs:
         with:
           subject-name: ghcr.io/microsoft/waza-runner-reference
           subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: ${{ runner.temp }}/runner-inventory.cdx.json
+          predicate-type: https://cyclonedx.org/bom
+          predicate-path: ${{ runner.temp }}/runner-inventory.cdx.json
           push-to-registry: true
           create-storage-record: false
       - name: Upload runner image component inventory

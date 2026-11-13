@@ -146,7 +146,7 @@ a mismatched inventory.
 | `subject_digest_mismatch` | Inventory describes another image or plugin | Treat as unverified; do not use |
 | `subject_name_mismatch` | Pinned repository or plugin name differs | Confirm what you consumed |
 | `components_empty`, `component_duplicate`, `component_ref_mismatch` | Component list altered | Treat as tampered |
-| `component_purl_mismatch` | A component's name or version contradicts its package URL | Treat as tampered |
+| `component_purl_mismatch` | A component's name or version contradicts its package URL (PyPI names compare after PEP 503 normalization) | Treat as tampered |
 | `binding_required_missing` | `--require-inventory` and the bundle binds none | Regenerate the bundle with `--bind component-inventory=PATH` |
 
 ## Requirements for consumed images and plugins
