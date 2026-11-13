@@ -27,8 +27,11 @@ Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See
 
 The unreleased [logical execution-attempt embedding API](docs/EXECUTION_ATTEMPTS.md)
 adds immutable reservations and explicit verified reuse without changing
-`runner run`. Public submission commands and Lab lineage integration remain
-pending; this is not available in installed v0.40.1 artifacts.
+`runner run`. Unreleased source commands `runner submit` and `runner lineage`
+record distinct, retry and reuse attempts and print ordered lineage with
+derived [lifecycle state](docs/EXECUTION_LIFECYCLE.md) (cancellation, deadline,
+orphan detection and advisory retry eligibility); this is not available in
+installed v0.40.1 artifacts.
 The [checkpoint embedding preview](docs/EXECUTION_CHECKPOINTS.md) adds compatible
 whole-unit recovery. Its unreleased source CLI adds `runner checkpoint create`
 and `runner checkpoint resume`, with protected HTTP create/resume operations.
@@ -257,6 +260,9 @@ waza grade eval.yaml --results results.json
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
+# Optimize a skill or context candidate with held-out qualification (source preview)
+waza optimize run eval.yaml --seed ./my-skill --optimization-tag train --qualification-tag holdout
+
 # Capture snapshots during a run and inspect offline consistency
 waza run eval.yaml --snapshot ./snapshots/
 waza replay ./snapshots/my-task-run1.json
@@ -336,6 +342,26 @@ of `--store`, with existing credentials and no automatic login. Lab can discover
 stored declaration pointers and inspect current integrity. Unreadable publication
 or an ambiguous finalization write reports `unknown`, not observed marker absence. See
 [declaration, publication, recovery and migration](docs/IMMUTABLE_ARTIFACTS.md).
+
+### `waza optimize` (unreleased v0.41 source preview)
+
+An optimizer adapter proposes skill or context candidates, and Waza evaluates
+each one with the normal harness against a pinned suite. A candidate is
+accepted only if it improves the optimization split and does not regress on a
+held-out qualification split:
+
+```bash
+waza optimize capabilities
+waza optimize run examples/optimizer/eval.yaml \
+  --target context-overlay --seed examples/optimizer/seed \
+  --optimization-tag optimization --qualification-tag qualification \
+  --adapter fake --fake-script examples/optimizer/fake-script.json
+```
+
+The adapters are `fake` (offline), `command` (any executable using JSON on
+stdin and stdout) and `copilot-reflect` (paid). Paid adapters and non-mock
+executors require `--allow-paid-calls`. Spend is reported, never capped.
+See [Optimizer Adapters](site/src/content/docs/guides/optimizer-adapters.mdx).
 
 <span id="waza-interop-source-build-preview"></span>
 
@@ -420,7 +446,9 @@ See the [compatibility table and before/after examples](site/src/content/docs/gu
 **Unreleased checkpoint source preview:** `waza runner checkpoint create --store
 .waza-artifacts < submission.json` publishes whole-unit checkpoints;
 `waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
-submission.json` admits compatible recovery. These commands require a clean
+submission.json` admits compatible recovery. `waza runner checkpoint availability
+CHECKPOINT_SHA256` checks the same inputs read-only first and explains why a
+checkpoint cannot be resumed. These commands require a clean
 VCS-stamped CLI and a captured submission wrapper, not a bare runner request.
 Ordinary results remain strict schema `1.0`; sanitized pre-store and store-close
 operational failures use schema `1.1`, status `operation_error`, exit code `2`,

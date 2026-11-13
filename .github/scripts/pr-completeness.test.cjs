@@ -123,6 +123,7 @@ test('actual API/model/schema and container paths select production consumers; u
   assert.equal(applicability([frozenReader]).assurance, true);
   assert.equal(applicability(['testdata/frozen-assurance-readers-near-miss/manifest.json']).assurance, false);
   assert.equal(applicability(['internal/embedded/path.go']).runtime, true);
+  assert.equal(applicability(['.gitattributes']).runtime, true);
   assert.equal(applicability(['.dockerignore']).container, true);
   assert.equal(applicability(['examples/runner/container/Dockerfile']).container, true);
   assert.deepEqual(applicability(['AGENTS.md']), {
@@ -132,6 +133,27 @@ test('actual API/model/schema and container paths select production consumers; u
     assert.equal(applicability([file]).site, true);
     assert.equal(applicability([file]).dashboard, false);
   }
+});
+
+test('plan applicability is a superset of every workflow-internal change filter it replaced', () => {
+  const read = (file) => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8').replace(/\r\n/g, '\n');
+  const globs = (workflow, filter) => {
+    const block = read(workflow).match(new RegExp(`^            ${filter}:\\n((?:              - '[^'\\n]+'\\n)+)`, 'm'))?.[1];
+    assert.ok(block, `${workflow} ${filter} filter must exist`);
+    return [...block.matchAll(/- '([^']+)'/g)].map((match) => match[1]);
+  };
+  for (const [workflow, filter, family] of [
+    ['.github/workflows/web-ci.yml', 'web', 'dashboard'],
+    ['.github/workflows/site-ci.yml', 'site', 'site'],
+    ['.github/workflows/site-ci.yml', 'examples', 'examples'],
+  ]) {
+    for (const glob of globs(workflow, filter)) {
+      const sample = glob.replace(/\*\*?/g, 'x');
+      assert.equal(applicability([sample])[family], true, `${glob} (${workflow}) must select ${family}`);
+    }
+  }
+  assert.equal(applicability(['.github/scripts/ci-evidence-cache.cjs']).dashboard, true);
+  assert.equal(applicability(['.github/scripts/ci-evidence-near-miss/x.cjs']).dashboard, false);
 });
 
 test('runtime package and reader/schema helpers select the proof, while adjacent unrelated prefixes do not', () => {
@@ -149,15 +171,15 @@ test('runtime package and reader/schema helpers select the proof, while adjacent
 test('site compound chat outcome covers all three commands without inventing separate step outcomes', () => {
   const workflow = fs.readFileSync(path.resolve(__dirname, '../..', '.github/workflows/site-ci.yml'), 'utf8');
   assert.ok(workflow.includes('run: cd site && npm run test:private-chat && PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-report.json npm run test:chat -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat && PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-unavailable-report.json npm run test:chat-unavailable -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat-unavailable'));
-  assert.equal(contracts.site.units.site.includes('chat'), true);
+  assert.equal(contracts.site.units.site.includes('chat-tests'), true);
   assert.equal(contracts.site.units.site.includes('private_chat'), false);
   assert.equal(contracts.site.units.site.includes('chat_unavailable'), false);
   const control = fixture(['site/package.json']);
   const site = control.receipts.find((receipt) => receipt.family === 'site');
   assert.equal(evaluate(control.plan, control.needs, control.receipts, control.current_pr).passed, true);
-  site.steps.chat.outcome = 'failure';
+  site.steps['chat-tests'].outcome = 'failure';
   assert.equal(evaluate(control.plan, control.needs, control.receipts, control.current_pr).passed, false);
-  site.steps.chat.outcome = 'success';
+  site.steps['chat-tests'].outcome = 'success';
   site.browser_reports.chat_unavailable = browser('unavailable-service assertion', 'failed');
   assert.equal(evaluate(control.plan, control.needs, control.receipts, control.current_pr).passed, false);
 });
@@ -387,7 +409,7 @@ test('receipt capture strips unrelated outputs and browser logs rather than reta
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, 'd'.repeat(40), reports, source));
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports, { ...source, workflow: 'Independent observation' }), /Source mismatch: workflow/);
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports, { ...source, run_attempt: '2' }), /Source mismatch: run_attempt/);
-  delete steps.browser;
+  delete steps.tests;
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports, source));
 
   const windows = control.receipts.find((receipt) => receipt.family === 'go' && receipt.unit === 'windows');

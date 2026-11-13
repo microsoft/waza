@@ -38,6 +38,7 @@ func checkpointBackendFor(resultsDir string, config *projectconfig.StorageConfig
 }
 
 func registerCheckpointOperationRoutes(mux *http.ServeMux, operations checkpointOperations) {
+	mux.HandleFunc("POST /api/v1/checkpoints/{digest}/availability", operations.availability)
 	for _, action := range []string{"create", "resume"} {
 		path := "POST /api/v1/checkpoints"
 		if action == "resume" {
@@ -114,4 +115,72 @@ func registerCheckpointOperationRoutes(mux *http.ServeMux, operations checkpoint
 			emit(status, result)
 		})
 	}
+}
+
+// availability is a read-only resume preflight; it never reserves or executes.
+func (operations checkpointOperations) availability(w http.ResponseWriter, r *http.Request) {
+	inputComplete := false
+	digest := r.PathValue("digest")
+	emit := func(status int, result runnercheckpoint.Availability) {
+		data, err := runnercheckpoint.EncodeAvailability(result)
+		if err != nil {
+			logRunnerError("validating checkpoint availability output; aborting without disclosure", "error", err)
+			panic(http.ErrAbortHandler)
+		}
+		if err := WriteRunnerOperationJSON(w, status, result.ExitCode, data, inputComplete); err != nil {
+			logRunnerError("writing checkpoint availability output; no retry", "error", err)
+		}
+	}
+	data, inputErr := ReadRunnerOperationInput(w, r, runnerunit.MaxSubmissionBytes)
+	if inputErr != nil {
+		logRunnerError("checkpoint availability input admission failed", "error", inputErr.Err)
+		emit(inputErr.Status, runnercheckpoint.AvailabilityRejected(digest, inputErr.Code))
+		return
+	}
+	inputComplete = true
+	if err := executioncheckpoint.ValidateDigest(digest); err != nil {
+		emit(http.StatusBadRequest, runnercheckpoint.AvailabilityRejected("", "checkpoint_digest_invalid"))
+		return
+	}
+	if _, err := runnerunit.ParseSubmission(data); err != nil {
+		logRunnerError("checkpoint availability submission parsing failed",
+			"guidance", "Inspect the submission and local schema initialization.")
+		emit(http.StatusBadRequest, runnercheckpoint.AvailabilityRejected(digest, "checkpoint_input_invalid"))
+		return
+	}
+	revision, err := operations.revision()
+	if err != nil {
+		logRunnerError("checkpoint availability build admission failed", "error", err)
+		emit(http.StatusServiceUnavailable, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeBuildUnavailable))
+		return
+	}
+	checkpoints, err := runnercheckpoint.NewService(operations.runner, revision)
+	if err != nil {
+		logRunnerError("checkpoint availability runner unavailable", "error", err)
+		emit(http.StatusServiceUnavailable, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeRunnerUnavailable))
+		return
+	}
+	backend, closeBackend, err := operations.open()
+	if err != nil {
+		logRunnerError("checkpoint availability storage unavailable", "error", err)
+		emit(http.StatusServiceUnavailable, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeStorageUnavailable))
+		return
+	}
+	result, err := checkpoints.Availability(r.Context(), data, backend, digest)
+	if closeErr := closeBackend(); closeErr != nil {
+		logRunnerError("checkpoint availability store close failed", "error", errors.Join(err, closeErr))
+		emit(http.StatusServiceUnavailable, runnercheckpoint.AvailabilityOperationError(digest, runnercheckpoint.ErrorCodeStorageCloseFailed))
+		return
+	}
+	if errors.Is(err, runnercheckpoint.ErrAvailabilityInput) {
+		logRunnerError("checkpoint availability request admission failed",
+			"guidance", "Inspect the captured request against this build; its cause is withheld.")
+	} else if err != nil {
+		logRunnerError("checkpoint availability check did not admit resume", "error", err)
+	}
+	status := map[string]int{
+		"available": http.StatusOK, "unavailable": http.StatusConflict,
+		"rejected": http.StatusBadRequest, "operation_error": http.StatusServiceUnavailable,
+	}[result.Status]
+	emit(status, result)
 }

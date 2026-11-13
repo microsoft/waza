@@ -98,7 +98,7 @@ process.stdout.write(JSON.stringify(require("./pr-completeness.cjs").applicabili
 
 func TestCompletenessProductionCLIControls(t *testing.T) {
 	output := runCompletenessNode(t, "--test", "--test-reporter=tap", "pr-completeness.test.cjs")
-	for metric, count := range map[string]int{"tests": 17, "pass": 17, "fail": 0, "cancelled": 0, "skipped": 0} { //nolint:misspell // Node TAP field name.
+	for metric, count := range map[string]int{"tests": 18, "pass": 18, "fail": 0, "cancelled": 0, "skipped": 0} { //nolint:misspell // Node TAP field name.
 		pattern := regexp.MustCompile(fmt.Sprintf(`(?m)^# %s %d\r?$`, metric, count))
 		if !pattern.Match(output) {
 			t.Fatalf("production Node controls lack expected %s=%d evidence:\n%s", metric, count, output)
@@ -824,7 +824,20 @@ func TestCompletenessRuntimeImportClosure(t *testing.T) {
 	}
 }
 
-func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string) error {
+// receiptJob identifies one receipt-producing job. An empty job means the
+// workflow must contain exactly one job. Guard is an extra condition conjunct
+// for jobs that also run when their family is not selected.
+type receiptJob struct {
+	family string
+	job    string
+	units  []string
+	runner string
+	guard  string
+}
+
+func checkAuxiliaryReceiptJob(source []byte, family string, spec receiptJob) error {
+	units := spec.units
+	label := family + "/" + strings.Join(units, ",")
 	triggers, err := readTriggers(source)
 	if err != nil {
 		return err
@@ -833,43 +846,25 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 	if input.Type != "string" ||
 		input.Default != (workflowLiteral{Present: true, Tag: "!!str", Value: ""}) ||
 		(input.Required.Present && input.Required.Value != "false") {
-		return fmt.Errorf("%s completeness plan input must remain optional and inactive", family)
+		return fmt.Errorf("%s completeness plan input must remain optional and inactive", label)
 	}
-	if _, ok := triggers["pull_request"]; !ok {
-		return fmt.Errorf("%s lost its direct pull request trigger", family)
+	// Docker keeps its standalone trigger for the separately admitted edited-body benchmark.
+	if _, ok := triggers["pull_request"]; ok != (family == "container") {
+		return fmt.Errorf("%s pull requests must run only through the Go completeness caller", label)
 	}
 	if _, ok := triggers["push"]; !ok {
-		return fmt.Errorf("%s lost its direct push trigger", family)
+		return fmt.Errorf("%s lost its direct push trigger", label)
 	}
 
-	var workflow struct {
-		Jobs map[string]struct {
-			RunsOn   string `yaml:"runs-on"`
-			Strategy struct {
-				Matrix struct {
-					Include []struct {
-						OS   string `yaml:"os"`
-						Unit string `yaml:"unit"`
-					} `yaml:"include"`
-				} `yaml:"matrix"`
-			} `yaml:"strategy"`
-			Steps []struct {
-				ID              string               `yaml:"id"`
-				Uses            string               `yaml:"uses"`
-				If              string               `yaml:"if"`
-				Run             string               `yaml:"run"`
-				ContinueOnError yaml.Node            `yaml:"continue-on-error"`
-				With            map[string]yaml.Node `yaml:"with"`
-			} `yaml:"steps"`
-		} `yaml:"jobs"`
+	type workflowStep struct {
+		ID              string               `yaml:"id"`
+		Uses            string               `yaml:"uses"`
+		If              string               `yaml:"if"`
+		Run             string               `yaml:"run"`
+		ContinueOnError yaml.Node            `yaml:"continue-on-error"`
+		With            map[string]yaml.Node `yaml:"with"`
 	}
-	if err := yaml.Unmarshal(source, &workflow); err != nil {
-		return err
-	}
-	if len(workflow.Jobs) != 1 {
-		return fmt.Errorf("%s must retain one receipt-producing job", family)
-	}
-	var job struct {
+	type workflowJob struct {
 		RunsOn   string `yaml:"runs-on"`
 		Strategy struct {
 			Matrix struct {
@@ -879,16 +874,27 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 				} `yaml:"include"`
 			} `yaml:"matrix"`
 		} `yaml:"strategy"`
-		Steps []struct {
-			ID              string               `yaml:"id"`
-			Uses            string               `yaml:"uses"`
-			If              string               `yaml:"if"`
-			Run             string               `yaml:"run"`
-			ContinueOnError yaml.Node            `yaml:"continue-on-error"`
-			With            map[string]yaml.Node `yaml:"with"`
-		} `yaml:"steps"`
+		Steps []workflowStep `yaml:"steps"`
 	}
-	for _, candidate := range workflow.Jobs {
+	var workflow struct {
+		Jobs map[string]workflowJob `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	var job workflowJob
+	if spec.job == "" {
+		if len(workflow.Jobs) != 1 {
+			return fmt.Errorf("%s must retain one receipt-producing job", label)
+		}
+		for _, candidate := range workflow.Jobs {
+			job = candidate
+		}
+	} else {
+		candidate, ok := workflow.Jobs[spec.job]
+		if !ok {
+			return fmt.Errorf("%s receipt-producing job %s is missing", label, spec.job)
+		}
 		job = candidate
 	}
 	if len(units) > 1 {
@@ -899,48 +905,39 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 			"macos":   "macos-latest",
 		}
 		if job.RunsOn != "${{ matrix.os }}" {
-			return fmt.Errorf("%s matrix job must run on its declared OS", family)
+			return fmt.Errorf("%s matrix job must run on its declared OS", label)
 		}
 		for _, member := range job.Strategy.Matrix.Include {
 			if member.OS == "" || member.Unit == "" {
-				return fmt.Errorf("%s matrix member lacks an OS or stable unit", family)
+				return fmt.Errorf("%s matrix member lacks an OS or stable unit", label)
 			}
 			if member.OS != expectedRunners[member.Unit] {
-				return fmt.Errorf("%s unit %s runs on %s; want %s", family, member.Unit, member.OS, expectedRunners[member.Unit])
+				return fmt.Errorf("%s unit %s runs on %s; want %s", label, member.Unit, member.OS, expectedRunners[member.Unit])
 			}
 			actual = append(actual, member.Unit)
 		}
 		if !reflect.DeepEqual(actual, units) {
-			return fmt.Errorf("%s matrix units %v; want %v", family, actual, units)
+			return fmt.Errorf("%s matrix units %v; want %v", label, actual, units)
 		}
-	} else if job.RunsOn != "ubuntu-latest" {
-		return fmt.Errorf("%s assurance receipt must retain its Ubuntu runner", family)
+	} else if job.RunsOn != spec.runner {
+		return fmt.Errorf("%s receipt must retain its %s runner", label, spec.runner)
 	}
 
-	steps := map[string]struct {
-		Uses string
-		If   string
-		Run  string
-		With map[string]yaml.Node
-	}{}
+	steps := map[string]workflowStep{}
 	for _, step := range job.Steps {
 		if step.ID == "" {
 			continue
 		}
 		if _, duplicate := steps[step.ID]; duplicate {
-			return fmt.Errorf("%s duplicate step id %s", family, step.ID)
+			return fmt.Errorf("%s duplicate step id %s", label, step.ID)
 		}
 		if step.ContinueOnError.Kind != 0 &&
 			(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false") {
-			return fmt.Errorf("%s step %s tolerates failure", family, step.ID)
+			return fmt.Errorf("%s step %s tolerates failure", label, step.ID)
 		}
-		steps[step.ID] = struct {
-			Uses string
-			If   string
-			Run  string
-			With map[string]yaml.Node
-		}{step.Uses, step.If, step.Run, step.With}
+		steps[step.ID] = step
 	}
+	planCondition := "inputs.pr_completeness_plan != ''" + spec.guard
 	sourceCheckout := false
 	planDownload := false
 	for _, step := range job.Steps {
@@ -948,43 +945,55 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 		case strings.HasPrefix(step.Uses, "actions/checkout@"):
 			sourceCheckout = step.With["fetch-depth"].Value == "2"
 		case strings.HasPrefix(step.Uses, "actions/download-artifact@"):
-			planDownload = step.If == "inputs.pr_completeness_plan != ''" &&
+			planDownload = step.If == planCondition &&
 				step.With["name"].Value == "${{ inputs.pr_completeness_plan }}" &&
 				step.With["path"].Value == "${{ runner.temp }}/pr-completeness-plan"
 		}
 	}
 	if !sourceCheckout || !planDownload {
-		return fmt.Errorf("%s must fetch both merge parents and the exact current-run plan artifact", family)
+		return fmt.Errorf("%s must fetch both merge parents and the exact current-run plan artifact", label)
 	}
 	required := map[string][]string{
-		"assurance": {"checkout", "build", "custody", "guard", "qualification", "export", "preserved_export", "consent", "reader", "preserved_reader", "browser"},
-		"tools":     {"checkout", "integrity", "tests"},
-		"runtime":   {"checkout", "tests"},
-	}[family]
-	for _, id := range required {
+		"assurance":           {"checkout", "build", "custody", "guard", "qualification", "export", "preserved_export", "consent", "reader", "preserved_reader", "browser"},
+		"tools":               {"checkout", "integrity", "tests"},
+		"runtime":             {"checkout", "tests"},
+		"dashboard":           {"checkout", "node", "install", "go", "lint", "build", "chromium", "tests"},
+		"site":                {"checkout", "node", "install", "build", "metadata", "chromium", "tests", "chat-tests"},
+		"examples":            {"checkout", "build", "examples"},
+		"container/image":     {"checkout", "build", "version"},
+		"container/reference": {"checkout", "controls", "subprocess", "native"},
+	}
+	ids, ok := required[family]
+	if !ok {
+		ids = required[family+"/"+units[0]]
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("%s has no required receipt step contract", label)
+	}
+	for _, id := range ids {
 		if _, ok := steps[id]; !ok {
-			return fmt.Errorf("%s receipt omits required step id %s", family, id)
+			return fmt.Errorf("%s receipt omits required step id %s", label, id)
 		}
 	}
 	checkout := steps["checkout"]
-	if checkout.If != "inputs.pr_completeness_plan != ''" ||
+	if checkout.If != planCondition ||
 		!strings.Contains(checkout.Run, `git rev-parse HEAD`) ||
 		!strings.Contains(checkout.Run, `GITHUB_OUTPUT`) {
-		return fmt.Errorf("%s checkout evidence is not conditionally source-bound", family)
+		return fmt.Errorf("%s checkout evidence is not conditionally source-bound", label)
 	}
 	receipt, ok := steps["receipt"]
 	if !ok {
-		return fmt.Errorf("%s receipt capture step is missing", family)
+		return fmt.Errorf("%s receipt capture step is missing", label)
 	}
 	unit := units[0]
 	if len(units) > 1 {
 		unit = `"${{ matrix.unit }}"`
 	}
-	if receipt.If != "always() && inputs.pr_completeness_plan != ''" ||
+	if receipt.If != "always() && "+planCondition ||
 		!strings.Contains(receipt.Run, `pr-completeness.cjs receipt`) ||
 		!strings.Contains(receipt.Run, `pr-completeness-plan/plan.json`) ||
 		!strings.Contains(receipt.Run, " "+family+" "+unit) {
-		return fmt.Errorf("%s receipt capture is not fail-closed or family-bound", family)
+		return fmt.Errorf("%s receipt capture is not fail-closed or family-bound", label)
 	}
 	upload := false
 	expectedReceiptPath := "${{ runner.temp }}/pr-completeness-receipt/receipt.json"
@@ -992,7 +1001,10 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 		expectedReceiptPath = "${{ runner.temp }}/pr-completeness-receipt-${{ matrix.unit }}/receipt.json"
 	}
 	for _, step := range job.Steps {
-		if !strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
+		if !strings.HasPrefix(step.Uses, "actions/upload-artifact@") ||
+			(!strings.Contains(step.With["name"].Value, "steps.receipt") &&
+				!strings.Contains(step.With["path"].Value, "pr-completeness-receipt") &&
+				!strings.Contains(step.If, "steps.receipt")) {
 			continue
 		}
 		upload = true
@@ -1000,31 +1012,50 @@ func checkAuxiliaryReceiptWorkflow(source []byte, family string, units []string)
 			step.With["name"].Value != "${{ steps.receipt.outputs.artifact_name }}" ||
 			step.With["path"].Value != expectedReceiptPath ||
 			step.With["if-no-files-found"].Value != "error" {
-			return fmt.Errorf("%s receipt upload does not require successful capture and an exact artifact", family)
+			return fmt.Errorf("%s receipt upload does not require successful capture and an exact artifact", label)
 		}
 	}
 	if !upload {
-		return fmt.Errorf("%s receipt artifact upload is missing", family)
+		return fmt.Errorf("%s receipt artifact upload is missing", label)
 	}
-	if family == "assurance" {
-		browser := steps["browser"]
-		if !strings.Contains(browser.Run, "--retries=0") ||
-			!strings.Contains(browser.Run, "--reporter=github,line,json") {
-			return fmt.Errorf("assurance browser receipt lacks explicit zero-retry JSON evidence")
+	browserSteps := map[string][]string{"assurance": {"browser"}, "dashboard": {"tests"}, "site": {"tests", "chat-tests"}}[family]
+	for _, id := range browserSteps {
+		reported := 0
+		for _, command := range strings.Split(steps[id].Run, "&&") {
+			if !strings.Contains(command, "--reporter=github,line,json") {
+				continue
+			}
+			reported++
+			if !strings.Contains(command, "--project=chromium") || !strings.Contains(command, "--retries=0") {
+				return fmt.Errorf("%s browser receipt step %s lacks explicit zero-retry Chromium evidence", label, id)
+			}
+		}
+		if reported == 0 {
+			return fmt.Errorf("%s browser receipt step %s lacks JSON evidence", label, id)
 		}
 	}
 	return nil
 }
 
 func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
+	siteGuard := " && needs.changes.outputs.site == 'true'"
 	workflows := []struct {
 		file   string
 		family string
-		units  []string
+		jobs   []receiptJob
 	}{
-		{"grader-assurance-ci.yml", "assurance", []string{"assurance"}},
-		{"squad-tools-ci.yml", "tools", []string{"linux", "windows"}},
-		{"evidence-judge-ci.yml", "runtime", []string{"linux", "macos"}},
+		{"grader-assurance-ci.yml", "assurance", []receiptJob{{units: []string{"assurance"}, runner: "ubuntu-latest"}}},
+		{"squad-tools-ci.yml", "tools", []receiptJob{{units: []string{"linux", "windows"}}}},
+		{"evidence-judge-ci.yml", "runtime", []receiptJob{{units: []string{"linux", "macos"}}}},
+		{"web-ci.yml", "dashboard", []receiptJob{{units: []string{"dashboard"}, runner: "ubuntu-latest"}}},
+		{"site-ci.yml", "site", []receiptJob{
+			{job: "build", units: []string{"site"}, runner: "ubuntu-latest", guard: siteGuard},
+			{family: "examples", job: "examples", units: []string{"examples"}, runner: "ubuntu-latest"},
+		}},
+		{"docker-ci.yml", "container", []receiptJob{
+			{job: "docker-build", units: []string{"image"}, runner: "ubuntu-latest"},
+			{job: "runner-reference", units: []string{"reference"}, runner: "ubuntu-24.04"},
+		}},
 	}
 	for _, workflow := range workflows {
 		t.Run(workflow.family, func(t *testing.T) {
@@ -1032,10 +1063,22 @@ func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := checkAuxiliaryReceiptWorkflow(source, workflow.family, workflow.units); err != nil {
+			check := func(source []byte) error {
+				for _, job := range workflow.jobs {
+					family := workflow.family
+					if job.family != "" {
+						family = job.family
+					}
+					if err := checkAuxiliaryReceiptJob(source, family, job); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			if err := check(source); err != nil {
 				t.Fatal(err)
 			}
-			for _, mutation := range []struct {
+			mutations := []struct {
 				old         string
 				replacement string
 			}{
@@ -1043,15 +1086,51 @@ func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
 				{"if: always() && inputs.pr_completeness_plan != ''", "if: inputs.pr_completeness_plan != ''"},
 				{"id: receipt", "id: omitted_receipt"},
 				{"pr-completeness.cjs receipt", "pr-completeness.cjs evaluate"},
-				{"fetch-depth: 2", "fetch-depth: 1"},
 				{"name: ${{ inputs.pr_completeness_plan }}", "name: unrelated-plan"},
 				{"path: ${{ runner.temp }}/pr-completeness-receipt", "path: ${{ runner.temp }}/unrelated/steps.json #"},
-			} {
+				{"id: checkout", "id: unrecorded_checkout"},
+				{"fetch-depth: 2", "fetch-depth: 1"},
+			}
+			if workflow.family == "site" {
+				mutations = append(mutations,
+					struct {
+						old         string
+						replacement string
+					}{"          lfs: true\n          fetch-depth: 2", "          lfs: true\n          fetch-depth: 1"},
+					struct {
+						old         string
+						replacement string
+					}{"examples examples", "examples site"},
+					struct {
+						old         string
+						replacement string
+					}{"--project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat-unavailable", "--project=chromium --reporter=github,line,json --output=test-results/chat-unavailable"},
+					struct {
+						old         string
+						replacement string
+					}{"if: always() && inputs.pr_completeness_plan != '' && needs.changes.outputs.site == 'true'", "if: always() && inputs.pr_completeness_plan != ''"},
+				)
+			}
+			if workflow.family == "container" {
+				mutations = append(mutations, struct {
+					old         string
+					replacement string
+				}{"        id: native\n", "\n"}, struct {
+					old         string
+					replacement string
+				}{"  pull_request:\n    branches: [main]\n    paths: *docker-paths\n", ""})
+			} else {
+				mutations = append(mutations, struct {
+					old         string
+					replacement string
+				}{"on:\n", "on:\n  pull_request:\n"})
+			}
+			for _, mutation := range mutations {
 				mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
 				if mutated == string(source) {
 					t.Fatalf("mutation did not change %s: %q", workflow.file, mutation.old)
 				}
-				if checkAuxiliaryReceiptWorkflow([]byte(mutated), workflow.family, workflow.units) == nil {
+				if check([]byte(mutated)) == nil {
 					t.Fatalf("%s mutation was admitted: %q", workflow.file, mutation.old)
 				}
 			}
@@ -1061,7 +1140,7 @@ func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
 				if mutated == string(source) {
 					t.Fatalf("native runner mutation did not change %s", workflow.file)
 				}
-				if checkAuxiliaryReceiptWorkflow([]byte(mutated), workflow.family, workflow.units) == nil {
+				if check([]byte(mutated)) == nil {
 					t.Fatalf("%s admitted Linux in place of %s", workflow.file, nativeRunner)
 				}
 			}

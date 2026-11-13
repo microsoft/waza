@@ -54,23 +54,33 @@ func validateSiteWorkflow(source []byte) error {
 		return err
 	}
 	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read", "pull-requests": "read"}) ||
-		workflow.Concurrency.Group != "site-ci-${{ github.ref }}" || !workflow.Concurrency.CancelInProgress {
+		workflow.Concurrency.Group != "site-ci-${{ github.ref }}${{ inputs.pr_completeness_plan != '' && '-completeness' || '' }}" || !workflow.Concurrency.CancelInProgress {
 		return fmt.Errorf("site workflow must retain permissions and cancellation policy")
 	}
-	if len(workflow.On) != 2 || !reflect.DeepEqual(workflow.On["push"].Branches, []string{"main"}) ||
-		!reflect.DeepEqual(workflow.On["push"].Paths, sitePushPaths) ||
-		!reflect.DeepEqual(workflow.On["pull_request"].Branches, []string{"main"}) || len(workflow.On["pull_request"].Paths) != 0 {
-		return fmt.Errorf("site push filters and unconditional main PR checks must remain unchanged")
+	// Pull requests reach site checks only through the Go completeness caller.
+	_, standalone := workflow.On["pull_request"]
+	if _, called := workflow.On["workflow_call"]; len(workflow.On) != 2 || !called || standalone ||
+		!reflect.DeepEqual(workflow.On["push"].Branches, []string{"main"}) ||
+		!reflect.DeepEqual(workflow.On["push"].Paths, sitePushPaths) {
+		return fmt.Errorf("site push filters must remain unchanged and PRs must arrive only through the completeness caller")
 	}
 	changes, build, examples := workflow.Jobs["changes"], workflow.Jobs["build"], workflow.Jobs["examples"]
 	if len(workflow.Jobs) != 3 || len(changes.Needs) != 0 || changes.If != "" || changes.TimeoutMinutes != 5 ||
-		len(changes.Steps) != 2 || !strings.HasPrefix(changes.Steps[0].Uses, "actions/checkout@") {
+		len(changes.Steps) != 3 || !strings.HasPrefix(changes.Steps[0].Uses, "actions/checkout@") ||
+		changes.Steps[0].If != "inputs.pr_completeness_plan == ''" {
 		return fmt.Errorf("change detection must be a short independent checkout/filter prerequisite")
 	}
-	filter := changes.Steps[1]
+	scope, filter := changes.Steps[1], changes.Steps[2]
+	if scope.ID != "scope" || scope.If != "inputs.pr_completeness_plan != ''" || scope.ContinueOnError ||
+		scope.Env["SITE_SELECTED"] != "${{ inputs.site }}" || scope.Env["EXAMPLES_SELECTED"] != "${{ inputs.examples }}" {
+		return fmt.Errorf("completeness callers must select site scope from their plan, not path filters")
+	}
 	if filter.ID != "filter" || !strings.HasPrefix(filter.Uses, "dorny/paths-filter@") ||
-		filter.If != "" || filter.ContinueOnError ||
-		!reflect.DeepEqual(changes.Outputs, map[string]string{"site": "${{ steps.filter.outputs.site }}", "examples": "${{ steps.filter.outputs.examples }}"}) {
+		filter.If != "inputs.pr_completeness_plan == ''" || filter.ContinueOnError ||
+		!reflect.DeepEqual(changes.Outputs, map[string]string{
+			"site":     "${{ steps.scope.outputs.site || steps.filter.outputs.site }}",
+			"examples": "${{ steps.scope.outputs.examples || steps.filter.outputs.examples }}",
+		}) {
 		return fmt.Errorf("change detection must expose both genuine filter outputs")
 	}
 	var paths map[string][]string
@@ -121,7 +131,7 @@ func validateSiteWorkflow(source []byte) error {
 		return fmt.Errorf("site browser evidence must survive failing browser tests")
 	}
 	exampleSteps := releaseSteps(examples)
-	if len(examples.Steps) != 5 || exampleSteps["Checkout source and embedded runtime assets"].With["lfs"] != "true" ||
+	if len(examples.Steps) != 9 || exampleSteps["Checkout source and embedded runtime assets"].With["lfs"] != "true" ||
 		exampleSteps["Setup Go"].With["go-version"] != "1.26" || exampleSteps["Setup Node"].With["node-version"] != "24" ||
 		exampleSteps["Build current CLI with genuine dashboard assets"].Run != "make build" ||
 		exampleSteps["Run extracted examples and fail-closed isolation regressions"].Run != `WAZA_BIN="$GITHUB_WORKSPACE/waza" npm --prefix site run test:examples` ||
@@ -133,6 +143,9 @@ func validateSiteWorkflow(source []byte) error {
 		return fmt.Errorf("offline examples must retain the actual CLI build, extraction and isolation environment")
 	}
 	for _, step := range examples.Steps {
+		if strings.Contains(step.If, "pr_completeness_plan") || strings.Contains(step.If, "steps.receipt") {
+			continue
+		}
 		if step.If != "" || step.ContinueOnError {
 			return fmt.Errorf("offline example step %q must not skip or tolerate failures", step.Name)
 		}
@@ -151,7 +164,8 @@ func TestSiteWorkflowParallelChecks(t *testing.T) {
 	for _, mutation := range []struct{ name, old, new string }{
 		{"examples-wait-on-browser", "    needs: [changes]\n    if: needs.changes.outputs.examples", "    needs: [build]\n    if: needs.changes.outputs.examples"},
 		{"build-waits-on-examples", "    needs: [changes]\n    if: ${{ !cancelled() }}", "    needs: [changes, examples]\n    if: ${{ !cancelled() }}"}, //nolint:misspell // GitHub expression.
-		{"missing-example-output", "examples: ${{ steps.filter.outputs.examples }}", "examples: 'true'"},
+		{"missing-example-output", "examples: ${{ steps.scope.outputs.examples || steps.filter.outputs.examples }}", "examples: 'true'"},
+		{"filtered-completeness-scope", "        if: inputs.pr_completeness_plan == ''\n        uses: dorny", "        uses: dorny"},
 		{"stale-filter-step", "if: needs.changes.outputs.site", "if: steps.filter.outputs.site"},
 		{"push-path-regression", "      - 'examples/interop/**'\n", ""},
 		{"example-filter-regression", "              - 'examples/interop/**'\n", ""},
@@ -260,7 +274,7 @@ func testSiteFilterSelection(t *testing.T, source []byte) {
 		t.Fatal(err)
 	}
 	var filters map[string][]string
-	if err := yaml.Unmarshal([]byte(workflow.Jobs["changes"].Steps[1].With["filters"]), &filters); err != nil {
+	if err := yaml.Unmarshal([]byte(releaseSteps(workflow.Jobs["changes"])["Detect site changes"].With["filters"]), &filters); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {

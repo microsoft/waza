@@ -5,6 +5,38 @@ import { fileURLToPath } from 'node:url';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const screenshotDir = fileURLToPath(new URL('../../docs/images/', import.meta.url));
+
+test('CI/CD guide renders readable symbols and preserves Next Steps navigation', async ({ page }) => {
+  await page.goto('/waza/guides/ci-cd/');
+  const main = page.locator('main');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('CI/CD Integration');
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute('content',
+    'Integrate waza into your CI/CD pipeline — GitHub Actions, Azure DevOps, GitLab CI, and more.');
+  await expect(main.getByRole('heading', { name: 'Quick Start — Scaffold with waza init', exact: true })).toBeVisible();
+  await expect(main.getByRole('heading', { name: 'Multi-Stage Pipeline: PR → Staging → Production', exact: true })).toBeVisible();
+  const resultsExample = main.locator('pre').filter({ hasText: '### Eval Results:' });
+  await expect(resultsExample).toHaveCount(1);
+  await expect(resultsExample).toContainText('✅ **Passed:** ${results.summary.succeeded}\\n❌ **Failed:** ${results.summary.failed}');
+  expect(await main.innerText()).not.toMatch(/ΓÇö|Γ£à|Γ¥î|ΓåÆ|\uFFFD/);
+
+  for (const [name, description, href, heading] of [
+    ['Writing Eval Specs', 'Configure your evaluations', '/waza/guides/eval-yaml/', 'Writing Eval Specs'],
+    ['CLI Reference', 'All flags and commands', '/waza/reference/cli/', 'CLI Commands'],
+    ['Graders Guide', 'Set up scoring rules', '/waza/guides/graders/', 'Graders'],
+    ['Examples', 'Real eval setups', 'https://github.com/microsoft/waza/tree/main/examples', null],
+  ] as const) {
+    await page.goto('/waza/guides/ci-cd/');
+    const link = main.getByRole('link', { name, exact: true });
+    await expect(link).toHaveJSProperty('href', new URL(href, page.url()).href);
+    await expect(link.locator('xpath=ancestor::li')).toHaveText(`${name} — ${description}`);
+    if (heading) {
+      await link.click();
+      await expect(page).toHaveURL(new RegExp(`${href}$`));
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading);
+    }
+  }
+});
+
 function htmlFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);

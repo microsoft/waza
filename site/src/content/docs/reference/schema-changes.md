@@ -95,6 +95,24 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
 
+### Execution evidence 1.0 and aggregate lineage (unreleased, #768)
+
+- Evidence sidecars (`kind: waza.execution-evidence`, `schema_version: "1.0"`)
+  record exactly six categories (conversation, tool, grader, reliability, usage,
+  provenance), each `present`, `unavailable`, `incomplete`, `redacted` or
+  `conflicting`. No category defaults to present.
+- Missing data stays missing: consumers treat every non-`present` state as
+  unknown, never zero or passing. `present` with `observed_count: 0` means
+  recorded empty.
+- Aggregate 1.0 members gain two optional fields: `parent` (verified execution
+  parent, `retry` or `branch`) and `lineage` (declared source manifests, `retry`,
+  `resume`, `cache` or `aggregation`). Both are omitted when absent, so earlier
+  aggregate files still parse. Readers reject unknown relationships, self links
+  and unsorted lineage.
+- No migration: existing manifests without sidecars stay metadata-only, and no
+  tool synthesizes lineage for older retries. See
+  [reviewing evidence states](../../guides/evidence-review/).
+
 ### Task-level MCP mocks (task YAML)
 
 - Added optional `mcp_mocks` to task YAML. Each entry replaces the eval-level

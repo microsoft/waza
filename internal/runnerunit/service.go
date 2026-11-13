@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -39,6 +40,7 @@ type Report struct {
 	failure       error
 	boundary      string
 	localOutcome  *models.EvaluationOutcome
+	forced        bool
 }
 
 func (r Report) ExitCode() int {
@@ -68,6 +70,21 @@ type admitted struct {
 func Validate(data []byte) Report {
 	report, _ := admit(data)
 	return report
+}
+
+// AdmittedBinding returns the caller binding Submit would use for data, or
+// false when the request is not admitted.
+func AdmittedBinding(data []byte) (artifactmanifest.Binding, bool) {
+	report, input := admit(data)
+	if input == nil || report.binding == nil || report.binding.Identity == nil {
+		return artifactmanifest.Binding{}, false
+	}
+	return callerBinding(report.binding), true
+}
+
+func callerBinding(binding *runnerterminal.Binding) artifactmanifest.Binding {
+	return artifactmanifest.Binding{Identity: *binding.Identity, Selection: binding.Selection,
+		ExecutionMode: binding.ExecutionMode, GraderIDs: slices.Clone(binding.GraderIDs)}
 }
 
 // Admission is adapted from frozen #779 service.go, excluding native lifecycle,
@@ -192,6 +209,11 @@ type EngineFactory func(models.Config) (execution.AgentEngine, error)
 // supplied only by embedding hosts/tests; it cannot broaden admission.
 type Service struct {
 	factory EngineFactory
+	// heartbeat is the lifecycle journal interval; zero uses the default.
+	heartbeat time.Duration
+	// dispatch replaces admitted execution in tests whose fake runtimes cannot
+	// pass concrete-engine admission.
+	dispatch func(context.Context, Report, *admitted) Report
 }
 
 func NewService(factory EngineFactory) *Service {
@@ -212,9 +234,14 @@ func NewService(factory EngineFactory) *Service {
 	return &Service{factory: factory}
 }
 
+// runnerForceStopper is the native runtime's hard-stop seam; it reports
+// whether a transport was actually force-stopped.
+type runnerForceStopper interface{ ForceStopRunnerText() bool }
+
 type onceEngine struct {
 	execution.AgentEngine
-	calls int
+	calls  int
+	forced bool
 }
 
 func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
@@ -222,9 +249,9 @@ func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRe
 		return nil, fmt.Errorf("exact-unit forbids a second engine call")
 	}
 	e.calls++
-	if native, ok := e.AgentEngine.(*execution.CopilotEngine); ok {
+	if native, ok := e.AgentEngine.(runnerForceStopper); ok {
 		stop := interruptRunnerRuntime(ctx, native.ForceStopRunnerText)
-		defer stop()
+		defer func() { e.forced = stop() || e.forced }()
 	}
 	response, err := e.AgentEngine.Execute(ctx, request)
 	if err == nil && response != nil && !response.Success {
@@ -233,16 +260,21 @@ func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRe
 	return response, err
 }
 
-func interruptRunnerRuntime(ctx context.Context, interrupt func()) func() {
+// interruptRunnerRuntime arms interrupt for ctx cancellation. The returned
+// stop joins a running callback and reports whether it force-stopped.
+func interruptRunnerRuntime(ctx context.Context, interrupt func() bool) func() bool {
 	finished := make(chan struct{})
+	var forced bool
 	stop := context.AfterFunc(ctx, func() {
 		defer close(finished)
-		interrupt()
+		forced = interrupt()
 	})
-	return func() {
-		if !stop() {
-			<-finished
+	return func() bool {
+		if stop() {
+			return false
 		}
+		<-finished
+		return forced
 	}
 }
 
@@ -330,20 +362,25 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	started := time.Now()
 	ctx, usage := execution.NewUsageScope(ctx)
 	observed := &onceEngine{AgentEngine: engine}
-	interrupt := func() {}
-	if native, ok := engine.(*execution.CopilotEngine); ok {
+	interrupt := func() bool { return false }
+	if native, ok := engine.(runnerForceStopper); ok {
 		interrupt = native.ForceStopRunnerText
 	}
-	defer interruptRunnerRuntime(ctx, interrupt)()
+	stopInterrupt := interruptRunnerRuntime(ctx, interrupt)
 	defer func() {
-		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), runtimeShutdownBound)
 		defer stop()
 		stopShutdownInterrupt := interruptRunnerRuntime(shutdownCtx, interrupt)
 		if err := engine.Shutdown(shutdownCtx); err != nil {
 			result.executionError("shutdown", fmt.Errorf("runtime shutdown: %w", err))
 		}
-		stopShutdownInterrupt()
+		// A hard stop from any guard is forced termination, even when
+		// shutdown then returns within its bound.
+		shutdownForced := stopShutdownInterrupt()
+		executionForced := stopInterrupt()
+		result.forced = result.forced || shutdownForced || executionForced || observed.forced
 		if err := shutdownCtx.Err(); err != nil {
+			result.forced = true
 			result.executionError("shutdown", fmt.Errorf("runtime shutdown deadline: %w", err))
 		}
 		result.Calls = observed.calls

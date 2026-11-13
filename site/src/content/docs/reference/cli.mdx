@@ -1616,6 +1616,46 @@ Render a session timeline from an NDJSON event log.
 waza session view <session-file>
 ```
 
+## waza optimize
+
+**Unreleased v0.41 source preview.** Let an optimizer adapter propose skill or
+context candidates, which the normal harness evaluates against a pinned suite,
+with held-out qualification.
+
+```bash
+waza optimize capabilities
+waza optimize run examples/optimizer/eval.yaml \
+  --target context-overlay --seed examples/optimizer/seed \
+  --optimization-tag optimization --qualification-tag qualification \
+  --adapter fake --fake-script examples/optimizer/fake-script.json
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--adapter` | `fake` | `fake`, `command` or `copilot-reflect` |
+| `--target` | `skill-directory` | `skill-directory` or `context-overlay` |
+| `--seed` | (required) | Directory with the seed candidate files |
+| `--optimization-tag` | (required) | Task tag(s) for the optimization split (repeatable) |
+| `--qualification-tag` | (required) | Task tag(s) for the held-out qualification split (repeatable) |
+| `--max-iterations` | `5` | Maximum adapter proposals |
+| `--max-evaluations` | `10` | Maximum harness evaluations, including 2 reserved for qualification |
+| `--timeout` | `0` (none) | Deadline for the whole run; negative values are rejected |
+| `--min-improvement` | `0` | Required optimization-split gain over the seed (finite and non-negative) |
+| `--output-dir` | `waza-optimize-<timestamp>` | New or empty directory for `report.json`, evidence and candidates |
+| `--context-dir` | `<eval dir>/fixtures` | Context directory for the suite |
+| `--model` | spec model | Override the evaluation model |
+| `--reflect-model` | eval model | Model for `copilot-reflect` (required when the eval model is `mock`) |
+| `--fake-script` | | Strict JSON proposals for the `fake` adapter |
+| `--adapter-command`, `--adapter-arg` | | Executable and arguments for the `command` adapter |
+| `--adapter-env` | | Extra environment variable name passed to the command adapter (repeatable) |
+| `--adapter-timeout` | `10m` | Per-call timeout for the command adapter |
+| `--allow-paid-calls` | `false` | Consent to paid calls. Required by `command` and `copilot-reflect`, and by any executor other than `mock` |
+
+Outcomes `accepted`, `no_improvement` and `rejected` exit 0. Outcomes
+`not_qualified`, `failed` and `incomplete` exit 1, and `report.json` names the
+failure category. Waza never enforces a provider spending cap. See
+[Optimizer Adapters](../../guides/optimizer-adapters/).
+
 ## waza aggregate
 
 **Unreleased v0.41 source preview.** Aggregate completed public manifests without
@@ -1705,16 +1745,53 @@ Save stdout with `> validation.json`; identity is not proof of execution or
 duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
 See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
 
+### Submission and lineage commands (unreleased source preview)
+
+```bash
+waza runner submit --store .waza-artifacts < submission.json
+waza runner lineage --run RUN_ID --work WORK_ID --store .waza-artifacts
+```
+
+`submit` reads one `waza.execution-submission` wrapper on stdin and emits one
+capture-approved `waza.execution-submission-result`. Policy `distinct` (default)
+always reserves a new execution ID; add `policy.parent` with relationship
+`retry` or `branch` to link it. Policy `reuse` names a verified finalized
+`source` and makes zero engine calls. Existing records are never overwritten.
+Exits follow the original terminal (0, 1, 3, 4); invalid input exits 6 and
+storage failures exit 2 with raw causes on stderr only.
+
+`lineage` prints one read-only [`waza.execution-lineage`](/waza/schemas/execution-lineage-1.0.schema.json)
+document: attempts in parent order (not wall-clock), retry parents, reuse
+decisions, and diagnostics for concurrent writers, missing parents and
+dispatched attempts without completion. Each attempt carries a derived
+`lifecycle` (state, cancellation, deadline, partial completion, advisory retry
+eligibility and allowed actions). `--stale-after DURATION` sets when a
+dispatched attempt with a silent lifecycle journal is reported as `orphaned`
+(default: three heartbeat intervals). It exits 6 for malformed IDs or a
+negative `--stale-after`, and 2 when
+the store is unavailable, truncated or contains unreadable records.
+`--store` and `--azure-container-url` behave as for checkpoint commands. See
+[logical work and attempts](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage)
+and [execution lifecycle](../../guides/immutable-artifacts/#execution-lifecycle-and-recovery).
+
 ### Checkpoint commands (unreleased source preview)
 
 ```bash
 waza runner checkpoint create --store .waza-artifacts < submission.json
+waza runner checkpoint availability CHECKPOINT_SHA256 --store .waza-artifacts < submission.json
 waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts < submission.json
 ```
 
+`availability` is a read-only resume preflight: it executes, reserves and repairs
+nothing, and prints one [`waza.runner-checkpoint-availability`](/waza/schemas/runner-checkpoint-availability-1.0.schema.json)
+record. `available` (exit 0) includes the boundary, creation time, original
+execution and resume action; `unavailable` or `rejected` (exit 6) carries a
+stable code with fixed guidance; storage or build failures are `operation_error`
+(exit 2). See the [troubleshooting table](../../guides/immutable-artifacts/#checkpoint-troubleshooting).
+
 Both require one `waza.execution-submission` wrapper on stdin, not a bare runner
 request, and a clean VCS-stamped Waza CLI. `create` accepts no positional
-arguments; `resume` requires one full lowercase SHA-256 checkpoint digest.
+arguments; `availability` and `resume` require one full lowercase SHA-256 checkpoint digest.
 `--store` defaults to `.waza-artifacts`, an existing private local directory.
 Alternatively use `--azure-container-url` with existing authorized credentials;
 it is mutually exclusive with `--store` and does not initiate interactive login.

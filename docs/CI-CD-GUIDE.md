@@ -71,17 +71,16 @@ actual Docker build is still required to verify container packaging.
 ## Proposed PR completeness gate
 
 Issue #900 adds an **additive gate, not a replacement for native Go checks**.
-The applicability and receipt controls are under implementation; the reusable
-workflow routing and current-head adoption evidence are not yet active. Do not
-require `PR completeness` in a ruleset until the migration below is reviewed and
-its actual workflow executions are verified.
+`go-ci.yml` now publishes a `completeness / PR completeness` check on ordinary
+pull requests. It is **not yet a required context**: do not require
+`PR completeness` in a ruleset until the migration below is reviewed and its
+actual workflow executions are verified.
 
-### Reusable plan/admission boundary (not activated)
+### Reusable plan/admission boundary
 
 `pr-completeness-plan.yml` and `pr-completeness-admission.yml` expose the
 same-run transport boundary without adding another runnable PR workflow. They
-have only `workflow_call` triggers. No current Go caller invokes them, so this
-layer does **not** publish an enforceable completeness result on ordinary PRs.
+have only `workflow_call` triggers; `go-ci.yml` is their only ordinary-PR caller.
 
 The plan job checks out the tested merge with both parents, invokes the existing
 source/path interpreter, uploads only `plan.json`, and exports the attempt-bound
@@ -116,16 +115,50 @@ layouts, with a rejecting/offline PR API executable fixture. Authored successful
 receipts in these controls prove the admission interface, **not** that any hosted
 suite, native platform or browser actually ran.
 
-The next upper integration layer must first add genuine source-bound receipt
-interfaces to Go (including all four native shards and coverage gate), dashboard,
-site/examples and Docker. It must include the new admission adapter and controls
-in the applicability map, route metadata/retarget events and concurrency safely,
-wire the plan outputs into actual reusable producers, and call admission with
-`always()` and every required direct dependency. Only then can standalone ordinary
-PR triggers be consolidated without duplicate full-suite execution. Preserve the
-existing auxiliary receipt interfaces, current native Go gates and separate
-non-PR validation. Do not adopt a ruleset requirement before that wiring and the
-genuine current-head migration evidence below exist.
+Dashboard (`web-ci.yml`), site/examples (`site-ci.yml`) and Docker
+(`docker-ci.yml`) now expose the same optional `pr_completeness_plan` receipt
+interface as assurance, tools and runtime. It is inactive unless a caller passes
+a plan; with a plan the dashboard bypasses its path filter, and site/examples use
+the caller's plan-selected `site`/`examples` inputs instead of path filters.
+Receipt capture still re-verifies applicability and fails closed for an
+unselected family. Contract step ids reuse the existing workflow ids (`tests`,
+`chat-tests`, `ci_tests`, `native_tests`) so evidence and receipts share one
+execution. Plan-mode runs use a separate `-completeness` concurrency group so a
+caller cannot cancel or be cancelled by a standalone run.
+
+### Go caller wiring
+
+On `pull_request` events `go-ci.yml` runs `pr-scope` (the plan workflow), then:
+
+- Every native Go job (`Lint`, Linux, Windows, the four native shards and the
+  coverage `linux-gate`) records its tested checkout and captures a `go` receipt
+  for its contract unit in an `always()` final step. Each job regenerates the
+  deterministic plan locally, so the required native jobs keep their existing
+  needs and stay unconditional; `go-native-shards.yml` captures receipts only
+  when its caller passes `pr_completeness: true`.
+- The `dashboard`, `documentation`, `assurance`, `container`, `tools` and
+  `runtime` jobs call the auxiliary reusable workflows with the plan artifact
+  only when the plan selects them; unselected families remain visible as
+  `not_applicable`.
+- `completeness` calls `pr-completeness-admission.yml` with `always()` and
+  `toJSON(needs)` over every job above, so a failed, cancelled or missing
+  producer fails the check.
+
+`TestGoCompletenessReceiptWiring` rejects removed step ids, unguarded or
+non-`always()` receipts, dropped dependencies and unwired callers.
+
+The dashboard, site/examples, assurance, tools and runtime workflows no longer
+have standalone `pull_request` triggers. Pull requests reach them only through
+these plan-selected `go-ci.yml` callers, so each suite runs once per PR attempt
+and now covers stacked PRs on any base. Their `push`, `workflow_dispatch` and
+`workflow_call` entrypoints are unchanged. `docker-ci.yml` keeps its standalone
+path-filtered trigger for the separately admitted edited-body benchmark, so
+container validation can still run twice on Docker-relevant PRs.
+
+Remaining before adoption: route metadata/retarget (`edited`) events and their
+concurrency safely. Preserve the existing auxiliary receipt interfaces, current
+native Go gates and separate non-PR validation. Do not adopt a ruleset
+requirement before the genuine current-head migration evidence below exists.
 
 The proposed ordinary-PR entrypoint is the existing Go workflow, with local
 reusable calls to the existing auxiliary validators. This avoids cross-run
@@ -136,8 +169,8 @@ full-diff review:
 | Validation | Changed inputs |
 |---|---|
 | Go, lint, native Linux shards and Windows | Every ordinary PR, preserving the existing native gates. |
-| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, and runner examples. |
-| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config and lockfile content read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
+| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, runner examples, and `.github/scripts/ci-evidence*` collectors. |
+| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config, `package.json`, lockfile and screenshot specs read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
 | Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
 | Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
 | Docker image and native runner contracts | Container/context files, `.gitattributes` LFS checkout rules for embedded assets, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |
@@ -245,7 +278,7 @@ capture retains required outcomes and case results, not unrelated action outputs
 or browser logs. This is workflow-execution evidence, not independent attestation
 or a performance/model-quality claim.
 
-Site's single compound `chat` step runs private-chat controls, chat Chromium and
+Site's single compound `chat-tests` step runs private-chat controls, chat Chromium and
 unavailable-service Chromium in an `&&` chain. Its outcome covers that entire
 chain, not independently observed outcomes for each subcommand. The two browser
 reports remain required, but the receipt must not invent a separate

@@ -128,7 +128,7 @@ func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
 	for _, tc := range []struct{ name, before, after string }{
 		{"missing-package", " ./.github/scripts/release-assets-helper", ""},
 		{"echo-only", "run: go test -count=1 -v ./.github/scripts", "run: echo go test -count=1 -v ./.github/scripts"},
-		{"skipped-step", "- name: Test Go workflow trigger selection\n        run:", "- name: Test Go workflow trigger selection\n        if: false\n        run:"},
+		{"skipped-step", "- name: Test Go workflow trigger selection\n        id: workflow_controls\n        run:", "- name: Test Go workflow trigger selection\n        id: workflow_controls\n        if: false\n        run:"},
 		{"run-value", "-count=1 -v ./.github/scripts", "-count=1 -v -run '^$' ./.github/scripts"},
 		{"run-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -run=^$ ./.github/scripts"},
 		{"list-value", "-count=1 -v ./.github/scripts", "-count=1 -v -list '.' ./.github/scripts"},
@@ -798,7 +798,7 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 				mutations = append(mutations,
 					[2]string{"ci_go_test_capture.sh remaining", "ci_go_test_capture.sh all"},
 					[2]string{"ci_go_test_capture.sh all", "ci_go_test_capture.sh remaining"},
-					[2]string{"      - name: Integration Test\n        run:", "      - name: Integration Test\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
+					[2]string{"      - name: Integration Test\n        id: integration\n        run:", "      - name: Integration Test\n        id: integration\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
 					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
 				)
 			}
@@ -1169,6 +1169,176 @@ func TestCanonicalGoWorkflow(t *testing.T) {
 		t.Fatalf("obsolete Squad CI workflow must be removed: %v", err)
 	}
 }
+
+func TestGoCIRequiresNativeWindowsReleaseDashboardChecker(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = normalizeWorkflowLineEndings(source)
+
+	const stepName = "Test native Windows release dashboard checker"
+	const command = `log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+go test -v -race -count=1 -timeout=5m ./.github/scripts/release-dashboard-check | sed 's/\r$//' | tee "$log"
+if grep -q -- '--- SKIP:' "$log"; then
+  echo "Native Windows release dashboard tests must not skip." >&2
+  exit 1
+fi
+for control in TestReadFileOpensOrdinaryWindowsFile TestReadFileRejectsWindowsLeafReparseReplacement TestReadFileRetainsOpenedWindowsParentDuringReplacement; do
+  grep -Fxq "=== RUN   $control" "$log"
+  grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"
+done
+`
+
+	check := func(input []byte) error {
+		var workflow struct {
+			Defaults ordinaryRunDefaults `yaml:"defaults"`
+			Jobs     map[string]struct {
+				If       string                  `yaml:"if"`
+				RunsOn   string                  `yaml:"runs-on"`
+				Defaults ordinaryRunDefaults     `yaml:"defaults"`
+				Steps    []ordinaryExecutionStep `yaml:"steps"`
+				Strategy struct {
+					Matrix struct {
+						OS []string `yaml:"os"`
+					} `yaml:"matrix"`
+				} `yaml:"strategy"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(input, &workflow); err != nil {
+			return err
+		}
+		job := workflow.Jobs["build-and-test-windows"]
+		if job.If != "" || job.RunsOn != "windows-latest" ||
+			!reflect.DeepEqual(job.Strategy.Matrix.OS, []string{"windows-latest"}) {
+			return fmt.Errorf("dashboard checker requires the unconditional native Windows job")
+		}
+
+		positions := make(map[string]int, len(job.Steps))
+		selected := 0
+		for i, step := range job.Steps {
+			positions[step.Name] = i
+			if step.Name != stepName {
+				continue
+			}
+			selected++
+			if step.If != "matrix.os == 'windows-latest'" || step.Run != command {
+				return fmt.Errorf("dashboard checker must run the uncached native Windows tests and reject skips")
+			}
+			if step.ContinueOnError.Kind != 0 &&
+				(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false") {
+				return fmt.Errorf("dashboard checker must propagate failures")
+			}
+			arguments, err := ordinaryShellArguments("Windows", workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, step.Shell)
+			if err != nil {
+				return err
+			}
+			if len(arguments) < 2 || arguments[len(arguments)-2] != "-o" || arguments[len(arguments)-1] != "pipefail" {
+				return fmt.Errorf("dashboard checker output pipeline requires Bash pipefail")
+			}
+		}
+		if selected != 1 {
+			return fmt.Errorf("native Windows dashboard checker step count=%d; require one", selected)
+		}
+		for _, prerequisite := range []string{
+			"Install and prove rejecting runtime guard", "Execute Tests", "Test native Windows shell controls",
+		} {
+			position, present := positions[prerequisite]
+			if !present || position >= positions[stepName] {
+				return fmt.Errorf("dashboard checker must follow %s", prerequisite)
+			}
+		}
+		marker, present := positions["Reject tolerated runtime launches"]
+		if !present || marker <= positions[stepName] {
+			return fmt.Errorf("runtime marker must be checked after dashboard checker tests")
+		}
+		return nil
+	}
+	if err := check(source); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, mutation := range []struct{ old, replacement string }{
+		{
+			"      - name: Test native Windows release dashboard checker\n",
+			"      - name: Missing native Windows release dashboard checker\n",
+		},
+		{
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'",
+			"      - name: Test native Windows release dashboard checker\n        if: false",
+		},
+		{
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n",
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n        continue-on-error: true\n",
+		},
+		{
+			"          go test -v -race -count=1 -timeout=5m ./.github/scripts/release-dashboard-check",
+			"          go test -v -race -count=1 -timeout=5m -run '^$' ./.github/scripts/release-dashboard-check",
+		},
+		{
+			"          if grep -q -- '--- SKIP:' \"$log\"; then\n            echo \"Native Windows release dashboard tests must not skip.\" >&2",
+			"          if false; then\n            echo \"Native Windows release dashboard tests must not skip.\" >&2",
+		},
+		{
+			"          for control in TestReadFileOpensOrdinaryWindowsFile TestReadFileRejectsWindowsLeafReparseReplacement TestReadFileRetainsOpenedWindowsParentDuringReplacement; do\n            grep -Fxq",
+			"          for control in TestReadFileOpensOrdinaryWindowsFile; do\n            grep -Fxq",
+		},
+		{
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}",
+			"  build-and-test-windows:\n    if: ${{ false }}\n    name: ${{ matrix.os }}",
+		},
+		{
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest",
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: ubuntu-latest",
+		},
+		{
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [windows-latest]",
+			"  build-and-test-windows:\n    name: ${{ matrix.os }}\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [ubuntu-latest]",
+		},
+		{
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n",
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n        shell: bash -e {0}\n",
+		},
+	} {
+		mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
+		if mutated == string(source) || check([]byte(mutated)) == nil {
+			t.Fatalf("dashboard checker workflow mutation admitted: %q", mutation.replacement)
+		}
+	}
+
+	sourceText := string(source)
+	stepStart := strings.Index(sourceText, "      - name: "+stepName+"\n")
+	if stepStart < 0 {
+		t.Fatal("dashboard checker step anchor missing")
+	}
+	marker := "      - name: Reject tolerated runtime launches\n"
+	markerOffset := strings.Index(sourceText[stepStart:], marker)
+	if markerOffset < 0 {
+		t.Fatal("runtime marker step anchor missing")
+	}
+	stepBlock := sourceText[stepStart : stepStart+markerOffset]
+	moveStepBefore := func(anchor string) string {
+		withoutStep := sourceText[:stepStart] + sourceText[stepStart+markerOffset:]
+		position := strings.Index(withoutStep, anchor)
+		if position < 0 {
+			t.Fatalf("step-order mutation anchor missing: %q", anchor)
+		}
+		return withoutStep[:position] + stepBlock + withoutStep[position:]
+	}
+	for _, mutation := range []struct {
+		name   string
+		before string
+	}{
+		{"prerequisite", "      - name: Test native Windows shell controls\n"},
+		{"runtime marker", "      - name: Retain sanitized Go execution evidence\n"},
+	} {
+		if mutated := moveStepBefore(mutation.before); check([]byte(mutated)) == nil {
+			t.Fatalf("dashboard checker step-order mutation admitted: %s", mutation.name)
+		}
+	}
+}
+
 func TestGoWorkflowTriggers(t *testing.T) {
 	for _, tc := range []struct {
 		file         string

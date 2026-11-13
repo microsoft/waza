@@ -1,0 +1,12 @@
+id: deprecation
+name: Deprecated key notes
+tags: [qualification]
+inputs:
+  prompt: "Write release notes for a deprecated config key."
+  files:
+    - path: style-guide.md
+graders:
+  - name: deprecation-style
+    type: text
+    config:
+      contains: ["migration"]

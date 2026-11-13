@@ -11,6 +11,7 @@ import (
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executionlifecycle"
 )
 
 var ErrCapability = errors.New("execution creator capability is unavailable or foreign")
@@ -19,6 +20,7 @@ type records interface {
 	Create(context.Context, string, []byte) (bool, error)
 	ReadUnverified(context.Context, string) ([]byte, error)
 	ListUnverified(context.Context) ([]string, bool, error)
+	ListAllUnverified(context.Context, int) ([]string, bool, error)
 }
 
 // Ledger uses the foundation's append-only namespace and verified artifact
@@ -26,6 +28,7 @@ type records interface {
 type Ledger struct {
 	records     records
 	store       *artifactmanifest.Store
+	lifecycle   *artifactmanifest.Diagnostics
 	executionID func() (string, error)
 	decisionID  func() (string, error)
 }
@@ -67,7 +70,13 @@ func New(backend artifactmanifest.Backend) (*Ledger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening execution ledger: %w", err)
 	}
-	return &Ledger{records: namespace, store: artifactmanifest.NewStore(backend),
+	// Backends without diagnostics storage still serve the ledger; lifecycle
+	// is then derived from ledger records only.
+	lifecycle, err := executionlifecycle.NewStore(backend)
+	if err != nil && !errors.Is(err, artifactmanifest.ErrUnsupportedBackend) {
+		return nil, fmt.Errorf("opening execution lifecycle journal: %w", err)
+	}
+	return &Ledger{records: namespace, store: artifactmanifest.NewStore(backend), lifecycle: lifecycle,
 		executionID: executionattempt.NewExecutionID, decisionID: executionattempt.NewDecisionID}, nil
 }
 
@@ -168,15 +177,12 @@ func (l *Ledger) create(ctx context.Context, key string, data []byte) error {
 	return nil
 }
 
-// Reserve generates its own execution ID independently of the declared native
-// ordinal. Any ambiguous/occupied/error result returns no creator capability.
-func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, parent *executionattempt.Parent) (Creator, error) {
-	if l == nil || l.records == nil || l.executionID == nil {
-		return Creator{}, ErrCapability
-	}
+// prospective encodes a new reservation without storing it. Validation uses
+// the detached encoded input, not caller-owned slices or pointers.
+func (l *Ledger) prospective(binding artifactmanifest.Binding, parent *executionattempt.Parent) (*Reservation, error) {
 	id, err := l.executionID()
 	if err != nil {
-		return Creator{}, err
+		return nil, err
 	}
 	attempt := executionattempt.Attempt{
 		Kind: "waza.execution-attempt", SchemaVersion: executionattempt.Version,
@@ -184,13 +190,35 @@ func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, 
 	}
 	data, err := executionattempt.EncodeAttempt(attempt)
 	if err != nil {
-		return Creator{}, err
+		return nil, err
 	}
-	// Validate the detached encoded input, not caller-owned slices or pointers.
-	frozen, err := reservation(data, id)
+	return reservation(data, id)
+}
+
+// AdmitParent applies Reserve's read-only parent admission to a prospective
+// child of binding without creating any record.
+func (l *Ledger) AdmitParent(ctx context.Context, binding artifactmanifest.Binding, parent executionattempt.Parent) error {
+	if l == nil || l.records == nil || l.executionID == nil {
+		return ErrCapability
+	}
+	frozen, err := l.prospective(binding, &parent)
+	if err != nil {
+		return err
+	}
+	return l.parent(ctx, frozen.Attempt)
+}
+
+// Reserve generates its own execution ID independently of the declared native
+// ordinal. Any ambiguous/occupied/error result returns no creator capability.
+func (l *Ledger) Reserve(ctx context.Context, binding artifactmanifest.Binding, parent *executionattempt.Parent) (Creator, error) {
+	if l == nil || l.records == nil || l.executionID == nil {
+		return Creator{}, ErrCapability
+	}
+	frozen, err := l.prospective(binding, parent)
 	if err != nil {
 		return Creator{}, err
 	}
+	data, id := frozen.Bytes, frozen.Attempt.ExecutionID
 	if err := execution.ValidateOwnedRuntime(frozen.Attempt.Binding.ExecutionMode); err != nil {
 		return Creator{}, err
 	}

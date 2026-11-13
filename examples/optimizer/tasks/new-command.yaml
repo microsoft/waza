@@ -1,0 +1,12 @@
+id: new-command
+name: New command notes
+tags: [optimization]
+inputs:
+  prompt: "Write release notes for a new CLI command."
+  files:
+    - path: style-guide.md
+graders:
+  - name: new-command-style
+    type: text
+    config:
+      contains: ["example"]

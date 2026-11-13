@@ -9,6 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Checkpoint resume availability (unreleased source preview, #765)** -
+  `waza runner checkpoint availability CHECKPOINT_SHA256`, protected
+  `POST /api/v1/checkpoints/{digest}/availability` and the Lab **Check resume
+  availability** action report, without executing or reserving work, whether a
+  checkpoint can be resumed: boundary, creation time, compatibility, resume
+  action and a stable code with actionable guidance otherwise. New independent
+  `waza.runner-checkpoint-availability` 1.0 schema; checkpoint 1.0 and result
+  1.0/1.1 are unchanged. Not resumable: partial in-unit work, before-unit
+  checkpoints after dispatch, and checkpoints from another build revision.
+  See [troubleshooting](docs/EXECUTION_CHECKPOINTS.md#resume-availability-and-troubleshooting).
+- **Execution lifecycle semantics (unreleased source preview, #767)** -
+  Submission owners record a bounded, chained lifecycle journal (started,
+  heartbeat, cancel requested/acknowledged, forced, finished). Every
+  `waza.execution-lineage` attempt now carries a required derived `lifecycle`:
+  state (running, cancelling, orphaned, cancelled, timed_out, ...),
+  cancellation, deadline, partial completion, advisory retry eligibility and
+  allowed actions. Stale dispatched attempts are reported as `orphaned`
+  (`--stale-after` / `stale_after_ms`), and the Lab lineage view shows a
+  lifecycle table. New `waza.execution-lifecycle-event` 1.0 schema. Migration:
+  attempts recorded earlier have no journal and report `observation:
+  "unobserved"`; no records are rewritten and Waza owns no retry policy. See
+  [execution lifecycle](docs/EXECUTION_LIFECYCLE.md).
+- **Public submission and attempt lineage (unreleased source preview, #764)** -
+  `waza runner submit` and protected `POST /api/v1/submissions` call the
+  attempt core: distinct submissions always reserve a new execution ID (duplicates
+  never overwrite), retry/branch parents are recorded, and reuse makes zero
+  engine calls. `waza runner lineage` and loopback `GET /api/v1/lineage` emit
+  `waza.execution-lineage` 1.0 with parent-ordered attempts, reuse decisions and
+  concurrent-writer diagnostics; the Lab **Runner contract** view renders the
+  same lineage read-only. No migration: historical results gain no
+  synthesized attempts. See [public submission and lineage](docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage).
+- **Execution evidence states and lineage in aggregates (unreleased, #768)** -
+  `waza aggregate`, `POST /api/v1/aggregates` and the Lab aggregate panel now
+  show each member's verified execution `parent` (retry/branch) and declared
+  evidence `lineage` (retry/resume/cache/aggregation) as optional aggregate 1.0
+  fields. Originals and retries stay separate members with their own outcomes;
+  nothing is overwritten and no winner is chosen. The Lab adds a legend for all
+  five evidence states and marks redacted, incomplete and conflicting categories.
+  Degraded or forged evidence never aggregates as present or totals usage. See
+  [evidence states](docs/EVIDENCE-STATES.md) and the
+  [evidence review guide](site/src/content/docs/guides/evidence-review.mdx).
+
+- **Optimizer adapter contract (unreleased v0.41 source preview, #790)** - Add
+  `waza optimize capabilities` and `waza optimize run`. An optimizer adapter
+  proposes skill-directory or context-overlay candidates, and the existing
+  runner and graders evaluate them against a pinned suite with exact
+  optimization and held-out qualification splits. Contract 1.0 JSON Schemas
+  cover capabilities, adapter requests and responses, and `report.json`.
+  Adapters receive only optimization feedback. Iterations, evaluations and the
+  deadline are bounded, and spend is `measured` or `unavailable` with no hard
+  cap claimed. Failures name explicit categories. Ships offline `fake`, external
+  `command` (env allowlist, strict JSON) and paid `copilot-reflect` adapters,
+  plus the offline `examples/optimizer` walkthrough. Existing runs are unchanged.
+  See [Optimizer Adapters](site/src/content/docs/guides/optimizer-adapters.mdx).
+
 - **Standalone manifest aggregation (unreleased v0.41 source preview, #766)** -
   Aggregate explicit public completed manifest/evidence references without
   agents, credential helpers or private worker ownership. Aggregate schema 1.0

@@ -107,6 +107,16 @@ in legacy eval/result inputs still default to **1.4**. Runner request and termin
 schemas remain independently versioned **1.0**; task YAML has no independent
 version field. See [schema versions](../schema-changes/#versioned-artifacts).
 
+## Unreleased v0.41 source preview: optimizer adapters
+
+[`waza optimize`](../../guides/optimizer-adapters/) adds the versioned 1.0
+optimizer/evaluator contract. It includes capability negotiation,
+content-addressed candidates, suite pinning, held-out qualification, bounded
+budgets, measured or unavailable spend, and explicit failure categories. It
+ships offline `fake`, external `command` and paid `copilot-reflect` adapters.
+Existing runs and result schemas are unchanged, and Lab does not display
+optimizer reports. See [#790](https://github.com/microsoft/waza/issues/790).
+
 <span id="upcoming-main-only-capabilities"></span>
 
 ## Capabilities introduced in v0.39.0

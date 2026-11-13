@@ -1172,6 +1172,12 @@ with the run's grading context. Published `v0.39.1` does not provide it.
 | `args`    | `list[str]` | `[]`         | Arguments passed to the program |
 | `timeout` | `int`       | `30`         | Max execution time in seconds   |
 
+When the program times out, is canceled or cannot be started, the result
+still fails with score `0.0`, and `details.operational_error` is set to
+`timeout`, `canceled` or `launch_failed`. A program that ran and exited
+non-zero does not set it. `waza optimize` treats operational errors as
+incomplete evaluations rather than failed assertions.
+
 ### Grading context file
 
 `WAZA_GRADING_CONTEXT` points to `context.json` in a new private temporary directory. The file contains the same run evidence that inline `code` graders receive on stdin. Stdin is unchanged, so existing program graders keep working. After the program exits, Waza deletes the directory and everything in it, once it has verified that the directory and `context.json` are still the entries it created. Treat them as read-only.

@@ -45,6 +45,9 @@ checkpoint inspection. It shows compatibility, withheld source metadata, exact-u
 progress, original failure/ordinal, retry parent or reuse source, and separate
 new/original engine calls. Unknown progress stays unavailable; recorded zero
 stays zero. **Download checkpoint result JSON** saves the exact protected response.
+**Check resume availability** reads a checkpoint digest without executing or
+reserving work and shows its boundary, creation time, compatibility, resume
+action and actionable diagnostics.
 Edits, new operations and reload errors clear prior results. Synthetic demo mode
 cannot dispatch checkpoint operations.
 Resume source declarations are checked against the requested checkpoint digest
@@ -67,14 +70,29 @@ after an edit or a newer parse, so only the current input can populate the reade
 Creation and before-unit resume execute work and may incur charges when the
 captured Copilot request explicitly consents. Finalized restore reuses the
 original terminal without new engine calls. Stopping a browser request is not
-proof that its server worker stopped. This is not a full ordered attempt history
-or whole-evaluation resume workflow. See [checkpoint boundaries and recovery
+proof that its server worker stopped. Use the lineage view below for ordered attempt history; this is not a
+whole-evaluation resume workflow. See [checkpoint boundaries and recovery
 limits](../immutable-artifacts/#checkpoint-public-source-preview).
 
 <ZoomImage src="../../images/dashboard-lab-checkpoint.png" alt="Source Lab showing a recorded protected mock API response: failed original terminal reused with zero new calls and exact JSON download." />
 
 This checkpoint screenshot uses the producer-backed protected mock API fixture,
 not the synthetic demo or live inference.
+
+**Logical work and execution attempts** in **Runner contract** reads the
+ordered attempt lineage for one `run-<sha256>` / `trial-<sha256>` pair from
+`GET /api/v1/lineage`. It lists each attempt with its retry/branch parent,
+status (reserved, dispatched, completed or unverified), verified terminal and
+reuse decisions, plus concurrent-writer and missing-record diagnostics. An
+**Attempt lifecycle** table shows each attempt's derived state (for example
+running, cancelling, orphaned, cancelled or timed out), cancellation and reason,
+deadline, partial completion, advisory retry eligibility, allowed actions and
+journal freshness. Order
+follows recorded parents, not wall-clock time. The browser re-validates the
+schema, requested IDs and parent ordering before display; failures show no
+partial lineage. **Download lineage JSON** saves the exact response. The view is
+read-only and unavailable in the synthetic demo. See
+[logical attempts](../immutable-artifacts/#logical-attempts-embedding-preview).
 
 For a dashboard built from this source tree:
 

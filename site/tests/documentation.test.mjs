@@ -32,6 +32,22 @@ const releaseInputs = [
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
+test('CI/CD guide preserves readable punctuation and copyable result labels', () => {
+  const guide = read('site/src/content/docs/guides/ci-cd.mdx');
+  assert.doesNotMatch(guide, /ΓÇö|Γ£à|Γ¥î|ΓåÆ|\uFFFD/);
+  assert.match(guide, /^description: Integrate waza into your CI\/CD pipeline — GitHub Actions, Azure DevOps, GitLab CI, and more\.$/m);
+  assert.match(guide, /^### Quick Start — Scaffold with waza init$/m);
+  assert.match(guide, /^### Multi-Stage Pipeline: PR → Staging → Production$/m);
+  assert.ok(guide.includes('✅ **Passed:** ${results.summary.succeeded}\\n❌ **Failed:** ${results.summary.failed}'));
+  const nextSteps = guide.split('\n## Next Steps\n')[1];
+  assert.equal(nextSteps?.trim(), [
+    '- **[Writing Eval Specs](../eval-yaml/)** — Configure your evaluations',
+    '- **[CLI Reference](../../reference/cli/)** — All flags and commands',
+    '- **[Graders Guide](../graders/)** — Set up scoring rules',
+    '- **[Examples](https://github.com/microsoft/waza/tree/main/examples)** — Real eval setups',
+  ].join('\n'));
+});
+
 test('local container conformance is selected by its production build inputs', () => {
   const workflow = read('.github/workflows/docker-ci.yml');
   for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
@@ -50,7 +66,10 @@ test('local container conformance is selected by its production build inputs', (
   assert.match(job, /lfs: true/);
   assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
   assert.match(job, /run: node --test examples\/runner\/container\/native-test\.mjs/);
-  assert.doesNotMatch(job, /continue-on-error|if:/);
+  assert.doesNotMatch(job, /continue-on-error/);
+  for (const [line] of job.matchAll(/^\s+if:.*$/gm)) {
+    assert.match(line, /pr_completeness_plan != ''|steps\.receipt\.outcome == 'success'/, 'only completeness receipt steps may be conditional');
+  }
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
 });
@@ -226,13 +245,11 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
 });
 
 function assertSiteDiscovery(workflow, inputs) {
-  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
-  const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  workflow_call:)/m)?.[1];
   const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
-  assert.ok(push && pullRequest && site, 'expected workflow event/filter blocks must exist');
+  assert.ok(push && site, 'expected workflow event/filter blocks must exist');
   assert.match(push, /branches: \[main\]/);
-  assert.match(pullRequest, /branches: \[main\]/);
-  assert.doesNotMatch(pullRequest, /^\s+paths(?:-ignore)?:/m, 'required PR status must not be path-gated');
+  assert.doesNotMatch(workflow, /^  pull_request:/m, 'PR site checks run only through the Go completeness caller');
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
@@ -310,14 +327,14 @@ test('Docker guard discovery rejects removal from either production site selecto
 });
 
 function assertInteropExampleDiscovery(workflow) {
-  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  workflow_call:)/m)?.[1];
   const examples = workflow.match(/^            examples:\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   for (const [name, block] of [['main push gate', push], ['PR examples filter', examples]]) {
     assert.ok(block, `${name} must exist`);
     const patterns = [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
     assert.ok(patterns.includes('examples/interop/**'), `${name} must select script-only interop changes`);
   }
-  assert.match(workflow, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(workflow, /examples: \$\{\{ steps\.scope\.outputs\.examples \|\| steps\.filter\.outputs\.examples \}\}/);
   assert.match(workflow, /if: needs\.changes\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/);
 }
 
@@ -327,10 +344,14 @@ function assertSiteParallelChecks(workflow) {
   assert.ok(jobs.changes, 'short change detection prerequisite must exist');
   assert.match(jobs.changes, /timeout-minutes: 5/);
   assert.doesNotMatch(jobs.changes, /^\s+needs:/m, 'change detection must run independently');
-  assert.match(jobs.changes, /site: \$\{\{ steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
-  assert.match(jobs.changes, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(jobs.changes, /site: \$\{\{ steps\.scope\.outputs\.site \|\| steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
+  assert.match(jobs.changes, /examples: \$\{\{ steps\.scope\.outputs\.examples \|\| steps\.filter\.outputs\.examples \}\}/);
   assert.match(jobs.changes, /uses: dorny\/paths-filter@/);
-  assert.doesNotMatch(jobs.changes, /^\s+(?:-\s+)?run:/m, 'change detection must not execute browser or example work');
+  const scope = '      - name: Use completeness plan scope\n        id: scope\n        if: inputs.pr_completeness_plan != \'\'\n' +
+    '        env:\n          SITE_SELECTED: ${{ inputs.site }}\n          EXAMPLES_SELECTED: ${{ inputs.examples }}\n' +
+    '        run: printf \'site=%s\\nexamples=%s\\n\' "$SITE_SELECTED" "$EXAMPLES_SELECTED" >> "$GITHUB_OUTPUT"\n';
+  assert.ok(jobs.changes.includes(scope), 'completeness scope must only forward caller-selected applicability');
+  assert.doesNotMatch(jobs.changes.replace(scope, ''), /^\s+(?:-\s+)?run:/m, 'change detection must not execute browser or example work');
   for (const [id, name] of [['build', 'Build site'], ['examples', 'Offline documentation examples']]) {
     assert.ok(jobs[id], `${id} job must exist`);
     assert.match(jobs[id], /^\s+needs: \[changes\]$/m, `${id} must depend only on successful change detection`);
@@ -357,7 +378,7 @@ test('site browser checks and offline examples wait only for short change detect
     ['      - name: Detect site changes\n',
       '      - run: npm --prefix site run build\n\n      - name: Detect site changes\n',
       /change detection must not execute/],
-    ['site: ${{ steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
+    ['site: ${{ steps.scope.outputs.site || steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
     ["if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'",
       "if: needs.build.outputs.examples == 'true' || github.event_name == 'push'", /examples condition must consume/],
     ['run: test "$CHANGES_RESULT" = success', 'run: echo ignored', /required site check must reject/],
@@ -937,4 +958,43 @@ test('waza serve reference lists only flags the serve command registers', () => 
     /waza serve --stdio\b/,
     'dashboard guide must not reintroduce waza serve --stdio',
   );
+});
+
+test('optimizer schemas are published at their canonical $id', () => {
+  const endpoint = read('site/src/pages/schemas/[schema].json.ts');
+  const optimizerSchemas = readdirSync(resolve(root, 'schemas')).filter((name) => /^optimizer-.*\.schema\.json$/.test(name));
+  assert.ok(optimizerSchemas.length >= 4);
+  for (const name of optimizerSchemas) {
+    const id = JSON.parse(read(`schemas/${name}`)).$id;
+    assert.equal(id, `https://microsoft.github.io/waza/schemas/${name}`);
+    const route = name.replace(/\.json$/, '');
+    assert.match(endpoint, new RegExp(`schema: '${route.replaceAll('.', '\\.')}'`), `${name} is not served by the schema endpoint`);
+  }
+});
+
+test('durable execution guide connects every v0.41 contract in order with resolvable anchors', () => {
+  const path = 'site/src/content/docs/guides/durable-execution.mdx';
+  const guide = read(path);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/durable-execution'/);
+  assert.match(read('site/src/content/docs/concepts.mdx'), /\]\(\.\.\/guides\/durable-execution\/\)/);
+  const headings = [...withoutCode(guide).matchAll(/^## (.+)$/gm)].map((match) => match[1]);
+  assert.deepEqual(headings.slice(0, 7), [
+    '1. Submit a distinct attempt', '2. Publish and inspect immutable artifacts',
+    '3. Create checkpoints at safe boundaries', '4. Watch lineage and lifecycle',
+    '5. Retry or resume', '6. Aggregate completed manifests', '7. Review evidence states',
+  ]);
+  const failures = [];
+  const targets = new Set();
+  for (const [, target] of withoutCode(guide).matchAll(/\]\((\.\.\/[^)\s]+)\)/g)) {
+    const [page, fragment] = target.replace(/^\.\.\//, '').split('#');
+    const destination = resolve(root, 'site/src/content/docs/guides', `${page.replace(/\/$/, '')}.mdx`);
+    targets.add(page);
+    if (!existsSync(destination)) failures.push(`missing ${target}`);
+    else if (fragment && !anchors(readFileSync(destination, 'utf8')).has(fragment)) failures.push(`missing anchor ${target}`);
+  }
+  assert.deepEqual(failures, []);
+  for (const page of ['immutable-artifacts/', 'runner-identities/', 'runner-terminal/', 'manifest-aggregation/',
+    'evidence-review/', 'dashboard-lab/']) {
+    assert.ok(targets.has(page), `${path} must link ${page}`);
+  }
 });

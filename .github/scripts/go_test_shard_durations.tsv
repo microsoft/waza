@@ -1,39 +1,44 @@
-# Observed Linux race/atomic top-level durations (seconds), 2026-11-04.
-# https://github.com/microsoft/waza/actions/runs/41877103009
-# Head: 4af01e378c56b1e29a77e0e053dcab8a88b5cd09
+# Observed Linux race/atomic top-level durations (seconds), 2026-11-12.
+# Mean of top-level PASS records from three attempt-1 main-push Go CI runs,
+# read from each run's complete ci-evidence-go-native artifacts (Linux X64,
+# retries 0, test-result cache disabled, warm Go dependency cache) and
+# cross-checked against the Actions job logs:
+# https://github.com/microsoft/waza/actions/runs/43291604244 (10f4081b2e84ce6053eb28dc8d5f147350fe7fb3)
+# https://github.com/microsoft/waza/actions/runs/43286123140 (a986eb784bf20a0fb2b851f86cf0ea35825e8313)
+# https://github.com/microsoft/waza/actions/runs/43272482704 (b926f3d6506f9127e09640b0f9ed08dc8088aadd)
 # Update from top-level PASS records only; subtest durations overlap parents.
-TestAssuredCollectionRealOfflineVerifierAndRegrade	106.09
-TestAssuredCurrentReviewRevocationAndArmSwap	66.78
-TestAssuredCurrentSourceChangesRejectBeforeCollection	54.46
-TestAssuredFullRowsAndRegradeCannotAdoptPass	35.23
-TestAssuredRechecksAfterActualVerifier	24.98
-TestAssuredUnreviewedRemainsNonpass	41.43
+TestAssuredCollectionRealOfflineVerifierAndRegrade	98.22
+TestAssuredCurrentReviewRevocationAndArmSwap	56.05
+TestAssuredCurrentSourceChangesRejectBeforeCollection	64.87
+TestAssuredFullRowsAndRegradeCannotAdoptPass	33.69
+TestAssuredRechecksAfterActualVerifier	22.12
+TestAssuredUnreviewedRemainsNonpass	37.26
 TestNativeArtifactPublicWireBoundBeforeOpen	0.0
 TestNativeArtifactRejectsFIFOReplacementBeforeOpen	0.0
-TestNativeArtifactsAreRequiredAndConfined	163.77
-TestNativeCollectionAcceptedAndFrozenReader	155.48
-TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime	48.49
-TestNativeCollectionDiscoveryOrder	103.38
-TestNativeCollectionObservedFailures	840.1
-TestNativeCollectionProductionLifecycle	117.94
-TestNativeCollectionPublicPayloads	378.76
-TestNativeFrozenResourcesReachFreshSDKWorkspace	43.99
+TestNativeArtifactsAreRequiredAndConfined	129.79
+TestNativeCollectionAcceptedAndFrozenReader	120.64
+TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime	55.42
+TestNativeCollectionDiscoveryOrder	109.7
+TestNativeCollectionObservedFailures	717.2
+TestNativeCollectionProductionLifecycle	90.76
+TestNativeCollectionPublicPayloads	442.1
+TestNativeFrozenResourcesReachFreshSDKWorkspace	39.0
 TestNativeInnerProfileRejectsFrozenPolicyMemberOracle	0.0
-TestNativeLateFailurePreservesEveryStartedAttempt	514.57
-TestNativeReadSelectedDecisionCaptureVerification	248.68
-TestNativeReaderFrozen15cDecisionParity	991.7
-TestNativeReaderPreservesPrePolicyCoreFailures	113.32
-TestNativeReaderSuppliedDecisionProcess	6.95
-TestNativeSourceCurrentnessBeforeSideEffects	150.92
-TestNativeStaticRequirementsAndConfiguration	8.55
-TestNativeTerminalPolicyAndLateStop	207.71
-TestOriginalMockGuardAndLockErrorParity	2.61
-TestOriginalMockPolicyGoldenUnionParity	4.37
-TestOriginalMockSourceProjectionParity	14.1
+TestNativeLateFailurePreservesEveryStartedAttempt	396.26
+TestNativeReadSelectedDecisionCaptureVerification	290.34
+TestNativeReaderFrozen15cDecisionParity	1189.58
+TestNativeReaderPreservesPrePolicyCoreFailures	89.55
+TestNativeReaderSuppliedDecisionProcess	13.97
+TestNativeSourceCurrentnessBeforeSideEffects	184.25
+TestNativeStaticRequirementsAndConfiguration	9.47
+TestNativeTerminalPolicyAndLateStop	161.78
+TestOriginalMockGuardAndLockErrorParity	3.0
+TestOriginalMockPolicyGoldenUnionParity	4.3
+TestOriginalMockSourceProjectionParity	13.42
 TestPlanningInputRequiresExplicitFields	0.0
-TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment	202.24
-TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection	88.76
-TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection	8.19
-TestSourceBoundCollection	5.47
-TestSourceDriftBeforeBegin	1.4
-TestSourcePlanBoundaries	8.53
+TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment	240.44
+TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection	81.73
+TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection	7.66
+TestSourceBoundCollection	4.88
+TestSourceDriftBeforeBegin	1.77
+TestSourcePlanBoundaries	8.7

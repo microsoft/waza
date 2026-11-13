@@ -109,16 +109,21 @@ func (f *fakeAzure) Do(r *http.Request) (*http.Response, error) {
 			var listing strings.Builder
 			listing.WriteString("<EnumerationResults><Blobs>")
 			names := []string{}
+			after := r.URL.Query().Get("marker")
 			for name := range f.objects {
-				if strings.HasPrefix(name, prefix) {
+				if strings.HasPrefix(name, prefix) && name > after {
 					names = append(names, name)
 				}
 			}
 			slices.Sort(names)
+			pageSize := MaxCatalogEntries
+			if requested, err := strconv.Atoi(r.URL.Query().Get("maxresults")); err == nil && requested < pageSize {
+				pageSize = requested
+			}
 			marker := ""
-			if len(names) > MaxCatalogEntries {
-				names = names[:MaxCatalogEntries]
-				marker = "remaining"
+			if len(names) > pageSize {
+				names = names[:pageSize]
+				marker = names[len(names)-1]
 			}
 			for _, name := range names {
 				listing.WriteString("<Blob><Name>" + name + "</Name><Properties><Content-Length>1</Content-Length><BlobType>BlockBlob</BlobType></Properties></Blob>")

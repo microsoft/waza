@@ -152,3 +152,9 @@ func validateSourceDisclosure(source *executionledger.CompletedExecution) error 
 	}
 	return nil
 }
+
+// ValidateSourceDisclosure applies the capture reuse-admission policy to an
+// already verified source without reserving, reusing or disclosing it.
+func ValidateSourceDisclosure(source *executionledger.CompletedExecution) error {
+	return validateSourceDisclosure(source)
+}

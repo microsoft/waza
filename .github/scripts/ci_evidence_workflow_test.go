@@ -24,6 +24,9 @@ func checkColdInput(declaration yaml.Node) error {
 		return err
 	}
 	cold, exists := input.Inputs["cold_observation"]
+	// Completeness callers may also pass their plan; it does not affect cold state.
+	delete(input.Inputs, "pr_completeness_plan")
+	delete(input.Inputs, "pr_completeness")
 	if declaration.Kind != yaml.MappingNode || len(declaration.Content) != 2 ||
 		!exists || len(input.Inputs) != 1 || cold.Description == "" || cold.Type != "boolean" ||
 		cold.Default.Tag != "!!bool" || cold.Default.Value != "false" ||
@@ -53,7 +56,7 @@ func checkColdWorkflow(source []byte, file string) error {
 		cache, nodeCache, prepareIf, scope = "${{ !inputs.cold_observation }}", "", "inputs.cold_observation", "go"
 	case "web-ci.yml":
 		events, jobID, requested = []string{"workflow_dispatch", "workflow_call"}, "build", "${{ inputs.cold_observation == true }}"
-		prepareIf += " && (steps.filter.outputs.web == 'true' || github.event_name != 'pull_request')"
+		prepareIf += " && (steps.filter.outputs.web == 'true' || github.event_name != 'pull_request' || inputs.pr_completeness_plan != '')"
 	case "go-ci.yml":
 		if workflow.Jobs["native-test-shards"].With["cold_observation"] != requested ||
 			workflow.Jobs["build-and-test-windows"].Env["CI_EVIDENCE_COLD_REQUESTED"] != "" {
@@ -116,7 +119,9 @@ func checkColdWorkflow(source []byte, file string) error {
 		return fmt.Errorf("both toolchains must be ready before observing isolated stores")
 	}
 	for _, step := range job.Steps[:prepare] {
-		if step.Run != "" {
+		// Completeness receipt bookkeeping runs only for PR completeness callers, never cold dispatches.
+		if step.Run != "" && !map[string]bool{"inputs.pr_completeness_plan != ''": true,
+			"github.event_name == 'pull_request'": true, "inputs.pr_completeness": true}[step.If] {
 			return fmt.Errorf("initial empty observation must precede dependencies, offline guard, discovery and tests")
 		}
 	}
@@ -325,7 +330,7 @@ func checkBrowserEvidence(source []byte) error {
 	}
 	job := workflow.Jobs["build"]
 	steps := releaseSteps(job)
-	condition := "steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'"
+	condition := "steps.filter.outputs.web == 'true' || github.event_name != 'pull_request' || inputs.pr_completeness_plan != ''"
 	discover, execute := steps["Discover dashboard tests without execution"], steps["Test dashboard"]
 	sanitize, upload := steps["Sanitize dashboard execution evidence"], steps["Retain sanitized dashboard execution evidence"]
 	if workflow.Permissions["contents"] != "read" || workflow.Permissions["pull-requests"] != "read" || len(workflow.Permissions) != 2 || job.TimeoutMinutes != 15 {

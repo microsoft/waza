@@ -1,0 +1,145 @@
+---
+title: Reviewing evidence states
+description: Read per-category evidence states, privacy redaction and retry/resume lineage in standalone aggregates.
+---
+
+**Unreleased v0.41 source preview.** Every published execution evidence sidecar
+records six categories: `conversation`, `tool`, `grader`, `reliability`, `usage`
+and `provenance`. Each one has exactly one state. `waza aggregate`, the
+`POST /api/v1/aggregates` API and the Lab aggregate panel show the state that
+was **re-verified** against the original capture, not just what the sidecar
+claims.
+
+Evidence completeness is not a verdict. A run can succeed with redacted
+evidence, and a run can fail with complete evidence. Read the outcome and the
+evidence states separately.
+
+## Get the states
+
+Build an aggregate from the manifest and evidence digests you want to review
+(see [Aggregate completed manifests](../manifest-aggregation/) for how to find
+them):
+
+```bash
+waza aggregate --store .waza-artifacts --inputs inputs.json -o review.json
+```
+
+Each member in `review.json` has a `categories` array. In the Lab, open
+**Aggregate completed public manifests**, paste the same references and select
+**Build aggregate**. The panel shows a state legend and one table per member.
+
+## The five states
+
+The examples below are real category records from an aggregate.
+
+### `present`
+
+The category was recorded and its content matched the original capture.
+
+```json
+{"category": "grader", "state": "present", "declared_state": "present", "source": "mock",
+ "context": "observed", "verification": "source-content-and-recorded-category-shape-only", "observed_count": 1}
+```
+
+`observed_count: 0` means the category was recorded as **empty**. For example,
+the run had no conversation turns. This is not the same as missing data.
+
+```json
+{"category": "conversation", "state": "present", "observed_count": 0, "...": "..."}
+```
+
+### `unavailable`
+
+Nothing was recorded, or the record could not be verified. Treat it as unknown,
+never as zero.
+
+```json
+{"category": "usage", "state": "unavailable", "declared_state": "unavailable",
+ "verification": "source-content-and-recorded-category-shape-only", "reason": "not_recorded", "...": "..."}
+```
+
+### `incomplete`
+
+Only part was recorded. Here the tool payload exceeded the per-object size
+limit, so it was not stored or truncated:
+
+```json
+{"category": "tool", "state": "incomplete", "declared_state": "incomplete",
+ "verification": "recorded-degradation-only", "reason": "object_size_limit", "...": "..."}
+```
+
+### `redacted`
+
+The category was recorded but withheld for privacy. Conversation and tool data
+are redacted by default. No payload, count or free text is exposed.
+
+```json
+{"category": "conversation", "state": "redacted", "declared_state": "redacted", "reason": "privacy", "...": "..."}
+```
+
+### `conflicting`
+
+The evidence disagrees with its source. When a sidecar declares states that the
+original capture did not record, the whole member is `conflicting` with the
+`conflicting_source` diagnostic. Its categories show the claimed state in
+`declared_state`, but the verified `state` stays `unavailable`:
+
+```json
+{"category": "grader", "state": "unavailable", "declared_state": "redacted",
+ "verification": "declared-state-only", "reason": "category_not_verified", "...": "..."}
+```
+
+A conflicting member makes the whole aggregate `conflicting`. The CLI exits
+nonzero and the API returns HTTP 409, but you still get the full report.
+
+## Usage totals
+
+The aggregate totals historical usage only when every execution has verified
+`present`, non-cached usage. Any `unavailable`, `incomplete`, `redacted` or
+`conflicting` usage withholds the whole total:
+
+```json
+{"usage": {"state": "unavailable", "executions": 3, "recorded_historical_usage": null,
+           "diagnostics": ["complete_historical_usage_unavailable"]}}
+```
+
+## Retries, resumes and lineage
+
+Retries never overwrite the original attempt. The aggregate keeps both as
+separate members, each with its own outcome, and does not pick a winner.
+
+- `parent` comes from the verified original reservation. It names the execution
+  that this attempt retried or branched from.
+- `lineage` comes from the evidence sidecar. It lists source manifests with a
+  `retry`, `resume`, `cache` or `aggregation` relationship.
+
+```json
+{
+  "manifest_sha256": "…retry manifest…",
+  "state": "admitted",
+  "outcome": "success",
+  "execution_id": "exec-…retry…",
+  "parent": {"execution_id": "exec-…original…", "relationship": "retry"},
+  "lineage": [{"manifest": "…original manifest…", "relationship": "resume"}]
+}
+```
+
+The original member in the same report still shows `"outcome": "infrastructure_failure"`.
+In the Lab, the parent execution appears in the member details, and each lineage
+entry links to its source manifest.
+
+Members with `cache` lineage or cached sources never contribute to usage totals.
+
+## Troubleshooting
+
+| You see | What it means | What to do |
+|---|---|---|
+| Every category `redacted` | Categories were withheld at capture | Expected for privacy; the outcome is unaffected |
+| `usage` `unavailable` with `not_recorded` | The run did not record usage | Do not estimate; the total stays unavailable |
+| `incomplete` with `object_size_limit` | A payload exceeded the 64 MiB object limit | Reduce the payload at the source; nothing was truncated |
+| Member `conflicting`, `declared-state-only` | The sidecar disagrees with the capture | Use the original sidecar; do not edit published evidence |
+| No `parent` on a retry | The retry was reserved without a parent | Lineage is only recorded by the producer; it is never inferred |
+
+For the full contract, see `docs/EVIDENCE-STATES.md` and
+`docs/MANIFEST_AGGREGATION.md` in the repository, and the
+[schema changes](../../reference/schema-changes/) page.

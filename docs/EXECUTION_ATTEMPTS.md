@@ -1,9 +1,10 @@
 # Logical work and immutable execution attempts
 
-This is an unreleased v0.41 **embedding API** preview for #764. It is not a
-released CLI command, dashboard operation, checkpoint contract, or scheduler.
-The public CLI/API/Lab integration remains pending. Ordinary `runner run` and
-mutable result files keep their existing behavior.
+This is an unreleased source preview for #764. It is not a released CLI
+command, checkpoint contract, or scheduler. Source builds expose public
+submission and lineage through the CLI, loopback API and a read-only Lab view
+(see [public submission and lineage](#public-submission-and-lineage)). Ordinary
+`runner run` and mutable result files keep their existing behavior.
 
 ## Identity and duplicate decisions
 
@@ -151,6 +152,59 @@ construction. Mock execution and source-only verified reuse do not construct a
 native runtime. Native inference remains explicitly paid and opt-in through the
 existing runner request.
 
+## Public submission and lineage
+
+`waza runner submit` and protected `POST /api/v1/submissions` are the public
+callers of `Service.Submit`. Both read one `waza.execution-submission` wrapper
+and emit one capture-approved `waza.execution-submission-result`. Policy
+`distinct` (the default) always reserves a fresh execution ID, so a duplicate
+submission is a new attempt, never an overwrite. Name a retry or branch parent
+with `policy.parent`. Policy `reuse` admits only a verified finalized source and
+makes zero engine calls; the reused record keeps its original terminal.
+
+`waza runner lineage --run RUN --work WORK` and loopback-only
+`GET /api/v1/lineage?run=RUN&work=WORK` emit one read-only
+`waza.execution-lineage` 1.0 document for one logical work item. Attempts are
+ordered by parent relationships (roots first, siblings by execution ID); this
+is not wall-clock or global order. Each attempt shows its status (`reserved`,
+`dispatched`, `completed`, `completion_unverified`), its retry/branch parent,
+its verified terminal outcome, and the reuse decisions that cite it.
+
+```mermaid
+sequenceDiagram
+    participant C as Caller
+    participant S as runner submit
+    participant L as Immutable ledger
+    C->>S: distinct submission
+    S->>L: reserve exec-A, dispatch, complete
+    C->>S: distinct, parent exec-A retry
+    S->>L: reserve exec-B (parent exec-A), dispatch, complete
+    C->>S: reuse source exec-A
+    S->>L: decision reused (zero engine calls)
+    C->>L: runner lineage
+    L-->>C: exec-A then exec-B, exec-A reused_by decision
+```
+
+Lineage diagnostics never block reading the remaining records:
+
+| Code | Meaning |
+|------|---------|
+| `concurrent_distinct_attempts` | More than one parentless attempt; concurrent or duplicate writers each received their own record |
+| `sibling_attempts` | One parent has several children |
+| `dispatched_without_completion` | Execution may have started; inspect before retrying |
+| `orphaned_attempt` | Dispatched, no completion, and the owner's lifecycle journal is stale or past its deadline; retry-eligible ([lifecycle](EXECUTION_LIFECYCLE.md#orphan-detection)) |
+| `lifecycle_journal_invalid` | Lifecycle journal is corrupt or out of order; lifecycle falls back to ledger records |
+| `completion_unverified` / `completion_verification_interrupted` | Completion marker exists but its terminal could not be verified |
+| `parent_unavailable`, `reuse_source_unavailable`, `decision_reservation_unavailable`, `duplicate_dispatch_decision` | Referenced records are missing or contradictory |
+
+Discovery follows provider pagination across the whole ledger (all logical
+work) up to 262,144 records. The reader validates every completion, including
+those for other work, and fails closed instead of returning a partial view when
+that bound is exceeded or a record is unreadable, non-canonical or orphaned.
+Reuse decisions with outcome `unfinished` or `conflict` are listed but never
+linked as `reused_by`; successful reuse decisions must match the source's
+logical work and execution context.
+
 ## Migration and remaining release gates
 
 All sidecars have independent `1.0` schemas. Manifest v1, runner identity v1,
@@ -160,6 +214,8 @@ original terminal bytes, or infer a creator from a checkpoint.
 
 Existing manifest-only publications remain inspectable. Reuse requires actual
 original ledger records, not an automatically migrated legacy result.
-Public submission/lineage transport and Lab inspection, checkpoint recovery,
-lifecycle controls, native-platform checks, and independent review remain
-separate release gates. This core does not complete #764, #765, #767, or #755.
+Public submission, lineage transport and read-only Lab lineage inspection are
+available from source. Each lineage attempt also carries derived lifecycle
+state, cancellation, deadline, partial-completion and retry-eligibility
+metadata; see [execution lifecycle semantics](EXECUTION_LIFECYCLE.md).
+Native-platform checks and independent review remain separate release gates.
