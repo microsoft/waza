@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import lineage from "./fixtures/execution-lineage.json" with { type: "json" };
 import checkpoints from "./fixtures/checkpoint-operations.json" with { type: "json" };
 
@@ -9,7 +9,11 @@ import checkpoints from "./fixtures/checkpoint-operations.json" with { type: "js
 // routine and docs-refresh runs never execute this file.
 const out = process.env.WAZA_RELEASE_MEDIA_DIR ?? "";
 test.skip(!out, "Set WAZA_RELEASE_MEDIA_DIR to an absolute path outside the repository.");
-if (out && (!isAbsolute(out) || !relative(resolve(".."), out).startsWith(".."))) {
+function outside(root: string, path: string) {
+  const rel = relative(root, path);
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+if (out && (!isAbsolute(out) || !outside(resolve(".."), out))) {
   throw new Error("WAZA_RELEASE_MEDIA_DIR must be an absolute path outside the repository.");
 }
 test.skip(({ browserName }) => browserName !== "chromium", "Release media is captured once, in Chromium.");
@@ -20,7 +24,8 @@ const vertical = { width: 540, height: 960 };
 
 interface Cue { start: number; end: number; text: string }
 
-// Burns a caption bar into the recording and keeps the same text as a WebVTT cue.
+// Burns a caption bar into the recording and keeps the same text as a WebVTT cue
+// that stays open until the next caption replaces it.
 class Captions {
   private readonly cues: Cue[] = [];
   private readonly origin = Date.now();
@@ -28,6 +33,8 @@ class Captions {
 
   async say(text: string, holdMs: number) {
     const start = (Date.now() - this.origin) / 1000;
+    const previous = this.cues.at(-1);
+    if (previous) previous.end = start;
     await this.page.evaluate((caption) => {
       let bar = document.getElementById("waza-release-media-caption");
       if (!bar) {
@@ -142,7 +149,7 @@ async function buildAggregate(page: Page) {
 test.beforeAll(async () => {
   test.setTimeout(180_000);
   await mkdir(out, { recursive: true });
-  if (!relative(await realpath(resolve("..")), await realpath(out)).startsWith("..")) {
+  if (!outside(await realpath(resolve("..")), await realpath(out))) {
     throw new Error("WAZA_RELEASE_MEDIA_DIR resolves inside the repository.");
   }
   raw = await mkdtemp(join(out, ".raw-"));
