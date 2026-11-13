@@ -56,6 +56,7 @@ export default defineConfig({
 						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },
 						{ label: 'Immutable Artifacts', slug: 'guides/immutable-artifacts' },
 						{ label: 'Aggregate Completed Manifests', slug: 'guides/manifest-aggregation' },
+						{ label: 'Reviewing Evidence States', slug: 'guides/evidence-review' },
 						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },
 						{ label: 'Local Runner Container', slug: 'guides/runner-container' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },

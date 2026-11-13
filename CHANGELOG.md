@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `waza.execution-lineage` 1.0 with parent-ordered attempts, reuse decisions and
   concurrent-writer diagnostics. No migration: historical results gain no
   synthesized attempts. See [public submission and lineage](docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage).
+- **Execution evidence states and lineage in aggregates (unreleased, #768)** -
+  `waza aggregate`, `POST /api/v1/aggregates` and the Lab aggregate panel now
+  show each member's verified execution `parent` (retry/branch) and declared
+  evidence `lineage` (retry/resume/cache/aggregation) as optional aggregate 1.0
+  fields. Originals and retries stay separate members with their own outcomes;
+  nothing is overwritten and no winner is chosen. The Lab adds a legend for all
+  five evidence states and marks redacted, incomplete and conflicting categories.
+  Degraded or forged evidence never aggregates as present or totals usage. See
+  [evidence states](docs/EVIDENCE-STATES.md) and the
+  [evidence review guide](site/src/content/docs/guides/evidence-review.mdx).
 
 - **Standalone manifest aggregation (unreleased v0.41 source preview, #766)** -
   Aggregate explicit public completed manifest/evidence references without

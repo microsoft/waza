@@ -1597,3 +1597,22 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+.lab-evidence-state {
+  border: 1px solid var(--lab-border);
+  border-radius: 4px;
+  color: var(--lab-muted);
+  padding: 0 4px;
+}
+.lab-evidence-present {
+  background: var(--lab-green-bg);
+  color: var(--lab-green);
+}
+.lab-evidence-redacted,
+.lab-evidence-incomplete {
+  background: var(--lab-blue-bg);
+  color: var(--lab-blue);
+}
+.lab-evidence-conflicting {
+  background: var(--lab-red-bg);
+  color: var(--lab-red);
+}

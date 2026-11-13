@@ -11,6 +11,7 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/evidencestate"
+	"github.com/microsoft/waza/internal/executionattempt"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
@@ -68,6 +69,7 @@ func accounting(report Report) error {
 	counts := Counts{Members: len(report.Members), MemberStates: map[string]int{}, MemberOutcomes: map[string]int{}}
 	manifests, executions := map[string]bool{}, map[string]bool{}
 	executionManifests := map[string]string{}
+	executionParents := map[string]executionattempt.Parent{}
 	manifestOutcomes, manifestProfiles := map[string]string{}, map[string]string{}
 	profiles := map[string][]Input{}
 	state := "complete"
@@ -83,6 +85,29 @@ func accounting(report Report) error {
 			if i > 0 && member.Categories[i-1].Category >= category.Category {
 				return fail()
 			}
+		}
+		if member.Parent != nil {
+			if member.Execution == "" || member.Parent.ExecutionID == member.Execution {
+				return fail()
+			}
+			// Parentage comes from one immutable reservation; earlier reports may omit it.
+			if previous, ok := executionParents[member.Execution]; ok && previous != *member.Parent {
+				return fail()
+			}
+			executionParents[member.Execution] = *member.Parent
+		}
+		if len(member.Lineage) > 0 && member.Evidence == "" {
+			return fail()
+		}
+		for i, link := range member.Lineage {
+			if link.Manifest == member.Manifest || (i > 0 && compareLineage(member.Lineage[i-1], link) >= 0) {
+				return fail()
+			}
+		}
+		// Earlier 1.0 producers emitted the diagnostic without exposing lineage,
+		// so only visible cache metadata requires it.
+		if member.Execution != "" && memberCached(member) && !slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
+			return fail()
 		}
 		counts.MemberStates[member.State]++
 		if member.Outcome != "" {
@@ -139,15 +164,35 @@ func accounting(report Report) error {
 	return nil
 }
 
+func compareLineage(a, b evidencestate.Lineage) int {
+	if order := strings.Compare(a.Manifest, b.Manifest); order != 0 {
+		return order
+	}
+	return strings.Compare(string(a.Relationship), string(b.Relationship))
+}
+
+// memberCached mirrors Build: cache lineage or any cached category source
+// excludes the member's recorded usage from historical totals.
+func memberCached(member Member) bool {
+	for _, link := range member.Lineage {
+		if link.Relationship == evidencestate.Cache {
+			return true
+		}
+	}
+	for _, category := range member.Categories {
+		if category.Source == evidencestate.Cached {
+			return true
+		}
+	}
+	return false
+}
+
 func memberUsageEligible(member Member) bool {
-	if member.Execution == "" || slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
+	if member.Execution == "" || memberCached(member) || slices.Contains(member.Diagnostics, "cached_historical_usage_excluded") {
 		return false
 	}
 	present := false
 	for _, category := range member.Categories {
-		if category.Source == evidencestate.Cached {
-			return false
-		}
 		if category.Category == evidencestate.Usage {
 			present = category.State == evidencestate.Present && category.DeclaredState == evidencestate.Present &&
 				category.Verification == "source-content-and-recorded-usage-shape-only" &&

@@ -64,12 +64,16 @@ type Category struct {
 
 type Member struct {
 	Input
-	State       string                    `json:"state"`
-	Binding     *artifactmanifest.Binding `json:"binding,omitempty"`
-	Outcome     runnerterminal.Outcome    `json:"outcome,omitempty"`
-	Execution   string                    `json:"execution_id,omitempty"`
-	Categories  []Category                `json:"categories"`
-	Diagnostics []string                  `json:"diagnostics"`
+	State     string                    `json:"state"`
+	Binding   *artifactmanifest.Binding `json:"binding,omitempty"`
+	Outcome   runnerterminal.Outcome    `json:"outcome,omitempty"`
+	Execution string                    `json:"execution_id,omitempty"`
+	// Parent is read from the verified original reservation; Lineage is the
+	// selected sidecar's declared source manifests. Neither selects a winner.
+	Parent      *executionattempt.Parent `json:"parent,omitempty"`
+	Lineage     []evidencestate.Lineage  `json:"lineage,omitempty"`
+	Categories  []Category               `json:"categories"`
+	Diagnostics []string                 `json:"diagnostics"`
 }
 
 type Group struct {
@@ -326,10 +330,13 @@ func loadMember(ctx context.Context, sources Sources, backend readOnlyBackend, s
 	slices.SortFunc(member.Categories, func(a, b Category) int {
 		return strings.Compare(string(a.Category), string(b.Category))
 	})
+	document := inspection.Document
+	if len(document.Lineage) > 0 {
+		member.Lineage = slices.Clone(document.Lineage)
+	}
 	if inspectionErr != nil {
 		return fail(inspectionErr)
 	}
-	document := inspection.Document
 	if document.ExecutionSource == nil {
 		member.Diagnostics = append(member.Diagnostics, "execution_identity_unavailable")
 		return member, view{}, true, nil
@@ -337,11 +344,12 @@ func loadMember(ctx context.Context, sources Sources, backend readOnlyBackend, s
 	if sources.Namespace == nil {
 		return fail(fmt.Errorf("%w: namespace read capability unavailable", executionledger.ErrCapability))
 	}
-	if err := verifyExecution(ctx, sources.Namespace, budget, *document.ExecutionSource,
-		publication.ManifestBytes, publication.Manifest.Artifacts, document.AttemptArtifact); err != nil {
+	parent, err := verifyExecution(ctx, sources.Namespace, budget, *document.ExecutionSource,
+		publication.ManifestBytes, publication.Manifest.Artifacts, document.AttemptArtifact)
+	if err != nil {
 		return fail(err)
 	}
-	member.Execution = document.ExecutionSource.ExecutionID
+	member.Execution, member.Parent = document.ExecutionSource.ExecutionID, parent
 	result := view{}
 	cached := false
 	for _, link := range document.Lineage {
@@ -363,7 +371,7 @@ func loadMember(ctx context.Context, sources Sources, backend readOnlyBackend, s
 }
 
 func verifyExecution(ctx context.Context, namespace *artifactmanifest.NamespaceReader, budget *readBudget,
-	source executionattempt.Source, manifest []byte, artifacts []artifactmanifest.Artifact, selectedAttempt string) error {
+	source executionattempt.Source, manifest []byte, artifacts []artifactmanifest.Artifact, selectedAttempt string) (*executionattempt.Parent, error) {
 	read := func(key string) ([]byte, error) {
 		return budget.read(ctx, artifactmanifest.MaxNamespaceObjectBytes, func() ([]byte, error) {
 			return namespace.ReadUnverified(ctx, key)
@@ -371,32 +379,42 @@ func verifyExecution(ctx context.Context, namespace *artifactmanifest.NamespaceR
 	}
 	reservation, err := read("reservation/" + source.ExecutionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	selected := slices.IndexFunc(artifacts, func(artifact artifactmanifest.Artifact) bool {
 		return artifact.Name == selectedAttempt
 	})
 	if selected < 0 || artifacts[selected].SHA256 != artifactmanifest.Hash(reservation) ||
 		artifacts[selected].SizeBytes != int64(len(reservation)) || artifacts[selected].MediaType != "application/json" {
-		return executionledger.ErrContext
+		return nil, executionledger.ErrContext
 	}
 	completionBytes, err := read("completion/" + source.ExecutionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	completion, err := executionledger.ParseCompletion(completionBytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	canonical, err := executionledger.EncodeCompletion(*completion)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !bytes.Equal(canonical, completionBytes) || completion.ExecutionID != source.ExecutionID ||
 		completion.ManifestDigest != source.ManifestDigest {
-		return executionledger.ErrContext
+		return nil, executionledger.ErrContext
 	}
-	return executionledger.ValidateContext(*completion, reservation, manifest)
+	if err := executionledger.ValidateContext(*completion, reservation, manifest); err != nil {
+		return nil, err
+	}
+	attempt, err := executionattempt.ParseAttempt(reservation)
+	if err != nil {
+		return nil, err
+	}
+	if attempt.ExecutionID != source.ExecutionID {
+		return nil, executionledger.ErrContext
+	}
+	return attempt.Parent, nil
 }
 
 func equalUsage(a, b *models.UsageStats) bool {
