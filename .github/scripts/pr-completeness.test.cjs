@@ -123,6 +123,7 @@ test('actual API/model/schema and container paths select production consumers; u
   assert.equal(applicability([frozenReader]).assurance, true);
   assert.equal(applicability(['testdata/frozen-assurance-readers-near-miss/manifest.json']).assurance, false);
   assert.equal(applicability(['internal/embedded/path.go']).runtime, true);
+  assert.equal(applicability(['.gitattributes']).runtime, true);
   assert.equal(applicability(['.dockerignore']).container, true);
   assert.equal(applicability(['examples/runner/container/Dockerfile']).container, true);
   assert.deepEqual(applicability(['AGENTS.md']), {
@@ -132,6 +133,27 @@ test('actual API/model/schema and container paths select production consumers; u
     assert.equal(applicability([file]).site, true);
     assert.equal(applicability([file]).dashboard, false);
   }
+});
+
+test('plan applicability is a superset of every workflow-internal change filter it replaced', () => {
+  const read = (file) => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8').replace(/\r\n/g, '\n');
+  const globs = (workflow, filter) => {
+    const block = read(workflow).match(new RegExp(`^            ${filter}:\\n((?:              - '[^'\\n]+'\\n)+)`, 'm'))?.[1];
+    assert.ok(block, `${workflow} ${filter} filter must exist`);
+    return [...block.matchAll(/- '([^']+)'/g)].map((match) => match[1]);
+  };
+  for (const [workflow, filter, family] of [
+    ['.github/workflows/web-ci.yml', 'web', 'dashboard'],
+    ['.github/workflows/site-ci.yml', 'site', 'site'],
+    ['.github/workflows/site-ci.yml', 'examples', 'examples'],
+  ]) {
+    for (const glob of globs(workflow, filter)) {
+      const sample = glob.replace(/\*\*?/g, 'x');
+      assert.equal(applicability([sample])[family], true, `${glob} (${workflow}) must select ${family}`);
+    }
+  }
+  assert.equal(applicability(['.github/scripts/ci-evidence-cache.cjs']).dashboard, true);
+  assert.equal(applicability(['.github/scripts/ci-evidence-near-miss/x.cjs']).dashboard, false);
 });
 
 test('runtime package and reader/schema helpers select the proof, while adjacent unrelated prefixes do not', () => {

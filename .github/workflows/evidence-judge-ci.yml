@@ -1,17 +1,6 @@
 name: Evidence judge runtime isolation
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/evidence-judge-ci.yml'
-      - '.gitattributes'
-      - 'go.mod'
-      - 'go.sum'
-      - 'internal/embedded/**'
-      - 'internal/execution/**'
-      - 'internal/graders/**'
-      - 'internal/judgeevidence/**'
-      - 'internal/models/**'
   push:
     branches: [main, develop]
     paths:
