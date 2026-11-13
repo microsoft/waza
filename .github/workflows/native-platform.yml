@@ -1,0 +1,218 @@
+# Native platform evidence (#905).
+#
+# Release-candidate and scheduled coverage that is too costly for every PR:
+#   - Darwin production-caller regressions on native macOS runners, with
+#     explicit selection and skip assertions;
+#   - candidate packages built exactly as release.yml builds them, then
+#     smoke-tested natively by native-package-smoke.yml.
+# Ordinary PRs run only the checker and workflow contract tests in Go CI;
+# PRs that change this evidence machinery also run it here.
+# See docs/RELEASE.md#native-platform-evidence for the platform table.
+
+name: Native platform evidence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'
+  # Changes to the evidence machinery itself must prove it on real runners.
+  pull_request:
+    paths:
+      - '.github/workflows/native-platform.yml'
+      - '.github/workflows/native-package-smoke.yml'
+      - '.github/scripts/native-package-smoke/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-platform.yml'
+      - '.github/workflows/native-package-smoke.yml'
+      - '.github/scripts/native-package-smoke/**'
+      - '.github/scripts/release_integration_test.sh'
+      - 'build.sh'
+      - 'cmd/waza/scenario_directory*.go'
+      - 'internal/pathadmission/**'
+      - 'internal/snapshot/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  darwin-production-callers:
+    name: Darwin production callers (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-latest, macos-15-intel]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Install and prove rejecting runtime guard
+        run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
+
+      - name: Run Darwin production-caller regressions
+        run: |
+          status=0
+          {
+            go test -json -count=1 ./internal/pathadmission ./internal/snapshot || status=$?
+            go test -json -count=1 -run '^TestScenario' ./cmd/waza || status=$?
+          } > "$RUNNER_TEMP/darwin-tests.json"
+          go run ./.github/scripts/native-package-smoke go-tests -input "$RUNNER_TEMP/darwin-tests.json" \
+            -require TestScenarioDarwinSystemOutputAlias,TestSystemRootAliasPlatform,TestWorkspaceRootExplicitSystemAliases,TestPrivateWriterPhysicalAndCleanedRoots
+          exit "$status"
+
+      - name: Reject tolerated runtime launches
+        run: test ! -e "$COPILOT_CLI_PATH.invoked"
+
+  candidate-packages:
+    name: Candidate packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Setup Node.js (for web UI build)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web UI
+        working-directory: web
+        run: npm ci && npm run build
+
+      # Releases commit the built dashboard index before tagging. A candidate
+      # from an unsynchronized commit records it in a local commit so the
+      # packages still carry clean VCS metadata naming what they contain.
+      - name: Record candidate revision
+        id: source
+        run: |
+          if ! git diff --quiet; then
+            git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+              commit -qam "candidate: built dashboard for $GITHUB_SHA"
+          fi
+          test -z "$(git status --porcelain --untracked-files=normal)"
+          printf 'revision=%s\nversion=%s\n' "$(git rev-parse HEAD)" "$(cat version.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Build CLI packages
+        env:
+          CGO_ENABLED: '0'
+          REVISION: ${{ steps.source.outputs.revision }}
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}" arch="${target#*/}"
+            name="waza-$os-$arch"
+            if [ "$os" = windows ]; then name="$name.exe"; fi
+            mkdir -p "cli/$os-$arch"
+            GOOS="$os" GOARCH="$arch" go build -ldflags "-X main.version=${VERSION}" -o "cli/$os-$arch/$name" ./cmd/waza
+            (cd "cli/$os-$arch" &&
+              GITHUB_SHA="$REVISION" bash ../../.github/scripts/release_binary_check.sh "$name" &&
+              printf '%s\n' "$REVISION" > "$name.source-sha.txt" &&
+              sha256sum "$name" > "$name.sha256")
+          done
+          mv cli "$RUNNER_TEMP/cli"
+
+      - name: Upload linux/amd64 CLI
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-linux-amd64
+          path: ${{ runner.temp }}/cli/linux-amd64
+          if-no-files-found: error
+      - name: Upload linux/arm64 CLI
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-linux-arm64
+          path: ${{ runner.temp }}/cli/linux-arm64
+          if-no-files-found: error
+      - name: Upload darwin/amd64 CLI
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-darwin-amd64
+          path: ${{ runner.temp }}/cli/darwin-amd64
+          if-no-files-found: error
+      - name: Upload darwin/arm64 CLI
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-darwin-arm64
+          path: ${{ runner.temp }}/cli/darwin-arm64
+          if-no-files-found: error
+      - name: Upload windows/amd64 CLI
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-windows-amd64
+          path: ${{ runner.temp }}/cli/windows-amd64
+          if-no-files-found: error
+      - name: Upload windows/arm64 CLI
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-windows-arm64
+          path: ${{ runner.temp }}/cli/windows-arm64
+          if-no-files-found: error
+
+      - name: Install Azure Developer CLI
+        uses: Azure/setup-azd@0b7e3a35ab00f2eee7080c845eb39c3f0ebfa553 # v2.4.0
+
+      - name: Install azd Extensions Developer Kit
+        run: |
+          azd config set alpha.extensions on
+          azd extension install microsoft.azd.extensions --source azd
+
+      - name: Pack extension packages
+        env:
+          REVISION: ${{ steps.source.outputs.revision }}
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          azd x build --all --skip-install
+          azd x pack -o ./artifacts
+          shopt -s nullglob
+          packages=(artifacts/*.zip artifacts/*.tar.gz)
+          test "${#packages[@]}" -gt 0
+          {
+            printf 'source_sha=%s\n' "$REVISION"
+            sha256sum "${packages[@]}"
+          } > artifacts/release-provenance.txt
+          mv artifacts "$RUNNER_TEMP/artifacts"
+          test -z "$(git status --porcelain --untracked-files=normal)"
+
+      - name: Upload extension packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension-packages
+          path: ${{ runner.temp }}/artifacts
+          if-no-files-found: error
+
+  native-smoke:
+    needs: [candidate-packages]
+    uses: ./.github/workflows/native-package-smoke.yml
+    with:
+      source_sha: ${{ github.sha }}
+      package_revision: ${{ needs.candidate-packages.outputs.revision }}
+      version: ${{ needs.candidate-packages.outputs.version }}

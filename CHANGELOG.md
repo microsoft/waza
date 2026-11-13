@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Native platform evidence (#905).** A platform table in `docs/RELEASE.md`
+  separates native, cross-build-only, emulated, unavailable and unsupported
+  evidence for the six distributed targets. The new reusable
+  `native-package-smoke.yml` executes the exact digest-bound CLI binaries and
+  representative extension archives on native Linux, macOS and Windows runners
+  (AMD64 and ARM64). It checks version, help, an offline mock run and the
+  embedded dashboard, rejects emulation, digest or architecture mismatches and
+  Copilot runtime launches, and fails unless every native target has a receipt.
+  `native-platform.yml` runs the Darwin `/tmp` and `/var` production-caller
+  regressions on both macOS architectures and requires them to be selected and
+  passed, not skipped. It also smokes candidate packages weekly, on relevant
+  pushes to `main` and on demand. Tag releases run the smoke on published
+  packages as reported evidence, not yet as a publication gate.
+
 - **Portable external execution adapters (#774).** `waza runner adapter translate`
   turns one `waza.adapter-work-descriptor` 1.0 into exactly one public runner
   contract call (`runner submit`, `runner checkpoint create|resume` or
