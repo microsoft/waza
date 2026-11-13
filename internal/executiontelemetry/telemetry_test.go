@@ -917,3 +917,27 @@ func TestDigestPolicyHashesExactToolArguments(t *testing.T) {
 	}
 	require.NotEqual(t, digestFor("9007199254740992"), digestFor("9007199254740993"))
 }
+
+func TestToolSpansUseRecordedCallDuration(t *testing.T) {
+	f := publishFixture(t)
+	report := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Report, &report))
+	run := asMap(t, asSlice(t, asMap(t, asSlice(t, report["tasks"])[0])["runs"])[1])
+	run["tool_events"] = []any{map[string]any{"turn": 1, "sequence": 1, "tool_name": "grep",
+		"success": true, "duration_ms": 10}}
+	f.Report = mustMarshal(t, report)
+	tool := spansByName(build(t, f.Inputs, Options{}))[SpanTool][0]
+	require.Equal(t, int(10*time.Millisecond), mustInt(t, tool.EndTimeUnixNano)-mustInt(t, tool.StartTimeUnixNano))
+}
+
+func TestLoadRejectsRepeatedLineageExecutions(t *testing.T) {
+	f := publishFixture(t)
+	lineage := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Lineage, &lineage))
+	attempts := asSlice(t, lineage["attempts"])
+	lineage["attempts"] = append(attempts, attempts[0])
+	f.Lineage = mustMarshal(t, lineage)
+	_, err := Load(f.Inputs)
+	require.ErrorIs(t, err, ErrInvalid)
+	require.ErrorContains(t, err, "repeats execution")
+}

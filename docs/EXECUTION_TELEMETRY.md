@@ -96,6 +96,11 @@ flowchart TD
 | `waza.artifact` | task attempt | one span per published immutable artifact |
 | `waza.aggregation` | root | manifest aggregate with links to member traces |
 
+Tool calls record no start timestamp, so a `waza.tool` span starts at its task
+attempt and lasts the recorded call duration (bounded by the attempt end); calls
+without a duration span the attempt. A lineage that repeats an execution ID is
+rejected as invalid input.
+
 ### Log events
 
 Log bodies carry the event name only, never message text or payloads.

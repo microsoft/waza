@@ -263,6 +263,13 @@ func declared(manifest artifactmanifest.Manifest, name string, data []byte) erro
 // recorded yet stay unavailable. A missing entry returns -1.
 func selectLineage(lineage executionledger.Lineage, src *Source) (int, error) {
 	index := -1
+	seen := make(map[string]bool, len(lineage.Attempts))
+	for _, entry := range lineage.Attempts {
+		if seen[entry.ExecutionID] {
+			return -1, fmt.Errorf("%w: lineage repeats execution %q", ErrInvalid, entry.ExecutionID)
+		}
+		seen[entry.ExecutionID] = true
+	}
 	for i, entry := range lineage.Attempts {
 		if (src.Attempt != nil && entry.ExecutionID == src.Attempt.ExecutionID) ||
 			(src.Attempt == nil && src.ManifestSHA256 != "" && entry.ManifestDigest == src.ManifestSHA256) {

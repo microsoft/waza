@@ -562,7 +562,7 @@ func (b *builder) tools(taskID string, times [2]time.Time) {
 		if !call.Success {
 			status = Status{Code: statusError, Message: "tool call reported failure"}
 		}
-		b.addSpan(SpanTool, SpanID(SpanTool, taskID, strconv.Itoa(i)), taskID, times[0], times[1], attrs, status, nil)
+		b.addSpan(SpanTool, SpanID(SpanTool, taskID, strconv.Itoa(i)), taskID, times[0], toolEnd(times, call.Duration), attrs, status, nil)
 	}
 }
 
@@ -570,6 +570,21 @@ type toolCall struct {
 	ID, Name          string
 	Success           bool
 	Arguments, Result any
+	Duration          time.Duration
+}
+
+// toolEnd anchors a tool span at the attempt start (calls carry no start
+// timestamp) and uses the recorded call duration when known, bounded by a
+// known attempt end; otherwise the span covers the attempt interval.
+func toolEnd(times [2]time.Time, duration time.Duration) time.Time {
+	if duration <= 0 {
+		return times[1]
+	}
+	end := times[0].Add(duration)
+	if times[1].After(times[0]) && end.After(times[1]) {
+		return times[1]
+	}
+	return end
 }
 
 // toolActivity prefers the normalized ToolEvents record and falls back to the
@@ -579,7 +594,7 @@ func toolActivity(run *models.RunResult) []toolCall {
 	if len(run.ToolEvents) > 0 {
 		for _, event := range run.ToolEvents {
 			calls = append(calls, toolCall{ID: event.ToolCallID, Name: event.ToolName, Success: event.Success,
-				Arguments: event.Args, Result: event.Result})
+				Arguments: event.Args, Result: event.Result, Duration: time.Duration(event.DurationMs) * time.Millisecond})
 		}
 		return calls
 	}
