@@ -134,8 +134,11 @@ The report never replaces an input or a result: Waza refuses to overwrite an
 existing file that is not an isolation preflight report, refuses the request,
 host and selected eval files, `--output` and the `<base>_*` files derived from
 it, `--reporter junit:` destinations, the `--otel-file` of the file exporter
-and anything inside `--output-dir`, and fails the run if another writer
-replaces the report anyway. A new report is created exclusively, so a file or
+and anything inside `--output-dir`, `--snapshot`, `--transcript-dir`, the
+enabled `--cache-dir` or the `--session-dir` of an enabled session log, all
+before any runner starts. If another writer replaces the report anyway, the
+run fails with exit `2`, even when it also failed for another reason (that
+error is kept in the message). A new report is created exclusively, so a file or
 symlink that appears first makes the write fail; an existing report must be a
 regular file and is replaced by renaming a sibling temporary file over it, so
 the write never goes through another file. `--runner-compat` does not support

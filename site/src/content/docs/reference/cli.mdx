@@ -151,7 +151,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 | `--redact` | | string | | Custom snapshot redaction policy; replaces defaults unless `extend: true`. |
 | `--isolation-request` | | string | | Unreleased (v0.42.0): isolation request JSON; the run is rejected (exit 2) before any execution when a requested boundary cannot be proved. See [Execution isolation](/waza/guides/execution-isolation/). |
 | `--isolation-host` | | string | | Unreleased (v0.42.0): host isolation declaration JSON whose claimed boundaries are probed before execution. |
-| `--isolation-report` | | string | | Unreleased (v0.42.0): write the isolation preflight report JSON; requires `--isolation-request` or `--isolation-host` and never replaces an input or another output (existing non-report files, selected evals, `--output` and derived files, JUnit reporters and `--output-dir` are refused). Written on rejection, or after every selected eval passes isolation checks. |
+| `--isolation-report` | | string | | Unreleased (v0.42.0): write the isolation preflight report JSON; requires `--isolation-request` or `--isolation-host` and never replaces an input or another output (existing non-report files, selected evals, `--output` and derived files, JUnit reporters, the OpenTelemetry `--otel-file`, and paths inside `--output-dir`, `--snapshot`, `--transcript-dir`, an enabled cache or session-log directory are refused). Written on rejection, or after every selected eval passes isolation checks. |
 
 ### Examples
 

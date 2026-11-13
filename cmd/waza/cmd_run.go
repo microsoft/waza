@@ -230,9 +230,7 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 		return err
 	}
 	defer func() {
-		if err := verifyPublishedIsolationReport(); err != nil && retErr == nil {
-			retErr = err
-		}
+		retErr = withIsolationEvidence(retErr)
 	}()
 	if len(snapshotFiles) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-file requires --snapshot")

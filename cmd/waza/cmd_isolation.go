@@ -249,7 +249,7 @@ func writeIsolationReport(path string, data []byte) error {
 
 // reportClearOfRunOutputs refuses a report path that a run output writer
 // would replace: --output and the files derived from it, JUnit reporters,
-// and anything inside --output-dir.
+// the telemetry span file, and anything inside a directory a run writer owns.
 func reportClearOfRunOutputs(reportPath string) error {
 	destinations := []string{outputPath, telemetryFilePath()}
 	for _, reporter := range reporters {
@@ -274,12 +274,27 @@ func reportClearOfRunOutputs(reportPath string) error {
 			}
 		}
 	}
-	if outputDir != "" {
-		dir, err := filepath.Abs(outputDir)
-		if err == nil {
-			if rel, err := filepath.Rel(dir, report); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return fmt.Errorf("isolation report path %s must be outside --output-dir %s", reportPath, outputDir)
-			}
+	ownedDirs := []struct{ flag, dir string }{
+		{"--output-dir", outputDir},
+		{"--snapshot", snapshotDir},
+		{"--transcript-dir", transcriptDir},
+	}
+	if enableCache {
+		ownedDirs = append(ownedDirs, struct{ flag, dir string }{"--cache-dir", runCacheDir})
+	}
+	if sessionLog {
+		ownedDirs = append(ownedDirs, struct{ flag, dir string }{"--session-dir", sessionDir})
+	}
+	for _, owned := range ownedDirs {
+		if owned.dir == "" {
+			continue
+		}
+		dir, err := filepath.Abs(owned.dir)
+		if err != nil {
+			continue
+		}
+		if rel, err := filepath.Rel(dir, report); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("isolation report path %s must be outside %s %s", reportPath, owned.flag, owned.dir)
 		}
 	}
 	return nil
@@ -305,6 +320,20 @@ func verifyPublishedIsolationReport() error {
 		return &ExitCodeError{Code: ExitError, Err: fmt.Errorf("isolation report %s was replaced or removed during the run; choose a report path no other output uses", published.path)}
 	}
 	return nil
+}
+
+// withIsolationEvidence verifies the published report after a run. Lost
+// isolation evidence always surfaces as an operational error; an earlier run
+// error is kept as context rather than masking it.
+func withIsolationEvidence(runErr error) error {
+	err := verifyPublishedIsolationReport()
+	if err == nil {
+		return runErr
+	}
+	if runErr == nil {
+		return err
+	}
+	return &ExitCodeError{Code: ExitError, Err: fmt.Errorf("%w; the run also failed: %w", err, runErr)}
 }
 
 // admittedIsolation is the report admitted by the run gate, consulted once

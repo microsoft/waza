@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -172,12 +173,18 @@ func TestIsolationReportNeverReplacesSelectedEvalsOrOutputs(t *testing.T) {
 		"junit reporter": {filepath.Join(dir, "junit.xml"), []string{"--reporter", "junit:" + filepath.Join(dir, "junit.xml")}, "must not be the same file"},
 		"derived output": {filepath.Join(dir, "results_summary.json"), []string{"--output", results}, "derived from --output"},
 		"output dir":     {filepath.Join(dir, "out", "isolation.json"), []string{"--output-dir", filepath.Join(dir, "out")}, "outside --output-dir"},
+		"snapshot dir":   {filepath.Join(dir, "snaps", "task-run1.json"), []string{"--snapshot", filepath.Join(dir, "snaps")}, "outside --snapshot"},
+		"transcript dir": {filepath.Join(dir, "transcripts", "isolation.json"), []string{"--transcript-dir", filepath.Join(dir, "transcripts")}, "outside --transcript-dir"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := run(append([]string{spec, "--isolation-request", admittedRequest, "--isolation-report", tc.report}, tc.args...)...)
 			require.ErrorContains(t, err, tc.want)
 			_, statErr := os.Stat(tc.report)
 			require.True(t, os.IsNotExist(statErr), "the report must not be written when an output would replace it")
+			if parent := filepath.Dir(tc.report); parent != dir {
+				_, statErr = os.Stat(parent)
+				require.True(t, os.IsNotExist(statErr), "no runner may start and create the output directory")
+			}
 		})
 	}
 
@@ -203,6 +210,19 @@ func TestIsolationReportNeverReplacesSelectedEvalsOrOutputs(t *testing.T) {
 		data []byte
 	}{report, []byte("original")}
 	require.ErrorContains(t, verifyPublishedIsolationReport(), "was replaced or removed during the run")
+
+	runFailure := &ExitCodeError{Code: ExitTestFailed, Err: errors.New("grader failed")}
+	publishedIsolationReport = &struct {
+		path string
+		data []byte
+	}{report, []byte("original")}
+	err = withIsolationEvidence(runFailure)
+	var exitErr *ExitCodeError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, ExitError, exitErr.Code, "lost isolation evidence is an operational error even when the run failed")
+	require.ErrorContains(t, err, "was replaced or removed during the run")
+	require.ErrorContains(t, err, "grader failed")
+	require.Equal(t, runFailure, withIsolationEvidence(runFailure), "without a published report the run error is unchanged")
 }
 
 type stubIsolationProvider struct{ dimension executionisolation.Dimension }
