@@ -115,7 +115,7 @@ func terminal(report Report) (runnerterminal.Envelope, *runnerterminal.Binding) 
 		})
 		envelope.Observation = observed
 	}
-	envelope.Budget = report.budget
+	envelope.Budget = report.budget.Clone()
 	if budget := report.budget; budget != nil && budget.Termination != nil && len(envelope.Diagnostics) < runnerterminal.MaxDiagnostics {
 		envelope.Diagnostics = append(envelope.Diagnostics, runnerterminal.Diagnostic{
 			Code: "budget_exceeded", Message: fmt.Sprintf("Enforced execution budget %s was exceeded (observed %d, limit %d); inspect budget.resources.",
@@ -136,7 +136,7 @@ func terminal(report Report) (runnerterminal.Envelope, *runnerterminal.Binding) 
 		envelope = runnerterminal.NewFailure(outcome, boundary, report.Validation,
 			"unrepresentable_evidence", fmt.Sprintf("Original outcome %s at %s cannot be represented; observation/diagnostic detail unavailable: %.600s", envelope.Outcome, envelope.FailureBoundary, err))
 		envelope.Selection, envelope.Identity, envelope.EngineCalls = report.Resolved, report.Identity, report.Calls
-		envelope.Budget = report.budget
+		envelope.Budget = report.budget.Clone()
 	}
 	return envelope, report.binding
 }

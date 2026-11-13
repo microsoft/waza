@@ -116,6 +116,41 @@ func TestModelTurnBudgetCancelsMockAttempt(t *testing.T) {
 	encodeTerminal(t, envelope, binding)
 }
 
+func TestTerminalBudgetIsDetachedFromReport(t *testing.T) {
+	report := NewService(nil).Run(t.Context(), budgeted(t, executionbudget.Request{Limits: executionbudget.Limits{ModelTurns: limit(0)}}))
+	envelope, binding := report.Terminal()
+	original, err := runnerterminal.Encode(envelope, binding)
+	require.NoError(t, err)
+	for _, row := range envelope.Budget.Resources {
+		if row.Limit != nil {
+			*row.Limit = 99
+		}
+		if row.Used != nil {
+			*row.Used = 99
+		}
+	}
+	envelope.Budget.Resources[0].Detail = "changed"
+	envelope.Budget.Termination.Observed = 99
+	again, againBinding := report.Terminal()
+	unchanged, err := runnerterminal.Encode(again, againBinding)
+	require.NoError(t, err)
+	require.Equal(t, original, unchanged)
+}
+
+func TestUnstartedBudgetCannotClaimExecution(t *testing.T) {
+	request := executionbudget.Request{Limits: executionbudget.Limits{ModelTurns: limit(3)}}
+	envelope, binding := NewService(nil).RunTerminal(t.Context(), budgeted(t, request))
+	require.Equal(t, runnerterminal.Success, envelope.Outcome, "%+v", envelope)
+	unstarted, _ := executionbudget.Plan(request, executionbudget.HostCapabilities())
+	envelope.Budget = unstarted
+	_, err := runnerterminal.Encode(envelope, binding)
+	require.ErrorContains(t, err, "completed outcome")
+	envelope.Outcome, envelope.FailureBoundary, envelope.ExitCode = runnerterminal.InfrastructureFailure, "execution", 2
+	envelope.Diagnostics = []runnerterminal.Diagnostic{{Code: "execution_failed", Message: "forged"}}
+	_, err = runnerterminal.Encode(envelope, binding)
+	require.ErrorContains(t, err, "unstarted attempt but the envelope reports execution")
+}
+
 type toolCallingEngine struct {
 	*instrumented
 	tools int

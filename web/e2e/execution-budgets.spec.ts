@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import fixture from "./fixtures/execution-budgets.json" with { type: "json" };
 
@@ -25,6 +26,32 @@ function withTurnUsage(used: number | undefined) {
     return used === undefined ? copy : { ...copy, used, remaining: 0, exceeded: true };
   });
   return { ...fixture.terminated, budget: { ...fixture.terminated.budget, resources } };
+}
+
+// The terminated report with its model turn kept within the limit instead.
+function withinBudget() {
+  const resources = fixture.terminated.budget.resources.map((row) =>
+    row.resource === "model_turns" ? { ...row, used: 0, remaining: 0, exceeded: false } : row);
+  const budget: Partial<typeof fixture.terminated.budget> = { ...fixture.terminated.budget, state: "within_budget", resources };
+  delete budget.termination;
+  return budget;
+}
+
+const terminatedLimits = { wall_time_ms: 60_000, model_turns: 0, tool_calls: 10 };
+
+async function runLive(page: Page, request: unknown, terminal: unknown) {
+  const ready = {
+    ...fixture.rejected_validation, status: "ready", validation: "valid", diagnostics: [],
+    resolved: fixture.terminated.selection, identity: fixture.terminated.identity,
+  };
+  await page.route("**/api/v1/runner/validate", (route) => route.fulfill({ json: ready }));
+  await page.route("**/api/v1/runner/run", (route) => route.fulfill({
+    json: terminal, headers: { "X-Waza-Exit-Code": String((terminal as { exit_code: number }).exit_code) },
+  }));
+  await page.getByRole("textbox", { name: "Exact work request (JSON)" }).fill(JSON.stringify(request));
+  const outcome = page.getByRole("region", { name: "Runner terminal outcome" });
+  await outcome.getByRole("button", { name: "Run selected unit", exact: true }).click();
+  return outcome;
 }
 
 test.describe("Lab execution budgets", () => {
@@ -104,6 +131,96 @@ test.describe("Lab execution budgets", () => {
     await expect(outcome.getByRole("alert")).toContainText(
       "Runner API returned an inconsistent budget report: Budget termination contradicts its measured usage.");
     await expect(outcome.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
+  });
+
+  test("binds a live budget report to the submitted limits", async ({ page }) => {
+    const request = { ...fixture.rejected_request, budgets: { limits: terminatedLimits } };
+    const accepted = await runLive(page, request, fixture.terminated);
+    await expect(accepted.getByRole("status", { name: "Terminal result" })).toBeVisible();
+
+    const plain: Partial<typeof fixture.terminated> = structuredClone(fixture.terminated);
+    delete plain.budget;
+    for (const [terminal, sent, message] of [
+      [plain, request, "The terminal is missing the requested budget report."],
+      [fixture.terminated, fixture.rejected_request, "The terminal budget limits do not match the request."],
+      [fixture.terminated, { ...request, budgets: { ...request.budgets, unsupported: "report" } },
+        "The terminal budget policy does not match the request."],
+      [fixture.terminated, { ...fixture.rejected_request, budgets: undefined },
+        "The terminal reports budgets the request did not declare."],
+    ] as const) {
+      await page.unrouteAll();
+      await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [] }));
+      const outcome = await runLive(page, sent, terminal);
+      await expect(outcome.getByRole("alert")).toContainText(`Runner API returned an inconsistent budget report: ${message}`);
+      await expect(outcome.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
+    }
+  });
+
+  test("accepts a live pre-planning rejection without a budget report", async ({ page }) => {
+    const rejected: Partial<typeof fixture.rejected> = {
+      ...fixture.rejected, outcome: "invalid_input", exit_code: 6,
+      diagnostics: [{ code: "invalid_input", message: "request does not match the runner request schema" }],
+    };
+    delete rejected.budget;
+    await page.route("**/api/v1/runner/validate", (route) => route.fulfill({ json: fixture.rejected_validation }));
+    await page.route("**/api/v1/runner/run", (route) =>
+      route.fulfill({ json: rejected, headers: { "X-Waza-Exit-Code": "6" } }));
+    await page.getByRole("textbox", { name: "Exact work request (JSON)" }).fill(JSON.stringify(fixture.rejected_request));
+    const outcome = page.getByRole("region", { name: "Runner terminal outcome" });
+    await outcome.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    await expect(outcome.getByRole("status", { name: "Terminal result" })).toBeVisible();
+  });
+
+  test("refuses an unstarted budget on a terminal that executed", async ({ page }) => {
+    const unstarted = {
+      ...fixture.terminated.budget, state: "not_started", termination: undefined,
+      resources: fixture.terminated.budget.resources.map(({ resource, enforcement, measurement, scope, detail, limit }) =>
+        ({ resource, enforcement, measurement, scope, detail, limit })),
+    };
+    for (const [outcome, status] of [["success", "passed"], ["evaluation_failure", "failed"]]) {
+      await readTerminal(page, {
+        ...fixture.terminated, outcome, exit_code: outcome === "success" ? 0 : 1, failure_boundary: "none",
+        diagnostics: outcome === "success" ? [] : fixture.terminated.diagnostics,
+        observation: {
+          ...fixture.terminated.observation, status, error_msg: undefined,
+          validations: [{ identifier: "check", passed: status === "passed" }],
+        },
+        budget: unstarted,
+      });
+      await expect(panel(page).getByRole("alert")).toHaveText("Budget state contradicts the terminal outcome.");
+    }
+    await readTerminal(page, {
+      ...fixture.terminated, outcome: "infrastructure_failure", exit_code: 2, failure_boundary: "execution", budget: unstarted,
+    });
+    await expect(panel(page).getByRole("alert")).toHaveText("Budget reports an unstarted attempt but the terminal reports execution.");
+  });
+
+  test("checks budget reports embedded in checkpoint results", async ({ page }) => {
+    const source = JSON.parse(readFileSync(new URL("./checkpoint-operation-error-source.json", import.meta.url), "utf8"));
+    const reused = structuredClone(source);
+    reused.schema_version = "1.0";
+    reused.status = "reused";
+    reused.exit_code = 0;
+    delete reused.error_code;
+    reused.compatibility_result = "compatible";
+    reused.restored_units = 1;
+    reused.remaining_work = 0;
+    const reader = page.getByRole("region", { name: "Checkpoint result reader" });
+    const parse = async (budget: unknown) => {
+      const result = structuredClone(reused);
+      result.submission.terminal.budget = budget;
+      await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
+      await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
+    };
+    await parse(withinBudget());
+    await expect(reader.getByRole("status", { name: "Checkpoint operation result" })).toBeVisible();
+    await parse(fixture.terminated.budget);
+    await expect(reader.getByRole("alert")).toContainText(
+      "Checkpoint retained submission terminal has an inconsistent budget report: Budget state contradicts the terminal outcome.");
+    const arithmetic = withinBudget();
+    arithmetic.resources = arithmetic.resources!.map((row) => row.resource === "wall_time_ms" ? { ...row, remaining: 1 } : row);
+    await parse(arithmetic);
+    await expect(reader.getByRole("alert")).toContainText("Budget wall_time_ms remaining does not equal limit minus used.");
   });
 
   test("refuses a contradictory budget report from a live run", async ({ page }) => {

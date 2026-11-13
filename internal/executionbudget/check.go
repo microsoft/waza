@@ -86,6 +86,9 @@ func (r *Report) CheckTerminal(outcome string) error {
 		if anyUsed || r.Termination != nil {
 			return fmt.Errorf("budget state %s cannot carry usage or a termination", r.State)
 		}
+		if outcome == "success" || outcome == "evaluation_failure" {
+			return fmt.Errorf("budget state %s contradicts completed outcome %s", r.State, outcome)
+		}
 	case StateWithinBudget:
 		if anyExceeded || r.Termination != nil {
 			return fmt.Errorf("budget state %s contradicts an exceeded resource or termination", r.State)

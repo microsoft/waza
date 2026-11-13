@@ -266,6 +266,9 @@ func consistent(e Envelope, expected *Binding) error {
 		if e.Budget.State == executionbudget.StateRejectedUnsupported && (e.Identity != nil || e.EngineCalls != 0) {
 			return errors.New("budget rejected before execution but the envelope reports admitted work")
 		}
+		if e.Budget.State == executionbudget.StateNotStarted && (e.EngineCalls != 0 || e.Observation != nil) {
+			return errors.New("budget reports an unstarted attempt but the envelope reports execution")
+		}
 	}
 	if expected == nil {
 		if e.Selection != nil || e.Identity != nil || e.Observation != nil || e.EngineCalls != 0 {

@@ -99,7 +99,8 @@ export function checkBudget(budget: BudgetReport, outcome: string): string | nul
       return outcome === "unsupported_capability" && !anyUsed && !termination && budget.unsupported === "reject"
         ? null : "Budget state contradicts the terminal outcome.";
     case "not_started":
-      return anyUsed || termination ? "Budget state contradicts the terminal outcome." : null;
+      return anyUsed || termination || outcome === "success" || outcome === "evaluation_failure"
+        ? "Budget state contradicts the terminal outcome." : null;
     case "within_budget":
       return anyExceeded || termination ? "Budget state contradicts its resources." : null;
     case "exceeded":
@@ -117,6 +118,36 @@ export function terminalBudgetProblem(value: RunnerTerminal): string | null {
   if (problem) return problem;
   if (value.budget.state === "rejected_unsupported" && (value.identity || value.engine_calls !== 0)) {
     return "Budget state contradicts the terminal outcome.";
+  }
+  if (value.budget.state === "not_started" && (value.observation || value.engine_calls !== 0)) {
+    return "Budget reports an unstarted attempt but the terminal reports execution.";
+  }
+  return null;
+}
+
+// Budgets are excluded from logical identity, so identity checks alone cannot
+// tell whether a terminal answers this request's limits. A request that fails
+// before budget planning (for example a schema rejection) is never admitted
+// and carries no report.
+export function requestBudgetProblem(request: string, value: RunnerTerminal): string | null {
+  let captured: unknown;
+  try {
+    captured = parseStrictJSON(request);
+  } catch {
+    captured = undefined;
+  }
+  const declared = typeof captured === "object" && captured !== null && "budgets" in captured
+    ? (captured as { budgets: unknown }).budgets : undefined;
+  if (declared === undefined) return value.budget ? "The terminal reports budgets the request did not declare." : null;
+  if (!value.budget) return value.identity ? "The terminal is missing the requested budget report." : null;
+  const budgets = declared as { limits?: Record<string, unknown>; unsupported?: unknown };
+  if (value.budget.unsupported !== (budgets.unsupported ?? "reject")) {
+    return "The terminal budget policy does not match the request.";
+  }
+  const limits = budgets.limits ?? {};
+  if (Object.keys(limits).some((key) => !value.budget!.resources.some((row) => row.resource === key)) ||
+      value.budget.resources.some((row) => row.limit !== limits[row.resource])) {
+    return "The terminal budget limits do not match the request.";
   }
   return null;
 }

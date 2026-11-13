@@ -282,6 +282,13 @@ func TestCheckTerminalRejectsContradictions(t *testing.T) {
 	rejected, _ := Plan(Request{Limits: Limits{DiskBytes: ptr(1)}}, caps)
 	require.NoError(t, rejected.CheckTerminal("unsupported_capability"))
 	require.Error(t, rejected.CheckTerminal("success"))
+
+	unstarted, _ := Plan(Request{Limits: Limits{ModelTurns: ptr(3)}}, caps)
+	require.NoError(t, unstarted.CheckTerminal("invalid_input"))
+	require.NoError(t, unstarted.CheckTerminal("infrastructure_failure"))
+	for _, completed := range []string{"success", "evaluation_failure"} {
+		require.Error(t, unstarted.CheckTerminal(completed), "an unstarted attempt cannot have completed")
+	}
 }
 
 func TestExceededErrorClassification(t *testing.T) {

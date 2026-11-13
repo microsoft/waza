@@ -112,7 +112,9 @@ example `remaining` that is not `limit - used`, a `terminated` state whose
 outcome is not `timeout`/`cancelled` for that resource, a termination
 whose resource has no measured `used` or a counted `used` below
 `termination.observed` (wall time may round below a deadline recorded as
-`observed == limit`), or usage on a `rejected_unsupported` report. Through `runner submit`, a rejected budget is
+`observed == limit`), usage on a `rejected_unsupported` report, or a
+`not_started` report on a `success`/`evaluation_failure` outcome or alongside
+engine calls or an observation. Through `runner submit`, a rejected budget is
 published with only the `unsupported_budget` diagnostic code (messages are
 sanitized); run `waza runner budgets` on the worker for the per-resource detail.
 `runner validate` exits 5 for the same rejection. Admission failures after
@@ -153,7 +155,12 @@ The Lab runner section has an **Execution budgets** panel. It loads the host
 matrix from `GET /api/v1/runner/budgets` and, for a pasted `waza.runner-terminal`
 envelope, shows configured limits, measured usage, remaining headroom, the
 enforcement and measurement state of every resource, the termination (if any)
-and the run/attempt identity the report belongs to.
+and the run/attempt identity the report belongs to. Because budgets are excluded
+from identity, **Run selected unit** also binds the live report to the submitted
+request: it must be present for admitted work, and its limits and
+`unsupported` policy (default `reject`) must match the request. Only a request
+rejected before budget planning may omit it. The checkpoint result reader
+applies the same consistency rules to budgets inside retained terminals.
 
 ## Migration
 

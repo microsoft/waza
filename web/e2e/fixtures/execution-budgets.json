@@ -279,6 +279,7 @@
     "allow_paid_execution": false,
     "budgets": {
       "limits": {
+        "model_turns": 4,
         "disk_bytes": 1048576
       }
     }
