@@ -124,6 +124,25 @@ func TestProgramGrader_Grade(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, results.Passed)
 		require.Equal(t, 0.0, results.Score)
+		require.Equal(t, "launch_failed", results.Details[ProgramOperationalErrorKey])
+	})
+
+	t.Run("nonzero exit is an assertion failure, not an operational error", func(t *testing.T) {
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "sh", Args: []string{"-c", "exit 3"}})
+		require.NoError(t, err)
+		results, err := g.Grade(context.Background(), &Context{Output: "test", WorkspaceDir: t.TempDir()})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.NotContains(t, results.Details, ProgramOperationalErrorKey)
+	})
+
+	t.Run("timeout is an operational error", func(t *testing.T) {
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "sleep", Args: []string{"5"}, Timeout: 1})
+		require.NoError(t, err)
+		results, err := g.Grade(context.Background(), &Context{Output: "test", WorkspaceDir: t.TempDir()})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Equal(t, "timeout", results.Details[ProgramOperationalErrorKey])
 	})
 
 	t.Run("script file as command", func(t *testing.T) {

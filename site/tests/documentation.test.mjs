@@ -932,3 +932,15 @@ test('waza serve reference lists only flags the serve command registers', () => 
     'dashboard guide must not reintroduce waza serve --stdio',
   );
 });
+
+test('optimizer schemas are published at their canonical $id', () => {
+  const endpoint = read('site/src/pages/schemas/[schema].json.ts');
+  const optimizerSchemas = readdirSync(resolve(root, 'schemas')).filter((name) => /^optimizer-.*\.schema\.json$/.test(name));
+  assert.ok(optimizerSchemas.length >= 4);
+  for (const name of optimizerSchemas) {
+    const id = JSON.parse(read(`schemas/${name}`)).$id;
+    assert.equal(id, `https://microsoft.github.io/waza/schemas/${name}`);
+    const route = name.replace(/\.json$/, '');
+    assert.match(endpoint, new RegExp(`schema: '${route.replaceAll('.', '\\.')}'`), `${name} is not served by the schema endpoint`);
+  }
+});

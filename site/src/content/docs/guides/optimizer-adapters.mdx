@@ -151,7 +151,11 @@ A suite is rejected with `invalid_suite` in any of these cases:
 - A program grader runs a script the pin cannot cover: a relative script path
   in `command` or `args`, or an absolute one outside the suite and context
   directories. Interpreters found on `PATH` (for example `python3`) are
-  allowed; pass the script as an absolute path inside the suite.
+  allowed; pass the script as an absolute path inside the suite. Program
+  graders must also set a positive `timeout`, because the default comes from
+  a `.waza.yaml` the pin does not cover.
+- A rubric file is an absolute path outside the suite and context
+  directories. Built-in rubric names are allowed.
 - Under the skill target, `disabled_skills` would remove the candidate
   (`"*"` or `"skill"`, the candidate directory's name), or a skill with the
   suite's `skill` name can be found from the working directory. The runner
@@ -163,7 +167,9 @@ A suite is rejected with `invalid_suite` in any of these cases:
 ### Scores and decisions
 
 An evaluation is `scored` only when every selected task ran without errors or
-skips, and no grader result recorded evaluation errors. Its score is the harness `aggregate_score`, and its pass rate is
+skips, and no grader result recorded evaluation errors. A program grader that
+timed out or could not start counts as an evaluation error; one that ran and
+exited nonzero is an ordinary failed assertion. Its score is the harness `aggregate_score`, and its pass rate is
 passed tasks divided by total tasks. Any other result is
 `evaluation_incomplete` and never counts as an improvement.
 

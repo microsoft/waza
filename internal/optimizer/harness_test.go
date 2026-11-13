@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -164,11 +165,17 @@ func TestPinSuiteAdmission(t *testing.T) {
 			outside := filepath.Join(filepath.Dir(suite), "snap.md")
 			appendFile("tasks/bug-fix.yaml", "  - name: snap\n    type: diff\n    config:\n      context_dir: '"+suite+"'\n      expected_files:\n        - path: out.md\n          snapshot: '"+outside+"'\n")(t, suite)
 		}, contains: "outside the pinned"},
-		"relative program script": {edit: appendFile("tasks/bug-fix.yaml", "  - name: judge\n    type: program\n    config:\n      command: python3\n      args: [judge.py]\n"),
+		"relative program script": {edit: appendFile("tasks/bug-fix.yaml", "  - name: judge\n    type: program\n    config:\n      command: python3\n      args: [judge.py]\n      timeout: 30\n"),
 			contains: "program input"},
 		"external program script": {edit: func(t *testing.T, suite string) {
 			outside := filepath.Join(filepath.Dir(suite), "judge.py")
-			replaceInFile("eval.yaml", "graders:\n", "graders:\n  - type: program\n    name: judge\n    config:\n      command: python3\n      args: ['"+outside+"']\n")(t, suite)
+			replaceInFile("eval.yaml", "graders:\n", "graders:\n  - type: program\n    name: judge\n    config:\n      command: python3\n      args: ['"+outside+"']\n      timeout: 30\n")(t, suite)
+		}, contains: "outside the pinned"},
+		"program default timeout": {edit: appendFile("tasks/bug-fix.yaml", "  - name: judge\n    type: program\n    config:\n      command: \"true\"\n"),
+			contains: "timeout"},
+		"external rubric file": {edit: func(t *testing.T, suite string) {
+			outside := filepath.Join(filepath.Dir(suite), "rubric.md")
+			appendFile("tasks/bug-fix.yaml", "  - name: judge\n    type: prompt\n    config:\n      prompt: Grade it.\n      rubric: '"+outside+"'\n")(t, suite)
 		}, contains: "outside the pinned"},
 		"external task file": {edit: func(t *testing.T, suite string) {
 			shared := filepath.Join(filepath.Dir(suite), "shared")
@@ -337,11 +344,13 @@ func TestAdaptersAreInterchangeable(t *testing.T) {
 func TestGraderEvaluationErrorsCountsFinalAndCheckpointResults(t *testing.T) {
 	broken := models.GraderResults{Details: map[string]any{"evaluation_errors": map[int]string{0: "boom"}}}
 	clean := models.GraderResults{Details: map[string]any{"evaluation_errors": map[int]string{}}}
+	programDown := models.GraderResults{Details: map[string]any{"exit_error": "exec: not found", graders.ProgramOperationalErrorKey: "launch_failed"}}
+	programFailed := models.GraderResults{Details: map[string]any{"exit_error": "exit status 1"}}
 	outcome := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{Runs: []models.RunResult{{
-		Validations: map[string]models.GraderResults{"final": broken, "ok": clean},
-		Checkpoints: []models.CheckpointOutcome{{Validations: map[string]models.GraderResults{"cp": broken}}},
+		Validations: map[string]models.GraderResults{"final": broken, "ok": clean, "prog-failed": programFailed},
+		Checkpoints: []models.CheckpointOutcome{{Validations: map[string]models.GraderResults{"cp": broken, "prog-down": programDown}}},
 	}}}}}
-	require.Equal(t, 2, graderEvaluationErrors(outcome))
+	require.Equal(t, 3, graderEvaluationErrors(outcome))
 }
 
 // stalledShutdownEngine never finishes Shutdown on its own.

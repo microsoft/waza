@@ -15,6 +15,7 @@ import (
 
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 )
@@ -325,13 +326,17 @@ func (h *HarnessEvaluator) writeEvidence(req EvaluateRequest, outcome *models.Ev
 
 // graderEvaluationErrors counts final and checkpoint grader results that
 // recorded structured evaluation errors (for example an inline-script
-// exception) without failing the task with a Go error.
+// exception, or a program grader that timed out or could not start) without
+// failing the task with a Go error.
 func graderEvaluationErrors(outcome *models.EvaluationOutcome) int {
 	count := func(results map[string]models.GraderResults) int {
 		n := 0
 		for _, g := range results {
-			if v, ok := g.Details["evaluation_errors"]; ok && !isEmptyValue(v) {
-				n++
+			for _, key := range []string{"evaluation_errors", graders.ProgramOperationalErrorKey} {
+				if v, ok := g.Details[key]; ok && !isEmptyValue(v) {
+					n++
+					break
+				}
 			}
 		}
 		return n

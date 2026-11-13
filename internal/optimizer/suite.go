@@ -194,6 +194,9 @@ func graderAdmissionIssue(p models.GraderParameters) string {
 	if updatesSnapshots(p) {
 		return "sets update_snapshots, which can rewrite pinned suite files during optimization"
 	}
+	if programTimeoutUnset(p) {
+		return "has no positive timeout, so its limit would come from a .waza.yaml outside the pin; set config.timeout"
+	}
 	if key, value, ok := cwdRelativeDependency(p); ok {
 		return fmt.Sprintf("sets %s %q, which graders read relative to the working directory rather than the pinned suite; use an absolute path inside the suite or an inline value", key, value)
 	}
@@ -219,7 +222,7 @@ func cwdRelativeDependency(p models.GraderParameters) (string, string, bool) {
 		if value == "" || filepath.IsAbs(value) {
 			continue
 		}
-		if key == "rubric" && !strings.ContainsAny(value, `/\`) && !strings.HasPrefix(value, "~") && !strings.EqualFold(filepath.Ext(value), ".md") {
+		if key == "rubric" && !rubricFileRef(value) {
 			continue // a built-in rubric name
 		}
 		return key, value, true
@@ -242,6 +245,42 @@ func cwdRelativeDependency(p models.GraderParameters) (string, string, bool) {
 		}
 	}
 	return "", "", false
+}
+
+// rubricFileRef mirrors how prompt graders tell a rubric file from a built-in
+// rubric name.
+func rubricFileRef(ref string) bool {
+	return strings.HasSuffix(ref, ".md") || strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "~") || strings.ContainsAny(ref, `/\`)
+}
+
+// absoluteGraderRefs returns the absolute files a grader reads that the
+// path-key walk does not cover: rubric files and program inputs.
+func absoluteGraderRefs(p models.GraderParameters) []string {
+	var refs []string
+	if data, err := json.Marshal(p); err == nil {
+		var fields map[string]any
+		if json.Unmarshal(data, &fields) == nil {
+			if rubric, _ := fields["rubric"].(string); filepath.IsAbs(strings.TrimSpace(rubric)) {
+				refs = append(refs, strings.TrimSpace(rubric))
+			}
+		}
+	}
+	for _, ref := range programFileRefs(p) {
+		if filepath.IsAbs(ref) {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+func programTimeoutUnset(p models.GraderParameters) bool {
+	switch v := p.(type) {
+	case models.ProgramGraderParameters:
+		return v.Timeout <= 0
+	case *models.ProgramGraderParameters:
+		return v != nil && v.Timeout <= 0
+	}
+	return false
 }
 
 var programScriptExts = []string{".py", ".js", ".mjs", ".cjs", ".ts", ".sh", ".bash", ".ps1", ".rb", ".pl", ".php", ".lua", ".jar", ".exe", ".bat", ".cmd"}
@@ -366,7 +405,7 @@ func admitDependencies(spec *models.EvalSpec, cases []*models.TestCase, specDir,
 		return err
 	}
 	for _, g := range spec.Graders {
-		if err := checkProgramRefs("suite", g.Identifier, g.Parameters, roots); err != nil {
+		if err := checkGraderRefs("suite", g.Identifier, g.Parameters, roots); err != nil {
 			return err
 		}
 	}
@@ -380,7 +419,7 @@ func admitDependencies(spec *models.EvalSpec, cases []*models.TestCase, specDir,
 			graders = append(graders, cp.Graders...)
 		}
 		for _, g := range graders {
-			if err := checkProgramRefs(owner, g.Identifier, g.Parameters, roots); err != nil {
+			if err := checkGraderRefs(owner, g.Identifier, g.Parameters, roots); err != nil {
 				return err
 			}
 		}
@@ -388,12 +427,13 @@ func admitDependencies(spec *models.EvalSpec, cases []*models.TestCase, specDir,
 	return nil
 }
 
-// checkProgramRefs keeps program grader scripts inside the pinned roots, so
-// changing a script outside the suite cannot change scores silently.
-func checkProgramRefs(owner, name string, params models.GraderParameters, roots []string) error {
-	for _, ref := range programFileRefs(params) {
-		if filepath.IsAbs(ref) && !withinAny(ref, roots) {
-			return newError(CategoryInvalidSuite, "%s program grader %q runs %q outside the pinned suite and context directories", owner, name, ref)
+// checkGraderRefs keeps rubric files and program grader scripts inside the
+// pinned roots, so changing a file outside the suite cannot change scores
+// silently.
+func checkGraderRefs(owner, name string, params models.GraderParameters, roots []string) error {
+	for _, ref := range absoluteGraderRefs(params) {
+		if !withinAny(ref, roots) {
+			return newError(CategoryInvalidSuite, "%s grader %q reads %q outside the pinned suite and context directories", owner, name, ref)
 		}
 	}
 	return nil
