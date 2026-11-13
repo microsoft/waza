@@ -942,3 +942,30 @@ test('optimizer schemas are published at their canonical $id', () => {
     assert.match(endpoint, new RegExp(`schema: '${route.replaceAll('.', '\\.')}'`), `${name} is not served by the schema endpoint`);
   }
 });
+
+test('durable execution guide connects every v0.41 contract in order with resolvable anchors', () => {
+  const path = 'site/src/content/docs/guides/durable-execution.mdx';
+  const guide = read(path);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/durable-execution'/);
+  assert.match(read('site/src/content/docs/concepts.mdx'), /\]\(\.\.\/guides\/durable-execution\/\)/);
+  const headings = [...withoutCode(guide).matchAll(/^## (.+)$/gm)].map((match) => match[1]);
+  assert.deepEqual(headings.slice(0, 7), [
+    '1. Submit a distinct attempt', '2. Publish and inspect immutable artifacts',
+    '3. Create checkpoints at safe boundaries', '4. Watch lineage and lifecycle',
+    '5. Retry or resume', '6. Aggregate completed manifests', '7. Review evidence states',
+  ]);
+  const failures = [];
+  const targets = new Set();
+  for (const [, target] of withoutCode(guide).matchAll(/\]\((\.\.\/[^)\s]+)\)/g)) {
+    const [page, fragment] = target.replace(/^\.\.\//, '').split('#');
+    const destination = resolve(root, 'site/src/content/docs/guides', `${page.replace(/\/$/, '')}.mdx`);
+    targets.add(page);
+    if (!existsSync(destination)) failures.push(`missing ${target}`);
+    else if (fragment && !anchors(readFileSync(destination, 'utf8')).has(fragment)) failures.push(`missing anchor ${target}`);
+  }
+  assert.deepEqual(failures, []);
+  for (const page of ['immutable-artifacts/', 'runner-identities/', 'runner-terminal/', 'manifest-aggregation/',
+    'evidence-review/', 'dashboard-lab/']) {
+    assert.ok(targets.has(page), `${path} must link ${page}`);
+  }
+});
