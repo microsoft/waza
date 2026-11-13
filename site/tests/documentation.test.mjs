@@ -554,11 +554,16 @@ test('pending release separates source readiness, historical metadata and releas
   assert.match(after, /#902 released-consumer validation/);
   assert.match(after, /installer, binary, and checksums are published/);
   assert.match(after, /does not waive #902/);
-  assert.match(merged, /10f4081b2e84ce6053eb28dc8d5f147350fe7fb3/);
-  for (const pr of ['#929', '#942', '#944', '#945', '#958', '#959', '#960', '#961', '#962']) {
+  assert.match(merged, /decc97c5cae9bf8f1ef1307f2dbf1e82a7e42a0f/);
+  for (const pr of ['#929', '#942', '#944', '#945', '#958', '#959', '#960', '#961', '#962',
+    '#966', '#968', '#969', '#970', '#971', '#972', '#973', '#975', '#976', '#977', '#978', '#979', '#980', '#982', '#921']) {
     assert.ok(merged.includes(pr), `${pr} must be included in the current merged-source inventory`);
   }
-  assert.match(before, /still-open \[#904\]/);
+  assert.match(before, /\[#904\]\([^)]+\) dashboard build are\s+closed/);
+  const deferred = merged.split('### Moved to v0.42.0')[1]?.split('\n## Release media')[0];
+  assert.ok(deferred, 'v0.42.0 carry-over must be listed');
+  for (const issue of ['#825', '#835', '#974', '#981']) assert.ok(deferred.includes(issue), `${issue} must be listed as moved to v0.42.0`);
+  assert.match(article, /RELEASE-MEDIA-926/);
   assert.match(before, /The merged #839,\s+#935, and #841 changes are inventoried above and are not outstanding PRs\./);
   assert.match(before, /The #929 evidence and #936 Windows diagnostics are merged/);
   assert.match(before, /timeouts remain under investigation in\s+\[#965\]/);
@@ -569,7 +574,8 @@ test('pending release separates source readiness, historical metadata and releas
   const changelog = read('CHANGELOG.md');
   assert.match(changelog, /historical v0\.40\.1 tags retain `0\.39\.1`/);
   assert.match(changelog, /post-publication released-consumer\s+completion requirement \(#902\)/);
-  assert.match(changelog, /current `main`\s+`10f4081b2e84ce6053eb28dc8d5f147350fe7fb3`/);
+  assert.match(changelog, /current `main`\s+`decc97c5cae9bf8f1ef1307f2dbf1e82a7e42a0f`/);
+  assert.match(changelog.split('## [0.41.0]')[1]?.split('## [0.40.1]')[0] ?? '', /### Moved to v0\.42\.0[\s\S]*#825[\s\S]*#835[\s\S]*#974[\s\S]*#981/);
 });
 
 test('v0.40.1 article owns hotfix detail while the homepage leads with the product', () => {
