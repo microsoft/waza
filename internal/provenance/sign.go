@@ -135,7 +135,11 @@ func NewLocalSigner(privatePEM []byte) (Signer, error) {
 	if !ok {
 		return nil, errors.New("signing key is not Ed25519")
 	}
-	keyID, err := KeyID(key.Public().(ed25519.PublicKey))
+	public, ok := key.Public().(ed25519.PublicKey)
+	if !ok {
+		return nil, errors.New("signing key has no Ed25519 public key")
+	}
+	keyID, err := KeyID(public)
 	if err != nil {
 		return nil, err
 	}

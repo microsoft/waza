@@ -75,7 +75,7 @@ func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &report); err != nil {
 			t.Fatalf("verify output is not JSON (exit %d): %s", code, out)
 		}
-		if int(report["exit_code"].(float64)) != code {
+		if exitCode, ok := report["exit_code"].(float64); !ok || int(exitCode) != code {
 			t.Fatalf("report exit_code %v differs from process exit %d", report["exit_code"], code)
 		}
 		return report
