@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -26,6 +27,16 @@ const (
 	testRevision = "89abcdef0123456789abcdef0123456789abcdef"
 	testVersion  = "1.2.3"
 )
+
+const exitEarlyEnv = "NATIVE_SMOKE_TEST_EXIT_EARLY"
+
+// TestMain lets the test binary stand in for a package that exits at once.
+func TestMain(m *testing.M) {
+	if os.Getenv(exitEarlyEnv) == "1" {
+		os.Exit(3)
+	}
+	os.Exit(m.Run())
+}
 
 func repoFile(t *testing.T, parts ...string) []byte {
 	t.Helper()
@@ -43,8 +54,9 @@ type matrixEntry struct {
 }
 
 type workflowJob struct {
-	RunsOn   string `yaml:"runs-on"`
-	Strategy struct {
+	RunsOn          string `yaml:"runs-on"`
+	ContinueOnError string `yaml:"continue-on-error"`
+	Strategy        struct {
 		Matrix struct {
 			Include []matrixEntry `yaml:"include"`
 			Runner  []string      `yaml:"runner"`
@@ -99,6 +111,11 @@ func TestWorkflowMatricesMatchNativePlatforms(t *testing.T) {
 	}
 	if len(selected) != 3 {
 		t.Errorf("extension smoke must cover one representative target per OS, got %v", selected)
+	}
+	for name, job := range jobs {
+		if job.ContinueOnError != "${{ inputs.report_only }}" {
+			t.Errorf("%s job must honor report_only, got continue-on-error %q", name, job.ContinueOnError)
+		}
 	}
 }
 
@@ -425,6 +442,13 @@ func TestCollectEvidence(t *testing.T) {
 	if _, err := collectEvidence(unexpected, testSHA, testRevision, testVersion); err == nil {
 		t.Error("unexpected receipt accepted")
 	}
+	unselected := t.TempDir()
+	writeReceipts(t, unselected, nil)
+	linuxARM, _ := findPlatform("linux/arm64")
+	mustWrite(t, filepath.Join(unselected, receiptName("extension", linuxARM)), "{}")
+	if _, err := collectEvidence(unselected, testSHA, testRevision, testVersion); err == nil {
+		t.Error("receipt for an unselected extension accepted")
+	}
 	if _, err := collectEvidence(filepath.Join(t.TempDir(), "none"), testSHA, testRevision, testVersion); err == nil {
 		t.Error("absent receipts accepted")
 	}
@@ -444,6 +468,29 @@ func TestUnavailablePlatformIsNeverPassed(t *testing.T) {
 	err = run(context.Background(), []string{"cli", "-dir", dir, "-target", "windows/arm64", "-source-sha", testSHA, "-version", testVersion, "-receipt-dir", dir}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "not a native smoke target") {
 		t.Fatalf("smoke ran on an unavailable target: %v", err)
+	}
+}
+
+func TestDashboardReportsEarlyExit(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(exitEarlyEnv, "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := checkDashboard(ctx, self)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "exited before becoming ready") {
+			t.Fatalf("early exit misreported: %v", err)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("dashboard check hung after the package exited")
 	}
 }
 
@@ -490,21 +537,23 @@ func TestRunRejectsIncompleteInvocations(t *testing.T) {
 }
 
 type callerJob struct {
-	Needs       []string          `yaml:"needs"`
-	Uses        string            `yaml:"uses"`
-	With        map[string]string `yaml:"with"`
-	If          string            `yaml:"if"`
-	Permissions map[string]string `yaml:"permissions"`
-	Strategy    struct {
+	Needs           []string          `yaml:"needs"`
+	ContinueOnError string            `yaml:"continue-on-error"`
+	Uses            string            `yaml:"uses"`
+	With            map[string]string `yaml:"with"`
+	If              string            `yaml:"if"`
+	Permissions     map[string]string `yaml:"permissions"`
+	Strategy        struct {
 		Matrix struct {
 			Include []map[string]string `yaml:"include"`
 		} `yaml:"matrix"`
 	} `yaml:"strategy"`
 	Steps []struct {
-		Name string            `yaml:"name"`
-		Uses string            `yaml:"uses"`
-		If   string            `yaml:"if"`
-		With map[string]string `yaml:"with"`
+		Name            string            `yaml:"name"`
+		ContinueOnError string            `yaml:"continue-on-error"`
+		Uses            string            `yaml:"uses"`
+		If              string            `yaml:"if"`
+		With            map[string]string `yaml:"with"`
 	} `yaml:"steps"`
 }
 
@@ -526,7 +575,7 @@ func checkReleaseHandoff(jobs map[string]callerJob) error {
 	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" || smoke.If != "" ||
 		!slices.Contains(smoke.Needs, "build-cli") || !slices.Contains(smoke.Needs, "release-extension") ||
 		smoke.With["source_sha"] != "${{ github.sha }}" || smoke.With["package_revision"] != "" ||
-		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" || smoke.With["report_only"] != "true" ||
 		len(smoke.Permissions) != 1 || smoke.Permissions["contents"] != "read" {
 		return errors.New("release native-smoke must call the reusable smoke on the exact tag packages")
 	}
@@ -547,7 +596,7 @@ func checkReleaseHandoff(jobs map[string]callerJob) error {
 		case "Record extension artifact provenance":
 			provenance = i
 		case "Upload extension packages for native smoke":
-			if step.If == "" && strings.HasPrefix(step.Uses, "actions/upload-artifact@") &&
+			if step.If == "" && step.ContinueOnError == "true" && strings.HasPrefix(step.Uses, "actions/upload-artifact@") &&
 				step.With["name"] == "extension-packages" && step.With["path"] == "artifacts" && step.With["if-no-files-found"] == "error" {
 				upload = i
 			}
@@ -568,6 +617,8 @@ func TestReleaseSmokesExactPublishedPackages(t *testing.T) {
 		{"uses: ./.github/workflows/native-package-smoke.yml", "uses: ./.github/workflows/release-validation.yml"},
 		{"needs: [setup-version, build-cli, release-extension]", "needs: [setup-version, build-cli]"},
 		{"source_sha: ${{ github.sha }}", "source_sha: main"},
+		{"      report_only: true", "      report_only: false"},
+		{"        continue-on-error: true\n        uses: actions/upload-artifact", "        uses: actions/upload-artifact"},
 		{"          name: extension-packages\n", "          name: extension-rebuilt\n"},
 		{"      - name: Upload extension packages for native smoke", "      - name: Upload later"},
 		{"          - os: windows\n            arch: arm64\n", ""},
@@ -589,7 +640,7 @@ func TestCandidateWorkflowSmokesItsOwnPackages(t *testing.T) {
 	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" || !slices.Equal(smoke.Needs, []string{"candidate-packages"}) ||
 		smoke.With["source_sha"] != "${{ github.sha }}" ||
 		smoke.With["package_revision"] != "${{ needs.candidate-packages.outputs.revision }}" ||
-		smoke.With["version"] != "${{ needs.candidate-packages.outputs.version }}" {
+		smoke.With["version"] != "${{ needs.candidate-packages.outputs.version }}" || smoke.With["report_only"] != "" {
 		t.Fatalf("candidate smoke must bind the candidate build outputs: %+v", smoke)
 	}
 	uploads := map[string]bool{}

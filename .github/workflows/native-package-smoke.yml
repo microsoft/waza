@@ -26,12 +26,18 @@ on:
         type: string
         required: false
         default: ''
+      report_only:
+        description: Report failures in the jobs without failing the calling run, so a non-gating caller's conclusion reflects only its own jobs
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   cli:
+    continue-on-error: ${{ inputs.report_only }}
     name: CLI ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -104,6 +110,7 @@ jobs:
           if-no-files-found: error
 
   extension:
+    continue-on-error: ${{ inputs.report_only }}
     name: Extension ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -167,6 +174,7 @@ jobs:
     name: Native platform evidence
     needs: [cli, extension]
     if: always()
+    continue-on-error: ${{ inputs.report_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

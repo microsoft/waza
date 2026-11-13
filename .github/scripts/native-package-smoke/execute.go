@@ -108,7 +108,8 @@ func checkDashboard(ctx context.Context, binary string) (int, error) {
 		return 0, err
 	}
 	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
+	// Closing after the send lets cleanup finish even when waitHealthy took the result.
+	go func() { exited <- cmd.Wait(); close(exited) }()
 	defer func() {
 		_ = cmd.Process.Kill()
 		<-exited

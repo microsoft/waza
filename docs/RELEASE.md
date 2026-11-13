@@ -81,7 +81,10 @@ build → GitHub Release → extension publish → registry-sync PR → GitHub P
    `native-package-smoke.yml` to execute the exact uploaded CLI binaries and
    representative extension archives on native runners. See
    [Native Platform Evidence](#native-platform-evidence); it is reported
-   evidence, not yet a publication gate.
+   evidence, not yet a publication gate. It runs with `report_only: true`, and
+   the extension-package upload may fail without stopping publication, so a
+   smoke failure shows on its jobs without failing the `Release` conclusion
+   that Pages deployment waits on.
 7. **pages.yml** — Deploys the documentation site after the `Release` workflow completes successfully, ensuring release notes and download links published to `site/` are pushed to GitHub Pages.
 
 The retained `Squad Release` (`main`) and `Squad Insider Release` (`insider`)

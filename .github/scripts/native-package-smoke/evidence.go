@@ -23,13 +23,13 @@ func collectEvidence(dir, sourceSHA, revision, version string) (string, error) {
 		cells := []string{}
 		for _, kind := range []string{"cli", "extension"} {
 			name := receiptName(kind, p)
-			expected[name] = true
 			switch {
 			case p.Evidence != evidenceNative:
 				cells = append(cells, "unavailable")
 			case kind == "extension" && !p.Extension:
 				cells = append(cells, "not selected")
 			default:
+				expected[name] = true
 				r, err := readReceipt(filepath.Join(dir, name), kind, p, sourceSHA, revision, version)
 				if err != nil {
 					problems = append(problems, err.Error())
