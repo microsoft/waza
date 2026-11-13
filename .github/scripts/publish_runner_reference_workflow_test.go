@@ -203,6 +203,24 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 	if attestation.With["create-storage-record"] != "false" {
 		t.Fatalf("signed provenance must explicitly disable artifact storage records without expanding permissions: %#v", attestation.With)
 	}
+	inventoryStep := findStep(publish.Steps, "Generate runner image component inventory")
+	if inventoryStep == nil || inventoryStep.Env["IMAGE_DIGEST"] != "${{ steps.build.outputs.digest }}" ||
+		!strings.Contains(inventoryStep.Run, `ghcr.io/microsoft/waza-runner-reference@$IMAGE_DIGEST`) ||
+		!strings.Contains(inventoryStep.Run, "go run ./cmd/waza runner inventory generate") ||
+		!strings.Contains(inventoryStep.Run, "go run ./cmd/waza runner inventory verify") ||
+		!strings.Contains(inventoryStep.Run, `--digest "$IMAGE_DIGEST"`) ||
+		!strings.Contains(inventoryStep.Run, `--image-digest "$IMAGE_DIGEST"`) {
+		t.Fatalf("component inventory must be generated from and verified against the pushed digest: %#v", inventoryStep)
+	}
+	inventoryAttestation := findStep(publish.Steps, "Attest runner image component inventory")
+	if inventoryAttestation == nil || !strings.HasPrefix(inventoryAttestation.Uses, "actions/attest@") ||
+		inventoryAttestation.With["subject-name"] != "ghcr.io/microsoft/waza-runner-reference" ||
+		inventoryAttestation.With["subject-digest"] != "${{ steps.build.outputs.digest }}" ||
+		inventoryAttestation.With["sbom-path"] != "${{ runner.temp }}/runner-inventory.cdx.json" ||
+		inventoryAttestation.With["push-to-registry"] != "true" ||
+		inventoryAttestation.With["create-storage-record"] != "false" {
+		t.Fatalf("component inventory must be attested to the exact pushed digest: %#v", inventoryAttestation)
+	}
 	stepIndex := func(steps []runnerReferenceStep, name string) int {
 		for i, step := range steps {
 			if step.Name == name {
@@ -212,7 +230,9 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 		return -1
 	}
 	if stepIndex(publish.Steps, "Revalidate protected main immediately before push") >= stepIndex(publish.Steps, build.Name) ||
-		stepIndex(publish.Steps, attestation.Name) >= stepIndex(publish.Steps, "Revalidate protected main after push and attestation") {
+		stepIndex(publish.Steps, attestation.Name) >= stepIndex(publish.Steps, "Revalidate protected main after push and attestation") ||
+		stepIndex(publish.Steps, inventoryStep.Name) >= stepIndex(publish.Steps, inventoryAttestation.Name) ||
+		stepIndex(publish.Steps, inventoryAttestation.Name) >= stepIndex(publish.Steps, "Revalidate protected main after push and attestation") {
 		t.Fatal("main must be revalidated around publication and attestation")
 	}
 	summary := findStep(publish.Steps, "Record pushed candidate digest")
@@ -225,6 +245,7 @@ func TestRunnerReferencePublisherIsManualAndLeastPrivilege(t *testing.T) {
 	}
 	failureSummary := findStep(publish.Steps, "Mark pushed digest as unaccepted when finalization fails")
 	if failureSummary == nil || !strings.Contains(failureSummary.If, "steps.build.outcome == 'success'") ||
+		!strings.Contains(failureSummary.If, "steps.inventory_attestation.outcome != 'success'") ||
 		!strings.Contains(failureSummary.Run, "No rollback is claimed") {
 		t.Fatalf("partial push or attestation failure must be explicitly unaccepted: %#v", failureSummary)
 	}
@@ -339,6 +360,15 @@ func TestRunnerReferenceVerifierIsManualAnonymousAndUsesPublishedDigest(t *testi
 		!strings.Contains(attestation.Run, `--format json > "$RUNNER_TEMP/verified-runner-provenance.json"`) ||
 		!strings.Contains(attestation.Run, "--signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml") {
 		t.Fatalf("verifier must validate the exact source-bound publisher attestation: %#v", attestation)
+	}
+	inventory := findStep(attestationJob.Steps, "Verify signed component inventory for the exact digest")
+	if inventory == nil || inventory.Env["IMAGE_DIGEST"] != "${{ steps.guard.outputs.image_digest }}" ||
+		!strings.Contains(inventory.Run, "--predicate-type https://cyclonedx.org/bom") ||
+		!strings.Contains(inventory.Run, "--signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml") ||
+		!strings.Contains(inventory.Run, "--source-digest \"$SOURCE_REVISION\"") ||
+		!strings.Contains(inventory.Run, "go run ./cmd/waza runner inventory verify") ||
+		!strings.Contains(inventory.Run, `--image-digest "$IMAGE_DIGEST"`) {
+		t.Fatalf("verifier must check the signed inventory is bound to the exact digest: %#v", inventory)
 	}
 	finalization := findStep(attestationJob.Steps, "Require successful publisher run and finalization")
 	if finalization == nil || finalization.Env["GH_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" ||

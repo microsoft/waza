@@ -1,0 +1,111 @@
+---
+title: Component inventories
+description: Generate, publish and verify offline component inventories bound to runner image and plugin digests.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution">Unreleased, planned for v0.42.0 (#770). Installed v0.41.0 artifacts do not include these commands.</Aside>
+
+A component inventory lists the software in one runner image or plugin and is
+bound to that artifact's immutable sha256 digest. Waza publishes one for every
+reference runner image, can bind it into a [provenance bundle](../execution-provenance/),
+and verifies offline that an inventory describes exactly the image or plugin
+you consumed.
+
+<Aside>Inventories are evidence, not a policy decision. Waza does not scan for
+vulnerabilities or licenses; feed a verified inventory to your existing scanner
+or policy engine.</Aside>
+
+## Format
+
+CycloneDX 1.6 JSON (`application/vnd.cyclonedx+json`) restricted to the closed
+profile `waza.component-inventory/1.0`
+([schema](/waza/schemas/component-inventory-1.0.schema.json)):
+
+- `metadata.component` is the subject: `container` (image) or `application`
+  (plugin), one `SHA-256` hash equal to the subject digest, and `bom-ref`
+  `image:sha256:<hex>` or `plugin:sha256:<hex>`.
+- `components` lists each component once, sorted by `bom-ref` (the package URL
+  when one exists). At most 20,000 components and 16 MiB.
+
+Generation is deterministic.
+
+## Verify a published reference image offline
+
+```bash
+digest=sha256:<hex>
+gh attestation verify "oci://ghcr.io/microsoft/waza-runner-reference@$digest" \
+  --repo microsoft/waza --predicate-type https://cyclonedx.org/bom \
+  --signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml \
+  --format json | jq '.[0].verificationResult.statement.predicate' > runner.cdx.json
+waza runner inventory verify --inventory runner.cdx.json \
+  --image-digest "$digest" --image-reference ghcr.io/microsoft/waza-runner-reference
+```
+
+The publisher generates the inventory from the pushed digest, verifies it, and
+attests it to that digest; the public-digest verifier rejects a digest without a
+verified inventory.
+
+## Verify a plugin offline
+
+```bash
+waza runner inventory verify --inventory example-plugin.cdx.json \
+  --plugin example-plugin.tgz --plugin-name example-plugin
+```
+
+`--plugin` hashes the artifact you are about to load. The runner does not load
+plugins today; deployments that add plugin artifacts must ship an inventory
+generated with `--subject plugin` and verify it before loading.
+
+## Generate
+
+```bash
+waza runner inventory generate --name ghcr.io/org/waza-runner --digest sha256:<hex> \
+  --go-binary ./waza --dpkg-status ./dpkg-status --os-release ./os-release \
+  --out runner.cdx.json
+waza runner inventory generate --subject plugin --name example-plugin \
+  --subject-file example-plugin.tgz --from-cyclonedx deps.cdx.json --out plugin.cdx.json
+```
+
+Sources: `--go-binary` (Go build information and file digest), `--dpkg-status`,
+`--os-release`, `--file` and `--from-cyclonedx`. Generation refuses tags and
+never overwrites `--out`.
+
+## Bind into provenance
+
+```bash
+waza runner provenance generate ... --image-digest sha256:<hex> \
+  --bind component-inventory=runner.cdx.json
+waza runner provenance verify --bundle bundle --public-key signing.pub.pem --require-inventory
+```
+
+The binding verifier checks the inventory's subject against the signed runner
+image digest and repository; generation refuses to sign a mismatched inventory.
+
+## Report and failure codes
+
+`verify` prints a [`waza.inventory-verification`](/waza/schemas/inventory-verification-1.0.schema.json)
+report with checks `inventory`, `profile`, `subject`, `binding` and
+`components`: exit 0 verified, 1 failed, 2 invalid flags.
+
+| Code | Meaning |
+| --- | --- |
+| `inventory_missing`, `inventory_malformed`, `inventory_too_large` | No usable inventory |
+| `profile_unsupported` | Other profile version |
+| `subject_unbound`, `subject_purl_mismatch`, `subject_ref_mismatch`, `subject_kind_invalid` | Subject not bound to one digest, or altered |
+| `expected_digest_missing`, `expected_digest_invalid` | No consumed digest, or a tag |
+| `subject_digest_mismatch`, `subject_kind_mismatch`, `subject_name_mismatch` | Inventory is for another image or plugin |
+| `components_empty`, `component_duplicate`, `component_ref_mismatch` | Component list altered |
+| `binding_required_missing` | `--require-inventory` and the bundle binds none |
+
+The inventory's integrity comes from the signature that delivered it (the GHCR
+attestation or the provenance bundle). The Lab runner page includes a
+**Component inventory** panel for the same check; see
+[Dashboard Lab](../dashboard-lab/).
+
+## Migration
+
+Additive. Images published before v0.42.0 have no inventory attestation until
+republished; provenance bundles need an inventory only when the verifier passes
+`--require-inventory`.

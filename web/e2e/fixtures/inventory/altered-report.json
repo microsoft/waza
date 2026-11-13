@@ -1,0 +1,50 @@
+{
+  "kind": "waza.inventory-verification",
+  "schema_version": "1.0",
+  "status": "failed",
+  "exit_code": 1,
+  "inventory_sha256": "f05e38e0f6081acbf0816e9cee7ec690ba5bc67a720ad4ccf5cbbf6e6c59dad5",
+  "expected": {
+    "kind": "image",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "name": "ghcr.io/microsoft/waza-runner-reference"
+  },
+  "subject": {
+    "kind": "image",
+    "name": "ghcr.io/microsoft/waza-runner-reference",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "purl": "pkg:oci/waza-runner-reference@sha256%3A1111111111111111111111111111111111111111111111111111111111111111?repository_url=ghcr.io/microsoft/waza-runner-reference"
+  },
+  "checks": [
+    {
+      "id": "inventory",
+      "status": "passed",
+      "code": "ok",
+      "message": "CycloneDX 1.6 inventory, 2418 bytes"
+    },
+    {
+      "id": "profile",
+      "status": "passed",
+      "code": "ok",
+      "message": "waza.component-inventory/1.0"
+    },
+    {
+      "id": "subject",
+      "status": "passed",
+      "code": "ok",
+      "message": "image ghcr.io/microsoft/waza-runner-reference bound to sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "id": "binding",
+      "status": "passed",
+      "code": "ok",
+      "message": "inventory is bound to the consumed image sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "id": "components",
+      "status": "failed",
+      "code": "component_ref_mismatch",
+      "message": "component 1 bom-ref \"pkg:deb/debian/bash@9.9-5.2.15-2+b7?arch=amd64\u0026distro=debian-12\" does not match its identity"
+    }
+  ]
+}

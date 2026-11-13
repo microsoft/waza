@@ -83,6 +83,17 @@ publisher's existing permission boundary when upgrading the provenance action.
 Signed provenance is still pushed to the registry; no `artifact-metadata: write`
 permission is granted.
 
+After the provenance attestation, the publisher copies `/waza`,
+`/var/lib/dpkg/status` and `/etc/os-release` out of the pushed digest, runs
+`waza runner inventory generate` and `verify`, attests the CycloneDX inventory
+to the same digest with `actions/attest` (predicate
+`https://cyclonedx.org/bom`), and uploads it as a workflow artifact. The step
+`Attest runner image component inventory` is a required finalization step for
+public-digest acceptance, and the verifier checks the signed inventory against
+the digest. Update the inventory step when the `native-reference` stage moves
+its binary, package manager or OS. See
+[component inventories](../../../docs/COMPONENT_INVENTORY.md).
+
 The `GITHUB_TOKEN` package-write and attestation permissions are declarations,
 not proof that repository, organization or package policy allows publication.
 Record the actual publisher outcome rather than inferring success from a

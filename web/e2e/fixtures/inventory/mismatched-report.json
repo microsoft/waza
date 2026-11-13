@@ -1,0 +1,49 @@
+{
+  "kind": "waza.inventory-verification",
+  "schema_version": "1.0",
+  "status": "failed",
+  "exit_code": 1,
+  "inventory_sha256": "f37db3f03096fda20a0850d5a3b12110127beb4534cbc69021494cffae692c45",
+  "expected": {
+    "kind": "image",
+    "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "subject": {
+    "kind": "image",
+    "name": "ghcr.io/microsoft/waza-runner-reference",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "purl": "pkg:oci/waza-runner-reference@sha256%3A1111111111111111111111111111111111111111111111111111111111111111?repository_url=ghcr.io/microsoft/waza-runner-reference"
+  },
+  "checks": [
+    {
+      "id": "inventory",
+      "status": "passed",
+      "code": "ok",
+      "message": "CycloneDX 1.6 inventory, 2414 bytes"
+    },
+    {
+      "id": "profile",
+      "status": "passed",
+      "code": "ok",
+      "message": "waza.component-inventory/1.0"
+    },
+    {
+      "id": "subject",
+      "status": "passed",
+      "code": "ok",
+      "message": "image ghcr.io/microsoft/waza-runner-reference bound to sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "id": "binding",
+      "status": "failed",
+      "code": "subject_digest_mismatch",
+      "message": "inventory is bound to sha256:1111111111111111111111111111111111111111111111111111111111111111, but the consumed image is sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "id": "components",
+      "status": "skipped",
+      "code": "not_reached",
+      "message": "an earlier check failed"
+    }
+  ]
+}

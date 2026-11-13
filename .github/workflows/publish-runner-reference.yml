@@ -150,6 +150,49 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
           create-storage-record: false
+      - name: Generate runner image component inventory
+        id: inventory
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/microsoft/waza-runner-reference@$IMAGE_DIGEST"
+          sources="$RUNNER_TEMP/runner-inventory-sources"
+          inventory="$RUNNER_TEMP/runner-inventory.cdx.json"
+          mkdir -p "$sources"
+          container="$(docker create --platform linux/amd64 "$image")"
+          trap 'docker rm "$container" >/dev/null' EXIT
+          docker cp -L "$container:/waza" "$sources/waza"
+          docker cp -L "$container:/var/lib/dpkg/status" "$sources/dpkg-status"
+          docker cp -L "$container:/etc/os-release" "$sources/os-release"
+          go run ./cmd/waza runner inventory generate \
+            --name ghcr.io/microsoft/waza-runner-reference \
+            --digest "$IMAGE_DIGEST" \
+            --go-binary "$sources/waza" \
+            --dpkg-status "$sources/dpkg-status" \
+            --os-release "$sources/os-release" \
+            --out "$inventory"
+          go run ./cmd/waza runner inventory verify \
+            --inventory "$inventory" \
+            --image-digest "$IMAGE_DIGEST" \
+            --image-reference ghcr.io/microsoft/waza-runner-reference
+      - name: Attest runner image component inventory
+        id: inventory_attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/microsoft/waza-runner-reference
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/runner-inventory.cdx.json
+          push-to-registry: true
+          create-storage-record: false
+      - name: Upload runner image component inventory
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runner-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-inventory.cdx.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Revalidate protected main after push and attestation
         id: final_guard
         shell: bash
@@ -178,7 +221,7 @@ jobs:
           printf 'Push and signed provenance creation succeeded for candidate `%s`.\n\nTag: `%s`\n\nImmutable digest reference: `ghcr.io/microsoft/waza-runner-reference@%s`\n\nPlatform: `linux/amd64`\n\nThis digest is not accepted for use until the separate anonymous public-digest verification workflow succeeds. Package visibility is not established by this push.\n' \
             "$CANDIDATE_SHA" "$IMAGE_TAG" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
       - name: Mark pushed digest as unaccepted when finalization fails
-        if: always() && steps.build.outcome == 'success' && (steps.attestation.outcome != 'success' || steps.final_guard.outcome != 'success')
+        if: always() && steps.build.outcome == 'success' && (steps.attestation.outcome != 'success' || steps.inventory_attestation.outcome != 'success' || steps.final_guard.outcome != 'success')
         env:
           CANDIDATE_SHA: ${{ needs.validate-candidate.outputs.candidate_sha }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}

@@ -10,13 +10,16 @@ import (
 var (
 	kindPattern = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
 	namePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+	// checkCode bounds kind-specific failure codes surfaced by binding verifiers.
+	checkCode = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 )
 
 // BindingVerifier verifies one additional member bound into the statement.
 // The member bytes have already matched the signed digest; implementations
 // verify kind-specific content and its relation to the statement (for
 // example, that a component inventory describes the declared runner image
-// digest). Returning an error fails verification closed.
+// digest). Returning an error fails verification closed; an error exposing
+// BindingCode() string surfaces that code instead of binding_invalid.
 type BindingVerifier interface {
 	Verify(binding Binding, data []byte, statement *Statement) error
 }

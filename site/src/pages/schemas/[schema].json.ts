@@ -17,6 +17,8 @@ import provenanceBundle from '../../../../schemas/provenance-bundle-1.0.schema.j
 import provenanceVerification from '../../../../schemas/provenance-verification-1.0.schema.json';
 import isolation from '../../../../schemas/execution-isolation-1.0.schema.json';
 import telemetry from '../../../../schemas/execution-telemetry-1.0.schema.json';
+import componentInventory from '../../../../schemas/component-inventory-1.0.schema.json';
+import inventoryVerification from '../../../../schemas/inventory-verification-1.0.schema.json';
 import checkpoint from '../../../../schemas/execution-checkpoint-1.0.schema.json';
 import checkpointResult from '../../../../schemas/runner-checkpoint-result-1.0.schema.json';
 import checkpointResultV11 from '../../../../schemas/runner-checkpoint-result-1.1.schema.json';
@@ -50,6 +52,8 @@ export function getStaticPaths() {
     { params: { schema: 'provenance-verification-1.0.schema' }, props: { schema: provenanceVerification } },
     { params: { schema: 'execution-isolation-1.0.schema' }, props: { schema: isolation } },
     { params: { schema: 'execution-telemetry-1.0.schema' }, props: { schema: telemetry } },
+    { params: { schema: 'component-inventory-1.0.schema' }, props: { schema: componentInventory } },
+    { params: { schema: 'inventory-verification-1.0.schema' }, props: { schema: inventoryVerification } },
     { params: { schema: 'execution-checkpoint-1.0.schema' }, props: { schema: checkpoint } },
     { params: { schema: 'runner-checkpoint-result-1.0.schema' }, props: { schema: checkpointResult } },
     { params: { schema: 'runner-checkpoint-result-1.1.schema' }, props: { schema: checkpointResultV11 } },

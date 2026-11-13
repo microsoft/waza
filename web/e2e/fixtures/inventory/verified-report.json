@@ -1,0 +1,61 @@
+{
+  "kind": "waza.inventory-verification",
+  "schema_version": "1.0",
+  "status": "verified",
+  "exit_code": 0,
+  "inventory_sha256": "f37db3f03096fda20a0850d5a3b12110127beb4534cbc69021494cffae692c45",
+  "expected": {
+    "kind": "image",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "name": "ghcr.io/microsoft/waza-runner-reference"
+  },
+  "subject": {
+    "kind": "image",
+    "name": "ghcr.io/microsoft/waza-runner-reference",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "purl": "pkg:oci/waza-runner-reference@sha256%3A1111111111111111111111111111111111111111111111111111111111111111?repository_url=ghcr.io/microsoft/waza-runner-reference"
+  },
+  "summary": {
+    "total": 6,
+    "by_type": {
+      "library": 5,
+      "operating-system": 1
+    },
+    "by_ecosystem": {
+      "deb": 5,
+      "none": 1
+    }
+  },
+  "checks": [
+    {
+      "id": "inventory",
+      "status": "passed",
+      "code": "ok",
+      "message": "CycloneDX 1.6 inventory, 2414 bytes"
+    },
+    {
+      "id": "profile",
+      "status": "passed",
+      "code": "ok",
+      "message": "waza.component-inventory/1.0"
+    },
+    {
+      "id": "subject",
+      "status": "passed",
+      "code": "ok",
+      "message": "image ghcr.io/microsoft/waza-runner-reference bound to sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "id": "binding",
+      "status": "passed",
+      "code": "ok",
+      "message": "inventory is bound to the consumed image sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "id": "components",
+      "status": "passed",
+      "code": "ok",
+      "message": "6 components"
+    }
+  ]
+}

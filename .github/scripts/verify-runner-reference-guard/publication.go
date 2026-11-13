@@ -112,6 +112,7 @@ func requireFinalizedRun(invocation, source string, api func(string) ([]byte, er
 			found = true
 			for _, required := range []string{
 				"Attest published image digest",
+				"Attest runner image component inventory",
 				"Revalidate protected main after push and attestation",
 				"Record pushed candidate digest",
 			} {

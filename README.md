@@ -508,6 +508,15 @@ chain and terminal outcome; `waza runner provenance verify --bundle DIR
 managed-KMS signing report an explicit unavailable state (exit 5). See
 [execution provenance](docs/EXECUTION_PROVENANCE.md).
 
+**Component inventory commands (unreleased, planned for v0.42.0):** `waza runner
+inventory generate` writes a CycloneDX inventory bound to a runner image or
+plugin sha256 digest; `waza runner inventory verify --inventory FILE
+--image-digest sha256:<hex>` (or `--plugin FILE`) checks offline that it
+describes exactly what you consumed (exit 0 verified, 1 failed). Reference
+images publish a signed inventory attestation, and provenance bundles bind it
+with `--bind component-inventory=PATH` and `verify --require-inventory`. See
+[component inventories](docs/COMPONENT_INVENTORY.md).
+
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
 keeps the default scratch image mock-only and provides an explicit
 `native-reference` target for the exact-unit native Copilot text profile. The

@@ -99,6 +99,28 @@ func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
 	if r := verify("--expect-image-digest", "sha256:"+strings.Repeat("b", 64)); r["status"] != "failed" {
 		t.Fatal("image digest pin was not enforced")
 	}
+	if r := verify("--require-inventory"); r["status"] != "failed" || !strings.Contains(string(mustJSON(t, r["checks"])), "binding_required_missing") {
+		t.Fatalf("bundle without an inventory satisfied --require-inventory: %v", r["checks"])
+	}
+	inventoryPath := filepath.Join(dir, "runner.cdx.json")
+	if out, code := runRunnerCLI(t, "inventory", "generate", "--name", "ghcr.io/microsoft/waza-runner:test", "--digest", digest,
+		"--dpkg-status", "../../internal/inventory/testdata/dpkg-status", "--out", inventoryPath); code != 0 {
+		t.Fatalf("inventory generate: %d %s", code, out)
+	}
+	bound := filepath.Join(dir, "bound")
+	if err := os.WriteFile(filepath.Join(artifacts, "terminal.json"), terminal, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := runProvenanceCLI(t, "generate", "--request", "../../examples/runner/unit.json",
+		"--manifest", "../../internal/artifactmanifest/testdata/publication-manifest.json",
+		"--artifacts", artifacts, "--policy", policy, "--image-reference", "ghcr.io/microsoft/waza-runner:test",
+		"--image-digest", digest, "--waza-version", "0.42.0", "--signing-key", private, "--out", bound,
+		"--bind", "component-inventory="+inventoryPath); code != 0 {
+		t.Fatalf("generate with inventory binding: %d %s", code, out)
+	}
+	if out, code := runProvenanceCLI(t, "verify", "--bundle", bound, "--public-key", public, "--require-inventory", "--expect-image-digest", digest); code != 0 {
+		t.Fatalf("bound inventory did not verify: %d %s", code, out)
+	}
 	object := filepath.Join(bundle, "artifacts", "objects", "terminal.json")
 	if err := os.WriteFile(object, append(terminal, ' '), 0o644); err != nil {
 		t.Fatal(err)
