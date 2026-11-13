@@ -136,7 +136,7 @@ test('actual API/model/schema and container paths select production consumers; u
 });
 
 test('plan applicability is a superset of every workflow-internal change filter it replaced', () => {
-  const read = (file) => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  const read = (file) => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8').replace(/\r\n/g, '\n');
   const globs = (workflow, filter) => {
     const block = read(workflow).match(new RegExp(`^            ${filter}:\\n((?:              - '[^'\\n]+'\\n)+)`, 'm'))?.[1];
     assert.ok(block, `${workflow} ${filter} filter must exist`);
