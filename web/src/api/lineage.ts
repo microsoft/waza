@@ -4,6 +4,7 @@ import attemptSchema from "../../../schemas/execution-attempt-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
 import manifestSchema from "../../../schemas/artifact-manifest-1.0.schema.json";
 import lifecycleSchema from "../../../schemas/execution-lifecycle-1.0.schema.json";
+import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 
 export interface LineageAttempt {
@@ -61,12 +62,12 @@ export interface LineageResult {
 
 export class LineageError extends Error {}
 
-const validateLineage = new Ajv2020({ strict: false })
+const validateLineage = lazyValidator(() => new Ajv2020({ strict: false })
   .addSchema(terminalSchema)
   .addSchema(lifecycleSchema)
   .addSchema(manifestSchema)
   .addSchema(attemptSchema)
-  .compile<ExecutionLineage>(lineageSchema);
+  .compile<ExecutionLineage>(lineageSchema));
 
 export function parseLogical(run: string, work: string): { run: string; work: string } {
   const logical = { run: run.trim(), work: work.trim() };

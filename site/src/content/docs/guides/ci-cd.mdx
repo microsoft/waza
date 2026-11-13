@@ -433,6 +433,26 @@ removes tests, and this instrumentation does not establish #825/#822 timing
 attainment. Locally authored reports and unverified/expired artifact content
 must not be promoted to execution evidence.
 
+#### Dashboard wall-time budget
+
+The `Test dashboard` step in `web-ci.yml` has its own required budget, separate
+from the non-blocking trend policy above. After a successful retry-disabled
+run (`--retries=0`, two workers, no sharding),
+`.github/scripts/ci-evidence-dashboard-budget.cjs` reads the run's Playwright
+JSON report and compares `stats.duration` with the number of executed tests
+(passed, failed and flaky; skipped tests are excluded):
+
+| Limit | Value | Effect |
+|---|---|---|
+| Target | 0.42 s per executed test | Median over three retry-disabled runs; a run above it is reported as `above-target` |
+| Ceiling | 1.25 × target | A single run above it fails the job as `exceeded` |
+
+The budget scales with the suite, so adding tests does not need a new number.
+At 668 tests the target is 280.6 s and the ceiling is 350.7 s, below the
+unoptimized suite's 423 s, so a regression to it fails. The result table
+is written to the job summary. Raising the budget is a reviewed change to the
+script, not a retry or a skipped test.
+
 ### Offline challenge assessment
 
 Use `waza assure eval.yaml --references labels.json` as a separate strict

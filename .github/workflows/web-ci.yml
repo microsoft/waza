@@ -167,6 +167,10 @@ jobs:
           PLAYWRIGHT_JSON_OUTPUT_NAME: .ci-evidence-report.json
         run: npx --no-install playwright test --project=chromium --retries=0 --reporter=github,line,json
 
+      - name: Check dashboard wall-time budget
+        if: steps.tests.outcome == 'success'
+        run: node .github/scripts/ci-evidence-dashboard-budget.cjs web/.ci-evidence-report.json
+
       - name: Sanitize dashboard execution evidence
         if: always() && steps.discovery.outcome != 'skipped' && steps.discovery.outcome != ''
         env:

@@ -15,6 +15,7 @@ import {
   sameRunnerIdentity, sameSelection, validateRunnerSelection,
   type RunnerIdentity, type RunnerTerminal, type WorkSelection,
 } from "./runner";
+import { lazy, lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
 import { checkRetainedReportCanonical, type ReportCanonicalCheck } from "./runnerUnitReport";
 
@@ -132,18 +133,21 @@ export interface CheckpointOperationResult {
   diagnostics: { code: string; message: string }[];
 }
 
-const ajv = new Ajv2020({ strict: false });
-for (const schema of [
-  negotiationSchema, unitSchema, requestSchema, terminalSchema, manifestSchema,
-  attemptSchema, completionSchema, submissionSchema, checkpointSchema,
-]) ajv.addSchema(schema);
-const validate = ajv.compile<CheckpointOperationResult>(resultSchema);
-const validateOperationError = ajv.compile<CheckpointOperationResult>(operationErrorSchema);
-const validateSubmissionRequest = ajv.compile<CapturedSubmission>(submissionRequestSchema);
-const validateSubmissionResult = ajv.getSchema(submissionSchema.$id);
+const ajv = lazy(() => {
+  const compiler = new Ajv2020({ strict: false });
+  for (const schema of [
+    negotiationSchema, unitSchema, requestSchema, terminalSchema, manifestSchema,
+    attemptSchema, completionSchema, submissionSchema, checkpointSchema,
+  ]) compiler.addSchema(schema);
+  return compiler;
+});
+const validate = lazyValidator(() => ajv().compile<CheckpointOperationResult>(resultSchema));
+const validateOperationError = lazyValidator(() => ajv().compile<CheckpointOperationResult>(operationErrorSchema));
+const validateSubmissionRequest = lazyValidator(() => ajv().compile<CapturedSubmission>(submissionRequestSchema));
 
 // Validates a public runner submit reply against its published schema.
 export function isPublishedSubmissionResult(value: unknown): boolean {
+  const validateSubmissionResult = ajv().getSchema(submissionSchema.$id);
   if (!validateSubmissionResult) throw new Error("Submission result schema is not registered.");
   return validateSubmissionResult(value) === true;
 }

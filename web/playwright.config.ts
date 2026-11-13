@@ -18,7 +18,7 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    video: "off",
     trace: "retain-on-failure",
   },
 
