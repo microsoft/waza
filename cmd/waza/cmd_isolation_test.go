@@ -181,6 +181,21 @@ func TestIsolationReportNeverReplacesSelectedEvalsOrOutputs(t *testing.T) {
 		})
 	}
 
+	previous := filepath.Join(dir, "previous.json")
+	previousBody := []byte(`{"kind":"waza.execution-isolation-preflight","schema_version":"1.0"}`)
+	require.NoError(t, os.WriteFile(previous, previousBody, 0o644))
+	err := run(spec, "--isolation-request", admittedRequest, "--isolation-report", previous, "--otel-exporter", "file", "--otel-file", previous)
+	require.ErrorContains(t, err, "must not be the same file")
+	after, err := os.ReadFile(previous)
+	require.NoError(t, err)
+	require.Equal(t, previousBody, after, "the telemetry exporter must not truncate the previous report")
+
+	compatReport := filepath.Join(dir, "compat.json")
+	err = run(spec, "--runner-compat", "--isolation-request", admittedRequest, "--isolation-report", compatReport)
+	require.ErrorContains(t, err, "runner compatibility cannot preserve")
+	_, statErr := os.Stat(compatReport)
+	require.True(t, os.IsNotExist(statErr), "runner compatibility must not publish an isolation report")
+
 	report := filepath.Join(dir, "published.json")
 	require.NoError(t, os.WriteFile(report, []byte("replaced"), 0o644))
 	publishedIsolationReport = &struct {
@@ -268,4 +283,45 @@ func TestRunChecksEverySpecIsolationBeforeExecution(t *testing.T) {
 	require.False(t, executed, "an earlier spec must not run when a later spec breaks the admitted isolation")
 	_, statErr := os.Stat(reportPath)
 	require.True(t, os.IsNotExist(statErr), "an admission withdrawn by a spec check must not be published")
+}
+
+func TestWriteIsolationReportNeverWritesThroughForeignFiles(t *testing.T) {
+	dir := t.TempDir()
+	report := []byte(`{"kind":"waza.execution-isolation-preflight","schema_version":"1.0","decision":"admitted"}`)
+
+	fresh := filepath.Join(dir, "fresh.json")
+	require.NoError(t, writeIsolationReport(fresh, report))
+	data, err := os.ReadFile(fresh)
+	require.NoError(t, err)
+	require.Equal(t, report, data)
+
+	updated := []byte(`{"kind":"waza.execution-isolation-preflight","schema_version":"1.0","decision":"rejected"}`)
+	require.NoError(t, writeIsolationReport(fresh, updated), "an existing report is replaced")
+	data, err = os.ReadFile(fresh)
+	require.NoError(t, err)
+	require.Equal(t, updated, data)
+
+	foreign := filepath.Join(dir, "eval.yaml")
+	foreignBody := []byte("name: keep\n")
+	require.NoError(t, os.WriteFile(foreign, foreignBody, 0o644))
+	require.ErrorContains(t, writeIsolationReport(foreign, report), "not a waza.execution-isolation-preflight report")
+
+	link := filepath.Join(dir, "link.json")
+	target := filepath.Join(dir, "target.json")
+	require.NoError(t, os.WriteFile(target, updated, 0o644))
+	if err := os.Symlink(target, link); err == nil {
+		require.ErrorContains(t, writeIsolationReport(link, report), "not a regular file")
+		data, err = os.ReadFile(target)
+		require.NoError(t, err)
+		require.Equal(t, updated, data, "a symlinked destination must not be written through")
+	}
+
+	data, err = os.ReadFile(foreign)
+	require.NoError(t, err)
+	require.Equal(t, foreignBody, data)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.NotContains(t, entry.Name(), ".waza-isolation-report-", "temporary files are removed")
+	}
 }

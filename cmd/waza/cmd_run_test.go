@@ -70,6 +70,8 @@ func resetRunGlobals() {
 	admittedIsolation = nil
 	pendingIsolationReport = nil
 	publishedIsolationReport = nil
+	otelExporter = ""
+	otelFile = ""
 	isolationProviders = executionisolation.DefaultProviders
 	autoIssueLookPathFn = exec.LookPath
 	autoIssueRunCommandFn = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {

@@ -183,11 +183,15 @@ func TestFilesystemBoundaryConformance(t *testing.T) {
 		}
 		return nil, &fs.PathError{Op: "open", Path: dir, Err: syscall.EROFS}
 	}
+	// A directory that denies new files (for example mode 0555) can still hold
+	// existing writable files, so creation denials never prove the boundary.
 	report = hostReport(t, Host{Workspace: workspace, TempRoot: tempRoot, CreateTemp: deny}, declaration, restrict(Filesystem))
 	entry = capability(t, report, Filesystem)
-	require.Equal(t, Admitted, report.Decision)
-	require.Equal(t, EffectiveRestricted, entry.Effective)
-	require.Equal(t, HostProviderName, entry.EnforcementSource)
+	require.Equal(t, Rejected, report.Decision)
+	require.NotEqual(t, EffectiveRestricted, entry.Effective)
+	require.Equal(t, Inconclusive, entry.Probes[0].Outcome)
+	require.Contains(t, entry.Probes[0].Detail, "existing writable files")
+	require.Equal(t, CodeProbeInconclusive, entry.Diagnostic.Code)
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 	require.Contains(t, probed, cwd, "the current directory is always probed")
@@ -205,7 +209,7 @@ func TestFilesystemBoundaryConformance(t *testing.T) {
 		return deny(dir, pattern)
 	}
 	report = hostReport(t, Host{Workspace: workspace, TempRoot: tempRoot, CreateTemp: denyOrMissing}, missing, restrict(Filesystem))
-	require.Equal(t, Admitted, report.Decision, "a missing declared path is skipped")
+	require.Equal(t, Inconclusive, capability(t, report, Filesystem).Probes[0].Outcome, "a missing declared path is skipped")
 
 	// The current directory of an unrestricted developer or CI host is writable.
 	report = hostReport(t, Host{Workspace: workspace, TempRoot: tempRoot}, HostDimensions{Filesystem: &FilesystemSpec{}}, restrict(Filesystem))

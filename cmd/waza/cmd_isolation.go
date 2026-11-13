@@ -16,6 +16,7 @@ import (
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/executionisolation"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -63,11 +64,8 @@ code 2 means invalid input.`,
 				if err := distinctReportPath(output, requestPath, hostPath); err != nil {
 					return &ExitCodeError{Code: ExitError, Err: err}
 				}
-				if err := reportOverwritable(output); err != nil {
+				if err := writeIsolationReport(output, data); err != nil {
 					return &ExitCodeError{Code: ExitError, Err: err}
-				}
-				if err := os.WriteFile(output, data, 0o644); err != nil {
-					return &ExitCodeError{Code: ExitError, Err: fmt.Errorf("writing isolation report: %w", err)}
 				}
 			}
 			if _, err := cmd.OutOrStdout().Write(data); err != nil {
@@ -186,11 +184,74 @@ func reportOverwritable(path string) error {
 	return nil
 }
 
+// telemetryFilePath is the span file the OpenTelemetry file exporter will
+// truncate, or empty when no file exporter is configured.
+func telemetryFilePath() string {
+	if otelExporter == string(telemetry.ExporterFile) {
+		return otelFile
+	}
+	return ""
+}
+
+// writeIsolationReport publishes a report without ever writing through a
+// file it did not create. A missing destination is created exclusively, so a
+// file or symlink created concurrently makes the write fail instead of being
+// truncated. An existing destination must be a regular preflight report; the
+// new bytes go to a sibling temporary file that is renamed over it, which
+// replaces the directory entry rather than writing into whatever it names.
+func writeIsolationReport(path string, data []byte) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			return fmt.Errorf("writing isolation report: %w", err)
+		}
+		_, writeErr := file.Write(data)
+		if closeErr := file.Close(); writeErr == nil {
+			writeErr = closeErr
+		}
+		if writeErr != nil {
+			return fmt.Errorf("writing isolation report: %w", writeErr)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("checking isolation report path: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing to overwrite %s: it is not a regular file", path)
+	}
+	if err := reportOverwritable(path); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(path), ".waza-isolation-report-*")
+	if err != nil {
+		return fmt.Errorf("writing isolation report: %w", err)
+	}
+	tempName := temp.Name()
+	defer os.Remove(tempName) //nolint:errcheck // no-op after a successful rename
+	_, writeErr := temp.Write(data)
+	if closeErr := temp.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	if writeErr != nil {
+		return fmt.Errorf("writing isolation report: %w", writeErr)
+	}
+	current, err := os.Lstat(path)
+	if err != nil || !os.SameFile(info, current) {
+		return fmt.Errorf("refusing to overwrite %s: it changed while the report was being written", path)
+	}
+	if err := os.Rename(tempName, path); err != nil {
+		return fmt.Errorf("writing isolation report: %w", err)
+	}
+	return nil
+}
+
 // reportClearOfRunOutputs refuses a report path that a run output writer
 // would replace: --output and the files derived from it, JUnit reporters,
 // and anything inside --output-dir.
 func reportClearOfRunOutputs(reportPath string) error {
-	destinations := []string{outputPath}
+	destinations := []string{outputPath, telemetryFilePath()}
 	for _, reporter := range reporters {
 		if path, ok := strings.CutPrefix(reporter, "junit:"); ok {
 			destinations = append(destinations, path)
@@ -290,8 +351,8 @@ func runIsolationGate(ctx context.Context, requestPath, hostPath, reportPath str
 	}
 	if err := report.Admit(); err != nil {
 		if data != nil {
-			if writeErr := os.WriteFile(reportPath, data, 0o644); writeErr != nil {
-				return fmt.Errorf("writing isolation report: %w", writeErr)
+			if writeErr := writeIsolationReport(reportPath, data); writeErr != nil {
+				return &ExitCodeError{Code: ExitError, Err: writeErr}
 			}
 		}
 		return &ExitCodeError{Code: ExitError, Err: err}
@@ -335,11 +396,8 @@ func admitIsolationSpecs(specPaths []string) error {
 		if err := reportClearOfRunOutputs(pending.path); err != nil {
 			return &ExitCodeError{Code: ExitError, Err: err}
 		}
-		if err := reportOverwritable(pending.path); err != nil {
+		if err := writeIsolationReport(pending.path, pending.data); err != nil {
 			return &ExitCodeError{Code: ExitError, Err: err}
-		}
-		if err := os.WriteFile(pending.path, pending.data, 0o644); err != nil {
-			return fmt.Errorf("writing isolation report: %w", err)
 		}
 		publishedIsolationReport = pending
 	}

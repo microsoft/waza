@@ -65,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejects a run before any execution when a requested boundary is unavailable.
   The Copilot-native sandbox (#544) is modelled as a provider that is absent in
   this build. The host provider can detect but never prove secret withholding,
-  so `environment: restricted` and `subprocess: restricted` are rejected until
+  so `filesystem: restricted`, `environment: restricted` and
+  `subprocess: restricted` are rejected until
   such a provider exists, and
   network isolation (off-host traffic; loopback is not covered) is proved only
   without external interfaces. Lab

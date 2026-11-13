@@ -376,9 +376,9 @@ Probe the isolation boundaries a host declaration claims (filesystem,
 environment/secrets, network, subprocesses, remote tools) by attempting each
 violation, then match them against a request. Waza enforces nothing itself and
 reports a boundary as restricted only when a probe proved it; the Copilot-native
-sandbox (#544) is reported absent. The host provider can prove only filesystem,
-network and remote-tool boundaries; environment and subprocess restrictions are
-reported unavailable. Exit 0 admitted, 1 rejected, 2 invalid input.
+sandbox (#544) is reported absent. The host provider can prove only off-host network
+and remote-tool boundaries; filesystem, environment and subprocess restrictions
+are reported unavailable. Exit 0 admitted, 1 rejected, 2 invalid input.
 
 ```bash
 waza isolation preflight --request request.json --host host.json -o isolation.json

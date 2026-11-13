@@ -219,7 +219,14 @@ config.executor: mock checks only the harness, not agent quality.`,
 }
 
 func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
-	if err := runIsolationGate(cmd.Context(), isolationRequestPath, isolationHostPath, isolationReportPath, cmd.ErrOrStderr(), append(slices.Clone(args), outputPath)...); err != nil {
+	// Runner compatibility rejects isolation flags through its allowlist, so it
+	// runs before the gate and never publishes an isolation report.
+	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
+		return err
+	} else if enabled {
+		return runLocalCompatibility(cmd, args, runnerunit.NewService(nil))
+	}
+	if err := runIsolationGate(cmd.Context(), isolationRequestPath, isolationHostPath, isolationReportPath, cmd.ErrOrStderr(), append(slices.Clone(args), outputPath, telemetryFilePath())...); err != nil {
 		return err
 	}
 	defer func() {
@@ -227,14 +234,6 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 			retErr = err
 		}
 	}()
-	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
-		return err
-	} else if enabled {
-		if err := admitIsolationSpecs(nil); err != nil {
-			return err
-		}
-		return runLocalCompatibility(cmd, args, runnerunit.NewService(nil))
-	}
 	if len(snapshotFiles) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-file requires --snapshot")
 	}

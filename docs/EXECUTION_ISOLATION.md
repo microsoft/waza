@@ -15,7 +15,7 @@ hold, and never to report a boundary it cannot prove.
 
 | Dimension | What restricted means | Conformance probe (attempted violation) |
 |-----------|-----------------------|-----------------------------------------|
-| `filesystem` | Writes are confined to the task workspace and the shared system temp dir | Confirms the workspace is writable, then tries to create a file in the workspace parent, the home directory, the current directory and every declared `outside_paths` entry (declared paths add to the defaults). Paths inside the workspace or the system temp dir are skipped, because Waza needs the temp dir to create workspaces. |
+| `filesystem` | Writes are confined to the task workspace and the shared system temp dir | Confirms the workspace is writable, then tries to create a file in the workspace parent, the home directory, the current directory and every declared `outside_paths` entry (declared paths add to the defaults). Paths inside the workspace or the system temp dir are skipped, because Waza needs the temp dir to create workspaces. A created file is a violation. Denials are only inconclusive, because a directory that refuses new files (for example mode `0555`) can still hold existing writable files, so the host provider never proves `filesystem`. |
 | `environment` | Secrets that exist outside the boundary are withheld | Scans variable **names** (never values) for `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `CREDENTIAL`, `API_KEY`, `APIKEY`, `ACCESS_KEY`, `PRIVATE_KEY`, `CONNECTION_STRING` and the declared `secret_names`. A visible name is a violation. Absence is always inconclusive: from inside the boundary a withheld secret cannot be told apart from one that was never supplied, so the host provider never proves `environment` and a restricted request is rejected until a provider with verifiable withholding evidence (such as a native sandbox) is present. |
 | `network` | Off-host connections are blocked; loopback (`127.0.0.1`, `::1`) stays inside the boundary | Dials each declared `host:port` target; any connection is a violation. Enforced only when every dial fails **and** the process has no up, non-loopback network interface with an address (as in `docker --network none`). |
 | `subprocess` | Child processes cannot be started | Starts the Waza binary (with `WAZA_ISOLATION_SUBPROCESS_PROBE=1`, which exits immediately) and the platform shell (`/bin/sh -c "exit 0"`, or `cmd.exe /c "exit 0"` on Windows). If either starts, the boundary is violated. Denials are only samples (executable-specific rules can deny both while allowing another child), so the host provider never proves `subprocess`; a restricted request is rejected until a provider that verifies a process-wide restriction is present. |
@@ -25,9 +25,9 @@ Each probe produces one outcome:
 
 | Outcome | Meaning | Effect |
 |---------|---------|--------|
-| `enforced` | The attempted violation was blocked in a way that proves a boundary (permission denied, read-only filesystem, no network interface) | The dimension is available and `effective: restricted` |
+| `enforced` | The attempted violation was blocked in a way that proves a boundary (for example, no network interface) | The dimension is available and `effective: restricted` |
 | `violated` | The attempted violation succeeded | The dimension is unavailable; a violation always wins over another provider's enforcement |
-| `inconclusive` | The result proves nothing (failed dials while a network interface is up, secrets merely absent, sampled spawns denied, unexpected error, no probe) | The dimension is unavailable |
+| `inconclusive` | The result proves nothing (failed dials while a network interface is up, file creation denied, secrets merely absent, sampled spawns denied, unexpected error, no probe) | The dimension is unavailable |
 
 A failed dial to a sampled target cannot prove a whole network policy: a
 destination-specific firewall, an IPv6-only route failure, a closed port or a
@@ -133,8 +133,13 @@ the request; the report is still written when `--isolation-report` is given.
 The report never replaces an input or a result: Waza refuses to overwrite an
 existing file that is not an isolation preflight report, refuses the request,
 host and selected eval files, `--output` and the `<base>_*` files derived from
-it, `--reporter junit:` destinations and anything inside `--output-dir`, and
-fails the run if another writer replaces the report anyway. When
+it, `--reporter junit:` destinations, the `--otel-file` of the file exporter
+and anything inside `--output-dir`, and fails the run if another writer
+replaces the report anyway. A new report is created exclusively, so a file or
+symlink that appears first makes the write fail; an existing report must be a
+regular file and is replaced by renaming a sibling temporary file over it, so
+the write never goes through another file. `--runner-compat` does not support
+the isolation flags and never writes a report. When
 `environment` is effectively restricted, `run` loads every selected eval
 (including all `--discover` skills) before the first one starts and rejects
 the run if any stdio `config.mcp_servers` entry sets environment variables
@@ -173,8 +178,11 @@ is reported as a violation even when `environment` is not requested.
   monitoring. A boundary can change after the preflight.
 - The probe workspace is a fresh temporary directory, not the task workspace
   created later.
-- The system temp dir stays writable, so a `filesystem` restriction does not
-  isolate concurrent tasks from each other inside it.
+- `filesystem` can be detected as violated but never proved by the host
+  provider (denied file creation does not rule out existing writable files),
+  so `filesystem: restricted` is always rejected for now. Even a provider
+  that proves it leaves the system temp dir writable, so concurrent tasks are
+  not isolated from each other inside it.
 - Secret detection is by variable name; a secret under an innocuous name is
   not detected unless declared in `secret_names`. The host provider can only
   detect exposure, never prove withholding, so `environment: restricted` is

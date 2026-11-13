@@ -152,7 +152,9 @@ func within(root, path string) bool {
 
 // probeFilesystem attempts to create a file outside the workspace and the
 // shared temporary area that holds task workspaces. The workspace itself must
-// stay writable. Declared paths add to the defaults (the home directory, the
+// stay writable. A successful write proves a violation; denials are only
+// inconclusive, because a directory that refuses new files can still hold
+// existing writable files. Declared paths add to the defaults (the home directory, the
 // current directory and the workspace parent); they never replace them.
 func (h Host) probeFilesystem(declared []string) ProbeResult {
 	workspace, err := filepath.Abs(h.Workspace)
@@ -198,7 +200,7 @@ func (h Host) probeFilesystem(declared []string) ProbeResult {
 	if len(blocked) == 0 {
 		return ProbeResult{Inconclusive, "no existing path outside the workspace could be probed"}
 	}
-	return ProbeResult{Enforced, "writes outside the workspace were denied in " + strings.Join(blocked, ", ")}
+	return ProbeResult{Inconclusive, "creating files outside the workspace was denied in " + strings.Join(blocked, ", ") + ", but existing writable files there could still be modified, so no write boundary is proved"}
 }
 
 func removeProbe(file *os.File) {
