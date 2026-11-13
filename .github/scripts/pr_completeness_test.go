@@ -98,7 +98,7 @@ process.stdout.write(JSON.stringify(require("./pr-completeness.cjs").applicabili
 
 func TestCompletenessProductionCLIControls(t *testing.T) {
 	output := runCompletenessNode(t, "--test", "--test-reporter=tap", "pr-completeness.test.cjs")
-	for metric, count := range map[string]int{"tests": 17, "pass": 17, "fail": 0, "cancelled": 0, "skipped": 0} { //nolint:misspell // Node TAP field name.
+	for metric, count := range map[string]int{"tests": 18, "pass": 18, "fail": 0, "cancelled": 0, "skipped": 0} { //nolint:misspell // Node TAP field name.
 		pattern := regexp.MustCompile(fmt.Sprintf(`(?m)^# %s %d\r?$`, metric, count))
 		if !pattern.Match(output) {
 			t.Fatalf("production Node controls lack expected %s=%d evidence:\n%s", metric, count, output)

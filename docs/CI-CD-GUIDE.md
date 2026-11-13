@@ -169,8 +169,8 @@ full-diff review:
 | Validation | Changed inputs |
 |---|---|
 | Go, lint, native Linux shards and Windows | Every ordinary PR, preserving the existing native gates. |
-| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, and runner examples. |
-| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config and lockfile content read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
+| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, runner examples, and `.github/scripts/ci-evidence*` collectors. |
+| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config, `package.json`, lockfile and screenshot specs read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
 | Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
 | Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
 | Docker image and native runner contracts | Container/context files, `.gitattributes` LFS checkout rules for embedded assets, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |

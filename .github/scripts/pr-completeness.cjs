@@ -130,10 +130,12 @@ function applicability(paths) {
   const modules = matches('go.mod', 'go.sum');
   return {
     go: true,
-    dashboard: all || backend || modules || matches('web', 'examples/runner'),
+    dashboard: all || backend || modules || matches('web', 'examples/runner') ||
+      paths.some((file) => /^\.github\/scripts\/ci-evidence[^/]*$/.test(file)),
     site: all || matches('site', 'docs', 'README.md', 'CHANGELOG.md', 'version.txt', 'registry.json', 'go.mod', 'cmd/waza/cmd_serve.go', 'schemas', 'internal/embedded',
       'internal/models', 'internal/runneridentity/testdata', 'internal/runnerunit/testdata', 'internal/runnerterminal/testdata',
-      'examples', 'Makefile', 'web/playwright.config.ts', 'web/package-lock.json', 'web/e2e/runner-negotiation.spec.ts',
+      'examples', 'Makefile', 'web/playwright.config.ts', 'web/package.json', 'web/package-lock.json', 'web/e2e/runner-negotiation.spec.ts',
+      'web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',
       '.squad/model-policy.md', 'DEMO-SCRIPT.md', 'LICENSE', 'meet-the-squad.md',
       'internal/interop/testdata/agentv/PROVENANCE.md', 'internal/runnercompat/testdata/eval-1.4.yaml',
       'internal/runnercompat/testdata/task.yaml'),
