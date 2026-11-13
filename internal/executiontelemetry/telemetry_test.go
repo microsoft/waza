@@ -40,7 +40,7 @@ type fixture struct {
 	original, retry manifestfixture.Source
 	// originalTerminal and originalAttempt are the original execution's
 	// published bytes, used as same-binding negative controls.
-	originalTerminal, originalAttempt []byte
+	originalTerminal, originalAttempt, originalManifest []byte
 }
 
 // publishFixture runs the actual mock runner twice (an original and its retry)
@@ -92,7 +92,8 @@ func publishFixture(t *testing.T) fixture {
 		SchedulerWorkID: "queue/job-42",
 	}, original: original, retry: retry,
 		originalTerminal: originalCompleted.ArtifactBytes[originalCompleted.Manifest.TerminalArtifact],
-		originalAttempt:  originalCompleted.ArtifactBytes[AttemptArtifact]}
+		originalAttempt:  originalCompleted.ArtifactBytes[AttemptArtifact],
+		originalManifest: originalCompleted.ManifestBytes}
 }
 
 func reportFor(t *testing.T, envelope runnerterminal.Envelope) []byte {
@@ -760,4 +761,28 @@ func TestLoadBindsReportRunToTerminalObservation(t *testing.T) {
 	future.Report = mustMarshal(t, report)
 	_, err = Load(future)
 	require.ErrorIs(t, err, ErrInvalid, "unsupported results versions are rejected by the shared reader")
+}
+
+func TestManifestDistinguishesSameSelectionPublications(t *testing.T) {
+	f := publishFixture(t)
+	retry := build(t, Inputs{Terminal: f.Terminal, Manifest: f.Manifest}, Options{})
+	original := build(t, Inputs{Terminal: f.Terminal, Manifest: f.originalManifest}, Options{})
+	require.Equal(t, retry.Report.Correlation.TraceID, original.Report.Correlation.TraceID, "publications of one work share the trace")
+	require.NotEqual(t, retry.Report.Correlation.TaskSpanID, original.Report.Correlation.TaskSpanID)
+	require.NotEqual(t, retry.Report.Correlation.Attempts[0].SpanID, original.Report.Correlation.Attempts[0].SpanID)
+}
+
+func TestReportBindsRunWithoutVerdicts(t *testing.T) {
+	f := publishFixture(t)
+	terminal := bytes.Replace(f.Terminal, []byte(`"validations":[{"identifier":"_output_contains","passed":true}]`), []byte(`"validations":[]`), 1)
+	require.NotEqual(t, f.Terminal, terminal)
+	envelope := map[string]any{}
+	require.NoError(t, json.Unmarshal(terminal, &envelope))
+	report := map[string]any{}
+	require.NoError(t, json.Unmarshal(f.Report, &report))
+	run := asMap(t, asSlice(t, asMap(t, asSlice(t, report["tasks"])[0])["runs"])[1])
+	run["validations"] = map[string]any{}
+	src, err := Load(Inputs{Terminal: terminal, Report: mustMarshal(t, report)})
+	require.NoError(t, err)
+	require.Equal(t, SourcePresent, src.ReportState, "equal empty verdict sets bind the run")
 }

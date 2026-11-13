@@ -73,6 +73,8 @@ func TestRunnerTelemetryExitCodes(t *testing.T) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	t.Cleanup(server.Close)
+	empty := filepath.Join(t.TempDir(), "empty.json")
+	require.NoError(t, os.WriteFile(empty, nil, 0o600))
 	for name, tc := range map[string]struct {
 		args []string
 		code int
@@ -82,6 +84,7 @@ func TestRunnerTelemetryExitCodes(t *testing.T) {
 		"header only":      {[]string{"--terminal", terminal, "--otlp-header", "authorization=x"}, 6},
 		"bad header":       {[]string{"--terminal", terminal, "--otlp-endpoint", server.URL, "--otlp-header", "novalue"}, 6},
 		"invalid terminal": {[]string{"--terminal", manifest}, 6},
+		"empty manifest":   {[]string{"--terminal", terminal, "--manifest", empty}, 6},
 		"export failure":   {[]string{"--terminal", terminal, "--otlp-endpoint", server.URL, "--otlp-header", "authorization=Bearer s3cr3t"}, 2},
 	} {
 		t.Run(name, func(t *testing.T) {

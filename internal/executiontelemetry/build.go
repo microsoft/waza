@@ -245,7 +245,11 @@ func (b *builder) build() *Bundle {
 			selectedExecution = a.ExecutionID
 		}
 	}
-	taskID := SpanID(SpanTask, selectedExecution, identity.Attempt)
+	taskKey := selectedExecution
+	if taskKey == "" && src.ManifestSHA256 != "" {
+		taskKey = manifestKey(src.ManifestSHA256)
+	}
+	taskID := SpanID(SpanTask, taskKey, identity.Attempt)
 	report.Correlation.TaskSpanID = taskID
 	mode := ""
 	if src.Manifest != nil {
@@ -360,9 +364,12 @@ func (b *builder) attempts() ([]attemptView, [][2]time.Time) {
 			ExecutionID: execution, NativeAttempt: src.Terminal.Selection.Attempt,
 			Status: AttemptStatusObserved, ManifestSHA256: src.ManifestSHA256, Selected: true,
 		}}
-		if execution != "" {
+		switch {
+		case execution != "":
 			v.SpanID = SpanID(SpanAttempt, execution)
-		} else {
+		case src.ManifestSHA256 != "":
+			v.SpanID = SpanID(SpanAttempt, manifestKey(src.ManifestSHA256))
+		default:
 			v.SpanID = SpanID(SpanAttempt, src.Terminal.Identity.Attempt)
 		}
 		if src.Attempt != nil && src.Attempt.Parent != nil {
@@ -374,6 +381,10 @@ func (b *builder) attempts() ([]attemptView, [][2]time.Time) {
 	}
 	return views, times
 }
+
+// manifestKey distinguishes publications of the same native selection when no
+// execution ID is known: each publication has its own immutable manifest.
+func manifestKey(digest string) string { return "manifest:" + digest }
 
 func (b *builder) applyTerminal(v *attemptView) {
 	t := b.src.Terminal

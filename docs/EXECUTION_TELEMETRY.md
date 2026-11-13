@@ -69,7 +69,10 @@ flowchart TD
 - **Span IDs**: the first 8 bytes of SHA-256 over `waza-span-v1`, the span kind
   and its stable keys (execution ID, attempt ID, manifest digest, artifact name,
   model or tool index). The same inputs always produce the same IDs, so
-  re-deriving telemetry never creates duplicate spans.
+  re-deriving telemetry never creates duplicate spans. Without an attempt
+  sidecar or lineage, the manifest digest keys the task and attempt spans so
+  separate publications of one selection stay distinct; a terminal alone cannot
+  tell such publications apart.
 - **Aggregation links**: each admitted aggregate member is linked to the
   `waza.work` span of its own run and work.
 
@@ -248,7 +251,7 @@ waza runner telemetry --terminal terminal.json \
   `partial_success`, `invalid_response`).
 
 The report JSON is printed to stdout. Exit codes: `0` success, `2` export
-failure, including partial receiver rejection (the report is still printed), `6` invalid or uncorrelated input.
+failure, including partial receiver rejection (the report is still printed), `6` invalid or uncorrelated input (including an explicitly supplied empty file).
 
 ## Troubleshooting
 

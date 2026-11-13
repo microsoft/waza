@@ -319,7 +319,7 @@ func sameVerdicts(results map[string]models.GraderResults, verdicts []runnerterm
 	for name, result := range results {
 		got = append(got, runnerterminal.Verdict{Identifier: name, Passed: result.Passed})
 	}
-	want := append([]runnerterminal.Verdict(nil), verdicts...)
+	want := append(make([]runnerterminal.Verdict, 0, len(verdicts)), verdicts...)
 	for _, s := range [][]runnerterminal.Verdict{got, want} {
 		sort.Slice(s, func(i, j int) bool { return s[i].Identifier < s[j].Identifier })
 	}

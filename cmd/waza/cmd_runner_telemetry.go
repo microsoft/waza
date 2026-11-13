@@ -72,6 +72,9 @@ files with --out-dir and/or sent to an OTLP/HTTP JSON receiver with
 				if err != nil {
 					return &ExitCodeError{Code: 6, Err: fmt.Errorf("reading %s: %w", source.flag, err)}
 				}
+				if len(data) == 0 {
+					return &ExitCodeError{Code: 6, Err: fmt.Errorf("reading %s: file is empty", source.flag)}
+				}
 				*source.target = data
 			}
 			src, err := executiontelemetry.Load(in)
