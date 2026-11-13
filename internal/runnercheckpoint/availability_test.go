@@ -5,12 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/execution"
@@ -237,24 +245,104 @@ func TestAvailabilityAdmitsTheRequestLikeResume(t *testing.T) {
 	}
 }
 
-// deniedBackend fails every read except the checkpoint declaration itself.
-type deniedBackend struct {
-	artifactmanifest.Backend
-	allow string
+// azureFake is an in-memory Azure container whose reads can be denied or
+// truncated once armed, except for keys containing allow.
+type azureFake struct {
+	mu      sync.Mutex
+	objects map[string][]byte
+	armed   bool
+	short   bool
+	allow   string
+	failed  []string
 }
 
-func (d deniedBackend) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
-	if strings.Contains(key, d.allow) {
-		return d.Backend.Get(ctx, key, limit)
+func (b *azureFake) Do(request *http.Request) (*http.Response, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := strings.TrimPrefix(request.URL.Path, "/container/")
+	header := http.Header{"Etag": {`"test"`}}
+	respond := func(status int, body io.Reader, length int) (*http.Response, error) {
+		header.Set("Content-Length", strconv.Itoa(length))
+		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(body),
+			ContentLength: int64(length), Request: request}, nil
 	}
-	return nil, &fs.PathError{Op: "open", Path: key, Err: fs.ErrPermission}
+	switch request.Method {
+	case http.MethodPut:
+		if _, exists := b.objects[key]; exists {
+			header.Set("X-Ms-Error-Code", "ConditionNotMet")
+			return respond(http.StatusPreconditionFailed, strings.NewReader(""), 0)
+		}
+		data, err := io.ReadAll(request.Body)
+		if err != nil {
+			return nil, err
+		}
+		b.objects[key] = data
+		return respond(http.StatusCreated, strings.NewReader(""), 0)
+	case http.MethodGet:
+		if request.URL.Query().Get("comp") == "list" {
+			var body strings.Builder
+			body.WriteString("<EnumerationResults><Blobs>")
+			for name := range b.objects {
+				if strings.HasPrefix(name, request.URL.Query().Get("prefix")) {
+					body.WriteString("<Blob><Name>" + name + "</Name></Blob>")
+				}
+			}
+			body.WriteString("</Blobs><NextMarker></NextMarker></EnumerationResults>")
+			return respond(http.StatusOK, strings.NewReader(body.String()), body.Len())
+		}
+		data, exists := b.objects[key]
+		if b.armed && (b.allow == "" || !strings.Contains(key, b.allow)) {
+			b.failed = append(b.failed, key)
+			if b.short && exists {
+				return respond(http.StatusOK, io.MultiReader(bytes.NewReader(data[:len(data)/2]), errReader{io.ErrUnexpectedEOF}), len(data))
+			}
+			header.Set("X-Ms-Error-Code", "AuthorizationPermissionMismatch")
+			return respond(http.StatusForbidden, strings.NewReader(""), 0)
+		}
+		if !exists {
+			header.Set("X-Ms-Error-Code", "BlobNotFound")
+			return respond(http.StatusNotFound, strings.NewReader(""), 0)
+		}
+		header.Set("X-Ms-Blob-Type", "BlockBlob")
+		return respond(http.StatusOK, bytes.NewReader(data), len(data))
+	default:
+		return nil, errors.New("unexpected availability fixture request")
+	}
 }
 
-func TestAvailabilitySeparatesStorageFailuresFromSourceEvidence(t *testing.T) {
-	store := backend(t)
-	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
-		return execution.NewMockEngine(config.ModelID), nil
+type errReader struct{ err error }
+
+func (r errReader) Read([]byte) (int, error) { return 0, r.err }
+
+func azureStore(t *testing.T, fake *azureFake) artifactmanifest.Backend {
+	t.Helper()
+	fake.objects = map[string][]byte{}
+	store, err := artifactmanifest.NewAzure("https://offline.invalid/container", checkpointTestCredential{}, &container.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Transport: fake, Retry: policy.RetryOptions{MaxRetries: -1}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+// replaceReservation overwrites the stored reservation of id in place.
+func (b *azureFake) replaceReservation(t *testing.T, id string, data []byte) {
+	t.Helper()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for key := range b.objects {
+		if strings.Contains(key, "reservation") && strings.Contains(key, id) {
+			b.objects[key] = data
+			return
+		}
+	}
+	t.Fatalf("no stored reservation for %s", id)
+}
+
+// sourcePair records one interrupted before-unit and one finalized checkpoint.
+func sourcePair(t *testing.T, service *Service, store artifactmanifest.Backend) (Result, Result) {
+	t.Helper()
 	pause := errors.New("stop after before publication")
 	interrupted, err := service.Submit(context.Background(), fixture(t), store, Hooks{
 		Published: func(context.Context, Reference) error { return pause },
@@ -266,13 +354,99 @@ func TestAvailabilitySeparatesStorageFailuresFromSourceEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, digest := range map[string]string{"before": interrupted.BeforeDigest, "finalized": completed.FinalizedDigest} {
-		t.Run(name, func(t *testing.T) {
-			result := availability(t, service, fixture(t), deniedBackend{store, digest}, digest)
-			if result.Status != "operation_error" || result.ExitCode != 2 || diagnosticCode(result) != ErrorCodeStorageUnavailable {
-				t.Fatalf("permission denial must be an operation error: %+v", result)
+	return interrupted, completed
+}
+
+func TestAvailabilitySeparatesStorageFailuresFromSourceEvidence(t *testing.T) {
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	for _, short := range []bool{false, true} {
+		for _, boundary := range []string{"before", "finalized", "checkpoint"} {
+			t.Run(fmt.Sprintf("short=%t/%s", short, boundary), func(t *testing.T) {
+				fake := &azureFake{}
+				store := azureStore(t, fake)
+				interrupted, completed := sourcePair(t, service, store)
+				digest := map[string]string{"before": interrupted.BeforeDigest}[boundary]
+				if digest == "" {
+					digest = completed.FinalizedDigest
+				}
+				fake.mu.Lock()
+				fake.armed, fake.short = true, short
+				if boundary != "checkpoint" {
+					fake.allow = digest
+				}
+				fake.mu.Unlock()
+				result := availability(t, service, fixture(t), store, digest)
+				fake.mu.Lock()
+				failed := slices.Clone(fake.failed)
+				fake.mu.Unlock()
+				if len(failed) == 0 || (boundary != "checkpoint" && slices.ContainsFunc(failed, func(key string) bool {
+					return strings.Contains(key, digest)
+				})) {
+					t.Fatalf("the intended read was not failed: %v", failed)
+				}
+				if result.Status != "operation_error" || result.ExitCode != 2 || diagnosticCode(result) != ErrorCodeStorageUnavailable {
+					t.Fatalf("provider read failure must be an operation error: %+v", result)
+				}
+			})
+		}
+	}
+}
+
+func TestAvailabilityRejectsAMalformedSourceReservation(t *testing.T) {
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	for _, boundary := range []string{"before", "finalized"} {
+		t.Run(boundary, func(t *testing.T) {
+			fake := &azureFake{}
+			store := azureStore(t, fake)
+			interrupted, completed := sourcePair(t, service, store)
+			source, digest := interrupted, interrupted.BeforeDigest
+			if boundary == "finalized" {
+				source, digest = completed, completed.FinalizedDigest
+			}
+			fake.replaceReservation(t, source.Submission.Reservation.ExecutionID, []byte(`{"kind":"waza.execution-attempt"}`))
+			result := availability(t, service, fixture(t), store, digest)
+			if result.Status != "unavailable" || result.ExitCode != 6 || diagnosticCode(result) != "checkpoint_"+boundary+"_source_rejected" {
+				t.Fatalf("malformed reservation must reject the source, not report storage: %+v", result)
 			}
 		})
+	}
+}
+
+func TestAvailabilityAdmitsTheRetryChildAncestryLikeResume(t *testing.T) {
+	fake := &azureFake{}
+	store := azureStore(t, fake)
+	service := adapter(t, func(config models.Config) (execution.AgentEngine, error) {
+		return execution.NewMockEngine(config.ModelID), nil
+	})
+	original, _ := sourcePair(t, service, store)
+	pause := errors.New("stop after retry before publication")
+	request, err := runnerunit.ParseSubmission(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Policy = &runnerunit.SubmissionPolicy{Mode: "distinct", Parent: &executionattempt.Parent{
+		ExecutionID: original.Submission.Reservation.ExecutionID, Relationship: "retry",
+	}}
+	retry, err := service.Submit(context.Background(), mustWire(t, *request), store, Hooks{
+		Published: func(context.Context, Reference) error { return pause },
+	})
+	if !errors.Is(err, pause) || retry.BeforeDigest == "" {
+		t.Fatalf("retry did not retain a before checkpoint: %+v, %v", retry, err)
+	}
+	if result := availability(t, service, fixture(t), store, retry.BeforeDigest); result.Status != "available" {
+		t.Fatalf("intact ancestry must be available: %+v", result)
+	}
+	fake.replaceReservation(t, original.Submission.Reservation.ExecutionID, []byte("not json"))
+	result := availability(t, service, fixture(t), store, retry.BeforeDigest)
+	if result.Status != "unavailable" || diagnosticCode(result) != "checkpoint_before_source_rejected" {
+		t.Fatalf("unreadable ancestor must reject availability: %+v", result)
+	}
+	if resumed, err := service.Resume(context.Background(), fixture(t), store, retry.BeforeDigest, Hooks{}); err == nil {
+		t.Fatalf("resume admitted the same unreadable ancestor: %+v", resumed)
 	}
 }
 

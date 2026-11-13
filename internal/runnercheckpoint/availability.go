@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"strings"
@@ -154,6 +155,8 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 	case err == nil:
 	case interrupted(ctx, err):
 		return result.with("operation_error", "checkpoint_availability_interrupted"), err
+	case providerFailure(err):
+		return result.with("operation_error", ErrorCodeStorageUnavailable), err
 	case errors.Is(err, artifactmanifest.ErrMissing):
 		return result.with("unavailable", "checkpoint_not_found"), err
 	case errors.Is(err, artifactmanifest.ErrCorrupt):
@@ -193,6 +196,17 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 			(request.Policy.Parent != nil && *request.Policy.Parent != parent)) {
 			return result.with("unavailable", "checkpoint_policy_conflict"), ErrPolicy
 		}
+		// Resume reserves the retry child through the same ancestry admission.
+		if err := ledger.AdmitParent(ctx, reserved.Attempt.Binding, parent); err != nil {
+			switch {
+			case interrupted(ctx, err):
+				return result.with("operation_error", "checkpoint_availability_interrupted"), err
+			case operational(err):
+				return result.with("operation_error", ErrorCodeStorageUnavailable), err
+			default:
+				return result.with("unavailable", "checkpoint_before_source_rejected"), err
+			}
+		}
 		if err := evidencestate.ValidateCaptureBinding(reserved.Attempt.Binding); err != nil {
 			return result.with("unavailable", "checkpoint_capture_policy_rejected"), err
 		}
@@ -213,6 +227,12 @@ func (s *Service) Availability(ctx context.Context, data []byte, backend artifac
 				return result.with("unavailable", "checkpoint_finalized_source_rejected"), err
 			}
 			return result.with(finalizedSourceFailure(ctx, err)), err
+		}
+		// The source is reread, so bind the exact bytes used below to the
+		// checkpoint as Resume's ReuseAdmission does.
+		if err := executioncheckpoint.ValidateContext(*checkpoint, original.Reservation.Attempt.Binding,
+			original.Reservation.Bytes, original.CompletionBytes, original.Publication.ManifestBytes); err != nil {
+			return result.with("unavailable", "checkpoint_finalized_source_rejected"), err
 		}
 		if err := ownedsubmission.ValidateSourceDisclosure(original); err != nil {
 			return result.with("unavailable", "checkpoint_capture_policy_rejected"), err
@@ -251,6 +271,24 @@ func finalizedSourceFailure(ctx context.Context, err error) (string, string) {
 // source evidence. Evidence sentinels may wrap a provider failure, so a
 // filesystem, network or Azure response cause always wins.
 func operational(err error) bool {
+	if providerFailure(err) {
+		return true
+	}
+	for _, evidence := range []error{
+		artifactmanifest.ErrMissing, artifactmanifest.ErrCorrupt, artifactmanifest.ErrConflict, artifactmanifest.ErrInvalid,
+		executionattempt.ErrInvalid, executionledger.ErrInvalid, executionledger.ErrContext,
+		executioncheckpoint.ErrInvalid, executioncheckpoint.ErrContext, executioncheckpoint.ErrIncompatible, executioncheckpoint.ErrStale,
+	} {
+		if errors.Is(err, evidence) {
+			return false
+		}
+	}
+	return true
+}
+
+// providerFailure recognizes filesystem, network, Azure response and
+// truncated-transfer causes, which may be joined with an evidence sentinel.
+func providerFailure(err error) bool {
 	if _, ok := errors.AsType[*fs.PathError](err); ok {
 		return true
 	}
@@ -260,16 +298,7 @@ func operational(err error) bool {
 	if _, ok := errors.AsType[net.Error](err); ok {
 		return true
 	}
-	for _, evidence := range []error{
-		artifactmanifest.ErrMissing, artifactmanifest.ErrCorrupt, artifactmanifest.ErrConflict, artifactmanifest.ErrInvalid,
-		executionledger.ErrInvalid, executionledger.ErrContext,
-		executioncheckpoint.ErrInvalid, executioncheckpoint.ErrContext, executioncheckpoint.ErrIncompatible, executioncheckpoint.ErrStale,
-	} {
-		if errors.Is(err, evidence) {
-			return false
-		}
-	}
-	return true
+	return errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func interrupted(ctx context.Context, err error) bool {

@@ -137,11 +137,11 @@ waza runner checkpoint availability "$FINAL" < submission.json \
 | `checkpoint_incompatible` | Build revision, work, policy or consent differs (`compatibility_differences` names fields). | Use the original clean build or rerun as new work; there is no cross-version resume. |
 | `checkpoint_policy_conflict` | The submission policy contradicts the boundary. | Omit the policy, or use a distinct retry for before-unit and reuse of the exact source for finalized-unit. |
 | `checkpoint_stale` | The original before-unit attempt already dispatched or completed. | Use the finalized checkpoint, or inspect `waza runner lineage` before starting separate work. |
-| `checkpoint_before_source_rejected` | The original reservation or dispatch state could not be verified. | Preserve records and inspect operator logs before any retry. |
+| `checkpoint_before_source_rejected` | The original reservation, its dispatch state or the retry ancestry that resume would admit could not be verified. | Preserve records and inspect operator logs before any retry. |
 | `checkpoint_finalized_source_rejected` | The original completion, manifest, terminal or captured `report.json` could not be verified (the same source admission resume performs). | Preserve records; the original terminal cannot be reused. |
 | `checkpoint_capture_policy_rejected` | The source holds restricted identifiers or diagnostic text. | Capture policy will not reuse or disclose it; rerun as new work. |
 | `checkpoint_digest_invalid`, `checkpoint_input_invalid`, `checkpoint_request_invalid` | The digest or captured submission is malformed, or the request is not admissible (for example `selection.attempt` exceeds `max_attempts`); resume rejects it the same way. | Pass 64 lowercase hex characters and a recaptured `waza.execution-submission`. |
-| `checkpoint_storage_unavailable`, `checkpoint_storage_close_failed`, `checkpoint_build_unavailable` | The store or clean build could not be used, including a permission or provider failure while reading the original source. | Fix storage access or rebuild from a clean VCS-stamped tree, then retry the check. |
+| `checkpoint_storage_unavailable`, `checkpoint_storage_close_failed`, `checkpoint_build_unavailable` | The store or clean build could not be used, including a permission, provider or truncated-transfer failure while reading the checkpoint or its original source. | Fix storage access or rebuild from a clean VCS-stamped tree, then retry the check. |
 
 Not resumable by design: partial work inside a unit (resume restarts the whole
 unit), a before-unit checkpoint once its original dispatched, any checkpoint
