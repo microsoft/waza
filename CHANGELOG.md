@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Release-candidate preparation; publication pending.** This entry covers the
 complete v0.41.0 milestone scope merged on current `main`
-`decc97c5cae9bf8f1ef1307f2dbf1e82a7e42a0f`, compared with published v0.40.1
+`efb2d2b61821d556c654075ca02f77b5f37764f1`, compared with published v0.40.1
 (`e0c251df896bee4e0f9b38a693a6105bf7eadd19`). Entries previously listed under
 Unreleased are folded in here. The published baseline is not an ancestor of
 `main`; the three demonstrated hotfix regressions are restored (#953), and no
@@ -223,7 +223,9 @@ completion requirement (#902).
   [#908](https://github.com/microsoft/waza/pull/908),
   [#907](https://github.com/microsoft/waza/pull/907),
   [#932](https://github.com/microsoft/waza/pull/932)), and repair the CI/CD
-  guide's UTF-8 punctuation ([#967](https://github.com/microsoft/waza/pull/967)).
+  guide's UTF-8 punctuation ([#967](https://github.com/microsoft/waza/pull/967)),
+  and add a reproducible release-media capture spec (`npm run release:media`
+  in `web/`, [#983](https://github.com/microsoft/waza/pull/983)).
   These are not new
   v0.41.0 artifact availability.
 
