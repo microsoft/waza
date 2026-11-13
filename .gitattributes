@@ -38,3 +38,5 @@ internal/executioncheckpoint/testdata/** -text
 internal/evidencestate/testdata/** -text
 # Adapter descriptor examples are exact-byte inputs to the Lab fixture.
 examples/runner/adapter/*.json text eol=lf
+# Provenance bundle fixtures are exact-byte digest oracles.
+web/e2e/fixtures/provenance/** -text

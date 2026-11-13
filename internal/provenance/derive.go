@@ -1,0 +1,127 @@
+package provenance
+
+import (
+	"bytes"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runneridentity"
+	"github.com/microsoft/waza/internal/runnerterminal"
+)
+
+// Failure is one precise, stable verification or generation failure.
+type Failure struct {
+	Check   string
+	Code    string
+	Message string
+}
+
+func (f *Failure) Error() string { return f.Check + ": " + f.Code + ": " + f.Message }
+
+func fail(check, code, format string, args ...any) *Failure {
+	return &Failure{Check: check, Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
+var executionModes = map[string]string{"mock": "mock", "copilot-sdk": "copilot"}
+
+type inputClaims struct {
+	inputs               InputsClaim
+	apiVersion           string
+	requestSchemaVersion string
+	runtime              RuntimeClaim
+}
+
+// deriveInputs recomputes the canonical identity, negotiated runner API
+// version and runtime/model identity from the captured request bytes.
+func deriveInputs(request []byte) (*inputClaims, *Failure) {
+	parsed, err := runnercontract.Parse(request)
+	if err != nil {
+		return nil, fail("inputs", "input_invalid", "runner request is invalid: %v", err)
+	}
+	identity, err := runneridentity.DeriveValidated(parsed)
+	if err != nil {
+		return nil, fail("inputs", "input_identity_invalid", "canonical identity cannot be derived: %v", err)
+	}
+	negotiation := runnercontract.NegotiateValidatedRequest(parsed)
+	if negotiation.Status != "compatible" || negotiation.Negotiation.Version == "" {
+		return nil, fail("runner", "runner_api_incompatible", "runner request does not negotiate a supported API version (%s)", negotiation.Status)
+	}
+	spec, err := models.ParseCapturedEvalSpecOffline([]byte(parsed.Input.Eval), "eval.yaml")
+	if err != nil {
+		return nil, fail("runtime", "runtime_unavailable", "eval configuration cannot be parsed: %v", err)
+	}
+	mode, ok := executionModes[spec.Config.EngineType]
+	if !ok {
+		return nil, fail("runtime", "runtime_unavailable", "config.executor %q has no runner execution mode", spec.Config.EngineType)
+	}
+	model := strings.TrimSpace(spec.Config.ModelID)
+	if model == "" {
+		return nil, fail("runtime", "runtime_model_unavailable", "config.model is blank; a model identity is required")
+	}
+	return &inputClaims{
+		inputs:               InputsClaim{Request: Ref{Path: RequestPath, SHA256: sha256Hex(request), MediaType: "application/json"}, Identity: *identity},
+		apiVersion:           negotiation.Negotiation.Version,
+		requestSchemaVersion: parsed.SchemaVersion,
+		runtime:              RuntimeClaim{ExecutionMode: mode, Executor: spec.Config.EngineType, Model: model},
+	}, nil
+}
+
+type artifactClaims struct {
+	artifacts ArtifactsClaim
+	outcome   OutcomeClaim
+	mode      string
+}
+
+// deriveArtifacts verifies the canonical manifest, every declared object and
+// the terminal envelope, and binds them to the derived input identity.
+func deriveArtifacts(manifest []byte, objects map[string][]byte, identity runneridentity.Identity) (*artifactClaims, *Failure) {
+	m, err := artifactmanifest.Parse(manifest)
+	if err != nil {
+		return nil, fail("artifacts", "manifest_invalid", "artifact manifest is invalid: %v", err)
+	}
+	canonical, err := artifactmanifest.Encode(*m)
+	if err != nil || !bytes.Equal(canonical, bytes.TrimSuffix(manifest, []byte("\n"))) {
+		return nil, fail("artifacts", "manifest_noncanonical", "artifact manifest is not in canonical form")
+	}
+	if m.Binding.Identity != identity {
+		return nil, fail("artifacts", "manifest_identity_mismatch", "artifact manifest identity does not match the canonical input identity")
+	}
+	claims := &artifactClaims{
+		artifacts: ArtifactsClaim{Manifest: Ref{Path: ManifestPath, SHA256: sha256Hex(manifest), MediaType: "application/json"}},
+		mode:      m.Binding.ExecutionMode,
+	}
+	for _, a := range m.Artifacts {
+		data, ok := objects[a.Name]
+		if !ok {
+			return nil, fail("artifacts", "artifact_missing", "artifact %q is declared but not present", a.Name)
+		}
+		if int64(len(data)) != a.SizeBytes || sha256Hex(data) != a.SHA256 {
+			return nil, fail("artifacts", "artifact_digest_mismatch", "artifact %q does not match its manifest digest", a.Name)
+		}
+		claims.artifacts.Objects = append(claims.artifacts.Objects, Ref{Path: ObjectsDir + "/" + a.Name, SHA256: a.SHA256, MediaType: a.MediaType})
+	}
+	for name := range objects {
+		if !slices.ContainsFunc(m.Artifacts, func(a artifactmanifest.Artifact) bool { return a.Name == name }) {
+			return nil, fail("artifacts", "artifact_undeclared", "artifact %q is not declared in the manifest", name)
+		}
+	}
+	terminal := objects[m.TerminalArtifact]
+	envelope, err := runnerterminal.Validate(terminal, m.Binding.TerminalBinding())
+	if err != nil {
+		return nil, fail("outcome", "terminal_invalid", "terminal outcome is invalid or inconsistent with the manifest: %v", err)
+	}
+	if envelope.Identity != nil && *envelope.Identity != identity {
+		return nil, fail("outcome", "terminal_identity_mismatch", "terminal identity does not match the canonical input identity")
+	}
+	claims.outcome = OutcomeClaim{
+		Artifact:        Ref{Path: ObjectsDir + "/" + m.TerminalArtifact, SHA256: sha256Hex(terminal), MediaType: "application/json"},
+		Outcome:         string(envelope.Outcome),
+		ExitCode:        envelope.ExitCode,
+		FailureBoundary: envelope.FailureBoundary,
+	}
+	return claims, nil
+}

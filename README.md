@@ -477,6 +477,15 @@ and returns the mapped status and manifest digest. Scheduler fields such as
 queue, priority or placement are rejected (exit 6) rather than dropped; Waza
 stays translation-only. See [portable external execution adapters](site/src/content/docs/guides/runner-adapters.mdx).
 
+**Provenance commands (unreleased, planned for v0.42.0):** `waza runner provenance
+generate` writes a signed in-toto/DSSE bundle binding the canonical request,
+runner image digest, Waza version, runner API, policy, runtime/model, artifact
+chain and terminal outcome; `waza runner provenance verify --bundle DIR
+--public-key KEY.pem` checks it offline (exit 0 verified, 1 failed).
+`waza runner provenance keygen` creates a local Ed25519 key; keyless and
+managed-KMS signing report an explicit unavailable state (exit 5). See
+[execution provenance](docs/EXECUTION_PROVENANCE.md).
+
 The [local container reference](site/src/content/docs/guides/runner-container.mdx)
 keeps the default scratch image mock-only and provides an explicit
 `native-reference` target for the exact-unit native Copilot text profile. The

@@ -1,0 +1,105 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func runProvenanceCLI(t *testing.T, args ...string) (string, int) {
+	t.Helper()
+	cmd := newRunnerCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs(append([]string{"provenance"}, args...))
+	err := cmd.Execute()
+	var exit *ExitCodeError
+	switch {
+	case err == nil:
+		return out.String(), 0
+	case errors.As(err, &exit):
+		return out.String(), exit.Code
+	default:
+		t.Fatalf("unexpected error: %v", err)
+		return "", -1
+	}
+}
+
+func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
+	dir := t.TempDir()
+	private, public := filepath.Join(dir, "signing.pem"), filepath.Join(dir, "signing.pub.pem")
+	if out, code := runProvenanceCLI(t, "keygen", "--private-key", private, "--public-key", public); code != 0 || !strings.Contains(out, `"key_id":"sha256:`) {
+		t.Fatalf("keygen failed: %d %s", code, out)
+	}
+	if _, code := runProvenanceCLI(t, "keygen", "--private-key", private, "--public-key", public); code != 2 {
+		t.Fatalf("keygen overwrote existing keys: %d", code)
+	}
+	artifacts := filepath.Join(dir, "artifacts")
+	if err := os.MkdirAll(artifacts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := os.ReadFile("../../internal/artifactmanifest/testdata/publication-terminal.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifacts, "terminal.json"), terminal, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	policy := filepath.Join(dir, "policy.json")
+	if err := os.WriteFile(policy, []byte("{\"policy\":\"release\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	generate := func(signer, out string) (string, int) {
+		return runProvenanceCLI(t, "generate", "--request", "../../examples/runner/unit.json",
+			"--manifest", "../../internal/artifactmanifest/testdata/publication-manifest.json",
+			"--artifacts", artifacts, "--policy", policy, "--image-reference", "ghcr.io/microsoft/waza-runner:test",
+			"--image-digest", digest, "--waza-version", "0.42.0", "--signer", signer, "--signing-key", private, "--out", out)
+	}
+	bundle := filepath.Join(dir, "bundle")
+	if out, code := generate("local-ed25519", bundle); code != 0 || !strings.Contains(out, `"status":"signed"`) {
+		t.Fatalf("generate failed: %d %s", code, out)
+	}
+	if _, code := generate("sigstore-keyless", filepath.Join(dir, "keyless")); code != 5 {
+		t.Fatalf("keyless signer should be unavailable (exit 5), got %d", code)
+	}
+
+	verify := func(extra ...string) map[string]any {
+		out, code := runProvenanceCLI(t, append([]string{"verify", "--bundle", bundle, "--public-key", public}, extra...)...)
+		var report map[string]any
+		if err := json.Unmarshal([]byte(out), &report); err != nil {
+			t.Fatalf("verify output is not JSON (exit %d): %s", code, out)
+		}
+		if int(report["exit_code"].(float64)) != code {
+			t.Fatalf("report exit_code %v differs from process exit %d", report["exit_code"], code)
+		}
+		return report
+	}
+	if r := verify("--expect-image-digest", digest); r["status"] != "verified" {
+		t.Fatalf("expected verified: %v", r["checks"])
+	}
+	if r := verify("--expect-image-digest", "sha256:"+strings.Repeat("b", 64)); r["status"] != "failed" {
+		t.Fatal("image digest pin was not enforced")
+	}
+	object := filepath.Join(bundle, "artifacts", "objects", "terminal.json")
+	if err := os.WriteFile(object, append(terminal, ' '), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if r := verify(); r["status"] != "failed" || !strings.Contains(string(mustJSON(t, r["checks"])), "artifact_digest_mismatch") {
+		t.Fatalf("tampered artifact verified: %v", r["checks"])
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}

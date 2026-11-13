@@ -104,6 +104,18 @@ work and provenance hook state). **Download public result JSON** saves the verba
 retries or schedules, and is unavailable in the synthetic demo. See
 [portable external execution adapters](../runner-adapters/).
 
+**Execution provenance** verifies a signed provenance bundle offline. Choose
+the bundle directory, paste the trusted Ed25519 public key (trust never comes
+from the bundle), optionally pin the consumed runner image digest, and select
+**Verify provenance**. The browser posts the members to
+`POST /api/v1/provenance/verify` and re-validates the report schema. The panel
+shows the verification state, signer and key ID, links to the signed statement
+and every bound member, the canonical input, image, manifest and outcome
+digests, and each failed check with its stable code and reason. Tampered,
+unbound or untrusted bundles show as failed, never partially verified. The view
+is unavailable in the synthetic demo. See
+[execution provenance](../execution-provenance/).
+
 For a dashboard built from this source tree:
 
 ```bash

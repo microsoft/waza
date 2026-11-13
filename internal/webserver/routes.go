@@ -65,6 +65,7 @@ func registerRoutes(mux *http.ServeMux, cfg Config) error {
 	webapi.RegisterReleaseRoutes(mux, cfg.ResultsDir)
 	webapi.RegisterRunnerRoutes(mux)
 	webapi.RegisterAdapterRoutes(mux)
+	webapi.RegisterProvenanceRoutes(mux)
 	webapi.RegisterCheckpointOperationRoutes(mux, cfg.ResultsDir, cfg.StorageConfig)
 	webapi.RegisterSubmissionRoutes(mux, cfg.ResultsDir, cfg.StorageConfig)
 	webapi.RegisterManifestRoutes(mux, cfg.ResultsDir, cfg.StorageConfig)

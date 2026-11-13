@@ -12,6 +12,9 @@ import submission from '../../../../schemas/execution-submission-1.0.schema.json
 import submissionResult from '../../../../schemas/execution-submission-result-1.0.schema.json';
 import lineage from '../../../../schemas/execution-lineage-1.0.schema.json';
 import lifecycle from '../../../../schemas/execution-lifecycle-1.0.schema.json';
+import provenanceStatement from '../../../../schemas/provenance-statement-1.0.schema.json';
+import provenanceBundle from '../../../../schemas/provenance-bundle-1.0.schema.json';
+import provenanceVerification from '../../../../schemas/provenance-verification-1.0.schema.json';
 import checkpoint from '../../../../schemas/execution-checkpoint-1.0.schema.json';
 import checkpointResult from '../../../../schemas/runner-checkpoint-result-1.0.schema.json';
 import checkpointResultV11 from '../../../../schemas/runner-checkpoint-result-1.1.schema.json';
@@ -40,6 +43,9 @@ export function getStaticPaths() {
     { params: { schema: 'execution-submission-result-1.0.schema' }, props: { schema: submissionResult } },
     { params: { schema: 'execution-lineage-1.0.schema' }, props: { schema: lineage } },
     { params: { schema: 'execution-lifecycle-1.0.schema' }, props: { schema: lifecycle } },
+    { params: { schema: 'provenance-statement-1.0.schema' }, props: { schema: provenanceStatement } },
+    { params: { schema: 'provenance-bundle-1.0.schema' }, props: { schema: provenanceBundle } },
+    { params: { schema: 'provenance-verification-1.0.schema' }, props: { schema: provenanceVerification } },
     { params: { schema: 'execution-checkpoint-1.0.schema' }, props: { schema: checkpoint } },
     { params: { schema: 'runner-checkpoint-result-1.0.schema' }, props: { schema: checkpointResult } },
     { params: { schema: 'runner-checkpoint-result-1.1.schema' }, props: { schema: checkpointResultV11 } },
