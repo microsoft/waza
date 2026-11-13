@@ -157,7 +157,7 @@ func TestIsolationReportNeverReplacesSelectedEvalsOrOutputs(t *testing.T) {
 
 	for _, request := range []string{rejectedRequest, admittedRequest} {
 		err := run("--discover", root, "--isolation-request", request, "--isolation-report", evalPath)
-		require.ErrorContains(t, err, "is not a waza.execution-isolation-preflight report")
+		require.ErrorContains(t, err, "already exists")
 		after, readErr := os.ReadFile(evalPath)
 		require.NoError(t, readErr)
 		require.Equal(t, evalBody, after, "a selected eval must never be replaced by the report")
@@ -315,33 +315,63 @@ func TestWriteIsolationReportNeverWritesThroughForeignFiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, report, data)
 
-	updated := []byte(`{"kind":"waza.execution-isolation-preflight","schema_version":"1.0","decision":"rejected"}`)
-	require.NoError(t, writeIsolationReport(fresh, updated), "an existing report is replaced")
+	// A destination that exists when the report is published, whether a
+	// previous report or a file created concurrently, is never replaced.
+	require.ErrorContains(t, writeIsolationReport(fresh, []byte("{}")), "already exists")
 	data, err = os.ReadFile(fresh)
 	require.NoError(t, err)
-	require.Equal(t, updated, data)
+	require.Equal(t, report, data)
 
 	foreign := filepath.Join(dir, "eval.yaml")
 	foreignBody := []byte("name: keep\n")
 	require.NoError(t, os.WriteFile(foreign, foreignBody, 0o644))
-	require.ErrorContains(t, writeIsolationReport(foreign, report), "not a waza.execution-isolation-preflight report")
-
-	link := filepath.Join(dir, "link.json")
-	target := filepath.Join(dir, "target.json")
-	require.NoError(t, os.WriteFile(target, updated, 0o644))
-	if err := os.Symlink(target, link); err == nil {
-		require.ErrorContains(t, writeIsolationReport(link, report), "not a regular file")
-		data, err = os.ReadFile(target)
-		require.NoError(t, err)
-		require.Equal(t, updated, data, "a symlinked destination must not be written through")
-	}
-
+	require.ErrorContains(t, writeIsolationReport(foreign, report), "already exists")
 	data, err = os.ReadFile(foreign)
 	require.NoError(t, err)
 	require.Equal(t, foreignBody, data)
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	for _, entry := range entries {
-		require.NotContains(t, entry.Name(), ".waza-isolation-report-", "temporary files are removed")
+
+	link := filepath.Join(dir, "link.json")
+	target := filepath.Join(dir, "target.json")
+	if err := os.Symlink(target, link); err == nil {
+		require.ErrorContains(t, writeIsolationReport(link, report), "already exists")
+		_, statErr := os.Stat(target)
+		require.True(t, os.IsNotExist(statErr), "a dangling symlink must not be followed")
 	}
+}
+
+func TestIsolationReportAliasesAreRejectedBeforeExecution(t *testing.T) {
+	t.Cleanup(resetRunGlobals)
+	dir := t.TempDir()
+	request := writeIsolationFile(t, dir, "admitted.json",
+		`{"kind":"waza.execution-isolation-request","schema_version":"1.0","dimensions":{}}`)
+	spec := createTestSpec(t, "mock")
+	run := func(args ...string) error {
+		resetRunGlobals()
+		cmd := newRootCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs(append([]string{"run", spec, "--isolation-request", request}, args...))
+		return cmd.Execute()
+	}
+
+	real := filepath.Join(dir, "real")
+	require.NoError(t, os.Mkdir(real, 0o755))
+	alias := filepath.Join(dir, "alias")
+	if err := os.Symlink(real, alias); err == nil {
+		err := run("--output", filepath.Join(real, "results.json"), "--isolation-report", filepath.Join(alias, "results.json"))
+		require.ErrorContains(t, err, "must not be the same file")
+		err = run("--output-dir", filepath.Join(real, "out"), "--isolation-report", filepath.Join(alias, "out", "isolation.json"))
+		require.ErrorContains(t, err, "outside --output-dir")
+		entries, readErr := os.ReadDir(real)
+		require.NoError(t, readErr)
+		require.Empty(t, entries, "no runner may start for an aliased destination")
+	}
+
+	work := t.TempDir()
+	t.Chdir(work)
+	err := run("--session-log", "--isolation-report", "20260101T000000Z-session.jsonl")
+	require.ErrorContains(t, err, "replaced by the session log")
+	entries, readErr := os.ReadDir(work)
+	require.NoError(t, readErr)
+	require.Empty(t, entries, "no session log or report may be written")
 }

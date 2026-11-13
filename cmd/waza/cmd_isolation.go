@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -133,9 +132,11 @@ func isolationPreflight(ctx context.Context, requestPath, hostPath, workspace st
 
 // distinctReportPath refuses a report path that names one of the run's
 // inputs or outputs, so writing the report never truncates an input and a
-// later writer never replaces the report.
+// later writer never replaces the report. Paths are compared after resolving
+// symlinks in their existing ancestors, so an aliased parent cannot hide a
+// collision with a file that does not exist yet.
 func distinctReportPath(reportPath string, others ...string) error {
-	report, err := filepath.Abs(reportPath)
+	report, err := canonicalPath(reportPath)
 	if err != nil {
 		return fmt.Errorf("resolving isolation report path: %w", err)
 	}
@@ -144,7 +145,7 @@ func distinctReportPath(reportPath string, others ...string) error {
 		if other == "" {
 			continue
 		}
-		abs, err := filepath.Abs(other)
+		abs, err := canonicalPath(other)
 		if err != nil {
 			continue
 		}
@@ -161,28 +162,29 @@ func distinctReportPath(reportPath string, others ...string) error {
 	return nil
 }
 
+// canonicalPath returns the absolute path with symlinks resolved in its
+// longest existing ancestor; the missing remainder is appended unchanged.
+func canonicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	existing, rest := abs, ""
+	for {
+		if resolved, err := filepath.EvalSymlinks(existing); err == nil {
+			return filepath.Join(resolved, rest), nil
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return abs, nil
+		}
+		rest = filepath.Join(filepath.Base(existing), rest)
+		existing = parent
+	}
+}
+
 // isolationProviders discovers the capability providers; tests replace it.
 var isolationProviders = executionisolation.DefaultProviders
-
-// reportOverwritable refuses to replace an existing file that is not an
-// isolation preflight report, so a mistyped report path can never truncate an
-// eval, task, fixture or other input.
-func reportOverwritable(path string) error {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("checking isolation report path: %w", err)
-	}
-	var existing struct {
-		Kind string `json:"kind"`
-	}
-	if json.Unmarshal(data, &existing) != nil || existing.Kind != executionisolation.PreflightKind {
-		return fmt.Errorf("refusing to overwrite %s: it is not a %s report", path, executionisolation.PreflightKind)
-	}
-	return nil
-}
 
 // telemetryFilePath is the span file the OpenTelemetry file exporter will
 // truncate, or empty when no file exporter is configured.
@@ -193,56 +195,35 @@ func telemetryFilePath() string {
 	return ""
 }
 
-// writeIsolationReport publishes a report without ever writing through a
-// file it did not create. A missing destination is created exclusively, so a
-// file or symlink created concurrently makes the write fail instead of being
-// truncated. An existing destination must be a regular preflight report; the
-// new bytes go to a sibling temporary file that is renamed over it, which
-// replaces the directory entry rather than writing into whatever it names.
+// writeIsolationReport publishes a report by exclusive creation only. An
+// existing destination of any kind (a previous report, an input, a symlink or
+// a FIFO) is refused without being opened or read, and a file or symlink that
+// appears concurrently makes the create fail instead of being overwritten.
 func writeIsolationReport(path string, data []byte) error {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err != nil {
-			return fmt.Errorf("writing isolation report: %w", err)
-		}
-		_, writeErr := file.Write(data)
-		if closeErr := file.Close(); writeErr == nil {
-			writeErr = closeErr
-		}
-		if writeErr != nil {
-			return fmt.Errorf("writing isolation report: %w", writeErr)
-		}
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("checking isolation report path: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("refusing to overwrite %s: it is not a regular file", path)
-	}
-	if err := reportOverwritable(path); err != nil {
+	if err := reportAbsent(path); err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".waza-isolation-report-*")
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing isolation report: %w", err)
 	}
-	tempName := temp.Name()
-	defer os.Remove(tempName) //nolint:errcheck // no-op after a successful rename
-	_, writeErr := temp.Write(data)
-	if closeErr := temp.Close(); writeErr == nil {
+	_, writeErr := file.Write(data)
+	if closeErr := file.Close(); writeErr == nil {
 		writeErr = closeErr
 	}
 	if writeErr != nil {
 		return fmt.Errorf("writing isolation report: %w", writeErr)
 	}
-	current, err := os.Lstat(path)
-	if err != nil || !os.SameFile(info, current) {
-		return fmt.Errorf("refusing to overwrite %s: it changed while the report was being written", path)
-	}
-	if err := os.Rename(tempName, path); err != nil {
-		return fmt.Errorf("writing isolation report: %w", err)
+	return nil
+}
+
+// reportAbsent refuses an existing destination before any probe or run, so
+// the report is never written over an existing file.
+func reportAbsent(path string) error {
+	if _, err := os.Lstat(path); err == nil {
+		return fmt.Errorf("refusing to write isolation report %s: the path already exists; remove it or choose a new path", path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checking isolation report path: %w", err)
 	}
 	return nil
 }
@@ -260,12 +241,12 @@ func reportClearOfRunOutputs(reportPath string) error {
 	if err := distinctReportPath(reportPath, destinations...); err != nil {
 		return err
 	}
-	report, err := filepath.Abs(reportPath)
+	report, err := canonicalPath(reportPath)
 	if err != nil {
 		return fmt.Errorf("resolving isolation report path: %w", err)
 	}
 	if outputPath != "" {
-		output, err := filepath.Abs(outputPath)
+		output, err := canonicalPath(outputPath)
 		if err == nil {
 			ext := filepath.Ext(output)
 			derivedPrefix := strings.TrimSuffix(output, ext) + "_"
@@ -282,14 +263,21 @@ func reportClearOfRunOutputs(reportPath string) error {
 	if enableCache {
 		ownedDirs = append(ownedDirs, struct{ flag, dir string }{"--cache-dir", runCacheDir})
 	}
-	if sessionLog {
+	if sessionLog && sessionDir != "" {
 		ownedDirs = append(ownedDirs, struct{ flag, dir string }{"--session-dir", sessionDir})
+	}
+	// Without --session-dir the session log goes to the current directory as
+	// <UTC timestamp>-session.jsonl; only that name pattern is reserved there.
+	if sessionLog && sessionDir == "" && strings.HasSuffix(strings.ToLower(filepath.Base(report)), "-session.jsonl") {
+		if cwd, err := canonicalPath("."); err == nil && strings.EqualFold(filepath.Dir(report), cwd) {
+			return fmt.Errorf("isolation report path %s may be replaced by the session log in the current directory", reportPath)
+		}
 	}
 	for _, owned := range ownedDirs {
 		if owned.dir == "" {
 			continue
 		}
-		dir, err := filepath.Abs(owned.dir)
+		dir, err := canonicalPath(owned.dir)
 		if err != nil {
 			continue
 		}
@@ -364,7 +352,7 @@ func runIsolationGate(ctx context.Context, requestPath, hostPath, reportPath str
 		if err := distinctReportPath(reportPath, append(protected, requestPath, hostPath)...); err != nil {
 			return &ExitCodeError{Code: ExitError, Err: err}
 		}
-		if err := reportOverwritable(reportPath); err != nil {
+		if err := reportAbsent(reportPath); err != nil {
 			return &ExitCodeError{Code: ExitError, Err: err}
 		}
 	}
