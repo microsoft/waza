@@ -41,6 +41,7 @@ export interface ProvenanceReport {
   statement?: { path: string; envelope_sha256: string; payload_sha256?: string; predicate_type?: string };
   predicate?: ProvenancePredicate;
   members: ProvenanceMember[];
+  members_omitted?: number;
   checks: ProvenanceCheck[];
 }
 

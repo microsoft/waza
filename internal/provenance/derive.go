@@ -11,6 +11,7 @@ import (
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
+	"github.com/microsoft/waza/internal/runnerunit"
 )
 
 // Failure is one precise, stable verification or generation failure.
@@ -33,6 +34,9 @@ type inputClaims struct {
 	apiVersion           string
 	requestSchemaVersion string
 	runtime              RuntimeClaim
+	// admitted is the caller binding runner admission derives from the
+	// request; the manifest and terminal must match it exactly.
+	admitted artifactmanifest.Binding
 }
 
 // deriveInputs recomputes the canonical identity, negotiated runner API
@@ -62,7 +66,12 @@ func deriveInputs(request []byte) (*inputClaims, *Failure) {
 	if model == "" {
 		return nil, fail("runtime", "runtime_model_unavailable", "config.model is blank; a model identity is required")
 	}
+	admitted, ok := runnerunit.AdmittedBinding(request)
+	if !ok || admitted.Identity != *identity {
+		return nil, fail("inputs", "input_not_admitted", "runner request is not admitted by the runner unit contract")
+	}
 	return &inputClaims{
+		admitted:             admitted,
 		inputs:               InputsClaim{Request: Ref{Path: RequestPath, SHA256: sha256Hex(request), MediaType: "application/json"}, Identity: *identity},
 		apiVersion:           negotiation.Negotiation.Version,
 		requestSchemaVersion: parsed.SchemaVersion,
@@ -77,8 +86,9 @@ type artifactClaims struct {
 }
 
 // deriveArtifacts verifies the canonical manifest, every declared object and
-// the terminal envelope, and binds them to the derived input identity.
-func deriveArtifacts(manifest []byte, objects map[string][]byte, identity runneridentity.Identity) (*artifactClaims, *Failure) {
+// the terminal envelope, and binds them to the binding admitted from the
+// request (identity, selection, execution mode and grader IDs).
+func deriveArtifacts(manifest []byte, objects map[string][]byte, admitted artifactmanifest.Binding) (*artifactClaims, *Failure) {
 	m, err := artifactmanifest.Parse(manifest)
 	if err != nil {
 		return nil, fail("artifacts", "manifest_invalid", "artifact manifest is invalid: %v", err)
@@ -87,8 +97,11 @@ func deriveArtifacts(manifest []byte, objects map[string][]byte, identity runner
 	if err != nil || !bytes.Equal(canonical, bytes.TrimSuffix(manifest, []byte("\n"))) {
 		return nil, fail("artifacts", "manifest_noncanonical", "artifact manifest is not in canonical form")
 	}
-	if m.Binding.Identity != identity {
+	if m.Binding.Identity != admitted.Identity {
 		return nil, fail("artifacts", "manifest_identity_mismatch", "artifact manifest identity does not match the canonical input identity")
+	}
+	if m.Binding.Selection != admitted.Selection || m.Binding.ExecutionMode != admitted.ExecutionMode || !slices.Equal(m.Binding.GraderIDs, admitted.GraderIDs) {
+		return nil, fail("artifacts", "manifest_binding_mismatch", "artifact manifest selection, execution mode or grader IDs do not match the admitted request")
 	}
 	claims := &artifactClaims{
 		artifacts: ArtifactsClaim{Manifest: Ref{Path: ManifestPath, SHA256: sha256Hex(manifest), MediaType: "application/json"}},
@@ -110,11 +123,11 @@ func deriveArtifacts(manifest []byte, objects map[string][]byte, identity runner
 		}
 	}
 	terminal := objects[m.TerminalArtifact]
-	envelope, err := runnerterminal.Validate(terminal, m.Binding.TerminalBinding())
+	envelope, err := runnerterminal.Validate(terminal, admitted.TerminalBinding())
 	if err != nil {
 		return nil, fail("outcome", "terminal_invalid", "terminal outcome is invalid or inconsistent with the manifest: %v", err)
 	}
-	if envelope.Identity != nil && *envelope.Identity != identity {
+	if envelope.Identity != nil && *envelope.Identity != admitted.Identity {
 		return nil, fail("outcome", "terminal_identity_mismatch", "terminal identity does not match the canonical input identity")
 	}
 	claims.outcome = OutcomeClaim{

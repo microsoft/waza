@@ -90,13 +90,21 @@ Verification fails closed:
 | `signature_invalid` | Envelope or payload altered | Treat the bundle as tampered |
 | `signer_unavailable` | Keyless or KMS bundle | Not verifiable by this build |
 | `input_digest_mismatch`, `input_identity_mismatch` | Request altered or claim false | Treat as tampered |
+| `input_not_admitted` | Request is not an admissible runner unit | Regenerate from the admitted request |
 | `artifact_digest_mismatch`, `manifest_digest_mismatch`, `artifact_undeclared` | Artifact chain altered | Treat as tampered |
+| `manifest_binding_mismatch` | Manifest selection, execution mode or grader IDs differ from the admitted request | Treat as tampered |
+| `claim_missing` | A required claim (such as a non-empty policy or Waza version) is absent | Regenerate with every claim |
 | `outcome_mismatch`, `outcome_digest_mismatch` | Terminal outcome altered | Treat as tampered |
 | `runtime_mismatch`, `runner_api_mismatch` | Runtime or API claim false | Treat as tampered |
 | `image_digest_unexpected`, `waza_version_unexpected`, `policy_unexpected` | Pin differs from the signed claim | Confirm the image, version or policy you consumed |
 | `binding_unsupported` | Binding kind has no verifier in this build | Upgrade or drop the binding |
 | `member_unbound`, `member_irregular` | Unexpected member | Remove it or regenerate the bundle |
 | `members_unlisted` | Bundle cannot be listed or has more than 512 entries | Remove extra files or regenerate the bundle |
+
+Generation refuses to sign a statement outside the profile (`statement_invalid`)
+or a bundle that verification would refuse to read (`bundle_too_large`). Reports
+list at most 512 members, bound members first; any unbound entries left out are
+counted in `members_omitted`.
 
 ## Extension point: additional bindings
 

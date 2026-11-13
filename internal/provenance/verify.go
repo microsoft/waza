@@ -9,6 +9,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode/utf8"
+
+	"github.com/microsoft/waza/internal/artifactmanifest"
 
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/schemaloader"
@@ -40,7 +43,10 @@ type Report struct {
 	Statement     *ReportEnvelope `json:"statement,omitempty"`
 	Predicate     *Predicate      `json:"predicate,omitempty"`
 	Members       []Member        `json:"members"`
-	Checks        []Check         `json:"checks"`
+	// MembersOmitted counts unbound entries left out of Members to keep the
+	// report within its schema bounds.
+	MembersOmitted int     `json:"members_omitted,omitempty"`
+	Checks         []Check `json:"checks"`
 }
 
 type ReportSigner struct {
@@ -141,11 +147,33 @@ type verification struct {
 	members map[string]*Member
 	data    map[string][]byte
 	read    int64
+	// admitted is set once the canonical inputs verify.
+	admitted *artifactmanifest.Binding
 }
+
+const (
+	maxReportMembers    = 512
+	maxReportPathLength = 512
+	maxReportMessage    = 4096
+)
 
 func (v *verification) set(id, status, code, format string, args ...any) {
 	c := v.checks[id]
-	c.Status, c.Code, c.Message = status, code, fmt.Sprintf(format, args...)
+	c.Status, c.Code, c.Message = status, code, truncateMessage(fmt.Sprintf(format, args...))
+}
+
+// truncateMessage keeps diagnostics within the report schema bound on a
+// UTF-8 boundary.
+func truncateMessage(s string) string {
+	const marker = " ... (truncated)"
+	if len(s) <= maxReportMessage {
+		return s
+	}
+	cut := maxReportMessage - len(marker)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + marker
 }
 
 func (v *verification) failed(f *Failure) { v.set(f.Check, "failed", f.Code, "%s", f.Message) }
@@ -162,6 +190,8 @@ func (v *verification) readMember(ref Ref, role string, limit int64) ([]byte, st
 	m := &Member{Path: ref.Path, Role: role, SHA256: ref.SHA256}
 	v.members[ref.Path] = m
 	data, err := v.src.ReadFile(ref.Path, min(limit, MaxBundleBytes-v.read))
+	// Every byte read counts against the budget, whether or not it matches.
+	v.read += int64(len(data))
 	switch {
 	case errors.Is(err, errMemberMissing):
 		m.Status = "missing"
@@ -171,7 +201,6 @@ func (v *verification) readMember(ref Ref, role string, limit int64) ([]byte, st
 		m.Status = "mismatch"
 	default:
 		m.Status = "verified"
-		v.read += int64(len(data))
 		v.data[ref.Path] = data
 	}
 	return v.data[ref.Path], m.Status
@@ -305,6 +334,7 @@ func (v *verification) verifyClaims(s *Statement) {
 	} else if derived, f := deriveInputs(request); f != nil {
 		v.failed(f)
 	} else {
+		v.admitted = &derived.admitted
 		if derived.inputs != p.Inputs {
 			v.set("inputs", "failed", "input_identity_mismatch", "recomputed canonical identity does not match the signed identity")
 		}
@@ -326,12 +356,14 @@ func (v *verification) verifyClaims(s *Statement) {
 		}
 	}
 
-	_, status = v.readMember(p.Policy, "policy", maxPolicyBytes)
+	policy, status := v.readMember(p.Policy, "policy", maxPolicyBytes)
 	switch {
 	case !strings.HasPrefix(p.Policy.Path, PolicyDir+"/"):
 		v.set("policy", "failed", "policy_path_invalid", "policy must be bound under %s/", PolicyDir)
 	case status != "verified":
 		v.set("policy", "failed", "policy_digest_"+status, "policy %s is %s", p.Policy.Path, status)
+	case len(policy) == 0:
+		v.set("policy", "failed", "claim_missing", "policy %s is empty; a policy document is required", p.Policy.Path)
 	case v.opts.ExpectPolicySHA256 != "" && v.opts.ExpectPolicySHA256 != p.Policy.SHA256:
 		v.set("policy", "failed", "policy_unexpected", "policy digest %s does not match the expected %s", p.Policy.SHA256, v.opts.ExpectPolicySHA256)
 	default:
@@ -399,7 +431,7 @@ func (v *verification) verifyArtifacts(p Predicate) {
 	case bad != "":
 		v.set("artifacts", "failed", "artifact_digest_mismatch", "artifact chain is broken: %s", bad)
 	}
-	if v.checks["artifacts"].Status == "failed" || v.checks["inputs"].Status != "passed" {
+	if v.checks["artifacts"].Status == "failed" || v.checks["inputs"].Status != "passed" || v.admitted == nil {
 		if v.checks["outcome"].Status == "skipped" {
 			v.set("outcome", "skipped", "blocked", "artifact chain or inputs did not verify")
 		}
@@ -414,7 +446,7 @@ func (v *verification) verifyArtifacts(p Predicate) {
 			}
 		}
 	}
-	derived, f := deriveArtifacts(manifest, objects, p.Inputs.Identity)
+	derived, f := deriveArtifacts(manifest, objects, *v.admitted)
 	if f != nil {
 		v.failed(f)
 		if f.Check == "outcome" {
@@ -501,15 +533,7 @@ func (v *verification) finish() {
 		failed = failed || c.Status != "passed"
 		r.Checks = append(r.Checks, c)
 	}
-	paths := make([]string, 0, len(v.members))
-	for p := range v.members {
-		paths = append(paths, p)
-	}
-	slices.Sort(paths)
-	r.Members = []Member{}
-	for _, p := range paths {
-		r.Members = append(r.Members, *v.members[p])
-	}
+	r.Members, r.MembersOmitted = boundedMembers(v.members)
 	if failed {
 		r.Status, r.ExitCode = "failed", 1
 		if !slices.ContainsFunc(r.Checks, func(c Check) bool { return c.Status == "failed" }) {
@@ -525,6 +549,31 @@ func (v *verification) finish() {
 		return
 	}
 	r.Status, r.ExitCode = "verified", 0
+}
+
+// boundedMembers lists bound members first, then unbound entries, within the
+// report's member and path bounds; anything left out is counted as omitted.
+func boundedMembers(members map[string]*Member) ([]Member, int) {
+	var bound, unbound []string
+	for p, m := range members {
+		if m.Role == "unbound" {
+			unbound = append(unbound, p)
+		} else {
+			bound = append(bound, p)
+		}
+	}
+	slices.Sort(bound)
+	slices.Sort(unbound)
+	out := []Member{}
+	omitted := 0
+	for _, p := range append(bound, unbound...) {
+		if len(out) == maxReportMembers || len(p) > maxReportPathLength || !utf8.ValidString(p) {
+			omitted++
+			continue
+		}
+		out = append(out, *members[p])
+	}
+	return out, omitted
 }
 
 func predicateIfTrusted(r *Report) *Predicate {

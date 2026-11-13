@@ -71,12 +71,32 @@ func (s *dirSource) ReadFile(name string, limit int64) ([]byte, error) {
 	if info.Size() > limit {
 		return nil, errMemberTooLarge
 	}
-	file, err := s.root.Open(name)
+	// A nonblocking open keeps a member swapped for a FIFO after Lstat from
+	// blocking; the opened descriptor is then re-checked against Lstat.
+	file, err := s.root.OpenFile(name, os.O_RDONLY|openNonblock, 0)
 	if err != nil {
 		return nil, err
 	}
-	data, readErr := io.ReadAll(io.LimitReader(file, limit+1))
+	data, readErr := readOpened(file, info, limit)
 	if err := errors.Join(readErr, file.Close()); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func readOpened(file *os.File, lstat fs.FileInfo, limit int64) ([]byte, error) {
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(lstat, opened) {
+		return nil, errors.New("member changed while it was being opened")
+	}
+	if opened.Size() > limit {
+		return nil, errMemberTooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
 		return nil, err
 	}
 	if int64(len(data)) > limit {

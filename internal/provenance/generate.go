@@ -77,7 +77,7 @@ func BuildStatement(in GenerateInput) (*Statement, *Failure) {
 	if f != nil {
 		return nil, f
 	}
-	artifacts, f := deriveArtifacts(in.Manifest, in.Objects, inputs.inputs.Identity)
+	artifacts, f := deriveArtifacts(in.Manifest, in.Objects, inputs.admitted)
 	if f != nil {
 		return nil, f
 	}
@@ -125,9 +125,9 @@ func Generate(ctx context.Context, in GenerateInput, signer Signer) (*Bundle, er
 	if f != nil {
 		return nil, f
 	}
-	payload, err := json.Marshal(statement)
+	payload, err := encodeStatement(statement)
 	if err != nil {
-		return nil, fmt.Errorf("encoding statement: %w", err)
+		return nil, err
 	}
 	envelope, err := signEnvelope(ctx, signer, payload)
 	if err != nil {
@@ -157,7 +157,38 @@ func Generate(ctx context.Context, in GenerateInput, signer Signer) (*Bundle, er
 	for _, b := range in.Bindings {
 		files[BindingsDir+"/"+b.Name] = b.Data
 	}
+	if f := checkBundleBounds(files); f != nil {
+		return nil, f
+	}
 	return &Bundle{Files: files, Statement: *statement, KeyID: signer.KeyID(), Mode: signer.Mode()}, nil
+}
+
+// encodeStatement refuses to sign a statement that verification would reject.
+func encodeStatement(statement *Statement) ([]byte, error) {
+	payload, err := json.Marshal(statement)
+	if err != nil {
+		return nil, fmt.Errorf("encoding statement: %w", err)
+	}
+	var check Statement
+	if err := decodeStrict(payload, "statement", &check); err != nil {
+		return nil, fail("statement", "statement_invalid", "statement does not match the provenance profile: %v", err)
+	}
+	return payload, nil
+}
+
+// checkBundleBounds rejects bundles that verification would refuse to read.
+func checkBundleBounds(files map[string][]byte) *Failure {
+	if len(files) > MaxMembers {
+		return fail("members", "bundle_too_large", "bundle has %d members; at most %d are verifiable", len(files), MaxMembers)
+	}
+	var total int64
+	for _, data := range files {
+		total += int64(len(data))
+	}
+	if total > MaxBundleBytes {
+		return fail("members", "bundle_too_large", "bundle members total %d bytes; at most %d are verifiable", total, int64(MaxBundleBytes))
+	}
+	return nil
 }
 
 // WriteDir writes the bundle into a new or empty directory without following

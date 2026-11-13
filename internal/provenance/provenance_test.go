@@ -3,7 +3,9 @@ package provenance
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,8 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"github.com/microsoft/waza/internal/runnerunit"
 )
 
 const testImageDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -169,6 +175,11 @@ func TestVerifyTamperFailsClosed(t *testing.T) {
 		{"runtime model", func(m map[string][]byte) { resignPredicate(t, f, m, func(p *Predicate) { p.Runtime.Model = "gpt-4o" }) }, "runtime", "runtime_mismatch"},
 		{"blank waza version", func(m map[string][]byte) { resignPredicate(t, f, m, func(p *Predicate) { p.Waza.Version = " " }) }, "waza_version", "claim_missing"},
 		{"bundle index", func(m map[string][]byte) { m[IndexPath] = []byte("{}") }, "bundle", "bundle_index_invalid"},
+		{"empty policy", func(m map[string][]byte) {
+			m["policy/policy.json"] = []byte{}
+			empty := sha256.Sum256(nil)
+			resignPredicate(t, f, m, func(p *Predicate) { p.Policy.SHA256 = hex.EncodeToString(empty[:]) })
+		}, "policy", "claim_missing"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -394,5 +405,69 @@ func TestLabFixtureReportMatchesVerification(t *testing.T) {
 	}
 	if err := ValidateReport(readFixture(t, fixtures+"tampered-report.json")); err != nil {
 		t.Fatalf("tampered-report.json violates the report schema: %v", err)
+	}
+}
+
+func TestManifestMustMatchAdmittedBinding(t *testing.T) {
+	f := newFixture(t)
+	admitted, ok := runnerunit.AdmittedBinding(f.input.Request)
+	if !ok {
+		t.Fatal("fixture request was not admitted")
+	}
+	objects := f.input.Objects
+	if _, failure := deriveArtifacts(f.input.Manifest, objects, admitted); failure != nil {
+		t.Fatalf("admitted manifest rejected: %v", failure)
+	}
+	changed := admitted
+	changed.GraderIDs = append(slices.Clone(admitted.GraderIDs), "extra-grader")
+	if _, failure := deriveArtifacts(f.input.Manifest, objects, changed); failure == nil || failure.Code != "manifest_binding_mismatch" {
+		t.Fatalf("grader mismatch accepted: %v", failure)
+	}
+}
+
+func TestBundleBoundsEnforcedAtGeneration(t *testing.T) {
+	f := newFixture(t)
+	statement, failure := BuildStatement(f.input)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	statement.Predicate.Runtime.Model = strings.Repeat("m", 257)
+	var invalid *Failure
+	if _, err := encodeStatement(statement); !errors.As(err, &invalid) || invalid.Code != "statement_invalid" {
+		t.Fatalf("out-of-profile statement accepted for signing: %v", err)
+	}
+	files := map[string][]byte{}
+	for i := range MaxMembers + 1 {
+		files[fmt.Sprintf("m-%d", i)] = nil
+	}
+	if failure := checkBundleBounds(files); failure == nil || failure.Code != "bundle_too_large" {
+		t.Fatalf("oversized bundle accepted: %v", failure)
+	}
+}
+
+func TestReportStaysWithinSchemaBounds(t *testing.T) {
+	f := newFixture(t)
+	report := verifyFiles(t, f.bundle(t), Options{Verifier: f.verifier})
+	members := map[string]*Member{}
+	for _, m := range report.Members {
+		members[m.Path] = &m
+	}
+	for i := range maxReportMembers {
+		p := fmt.Sprintf("extra-%d", i)
+		members[p] = &Member{Path: p, Role: "unbound", Status: "unbound"}
+	}
+	long := strings.Repeat("a", maxReportPathLength+1)
+	members[long] = &Member{Path: long, Role: "unbound", Status: "unbound"}
+	report.Members, report.MembersOmitted = boundedMembers(members)
+	if len(report.Members) != maxReportMembers || report.MembersOmitted != len(members)-maxReportMembers || report.Members[0].Role == "unbound" {
+		t.Fatalf("members not bounded: %d listed, %d omitted", len(report.Members), report.MembersOmitted)
+	}
+	message := truncateMessage(strings.Repeat("\u00e9", maxReportMessage))
+	if len(message) > maxReportMessage || !utf8.ValidString(message) {
+		t.Fatalf("message not truncated safely: %d bytes", len(message))
+	}
+	report.Checks[0].Message = message
+	if _, err := EncodeReport(report); err != nil {
+		t.Fatalf("bounded report violates schema: %v", err)
 	}
 }

@@ -44,6 +44,10 @@
         }
       }
     },
+    "members_omitted": {
+      "description": "Unbound entries left out of members to keep the report within its bounds; the members check has already failed.",
+      "type": "integer", "minimum": 1
+    },
     "checks": {
       "type": "array", "minItems": 13, "maxItems": 13,
       "items": {

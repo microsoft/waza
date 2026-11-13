@@ -30,7 +30,9 @@ function ProvenanceReader() {
   const [result, setResult] = useState<{ result: ProvenanceReport; json: string } | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [loading, setLoading] = useState(false);
   const active = useRef<AbortController | null>(null);
+  const generation = useRef(0);
   useEffect(() => () => active.current?.abort(), []);
   useEffect(() => () => urls.forEach((url) => URL.revokeObjectURL(url)), [urls]);
 
@@ -43,9 +45,20 @@ function ProvenanceReader() {
 
   async function select(list: FileList | null) {
     reset();
-    const selected = await readBundleFiles(list ? Array.from(list) : []);
-    setFiles(selected);
-    setUrls(new Map([...selected].map(([path, data]) => [path, URL.createObjectURL(new Blob([data as BlobPart]))])));
+    const current = ++generation.current;
+    setFiles(new Map());
+    setUrls(new Map());
+    setLoading(true);
+    try {
+      const selected = await readBundleFiles(list ? Array.from(list) : []);
+      if (current !== generation.current) return;
+      setFiles(selected);
+      setUrls(new Map([...selected].map(([path, data]) => [path, URL.createObjectURL(new Blob([data as BlobPart]))])));
+    } catch (error) {
+      if (current === generation.current) setError(error instanceof Error ? error.message : "The bundle could not be read.");
+    } finally {
+      if (current === generation.current) setLoading(false);
+    }
   }
 
   async function verify() {
@@ -76,7 +89,7 @@ function ProvenanceReader() {
     <input id="provenance-bundle" type="file" multiple
       ref={(input) => { input?.setAttribute("webkitdirectory", ""); }}
       onChange={(event) => void select(event.target.files)} />
-    <p aria-live="polite">{files.size > 0 ? `${files.size} bundle file${files.size === 1 ? "" : "s"} selected` : "No bundle selected"}</p>
+    <p aria-live="polite">{loading ? "Reading bundle..." : files.size > 0 ? `${files.size} bundle file${files.size === 1 ? "" : "s"} selected` : "No bundle selected"}</p>
     <label htmlFor="provenance-key">Trusted public key (PEM)</label>
     <textarea id="provenance-key" spellCheck={false} rows={4} value={publicKey} placeholder="-----BEGIN PUBLIC KEY-----"
       onChange={(event) => { reset(); setPublicKey(event.target.value); }} />
@@ -84,7 +97,7 @@ function ProvenanceReader() {
     <input id="provenance-image" spellCheck={false} autoComplete="off" value={imageDigest} placeholder="sha256:<64 hex>"
       onChange={(event) => { reset(); setImageDigest(event.target.value); }} />
     <div className="lab-actions">
-      <button className="lab-button" disabled={pending || files.size === 0} onClick={() => void verify()}>
+      <button className="lab-button" disabled={pending || loading || files.size === 0} onClick={() => void verify()}>
         {pending ? "Verifying..." : "Verify provenance"}
       </button>
     </div>
@@ -128,6 +141,7 @@ function ProvenanceReader() {
           </tr>)}</tbody>
         </table>
       </div>
+      {report.members_omitted && <p>{report.members_omitted} unbound member{report.members_omitted === 1 ? "" : "s"} omitted from this report.</p>}
       <button className="lab-button" onClick={() => downloadText(result.json, "waza-provenance-verification.json", "application/json")}>
         Download verification report
       </button>
