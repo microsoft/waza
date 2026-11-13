@@ -61,7 +61,8 @@ test.describe("Lab execution budgets", () => {
   });
 
   test("refuses envelopes without a budget or with a contradictory state", async ({ page }) => {
-    const { budget: _budget, ...plain } = fixture.terminated;
+    const plain: Partial<typeof fixture.terminated> = structuredClone(fixture.terminated);
+    delete plain.budget;
     await readTerminal(page, plain);
     await expect(panel(page).getByRole("alert")).toContainText("has no budget report");
     await readTerminal(page, { ...fixture.rejected, budget: { ...fixture.rejected.budget, state: "within_budget" } });

@@ -164,7 +164,7 @@ func capabilitiesFor(goos, goarch string, support measurementSupport) Capabiliti
 		{Resource: WallTime, Enforcement: Enforced, Measurement: Measured, Scope: ScopeAttempt,
 			Detail: "enforced by an attempt deadline covering startup, execution, grading and shutdown; exceeding it ends the attempt with outcome timeout"},
 		{Resource: ModelTurns, Enforcement: Enforced, Measurement: Measured, Scope: ScopeAttempt,
-			Detail: "counted from each observed model turn start; the first turn beyond the limit cancels the attempt (outcome cancelled)"},
+			Detail: "counted from each observed model turn start; the first turn beyond the limit cancels the attempt (outcome cancelled)"}, //nolint:misspell // wire value
 		{Resource: ToolCalls, Enforcement: Enforced, Measurement: Measured, Scope: ScopeAttempt,
 			Detail: "counted from each observed tool execution start; the first call beyond the limit cancels the attempt, and that call may already have begun"},
 		{Resource: CPUTime, Enforcement: Unsupported, Measurement: Unsupported, Detail: notOwned + "; CPU time is not measurable on " + goos},

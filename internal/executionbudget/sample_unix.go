@@ -23,7 +23,7 @@ func hostSample() sample {
 	cpu := func(usage syscall.Rusage) int64 {
 		return (usage.Utime.Nano() + usage.Stime.Nano()) / 1e6
 	}
-	peak := int64(self.Maxrss)
+	peak := int64(self.Maxrss) //nolint:unconvert // Maxrss is narrower than int64 on some unix targets
 	if runtime.GOOS == "linux" {
 		peak *= 1024
 	}

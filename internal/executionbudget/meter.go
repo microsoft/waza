@@ -10,7 +10,7 @@ import (
 
 // ExceededError is the cancellation cause for an enforced limit. It unwraps to
 // the context error the terminal classifier maps: DeadlineExceeded for wall
-// time (timeout) and Canceled for counted model/tool budgets (cancelled).
+// time (timeout) and Canceled for counted model/tool budgets.
 type ExceededError struct {
 	Termination Termination
 }
