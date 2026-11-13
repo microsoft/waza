@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -30,6 +31,14 @@ func (p ProcessContract) Call(ctx context.Context, call Call) (Reply, error) {
 	}
 	args := append(slices.Clone(call.Command), p.StoreArgs...)
 	command := exec.CommandContext(ctx, p.Executable, args...) //nolint:gosec // executable and argv come from the host and the fixed public command table
+	// Cancellation asks the public command to stop gracefully and still waits
+	// for its own published reply; a hard kill deadline is the scheduler's.
+	command.Cancel = func() error {
+		if err := command.Process.Signal(os.Interrupt); err != nil {
+			return command.Process.Kill()
+		}
+		return nil
+	}
 	command.Stdin = strings.NewReader(call.Input)
 	var stdout boundedBuffer
 	command.Stdout = &stdout
@@ -41,12 +50,8 @@ func (p ProcessContract) Call(ctx context.Context, call Call) (Reply, error) {
 	if stdout.exceeded {
 		return Reply{}, fmt.Errorf("public reply exceeds %d bytes", MaxReplyBytes)
 	}
-	if err == nil {
-		return Reply{ExitCode: 0, Body: stdout.Bytes()}, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
-		return Reply{ExitCode: exitErr.ExitCode(), Body: stdout.Bytes()}, nil
+	if state := command.ProcessState; state != nil && state.Exited() {
+		return Reply{ExitCode: state.ExitCode(), Body: stdout.Bytes()}, nil
 	}
 	return Reply{}, fmt.Errorf("running public command: %w", err)
 }
@@ -71,10 +76,14 @@ type HTTPContract struct {
 }
 
 func (h HTTPContract) Call(ctx context.Context, call Call) (Reply, error) {
-	client := h.Client
-	if client == nil {
-		client = http.DefaultClient
+	client := http.DefaultClient
+	if h.Client != nil {
+		client = h.Client
 	}
+	// A followed redirect could replay the body as a second state-changing call.
+	single := *client
+	single.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	client = &single
 	var body io.Reader
 	if call.HTTP.Method == http.MethodPost {
 		body = strings.NewReader(call.Input)
@@ -97,6 +106,9 @@ func (h HTTPContract) Call(ctx context.Context, call Call) (Reply, error) {
 	}
 	if len(data) > MaxReplyBytes {
 		return Reply{}, fmt.Errorf("public reply exceeds %d bytes", MaxReplyBytes)
+	}
+	if response.StatusCode >= 300 && response.StatusCode < 400 {
+		return Reply{}, fmt.Errorf("public route redirected (HTTP %d); redirects are not followed", response.StatusCode)
 	}
 	if header := response.Header.Get("X-Waza-Exit-Code"); header != "" {
 		code, err := strconv.Atoi(header)

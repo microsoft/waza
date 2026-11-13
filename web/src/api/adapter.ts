@@ -1,4 +1,5 @@
 import { parseStrictJSON } from "../lib/strictJson";
+import { isPublishedSubmissionResult, parseCheckpointOperationResult } from "./checkpointResults";
 import { isPublishedLineage } from "./lineage";
 
 export interface AdapterCall {
@@ -88,15 +89,37 @@ interface PublicSubmission {
   engine_calls?: number;
   reservation?: { execution_id: string; logical: { run: string; work: string } };
   completion?: { execution_id: string; manifest_digest: string };
-  terminal?: { outcome: string };
+  terminal?: { outcome: string; exit_code: number };
   diagnostics?: { code: string; message: string }[];
+}
+
+// Mirrors publicSubmission.inconsistent in internal/runneradapter.
+function inconsistent(submission: PublicSubmission): string | undefined {
+  if (submission.reservation && submission.completion &&
+      submission.reservation.execution_id !== submission.completion.execution_id) {
+    return "Completion names a different execution from its reservation.";
+  }
+  if (submission.terminal && submission.terminal.exit_code !== submission.exit_code) {
+    return `Submission exit code ${submission.exit_code} contradicts its terminal exit code ${submission.terminal.exit_code}.`;
+  }
+  return undefined;
 }
 
 function contractError(message: string, json: string): AdapterOutcome {
   return { status: "contract_error", exitCode: 2, diagnostics: [{ code: "contract_violation", message }], json };
 }
 
-export function mapReply(operation: string, exitCode: number, json: string): AdapterOutcome {
+async function publishedReply(operation: string, value: unknown, json: string): Promise<boolean> {
+  if (operation === "submit") return isPublishedSubmissionResult(value);
+  try {
+    await parseCheckpointOperationResult(json);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function mapReply(operation: string, exitCode: number, json: string): Promise<AdapterOutcome> {
   let value: Record<string, unknown>;
   try {
     value = parseStrictJSON(json) as Record<string, unknown>;
@@ -110,13 +133,21 @@ export function mapReply(operation: string, exitCode: number, json: string): Ada
     if (exitCode !== 0) return contractError(`Lineage reply exited ${exitCode}.`, json);
     if (!isPublishedLineage(value)) return contractError("Lineage reply does not satisfy its published schema.", json);
     return { status: "observed", exitCode: 0, publicKind: String(value.kind), logical: value.logical,
-      attempts: value.attempts.length, diagnostics: [], json };
+      attempts: value.attempts.length,
+      diagnostics: value.diagnostics.map(({ code, message }) => ({ code, message })), json };
+  }
+  if (!await publishedReply(operation, value, json)) {
+    return contractError("Public reply does not satisfy its published schema.", json);
   }
   const submission = (operation === "submit" ? value : value.submission) as PublicSubmission | undefined;
   const publicStatus = String(value.status);
   if (value.exit_code !== exitCode) return contractError(`Public exit code ${exitCode} contradicts the emitted result.`, json);
   const status = statusTable[publicStatus];
   if (!status) return contractError(`Public status ${publicStatus} is not part of the contract.`, json);
+  if (submission && status === "terminal") {
+    const problem = inconsistent(submission);
+    if (problem) return contractError(problem, json);
+  }
   const outcome: AdapterOutcome = {
     status, exitCode, publicKind: String(value.kind), publicStatus, json,
     diagnostics: (value.diagnostics as { code: string; message: string }[] | undefined) ?? [],
@@ -164,7 +195,7 @@ async function readBounded(response: Response): Promise<Uint8Array | undefined> 
 
 // Sends the translated call to its public route exactly once; never retries.
 export async function dispatchCall(operation: string, call: AdapterCall, signal?: AbortSignal): Promise<AdapterOutcome> {
-  const init: RequestInit = { method: call.http.method, signal };
+  const init: RequestInit = { method: call.http.method, signal, redirect: "error" };
   if (call.http.method === "POST") {
     init.headers = { "Content-Type": "application/json" };
     init.body = call.input ?? "";

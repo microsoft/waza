@@ -90,6 +90,27 @@ test.describe("External adapter workflow in Lab", () => {
     expect(calls).toBe(1);
   });
 
+  test("rejects schema-invalid or internally inconsistent submission replies", async ({ page }) => {
+    await page.route("**/api/v1/adapter/translate", (route) => route.fulfill({ json: fixture.translation }));
+    const otherExecution = `exec-${"c".repeat(64)}`;
+    const replies = [
+      { message: "different execution", body: { ...fixture.reply, completion: { ...fixture.reply.completion, execution_id: otherExecution } } },
+      { message: "published schema", body: { ...fixture.reply, unexpected: true } },
+    ];
+    for (const reply of replies) {
+      await page.unroute("**/api/v1/submissions");
+      await page.route("**/api/v1/submissions", (route) => route.fulfill({
+        body: JSON.stringify(reply.body), contentType: "application/json", headers: { "X-Waza-Exit-Code": "0" },
+      }));
+      await translate(page);
+      await panel(page).getByRole("button", { name: "Dispatch through public contract" }).click();
+      const result = panel(page).getByRole("status", { name: "Adapter result" });
+      await expect(result).toContainText("Contract error (reply unusable) (exit 2)");
+      await expect(result.getByRole("list", { name: "Result diagnostics" })).toContainText(reply.message);
+      await expect(result).not.toContainText(fixture.reply.completion.manifest_digest);
+    }
+  });
+
   test("treats a lineage reply with a nonzero exit or invalid body as a contract error", async ({ page }) => {
     const logical = { run: `run-${"a".repeat(64)}`, work: `trial-${"b".repeat(64)}` };
     const statusTranslation = {

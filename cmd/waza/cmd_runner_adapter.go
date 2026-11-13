@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -48,9 +49,7 @@ func adapterStoreArgs(options adapterContractOptions) []string {
 	return nil
 }
 
-func translateAdapterInput(cmd *cobra.Command) runneradapter.Translation {
-	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+func translateAdapterInput(ctx context.Context, cmd *cobra.Command) runneradapter.Translation {
 	data, err := readRunnerInputLimit(ctx, cmd.InOrStdin(), runneradapter.MaxDescriptorBytes)
 	if err != nil {
 		return runneradapter.Unreadable(data, err)
@@ -75,7 +74,9 @@ dispatch, when, where and whether to retry.`,
 		Short: "Read one work descriptor from stdin and print its exact translation without dispatching",
 		Args:  cobra.NoArgs, SilenceUsage: true, SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			translation := translateAdapterInput(cmd)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			translation := translateAdapterInput(ctx, cmd)
 			encoded, err := runneradapter.EncodeTranslation(translation)
 			if err != nil {
 				return &ExitCodeError{Code: 2, Err: fmt.Errorf("validating adapter translation: %w", err)}
@@ -106,12 +107,16 @@ retries; redeliver or retry from the external scheduler.`,
 			if options.endpoint != "" && (options.storeChanged || options.azureChanged || options.executable != "") {
 				return &ExitCodeError{Code: 6, Err: fmt.Errorf("--endpoint uses the server's store; omit --store, --azure-container-url and --waza")}
 			}
-			translation := translateAdapterInput(cmd)
+			// Signals stay captured through dispatch so the public command is
+			// interrupted gracefully and its reply is still mapped and emitted.
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			translation := translateAdapterInput(ctx, cmd)
 			contract, err := contractFor(options)
 			if err != nil {
 				return &ExitCodeError{Code: 2, Err: err}
 			}
-			result := runneradapter.Dispatch(cmd.Context(), contract, translation, nil)
+			result := runneradapter.Dispatch(ctx, contract, translation, nil)
 			encoded, err := runneradapter.EncodeResult(result)
 			if err != nil {
 				return &ExitCodeError{Code: 2, Err: fmt.Errorf("validating adapter result: %w", err)}

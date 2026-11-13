@@ -145,8 +145,21 @@ type publicSubmission struct {
 		ManifestDigest string `json:"manifest_digest"`
 	} `json:"completion"`
 	Terminal *struct {
-		Outcome string `json:"outcome"`
+		Outcome  string `json:"outcome"`
+		ExitCode int    `json:"exit_code"`
 	} `json:"terminal"`
+}
+
+// inconsistent reports cross-field contradictions the schema cannot express in
+// a completed or reused submission.
+func (s *publicSubmission) inconsistent() string {
+	if s.Reservation != nil && s.Completion != nil && s.Reservation.ExecutionID != s.Completion.ExecutionID {
+		return "completion names a different execution from its reservation"
+	}
+	if s.Terminal != nil && s.Terminal.ExitCode != s.ExitCode {
+		return fmt.Sprintf("submission exit code %d contradicts its terminal exit code %d", s.ExitCode, s.Terminal.ExitCode)
+	}
+	return ""
 }
 
 type publicCheckpoint struct {
@@ -233,6 +246,11 @@ func MapReply(result Result, operation string, reply Reply) Result {
 		return result.contractError(CodeContractViolation, fmt.Sprintf("public status %q is not part of the contract", head.Status))
 	}
 	result.Status, result.ExitCode = status, reply.ExitCode
+	if submission != nil && status == StatusTerminal {
+		if problem := submission.inconsistent(); problem != "" {
+			return result.contractError(CodeContractViolation, problem)
+		}
+	}
 	if submission != nil {
 		calls := submission.EngineCalls
 		result.EngineCalls = &calls

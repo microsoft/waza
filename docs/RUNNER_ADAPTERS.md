@@ -86,7 +86,7 @@ public HTTP route and reads the `X-Waza-Exit-Code` header. Combining
 | `observed` | Lineage observed | 0 |
 | `operation_error` | Published `submission_error`, `checkpoint_error` or `operation_error` | Public exit code |
 | `rejected` | Descriptor refused with no call made, or the public reply was `rejected` | 6 or public exit code |
-| `contract_error` | Transport failure, or a reply that does not match its published schema or exit code | 2 |
+| `contract_error` | Transport failure, an HTTP redirect (never followed), or a reply that does not match its published schema or exit code or contradicts itself (completion and reservation name different executions, or the submission and terminal exit codes differ) | 2 |
 
 A `terminal` result carries `execution_id`, `logical`, `manifest_digest`,
 `outcome` and `engine_calls`, plus the complete public reply under `result`. If

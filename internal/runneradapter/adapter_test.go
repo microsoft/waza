@@ -216,6 +216,38 @@ func TestDispatchMapsPublicResultsOneToOne(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDispatchRejectsInternallyInconsistentSubmission(t *testing.T) {
+	translation := Translate(descriptor(t, OperationSubmit, ""))
+	completed := string(submissionReply(t, "completed", 0))
+	for name, body := range map[string]string{
+		"completion execution": strings.Replace(completed, `"waza.execution-completion","schema_version":"1.0","execution_id":"exec-215`,
+			`"waza.execution-completion","schema_version":"1.0","execution_id":"exec-315`, 1),
+		"terminal exit code": strings.Replace(completed, `"outcome":"success","exit_code":0`, `"outcome":"success","exit_code":1`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotEqual(t, completed, body)
+			contract := &recordingContract{reply: Reply{ExitCode: 0, Body: []byte(body)}}
+			result := Dispatch(t.Context(), contract, translation, nil)
+			require.Equal(t, StatusContractError, result.Status)
+			require.Equal(t, CodeContractViolation, result.Diagnostics[0].Code)
+			require.Empty(t, result.ManifestDigest)
+		})
+	}
+}
+
+func TestHTTPContractNeverFollowsRedirects(t *testing.T) {
+	translation := Translate(descriptor(t, OperationSubmit, ""))
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Redirect(w, r, "/api/v1/elsewhere", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	_, err := HTTPContract{BaseURL: server.URL, Client: server.Client()}.Call(t.Context(), *translation.Call)
+	require.ErrorContains(t, err, "redirect")
+	require.Equal(t, 1, calls, "a redirect must not replay the state-changing call")
+}
+
 func TestHTTPContractForwardsExactBodyAndExitHeader(t *testing.T) {
 	translation := Translate(descriptor(t, OperationSubmit, ""))
 	var gotBody []byte

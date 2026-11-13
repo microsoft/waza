@@ -77,7 +77,7 @@ function AdapterDispatch() {
       </dl>}
       {call && translation.operation && <div className="lab-actions">
         <button className="lab-button" disabled={pending !== ""}
-          onClick={() => void run("Dispatch", (signal) => dispatchCall(translation.operation!, call, signal), setOutcome)}>
+          onClick={() => { setOutcome(null); void run("Dispatch", (signal) => dispatchCall(translation.operation!, call, signal), setOutcome); }}>
           {pending === "Dispatch" ? "Dispatching..." : "Dispatch through public contract"}
         </button>
       </div>}
