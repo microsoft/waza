@@ -16,6 +16,7 @@ import {
   type RunnerIdentity, type RunnerTerminal, type WorkSelection,
 } from "./runner";
 import { parseStrictJSON } from "../lib/strictJson";
+import { checkRetainedReportCanonical, type ReportCanonicalCheck } from "./runnerUnitReport";
 
 interface SourceReference {
   execution_id: string;
@@ -185,7 +186,7 @@ function validateReport(report: ExecutionReport, reservation: NonNullable<Submis
       !sameSelection(report.requested, binding.selection) || !sameSelection(report.resolved, binding.selection) ||
       report.validation !== "valid" || report.compatibility.status !== "compatible" || report.adjacent_work_selected ||
       report.engine_calls !== terminal.engine_calls || !validOutcome ||
-      (report.execution_mode !== undefined && report.execution_mode !== binding.execution_mode) ||
+      ((report.execution_mode || observed) && report.execution_mode !== binding.execution_mode) ||
       (!!observed !== !!terminalObservation)) {
     throw new Error("Checkpoint retained submission report contradicts its reservation or terminal.");
   }
@@ -305,10 +306,23 @@ async function validateOperationErrorSource(result: CheckpointOperationResult): 
   }
 }
 
+export interface CheckpointResultReading {
+  result: CheckpointOperationResult;
+  // "canonical": the retained report passed the native canonical-writer and
+  // binding checks; "unverified": it contains opaque evidence the browser
+  // cannot re-encode, so its claims remain unverified.
+  report: ReportCanonicalCheck;
+}
+
+export async function parseCheckpointOperationResult(text: string): Promise<CheckpointOperationResult> {
+  return (await readCheckpointOperationResult(text)).result;
+}
+
 // These checks consume protected responses; they do not authorize disclosure
 // or turn declaration-only hashes into runtime or recovery evidence.
-export async function parseCheckpointOperationResult(text: string): Promise<CheckpointOperationResult> {
+export async function readCheckpointOperationResult(text: string): Promise<CheckpointResultReading> {
   const value = parseStrictJSON(text);
+  let reportCheck: ReportCanonicalCheck = "absent";
   const isOperationError = validateOperationError(value);
   if (!isOperationError && !validate(value)) throw new Error("Checkpoint API returned an invalid operation result.");
   const submission = value.submission;
@@ -400,6 +414,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
   }
   if (submission?.report) {
     if (!reservation || !terminal) throw new Error("Checkpoint retained submission report lacks its reservation or terminal.");
+    reportCheck = checkRetainedReportCanonical(text);
     validateReport(submission.report, reservation, terminal);
   }
   if (value.source && submission?.reservation &&
@@ -438,7 +453,7 @@ export async function parseCheckpointOperationResult(text: string): Promise<Chec
       throw new Error("Before-unit recovery does not retain a fresh original-source retry child.");
     }
   }
-  return value;
+  return { result: value, report: reportCheck };
 }
 
 export interface CheckpointOperationResponse {

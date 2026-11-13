@@ -193,9 +193,12 @@ include causes, but submission-parser failures log only the failure stage,
 action and guidance, not the parser error or request. Consumers must keep the
 levels separate: top-level exit `2`
 can coexist with a preserved completed or reused submission's nested exit `0`.
-The Lab reader checks schemas and cross-field consistency locally, but does not
-perform native canonical-report checks. It labels statuses and exit codes in
-report-bearing 1.0 results as unverified claims, not verified outcomes.
+The Lab reader checks schemas and cross-field consistency locally and re-encodes
+retained 1.0 runner-unit reports like the native canonical writer, so property
+reordering, noncanonical escapes and unknown fields are rejected exactly as the
+CLI rejects them. Reports carrying transcript events, judge evidence, evidence
+manifests, tool-call results or failure-artifact timestamps cannot be re-encoded
+in the browser; their statuses and exit codes are labeled unverified claims.
 To restore the exact finalized source:
 
 ```bash

@@ -1,20 +1,25 @@
 import { useRef, useState } from "react";
-import { parseCheckpointOperationResult, type CheckpointOperationResult } from "../api/checkpointResults";
+import { readCheckpointOperationResult, type CheckpointOperationResult } from "../api/checkpointResults";
+import type { ReportCanonicalCheck } from "../api/runnerUnitReport";
 
 export default function CheckpointResultReader() {
   const [wire, setWire] = useState("");
   const [result, setResult] = useState<CheckpointOperationResult | null>(null);
+  const [report, setReport] = useState<ReportCanonicalCheck>("absent");
   const [error, setError] = useState("");
   const generation = useRef(0);
-  const unverified = result?.schema_version === "1.0" && result.submission?.report !== undefined;
+  const unverified = report === "unverified";
 
   async function parse() {
     const current = ++generation.current;
     setResult(null);
     setError("");
     try {
-      const parsed = await parseCheckpointOperationResult(wire);
-      if (current === generation.current) setResult(parsed);
+      const parsed = await readCheckpointOperationResult(wire);
+      if (current === generation.current) {
+        setReport(parsed.report);
+        setResult(parsed.result);
+      }
     } catch (cause) {
       if (current === generation.current) {
         setError(cause instanceof Error ? cause.message : "Checkpoint result could not be parsed.");
@@ -44,7 +49,8 @@ export default function CheckpointResultReader() {
       {result && (
         <div role="status" aria-label="Checkpoint operation result">
           <h3>{unverified ? "Checkpoint result: UNVERIFIED CLAIMS" : result.status === "operation_error" ? "Operation error" : `Checkpoint result: ${result.status}`}</h3>
-          {unverified && <p>Native canonical-report checks are not performed in-browser. Statuses and exit codes below are unverified claims, not verified outcomes.</p>}
+          {unverified && <p>The retained runner-unit report contains evidence the browser cannot re-encode exactly (for example transcript events, judge evidence, or evidence manifests), so native canonical-report checks are incomplete. Statuses and exit codes below are unverified claims, not verified outcomes.</p>}
+          {report === "canonical" && <p>The retained runner-unit report matches the native canonical writer and its original reservation and terminal.</p>}
           <dl>
             <dt>Result schema</dt><dd>{result.schema_version}</dd>
             <dt>{unverified ? "Operation status (UNVERIFIED CLAIM)" : "Operation status"}</dt>

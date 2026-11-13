@@ -458,10 +458,16 @@ test.describe("Runner negotiation through the real Go API", () => {
     page.on("request", (request) => {
       if (request.method() === "POST") posted.push(request.url());
     });
+    const expectVerified = async (status: string, label = status) => {
+      const displayed = reader.getByRole("status", { name: "Checkpoint operation result" });
+      await expect(displayed.getByRole("heading", { name: `Checkpoint result: ${status}` }), label).toBeVisible();
+      await expect(displayed, label).toContainText("matches the native canonical writer");
+      await expect(displayed, label).not.toContainText("UNVERIFIED CLAIM");
+    };
     const expectUnverified = async (status: string, submissionStatus = status) => {
       const displayed = reader.getByRole("status", { name: "Checkpoint operation result" });
       await expect(displayed.getByRole("heading", { name: "Checkpoint result: UNVERIFIED CLAIMS" })).toBeVisible();
-      await expect(displayed).toContainText("Native canonical-report checks are not performed in-browser");
+      await expect(displayed).toContainText("native canonical-report checks are incomplete");
       await expect(displayed).not.toContainText(`Checkpoint result: ${status}`);
       await expect(displayed.locator("dt", { hasText: "Operation status (UNVERIFIED CLAIM)" })
         .locator("xpath=following-sibling::dd[1]")).toHaveText(`UNVERIFIED CLAIM: ${status}`);
@@ -481,27 +487,52 @@ test.describe("Runner negotiation through the real Go API", () => {
       expect(native(result).status).toBe(0);
       await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(result));
       await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
-      await expectUnverified(result.status);
+      await expectVerified(result.status);
 
       const reportWire = JSON.stringify(result.submission.report);
       const resultWire = JSON.stringify(result);
-      for (const [name, mutatedReport, accepted] of [
-        ["canonical", reportWire, true],
-        ["whitespace", reportWire.replace('{"kind"', '{ \n "kind"'), true],
+      const observationEnd = `,"workspace_dir":${JSON.stringify(result.submission.report.observation.workspace_dir)}}`;
+      const feedback = '"feedback":"matched 1/1 required strings",';
+      const differential: [string, string, "canonical" | "unverified" | "rejected"][] = [
+        ["canonical", reportWire, "canonical"],
+        ["whitespace", reportWire.replace('{"kind"', '{ \n "kind"'), "canonical"],
         ["property order", reportWire.replace(
           '{"kind":"waza.runner-unit","schema_version":"1.0"',
           '{"schema_version":"1.0","kind":"waza.runner-unit"',
-        ), false],
-        ["string escaping", reportWire.replace('"waza.runner-unit"', '"waza.runner-\\u0075nit"'), false],
-      ] as const) {
+        ), "rejected"],
+        ["string escaping", reportWire.replace('"waza.runner-unit"', '"waza.runner-\\u0075nit"'), "rejected"],
+        ["solidus escaping", reportWire.replace('"matched 1/1', '"matched 1\\/1'), "rejected"],
+        ["literal HTML characters", reportWire.replace('"prompt":"hello"', '"prompt":"<b>&\\u2028</b>"'), "canonical"],
+        ["escaped HTML characters", reportWire.replace('"prompt":"hello"', '"prompt":"\\u003cb\\u003e"'), "canonical"],
+        ["nested typed order", reportWire.replace('"score":1,"weight":1', '"weight":1,"score":1'), "rejected"],
+        ["typed float token", reportWire.replace('"score":1,', '"score":1.0,'), "rejected"],
+        ["typed float exponent", reportWire.replace('"score":1,', '"score":1e0,'), "rejected"],
+        ["typed negative zero integer", reportWire.replace(/"duration_ms":0}/, '"duration_ms":-0}'), "rejected"],
+        ["large typed integer", reportWire.replace(/"duration_ms":\d+,"validations"/, '"duration_ms":9223372036854775807,"validations"'), "canonical"],
+        ["overflowing typed integer", reportWire.replace(/"duration_ms":\d+,"validations"/, '"duration_ms":9223372036854775808,"validations"'), "rejected"],
+        ["dynamic evidence", reportWire.replace(feedback,
+          `${feedback}"details":{"a":1.50,"b":12345678901234567890,"c":{"y":"é","z":[true,null,-0]}},`), "canonical"],
+        ["dynamic map order", reportWire.replace(feedback, `${feedback}"details":{"b":1,"a":2},`), "rejected"],
+        ["dynamic escaping", reportWire.replace(feedback, `${feedback}"details":{"a":"\\u00e9"},`), "rejected"],
+        ["dynamic evidence position", reportWire.replace('"duration_ms":0}', '"duration_ms":0,"details":{"a":1}}'), "rejected"],
+        ["empty omitted value", reportWire.replace('"prompt":"hello"', '"prompt":"hello","error_msg":""'), "rejected"],
+        ["empty transcript", reportWire.replace(observationEnd, `${observationEnd.slice(0, -1)},"transcript":[]}`), "rejected"],
+        ["unknown field", reportWire.replace('"prompt":"hello"', '"prompt":"hello","extra":1'), "rejected"],
+        ["case-folded alias", reportWire.replace('"prompt":"hello"', '"Prompt":"hello"'), "rejected"],
+        ["typed tool event", reportWire.replace(observationEnd, `${observationEnd.slice(0, -1)},"tool_events":[{"turn":0,"sequence":1,"tool_name":"view","args":{"b":[1.0],"a":"x"},"success":true}]}`), "rejected"],
+        ["sorted tool event", reportWire.replace(observationEnd, `${observationEnd.slice(0, -1)},"tool_events":[{"turn":0,"sequence":1,"tool_name":"view","args":{"a":"x","b":[1.0]},"success":true}]}`), "canonical"],
+        ["opaque timestamp", reportWire.replace(observationEnd, `${observationEnd.slice(0, -1)},"failure_artifacts":{"captured_at":"2026-01-01T00:00:00Z"}}`), "unverified"],
+      ];
+      for (const [name, mutatedReport, expected] of differential) {
         if (name !== "canonical") expect(mutatedReport, name).not.toBe(reportWire);
         const mutatedWire = resultWire.replace(reportWire, mutatedReport);
         const checked = spawnSync(helper, ["validate"], { input: mutatedWire, encoding: "utf8" });
-        expect(checked.status, name).toBe(accepted ? 0 : 1);
-        if (!accepted) expect(checked.stderr, name).toContain("canonical writer");
+        expect(checked.status, `${name}: ${checked.stderr}`).toBe(expected === "rejected" ? 1 : 0);
         await reader.getByLabel("Checkpoint result JSON").fill(mutatedWire);
         await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
-        await expectUnverified(result.status);
+        if (expected === "canonical") await expectVerified(result.status, name);
+        else if (expected === "unverified") await expectUnverified(result.status);
+        else await expect(reader.getByRole("alert"), name).toContainText(/native canonical writer|invalid operation result/);
       }
 
       for (const [name, mutate] of [
@@ -557,7 +588,7 @@ test.describe("Runner negotiation through the real Go API", () => {
       expect(native(extraDetail).status).toBe(0);
       await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(extraDetail));
       await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
-      await expectUnverified(result.status);
+      await expectVerified(result.status);
       await expect(reader.getByRole("status", { name: "Checkpoint operation result" }))
         .not.toContainText("different unbound detail");
 
@@ -572,7 +603,7 @@ test.describe("Runner negotiation through the real Go API", () => {
         expect(native(checkpointError).status).toBe(0);
         await reader.getByLabel("Checkpoint result JSON").fill(JSON.stringify(checkpointError));
         await reader.getByRole("button", { name: "Parse checkpoint result" }).click();
-        await expectUnverified("checkpoint_error", "completed");
+        await expectVerified("checkpoint_error");
       }
     }
     expect(posted).toEqual([]);
