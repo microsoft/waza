@@ -101,6 +101,18 @@ export function checkBudget(budget: BudgetReport, outcome: string): string | nul
   }
 }
 
+// Checks a terminal's budget report against its outcome and admission, for
+// both live and saved envelopes. Returns null when there is no budget.
+export function terminalBudgetProblem(value: RunnerTerminal): string | null {
+  if (!value.budget) return null;
+  const problem = checkBudget(value.budget, value.outcome);
+  if (problem) return problem;
+  if (value.budget.state === "rejected_unsupported" && (value.identity || value.engine_calls !== 0)) {
+    return "Budget state contradicts the terminal outcome.";
+  }
+  return null;
+}
+
 // Reads a saved or exported terminal envelope. The browser checks the schema
 // and the same budget consistency rules as the native reader; it does not
 // re-derive identity or re-measure usage.
@@ -108,10 +120,7 @@ export function readTerminalBudget(text: string): RunnerTerminal & { budget: Bud
   const value = parseStrictJSON(text);
   if (!validateTerminal(value)) throw new Error("Input is not a valid waza.runner-terminal 1.0 envelope.");
   if (!value.budget) throw new Error("Terminal envelope has no budget report; the request declared no budgets.");
-  const problem = checkBudget(value.budget, value.outcome);
+  const problem = terminalBudgetProblem(value);
   if (problem) throw new Error(problem);
-  if (value.budget.state === "rejected_unsupported" && (value.identity || value.engine_calls !== 0)) {
-    throw new Error("Budget state contradicts the terminal outcome.");
-  }
   return value as RunnerTerminal & { budget: BudgetReport };
 }

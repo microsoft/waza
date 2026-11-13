@@ -1,10 +1,12 @@
 package runnerunit
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
 
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/runnerterminal"
 )
 
@@ -124,7 +126,14 @@ func terminal(report Report) (runnerterminal.Envelope, *runnerterminal.Binding) 
 		// Bounds never silently turn incomplete/oversize evidence into success.
 		// The admitted binding and call count survive; the unavailable summary
 		// is explicitly diagnosed before the sole output attempt.
-		envelope = runnerterminal.NewFailure(runnerterminal.InfrastructureFailure, "terminalization", report.Validation,
+		// An enforced budget stop still decides the outcome (at its original
+		// boundary) so the retained budget report stays consistent with it.
+		outcome, boundary := runnerterminal.InfrastructureFailure, "terminalization"
+		if budget := report.budget; budget != nil && budget.Termination != nil {
+			outcome = runnerterminal.Outcome(executionbudget.TerminationOutcome(budget.Termination.Resource))
+			boundary = cmp.Or(envelope.FailureBoundary, "execution")
+		}
+		envelope = runnerterminal.NewFailure(outcome, boundary, report.Validation,
 			"unrepresentable_evidence", fmt.Sprintf("Original outcome %s at %s cannot be represented; observation/diagnostic detail unavailable: %.600s", envelope.Outcome, envelope.FailureBoundary, err))
 		envelope.Selection, envelope.Identity, envelope.EngineCalls = report.Resolved, report.Identity, report.Calls
 		envelope.Budget = report.budget

@@ -110,6 +110,14 @@ outcome is not `timeout`/`cancelled` for that resource, or usage on a
 `rejected_unsupported` report. Through `runner submit`, a rejected budget is
 published with only the `unsupported_budget` diagnostic code (messages are
 sanitized); run `waza runner budgets` on the worker for the per-resource detail.
+`runner validate` exits 5 for the same rejection. Admission failures after
+budget planning keep the configured limits with state `not_started`. In the
+`runner submit` lifecycle journal, `started.deadline_at` is the effective
+deadline (the earlier of `timeout_ms` and `wall_time_ms`); a wall-time stop is
+recorded as a `deadline` cancellation and a model-turn or tool-call stop as a
+`caller` cancellation (the limit is caller policy). When `timeout_ms` expires
+first, the attempt stays a request `timeout` even if a budget is crossed later
+during shutdown.
 
 ## For operators
 

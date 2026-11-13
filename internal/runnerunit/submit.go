@@ -174,7 +174,7 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		return result, fmt.Errorf("execution submission request was rejected")
 	}
 	result.Caller = report.Identity
-	ctx, stop := context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
+	ctx, stop := requestDeadline(ctx, input)
 	defer stop()
 	binding := callerBinding(report.binding)
 	if hooks.Admission != nil {
@@ -283,12 +283,15 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 		interval = executionlifecycle.DefaultHeartbeatInterval
 	}
 	recorder := newLifecycleRecorder(ctx, journal)
-	report = trackLifecycle(ctx, recorder, interval, func(ctx context.Context) Report {
+	// Tracking observes the budgeted context, so the journal records the
+	// effective deadline and budget stops; it ends before the meter releases it.
+	attemptCtx, finishBudget := startBudget(ctx, input)
+	report = finishBudget(trackLifecycle(attemptCtx, recorder, interval, func(ctx context.Context) Report {
 		if executor.dispatch != nil {
 			return executor.dispatch(ctx, report, input)
 		}
-		return executor.executeAdmitted(ctx, report, input, false)
-	})
+		return executor.executeUnmetered(ctx, report, input, false)
+	}))
 	envelope, terminalBinding := terminal(report)
 	finishLifecycle(recorder, envelope.Outcome)
 	if err := recorder.close(executionlifecycle.DefaultWriteBound); err != nil && result.lifecycleErr == nil {

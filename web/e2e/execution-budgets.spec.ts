@@ -72,4 +72,17 @@ test.describe("Lab execution budgets", () => {
     await readTerminal(page, { ...fixture.terminated, budget: { ...fixture.terminated.budget, resources } });
     await expect(panel(page).getByRole("alert")).toHaveText("Budget wall_time_ms remaining does not equal limit minus used.");
   });
+
+  test("refuses a contradictory budget report from a live run", async ({ page }) => {
+    await page.route("**/api/v1/runner/validate", (route) => route.fulfill({ json: fixture.rejected_validation }));
+    const contradictory = { ...fixture.rejected, budget: { ...fixture.rejected.budget, unsupported: "report" } };
+    await page.route("**/api/v1/runner/run", (route) =>
+      route.fulfill({ json: contradictory, headers: { "X-Waza-Exit-Code": "5" } }));
+    await page.getByRole("textbox", { name: "Exact work request (JSON)" }).fill(JSON.stringify(fixture.rejected_request));
+    const outcome = page.getByRole("region", { name: "Runner terminal outcome" });
+    await outcome.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    await expect(outcome.getByRole("alert")).toContainText(
+      "Runner API returned an inconsistent budget report: Budget state contradicts the terminal outcome.");
+    await expect(outcome.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
+  });
 });

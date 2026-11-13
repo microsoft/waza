@@ -53,6 +53,9 @@ func (r Report) ExitCode() int {
 		if code := r.Compatibility.ExitCode(); code != 0 {
 			return code
 		}
+		if r.budgetUnsupported {
+			return 5
+		}
 		return 6
 	}
 	if r.Status == "execution_error" {
@@ -121,6 +124,8 @@ func admit(data []byte) (Report, *admitted) {
 			report.budget, report.budgetUnsupported = plan, true
 			return report, nil
 		}
+		// Later admission failures still report the configured limits.
+		report.budget = plan
 	}
 	input, err := resolve(req)
 	if err != nil {
@@ -312,19 +317,49 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 }
 
 func (s *Service) executeAdmitted(ctx context.Context, report Report, input *admitted, local bool) Report {
-	return metered(ctx, input, func(ctx context.Context) Report {
+	return admittedAttempt(ctx, input, local, func(ctx context.Context) Report {
 		return s.executeUnmetered(ctx, report, input, local)
 	})
 }
 
-// metered applies the admitted budget around the whole attempt, from runtime
-// construction through grading and shutdown, and records measured usage.
+// admittedAttempt bounds one attempt. Local orchestration limits Execute, not
+// grading; external requests retain their end-to-end deadline, including
+// grading and lifecycle. The request deadline encloses the budget meter so an
+// earlier request timeout stays the attempt's first cancellation.
+func admittedAttempt(ctx context.Context, input *admitted, local bool, attempt func(context.Context) Report) Report {
+	if !local {
+		var cancel context.CancelFunc
+		ctx, cancel = requestDeadline(ctx, input)
+		defer cancel()
+	}
+	return metered(ctx, input, attempt)
+}
+
+func requestDeadline(ctx context.Context, input *admitted) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
+}
+
+// metered applies the admitted budget around one attempt.
 func metered(ctx context.Context, input *admitted, attempt func(context.Context) Report) Report {
+	ctx, finish := startBudget(ctx, input)
+	return finish(attempt(ctx))
+}
+
+// startBudget meters the whole attempt, from runtime construction through
+// grading and shutdown. The returned finish records measured usage and must
+// run after anything observing the attempt context (such as lifecycle
+// tracking) has stopped, because it releases that context.
+func startBudget(ctx context.Context, input *admitted) (context.Context, func(Report) Report) {
 	if input.budget == nil {
-		return attempt(ctx)
+		return ctx, func(result Report) Report { return result }
 	}
 	ctx, meter := executionbudget.Start(ctx, *input.budget)
-	result := attempt(execution.WithActivityObserver(ctx, meter))
+	return execution.WithActivityObserver(ctx, meter), func(result Report) Report {
+		return finishBudget(result, meter)
+	}
+}
+
+func finishBudget(result Report, meter *executionbudget.Meter) Report {
 	result.budget = meter.Finish()
 	// A limit reached after the engine returned (for example during grading)
 	// still ends the attempt as enforced rather than as a success.
@@ -349,13 +384,6 @@ func (s *Service) executeUnmetered(ctx context.Context, report Report, input *ad
 	if local && len(input.spec.Metrics) != 0 {
 		report.executionError("startup", fmt.Errorf("local compatibility execution cannot project uncomputed eval metrics"))
 		return report
-	}
-	// Local orchestration limits Execute, not grading; external requests retain
-	// their end-to-end deadline, including grading and lifecycle.
-	if !local {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
-		defer cancel()
 	}
 	if err := ctx.Err(); err != nil {
 		report.executionError("startup", err)

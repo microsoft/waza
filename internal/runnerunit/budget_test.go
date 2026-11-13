@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionbudget"
@@ -54,6 +55,7 @@ func TestUnsupportedBudgetIsRejectedBeforeExecution(t *testing.T) {
 			data := budgeted(t, executionbudget.Request{Limits: limits})
 			validation := Validate(data)
 			require.Equal(t, "rejected", validation.Status)
+			require.Equal(t, 5, validation.ExitCode(), "validate and run report the same unsupported capability")
 			require.Nil(t, validation.Identity)
 			require.Equal(t, "unsupported_budget", validation.Diagnostics[0].Code)
 
@@ -205,5 +207,117 @@ func TestBudgetExampleRunsWithinBudget(t *testing.T) {
 	envelope, binding := NewService(nil).RunTerminal(t.Context(), data)
 	require.Equal(t, runnerterminal.Success, envelope.Outcome, "%+v", envelope.Diagnostics)
 	require.Equal(t, executionbudget.StateWithinBudget, envelope.Budget.State)
+	encodeTerminal(t, envelope, binding)
+}
+
+func TestPreExecutionFailureKeepsConfiguredBudget(t *testing.T) {
+	request := fixture(t)
+	request.Selection.Task = "not-the-declared-task"
+	request.Budgets = &executionbudget.Request{Limits: executionbudget.Limits{ModelTurns: limit(3)}}
+	envelope, binding := NewService(nil).RunTerminal(t.Context(), wire(t, request))
+	require.Equal(t, runnerterminal.InvalidInput, envelope.Outcome, "%+v", envelope)
+	require.NotNil(t, envelope.Budget, "admission failures after planning keep the declared limits")
+	require.Equal(t, executionbudget.StateNotStarted, envelope.Budget.State)
+	require.Equal(t, int64(3), *budgetRow(t, envelope.Budget, executionbudget.ModelTurns).Limit)
+	encodeTerminal(t, envelope, binding)
+}
+
+// lateActivityEngine waits for cancellation, then reports activity and delays
+// during shutdown, after any request deadline has already ended the attempt.
+type lateActivityEngine struct {
+	*instrumented
+	observer execution.ActivityObserver
+	delay    time.Duration
+}
+
+func (e *lateActivityEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.observer = execution.ActivityObserverFrom(ctx)
+	return e.instrumented.Execute(ctx, req)
+}
+
+func (e *lateActivityEngine) Shutdown(ctx context.Context) error {
+	if e.observer != nil {
+		e.observer.ToolCallStarted()
+	}
+	time.Sleep(e.delay)
+	return e.instrumented.Shutdown(ctx)
+}
+
+func TestRequestTimeoutBeforeBudgetKeepsTimeout(t *testing.T) {
+	request := fixture(t)
+	request.TimeoutMS = 20
+	request.Budgets = &executionbudget.Request{Limits: executionbudget.Limits{WallTimeMS: limit(60), ToolCalls: limit(0)}}
+	report, input := admit(wire(t, request))
+	require.NotNil(t, input)
+	report.Mode = "mock"
+	engine := &lateActivityEngine{instrumented: &instrumented{AgentEngine: execution.NewMockEngine(input.spec.Config.ModelID), mode: "timeout"}, delay: 80 * time.Millisecond}
+	report = admittedAttempt(t.Context(), input, false, func(ctx context.Context) Report { return execute(ctx, report, input, engine) })
+	envelope, binding := terminal(report)
+	require.Equal(t, runnerterminal.Timeout, envelope.Outcome, "%+v", envelope)
+	require.Nil(t, envelope.Budget.Termination, "the request deadline ended the attempt first")
+	require.Equal(t, executionbudget.StateExceeded, envelope.Budget.State)
+	require.True(t, *budgetRow(t, envelope.Budget, executionbudget.ToolCalls).Exceeded)
+	encodeTerminal(t, envelope, binding)
+}
+
+func TestSubmittedBudgetStopsAreJournaled(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		limits   executionbudget.Limits
+		mode     string
+		tools    int
+		state    string
+		reason   string
+		deadline bool
+	}{
+		{"wall time", executionbudget.Limits{WallTimeMS: limit(30)}, "timeout", 0, "timed_out", "deadline", true},
+		{"tool calls", executionbudget.Limits{ToolCalls: limit(1)}, "canceled", 2, "cancelled", "caller", false}, //nolint:misspell // wire value
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := submissionBackend(t)
+			request := fixture(t)
+			request.Budgets = &executionbudget.Request{Limits: tc.limits}
+			service := NewService(nil)
+			service.heartbeat = 2 * time.Millisecond
+			service.dispatch = func(ctx context.Context, report Report, input *admitted) Report {
+				report.Mode = "mock"
+				engine := &toolCallingEngine{instrumented: &instrumented{AgentEngine: execution.NewMockEngine(input.spec.Config.ModelID), mode: tc.mode}, tools: tc.tools}
+				return execute(ctx, report, input, engine)
+			}
+			started := time.Now()
+			result, err := service.Submit(t.Context(), submissionWire(t, request, nil), backend, SubmissionHooks{})
+			require.NoError(t, err)
+			require.Equal(t, "completed", result.Status, "%+v", result)
+			require.NoError(t, result.LifecycleError())
+			lifecycle := lineageAttempt(t, backend, result).Lifecycle
+			require.Equal(t, tc.state, lifecycle.State, "%+v", lifecycle)
+			require.Equal(t, "acknowledged", lifecycle.Cancellation)
+			require.Equal(t, tc.reason, lifecycle.CancellationReason)
+			require.Equal(t, tc.deadline, lifecycle.DeadlineExceeded)
+			require.NotNil(t, lifecycle.DeadlineAt)
+			if tc.limits.WallTimeMS != nil {
+				require.WithinDuration(t, started.Add(30*time.Millisecond), *lifecycle.DeadlineAt, time.Second,
+					"the journal records the effective budget deadline, not the request timeout")
+			}
+		})
+	}
+}
+
+func TestUnrepresentableEvidenceKeepsBudgetTerminationConsistent(t *testing.T) {
+	report, input := admit(budgeted(t, executionbudget.Request{Limits: executionbudget.Limits{ToolCalls: limit(0)}}))
+	require.NotNil(t, input)
+	report = metered(t.Context(), input, func(ctx context.Context) Report {
+		execution.ActivityObserverFrom(ctx).ToolCallStarted()
+		report.Mode, report.Calls = "mock", 1
+		// An unadmitted grader verdict cannot be encoded against the binding.
+		report.Observation = &models.RunResult{RunNumber: input.request.Selection.Trial, Attempts: input.request.Selection.Attempt,
+			Status: models.StatusError, Validations: map[string]models.GraderResults{"unadmitted": {Name: "unadmitted"}}}
+		return report
+	})
+	envelope, binding := terminal(report)
+	require.Equal(t, "unrepresentable_evidence", envelope.Diagnostics[0].Code)
+	require.Equal(t, runnerterminal.Canceled, envelope.Outcome, "%+v", envelope)
+	require.Equal(t, "execution", envelope.FailureBoundary)
+	require.Equal(t, executionbudget.StateTerminated, envelope.Budget.State)
 	encodeTerminal(t, envelope, binding)
 }

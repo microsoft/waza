@@ -93,6 +93,16 @@ func TestRunnerRunEnforcesAndReportsBudgets(t *testing.T) {
 				}
 				require.Contains(t, codes, tc.code)
 			}
+			if tc.want == runnerterminal.UnsupportedCapability {
+				validate := newRunnerCommandWithService(runnerunit.NewService(nil))
+				validate.SetArgs([]string{"validate"})
+				validate.SetIn(bytes.NewReader(data))
+				validate.SetOut(&bytes.Buffer{})
+				validate.SetErr(&bytes.Buffer{})
+				exit, ok := errors.AsType[*ExitCodeError](validate.ExecuteContext(t.Context()))
+				require.True(t, ok)
+				require.Equal(t, code, exit.Code, "validate reports the same unsupported capability as run")
+			}
 		})
 	}
 }

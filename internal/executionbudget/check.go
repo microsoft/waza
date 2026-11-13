@@ -32,8 +32,8 @@ func clonePtr[T any](value *T) *T {
 	return &copied
 }
 
-// expectedOutcome is the terminal outcome an enforced termination produces.
-func expectedOutcome(resource Resource) string {
+// TerminationOutcome is the terminal outcome an enforced termination produces.
+func TerminationOutcome(resource Resource) string {
 	if resource == WallTime {
 		return "timeout"
 	}
@@ -95,7 +95,7 @@ func (r *Report) CheckTerminal(outcome string) error {
 		if r.Termination == nil {
 			return fmt.Errorf("budget state %s requires a termination", r.State)
 		}
-		if want := expectedOutcome(r.Termination.Resource); outcome != want {
+		if want := TerminationOutcome(r.Termination.Resource); outcome != want {
 			return fmt.Errorf("budget termination by %s requires outcome %s, not %s", r.Termination.Resource, want, outcome)
 		}
 	default:
