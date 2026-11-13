@@ -15,6 +15,10 @@ import checkpoint from '../../../../schemas/execution-checkpoint-1.0.schema.json
 import checkpointResult from '../../../../schemas/runner-checkpoint-result-1.0.schema.json';
 import checkpointResultV11 from '../../../../schemas/runner-checkpoint-result-1.1.schema.json';
 import aggregate from '../../../../schemas/manifest-aggregate-1.0.schema.json';
+import optimizerRequest from '../../../../schemas/optimizer-adapter-request-1.0.schema.json';
+import optimizerResponse from '../../../../schemas/optimizer-adapter-response-1.0.schema.json';
+import optimizerCapabilities from '../../../../schemas/optimizer-capabilities-1.0.schema.json';
+import optimizerReport from '../../../../schemas/optimizer-report-1.0.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -34,6 +38,10 @@ export function getStaticPaths() {
     { params: { schema: 'runner-checkpoint-result-1.0.schema' }, props: { schema: checkpointResult } },
     { params: { schema: 'runner-checkpoint-result-1.1.schema' }, props: { schema: checkpointResultV11 } },
     { params: { schema: 'manifest-aggregate-1.0.schema' }, props: { schema: aggregate } },
+    { params: { schema: 'optimizer-adapter-request-1.0.schema' }, props: { schema: optimizerRequest } },
+    { params: { schema: 'optimizer-adapter-response-1.0.schema' }, props: { schema: optimizerResponse } },
+    { params: { schema: 'optimizer-capabilities-1.0.schema' }, props: { schema: optimizerCapabilities } },
+    { params: { schema: 'optimizer-report-1.0.schema' }, props: { schema: optimizerReport } },
   ];
 }
 
