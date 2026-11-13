@@ -24,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Lab **External adapter dispatch** view uses the new offline
   `POST /api/v1/adapter/translate` route. See
   [portable external execution adapters](site/src/content/docs/guides/runner-adapters.mdx).
+- **Signed execution provenance (planned for v0.42.0, #769)** -
+  `waza runner provenance generate` writes a bundle holding an in-toto v1
+  statement in a DSSE envelope that binds the canonical request digest, runner
+  API version, runner image digest, Waza version, policy, runtime and model
+  identity, artifact manifest and objects, and terminal outcome. `verify` checks
+  bundles offline against verifier-supplied keys only and reports stable failure
+  codes for altered artifacts, inputs, outcomes, signatures, digests and unbound
+  members. `keygen` creates a local Ed25519 key; `sigstore-keyless` and
+  `managed-kms` report an explicit unavailable state (exit 5). New
+  `provenance-statement`, `provenance-bundle` and `provenance-verification` 1.0
+  schemas, `POST /api/v1/provenance/verify`, and a Lab **Execution provenance**
+  panel. `predicate.bindings` is the extension point for digest-bound members
+  such as a component inventory. Migration: additive; existing manifests,
+  terminals and requests are unchanged. See
+  [execution provenance](docs/EXECUTION_PROVENANCE.md).
 
 ### Changed
 

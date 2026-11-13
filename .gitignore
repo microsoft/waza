@@ -64,6 +64,8 @@ logs/
 .env
 .env.local
 *.pem
+# Public verification key for the provenance Lab e2e fixture (not a secret).
+!web/e2e/fixtures/provenance/signing.pub.pem
 *.key
 secrets.yaml
 azure-functions-eval/

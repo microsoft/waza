@@ -1838,6 +1838,37 @@ that contradict their published schema exit 2 as `contract_error`. The adapter
 never queues, places, prioritizes or retries. See
 [portable external execution adapters](../../guides/runner-adapters/).
 
+### Provenance commands (unreleased, planned for v0.42.0)
+
+```bash
+waza runner provenance keygen --private-key signing.pem --public-key signing.pub.pem
+waza runner provenance generate --request unit.json --manifest manifest.json \
+  --artifacts objects/ --policy release-policy.json \
+  --image-reference ghcr.io/org/waza-runner:0.42.0 --image-digest sha256:<64 hex> \
+  --signing-key signing.pem --out provenance/
+waza runner provenance verify --bundle provenance/ --public-key signing.pub.pem \
+  --expect-image-digest sha256:<64 hex>
+```
+
+`generate` writes a new bundle directory holding an in-toto v1 statement in a
+DSSE envelope ([`provenance-statement`](/waza/schemas/provenance-statement-1.0.schema.json),
+[`provenance-bundle`](/waza/schemas/provenance-bundle-1.0.schema.json)). The
+statement binds the canonical request digest, runner API version, runner image
+digest, Waza version, policy, runtime and model identity, artifact manifest and
+objects, and the terminal outcome. Every claim is required; generation exits 2
+rather than emit a bundle with an unavailable claim. `--signer` defaults to
+`local-ed25519`; `sigstore-keyless` and `managed-kms` exit 5 (signer unavailable)
+in this build. `--bind kind=path` adds a member bound by digest for a registered
+binding kind.
+
+`verify` runs offline and prints one
+[`waza.provenance-verification`](/waza/schemas/provenance-verification-1.0.schema.json)
+report: exit 0 when every check passed, 1 when any check failed (altered,
+missing or unbound member, untrusted key, false claim), 2 for invalid flags or
+keys. Trust comes only from `--public-key`; `--expect-image-digest`,
+`--expect-waza-version` and `--expect-policy-sha256` pin declared claims. See
+[execution provenance](../../guides/execution-provenance/).
+
 ## waza serve
 
 Standalone v0.40.0 also exposes negotiation and exact-unit validation/run through HTTP.
