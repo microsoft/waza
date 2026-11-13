@@ -1118,7 +1118,7 @@ func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
 				}{"        id: native\n", "\n"}, struct {
 					old         string
 					replacement string
-				}{"  pull_request:\n    branches: [main]\n    paths: *docker-paths\n", ""})
+				}{"  pull_request:\n    branches: [main]\n    types: [opened, synchronize, reopened, edited]\n    paths: *docker-paths\n", ""})
 			} else {
 				mutations = append(mutations, struct {
 					old         string
