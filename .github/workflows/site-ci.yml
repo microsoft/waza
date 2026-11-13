@@ -33,8 +33,6 @@ on:
       - '.github/workflows/publish-runner-reference.yml'
       - '.github/workflows/verify-runner-reference.yml'
       - '.github/workflows/pages.yml'
-  pull_request:
-    branches: [main]
   workflow_call:
     inputs:
       pr_completeness_plan:

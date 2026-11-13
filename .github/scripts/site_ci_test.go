@@ -57,10 +57,12 @@ func validateSiteWorkflow(source []byte) error {
 		workflow.Concurrency.Group != "site-ci-${{ github.ref }}${{ inputs.pr_completeness_plan != '' && '-completeness' || '' }}" || !workflow.Concurrency.CancelInProgress {
 		return fmt.Errorf("site workflow must retain permissions and cancellation policy")
 	}
-	if _, called := workflow.On["workflow_call"]; len(workflow.On) != 3 || !called || !reflect.DeepEqual(workflow.On["push"].Branches, []string{"main"}) ||
-		!reflect.DeepEqual(workflow.On["push"].Paths, sitePushPaths) ||
-		!reflect.DeepEqual(workflow.On["pull_request"].Branches, []string{"main"}) || len(workflow.On["pull_request"].Paths) != 0 {
-		return fmt.Errorf("site push filters and unconditional main PR checks must remain unchanged")
+	// Pull requests reach site checks only through the Go completeness caller.
+	_, standalone := workflow.On["pull_request"]
+	if _, called := workflow.On["workflow_call"]; len(workflow.On) != 2 || !called || standalone ||
+		!reflect.DeepEqual(workflow.On["push"].Branches, []string{"main"}) ||
+		!reflect.DeepEqual(workflow.On["push"].Paths, sitePushPaths) {
+		return fmt.Errorf("site push filters must remain unchanged and PRs must arrive only through the completeness caller")
 	}
 	changes, build, examples := workflow.Jobs["changes"], workflow.Jobs["build"], workflow.Jobs["examples"]
 	if len(workflow.Jobs) != 3 || len(changes.Needs) != 0 || changes.If != "" || changes.TimeoutMinutes != 5 ||

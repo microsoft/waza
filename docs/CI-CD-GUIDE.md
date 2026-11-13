@@ -147,12 +147,18 @@ On `pull_request` events `go-ci.yml` runs `pr-scope` (the plan workflow), then:
 `TestGoCompletenessReceiptWiring` rejects removed step ids, unguarded or
 non-`always()` receipts, dropped dependencies and unwired callers.
 
+The dashboard, site/examples, assurance, tools and runtime workflows no longer
+have standalone `pull_request` triggers. Pull requests reach them only through
+these plan-selected `go-ci.yml` callers, so each suite runs once per PR attempt
+and now covers stacked PRs on any base. Their `push`, `workflow_dispatch` and
+`workflow_call` entrypoints are unchanged. `docker-ci.yml` keeps its standalone
+path-filtered trigger for the separately admitted edited-body benchmark, so
+container validation can still run twice on Docker-relevant PRs.
+
 Remaining before adoption: route metadata/retarget (`edited`) events and their
-concurrency safely, then consolidate the auxiliary workflows' standalone
-`pull_request` triggers so full suites do not run twice. Preserve the existing
-auxiliary receipt interfaces, current native Go gates and separate non-PR
-validation. Do not adopt a ruleset requirement before the genuine current-head
-migration evidence below exists.
+concurrency safely. Preserve the existing auxiliary receipt interfaces, current
+native Go gates and separate non-PR validation. Do not adopt a ruleset
+requirement before the genuine current-head migration evidence below exists.
 
 The proposed ordinary-PR entrypoint is the existing Go workflow, with local
 reusable calls to the existing auxiliary validators. This avoids cross-run
