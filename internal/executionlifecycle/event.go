@@ -6,7 +6,6 @@ package executionlifecycle
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -121,12 +120,6 @@ func ParseEvent(data []byte) (*Event, error) {
 		return nil, fmt.Errorf("%w: lifecycle event is not canonical", artifactmanifest.ErrInvalid)
 	}
 	return &event, nil
-}
-
-// Admit is the diagnostics-storage host gate for lifecycle payloads.
-func Admit(_ context.Context, _ artifactmanifest.Scope, payload json.RawMessage) error {
-	_, err := ParseEvent(payload)
-	return err
 }
 
 // Scope binds a lifecycle journal to one dispatched attempt. The dispatch

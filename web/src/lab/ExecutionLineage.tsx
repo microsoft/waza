@@ -11,9 +11,9 @@ const statusLabels: Record<string, string> = {
 
 const lifecycleLabels: Record<string, string> = {
   reserved: "Reserved; never dispatched",
-  unobserved: "Dispatched; no lifecycle journal",
-  running: "Running (owner heartbeat fresh)",
-  cancelling: "Cancellation requested; owner still live",
+  unobserved: "Dispatched; lifecycle not observed",
+  running: "Running (last recorded state)",
+  cancelling: "Cancellation requested",
   orphaned: "Orphaned (owner stale or past deadline)",
   publication_incomplete: "Finished; publication incomplete",
   succeeded: "Succeeded",

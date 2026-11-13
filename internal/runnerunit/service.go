@@ -218,9 +218,14 @@ func NewService(factory EngineFactory) *Service {
 	return &Service{factory: factory}
 }
 
+// runnerForceStopper is the native runtime's hard-stop seam; it reports
+// whether a transport was actually force-stopped.
+type runnerForceStopper interface{ ForceStopRunnerText() bool }
+
 type onceEngine struct {
 	execution.AgentEngine
-	calls int
+	calls  int
+	forced bool
 }
 
 func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
@@ -228,9 +233,9 @@ func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRe
 		return nil, fmt.Errorf("exact-unit forbids a second engine call")
 	}
 	e.calls++
-	if native, ok := e.AgentEngine.(*execution.CopilotEngine); ok {
+	if native, ok := e.AgentEngine.(runnerForceStopper); ok {
 		stop := interruptRunnerRuntime(ctx, native.ForceStopRunnerText)
-		defer stop()
+		defer func() { e.forced = stop() || e.forced }()
 	}
 	response, err := e.AgentEngine.Execute(ctx, request)
 	if err == nil && response != nil && !response.Success {
@@ -239,16 +244,21 @@ func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRe
 	return response, err
 }
 
-func interruptRunnerRuntime(ctx context.Context, interrupt func()) func() {
+// interruptRunnerRuntime arms interrupt for ctx cancellation. The returned
+// stop joins a running callback and reports whether it force-stopped.
+func interruptRunnerRuntime(ctx context.Context, interrupt func() bool) func() bool {
 	finished := make(chan struct{})
+	var forced bool
 	stop := context.AfterFunc(ctx, func() {
 		defer close(finished)
-		interrupt()
+		forced = interrupt()
 	})
-	return func() {
-		if !stop() {
-			<-finished
+	return func() bool {
+		if stop() {
+			return false
 		}
+		<-finished
+		return forced
 	}
 }
 
@@ -336,11 +346,11 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	started := time.Now()
 	ctx, usage := execution.NewUsageScope(ctx)
 	observed := &onceEngine{AgentEngine: engine}
-	interrupt := func() {}
-	if native, ok := engine.(*execution.CopilotEngine); ok {
+	interrupt := func() bool { return false }
+	if native, ok := engine.(runnerForceStopper); ok {
 		interrupt = native.ForceStopRunnerText
 	}
-	defer interruptRunnerRuntime(ctx, interrupt)()
+	stopInterrupt := interruptRunnerRuntime(ctx, interrupt)
 	defer func() {
 		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), runtimeShutdownBound)
 		defer stop()
@@ -348,7 +358,11 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 		if err := engine.Shutdown(shutdownCtx); err != nil {
 			result.executionError("shutdown", fmt.Errorf("runtime shutdown: %w", err))
 		}
-		stopShutdownInterrupt()
+		// A hard stop from any guard is forced termination, even when
+		// shutdown then returns within its bound.
+		shutdownForced := stopShutdownInterrupt()
+		executionForced := stopInterrupt()
+		result.forced = result.forced || shutdownForced || executionForced || observed.forced
 		if err := shutdownCtx.Err(); err != nil {
 			result.forced = true
 			result.executionError("shutdown", fmt.Errorf("runtime shutdown deadline: %w", err))

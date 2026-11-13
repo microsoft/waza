@@ -2,6 +2,9 @@ package runnerunit
 
 import (
 	"context"
+	"errors"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +18,19 @@ import (
 )
 
 type hangingShutdown struct{ *instrumented }
+
+// nativePending models the admitted native runtime with an RPC that is still
+// pending when cancellation hard-stops its transport; shutdown then returns
+// promptly.
+type nativePending struct {
+	*instrumented
+	stops atomic.Int32
+}
+
+func (e *nativePending) ForceStopRunnerText() bool {
+	e.stops.Add(1)
+	return true
+}
 
 func (e *hangingShutdown) Shutdown(ctx context.Context) error {
 	<-ctx.Done()
@@ -50,6 +66,7 @@ func TestSubmitRecordsOwnerLifecycle(t *testing.T) {
 		timeoutMS    int
 		cancel       bool
 		hang         bool
+		native       bool
 		state        string
 		cancellation string
 		reason       string
@@ -64,6 +81,7 @@ func TestSubmitRecordsOwnerLifecycle(t *testing.T) {
 		// the caller's reason and the forced stop.
 		{name: "forced without request", hang: true, state: "timed_out", cancellation: "forced", reason: "deadline", retry: true, partial: true, deadline: true},
 		{name: "forced", mode: "canceled", cancel: true, hang: true, state: "timed_out", cancellation: "forced", reason: "caller", retry: true, partial: true},
+		{name: "native hard stop", mode: "canceled", cancel: true, native: true, state: "cancelled", cancellation: "forced", reason: "caller", retry: true, partial: true}, //nolint:misspell // wire value
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -84,6 +102,9 @@ func TestSubmitRecordsOwnerLifecycle(t *testing.T) {
 				var engine execution.AgentEngine = base
 				if tc.hang {
 					engine = &hangingShutdown{base}
+				}
+				if tc.native {
+					engine = &nativePending{instrumented: base}
 				}
 				if tc.cancel {
 					cancel()
@@ -109,30 +130,33 @@ func TestLifecycleJournalFailureKeepsOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := executionlifecycle.NewStore(backend)
-	if err != nil {
-		t.Fatal(err)
-	}
 	execID, _ := executionattempt.NewExecutionID()
 	decisionID, _ := executionattempt.NewDecisionID()
 	scope, err := executionlifecycle.Scope(execID, artifactmanifest.Hash([]byte("reservation")), decisionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal, err := executionlifecycle.Open(store, scope)
+	journal, err := executionlifecycle.Open(backend, scope, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := backend.Close(); err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	want := Report{Status: "completed", Calls: 1, Diagnostics: []runnercontract.Diagnostic{}}
-	got := trackLifecycle(context.Background(), journal, time.Millisecond, func(context.Context) Report {
+	got := trackLifecycle(ctx, journal, time.Millisecond, func(context.Context) Report {
 		time.Sleep(5 * time.Millisecond)
 		return want
 	})
-	finishLifecycle(context.Background(), journal, runnerterminal.Success)
-	if got.Status != want.Status || got.Calls != want.Calls || journal.Err() == nil {
-		t.Fatalf("journal failure changed outcome or was hidden: %+v %v", got, journal.Err())
+	finishLifecycle(ctx, journal, runnerterminal.Success)
+	// The provider write itself must fail; an admission rejection would hide
+	// a broken journal behind an invalid-input error.
+	failure := journal.Err()
+	if got.Status != want.Status || got.Calls != want.Calls || failure == nil ||
+		errors.Is(failure, artifactmanifest.ErrInvalid) || errors.Is(failure, executionlifecycle.ErrUnauthorized) ||
+		!strings.Contains(failure.Error(), "recording lifecycle started event") {
+		t.Fatalf("journal failure changed outcome or was not a write failure: %+v %v", got, failure)
 	}
 }

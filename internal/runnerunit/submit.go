@@ -268,7 +268,9 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	if hooks.Factory != nil {
 		executor = &Service{factory: NewService(hooks.Factory).factory, heartbeat: s.heartbeat, dispatch: s.dispatch}
 	}
-	journal, err := openLifecycle(backend, reserved, decision.DecisionID)
+	journal, err := openLifecycle(backend, reserved, decision.DecisionID, func(ctx context.Context) error {
+		return ledger.ValidateCreator(ctx, creator)
+	})
 	if err != nil {
 		result.lifecycleErr = err
 	}
@@ -285,6 +287,9 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	envelope, terminalBinding := terminal(report)
 	finishLifecycle(ctx, journal, envelope.Outcome)
 	if err := journal.Err(); err != nil {
+		result.lifecycleErr = err
+	}
+	if err := journal.Wait(executionlifecycle.DefaultWriteBound); err != nil && result.lifecycleErr == nil {
 		result.lifecycleErr = err
 	}
 	if result.lifecycleErr != nil {
@@ -509,17 +514,17 @@ func VerifyReuseSource(ctx context.Context, ledger *executionledger.Ledger, sour
 	return completed, envelope, "", nil
 }
 
-func openLifecycle(backend artifactmanifest.Backend, reserved *executionledger.Reservation, decisionID string) (*executionlifecycle.Journal, error) {
-	store, err := executionlifecycle.NewStore(backend)
-	if errors.Is(err, artifactmanifest.ErrUnsupportedBackend) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
+// openLifecycle binds the journal to the owner's reserved attempt and
+// decision; authorize revalidates the retained creator at every write.
+func openLifecycle(backend artifactmanifest.Backend, reserved *executionledger.Reservation, decisionID string,
+	authorize executionlifecycle.Authorize) (*executionlifecycle.Journal, error) {
 	scope, err := executionlifecycle.Scope(reserved.Attempt.ExecutionID, reserved.Digest, decisionID)
 	if err != nil {
 		return nil, err
 	}
-	return executionlifecycle.Open(store, scope)
+	journal, err := executionlifecycle.Open(backend, scope, authorize)
+	if errors.Is(err, artifactmanifest.ErrUnsupportedBackend) {
+		return nil, nil
+	}
+	return journal, err
 }

@@ -2,6 +2,7 @@ package executionlifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -18,32 +19,66 @@ const (
 	reservedFinalEvents = 4
 	// DefaultHeartbeatInterval is the owner's heartbeat cadence.
 	DefaultHeartbeatInterval = 10 * time.Second
-	// DefaultWriteBound bounds each journal write so a stalled store cannot
-	// extend shutdown.
+	// DefaultWriteBound bounds each caller's wait for a journal write so a
+	// stalled store cannot extend shutdown.
 	DefaultWriteBound = 2 * time.Second
 )
 
-var ErrJournalFull = errors.New("lifecycle journal is full")
+var (
+	ErrJournalFull = errors.New("lifecycle journal is full")
+	// ErrWriteStalled ends a journal whose write outlived its bound. The
+	// abandoned write may still complete; Wait reports when it has.
+	ErrWriteStalled = errors.New("lifecycle journal write exceeded its bound")
+	// ErrUnauthorized denies writes through a read-only lifecycle store.
+	ErrUnauthorized = errors.New("lifecycle journal write is not authorized")
+)
 
-// NewStore opens the lifecycle journal namespace on an initialized provider.
+// NewStore opens the lifecycle journal namespace read-only on an initialized
+// provider. Its admission denies every write; owners use Open.
 func NewStore(backend artifactmanifest.Backend) (*artifactmanifest.Diagnostics, error) {
-	return artifactmanifest.NewDiagnostics(backend, Admit)
+	return artifactmanifest.NewDiagnostics(backend, func(context.Context, artifactmanifest.Scope, json.RawMessage) error {
+		return ErrUnauthorized
+	})
 }
 
-// Journal appends one attempt's events in order. A failed or unknown write
-// ends the journal: the chain is never retried or forked, and execution
+// Authorize revalidates the owner's retained creator and invocation
+// authority. It runs at every commit, before any provider I/O; the public
+// scope IDs alone never authorize a write.
+type Authorize func(context.Context) error
+
+// Journal appends one attempt's events in order. A failed, unknown or stalled
+// write ends the journal: the chain is never retried or forked, and execution
 // outcome is never changed by journal failures.
 type Journal struct {
-	mu     sync.Mutex
-	scope  *artifactmanifest.DiagnosticScope
-	cursor *artifactmanifest.Cursor
-	err    error
-	bound  time.Duration
+	serial   sync.Mutex // orders appends; each holds it for at most one wait bound
+	mu       sync.Mutex
+	scope    *artifactmanifest.DiagnosticScope
+	cursor   *artifactmanifest.Cursor
+	err      error
+	bound    time.Duration
+	inflight int           // guarded by mu
+	idle     chan struct{} // guarded by mu; closed when inflight drops to zero
 }
 
-func Open(store *artifactmanifest.Diagnostics, scope artifactmanifest.Scope) (*Journal, error) {
-	if store == nil {
-		return nil, artifactmanifest.ErrUnsupportedBackend
+// Open binds a writable journal to scope and the owner's authority.
+func Open(backend artifactmanifest.Backend, scope artifactmanifest.Scope, authorize Authorize) (*Journal, error) {
+	if authorize == nil {
+		return nil, fmt.Errorf("%w: lifecycle journal requires owner authority", artifactmanifest.ErrInvalid)
+	}
+	store, err := artifactmanifest.NewDiagnostics(backend, func(ctx context.Context, actual artifactmanifest.Scope, payload json.RawMessage) error {
+		if actual != scope {
+			return fmt.Errorf("%w: lifecycle write targets another attempt", ErrUnauthorized)
+		}
+		if _, err := ParseEvent(payload); err != nil {
+			return err
+		}
+		if err := authorize(ctx); err != nil {
+			return fmt.Errorf("%w: %w", ErrUnauthorized, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	owned, err := store.Scope(scope)
 	if err != nil {
@@ -52,16 +87,22 @@ func Open(store *artifactmanifest.Diagnostics, scope artifactmanifest.Scope) (*J
 	return &Journal{scope: owned, bound: DefaultWriteBound}, nil
 }
 
-// Append records one event within the write bound, independent of ctx
-// cancellation so cancellation itself can be recorded.
+type committed struct {
+	result artifactmanifest.WriteResult
+	err    error
+}
+
+// Append records one event, independent of ctx cancellation so cancellation
+// itself can be recorded. The caller waits at most the write bound even when
+// provider I/O ignores its context.
 func (j *Journal) Append(ctx context.Context, event Event) error {
 	if j == nil {
 		return nil
 	}
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if j.err != nil {
-		return j.err
+	j.serial.Lock()
+	defer j.serial.Unlock()
+	if err := j.Err(); err != nil {
+		return err
 	}
 	next := 0
 	if j.cursor != nil {
@@ -71,13 +112,11 @@ func (j *Journal) Append(ctx context.Context, event Event) error {
 		return nil
 	}
 	if next >= MaxEvents {
-		j.err = ErrJournalFull
-		return j.err
+		return j.fail(ErrJournalFull)
 	}
 	payload, err := EncodeEvent(event)
 	if err != nil {
-		j.err = err
-		return err
+		return j.fail(err)
 	}
 	var pending artifactmanifest.Pending
 	if j.cursor == nil {
@@ -86,19 +125,72 @@ func (j *Journal) Append(ctx context.Context, event Event) error {
 		pending, err = j.scope.PrepareAdvance(*j.cursor, payload)
 	}
 	if err != nil {
-		j.err = err
-		return err
+		return j.fail(err)
 	}
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), j.bound)
-	defer cancel()
-	result, err := j.scope.Commit(writeCtx, pending)
-	if err != nil {
-		j.err = fmt.Errorf("recording lifecycle %s event: %w", event.Event, err)
-		return j.err
+	done := make(chan committed, 1)
+	j.mu.Lock()
+	if j.inflight == 0 {
+		j.idle = make(chan struct{})
 	}
-	cursor := result.Created.Cursor
-	j.cursor = &cursor
-	return nil
+	j.inflight++
+	j.mu.Unlock()
+	go func() {
+		defer cancel()
+		result, err := j.scope.Commit(writeCtx, pending)
+		done <- committed{result, err}
+		j.mu.Lock()
+		defer j.mu.Unlock()
+		if j.inflight--; j.inflight == 0 {
+			close(j.idle)
+		}
+	}()
+	// A short grace lets a context-honoring provider report its own cause.
+	wait := time.NewTimer(j.bound + j.bound/2)
+	defer wait.Stop()
+	select {
+	case commit := <-done:
+		if commit.err != nil {
+			return j.fail(fmt.Errorf("recording lifecycle %s event: %w", event.Event, commit.err))
+		}
+		cursor := commit.result.Created.Cursor
+		j.cursor = &cursor
+		return nil
+	case <-wait.C:
+		return j.fail(fmt.Errorf("recording lifecycle %s event: %w", event.Event, ErrWriteStalled))
+	}
+}
+
+func (j *Journal) fail(err error) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.err == nil {
+		j.err = err
+	}
+	return j.err
+}
+
+// Wait waits up to timeout for writes abandoned after their bound. The
+// provider must stay open until Wait returns nil.
+func (j *Journal) Wait(timeout time.Duration) error {
+	if j == nil {
+		return nil
+	}
+	j.mu.Lock()
+	if j.inflight == 0 {
+		j.mu.Unlock()
+		return nil
+	}
+	idle := j.idle
+	j.mu.Unlock()
+	wait := time.NewTimer(timeout)
+	defer wait.Stop()
+	select {
+	case <-idle:
+		return nil
+	case <-wait.C:
+		return fmt.Errorf("%w: an abandoned write is still in flight", ErrWriteStalled)
+	}
 }
 
 // Err reports the first write failure; later events were not recorded.

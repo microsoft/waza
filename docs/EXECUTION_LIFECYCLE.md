@@ -24,16 +24,22 @@ dispatch decision, so no other attempt can write into this journal.
 | `heartbeat` | Every interval while the owner runs (default 10s) | `at` |
 | `cancel_requested` | The owner context ends before execution returns | `reason`: `caller` (signal, client disconnect) or `deadline` |
 | `cancel_acknowledged` | Execution and runtime shutdown joined after a request | `at` |
-| `forced` | Runtime shutdown exceeded its 5s bound and was force-stopped, with or without a prior request | `at` |
+| `forced` | The native runtime transport was hard-stopped on cancellation or deadline, or shutdown exceeded its 5s bound, with or without a prior request | `at` |
 | `finished` | The terminal envelope is computed, before publication | `outcome` |
 
 Order is enforced on read: `started` first and once; acknowledgement only after
 a request; at most one of acknowledgement or force; nothing after `finished`. A
 corrupt, unchained or out-of-order journal is reported as
 `observation: "invalid"` with a `lifecycle_journal_invalid` diagnostic and
-supports no liveness claim. Journal writes are bounded (2s each), independent of
-cancellation, and never change the execution outcome: the first failure stops
-recording and is logged. Lineage derives from the events recorded before the
+supports no liveness claim. Only the attempt's owner can write its journal: the
+writer is bound to the reserved execution, reservation digest and dispatch
+decision, and every write revalidates the retained creator before provider I/O.
+Public IDs alone never authorize a write. The owner waits at most 2s per write,
+even when provider I/O ignores cancellation, and writes are independent of
+cancellation. Journal failures never change the execution outcome: the first
+failed, unknown or stalled write stops recording and is logged, and the owner
+waits a further bound for an abandoned write before reporting the journal
+incomplete. Lineage derives from the events recorded before the
 failure, so a still-running attempt whose journal failed can later appear
 `orphaned`; confirm the owner is gone before retrying.
 
@@ -125,6 +131,10 @@ Killed owner (SIGKILL, host loss): no completion is recorded and heartbeats
 stop. After the stale threshold, lineage reports `orphaned` with an
 `orphaned_attempt` diagnostic. Confirm the owner is gone, then retry with the
 orphan as parent. Do not delete the orphan's records.
+
+Native runtime with a pending call: cancellation hard-stops the private
+transport. Because the stop is forced, lineage reports `cancellation: "forced"`
+even when shutdown then returns promptly with a `cancelled` terminal.
 
 Runtime that ignores shutdown: after the 5s shutdown bound the owner
 force-stops the runtime and records `forced`. The terminal reports the

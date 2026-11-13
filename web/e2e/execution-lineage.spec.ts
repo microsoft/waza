@@ -238,6 +238,10 @@ test.describe("Execution attempt lineage in Lab", () => {
     ["undiagnosed sibling attempts", 200, JSON.stringify(siblingRetries())],
     ["incomplete sibling diagnostic", 200, JSON.stringify(siblingRetries(fixture.attempts.slice(1).map((attempt) => attempt.execution_id)))],
     ["undiagnosed duplicate dispatch", 200, JSON.stringify(duplicateDispatch(false))],
+    ["timeout terminal with a succeeded state", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, terminal: { outcome: "timeout", exit_code: 4, failure_boundary: "execution", engine_calls: 1 } } : attempt) })],
+    ["success terminal with a timed-out state", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
+      index === 0 ? { ...attempt, lifecycle: { ...attempt.lifecycle, state: "timed_out" } } : attempt) })],
     ["lifecycle contradicting status", 200, JSON.stringify({ ...fixture, attempts: fixture.attempts.map((attempt, index) =>
       index === 0 ? { ...attempt, lifecycle: { ...attempt.lifecycle, state: "running" } } : attempt) })],
     ["duplicate keys", 200, `{"kind":"waza.execution-lineage",${JSON.stringify(fixture).slice(1)}`],

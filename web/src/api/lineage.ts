@@ -84,6 +84,19 @@ const lifecycleStates: Record<LineageAttempt["status"], string[]> = {
   completion_unverified: ["unverified"],
 };
 
+// The lifecycle state a verified terminal outcome derives.
+function terminalState(outcome: string): string {
+  switch (outcome) {
+    case "success": return "succeeded";
+    case "evaluation_failure": return "evaluation_failed";
+    case "invalid_input":
+    case "unsupported_capability": return "rejected";
+    case "cancelled": return "cancelled";
+    case "timeout": return "timed_out";
+    default: return "failed";
+  }
+}
+
 // The browser re-checks producer invariants so a malformed response cannot
 // present an attempt before its parent or misattribute terminals and reuse.
 function consistent(lineage: ExecutionLineage, logical: { run: string; work: string }): boolean {
@@ -128,6 +141,7 @@ function consistent(lineage: ExecutionLineage, logical: { run: string; work: str
     if (attempt.status === "completion_unverified" && !diagnosed("completion_unverified", attempt.execution_id)
       && !diagnosed("completion_verification_interrupted", attempt.execution_id)) return false;
     if (!lifecycleStates[attempt.status].includes(attempt.lifecycle.state)) return false;
+    if (attempt.terminal && attempt.lifecycle.state !== terminalState(attempt.terminal.outcome)) return false;
     if (attempt.lifecycle.state === "orphaned" && !diagnosed("orphaned_attempt", attempt.execution_id)) return false;
     if (attempt.lifecycle.observation === "invalid" && !diagnosed("lifecycle_journal_invalid", attempt.execution_id)) return false;
     const dispatches = distinctFor.get(attempt.execution_id) ?? [];

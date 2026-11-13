@@ -14,7 +14,9 @@ import (
 
 var epoch = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
-func testScope(t *testing.T) (*artifactmanifest.Diagnostics, artifactmanifest.Scope) {
+func allow(context.Context) error { return nil }
+
+func testScope(t *testing.T) (artifactmanifest.Backend, *artifactmanifest.Diagnostics, artifactmanifest.Scope) {
 	t.Helper()
 	backend, err := artifactmanifest.OpenLocal(t.TempDir())
 	if err != nil {
@@ -29,7 +31,7 @@ func testScope(t *testing.T) (*artifactmanifest.Diagnostics, artifactmanifest.Sc
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store, scope
+	return backend, store, scope
 }
 
 func at(offset time.Duration) time.Time { return epoch.Add(offset) }
@@ -65,8 +67,8 @@ func TestEventCodecIsCanonicalAndConditional(t *testing.T) {
 
 func TestJournalRoundTripAndOrder(t *testing.T) {
 	ctx := context.Background()
-	store, scope := testScope(t)
-	journal, err := Open(store, scope)
+	backend, store, scope := testScope(t)
+	journal, err := Open(backend, scope, allow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +112,8 @@ func TestJournalOutOfOrderIsInvalid(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			store, scope := testScope(t)
-			journal, err := Open(store, scope)
+			backend, store, scope := testScope(t)
+			journal, err := Open(backend, scope, allow)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -200,8 +202,8 @@ func TestDerive(t *testing.T) {
 func forcedWithoutRequest(t *testing.T) *Observed {
 	t.Helper()
 	ctx := context.Background()
-	store, scope := testScope(t)
-	journal, err := Open(store, scope)
+	backend, store, scope := testScope(t)
+	journal, err := Open(backend, scope, allow)
 	if err != nil {
 		t.Fatal(err)
 	}
