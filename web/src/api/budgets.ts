@@ -86,6 +86,13 @@ export function checkBudget(budget: BudgetReport, outcome: string): string | nul
     if (row?.enforcement !== "enforced" || row.limit !== termination.limit) return "Budget termination does not match an enforced limit.";
     const over = termination.resource === "wall_time_ms" ? termination.observed >= termination.limit : termination.observed > termination.limit;
     if (!over) return "Budget termination does not exceed its limit.";
+    // Counted usage includes the triggering start; wall time may round below a deadline recorded as observed == limit.
+    const used = row.used;
+    if (used === undefined) return "Budget termination has no measured usage.";
+    const consistent = termination.resource === "wall_time_ms"
+      ? used === termination.observed || (used < termination.limit && termination.observed === termination.limit)
+      : used >= termination.observed;
+    if (!consistent) return "Budget termination contradicts its measured usage.";
   }
   switch (budget.state) {
     case "rejected_unsupported":

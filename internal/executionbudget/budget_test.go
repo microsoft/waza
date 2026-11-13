@@ -259,9 +259,25 @@ func TestCheckTerminalRejectsContradictions(t *testing.T) {
 		"terminated without termination": mutate(func(r *Report) { r.Termination = nil }),
 		"duplicate resource":             mutate(func(r *Report) { r.Resources[2] = r.Resources[1] }),
 		"used while unmeasured":          mutate(func(r *Report) { r.Resources[1].Measurement = Unsupported }),
+		"termination without usage": mutate(func(r *Report) {
+			r.Resources[1].Used, r.Resources[1].Remaining, r.Resources[1].Exceeded = nil, nil, nil
+		}),
+		"understated usage": mutate(func(r *Report) { *r.Resources[1].Used = 0 }),
 	} {
 		require.Error(t, report.CheckTerminal("cancelled"), name) //nolint:misspell // wire value
 	}
+
+	wallPlan, _ := Plan(Request{Limits: Limits{WallTimeMS: ptr(1)}}, caps)
+	clock := &fakeClock{now: time.Unix(0, 0)}
+	wallCtx, wallMeter := start(context.Background(), *wallPlan, func() sample { return sample{} }, clock.Now)
+	<-wallCtx.Done()
+	rounded := wallMeter.Finish()
+	require.Equal(t, &Termination{Resource: WallTime, Limit: 1, Observed: 1}, rounded.Termination)
+	require.Zero(t, *rounded.Resources[0].Used)
+	require.NoError(t, rounded.CheckTerminal("timeout"), "wall time may round below its deadline")
+	overstated := rounded.Clone()
+	overstated.Termination.Observed = 5
+	require.Error(t, overstated.CheckTerminal("timeout"))
 
 	rejected, _ := Plan(Request{Limits: Limits{DiskBytes: ptr(1)}}, caps)
 	require.NoError(t, rejected.CheckTerminal("unsupported_capability"))

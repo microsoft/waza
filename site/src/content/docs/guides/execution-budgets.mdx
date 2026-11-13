@@ -94,7 +94,7 @@ The terminal `budget` object has a `state`:
 |---|---|---|
 | `rejected_unsupported` | A declared limit cannot be enforced and `unsupported` is `reject` | `unsupported_capability` (exit 5), boundary `validation`, diagnostic `unsupported_budget`, `engine_calls: 0`, no identity |
 | `within_budget` | Every measured limit held | Unchanged (`success` or `evaluation_failure`) |
-| `exceeded` | A measured but unenforced limit was exceeded (only with `report`) | Unchanged; the row has `exceeded: true` |
+| `exceeded` | Measured usage exceeded a limit, but no budget stopped the attempt: an unenforced limit under `report`, or an enforced limit crossed after a request timeout or caller cancellation had already ended it | Unchanged; the row has `exceeded: true` |
 | `terminated` | An enforced limit stopped the attempt; see `termination` | `timeout` (exit 4) for `wall_time_ms`, `cancelled` (exit 3) for `model_turns`/`tool_calls`, plus diagnostic `budget_exceeded` |
 
 Each `resources[]` row repeats the host capability (`enforcement`,
@@ -109,8 +109,10 @@ carries no identity.
 Terminal readers (the native `runnerterminal` reader and the Lab) reject a budget
 report whose rows or state contradict each other or the terminal outcome: for
 example `remaining` that is not `limit - used`, a `terminated` state whose
-outcome is not `timeout`/`cancelled` for that resource, or usage on a
-`rejected_unsupported` report. Through `runner submit`, a rejected budget is
+outcome is not `timeout`/`cancelled` for that resource, a termination
+whose resource has no measured `used` or a counted `used` below
+`termination.observed` (wall time may round below a deadline recorded as
+`observed == limit`), or usage on a `rejected_unsupported` report. Through `runner submit`, a rejected budget is
 published with only the `unsupported_budget` diagnostic code (messages are
 sanitized); run `waza runner budgets` on the worker for the per-resource detail.
 `runner validate` exits 5 for the same rejection. Admission failures after

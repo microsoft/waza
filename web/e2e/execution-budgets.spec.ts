@@ -14,6 +14,19 @@ function row(page: Page, resource: string) {
   return panel(page).getByRole("table", { name: "Budget usage by resource" }).getByRole("row", { name: new RegExp(`^${resource}`) });
 }
 
+// The terminated fixture stops on model_turns (limit 0, observed 1).
+function withTurnUsage(used: number | undefined) {
+  const resources = fixture.terminated.budget.resources.map((row) => {
+    if (row.resource !== "model_turns") return row;
+    const copy: Partial<typeof row> = { ...row };
+    delete copy.used;
+    delete copy.remaining;
+    delete copy.exceeded;
+    return used === undefined ? copy : { ...copy, used, remaining: 0, exceeded: true };
+  });
+  return { ...fixture.terminated, budget: { ...fixture.terminated.budget, resources } };
+}
+
 test.describe("Lab execution budgets", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [] }));
@@ -71,6 +84,26 @@ test.describe("Lab execution budgets", () => {
       row.resource === "wall_time_ms" ? { ...row, remaining: 1 } : row);
     await readTerminal(page, { ...fixture.terminated, budget: { ...fixture.terminated.budget, resources } });
     await expect(panel(page).getByRole("alert")).toHaveText("Budget wall_time_ms remaining does not equal limit minus used.");
+    await readTerminal(page, withTurnUsage(undefined));
+    await expect(panel(page).getByRole("alert")).toHaveText("Budget termination has no measured usage.");
+    await readTerminal(page, withTurnUsage(0));
+    await expect(panel(page).getByRole("alert")).toHaveText("Budget termination contradicts its measured usage.");
+  });
+
+  test("refuses a live terminated report that understates the triggering usage", async ({ page }) => {
+    const ready = {
+      ...fixture.rejected_validation, status: "ready", validation: "valid", diagnostics: [],
+      resolved: fixture.terminated.selection, identity: fixture.terminated.identity,
+    };
+    await page.route("**/api/v1/runner/validate", (route) => route.fulfill({ json: ready }));
+    await page.route("**/api/v1/runner/run", (route) =>
+      route.fulfill({ json: withTurnUsage(0), headers: { "X-Waza-Exit-Code": "3" } }));
+    await page.getByRole("textbox", { name: "Exact work request (JSON)" }).fill(JSON.stringify(fixture.rejected_request));
+    const outcome = page.getByRole("region", { name: "Runner terminal outcome" });
+    await outcome.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    await expect(outcome.getByRole("alert")).toContainText(
+      "Runner API returned an inconsistent budget report: Budget termination contradicts its measured usage.");
+    await expect(outcome.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
   });
 
   test("refuses a contradictory budget report from a live run", async ({ page }) => {

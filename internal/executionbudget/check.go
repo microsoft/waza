@@ -73,6 +73,9 @@ func (r *Report) CheckTerminal(outcome string) error {
 			return fmt.Errorf("budget termination %s observed %d does not exceed limit %d",
 				r.Termination.Resource, r.Termination.Observed, r.Termination.Limit)
 		}
+		if err := r.Termination.checkUsage(row.Used); err != nil {
+			return err
+		}
 	}
 	switch r.State {
 	case StateRejectedUnsupported:
@@ -100,6 +103,24 @@ func (r *Report) CheckTerminal(outcome string) error {
 		}
 	default:
 		return fmt.Errorf("unknown budget state %q", r.State)
+	}
+	return nil
+}
+
+// checkUsage requires measured usage for the terminating resource. Counted
+// usage includes the triggering start, so it is at least the observation. Wall
+// time is reported as elapsed whole milliseconds, which may round below a
+// deadline the meter records as observed == limit.
+func (t *Termination) checkUsage(used *int64) error {
+	if used == nil {
+		return fmt.Errorf("budget termination %s has no measured usage", t.Resource)
+	}
+	consistent := *used >= t.Observed
+	if t.Resource == WallTime {
+		consistent = *used == t.Observed || (*used < t.Limit && t.Observed == t.Limit)
+	}
+	if !consistent {
+		return fmt.Errorf("budget termination %s observed %d contradicts used %d", t.Resource, t.Observed, *used)
 	}
 	return nil
 }

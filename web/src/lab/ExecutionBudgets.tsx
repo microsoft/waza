@@ -9,7 +9,7 @@ const stateLabels: Record<BudgetReport["state"], string> = {
   rejected_unsupported: "Rejected before execution: a declared limit is unsupported on this host",
   not_started: "Not started",
   within_budget: "Within budget",
-  exceeded: "Exceeded a measured (unenforced) limit",
+  exceeded: "Measured usage exceeded a limit without a budget-triggered termination",
   terminated: "Terminated by an enforced limit",
 };
 
