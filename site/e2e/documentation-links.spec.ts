@@ -85,10 +85,9 @@ test('all built internal page routes, fragments and image assets resolve under t
 test('pending release navigation does not promote unavailable downloads', async ({ page }) => {
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
-  await expect(main).toContainText('Current published standalone release: v0.40.1');
-  const downloads = main.locator('a[href*="/releases/download/v0.40.1/waza-"]');
+  await expect(main).toContainText('Current published standalone release: v0.41.0');
+  const downloads = main.locator('a[href*="/releases/download/v0.41.0/waza-"]');
   await expect(downloads).toHaveCount(6);
-  await expect(page.locator('a[href*="/releases/download/v0.41.0/"]')).toHaveCount(0);
   await main.getByRole('link', { name: 'Waza v0.41.0 preview: prepare the release, preserve the evidence', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0 preview: prepare the release, preserve the evidence');

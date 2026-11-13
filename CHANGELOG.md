@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.41.0] - Unreleased
+## [0.41.0] - 2026-11-13
 
-**Release-candidate preparation; publication pending.** This entry covers the
-complete v0.41.0 milestone scope merged on current `main`
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.41.0)
+and separately versioned
+[azd extension](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0)
+are published from the `v0.41.0` tag. See the
+[release article](site/src/content/docs/releases/v0-41-0.mdx) and
+[download reference](site/src/content/docs/reference/releases.mdx).
+This entry covers the complete v0.41.0 milestone scope merged on current `main`
 `efb2d2b61821d556c654075ca02f77b5f37764f1`, compared with published v0.40.1
 (`e0c251df896bee4e0f9b38a693a6105bf7eadd19`). Entries previously listed under
 Unreleased are folded in here. The published baseline is not an ancestor of
@@ -19,12 +24,11 @@ blanket parity with every historical hotfix is asserted.
 Both historical v0.40.1 tags retain `0.39.1` in `version.txt` and
 `extension.yaml`; the [release reference](site/src/content/docs/reference/releases.mdx)
 explains the tag-injected binary version. These immutable tags anchor source
-comparison, not a new binary-provenance verification. Exact target metadata
-(`0.41.0`) is committed prospectively for v0.41.0; old tags are not rewritten.
-No v0.41.0 tag, assets, date, or registry availability is asserted.
-See the [pending release article](site/src/content/docs/releases/v0-41-0.mdx)
-for pre-release readiness and the separate post-publication released-consumer
-completion requirement (#902).
+comparison, not a new binary-provenance verification. The v0.41.0 tag carries
+its exact target metadata (`0.41.0`); old tags are not rewritten. Registry
+availability follows the separate registry-sync pull request. The
+post-publication released-consumer
+completion requirement (#902) is tracked separately.
 
 ### Added
 
@@ -1016,7 +1020,7 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.40.1...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.41.0...HEAD
 [0.41.0]: https://github.com/microsoft/waza/compare/v0.40.1...v0.41.0
 [0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
 [0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5

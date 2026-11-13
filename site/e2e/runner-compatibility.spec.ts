@@ -58,19 +58,19 @@ test('release links open the bounded runner guides under /waza', async ({ page }
 test('release separates standalone assets, extension sync and image acceptance', async ({ page }) => {
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
-  await expect(main).toContainText('Current published standalone release: v0.40.1');
+  await expect(main).toContainText('Current published standalone release: v0.41.0');
   await expect(main).toContainText('azd extension artifact and registry sync are independent gates');
   await expect(main).toContainText('legacy multi-trial timeout issue #865');
   await expect(main).toContainText('post-v0.40.0 source behavior, not included in the published v0.40.0 artifacts');
   await expect(main).toContainText('v0.40.0 result writers emit 1.8; v0.39.1 writes 1.7.');
   await expect(main).toContainText('schemas remain independently versioned 1.0');
-  const downloads = main.locator('a[href*="/releases/download/v0.40.1/waza-"]');
+  const downloads = main.locator('a[href*="/releases/download/v0.41.0/waza-"]');
   await expect(downloads).toHaveCount(6);
   for (const download of await downloads.all()) {
-    await expect(download).toHaveAttribute('href', /\/releases\/download\/v0\.40\.1\/waza-/);
+    await expect(download).toHaveAttribute('href', /\/releases\/download\/v0\.41\.0\/waza-/);
   }
-  await expect(main.getByRole('link', { name: 'checksums.txt', exact: true }))
-    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/download/v0.40.1/checksums.txt');
+  await expect(main.getByRole('link', { name: 'checksums.txt', exact: true }).first())
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/download/v0.41.0/checksums.txt');
   await expect(main).toContainText('Infrastructure-owner review was waived', { ignoreCase: true });
   await expect(main.getByRole('link', { name: '#865', exact: true }))
     .toHaveAttribute('href', 'https://github.com/microsoft/waza/issues/865');

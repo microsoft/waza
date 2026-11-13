@@ -17,8 +17,8 @@ Function key in the browser. See [scope, privacy, and integration handoff](site/
 → [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
 Mock success checks the harness, not agent quality or live service safety.
 
-**Version boundary (November 6, 2026):** the published standalone CLI is
-`v0.40.1` ([release](https://github.com/microsoft/waza/releases/tag/v0.40.1)). Scenario authoring, preflight, selected-file evidence,
+**Version boundary (November 13, 2026):** the published standalone CLI is
+`v0.41.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.41.0)). Scenario authoring, preflight, selected-file evidence,
 assurance profiles, controlled release policies, recorded reliability, and the
 opt-in dashboard Lab were introduced in `v0.39.0` and remain included.
 Install the published binary or run `waza update`; a source build is optional.
@@ -57,6 +57,11 @@ The exact-unit runner deadlines do not fix the legacy multi-trial timeout issue
 [#865](https://github.com/microsoft/waza/issues/865). The later timeout/persistence
 fix [#870](https://github.com/microsoft/waza/pull/870) is post-v0.40.0 source behavior,
 not included in the published v0.40.0 artifacts.
+
+**v0.41.0 adds** durable execution, recovery and aggregation, the optimizer
+adapter contract, native question callbacks, and dashboard, capture, build and
+CI improvements; see the [changelog](CHANGELOG.md#0410---2026-11-13) and
+[release reference](site/src/content/docs/reference/releases.mdx).
 
 ## Installation
 
