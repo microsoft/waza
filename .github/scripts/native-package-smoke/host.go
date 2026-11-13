@@ -60,12 +60,13 @@ func requireNativeHost(p platform, h host) error {
 func darwinTranslated() (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "sysctl", "-n", "sysctl.proc_translated").Output()
+	// -i prints nothing for an unknown OID: Intel Macs lack Rosetta and its OID.
+	out, err := exec.CommandContext(ctx, "sysctl", "-n", "-i", "sysctl.proc_translated").Output()
 	if err != nil {
 		return false, fmt.Errorf("sysctl.proc_translated: %w", err)
 	}
 	switch strings.TrimSpace(string(out)) {
-	case "0":
+	case "", "0":
 		return false, nil
 	case "1":
 		return true, nil
