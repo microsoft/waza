@@ -107,6 +107,10 @@ func (m *Meter) count(resource Resource, counter *int64) {
 func (m *Meter) Err() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.errLocked()
+}
+
+func (m *Meter) errLocked() error {
 	if m.termination != nil {
 		return &ExceededError{Termination: *m.termination}
 	}
@@ -118,11 +122,13 @@ func (m *Meter) Err() error {
 }
 
 // Finish stops enforcement and returns the measured terminal report. Later
-// observer calls are ignored.
+// observer calls are ignored. The wall timer is stopped before the terminal
+// cause is read, so a deadline cannot fire unrecorded after the report is built.
 func (m *Meter) Finish() *Report {
-	wallErr := m.Err()
 	m.mu.Lock()
 	m.finished = true
+	m.stopWall()
+	wallErr := m.errLocked()
 	elapsed := m.now().Sub(m.start).Milliseconds()
 	after := m.sampler()
 	report := m.plan
@@ -135,7 +141,6 @@ func (m *Meter) Finish() *Report {
 	}
 	turns, tools := m.turns, m.tools
 	m.mu.Unlock()
-	m.stopWall()
 	m.cancel(nil)
 
 	report.State = StateWithinBudget

@@ -325,12 +325,11 @@ func metered(ctx context.Context, input *admitted, attempt func(context.Context)
 	}
 	ctx, meter := executionbudget.Start(ctx, *input.budget)
 	result := attempt(execution.WithActivityObserver(ctx, meter))
-	enforced := meter.Err()
 	result.budget = meter.Finish()
 	// A limit reached after the engine returned (for example during grading)
 	// still ends the attempt as enforced rather than as a success.
-	if enforced != nil && result.failure == nil {
-		result.executionError("execution", enforced)
+	if termination := result.budget.Termination; termination != nil && result.failure == nil {
+		result.executionError("execution", &executionbudget.ExceededError{Termination: *termination})
 	}
 	return result
 }

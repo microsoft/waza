@@ -169,6 +169,23 @@ func TestCountedAndWallBudgetsTerminateFakeEngines(t *testing.T) {
 	}
 }
 
+func TestWallBudgetReachedAfterEngineReturnsEndsAttempt(t *testing.T) {
+	report, input := admit(budgeted(t, executionbudget.Request{Limits: executionbudget.Limits{WallTimeMS: limit(20)}}))
+	require.NotNil(t, input)
+	report.Mode = "mock"
+	engine := &instrumented{AgentEngine: execution.NewMockEngine(input.spec.Config.ModelID)}
+	report = metered(t.Context(), input, func(ctx context.Context) Report {
+		result := execute(ctx, report, input, engine)
+		<-ctx.Done()
+		return result
+	})
+	envelope, binding := terminal(report)
+	require.Equal(t, runnerterminal.Timeout, envelope.Outcome, "%+v", envelope)
+	require.Equal(t, executionbudget.StateTerminated, envelope.Budget.State)
+	require.Equal(t, executionbudget.WallTime, envelope.Budget.Termination.Resource)
+	encodeTerminal(t, envelope, binding)
+}
+
 func TestRequestsWithoutBudgetsCarryNoBudgetReport(t *testing.T) {
 	envelope, _ := NewService(nil).RunTerminal(t.Context(), wire(t, fixture(t)))
 	require.Equal(t, runnerterminal.Success, envelope.Outcome)
