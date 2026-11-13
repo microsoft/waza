@@ -848,8 +848,7 @@ func checkAuxiliaryReceiptJob(source []byte, family string, spec receiptJob) err
 		(input.Required.Present && input.Required.Value != "false") {
 		return fmt.Errorf("%s completeness plan input must remain optional and inactive", label)
 	}
-	// Docker keeps its standalone trigger for the separately admitted edited-body benchmark.
-	if _, ok := triggers["pull_request"]; ok != (family == "container") {
+	if _, ok := triggers["pull_request"]; ok {
 		return fmt.Errorf("%s pull requests must run only through the Go completeness caller", label)
 	}
 	if _, ok := triggers["push"]; !ok {
@@ -1115,16 +1114,12 @@ func TestAuxiliaryValidationReceiptWiring(t *testing.T) {
 				mutations = append(mutations, struct {
 					old         string
 					replacement string
-				}{"        id: native\n", "\n"}, struct {
-					old         string
-					replacement string
-				}{"  pull_request:\n    branches: [main]\n    types: [opened, synchronize, reopened, edited]\n    paths: *docker-paths\n", ""})
-			} else {
-				mutations = append(mutations, struct {
-					old         string
-					replacement string
-				}{"on:\n", "on:\n  pull_request:\n"})
+				}{"        id: native\n", "\n"})
 			}
+			mutations = append(mutations, struct {
+				old         string
+				replacement string
+			}{"on:\n", "on:\n  pull_request:\n"})
 			for _, mutation := range mutations {
 				mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
 				if mutated == string(source) {

@@ -465,11 +465,6 @@ jobs:
   container:
     needs: [pr-scope]
     if: needs.pr-scope.outputs.container == 'true'
-    # Reusable-workflow validation needs the caller to cover nested job
-    # permissions, including the PR-only cache measurement job.
-    permissions:
-      contents: read
-      actions: read
     uses: ./.github/workflows/docker-ci.yml
     with:
       pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}

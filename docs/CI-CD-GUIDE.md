@@ -80,251 +80,16 @@ captured request imported by Lab selection validation. Keep its explicit
 in sync. `go test -count=1 ./.github/scripts` checks these build inputs; an
 actual Docker build is still required to verify container packaging.
 
-### PR #836 bounded container-cache measurement
+### Container Go caches
 
-The existing Docker workflow also has a **parent-operated, opt-in measurement**
-for #835/#836. Ordinary `opened`, `synchronize`, `reopened` and push validation
-retain their original steps, action pins, permissions and deadlines. The added
-`edited` event excludes those two ordinary jobs; a title edit does not launch a
-measurement. This is not `workflow_dispatch`, `pull_request_target`, a label
-trigger or a default-branch activation change.
-The skipped ordinary jobs use distinct metadata-only names on these direct
-edited events, so they cannot supersede same-head ordinary check receipts.
-All ordinary-event job names remain unchanged. The measurement's separate
-serial group never cancels ordinary validation.
+The `Dockerfile` reuses Go module and build caches through BuildKit cache mounts
+(`waza-go-mod`, `waza-go-build`, #835). The mounts persist on the same builder,
+not in exported layers, so the Docker build verifies that `/go/pkg/mod`,
+`/root/.cache/go-build` and `/build` are absent from the runtime image.
+`TestDockerRunnerBuildInputs`, `TestDockerGoCacheContract` and
+`TestDockerRuntimeCacheProbe` check these inputs. The one-off #836 cache measurement harness was removed once #836
+merged; its evidence stays on that PR (run 43475352771).
 
-After reviewing the published candidate's source and fresh applicable CI, the
-landing coordinator must separately authorize one measurement. Only `spboyer`
-may append one canonical, standalone authorization comment to #836's **full
-existing body**, preserving the repository template and all its evidence:
-
-```text
-<!-- waza-cache-measurement:v1 candidate=FULL_HEAD_SHA baseline=eda88ccd7d2a59fefafa7662a95828c9977dbc16 request=NEW_UUID_V4 -->
-```
-
-Replace the two placeholders with the exact published 40-character lowercase
-head SHA and a new lowercase UUID v4 allocated by the parent for this request.
-The baseline is the owner-approved current-main pin, not the historical A69
-experiment. The unchanged source-difference allowlist still rejects unrelated
-changes. Historical markers are not valid requests under this pin; never rewrite
-one during a routine handoff or treat the baseline correction as activation.
-Before the body edit, verify identity/access, open/unmerged state, disabled
-GitHub auto-merge, expected head/base and live body. Use the guarded REST PR-body
-editing tool with the live `base_sha`; a concurrent edit requires a fresh read,
-not an overwrite. Do not insert the marker during routine handoff updates.
-
-The sole measurement job requires a real `changes.body.from` string, prefix
-absent in the old body and present exactly once in the new body, a canonical
-marker, same-repository source, actor `spboyer`, attempt 1, and event/live/head
-agreement. Marker-retaining edits, removal, duplicates, stale heads, forks,
-other actors and reruns cannot enter the build loop. Read-only GitHub admission
-rejects prior non-skipped measurement jobs for the candidate and retained
-artifacts for the request nonce. Concurrency is an additional serialisation
-guard, **not an exactly-once delivery guarantee**. Deleted/expired artifacts are
-not an enduring nonce registry; never reuse a request nonce.
-Only this new job adds `actions: read` beside `contents: read` for its read-only
-run/artifact inventory checks; ordinary-job permissions remain unchanged.
-
-One genuine LFS checkout supplies two immutable input snapshots: frozen baseline
-`eda88ccd7d2a59fefafa7662a95828c9977dbc16` and the actual new candidate, not
-historical `cdfd`. Manifests admit every selected difference, Git blob/mode,
-compiler/web/dependency input and all 32 real LFS payloads. Unexpected source
-differences, sensitive filenames, symlinks and missing/mismatched payloads fail
-admission. There are no copied
-module caches, alternate registries, TLS relaxations, host networking or
-inference calls.
-
-The native AMD64 harness resolves and records the same immutable Node, Go,
-Alpine, frontend and BuildKit platform digests for A and B. Six fresh,
-invocation-owned BuildKit daemons with `remote` Buildx registrations execute
-AB/BA/AB, at most 12 builds.
-Each variant retains only its cold-to-warm state; the warm build adds the same
-real Go input for that round and must execute the production compile while
-reusing both npm/web layers. No GHA/layer cache import/export, extra calibration
-build or shared prune is permitted.
-The predefined [`BUILDKIT_SYNTAX` frontend selector](https://docs.docker.com/build/buildkit/frontend/)
-pins the frontend without altering the canonical Dockerfiles. Build logs must
-show that exact frontend resolution and each pinned base-context resolution;
-an unrelated digest string is not sufficient.
-
-The explicit-daemon candidate avoids Buildx 0.38.1's managed-driver injection
-of `network.host`: it copies an exact deny-entitlement configuration into the
-returned container ID, verifies copied and effective bytes, then verifies
-native workers before registering `docker-container://<owned-ID>` as a remote
-endpoint. It never supplies a denial sentinel, relaxes the entitlement guard,
-uses host networking or mounts a host config/socket/root/device. Rootful
-`Privileged=true` and `Init=true` are explicit parity with the tagged managed
-producer's intent, **not observed baseline equivalence, human-reviewed native
-privilege approval or improved security isolation**. Actual privilege, caps,
-security options, mounts, network, config, workers and cgroups are captured
-before admission and retained on failure.
-
-Every Buildx command, probe and logged client receives an absolute invocation-
-private `BUILDX_CONFIG`. Its leaf is acquired by nonrecursive exclusive
-`mkdir` requesting `0700` under the admitted private evidence directory;
-preexisting leaves and detected parent/leaf identity or permission changes
-fail without shared metadata fallback. Fresh registration omits `--node` and
-`--append`, avoiding the tagged Create API's existing-node upsert. Docker
-configuration, credentials and contexts are not copied or overridden.
-These are leaf acquisition and path/dev/ino checks, **not rooted-handle race
-protection, exhaustive verification of unread Buildx store internals or
-observed native metadata isolation**. Populated private metadata descendants
-are retained, never recursively deleted. Unix permission enforcement is not
-inferred from authored Windows mode bits.
-
-Each daemon gets a Docker-created anonymous, no-copy state volume, with no
-caller-supplied volume name. Docker documents
-[anonymous volumes](https://docs.docker.com/engine/storage/volumes/#named-and-anonymous-volumes)
-as unique and not automatically reused across containers; the returned
-container ID, anonymous mount specification and local volume metadata must
-all agree. This creation-coupled attribution is not a named-volume exclusive
-creation primitive or a race-free filesystem transaction.
-
-Actual container admission requires two CPUs, 8 GiB and zero swap. The 60-minute
-aggregate budget starts **before checkout/setup** and includes runtime capture
-and cleanup; each build is limited to six minutes and remaining aggregate
-budget minus two minutes for cleanup. The job's 65-minute deadline accommodates
-evidence upload, not a longer experiment. Five-second owned-storage/host-free
-sampling stops above 18 GiB owned or below 20 GiB host free, or on accounting
-failure. GC16GB and a 2 GiB margin are **monitored controls, not a hard20GiB
-quota**; unsampled transient overruns remain possible. Shared-host load is
-recorded, never assumed quiet.
-The active cache-size probe (`du -sk /var/lib/buildkit`) retries up to three
-times only when `du` exits 1 and every error line reports a vanished
-`/var/lib/buildkit/...` path (`No such file or directory`), because BuildKit may
-remove snapshots mid-walk. Each retry is recorded in the builder cgroup
-observations; any other error, or a third failure, still stops the run.
-Cache usage is refreshed after each completed build and immediately before
-pausing its daemon for runtime/binary capture. Over-limit growth stops before
-capture; the paused sampler retains that pre-pause cache observation while
-resampling context/artifact storage and host free space. This remains sampled
-accounting, not an atomic storage quota.
-Active and paused accounting both exclude daemon images present in the initial
-inventory and charge images absent from that inventory.
-Cancellation still permits owned cleanup, but its terminal stop reason is
-retained in the final failure list and requires a nonzero exit even when all
-twelve timed attempts completed before cancellation.
-Command, probe and logged clients share one asynchronously awaited runner;
-no synchronous subprocess path remains in admission, startup, sampling,
-build/capture or teardown. Captured outputs are bounded to 16 MiB per client;
-output-limit, cancellation and process-error events initiate termination,
-not a claim of physical close. Active resource probes have bounded deadlines;
-a sample still pending at a five-second tick skips that tick and records it in
-`samplerOverruns` (up to three consecutive ticks, within the 15-second probe
-deadline); a fourth consecutive overrun stops the allocation rather than
-silently dropping accounting. Build termination and its five-second
-force-kill grace do not wait for a blocking Docker inspection. Build elapsed
-time is captured on child completion, before cancelled probes are joined.
-Create, config-copy, start, worker readiness and remote registration share one
-absolute six-minute-or-remaining-minus-cleanup deadline, never a fresh budget
-per stage. Startup is sampled too. Readiness probes are bounded by 15 seconds
-and that deadline; only classified connection-not-ready errors can poll, at
-most 16 times, including BuildKit's `failed to list workers:` wrapper without
-retrying permanent RPC errors. Worker JSON uses the upstream `id` and `platforms`
-fields; the retained receipt must contain a valid Linux/AMD64 platform.
-Empty or non-native workers, config drift, process errors and
-expired/hung probes stop before timing. No restart or replacement builder is
-attempted. Probes retain immediate force-kill on failure; command/logged
-clients retain TERM then force-KILL after five seconds. Post-KILL physical-close
-joins have at most five seconds, shortened by the remaining aggregate budget.
-All grace is included in elapsed evidence and consumes the existing cleanup
-reserve, not a reset or extension of business deadlines. An unjoined client leaves
-locatable residue and blocks destructive teardown rather than extending the
-allocation or pretending cleanup succeeded.
-Errors with a live client, failures before a PID is observed, physical close
-and late close are recorded distinctly. A still-live client remains registered
-after finite failure; abandoned capture handles are closed/unreferenced without
-claiming termination. Logs/digests disclose incomplete capture when a client
-does not join or exceeds its output cap; a late close cannot retroactively make
-abandoned bytes complete. Final complete capture requires observed physical
-close. Hung sampler joins are also bounded and block destructive cleanup.
-The budget starts before checkout. Only successful exclusive result-directory
-creation and identity capture export its path and identity to later steps;
-collisions export neither and cannot select competing public files for upload.
-Exports precede receipt writing so an owned partial setup failure remains
-upload-eligible. An initial setup receipt normally exists even if checkout or
-host-tool setup fails; receipt-write failure is not complete setup evidence.
-This sampled path identity does not provide rooted-handle race protection or
-transactional artifact publication.
-The outer existing-coreutils watchdog sends TERM at minute58 and KILL at
-minute60, reserving two minutes for cooperative owned cleanup and bounding
-blocked controller I/O. A forced kill can leave recorded owned residue and
-incomplete cleanup evidence; it is not reported as successful teardown.
-
-Portable Node activation, source, ownership and workflow controls remain
-selected on Windows. The separate `Windows offline container cache controls`
-job directly runs `node --test .github/scripts/docker_cache_benchmark.test.mjs`
-on container-applicable opened, synchronize and reopened PR events. It uses
-pinned checkout and Node 24 actions, read-only permissions and a ten-minute
-deadline, without LFS, npm, Docker or provider execution. Push and edited-only
-events receive a distinct skipped-job name instead of overwriting native proof.
-The shared trigger filter includes the benchmark implementation, its Node
-controls and `.gitattributes`, which affects LFS/source admission. Single-file
-PRs for these inputs deliberately select the unchanged ordinary Docker jobs
-as well as Windows controls; no separate workflow or job policy is added.
-Native Windows executed 35 controls (34 passed, one POSIX skip) for published
-`ed4e7ad3`; that proves its trigger/callback source, not this private
-explicit-daemon candidate. Candidate Windows execution remains pending
-separate publication admission. Green canonical Go CI does not prove this hidden
-`.github/scripts` bridge ran on Windows.
-Only executable-shebang/POSIX-shell and actual ignored-POSIX-SIGTERM controls report an
-explicit Windows skip; native measurement still requires Linux AMD64.
-Workflow text oracles accept LF and CRLF, but Git blob, payload and recipe
-digests retain original bytes. Canonical Git modes remain recorded on every
-host; executable filesystem modes are verified on the admitted POSIX host,
-not inferred from Windows writable-file mode bits.
-
-Every failed/timed-out attempt and partial round is retained without retry.
-Loaded-image static/version/cache-path checks, actual binaries/buildinfo and
-generated web asset bytes are captured without extra export builds. Asset
-capture reads completed, invocation-owned BuildKit snapshots; unsupported,
-missing or ambiguous snapshots fail rather than inventing asset identity.
-Original URL-query-bearing logs remain private; durable public logs are
-query-redacted and accompanied by original byte digests. The pinned repository
-artifact action uploads partial/final evidence even on failure only when both
-the acquired result path and identity are nonempty. Cleanup checks
-owned resource identities, records failures/residue and never prunes shared
-objects. A creation attempt is not ownership: the returned daemon ID, remote
-private metadata-root identity/binding and anonymous cache attribution are independently acquired.
-Physically joined clients and samplers precede teardown; matching remote metadata is removed separately
-from the exact daemon ID. Metadata failure does not block safe independent
-daemon cleanup. Only a still-matching, creation-coupled anonymous mount/volume
-permits Docker's container-coupled `rm -v`; uncertain caches are retained while
-the verified daemon can be removed without `-v`. Cache absence is checked and
-remaining or replaced volumes are never deleted by name. Failed/colliding
-creation leaves locatable, unverified possible partials without adopting or
-deleting matching competitors. Removal errors are retained, not retried away.
-
-The two admitted source snapshots remain immutable. Each variant/round gets a
-separate byte-verified working context so warm Go inputs need no unlink/reset
-between rounds. All populated source/working contexts, private Buildx metadata and raw logs are
-retained for ephemeral hosted-runner teardown, not recursively deleted by the
-harness: a matching directory root does not prove descendant ownership. Their
-storage remains sampled throughout the allocation. Upload explicitly selects
-public receipts, redacted logs, binaries and generated assets; it excludes
-contexts and private raw directories. Retention may exhaust the storage budget
-before all 12 builds; no complete filesystem cleanup within the experiment is
-claimed. Shared pinned tool/base images are also
-retained regardless of initial absence or current container references; those
-observations do not establish exclusive ownership. Docker artifact and acquired
-builder/container/cache-volume cleanup still verifies recorded identities and
-reports failures/residue. Three complete paired rounds are necessary for
-medians; no invented
-speedup threshold or automatic merge/acceptance decision is provided.
-
-Run the offline controls with
-`NO_COLOR=1 node --test .github/scripts/docker_cache_benchmark.test.mjs`.
-Existing `.github/scripts` Go CI selects them through
-`TestDockerCacheMeasurementOfflineControls`. These tests use synthetic commands
-and events, not Docker, npm, Go builds or providers; they do not establish
-measurement availability or measured improvement. The original local failed
-baseline and separate npm-network diagnosis remain historical, distinct
-evidence. The activated `ed4e7ad3` allocation failed before timing because the
-managed driver granted `network.host`; it produced zero attempts or pairs.
-That source/nonce cannot be retried. The explicit-daemon candidate has authored
-offline caller controls only: publication, complete required checks and a new
-actual native allocation each require separate admission. #835 acceptance stays
-open until the parent reviews genuine results.
 ## Proposed PR completeness gate
 
 Issue #900 adds an **additive gate, not a replacement for native Go checks**.
@@ -408,9 +173,9 @@ The dashboard, site/examples, assurance, tools and runtime workflows no longer
 have standalone `pull_request` triggers. Pull requests reach them only through
 these plan-selected `go-ci.yml` callers, so each suite runs once per PR attempt
 and now covers stacked PRs on any base. Their `push`, `workflow_dispatch` and
-`workflow_call` entrypoints are unchanged. `docker-ci.yml` keeps its standalone
-path-filtered trigger for the separately admitted edited-body benchmark, so
-container validation can still run twice on Docker-relevant PRs.
+`workflow_call` entrypoints are unchanged. `docker-ci.yml` follows the same
+rule: pull requests run container validation once, through the `container`
+caller. Its path-filtered `push` trigger on `main` is unchanged.
 
 Receipt capture stays fail-closed. If GitHub builds the merge commit after
 `main` advanced, the payload `base.sha` is stale and source binding rejects it
@@ -564,9 +329,7 @@ Body/title-only PR edits must use **distinct check names and concurrency** and
 must not publish ordinary completeness success or cancel active validation.
 Base-retarget edits require new head/base/tested-merge validation. Pushes and
 manual cold/performance observations must not create a skipped or successful
-ordinary `PR completeness` context. Docker's separately admitted edited-body
-benchmark is not a completeness prerequisite or a substitute for normal image
-and native-runner proof.
+ordinary `PR completeness` context.
 
 The retarget classifier follows the [pinned Octokit edited-event contract](https://github.com/octokit/webhooks/blob/aa80c24a3f55354465b8b1438d33dd5602956d0d/payload-schemas/api.github.com/pull_request/edited.schema.json):
 both old base `ref.from` and `sha.from` are required. The current base ref must
