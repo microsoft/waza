@@ -588,7 +588,7 @@ test('v0.41 features are labeled as released in v0.41.0', () => {
     'site/src/content/docs/concepts.mdx'];
   for (const path of paths) {
     assert.doesNotMatch(read(path),
-      /unreleased v0\.41|v0\.41 source preview|unreleased (?:source|checkpoint|execution-lineage)|source preview for #|not (?:in|available in) installed v0\.40\.1/i, path);
+      /unreleased v0\.41|source preview|embedding preview|unreleased (?:source|checkpoint|execution-lineage)|source-only attempt|\bsource Lab\b|not (?:in|available in) installed v0\.40\.1/i, path);
   }
 });
 

@@ -214,7 +214,7 @@ the existing `RESULTS_DIR/.waza-artifacts` store or its configured Azure provide
 request JSON cannot select host paths or provider locations. Unsupported active
 providers fail closed. No raw checkpoint GET endpoint is exposed.
 
-The source Lab's **Runner contract** page explicitly creates or resumes one unit,
+The Lab's **Runner contract** page explicitly creates or resumes one unit,
 shows compatibility, source withholding, original terminal outcome/ordinal, retry
 parent or reuse source, and separate new/original engine-call counts. Unknown
 progress stays unavailable; recorded zero stays zero. It downloads the exact

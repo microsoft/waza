@@ -11,9 +11,11 @@ declared bytes, and finalize only after verification. The store verifies content
 and caller-declared context; it does not run an evaluation or attest that it
 happened.
 
-## Logical attempts: embedding preview
+<span id="logical-attempts-embedding-preview"></span>
 
-The source-only attempt layer separates logical run/work (`Identity.Run` and
+## Logical attempts
+
+The attempt layer separates logical run/work (`Identity.Run` and
 `Identity.Trial`) from a fresh opaque execution ID and the original native
 attempt ordinal. A distinct submission reserves before constructing a runtime.
 Concurrent duplicates create separate immutable attempts, each manifest-bound
@@ -249,7 +251,7 @@ an active supported Azure storage configuration. Request JSON cannot choose
 host paths or credentials. Unsupported active providers fail closed; no raw
 checkpoint GET endpoint is available.
 
-In the source Lab, open **Runner contract** and **Create or resume an exact-unit
+In the Lab, open **Runner contract** and **Create or resume an exact-unit
 checkpoint**. Supply the same captured submission and, for resume, the original
 checkpoint digest. The panel separates new calls from original terminal calls,
 preserves failed original outcomes, and shows retry parents or reuse sources

@@ -20,7 +20,7 @@ test('checkpoint source commands link to bounded recovery and protected HTTP lim
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint create' })).toContainText('schema_version:"1.0"');
   await expect(content.locator('pre').filter({ hasText: 'waza runner checkpoint resume' })).toContainText('restored-result.json');
   await page.goto('/waza/guides/dashboard-lab/');
-  const image = page.getByRole('img', { name: 'Source Lab showing a recorded protected mock API response: failed original terminal reused with zero new calls and exact JSON download.' });
+  const image = page.getByRole('img', { name: 'Lab showing a recorded protected mock API response: failed original terminal reused with zero new calls and exact JSON download.' });
   await expect(image).toBeVisible();
   expect(new URL((await image.getAttribute('src'))!, page.url()).pathname).toBe('/waza/images/dashboard-lab-checkpoint.png');
   expect(await image.evaluate((img) => img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0)).toBe(true);
@@ -29,7 +29,7 @@ test('checkpoint source commands link to bounded recovery and protected HTTP lim
 
 test('attempt preview links serve exact independent sidecar schemas below the deployed base', async ({ page, request }) => {
   await page.goto('/waza/guides/immutable-artifacts/');
-  await expect(page.getByRole('heading', { name: 'Logical attempts: embedding preview', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Logical attempts', exact: true })).toBeVisible();
   for (const [label, filename] of [
     ['attempt/decision schema', 'execution-attempt-1.0.schema.json'],
     ['completion schema', 'execution-completion-1.0.schema.json'],
