@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/inventory"
 	"github.com/microsoft/waza/internal/provenance"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/spf13/cobra"
@@ -180,6 +181,7 @@ func newProvenanceVerifyCommand() *cobra.Command {
 	var bundleDir string
 	var publicKeys []string
 	var opts provenance.Options
+	var requireInventory bool
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify a provenance bundle offline and print a verification report",
@@ -205,6 +207,9 @@ bind declared claims to what the verifier consumed.`,
 				}
 				opts.Verifier = verifier
 			}
+			if requireInventory {
+				opts.RequireBindingKinds = []string{inventory.BindingKind}
+			}
 			src, closeSrc, err := provenance.OpenDir(bundleDir)
 			if err != nil {
 				return &ExitCodeError{Code: 2, Err: err}
@@ -226,6 +231,7 @@ bind declared claims to what the verifier consumed.`,
 	f.StringVar(&opts.ExpectImageDigest, "expect-image-digest", "", "Require the signed runner image digest to equal this consumed digest")
 	f.StringVar(&opts.ExpectWazaVersion, "expect-waza-version", "", "Require the signed Waza version to equal this value")
 	f.StringVar(&opts.ExpectPolicySHA256, "expect-policy-sha256", "", "Require the signed policy digest to equal this hex sha256")
+	f.BoolVar(&requireInventory, "require-inventory", false, "Fail unless the bundle binds a component inventory for the signed runner image")
 	_ = cmd.MarkFlagRequired("bundle")
 	return cmd
 }

@@ -16,7 +16,7 @@ func TestRunPublication(t *testing.T) {
 		"valid", "failed finalization", "canceled run", "incomplete run", "later successful attempt",
 		"wrong source", "wrong repository", "wrong workflow", "wrong branch", "wrong event",
 		"missing publisher job", "skipped publisher job", "missing final guard", "failed final guard",
-		"skipped attestation", "skipped summary", "duplicate publisher job",
+		"skipped attestation", "skipped summary", "skipped inventory", "duplicate publisher job",
 		"wrong digest", "wrong subject", "wrong predicate", "missing invocation", "foreign invocation",
 		"invalid JSON", "no attestations", "API failure", "invalid run JSON", "invalid jobs JSON",
 	} {
@@ -32,6 +32,7 @@ func TestRunPublication(t *testing.T) {
 				{"jobs": [{"name": "Publish reviewed Linux AMD64 image", "status": "completed", "conclusion": "success",
 					"steps": [
 						{"name": "Attest published image digest", "status": "completed", "conclusion": "success"},
+						{"name": "Attest runner image component inventory", "status": "completed", "conclusion": "success"},
 						{"name": "Revalidate protected main after push and attestation", "status": "completed", "conclusion": "success"},
 						{"name": "Record pushed candidate digest", "status": "completed", "conclusion": "success"}
 					]}]}
@@ -72,12 +73,12 @@ func TestRunPublication(t *testing.T) {
 				jobsJSON = strings.ReplaceAll(jobsJSON, `"conclusion": "success"`, `"conclusion": "skipped"`)
 			case "missing final guard":
 				jobsJSON = strings.ReplaceAll(jobsJSON, "Revalidate protected main after push and attestation", "other step")
-			case "failed final guard", "skipped attestation", "skipped summary":
+			case "failed final guard", "skipped attestation", "skipped summary", "skipped inventory":
 				var pages []publicationJobs
 				if err := json.Unmarshal([]byte(jobsJSON), &pages); err != nil {
 					t.Fatal(err)
 				}
-				index := map[string]int{"failed final guard": 1, "skipped attestation": 0, "skipped summary": 2}[name]
+				index := map[string]int{"failed final guard": 2, "skipped attestation": 0, "skipped inventory": 1, "skipped summary": 3}[name]
 				pages[1].Jobs[0].Steps[index].Conclusion = "failure"
 				encoded, err := json.Marshal(pages)
 				if err != nil {

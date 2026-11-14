@@ -1,0 +1,33 @@
+Package: bash
+Status: install ok installed
+Priority: required
+Architecture: amd64
+Version: 5.2.15-2+b7
+Description: GNU Bourne Again SHell
+ Bash is an sh-compatible command language interpreter.
+
+Package: removed-tool
+Status: deinstall ok config-files
+Architecture: amd64
+Version: 1.0-1
+
+Package: libc6
+Status: install ok installed
+Architecture: amd64
+Multi-Arch: same
+Version: 2.36-9+deb12u10
+
+Package: tzdata
+Status: install ok installed
+Architecture: all
+Version: 2025b-0+deb12u1
+
+Package: ca-certificates
+Status: install ok installed
+Architecture: all
+Version: 20230311+deb12u1
+
+Package: perl-base
+Status: install ok installed
+Architecture: amd64
+Version: 1:5.36.0-7+deb12u2

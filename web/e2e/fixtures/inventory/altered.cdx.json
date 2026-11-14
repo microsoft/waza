@@ -1,0 +1,72 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "image:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "type": "container",
+      "name": "ghcr.io/microsoft/waza-runner-reference",
+      "purl": "pkg:oci/waza-runner-reference@sha256%3A1111111111111111111111111111111111111111111111111111111111111111?repository_url=ghcr.io/microsoft/waza-runner-reference",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ]
+    },
+    "properties": [
+      {
+        "name": "waza:inventory.profile",
+        "value": "waza.component-inventory/1.0"
+      },
+      {
+        "name": "waza:subject.kind",
+        "value": "image"
+      }
+    ]
+  },
+  "components": [
+    {
+      "bom-ref": "operating-system/debian@12",
+      "type": "operating-system",
+      "name": "debian",
+      "version": "12"
+    },
+    {
+      "bom-ref": "pkg:deb/debian/bash@9.9-5.2.15-2+b7?arch=amd64\u0026distro=debian-12",
+      "type": "library",
+      "name": "bash",
+      "version": "5.2.15-2+b7",
+      "purl": "pkg:deb/debian/bash@5.2.15-2+b7?arch=amd64\u0026distro=debian-12"
+    },
+    {
+      "bom-ref": "pkg:deb/debian/ca-certificates@20230311+deb12u1?arch=all\u0026distro=debian-12",
+      "type": "library",
+      "name": "ca-certificates",
+      "version": "20230311+deb12u1",
+      "purl": "pkg:deb/debian/ca-certificates@20230311+deb12u1?arch=all\u0026distro=debian-12"
+    },
+    {
+      "bom-ref": "pkg:deb/debian/libc6@2.36-9+deb12u10?arch=amd64\u0026distro=debian-12",
+      "type": "library",
+      "name": "libc6",
+      "version": "2.36-9+deb12u10",
+      "purl": "pkg:deb/debian/libc6@2.36-9+deb12u10?arch=amd64\u0026distro=debian-12"
+    },
+    {
+      "bom-ref": "pkg:deb/debian/perl-base@1%3A5.36.0-7+deb12u2?arch=amd64\u0026distro=debian-12",
+      "type": "library",
+      "name": "perl-base",
+      "version": "1:5.36.0-7+deb12u2",
+      "purl": "pkg:deb/debian/perl-base@1%3A5.36.0-7+deb12u2?arch=amd64\u0026distro=debian-12"
+    },
+    {
+      "bom-ref": "pkg:deb/debian/tzdata@2025b-0+deb12u1?arch=all\u0026distro=debian-12",
+      "type": "library",
+      "name": "tzdata",
+      "version": "2025b-0+deb12u1",
+      "purl": "pkg:deb/debian/tzdata@2025b-0+deb12u1?arch=all\u0026distro=debian-12"
+    }
+  ]
+}

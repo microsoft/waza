@@ -32,6 +32,9 @@ type Options struct {
 	ExpectWazaVersion string
 	// ExpectPolicySHA256 pins the policy document digest.
 	ExpectPolicySHA256 string
+	// RequireBindingKinds fails verification unless the statement binds at
+	// least one member of each listed kind (for example component-inventory).
+	RequireBindingKinds []string
 }
 
 type Report struct {
@@ -470,6 +473,12 @@ func (v *verification) verifyArtifacts(p Predicate) {
 }
 
 func (v *verification) verifyBindings(s *Statement) {
+	for _, kind := range v.opts.RequireBindingKinds {
+		if !slices.ContainsFunc(s.Predicate.Bindings, func(b Binding) bool { return b.Kind == kind }) {
+			v.set("bindings", "failed", "binding_required_missing", "statement binds no %s member, which the verifier requires", kind)
+			return
+		}
+	}
 	if len(s.Predicate.Bindings) == 0 {
 		v.passed("bindings", "none", "no additional bindings")
 		return
@@ -490,7 +499,12 @@ func (v *verification) verifyBindings(s *Statement) {
 			return
 		}
 		if err := verifier.Verify(b, data, s); err != nil {
-			v.set("bindings", "failed", "binding_invalid", "%s binding %s: %v", b.Kind, b.Path, err)
+			code := "binding_invalid"
+			var coded interface{ BindingCode() string }
+			if errors.As(err, &coded) && checkCode.MatchString(coded.BindingCode()) {
+				code = coded.BindingCode()
+			}
+			v.set("bindings", "failed", code, "%s binding %s: %v", b.Kind, b.Path, err)
 			return
 		}
 	}

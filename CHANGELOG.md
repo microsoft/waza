@@ -23,6 +23,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pushes to `main` and on demand. Tag releases run the smoke on published
   packages as reported evidence, not yet as a publication gate.
 
+- **Runner image and plugin component inventories (#770).** `waza runner
+  inventory generate` writes a deterministic CycloneDX 1.6 inventory (profile
+  `waza.component-inventory/1.0`) from Go build information, the dpkg status
+  database, os-release, the bundled Copilot CLI and runtime payloads (recorded
+  only when embedded byte-for-byte in the binary), hashed files and imported
+  CycloneDX components, bound to
+  an immutable image or plugin sha256 digest. `waza runner inventory verify`
+  checks offline that the inventory describes exactly the consumed image
+  (`--image-digest`) or plugin (`--plugin`) and prints a
+  `waza.inventory-verification` 1.0 report (exit 0 verified, 1 failed). The
+  reference image publisher now generates, verifies and attests the inventory
+  to the pushed digest (`actions/attest`, predicate `https://cyclonedx.org/bom`),
+  and `verify-runner-reference.yml` verifies the signed inventory before
+  accepting a digest. Provenance bundles bind it with
+  `--bind component-inventory=PATH` (checked against the signed image digest)
+  and `waza runner provenance verify --require-inventory` requires it. The Lab
+  runner page adds a **Component inventory** panel backed by
+  `POST /api/v1/inventory/verify`. Migration: additive; images published before
+  this release have no inventory attestation until republished, and plugins
+  (not loaded by the runner today) must ship an inventory bound to the artifact
+  digest. See `docs/COMPONENT_INVENTORY.md`.
+
 - **Portable external execution adapters (#774).** `waza runner adapter translate`
   turns one `waza.adapter-work-descriptor` 1.0 into exactly one public runner
   contract call (`runner submit`, `runner checkpoint create|resume` or

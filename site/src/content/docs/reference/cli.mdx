@@ -1917,6 +1917,38 @@ keys. Trust comes only from `--public-key`; `--expect-image-digest`,
 `--expect-waza-version` and `--expect-policy-sha256` pin declared claims. See
 [execution provenance](../../guides/execution-provenance/).
 
+`--bind component-inventory=runner.cdx.json` binds a runner image component
+inventory; `verify --require-inventory` fails with `binding_required_missing`
+unless the bundle binds one for the signed image digest.
+
+### Component inventory commands (unreleased, planned for v0.42.0)
+
+```bash
+waza runner inventory generate --name ghcr.io/org/waza-runner --digest sha256:<64 hex> \
+  --go-binary ./waza --embedded-dir internal/embedded --dpkg-status ./dpkg-status \
+  --os-release ./os-release --out runner.cdx.json
+waza runner inventory generate --subject plugin --name example-plugin \
+  --subject-file example-plugin.tgz --from-cyclonedx deps.cdx.json --out plugin.cdx.json
+waza runner inventory verify --inventory runner.cdx.json --image-digest sha256:<64 hex> \
+  --image-reference ghcr.io/org/waza-runner
+waza runner inventory verify --inventory plugin.cdx.json --plugin example-plugin.tgz
+```
+
+`generate` writes a new, deterministic CycloneDX 1.6 inventory
+([`component-inventory`](/waza/schemas/component-inventory-1.0.schema.json))
+bound to the image or plugin sha256 digest (`--digest` or `--subject-file`).
+Sources are `--go-binary`, `--embedded-dir` (bundled Copilot CLI and runtime payloads
+found byte-for-byte in a `--go-binary`), `--dpkg-status`, `--os-release`, `--file` and
+`--from-cyclonedx` (all repeatable where meaningful). It exits 2 rather than
+emit an inventory without an immutable digest, and never overwrites `--out`.
+
+`verify` runs offline and prints one
+[`waza.inventory-verification`](/waza/schemas/inventory-verification-1.0.schema.json)
+report: exit 0 when the inventory is bound to the consumed digest, 1 when it is
+missing, malformed, altered, bound to another image or plugin, or no digest was
+supplied, 2 for invalid flags. See
+[component inventories](../../guides/component-inventory/).
+
 ## waza serve
 
 Standalone v0.40.0 also exposes negotiation and exact-unit validation/run through HTTP.

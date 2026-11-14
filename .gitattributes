@@ -40,3 +40,7 @@ internal/evidencestate/testdata/** -text
 examples/runner/adapter/*.json text eol=lf
 # Provenance bundle fixtures are exact-byte digest oracles.
 web/e2e/fixtures/provenance/** -text
+# Component inventory fixtures are exact-byte generator and digest oracles.
+web/e2e/fixtures/inventory/** -text
+# Inventory generator inputs feed exact-byte Lab fixtures.
+internal/inventory/testdata/** -text

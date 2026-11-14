@@ -137,6 +137,21 @@ counts and identifiers before display. Reports never carry prompts, outputs,
 tool arguments, headers or credentials. See
 [execution telemetry correlation](../execution-telemetry/).
 
+**Component inventory** verifies a runner image or plugin component inventory
+offline. Choose the inventory file, select image or plugin, enter the consumed
+`sha256:` digest (and optionally the image repository or plugin name), and
+select **Verify inventory**. The browser posts the inventory to
+`POST /api/v1/inventory/verify` and re-validates the report schema. The panel
+shows the bound subject and digest, the verification state, a component
+summary by type and ecosystem, and each failed check with its stable code;
+**Download report JSON** saves the report. A missing, mismatched or internally
+inconsistent inventory shows as failed. The panel does not authenticate the
+inventory, so a consistently rewritten inventory can still verify: authenticate
+the delivering SBOM attestation or signed provenance bundle separately. The
+result is evidence, not a vulnerability or policy decision. The view is
+unavailable in the synthetic demo. See
+[component inventories](../component-inventory/).
+
 For a dashboard built from this source tree:
 
 ```bash

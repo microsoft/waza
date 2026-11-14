@@ -98,6 +98,7 @@ Verification fails closed:
 | `runtime_mismatch`, `runner_api_mismatch` | Runtime or API claim false | Treat as tampered |
 | `image_digest_unexpected`, `waza_version_unexpected`, `policy_unexpected` | Pin differs from the signed claim | Confirm the image, version or policy you consumed |
 | `binding_unsupported` | Binding kind has no verifier in this build | Upgrade or drop the binding |
+| `binding_required_missing` | A required binding kind (for example `--require-inventory`) is absent | Regenerate the bundle with the binding |
 | `member_unbound`, `member_irregular` | Unexpected member | Remove it or regenerate the bundle |
 | `members_unlisted` | Bundle cannot be listed or has more than 512 entries | Remove extra files or regenerate the bundle |
 
@@ -123,6 +124,15 @@ inventory or SBOM, #770) by digest:
   inventory to name the same canonical inputs and artifacts.
 - Unknown kinds fail closed at generation (`binding_invalid`) and verification
   (`binding_unsupported`). Kinds match `^[a-z][a-z0-9.-]{0,63}$`.
+- A verifier error that implements `BindingCode() string` (matching
+  `^[a-z][a-z0-9_]{0,63}$`) surfaces that code in the `bindings` check instead
+  of `binding_invalid`.
+- `Options.RequireBindingKinds` (CLI `--require-inventory` for
+  `component-inventory`) fails with `binding_required_missing` when the
+  statement binds no member of a required kind.
+
+The `component-inventory` kind binds a CycloneDX runner image inventory to the
+signed image digest; see [COMPONENT_INVENTORY.md](COMPONENT_INVENTORY.md).
 
 ## Lab
 

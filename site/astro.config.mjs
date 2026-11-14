@@ -59,6 +59,7 @@ export default defineConfig({
 						{ label: 'Immutable Artifacts', slug: 'guides/immutable-artifacts' },
 						{ label: 'Execution Provenance', slug: 'guides/execution-provenance' },
 						{ label: 'Execution Isolation', slug: 'guides/execution-isolation' },
+						{ label: 'Component Inventories', slug: 'guides/component-inventory' },
 						{ label: 'Aggregate Completed Manifests', slug: 'guides/manifest-aggregation' },
 						{ label: 'Reviewing Evidence States', slug: 'guides/evidence-review' },
 						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },

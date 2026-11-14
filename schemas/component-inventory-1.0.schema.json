@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/component-inventory-1.0.schema.json",
+  "title": "Waza component inventory 1.0",
+  "description": "Profile waza.component-inventory/1.0: a closed CycloneDX 1.6 JSON subset whose metadata.component is the inventoried subject (a runner image or plugin) bound by its sha256 digest. Inventories outside this profile, or without a subject digest, are rejected.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bomFormat", "specVersion", "version", "metadata", "components"],
+  "properties": {
+    "bomFormat": {"const": "CycloneDX"},
+    "specVersion": {"const": "1.6"},
+    "version": {"const": 1},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "properties"],
+      "properties": {
+        "component": {"$ref": "#/$defs/subject"},
+        "properties": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "value"],
+            "properties": {
+              "name": {"enum": ["waza:inventory.profile", "waza:subject.kind"]},
+              "value": {"type": "string", "minLength": 1, "maxLength": 64}
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "array", "maxItems": 20000,
+      "items": {"$ref": "#/$defs/component"}
+    }
+  },
+  "$defs": {
+    "sha256Hash": {
+      "type": "object", "additionalProperties": false, "required": ["alg", "content"],
+      "properties": {
+        "alg": {"const": "SHA-256"},
+        "content": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "subject": {
+      "type": "object", "additionalProperties": false,
+      "required": ["bom-ref", "type", "name"],
+      "properties": {
+        "bom-ref": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "type": {"enum": ["container", "application"]},
+        "name": {"type": "string", "minLength": 1, "maxLength": 512},
+        "version": {"type": "string", "maxLength": 256},
+        "purl": {"type": "string", "pattern": "^pkg:", "maxLength": 2048},
+        "hashes": {"type": "array", "maxItems": 1, "items": {"$ref": "#/$defs/sha256Hash"}}
+      }
+    },
+    "component": {
+      "type": "object", "additionalProperties": false,
+      "required": ["bom-ref", "type", "name"],
+      "properties": {
+        "bom-ref": {"type": "string", "minLength": 1, "maxLength": 2400},
+        "type": {"enum": ["application", "container", "file", "framework", "library", "operating-system"]},
+        "name": {"type": "string", "minLength": 1, "maxLength": 512},
+        "version": {"type": "string", "maxLength": 256},
+        "purl": {"type": "string", "pattern": "^pkg:", "maxLength": 2048},
+        "hashes": {"type": "array", "maxItems": 1, "items": {"$ref": "#/$defs/sha256Hash"}}
+      }
+    }
+  }
+}

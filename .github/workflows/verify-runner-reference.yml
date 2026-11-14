@@ -66,6 +66,35 @@ jobs:
             --source-digest "$SOURCE_REVISION" \
             --source-ref refs/heads/main \
             --format json > "$RUNNER_TEMP/verified-runner-provenance.json"
+      - name: Verify signed component inventory for the exact digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REVISION: ${{ steps.guard.outputs.source_sha }}
+          IMAGE_DIGEST: ${{ steps.guard.outputs.image_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verified="$RUNNER_TEMP/verified-runner-inventory.json"
+          gh attestation verify "oci://ghcr.io/microsoft/waza-runner-reference@$IMAGE_DIGEST" \
+            --repo microsoft/waza \
+            --predicate-type https://cyclonedx.org/bom \
+            --signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml \
+            --signer-digest "$SOURCE_REVISION" \
+            --source-digest "$SOURCE_REVISION" \
+            --source-ref refs/heads/main \
+            --format json > "$verified"
+          count="$(jq 'length' "$verified")"
+          if [[ "$count" -lt 1 ]]; then
+            echo "No signed component inventory is attached to the published digest." >&2
+            exit 1
+          fi
+          for ((i = 0; i < count; i++)); do
+            jq ".[$i].verificationResult.statement.predicate" "$verified" > "$RUNNER_TEMP/runner-inventory-$i.cdx.json"
+            go run ./cmd/waza runner inventory verify \
+              --inventory "$RUNNER_TEMP/runner-inventory-$i.cdx.json" \
+              --image-digest "$IMAGE_DIGEST" \
+              --image-reference ghcr.io/microsoft/waza-runner-reference
+          done
       - name: Require successful publisher run and finalization
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
