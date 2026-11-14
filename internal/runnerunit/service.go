@@ -464,9 +464,9 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 		result.Calls = observed.calls
 		// A budget crossed after the attempt already failed is reported by the
 		// meter, not as a new shutdown cause that would rewrite the outcome.
-		var lateBudget *executionbudget.ExceededError
-		if err := ctx.Err(); err != nil && !errors.Is(result.failure, err) &&
-			!(preempted && errors.As(context.Cause(ctx), &lateBudget)) {
+		var exceeded *executionbudget.ExceededError
+		lateBudget := preempted && errors.As(context.Cause(ctx), &exceeded)
+		if err := ctx.Err(); err != nil && !errors.Is(result.failure, err) && !lateBudget {
 			result.executionError("shutdown", err)
 		}
 	}()
