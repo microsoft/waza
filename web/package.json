@@ -17,7 +17,7 @@
     "release:media": "playwright test e2e/release-media.spec.ts --project=chromium --retries=0 --workers=1"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.105.3",
+    "@tanstack/react-query": "^5.107.1",
     "@tanstack/react-table": "^9.3.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
