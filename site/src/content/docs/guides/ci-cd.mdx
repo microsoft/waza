@@ -453,6 +453,12 @@ unoptimized suite's 423 s, so a regression to it fails. The result table
 is written to the job summary. Raising the budget is a reviewed change to the
 script, not a retry or a skipped test.
 
+Before the timed step, `Warm Go build cache for dashboard fixtures` compiles
+`./cmd/waza`, the checkpoint-report helper and the `manifestaggregate` and
+`webserver` test binaries that specs build in `beforeAll`. A pull request that
+changes core Go packages therefore pays its cold compile outside the budget,
+which measures browser tests only.
+
 ### Offline challenge assessment
 
 Use `waza assure eval.yaml --references labels.json` as a separate strict

@@ -152,6 +152,16 @@ result is evidence, not a vulnerability or policy decision. The view is
 unavailable in the synthetic demo. See
 [component inventories](../component-inventory/).
 
+**Execution budgets** in **Runner contract** loads the host's per-resource
+matrix from `GET /api/v1/runner/budgets` (enforced, measured or unsupported for
+wall time, model turns, tool calls, CPU, memory, disk and process count) and
+reads the `budget` report from a pasted runner terminal envelope: configured
+limits, measured usage, remaining headroom, the enforced termination and any
+unsupported rows, alongside the terminal outcome and run/attempt identity.
+Runner terminal results launched from Lab show the same report. The matrix is
+unavailable in the synthetic demo. See
+[execution budgets](../execution-budgets/).
+
 For a dashboard built from this source tree:
 
 ```bash

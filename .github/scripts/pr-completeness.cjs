@@ -35,7 +35,7 @@ const contracts = {
 const browserCommands = { dashboard: ['browser'], site: ['browser', 'chat', 'chat_unavailable'], assurance: ['browser'] };
 const runtimeInputs = Object.freeze([
   'internal/agentevent', 'internal/commandmock', 'internal/config', 'internal/copilotevents',
-  'internal/embedded', 'internal/evidence', 'internal/execution', 'internal/faultsequence',
+  'internal/embedded', 'internal/evidence', 'internal/execution', 'internal/executionbudget', 'internal/faultsequence',
   'internal/graders', 'internal/hooks', 'internal/judgeevidence', 'internal/jsonutil',
   'internal/models', 'internal/pathadmission', 'internal/projectconfig', 'internal/requirements',
   'internal/scaffold', 'internal/schemaloader', 'internal/skill', 'internal/snapshot',

@@ -151,6 +151,14 @@ jobs:
         working-directory: web
         run: npx --no-install playwright install --with-deps chromium
 
+      # Compile the Go fixtures and binaries the browser specs build so the
+      # wall-time budget measures tests rather than cold compilation.
+      - name: Warm Go build cache for dashboard fixtures
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request' || inputs.pr_completeness_plan != ''
+        run: |
+          go build ./cmd/waza ./web/e2e/testdata/checkpoint-report
+          go test -count=1 -run '^$' ./internal/manifestaggregate ./internal/webserver
+
       - name: Discover dashboard tests without execution
         id: discovery
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request' || inputs.pr_completeness_plan != ''

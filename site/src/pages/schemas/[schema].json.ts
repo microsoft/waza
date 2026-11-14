@@ -31,6 +31,7 @@ import optimizerReport from '../../../../schemas/optimizer-report-1.0.schema.jso
 import adapterDescriptor from '../../../../schemas/adapter-work-descriptor-1.0.schema.json';
 import adapterTranslation from '../../../../schemas/adapter-translation-1.0.schema.json';
 import adapterResult from '../../../../schemas/adapter-result-1.0.schema.json';
+import executionBudget from '../../../../schemas/execution-budget-1.0.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -66,6 +67,7 @@ export function getStaticPaths() {
     { params: { schema: 'adapter-work-descriptor-1.0.schema' }, props: { schema: adapterDescriptor } },
     { params: { schema: 'adapter-translation-1.0.schema' }, props: { schema: adapterTranslation } },
     { params: { schema: 'adapter-result-1.0.schema' }, props: { schema: adapterResult } },
+    { params: { schema: 'execution-budget-1.0.schema' }, props: { schema: executionBudget } },
   ];
 }
 

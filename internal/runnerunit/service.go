@@ -13,6 +13,7 @@ import (
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/runnercontract"
@@ -41,12 +42,19 @@ type Report struct {
 	boundary      string
 	localOutcome  *models.EvaluationOutcome
 	forced        bool
+	// budget is projected only into the terminal envelope; the runner-unit
+	// report schema is unchanged.
+	budget            *executionbudget.Report
+	budgetUnsupported bool
 }
 
 func (r Report) ExitCode() int {
 	if r.Status == "rejected" {
 		if code := r.Compatibility.ExitCode(); code != 0 {
 			return code
+		}
+		if r.budgetUnsupported {
+			return 5
 		}
 		return 6
 	}
@@ -64,6 +72,7 @@ type admitted struct {
 	spec    *models.EvalSpec
 	task    *models.TestCase
 	input   *orchestration.ControlledInput
+	budget  *executionbudget.Report
 }
 
 // Validate never constructs a runtime or reads input paths.
@@ -104,11 +113,26 @@ func admit(data []byte) (Report, *admitted) {
 		return report, nil
 	}
 	report.Requested = &req.Selection
+	var plan *executionbudget.Report
+	if req.Budgets != nil {
+		var unsupported []string
+		plan, unsupported = executionbudget.Plan(*req.Budgets, executionbudget.HostCapabilities())
+		if plan.State == executionbudget.StateRejectedUnsupported {
+			// Capability rejection precedes input resolution and any runtime.
+			report.reject(errors.New(executionbudget.Summary(unsupported)))
+			report.Diagnostics[0].Code = "unsupported_budget"
+			report.budget, report.budgetUnsupported = plan, true
+			return report, nil
+		}
+		// Later admission failures still report the configured limits.
+		report.budget = plan
+	}
 	input, err := resolve(req)
 	if err != nil {
 		report.reject(err)
 		return report, nil
 	}
+	input.budget = plan
 	identity, err := runneridentity.DeriveJSON(data)
 	if err != nil {
 		report.reject(fmt.Errorf("deriving admitted input identity: %w", err))
@@ -293,6 +317,68 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 }
 
 func (s *Service) executeAdmitted(ctx context.Context, report Report, input *admitted, local bool) Report {
+	return admittedAttempt(ctx, input, local, func(ctx context.Context) Report {
+		return s.executeUnmetered(ctx, report, input, local)
+	})
+}
+
+// admittedAttempt bounds one attempt. Local orchestration limits Execute, not
+// grading; external requests retain their end-to-end deadline, including
+// grading and lifecycle. The request deadline encloses the budget meter so an
+// earlier request timeout stays the attempt's first cancellation.
+func admittedAttempt(ctx context.Context, input *admitted, local bool, attempt func(context.Context) Report) Report {
+	if !local {
+		var cancel context.CancelFunc
+		ctx, cancel = requestDeadline(ctx, input)
+		defer cancel()
+	}
+	return metered(ctx, input, attempt)
+}
+
+func requestDeadline(ctx context.Context, input *admitted) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
+}
+
+// metered applies the admitted budget around one attempt.
+func metered(ctx context.Context, input *admitted, attempt func(context.Context) Report) Report {
+	ctx, finish := startBudget(ctx, input)
+	return finish(attempt(ctx))
+}
+
+// startBudget meters the whole attempt, from runtime construction through
+// grading and shutdown. The returned finish records measured usage and must
+// run after anything observing the attempt context (such as lifecycle
+// tracking) has stopped, because it releases that context.
+func startBudget(ctx context.Context, input *admitted) (context.Context, func(Report) Report) {
+	if input.budget == nil {
+		return ctx, func(result Report) Report { return result }
+	}
+	ctx, meter := executionbudget.Start(ctx, *input.budget, func(ctx context.Context, meter *executionbudget.Meter) context.Context {
+		return execution.WithActivityObserver(ctx, meter)
+	})
+	return ctx, func(result Report) Report {
+		return finishBudget(result, meter)
+	}
+}
+
+func finishBudget(result Report, meter *executionbudget.Meter) Report {
+	result.budget = meter.Finish()
+	// A limit reached after the engine returned (for example during grading)
+	// still ends the attempt as enforced rather than as a success.
+	// The enforced budget is the attempt's terminal cause, so it also decides
+	// the outcome when the engine surfaced the cancellation as another error.
+	if termination := result.budget.Termination; termination != nil {
+		exceeded := &executionbudget.ExceededError{Termination: *termination}
+		if result.failure == nil {
+			result.executionError("execution", exceeded)
+		} else {
+			result.failure = fmt.Errorf("%w; attempt error: %v", exceeded, result.failure)
+		}
+	}
+	return result
+}
+
+func (s *Service) executeUnmetered(ctx context.Context, report Report, input *admitted, local bool) Report {
 	if local && input.spec.Config.EngineType != "mock" {
 		report.executionError("startup", fmt.Errorf("local compatibility execution supports only inline.mock-text"))
 		return report
@@ -300,13 +386,6 @@ func (s *Service) executeAdmitted(ctx context.Context, report Report, input *adm
 	if local && len(input.spec.Metrics) != 0 {
 		report.executionError("startup", fmt.Errorf("local compatibility execution cannot project uncomputed eval metrics"))
 		return report
-	}
-	// Local orchestration limits Execute, not grading; external requests retain
-	// their end-to-end deadline, including grading and lifecycle.
-	if !local {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
-		defer cancel()
 	}
 	if err := ctx.Err(); err != nil {
 		report.executionError("startup", err)
@@ -390,6 +469,7 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	}()
 	if err := engine.Initialize(ctx); err != nil {
 		result.executionError("startup", errors.Join(fmt.Errorf("initializing runtime: %w", err), ctx.Err()))
+		preemptBudget(ctx, result)
 		return result
 	}
 	runner := orchestration.NewEvalRunner(config.NewEvalConfig(input.spec), observed)
@@ -407,6 +487,7 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	default:
 		result.Status = "completed"
 	}
+	preemptBudget(ctx, result)
 	if local && run != nil {
 		result.localOutcome, err = runner.ProjectInlineOutcome(input.task, run, started, usage.Snapshot())
 		if err != nil {
@@ -414,6 +495,18 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 		}
 	}
 	return result
+}
+
+// preemptBudget keeps an attempt's own earlier cause (for example a startup
+// failure or an eval or task timeout): a budget crossed later during shutdown
+// must neither cancel the attempt nor replace that cause.
+func preemptBudget(ctx context.Context, result Report) {
+	if result.failure == nil || ctx.Err() != nil {
+		return
+	}
+	if meter, ok := execution.ActivityObserverFrom(ctx).(interface{ Preempt() }); ok {
+		meter.Preempt()
+	}
 }
 
 // RunLocal projects the same admitted execution used by RunTerminal into the

@@ -113,6 +113,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   protobuf, and raw payload export. See
   [execution telemetry](docs/EXECUTION_TELEMETRY.md).
 
+- **Execution resource budgets (#772)** - Runner
+  requests accept an optional `budgets` field declaring `wall_time_ms`,
+  `model_turns`, `tool_calls`, `cpu_time_ms`, `memory_bytes`, `disk_bytes` and
+  `process_count` limits plus an `unsupported` policy (`reject` default, or
+  `report`). Every limit is checked against the host matrix before execution;
+  limits the host cannot genuinely enforce are rejected with
+  `unsupported_capability` (exit 5, diagnostic `unsupported_budget`, zero engine
+  calls) or explicitly reported as unenforced. Wall time, model turns and tool
+  calls are enforced on every OS (exceeding them yields `timeout` or `cancelled`
+  with diagnostic `budget_exceeded`); CPU time (linux/darwin/windows) and peak
+  memory (linux/darwin) are measured for the runner process but never
+  enforced; disk and process count are unsupported. Terminal envelopes carry a
+  `budget` report (limits, used, remaining, exceeded, termination). New
+  `waza runner budgets`, `GET /api/v1/runner/budgets`, the
+  `waza.execution-budget-capabilities` 1.0 schema and a Lab **Execution
+  budgets** view. Migration: both fields are optional 1.0 additions; requests
+  without budgets are unchanged, older runners reject `budgets` (fail closed),
+  and budgets are excluded from logical identity. See
+  [execution budgets](docs/EXECUTION_BUDGETS.md).
+
 ### Changed
 
 - Dashboard CI enforces a Playwright wall-time budget for the `Test dashboard`

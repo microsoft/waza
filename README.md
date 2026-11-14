@@ -425,7 +425,14 @@ waza runner capabilities
 waza runner negotiate < examples/runner/negotiation.json
 waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
+waza runner budgets   # main-only, after v0.41.0: per-OS budget matrix
 ```
+
+Builds from `main` (after v0.41.0) accept optional request `budgets` (wall time, model
+turns, tool calls, CPU, memory, disk, process count). Limits the host cannot
+enforce are rejected before execution (exit 5, `unsupported_budget`); enforced
+limits that are exceeded end the attempt (`budget_exceeded`), and the terminal
+`budget` field reports measured usage. See [execution budgets](docs/EXECUTION_BUDGETS.md).
 
 The v0.40.0 release implements `negotiation`, `exact-unit`, `inline.mock-text`,
 `terminal-result` and opt-in `inline.copilot-text`.

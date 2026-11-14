@@ -4,6 +4,7 @@ import unitSchema from "../../../schemas/runner-unit-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
 import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
+import { requestBudgetProblem, terminalBudgetProblem, type BudgetReport } from "./budgets";
 
 export interface RunnerNegotiation {
   kind: "waza.runner-negotiation";
@@ -74,6 +75,7 @@ export interface RunnerTerminal {
     validations: { identifier: string; passed: boolean }[];
     error_msg?: string;
   };
+  budget?: BudgetReport;
   diagnostics: { code: string; message: string }[];
 }
 
@@ -135,6 +137,8 @@ export async function runRunnerUnit(request: string, signal: AbortSignal): Promi
       throw new Error("Terminal observation contradicts its admitted binding.");
     }
   }
+  const budgetProblem = terminalBudgetProblem(value) ?? requestBudgetProblem(request, value);
+  if (budgetProblem) throw new Error(`Runner API returned an inconsistent budget report: ${budgetProblem}`);
   return value;
 }
 

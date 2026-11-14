@@ -37,6 +37,7 @@ func cloneSubmissionReport(original Report, canonical []byte) (Report, error) {
 		return Report{}, fmt.Errorf("copying observed submission report: %w", err)
 	}
 	detached.failure, detached.boundary = original.failure, original.boundary
+	detached.budget, detached.budgetUnsupported = original.budget.Clone(), original.budgetUnsupported
 	if original.binding != nil {
 		binding := *original.binding
 		binding.GraderIDs = slices.Clone(original.binding.GraderIDs)

@@ -17,6 +17,7 @@ import {
 } from "./runner";
 import { lazy, lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
+import { terminalBudgetProblem } from "./budgets";
 import { checkRetainedReportCanonical, type ReportCanonicalCheck } from "./runnerUnitReport";
 
 interface SourceReference {
@@ -409,6 +410,8 @@ export async function readCheckpointOperationResult(text: string): Promise<Check
     : !!terminal.identity || !!terminal.selection || !!terminal.observation || terminal.engine_calls !== 0)) {
     throw new Error("Checkpoint retained submission terminal contradicts its original reservation.");
   }
+  const budgetProblem = terminal ? terminalBudgetProblem(terminal) : null;
+  if (budgetProblem) throw new Error(`Checkpoint retained submission terminal has an inconsistent budget report: ${budgetProblem}`);
   if (terminal?.observation && binding) {
     const observed = terminal.observation;
     const ids = observed.validations.map((verdict) => verdict.identifier);

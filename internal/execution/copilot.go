@@ -940,7 +940,16 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	// session.shutdown events later during client.Stop(). The usage handler is
 	// stored in e.collectors so we can read final usage after shutdown.
 	var eventsMu sync.Mutex
+	activity := ActivityObserverFrom(ctx)
 	collectEvent := func(event copilot.SessionEvent) {
+		if activity != nil {
+			switch event.Type() {
+			case copilot.SessionEventTypeAssistantTurnStart:
+				activity.ModelTurnStarted()
+			case copilot.SessionEventTypeToolExecutionStart:
+				activity.ToolCallStarted()
+			}
+		}
 		eventsMu.Lock()
 		defer eventsMu.Unlock()
 		eventsCollector.On(event)

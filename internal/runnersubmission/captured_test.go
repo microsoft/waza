@@ -11,8 +11,10 @@ import (
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/executionledger"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
@@ -149,4 +151,48 @@ func TestSubmitCapturedRejectsInvalidWithoutEcho(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "secret-control")
 	require.Nil(t, result.Reservation)
+}
+
+func budgetLimit(value int64) *int64 { return &value }
+
+func TestSubmitCapturedPublishesBudgetEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		limits  executionbudget.Limits
+		status  string
+		outcome runnerterminal.Outcome
+		state   string
+	}{
+		{"within budget", executionbudget.Limits{WallTimeMS: budgetLimit(60_000), ModelTurns: budgetLimit(1)}, "completed", runnerterminal.Success, executionbudget.StateWithinBudget},
+		{"terminated", executionbudget.Limits{ModelTurns: budgetLimit(0)}, "completed", runnerterminal.Canceled, executionbudget.StateTerminated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend, _ := localBackend(t)
+			req := request(t)
+			req.Budgets = &executionbudget.Request{Limits: tc.limits}
+			result, err := SubmitCaptured(context.Background(), runnerunit.NewService(nil), wire(t, req, nil), backend)
+			require.NoError(t, err, "%+v", result.Diagnostics)
+			require.Equal(t, tc.status, result.Status)
+			require.NotNil(t, result.Completion, "publication accepted the budgeted terminal")
+			require.Equal(t, tc.outcome, result.Terminal.Outcome)
+			require.Equal(t, tc.state, result.Terminal.Budget.State)
+		})
+	}
+}
+
+func TestSubmitCapturedReportsUnsupportedBudgetCode(t *testing.T) {
+	backend, root := localBackend(t)
+	req := request(t)
+	req.Budgets = &executionbudget.Request{Limits: executionbudget.Limits{DiskBytes: budgetLimit(1 << 20)}}
+	result, err := SubmitCaptured(context.Background(), runnerunit.NewService(nil), wire(t, req, nil), backend)
+	require.Error(t, err)
+	require.Equal(t, 5, result.ExitCode)
+	require.Zero(t, result.EngineCalls)
+	require.Nil(t, result.Reservation)
+	codes := []string{}
+	for _, diagnostic := range result.Diagnostics {
+		codes = append(codes, diagnostic.Code)
+	}
+	require.Contains(t, codes, "unsupported_budget")
+	require.Empty(t, snapshot(t, root), "nothing is reserved before the capability rejection")
 }
