@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/microsoft/waza/internal/controlledcomparison"
@@ -204,59 +205,68 @@ func testNativeReaderFrozen15cDecisionParity(t *testing.T, proofName string, pro
 			return []byte(`{"unknown":true,"blobs":{"a":"!!!"}}`)
 		}, `unknown field "unknown"`},
 	}
-	input := frozenDecisionInput{Directory: directory, Policy: policy}
 	byName := map[string]int{}
 	for i, test := range cases {
 		byName[test.Name] = i
 	}
 	observations := map[string]frozenDecisionObservation{}
-	for _, name := range selected {
-		index, ok := byName[name]
-		require.True(t, ok, "unknown frozen parity case %q", name)
-		test := cases[index]
-		t.Run(test.Name, func(t *testing.T) {
-			require.NoError(t, os.WriteFile(path, test.Raw(), 0600))
-			frozen := readeroracle.Run(t, oracle, "TestNativeReaderFrozen15cDecisionParity", input)
-			var expected frozenDecisionObservation
-			require.NoError(t, json.Unmarshal(frozen, &expected))
-			if test.Want == "" {
-				require.Empty(t, expected.SelectedError)
-				require.Empty(t, expected.RootError)
-				require.Equal(t, "passed", expected.Selected.Golden.State)
-				require.Len(t, expected.Selected.Native.Attempts, 2)
-				for _, attempt := range expected.Selected.Native.Attempts {
-					require.Equal(t, "passed", attempt.Status)
-					require.NotNil(t, attempt.Output)
-					require.Equal(t, "hello", *attempt.Output)
-					require.True(t, attempt.UsageComplete)
+	var observationsMu sync.Mutex
+	t.Run("cases", func(t *testing.T) {
+		for _, name := range selected {
+			index, ok := byName[name]
+			require.True(t, ok, "unknown frozen parity case %q", name)
+			test := cases[index]
+			t.Run(test.Name, func(t *testing.T) {
+				t.Parallel()
+				caseRoot := t.TempDir()
+				caseDirectory := filepath.Join(caseRoot, "native")
+				require.NoError(t, os.Mkdir(caseDirectory, 0700))
+				require.NoError(t, os.WriteFile(filepath.Join(caseDirectory, "native-capture.json"), test.Raw(), 0600))
+				caseInput := frozenDecisionInput{Directory: caseDirectory, Policy: policy}
+				frozen := readeroracle.Run(t, oracle, "TestNativeReaderFrozen15cDecisionParity", caseInput)
+				var expected frozenDecisionObservation
+				require.NoError(t, json.Unmarshal(frozen, &expected))
+				if test.Want == "" {
+					require.Empty(t, expected.SelectedError)
+					require.Empty(t, expected.RootError)
+					require.Equal(t, "passed", expected.Selected.Golden.State)
+					require.Len(t, expected.Selected.Native.Attempts, 2)
+					for _, attempt := range expected.Selected.Native.Attempts {
+						require.Equal(t, "passed", attempt.Status)
+						require.NotNil(t, attempt.Output)
+						require.Equal(t, "hello", *attempt.Output)
+						require.True(t, attempt.UsageComplete)
+					}
+				} else {
+					require.Contains(t, expected.SelectedError, test.Want)
+					require.Contains(t, expected.RootError, test.Want)
+					require.False(t, expected.Selected.Accepted)
+					require.Equal(t, "invalid", expected.Selected.Compatibility.State)
+					require.Empty(t, expected.Selected.Native.Attempts)
 				}
-			} else {
-				require.Contains(t, expected.SelectedError, test.Want)
-				require.Contains(t, expected.RootError, test.Want)
-				require.False(t, expected.Selected.Accepted)
-				require.Equal(t, "invalid", expected.Selected.Compatibility.State)
-				require.Empty(t, expected.Selected.Native.Attempts)
-			}
-			got := observeFrozenNativeDecision(t, frozenDecisionInput{Directory: directory, Policy: policy})
-			expectedEncoded, err := json.Marshal(expected)
-			require.NoError(t, err)
-			gotEncoded, err := json.Marshal(got)
-			require.NoError(t, err)
-			require.Equal(t, expectedEncoded, gotEncoded, "selected/root/API actual decision payload and first error must match frozen15c")
-			var api []webapi.ReleaseCollection
-			require.NoError(t, json.Unmarshal(got.API, &api))
-			require.Len(t, api, 1)
-			require.Equal(t, got.Root.Accepted, api[0].Decision.Accepted)
-			require.Equal(t, got.Root.Golden, api[0].Decision.Golden)
-			require.Equal(t, got.Root.Native, api[0].Decision.Native)
-			if test.Want == "" {
-				require.Empty(t, api[0].Error)
-			} else {
-				require.Equal(t, got.RootError, api[0].Error)
-			}
-			observations[test.Name] = expected
-		})
-	}
+				got := observeFrozenNativeDecision(t, caseInput)
+				expectedEncoded, err := json.Marshal(expected)
+				require.NoError(t, err)
+				gotEncoded, err := json.Marshal(got)
+				require.NoError(t, err)
+				require.Equal(t, expectedEncoded, gotEncoded, "selected/root/API actual decision payload and first error must match frozen15c")
+				var api []webapi.ReleaseCollection
+				require.NoError(t, json.Unmarshal(got.API, &api))
+				require.Len(t, api, 1)
+				require.Equal(t, got.Root.Accepted, api[0].Decision.Accepted)
+				require.Equal(t, got.Root.Golden, api[0].Decision.Golden)
+				require.Equal(t, got.Root.Native, api[0].Decision.Native)
+				if test.Want == "" {
+					require.Empty(t, api[0].Error)
+				} else {
+					require.Equal(t, got.RootError, api[0].Error)
+				}
+				observationsMu.Lock()
+				observations[test.Name] = expected
+				observationsMu.Unlock()
+			})
+		}
+	})
 	require.Len(t, observations, len(selected))
 	require.NoError(t, os.WriteFile(path, raw, 0600))
 	control := observeFrozenNativeDecision(t, frozenDecisionInput{Directory: directory, Policy: policy})

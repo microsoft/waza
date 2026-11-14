@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func collectionDescriptorSources(t *testing.T, components int) []CapturedSource {
+func collectionDescriptorSources(t *testing.T, components, componentBytes int) []CapturedSource {
 	t.Helper()
 	// Canonical, POSIX-safe paths with components below 255 bytes and total
 	// length within the public path bound. JSON HTML escaping expands them.
-	directory := strings.Repeat(strings.Repeat("<", 200)+"/", components)
+	directory := strings.Repeat(strings.Repeat("<", componentBytes)+"/", components)
 	sources := make([]CapturedSource, collectionSourceEntries)
 	for i := range sources {
 		sources[i] = CapturedSource{Path: fmt.Sprintf("%ssource-%05d.yaml", directory, i),
@@ -44,7 +44,9 @@ func collectionDescriptorProfile(t *testing.T, prepared *Prepared, record Record
 
 func TestCollectionTapeIndependentDescriptorBudgets(t *testing.T) {
 	_, _, req, _, record := collectionFixture(t)
-	sources := collectionDescriptorSources(t, 4)
+	// Keep each descriptor just above 64 MiB so the two independent attempts
+	// still exceed the 128 MiB aggregate budget without unnecessary payload.
+	sources := collectionDescriptorSources(t, 4, 160)
 	prepared, err := PrepareCaptured(t.Context(), releasepolicy.Baseline, "task", req, sources)
 	require.NoError(t, err)
 	require.Greater(t, len(prepared.data), 64<<20)
@@ -54,24 +56,31 @@ func TestCollectionTapeIndependentDescriptorBudgets(t *testing.T) {
 	profile := collectionDescriptorProfile(t, prepared, record)
 	admissions := make([]*Admitted, 2)
 	rows := make([][]byte, len(admissions))
-	for i := range admissions {
-		key := record.Key
-		key.Trial = i + 1
-		admissions[i], err = Admit(t.Context(), prepared, profile, key)
-		require.NoError(t, err)
-		binding, err := admissions[i].Binding()
-		require.NoError(t, err)
-		row := record
-		row.CollectionID, row.ProfileDigest, row.PlanDigest = binding.CollectionID, binding.ProfileDigest, binding.PlanDigest
-		row.RequestDigest = binding.RequestDigest
-		row.Key, row.Summary.Key = key, key
-		row.Origin.RunNumber, row.ActualRow.Run.RunNumber = key.Trial, key.Trial
-		row.ActualRow.Origin, row.Summary.Origin = row.Origin, row.Origin
-		rows[i] = encoded(t, row)
-		_, err = DecodeRecord(rows[i], admissions[i])
-		require.NoError(t, err, "each record is independently admissible")
-		require.NoError(t, MatchCollectionSnapshot(t.Context(), admissions[i], key, req, sources))
-	}
+	t.Run("admissions", func(t *testing.T) {
+		for i := range admissions {
+			i := i
+			t.Run(fmt.Sprintf("attempt-%d", i+1), func(t *testing.T) {
+				t.Parallel()
+				key := record.Key
+				key.Trial = i + 1
+				admitted, err := Admit(t.Context(), prepared, profile, key)
+				require.NoError(t, err)
+				admissions[i] = admitted
+				binding, err := admitted.Binding()
+				require.NoError(t, err)
+				row := record
+				row.CollectionID, row.ProfileDigest, row.PlanDigest = binding.CollectionID, binding.ProfileDigest, binding.PlanDigest
+				row.RequestDigest = binding.RequestDigest
+				row.Key, row.Summary.Key = key, key
+				row.Origin.RunNumber, row.ActualRow.Run.RunNumber = key.Trial, key.Trial
+				row.ActualRow.Origin, row.Summary.Origin = row.Origin, row.Origin
+				rows[i] = encoded(t, row)
+				_, err = DecodeRecord(rows[i], admitted)
+				require.NoError(t, err, "each record is independently admissible")
+				require.NoError(t, MatchCollectionSnapshot(t.Context(), admitted, key, req, sources))
+			})
+		}
+	})
 	require.Greater(t, len(admissions)*len(prepared.data), collectionEncodedBytes)
 	events, payload := fixtureTapeBytes(t, admissions, rows)
 	require.Less(t, len(events), CollectionStreamBytes)
@@ -206,7 +215,7 @@ func TestCollectionTapeChecksEventCapacityBeforeAnyCompletionWrite(t *testing.T)
 
 func TestCollectionDescriptorExactBoundary(t *testing.T) {
 	_, _, req, _, record := collectionFixture(t)
-	sources := collectionDescriptorSources(t, 6)
+	sources := collectionDescriptorSources(t, 6, 200)
 	prepared, err := PrepareCaptured(t.Context(), releasepolicy.Baseline, "task", req, sources)
 	require.NoError(t, err)
 	padding := collectionEncodedBytes - len(prepared.data)
