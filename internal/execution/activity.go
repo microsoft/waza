@@ -50,13 +50,17 @@ func (o deadlineObserver) ToolCallStarted() {
 	o.ActivityObserver.ToolCallStarted()
 }
 
-func (o deadlineObserver) Preempt() { o.ActivityObserver.(activityPreempter).Preempt() }
+func (o deadlineObserver) Preempt() {
+	if preempter, ok := o.ActivityObserver.(activityPreempter); ok {
+		preempter.Preempt()
+	}
+}
 
 // yieldToDeadline preempts observer once ctx has reached its deadline. An
 // observer that itself ended the attempt ignores the preemption.
 func yieldToDeadline(ctx context.Context, observer ActivityObserver) {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		observer.(activityPreempter).Preempt()
+	if preempter, ok := observer.(activityPreempter); ok && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		preempter.Preempt()
 	}
 }
 
