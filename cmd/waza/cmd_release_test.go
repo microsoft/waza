@@ -107,6 +107,8 @@ func offlineComparisonWithAssuranceRequirement(t *testing.T, required bool) (str
 }
 
 func TestSelectedReleaseRequiredAssuranceCannotUseLegacySnapshotMetadata(t *testing.T) {
+	t.Parallel()
+
 	policyPath, collection := offlineComparisonWithAssuranceRequirement(t, true)
 	expected, err := releasepolicy.ReadDecision(collection)
 	require.NoError(t, err)
@@ -153,6 +155,8 @@ func TestSelectedReleaseRequiredAssuranceCannotUseLegacySnapshotMetadata(t *test
 }
 
 func TestSelectedReleasePolicyAcceptedAndMismatchProcessExits(t *testing.T) {
+	t.Parallel()
+
 	policyPath, collection := acceptedOfflineComparison(t)
 	binary := buildOfflineComparisonCLI(t)
 	expected, err := releasepolicy.ReadDecision(collection)

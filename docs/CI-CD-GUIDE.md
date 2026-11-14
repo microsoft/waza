@@ -58,6 +58,8 @@ duration, and removed tests are never resurrected. Python 3 (provided by the
 Ubuntu runner) computes the plan. Every shard still retains its 30-minute test
 deadline, atomic coverage, full discovery inventory, and selected test names;
 the aggregate gate verifies identical inventories and exactly-once selection.
+Planner estimates and replayed assignments are diagnostics only; acceptance
+depends on measured workflow runs.
 The planner places whole top-level tests, so a single long test bounds every
 shard. Keep each native top-level test well under a quarter of the total; split
 long table-driven tests into independently measured top-level groups of complete

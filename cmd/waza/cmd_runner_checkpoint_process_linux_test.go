@@ -27,6 +27,8 @@ import (
 )
 
 func TestCheckpointProductionProcessRecovery(t *testing.T) {
+	t.Parallel()
+
 	binary := buildCheckpointRecoveryCLI(t)
 	info, err := buildinfo.ReadFile(binary)
 	require.NoError(t, err)

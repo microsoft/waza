@@ -561,6 +561,8 @@ func buildRunnerReadProgressCLI(t *testing.T) (string, string) {
 }
 
 func TestRunnerTerminalReadProgressOverlayBuildOnly(t *testing.T) {
+	t.Parallel()
+
 	binary, _ := buildRunnerReadProgressCLI(t)
 	image, err := pe.Open(binary)
 	require.NoError(t, err)
