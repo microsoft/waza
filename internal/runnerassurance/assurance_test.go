@@ -88,6 +88,45 @@ func TestBuildRejectsMissingLabViewEvidenceAndUnsafePaths(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
+func TestCompileSchemaResourcesRejectsInvalidSchemasAndUnresolvedReferences(t *testing.T) {
+	const rootID = "https://microsoft.github.io/waza/schemas/assurance-test-1.0.schema.json"
+	const childID = "https://microsoft.github.io/waza/schemas/assurance-child-1.0.schema.json"
+	resources := map[string][]byte{
+		"schemas/assurance-test-1.0.schema.json": []byte(`{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"$id": "` + rootID + `",
+			"type": "object",
+			"properties": {"value": {"$ref": "assurance-child-1.0.schema.json"}}
+		}`),
+		"schemas/assurance-child-1.0.schema.json": []byte(`{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"$id": "` + childID + `",
+			"type": "string"
+		}`),
+	}
+	require.NoError(t, compileSchemaResources(resources, []string{"schemas/assurance-test-1.0.schema.json"}))
+
+	resources["schemas/assurance-child-1.0.schema.json"] = []byte(`{
+		"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"$id": "` + childID + `",
+		"type": "not-a-json-schema-type"
+	}`)
+	require.ErrorIs(t, compileSchemaResources(resources, []string{"schemas/assurance-test-1.0.schema.json"}), ErrInvalid)
+
+	resources["schemas/assurance-child-1.0.schema.json"] = []byte(`{
+		"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"$id": "` + childID + `",
+		"type": "string"
+	}`)
+	resources["schemas/assurance-test-1.0.schema.json"] = []byte(`{
+		"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"$id": "` + rootID + `",
+		"type": "object",
+		"properties": {"value": {"$ref": "unregistered.schema.json"}}
+	}`)
+	require.ErrorIs(t, compileSchemaResources(resources, []string{"schemas/assurance-test-1.0.schema.json"}), ErrInvalid)
+}
+
 func TestBuildReportsAllConformanceStatesAndExistingLabLinks(t *testing.T) {
 	root, err := FindRepositoryRoot(".")
 	require.NoError(t, err)

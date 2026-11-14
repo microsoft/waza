@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -185,6 +186,7 @@ func validatePackage(pkg Package, repoRoot string) error {
 		return fmt.Errorf("%w: assurance package schema is not published by the documentation site", ErrInvalid)
 	}
 	seenCapabilities := make(map[string]bool, len(pkg.ConformanceMatrix))
+	referencedSchemas := make(map[string]bool)
 	states := map[string]bool{}
 	for _, row := range pkg.ConformanceMatrix {
 		if seenCapabilities[row.ID] {
@@ -216,6 +218,7 @@ func validatePackage(pkg Package, repoRoot string) error {
 			if !strings.Contains(string(schemaRoute), "schema: '"+schemaKey+"'") {
 				return fmt.Errorf("%w: schema reference %q is not published by the documentation site", ErrInvalid, ref)
 			}
+			referencedSchemas[ref] = true
 		}
 		if err := validateEvidence(root, row.Evidence); err != nil {
 			return fmt.Errorf("conformance %q: %w", row.ID, err)
@@ -223,6 +226,14 @@ func validatePackage(pkg Package, repoRoot string) error {
 	}
 	if len(seenCapabilities) != len(expectedCapabilityStates) {
 		return fmt.Errorf("%w: conformance matrix must include every version 1.0 capability", ErrInvalid)
+	}
+	schemaRefs := make([]string, 0, len(referencedSchemas))
+	for ref := range referencedSchemas {
+		schemaRefs = append(schemaRefs, ref)
+	}
+	sort.Strings(schemaRefs)
+	if err := validateReferencedSchemas(root, schemaRefs); err != nil {
+		return err
 	}
 	if !states["supported"] || !states["unsupported"] || !states["unavailable"] {
 		return fmt.Errorf("%w: conformance matrix must distinguish supported, unsupported, and unavailable states", ErrInvalid)
@@ -263,6 +274,65 @@ func validatePackage(pkg Package, repoRoot string) error {
 	for issue := 769; issue <= 774; issue++ {
 		if !seenLab[issue] {
 			return fmt.Errorf("%w: missing Lab evidence link for issue #%d", ErrInvalid, issue)
+		}
+	}
+	return nil
+}
+
+func validateReferencedSchemas(root string, references []string) error {
+	entries, err := os.ReadDir(filepath.Join(root, "schemas"))
+	if err != nil {
+		return fmt.Errorf("reading local contract schemas: %w", err)
+	}
+	resources := make(map[string][]byte)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".schema.json") {
+			continue
+		}
+		ref := path.Join("schemas", entry.Name())
+		content, err := readRepositoryFile(root, ref)
+		if err != nil {
+			return err
+		}
+		resources[ref] = content
+	}
+	return compileSchemaResources(resources, references)
+}
+
+func compileSchemaResources(resources map[string][]byte, references []string) error {
+	compiler := jsonschema.NewCompiler()
+	compiler.UseLoader(schemaloader.Offline{})
+	resourcePaths := make([]string, 0, len(resources))
+	for ref := range resources {
+		resourcePaths = append(resourcePaths, ref)
+	}
+	sort.Strings(resourcePaths)
+	resourceIDs := make(map[string]string, len(resources))
+	for _, ref := range resourcePaths {
+		doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(resources[ref]))
+		if err != nil {
+			return fmt.Errorf("%w: parsing local contract schema %q: %w", ErrInvalid, ref, err)
+		}
+		schemaObject, ok := doc.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%w: local contract schema %q is not an object", ErrInvalid, ref)
+		}
+		id := stringValue(schemaObject["$id"])
+		if !strings.HasPrefix(id, "https://microsoft.github.io/waza/schemas/") {
+			continue
+		}
+		if err := compiler.AddResource(id, doc); err != nil {
+			return fmt.Errorf("%w: registering local contract schema %q: %w", ErrInvalid, ref, err)
+		}
+		resourceIDs[ref] = id
+	}
+	for _, ref := range references {
+		id, ok := resourceIDs[ref]
+		if !ok {
+			return fmt.Errorf("%w: referenced contract schema %q has no registered Waza schema id", ErrInvalid, ref)
+		}
+		if _, err := compiler.Compile(id); err != nil {
+			return fmt.Errorf("%w: compiling contract schema %q: %w", ErrInvalid, ref, err)
 		}
 	}
 	return nil
