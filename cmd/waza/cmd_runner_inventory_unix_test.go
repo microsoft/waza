@@ -45,6 +45,9 @@ func TestRunnerInventoryRejectsWriterlessFIFOs(t *testing.T) {
 		"plugin":       {"inventory", "verify", "--inventory", inventoryPath, "--plugin", fifo},
 	} {
 		t.Run(name, func(t *testing.T) {
+			if args[1] == "generate" {
+				args = append(args, "--out", filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".cdx.json"))
+			}
 			done := make(chan error, 1)
 			go func() {
 				cmd := newRunnerCommand()
