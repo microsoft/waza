@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { runRunnerUnit, type RunnerTerminal as Terminal } from "../api/runner";
 import { downloadText } from "../lib/export";
+import { BudgetReportView } from "./ExecutionBudgets";
 
 export default function RunnerTerminal({ request }: { request: string }) {
   const [result, setResult] = useState<Terminal | null>(null);
@@ -59,6 +60,7 @@ export default function RunnerTerminal({ request }: { request: string }) {
             </ul>
           )}
           {result.observation?.error_msg && <p>{result.observation.error_msg}</p>}
+          {result.budget && <BudgetReportView budget={result.budget} />}
           <ol aria-label="Terminal diagnostics">
             {result.diagnostics.map((diagnostic, index) => (
               <li id={`terminal-diagnostic-${index}`} key={`${diagnostic.code}-${index}`}>

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
@@ -54,6 +55,8 @@ type Request struct {
 	Input                Input     `json:"input"`
 	TimeoutMS            int       `json:"timeout_ms"`
 	AllowPaidExecution   bool      `json:"allow_paid_execution"`
+	// Budgets is optional execution policy; it is excluded from logical identity.
+	Budgets *executionbudget.Request `json:"budgets,omitempty"`
 }
 
 type Advertisement struct {
@@ -184,16 +187,29 @@ func Parse(data []byte) (*Request, error) {
 	}
 	// JSON Schema integers include integral decimal/exponent tokens, whereas
 	// encoding/json's int decoder only accepts integer lexical forms.
-	for _, field := range []struct {
+	type integerField struct {
 		object map[string]any
 		key    string
 		path   string
-	}{
-		{fields, "timeout_ms", "timeout_ms"},
-		{selection, "trial", "selection.trial"},
-		{selection, "attempt", "selection.attempt"},
-	} {
-		value, err := exactInteger(field.object[field.key])
+		bits   int
+	}
+	integers := []integerField{
+		{fields, "timeout_ms", "timeout_ms", strconv.IntSize},
+		{selection, "trial", "selection.trial", strconv.IntSize},
+		{selection, "attempt", "selection.attempt", strconv.IntSize},
+	}
+	if budgets, ok := fields["budgets"].(map[string]any); ok {
+		if limits, ok := budgets["limits"].(map[string]any); ok {
+			for _, resource := range executionbudget.Resources {
+				if _, present := limits[string(resource)]; present {
+					// Budget limits are int64 on every GOARCH.
+					integers = append(integers, integerField{limits, string(resource), "budgets.limits." + string(resource), 64})
+				}
+			}
+		}
+	}
+	for _, field := range integers {
+		value, err := exactIntegerBits(field.object[field.key], field.bits)
 		if err != nil {
 			return nil, fmt.Errorf("decoding runner request %s: %w", field.path, err)
 		}
@@ -211,6 +227,11 @@ func Parse(data []byte) (*Request, error) {
 }
 
 func exactInteger(value any) (int, error) {
+	integer, err := exactIntegerBits(value, strconv.IntSize)
+	return int(integer), err
+}
+
+func exactIntegerBits(value any, bits int) (int64, error) {
 	number, ok := value.(json.Number)
 	if !ok {
 		return 0, fmt.Errorf("expected a JSON number")
@@ -219,9 +240,9 @@ func exactInteger(value any) (int, error) {
 	if !ok || !rational.IsInt() {
 		return 0, fmt.Errorf("expected an exactly integral JSON number")
 	}
-	integer, err := strconv.Atoi(rational.Num().String())
+	integer, err := strconv.ParseInt(rational.Num().String(), 10, bits)
 	if err != nil {
-		return 0, fmt.Errorf("integer is outside the Go int range: %w", err)
+		return 0, fmt.Errorf("integer is outside the %d-bit range: %w", bits, err)
 	}
 	return integer, nil
 }
@@ -233,7 +254,7 @@ func parseNegotiation(data []byte) (*NegotiationRequest, error) {
 	}
 	load := negotiationSchema
 	if fields, ok := doc.(map[string]any); ok {
-		for _, field := range []string{"run_key", "selection", "input", "timeout_ms", "allow_paid_execution"} {
+		for _, field := range []string{"run_key", "selection", "input", "timeout_ms", "allow_paid_execution", "budgets"} {
 			if _, present := fields[field]; present {
 				load = requestSchema
 				break

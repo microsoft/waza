@@ -1,7 +1,9 @@
 package runnercontract
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
 	"strconv"
 	"testing"
 
@@ -37,4 +39,20 @@ func TestExactInteger(t *testing.T) {
 		_, err := exactInteger(value)
 		require.Error(t, err, "%v", value)
 	}
+}
+
+func TestBudgetLimitsUseInt64OnEveryArch(t *testing.T) {
+	got, err := exactIntegerBits(json.Number("9007199254740991"), 64)
+	require.NoError(t, err)
+	require.Equal(t, int64(1<<53-1), got)
+	_, err = exactIntegerBits(json.Number("4294967296"), 32)
+	require.Error(t, err)
+
+	unit, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	unit = bytes.TrimRight(bytes.TrimSpace(unit), "}")
+	request := append(unit, []byte(`,"budgets":{"limits":{"memory_bytes":4294967296e0},"unsupported":"report"}}`)...)
+	parsed, err := Parse(request)
+	require.NoError(t, err)
+	require.Equal(t, int64(4294967296), *parsed.Budgets.Limits.MemoryBytes)
 }

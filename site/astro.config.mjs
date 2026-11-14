@@ -55,6 +55,7 @@ export default defineConfig({
 						{ label: 'Runner Contract & API', slug: 'guides/runner-contract' },
 						{ label: 'Runner Logical Identities', slug: 'guides/runner-identities' },
 						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },
+						{ label: 'Execution Budgets', slug: 'guides/execution-budgets' },
 						{ label: 'Durable Execution Operations', slug: 'guides/durable-execution' },
 						{ label: 'Immutable Artifacts', slug: 'guides/immutable-artifacts' },
 						{ label: 'Execution Provenance', slug: 'guides/execution-provenance' },

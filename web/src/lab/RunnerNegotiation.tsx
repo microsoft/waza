@@ -10,6 +10,7 @@ import ProvenanceVerification from "./ProvenanceVerification";
 import IsolationPreflight from "./IsolationPreflight";
 import ExecutionTelemetry from "./ExecutionTelemetry";
 import ComponentInventory from "./ComponentInventory";
+import ExecutionBudgets from "./ExecutionBudgets";
 
 const example = JSON.stringify({
   schema_version: "1.0",
@@ -97,6 +98,7 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
     <IsolationPreflight />
     <ExecutionTelemetry />
     <ComponentInventory demo={demo} />
+    <ExecutionBudgets demo={demo} />
     </>
   );
 }

@@ -22,9 +22,69 @@
       }
     },
     "timeout_ms": {"type": "integer", "minimum": 1, "maximum": 86400000},
-    "allow_paid_execution": {"type": "boolean"}
+    "allow_paid_execution": {"type": "boolean"},
+    "budgets": {"$ref": "#/$defs/budgets"}
   },
   "$defs": {
+    "budgets": {
+      "description": "Optional runner-request budgets. Limits are upper bounds; absent limits are not applied. Budgets are execution policy and do not change logical identity.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "limits"
+      ],
+      "properties": {
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "wall_time_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400000
+            },
+            "model_turns": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "tool_calls": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "cpu_time_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400000
+            },
+            "memory_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "disk_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "process_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          }
+        },
+        "unsupported": {
+          "enum": [
+            "reject",
+            "report"
+          ],
+          "description": "reject (default) fails before execution when any declared limit cannot be enforced on this host; report executes and reports the unenforced limit explicitly."
+        }
+      }
+    },
     "key": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
     "capabilities": {
       "type": "array", "uniqueItems": true,

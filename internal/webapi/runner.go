@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
@@ -48,6 +49,9 @@ func RegisterRunnerRoutes(mux *http.ServeMux) {
 func RegisterRunnerRoutesWithService(mux *http.ServeMux, service *runnerunit.Service) {
 	mux.HandleFunc("GET /api/v1/runner/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, runnercontract.Capabilities())
+	})
+	mux.HandleFunc("GET /api/v1/runner/budgets", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, executionbudget.HostCapabilities())
 	})
 	mux.HandleFunc("POST /api/v1/runner/negotiate", func(w http.ResponseWriter, r *http.Request) {
 		controller := http.NewResponseController(w)
