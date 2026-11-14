@@ -142,7 +142,7 @@ export default function ComponentInventory({ demo }: { demo: boolean }) {
     <div className="lab-panel-header"><div>
       <h2>Component inventory</h2>
       <p>Verify offline that a component inventory is bound to the runner image or plugin digest you consumed.
-        A missing, altered or mismatched inventory fails closed. The result is evidence, not a vulnerability or policy decision.</p>
+        A missing or mismatched inventory, or one that is internally inconsistent, fails closed. This check does not authenticate the inventory: a consistently rewritten inventory can still verify, so authenticate the delivering SBOM attestation or signed provenance bundle separately. The result is evidence, not a vulnerability or policy decision.</p>
     </div></div>
     {demo ? <p>Inventory verification is unavailable in the synthetic demo. Use a running Waza server and an inventory from <code>waza runner inventory generate</code>.</p> : <InventoryReader />}
   </section>;

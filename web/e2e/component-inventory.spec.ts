@@ -89,5 +89,6 @@ test.describe("Component inventory verification", () => {
 test("component inventory verification is unavailable in the demo", async ({ page }) => {
   await page.goto("/#/lab/demo/runner");
   await expect(panel(page)).toContainText("unavailable in the synthetic demo");
+  await expect(panel(page)).toContainText("does not authenticate the inventory");
   await expect(panel(page).getByRole("button", { name: "Verify inventory" })).toHaveCount(0);
 });

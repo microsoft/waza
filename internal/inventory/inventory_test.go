@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/inventory"
 	"github.com/microsoft/waza/internal/provenance"
@@ -230,6 +231,51 @@ func TestPyPINamesNormalizeAgainstPURL(t *testing.T) {
 		if err := gen(purl); err == nil || !strings.Contains(err.Error(), "component_purl_mismatch") {
 			t.Errorf("%s: err = %v; want component_purl_mismatch", purl, err)
 		}
+	}
+}
+
+func TestGenerateRejectsConflictingDuplicates(t *testing.T) {
+	gen := func(components ...inventory.Component) error {
+		_, err := inventory.Generate(inventory.GenerateInput{SubjectKind: inventory.SubjectImage, SubjectName: imageRepo, SubjectDigest: imageDigest, Components: components})
+		return err
+	}
+	a := inventory.Component{Type: "library", Name: "x", Version: "1", PURL: "pkg:npm/x@1", Hashes: []inventory.Hash{{Alg: "SHA-256", Content: strings.Repeat("a", 64)}}}
+	b := a
+	b.Hashes = []inventory.Hash{{Alg: "SHA-256", Content: strings.Repeat("b", 64)}}
+	if err := gen(a, a); err != nil {
+		t.Fatalf("exact repeat rejected: %v", err)
+	}
+	for _, order := range [][]inventory.Component{{a, b}, {b, a}} {
+		if err := gen(order...); err == nil || !strings.Contains(err.Error(), "conflicting definitions") {
+			t.Errorf("conflicting definitions accepted: %v", err)
+		}
+	}
+}
+
+func TestExpectedNamesAreComparedUnclipped(t *testing.T) {
+	plugin := func(name string) []byte {
+		data, err := inventory.Generate(inventory.GenerateInput{SubjectKind: inventory.SubjectPlugin, SubjectName: name, SubjectDigest: imageDigest,
+			Components: []inventory.Component{{Type: "library", Name: "x", Version: "1"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	clipped := plugin(strings.Repeat("a", 509) + "...")
+	r := inventory.Verify(clipped, inventory.Expectation{Kind: inventory.SubjectPlugin, Digest: imageDigest, Name: strings.Repeat("a", 600)})
+	if r.Status != "failed" || code(r) != "expected_name_invalid" || utf8.RuneCountInString(r.Expected.Name) > 512 {
+		t.Fatalf("over-long name: status %s code %q", r.Status, code(r))
+	}
+	if _, err := inventory.EncodeReport(r); err != nil {
+		t.Fatal(err)
+	}
+	wide := strings.Repeat("界", 200)
+	r = inventory.Verify(plugin(wide), inventory.Expectation{Kind: inventory.SubjectPlugin, Digest: imageDigest, Name: wide})
+	if r.Status != "verified" || r.Expected.Name != wide {
+		t.Fatalf("multi-byte name: status %s code %q", r.Status, code(r))
+	}
+	if _, err := inventory.EncodeReport(r); err != nil {
+		t.Fatal(err)
 	}
 }
 

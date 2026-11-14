@@ -71,7 +71,9 @@ recorded with its version and sha256 only when found byte-for-byte inside a
 `--dpkg-status` (installed Debian packages), `--os-release`, `--file` (sha256 of a file), and
 `--from-cyclonedx` (components imported from another CycloneDX JSON document,
 for example a Syft or BuildKit SBOM). `--out` is never overwritten. Generation
-fails rather than emit an inventory without an immutable digest.
+fails rather than emit an inventory without an immutable digest. Exact
+repeats of a component are merged; two different definitions with the same
+bom-ref (for example one PURL with different hashes) fail generation.
 
 ## Verify
 
@@ -142,6 +144,7 @@ a mismatched inventory.
 | `subject_kind_invalid`, `subject_unbound`, `subject_purl_mismatch`, `subject_ref_mismatch` | Subject not bound to one digest, or altered | Treat as tampered |
 | `expected_digest_missing`, `expected_digest_invalid` | No consumed digest, or a tag was given | Pass the `sha256:` digest you pulled or loaded |
 | `subject_kind_mismatch` | Image inventory used for a plugin, or the reverse | Use the inventory for the artifact you consumed |
+| `expected_name_invalid` | The pinned image repository or plugin name exceeds 512 characters | Pin the exact name |
 | `expected_kind_invalid` | The verifier was asked for a kind other than image or plugin | Request `image` or `plugin` |
 | `subject_digest_mismatch` | Inventory describes another image or plugin | Treat as unverified; do not use |
 | `subject_name_mismatch` | Pinned repository or plugin name differs | Confirm what you consumed |

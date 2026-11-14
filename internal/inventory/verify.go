@@ -12,6 +12,9 @@ import (
 // Check identifiers in report order.
 var checkIDs = []string{"inventory", "profile", "subject", "binding", "components"}
 
+// maxExpectedName matches the schema limit on subject names.
+const maxExpectedName = 512
+
 // Expectation is what the verifier consumed. Digest is required: an image or
 // plugin whose digest is not known cannot be bound and fails verification.
 type Expectation struct {
@@ -68,18 +71,18 @@ func (r *Report) FirstFailure() (Check, bool) {
 
 type verification struct {
 	report *Report
+	want   Expectation
 	failed bool
 }
 
+// clip shortens s to at most limit characters (code points, as JSON Schema
+// maxLength counts them) so report fields stay schema-valid.
 func clip(s string, limit int) string {
-	if len(s) <= limit {
+	if utf8.RuneCountInString(s) <= limit {
 		return s
 	}
-	s = s[:limit-3]
-	for !utf8.ValidString(s) {
-		s = s[:len(s)-1]
-	}
-	return s + "..."
+	runes := []rune(s)
+	return string(runes[:limit-3]) + "..."
 }
 
 func (v *verification) set(id, status, code, format string, args ...any) {
@@ -109,13 +112,14 @@ func Verify(data []byte, expect Expectation) *Report {
 		// below records that the requested kind was neither.
 		r.Expected.Kind = SubjectImage
 	}
-	// Over-long values cannot match and are clipped to keep the report in bounds.
+	// Comparisons use the caller's values; only the reported copies are
+	// clipped to keep the report in bounds.
 	r.Expected.Digest = clip(r.Expected.Digest, 128)
-	r.Expected.Name = clip(r.Expected.Name, 512)
+	r.Expected.Name = clip(r.Expected.Name, maxExpectedName)
 	for _, id := range checkIDs {
 		r.Checks = append(r.Checks, Check{ID: id, Status: "skipped", Code: "not_reached", Message: "an earlier check failed"})
 	}
-	v := &verification{report: r}
+	v := &verification{report: r, want: expect}
 	if invalidKind {
 		v.fail("subject", "expected_kind_invalid", "expected subject kind must be %q or %q", SubjectImage, SubjectPlugin)
 	} else {
@@ -180,12 +184,14 @@ func (v *verification) subject(doc *Document) bool {
 }
 
 func (v *verification) binding(doc *Document) bool {
-	s, want := doc.Subject(), v.report.Expected
+	s, want := doc.Subject(), v.want
 	switch {
 	case want.Digest == "":
 		return v.fail("binding", "expected_digest_missing", "no consumed %s digest was supplied; an inventory cannot be bound to an unidentified %s", want.Kind, want.Kind)
 	case !digestPattern.MatchString(want.Digest):
 		return v.fail("binding", "expected_digest_invalid", "consumed %s digest %q is not sha256:<64 hex>; tags and mutable references are not accepted", want.Kind, want.Digest)
+	case utf8.RuneCountInString(want.Name) > maxExpectedName:
+		return v.fail("binding", "expected_name_invalid", "consumed %s name exceeds %d characters", want.Kind, maxExpectedName)
 	case s.Kind != want.Kind:
 		return v.fail("binding", "subject_kind_mismatch", "inventory describes a %s, but a %s was consumed", s.Kind, want.Kind)
 	case s.Digest != want.Digest:

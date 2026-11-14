@@ -54,8 +54,11 @@ func Generate(in GenerateInput) ([]byte, error) {
 	byRef := map[string]Component{}
 	for _, c := range in.Components {
 		c.BOMRef = componentRef(c)
-		if _, dup := byRef[c.BOMRef]; !dup {
+		prior, dup := byRef[c.BOMRef]
+		if !dup {
 			byRef[c.BOMRef] = c
+		} else if !sameComponent(prior, c) {
+			return nil, fmt.Errorf("conflicting definitions for component %s", c.BOMRef)
 		}
 	}
 	if len(byRef) == 0 {
@@ -88,6 +91,14 @@ func Generate(in GenerateInput) ([]byte, error) {
 		return nil, fmt.Errorf("generated inventory does not verify (%s): %s", failure.Code, failure.Message)
 	}
 	return data, nil
+}
+
+// sameComponent reports whether two components with one bom-ref serialize
+// identically, so only exact repeats are deduplicated.
+func sameComponent(a, b Component) bool {
+	ea, errA := json.Marshal(a)
+	eb, errB := json.Marshal(b)
+	return errA == nil && errB == nil && bytes.Equal(ea, eb)
 }
 
 // GoBinaryComponents inventories a Go binary: the file itself by sha256, its

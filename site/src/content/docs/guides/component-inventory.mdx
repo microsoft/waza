@@ -70,8 +70,8 @@ waza runner inventory generate --subject plugin --name example-plugin \
 
 Sources: `--go-binary` (Go build information and file digest), `--embedded-dir`
 (bundled Copilot CLI and runtime payloads proven present in the binary), `--dpkg-status`,
-`--os-release`, `--file` and `--from-cyclonedx`. Generation refuses tags and
-never overwrites `--out`.
+`--os-release`, `--file` and `--from-cyclonedx`. Generation refuses tags,
+never overwrites `--out`, and fails on conflicting definitions of one component.
 
 ## Bind into provenance
 
@@ -97,6 +97,7 @@ report with checks `inventory`, `profile`, `subject`, `binding` and
 | `subject_unbound`, `subject_purl_mismatch`, `subject_ref_mismatch`, `subject_kind_invalid` | Subject not bound to one digest, or altered |
 | `expected_digest_missing`, `expected_digest_invalid` | No consumed digest, or a tag |
 | `subject_digest_mismatch`, `subject_kind_mismatch`, `subject_name_mismatch` | Inventory is for another image or plugin |
+| `expected_name_invalid` | The pinned name exceeds 512 characters |
 | `expected_kind_invalid` | The requested kind is neither image nor plugin |
 | `components_empty`, `component_duplicate`, `component_ref_mismatch`, `component_purl_mismatch` | Component list altered or internally contradictory |
 | `binding_required_missing` | `--require-inventory` and the bundle binds none |
