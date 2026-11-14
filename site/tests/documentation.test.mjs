@@ -1120,3 +1120,37 @@ test('execution isolation guide, CLI reference and schema route stay wired', () 
   }
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /\*\*Inspect execution isolation\*\*/);
 });
+
+test('production integration assurance package, site navigation and schema route stay wired', () => {
+  const packageData = JSON.parse(read('docs/PRODUCTION_INTEGRATION_ASSURANCE-1.0.json'));
+  const page = read('site/src/content/docs/guides/production-integration-assurance.mdx');
+  const sidebar = read('site/astro.config.mjs');
+  const schemaRoute = read('site/src/pages/schemas/[schema].json.ts');
+  const schema = JSON.parse(read('schemas/production-integration-assurance-1.0.schema.json'));
+
+  assert.equal(packageData.kind, 'waza.production-integration-assurance');
+  assert.equal(packageData.schema_version, '1.0');
+  assert.equal(schema.$id, 'https://microsoft.github.io/waza/schemas/production-integration-assurance-1.0.schema.json');
+  assert.match(schemaRoute, /schema: 'production-integration-assurance-1\.0\.schema'/);
+  assert.match(sidebar, /label: 'Production Integration'[\s\S]*slug: 'guides\/production-integration-assurance'/);
+  for (const section of ['Operator conformance matrix', 'Threat model',
+    'Production-readiness checklist', 'Verification limits', 'Migration and reassessment',
+    'Existing Lab evidence']) {
+    assert.ok(page.includes(`## ${section}`), `${section} must be published`);
+  }
+  for (const issue of [769, 770, 771, 772, 773, 774]) {
+    assert.ok(packageData.lab_evidence.some((item) => item.issue === issue), `missing Lab evidence for #${issue}`);
+    assert.ok(page.includes(`#${issue}`), `missing rendered evidence link for #${issue}`);
+  }
+  assert.match(page, /no new Lab dashboard view/i);
+  assert.match(page, /keyless and managed-KMS signing are unavailable/i);
+  assert.match(page, /manually triggered/i);
+  assert.match(page, /no live execution-path telemetry emission/i);
+  assert.match(page, /no scheduler is included/i);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-provenance'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/component-inventory'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-telemetry'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-budgets'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-isolation'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/runner-adapters'/);
+});

@@ -36,6 +36,7 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 	cmd.AddCommand(newRunnerProvenanceCommand())
 	cmd.AddCommand(newRunnerTelemetryCommand())
 	cmd.AddCommand(newRunnerInventoryCommand())
+	cmd.AddCommand(newRunnerAssuranceCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use: "capabilities", Short: "Print supported runner versions and capabilities as JSON",
 		Args: cobra.NoArgs,

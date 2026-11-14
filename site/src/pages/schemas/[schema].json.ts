@@ -32,6 +32,7 @@ import adapterDescriptor from '../../../../schemas/adapter-work-descriptor-1.0.s
 import adapterTranslation from '../../../../schemas/adapter-translation-1.0.schema.json';
 import adapterResult from '../../../../schemas/adapter-result-1.0.schema.json';
 import executionBudget from '../../../../schemas/execution-budget-1.0.schema.json';
+import productionIntegrationAssurance from '../../../../schemas/production-integration-assurance-1.0.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -68,6 +69,7 @@ export function getStaticPaths() {
     { params: { schema: 'adapter-translation-1.0.schema' }, props: { schema: adapterTranslation } },
     { params: { schema: 'adapter-result-1.0.schema' }, props: { schema: adapterResult } },
     { params: { schema: 'execution-budget-1.0.schema' }, props: { schema: executionBudget } },
+    { params: { schema: 'production-integration-assurance-1.0.schema' }, props: { schema: productionIntegrationAssurance } },
   ];
 }
 

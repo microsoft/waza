@@ -421,6 +421,25 @@ Follow the complete evidence, capture, review, and publication boundaries in
 [`docs/RELEASE-MEDIA.md`](RELEASE-MEDIA.md). The release-media deliverables are
 review-ready drafts, not an announcement or permission to publish.
 
+## Production Integration Assurance (v0.42.0)
+
+Before tagging v0.42.0, validate the versioned production-integration package
+and regenerate its documentation page from the same commit:
+
+```bash
+go run ./cmd/waza runner assurance build
+go run ./cmd/waza runner assurance build --format markdown
+```
+
+The package records contract evidence and unsupported/unavailable states; it is
+not a blanket deployment approval. Release and migration notes must retain the
+documented gaps for keyless/KMS signing, manually triggered inventory
+publication and previously published images, post-run telemetry, OS resource
+accounting, host-enforced isolation, and external scheduler/provenance-hook
+responsibilities. Operators reassess against the exact released Waza version
+and image digest after upgrades. See
+[`docs/PRODUCTION_INTEGRATION_ASSURANCE.md`](PRODUCTION_INTEGRATION_ASSURANCE.md).
+
 ## Version File Locations
 
 | File | Purpose |

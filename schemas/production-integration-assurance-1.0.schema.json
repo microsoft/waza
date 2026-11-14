@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/production-integration-assurance-1.0.schema.json",
+  "title": "Waza production integration assurance package",
+  "description": "Versioned, evidence-linked production integration conformance, threat, readiness, and verification-limit record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "package_version",
+    "target_release",
+    "release_stage",
+    "summary",
+    "conformance_matrix",
+    "threat_model",
+    "readiness_checklist",
+    "verification_limits",
+    "lab_evidence",
+    "migration"
+  ],
+  "properties": {
+    "kind": { "const": "waza.production-integration-assurance" },
+    "schema_version": { "const": "1.0" },
+    "package_version": { "const": "1.0" },
+    "target_release": { "const": "v0.42.0" },
+    "release_stage": { "enum": ["candidate", "released"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "conformance_matrix": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "area", "state", "claim", "verification", "limitations", "issues", "schemas", "evidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "area": { "type": "string", "minLength": 1 },
+          "state": { "enum": ["supported", "unsupported", "unavailable"] },
+          "claim": { "type": "string", "minLength": 1 },
+          "verification": { "type": "string", "minLength": 1 },
+          "limitations": { "type": "string", "minLength": 1 },
+          "issues": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "integer", "minimum": 1 }
+          },
+          "schemas": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/repoPath" }
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 2,
+            "items": { "$ref": "#/$defs/evidence" }
+          }
+        }
+      }
+    },
+    "threat_model": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "boundary", "threat", "controls", "residual_risk", "evidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "boundary": { "type": "string", "minLength": 1 },
+          "threat": { "type": "string", "minLength": 1 },
+          "controls": { "type": "string", "minLength": 1 },
+          "residual_risk": { "type": "string", "minLength": 1 },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/evidence" }
+          }
+        }
+      }
+    },
+    "readiness_checklist": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "action", "acceptance", "evidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "action": { "type": "string", "minLength": 1 },
+          "acceptance": { "type": "string", "minLength": 1 },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/evidence" }
+          }
+        }
+      }
+    },
+    "verification_limits": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "lab_evidence": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issue", "panel", "guide"],
+        "properties": {
+          "issue": { "type": "integer", "minimum": 769, "maximum": 774 },
+          "panel": { "type": "string", "minLength": 1 },
+          "guide": { "$ref": "#/$defs/siteGuidePath" }
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "old_runner", "previous_images", "reassessment"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "old_runner": { "type": "string", "minLength": 1 },
+        "previous_images": { "type": "string", "minLength": 1 },
+        "reassessment": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "repoPath": {
+      "type": "string",
+      "pattern": "^(docs|schemas|internal|cmd|site|examples|\\.github)/[A-Za-z0-9._/-]+$"
+    },
+    "siteGuidePath": {
+      "type": "string",
+      "pattern": "^site/src/content/docs/guides/[A-Za-z0-9._/-]+\\.mdx$"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "path"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/repoPath" }
+      }
+    }
+  }
+}
