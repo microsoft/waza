@@ -1104,3 +1104,19 @@ test('durable execution guide connects every v0.41 contract in order with resolv
     assert.ok(targets.has(page), `${path} must link ${page}`);
   }
 });
+
+test('execution isolation guide, CLI reference and schema route stay wired', () => {
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-isolation'/);
+  assert.match(read('site/src/pages/schemas/[schema].json.ts'), /schema: 'execution-isolation-1\.0\.schema'/);
+  assert.equal(JSON.parse(read('schemas/execution-isolation-1.0.schema.json')).$id,
+    'https://microsoft.github.io/waza/schemas/execution-isolation-1.0.schema.json');
+  const cli = read('site/src/content/docs/reference/cli.mdx');
+  for (const flag of ['## waza isolation preflight', '`--isolation-request`', '`--isolation-host`', '`--isolation-report`']) {
+    assert.ok(cli.includes(flag), `${flag} missing from CLI reference`);
+  }
+  const guide = read('site/src/content/docs/guides/execution-isolation.mdx');
+  for (const term of ['no_provider', 'probe_violated', 'probe_inconclusive', 'copilot-native-sandbox', '#544']) {
+    assert.ok(guide.includes(term), `${term} missing from isolation guide`);
+  }
+  assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /\*\*Inspect execution isolation\*\*/);
+});

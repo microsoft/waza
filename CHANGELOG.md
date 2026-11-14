@@ -53,6 +53,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such as a component inventory. Migration: additive; existing manifests,
   terminals and requests are unchanged. See
   [execution provenance](docs/EXECUTION_PROVENANCE.md).
+- **Portable execution isolation capabilities (#773).** New
+  `waza.execution-isolation` 1.0 contract
+  (`schemas/execution-isolation-1.0.schema.json`) for requesting, declaring and
+  preflighting filesystem, environment/secret, network, subprocess and
+  remote-tool isolation. `waza isolation preflight` probes every claimed
+  boundary by attempting the violation and reports requested, available and
+  effective isolation with explicit `no_provider`, `probe_violated` and
+  `probe_inconclusive` diagnostics; Waza enforces no boundary itself and never
+  reports one it cannot prove. `waza run --isolation-request/--isolation-host/--isolation-report`
+  rejects a run before any execution when a requested boundary is unavailable.
+  The Copilot-native sandbox (#544) is modelled as a provider that is absent in
+  this build. The host provider can detect but never prove secret withholding,
+  so `filesystem: restricted`, `environment: restricted` and
+  `subprocess: restricted` are rejected until
+  such a provider exists, and
+  network isolation (off-host traffic; loopback is not covered) is proved only
+  without external interfaces. Lab
+  **Inspect execution isolation** view under Runner contract.
+  Migration: none; without the new flags behavior is unchanged. Rejected
+  preflights exit 1 (`isolation preflight`) or 2 (`run`). See
+  [docs/EXECUTION_ISOLATION.md](docs/EXECUTION_ISOLATION.md).
 
 ### Changed
 

@@ -149,6 +149,9 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 | `--snapshot-max-total-bytes` | | int64 | 10485760 | Positive aggregate input/sanitized byte limit (10 MiB). |
 | `--snapshot-env-allow` | | string[] | | Allow-list of environment variable name patterns to embed in snapshots (default-deny; supports `WAZA_*` wildcards). |
 | `--redact` | | string | | Custom snapshot redaction policy; replaces defaults unless `extend: true`. |
+| `--isolation-request` | | string | | Unreleased (v0.42.0): isolation request JSON; the run is rejected (exit 2) before any execution when a requested boundary cannot be proved. See [Execution isolation](/waza/guides/execution-isolation/). |
+| `--isolation-host` | | string | | Unreleased (v0.42.0): host isolation declaration JSON whose claimed boundaries are probed before execution. |
+| `--isolation-report` | | string | | Unreleased (v0.42.0): write the isolation preflight report JSON; requires `--isolation-request` or `--isolation-host` and is created exclusively and never replaces an existing file, an input or another output (selected evals, `--output` and derived files, JUnit reporters, the OpenTelemetry `--otel-file`, and paths inside `--output-dir`, `--snapshot`, `--transcript-dir`, an enabled cache or session-log directory are refused, after resolving symlinked ancestors). Written on rejection, or after every selected eval passes isolation checks. |
 
 ### Examples
 
@@ -1701,6 +1704,28 @@ is launched. `--store` defaults to `.waza-artifacts` and must already exist.
 Neither flag changes legacy mutable result storage. Verification is content and
 declared context only, not admission or execution attestation.
 See [manifest examples, recovery and migration](../../guides/immutable-artifacts/).
+
+## waza isolation preflight
+
+Unreleased; targeted for v0.42.0. Probes the isolation boundaries an available
+provider claims by attempting each violation, then matches them against a
+request and prints the `waza.execution-isolation-preflight` 1.0 report. Waza
+enforces no boundary itself; the Copilot-native sandbox (#544) is reported
+`absent`. See [Execution isolation](../../guides/execution-isolation/).
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--request` | | string | | Isolation request JSON; without it every dimension is unrestricted (discovery only) |
+| `--host` | | string | | Host isolation declaration JSON; each claimed dimension is probed |
+| `--workspace` | | string | fresh temp dir | Workspace used by the filesystem probe |
+| `--output` | `-o` | string | | Also write the report to this file; it must not be the request or host file and must not already exist |
+
+Exit codes: `0` admitted, `1` a requested boundary is unavailable, `2` invalid input.
+
+```bash
+waza isolation preflight --host host.json
+waza isolation preflight --request request.json --host host.json -o isolation.json
+```
 
 ## waza runner
 

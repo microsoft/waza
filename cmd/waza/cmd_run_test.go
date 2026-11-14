@@ -24,6 +24,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/executionisolation"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
@@ -63,6 +64,15 @@ func resetRunGlobals() {
 	updateSnapshots = false
 	keepWorkspace = false
 	autoFileIssue = false
+	isolationRequestPath = ""
+	isolationHostPath = ""
+	isolationReportPath = ""
+	admittedIsolation = nil
+	pendingIsolationReport = nil
+	publishedIsolationReport = nil
+	otelExporter = ""
+	otelFile = ""
+	isolationProviders = executionisolation.DefaultProviders
 	autoIssueLookPathFn = exec.LookPath
 	autoIssueRunCommandFn = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
 		cmd := exec.CommandContext(ctx, name, args...)

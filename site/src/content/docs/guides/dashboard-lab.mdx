@@ -116,6 +116,17 @@ unbound or untrusted bundles show as failed, never partially verified. The view
 is unavailable in the synthetic demo. See
 [execution provenance](../execution-provenance/).
 
+**Inspect execution isolation** (unreleased; targeted for v0.42.0) in **Runner
+contract** reads a pasted `waza isolation preflight` or
+`waza run --isolation-report` JSON report. It shows the admitted or rejected
+decision, a table of requested, available and effective isolation per boundary
+with the enforcement source and probe evidence, the providers (the
+Copilot-native sandbox is shown as absent) and every unavailable-state
+diagnostic. The browser re-validates the schema with strict JSON parsing and
+rejects reports that show a boundary as enforced without a passing probe; no
+partial report is shown. The view runs no probe and calls no API. See
+[Execution isolation](../execution-isolation/).
+
 For a dashboard built from this source tree:
 
 ```bash
