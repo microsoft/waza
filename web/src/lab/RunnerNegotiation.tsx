@@ -8,6 +8,7 @@ import ExecutionLineage from "./ExecutionLineage";
 import AdapterWorkflow from "./AdapterWorkflow";
 import ProvenanceVerification from "./ProvenanceVerification";
 import IsolationPreflight from "./IsolationPreflight";
+import ExecutionTelemetry from "./ExecutionTelemetry";
 
 const example = JSON.stringify({
   schema_version: "1.0",
@@ -93,6 +94,7 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
     <AdapterWorkflow demo={demo} />
     <ProvenanceVerification demo={demo} />
     <IsolationPreflight />
+    <ExecutionTelemetry />
     </>
   );
 }

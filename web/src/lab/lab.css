@@ -1616,3 +1616,4 @@
   background: var(--lab-red-bg);
   color: var(--lab-red);
 }
+.lab-execution-telemetry code { overflow-wrap: anywhere; }

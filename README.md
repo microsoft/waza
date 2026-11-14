@@ -31,6 +31,10 @@ adds immutable reservations and explicit verified reuse without changing
 record distinct, retry and reuse attempts and print ordered lineage with
 derived [lifecycle state](docs/EXECUTION_LIFECYCLE.md) (cancellation, deadline,
 orphan detection and advisory retry eligibility).
+The main-branch command `runner telemetry` (not yet in a release) derives correlated, payload-free
+OpenTelemetry traces, metrics and logs from those documents and exports them as
+OTLP/JSON files or to any OTLP/HTTP collector; see
+[execution telemetry](docs/EXECUTION_TELEMETRY.md).
 The [checkpoint embedding API](docs/EXECUTION_CHECKPOINTS.md) adds compatible
 whole-unit recovery. The v0.41.0 CLI adds `runner checkpoint create`
 and `runner checkpoint resume`, with protected HTTP create/resume operations.

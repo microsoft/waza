@@ -33,6 +33,7 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 	cmd.AddCommand(newRunnerSubmitCommand(service, artifactmanifest.OpenBackend))
 	cmd.AddCommand(newRunnerLineageCommand(artifactmanifest.OpenBackend))
 	cmd.AddCommand(newRunnerProvenanceCommand())
+	cmd.AddCommand(newRunnerTelemetryCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use: "capabilities", Short: "Print supported runner versions and capabilities as JSON",
 		Args: cobra.NoArgs,

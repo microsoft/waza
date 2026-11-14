@@ -127,6 +127,16 @@ rejects reports that show a boundary as enforced without a passing probe; no
 partial report is shown. The view runs no probe and calls no API. See
 [Execution isolation](../execution-isolation/).
 
+**Execution telemetry correlation** in **Runner contract** reads a pasted
+`waza runner telemetry` report. It shows the trace ID, work and task-attempt span
+IDs, scheduler work ID, attempt spans with retry parents and manifest links,
+artifact spans, aggregation member links, signal counts, safeguard drops and
+per-signal export diagnostics (destination, target, state, HTTP status and
+sanitized error code). The browser re-validates the schema and the report's own
+counts and identifiers before display. Reports never carry prompts, outputs,
+tool arguments, headers or credentials. See
+[execution telemetry correlation](../execution-telemetry/).
+
 For a dashboard built from this source tree:
 
 ```bash
