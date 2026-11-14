@@ -220,7 +220,7 @@ func testNativeReaderFrozen15cDecisionParity(t *testing.T, proofName string, pro
 				t.Parallel()
 				caseRoot := t.TempDir()
 				caseDirectory := filepath.Join(caseRoot, "native")
-				require.NoError(t, os.Mkdir(caseDirectory, 0700))
+				require.NoError(t, os.CopyFS(caseDirectory, os.DirFS(directory)))
 				require.NoError(t, os.WriteFile(filepath.Join(caseDirectory, "native-capture.json"), test.Raw(), 0600))
 				caseInput := frozenDecisionInput{Directory: caseDirectory, Policy: policy}
 				frozen := readeroracle.Run(t, oracle, "TestNativeReaderFrozen15cDecisionParity", caseInput)

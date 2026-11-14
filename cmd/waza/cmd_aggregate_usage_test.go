@@ -106,8 +106,6 @@ func TestAggregateNonzeroUsageDeduplicatesExecutionsAndCompatibleViewsInSavedRep
 }
 
 func TestAggregateOversizedUsagePreservesSavedCLIAndAPIReport(t *testing.T) {
-	t.Parallel()
-
 	directory := t.TempDir()
 	backend, err := artifactmanifest.OpenLocal(directory)
 	require.NoError(t, err)

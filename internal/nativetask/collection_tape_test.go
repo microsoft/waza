@@ -46,7 +46,7 @@ func TestCollectionTapeIndependentDescriptorBudgets(t *testing.T) {
 	_, _, req, _, record := collectionFixture(t)
 	// Keep each descriptor just above 64 MiB so the two independent attempts
 	// still exceed the 128 MiB aggregate budget without unnecessary payload.
-	sources := collectionDescriptorSources(t, 4, 160)
+	sources := collectionDescriptorSources(t, 4, 170)
 	prepared, err := PrepareCaptured(t.Context(), releasepolicy.Baseline, "task", req, sources)
 	require.NoError(t, err)
 	require.Greater(t, len(prepared.data), 64<<20)
