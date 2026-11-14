@@ -1,51 +1,58 @@
 # Observed Linux race/atomic top-level durations (seconds), 2026-11-14.
-# Mean of top-level PASS records from three successful post-#998 main-push Go CI runs,
-# read from each run's complete ci-evidence-go-native artifacts (Linux X64,
-# retries 0, test-result cache disabled, warm Go dependency cache):
+# Previous mean of top-level PASS records from three successful post-#998
+# main-push Go CI runs, refreshed with one passing native-shard sample from
+# PR run 43629705788 attempt 1 (Linux X64, retries 0, test-result cache disabled,
+# warm Go dependency cache; all four native jobs passed, but the unrelated
+# remaining-package job failed). This refresh is for placement only, not issue
+# acceptance evidence:
 # https://github.com/microsoft/waza/actions/runs/43531197971 (9310d91f250b3aea389fa32743255964134ac466)
 # https://github.com/microsoft/waza/actions/runs/43517457296 (93b76bf48aa66518835bdc8c31ea1404150fc8d3)
 # https://github.com/microsoft/waza/actions/runs/43509686688 (2b93eddefe9f5df44fd166c73a85c8efd2e3d0d8)
+# https://github.com/microsoft/waza/actions/runs/43629705788
+# Each current value is 75% of the previous three-run mean and 25% of the new
+# passing native-shard sample. Unchanged rows either had no passing sample or
+# retained the same value after applying the refresh.
 # Unchanged rows use mean top-level PASS seconds; regrouped rows use disjoint
 # child PASS seconds where cases moved between top-level tests. Never add child
 # durations to their parent when calculating a cost.
 TestAssuredBuiltCLIWorkflow	0
-TestAssuredCollectionRealOfflineVerifierAndRegrade	102.45
-TestAssuredCurrentReviewRevocationAndArmSwap	55.29
-TestAssuredCurrentSourceChangesRejectBeforeCollection	56.51
-TestAssuredFullRowsAndRegradeCannotAdoptPass	36.5
-TestAssuredRechecksAfterActualVerifier	24.49
-TestAssuredUnreviewedRemainsNonpass	32.43
+TestAssuredCollectionRealOfflineVerifierAndRegrade	99.13
+TestAssuredCurrentReviewRevocationAndArmSwap	54.69
+TestAssuredCurrentSourceChangesRejectBeforeCollection	57.62
+TestAssuredFullRowsAndRegradeCannotAdoptPass	35.57
+TestAssuredRechecksAfterActualVerifier	24.95
+TestAssuredUnreviewedRemainsNonpass	34.05
 TestNativeArtifactPublicWireBoundBeforeOpen	0
 TestNativeArtifactRejectsFIFOReplacementBeforeOpen	0
-TestNativeArtifactsAreRequiredAndConfined	145.45
-TestNativeCollectionAcceptedAndFrozenReader	120.77
-TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime	63.76
-TestNativeCollectionDiscoveryOrder	104
-TestNativeCollectionObservedFailures	237.62
-TestNativeCollectionObservedFailuresOutputAndBudget	290.9
-TestNativeCollectionObservedFailuresShutdown	154.42
-TestNativeCollectionProductionLifecycle	92.4
-TestNativeCollectionPublicPayloads	234.22
-TestNativeCollectionPublicPayloadsLargeOutput	206.81
-TestNativeFrozenResourcesReachFreshSDKWorkspace	42.62
+TestNativeArtifactsAreRequiredAndConfined	145.39
+TestNativeCollectionAcceptedAndFrozenReader	119.9
+TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime	64.28
+TestNativeCollectionDiscoveryOrder	102.37
+TestNativeCollectionObservedFailures	234.17
+TestNativeCollectionObservedFailuresOutputAndBudget	289.23
+TestNativeCollectionObservedFailuresShutdown	152.03
+TestNativeCollectionProductionLifecycle	94.92
+TestNativeCollectionPublicPayloads	246.06
+TestNativeCollectionPublicPayloadsLargeOutput	203.75
+TestNativeFrozenResourcesReachFreshSDKWorkspace	41.77
 TestNativeInnerProfileRejectsFrozenPolicyMemberOracle	0
-TestNativeLateFailurePreservesEveryStartedAttempt	392.15
-TestNativeReadSelectedDecisionCaptureVerification	305.19
-TestNativeReaderFrozen15cDecisionParity	657.48
-TestNativeReaderFrozen15cDecisionParityAdditionalInputs	615.47
-TestNativeReaderPreservesPrePolicyCoreFailures	86.03
-TestNativeReaderSuppliedDecisionProcess	13.72
-TestNativeSourceCurrentnessBeforeSideEffects	177.7
-TestNativeStaticRequirementsAndConfiguration	9.82
-TestNativeTerminalPolicyAndLateStop	149.98
+TestNativeLateFailurePreservesEveryStartedAttempt	408.48
+TestNativeReadSelectedDecisionCaptureVerification	300.98
+TestNativeReaderFrozen15cDecisionParity	633.87
+TestNativeReaderFrozen15cDecisionParityAdditionalInputs	639.4
+TestNativeReaderPreservesPrePolicyCoreFailures	91.7
+TestNativeReaderSuppliedDecisionProcess	13.84
+TestNativeSourceCurrentnessBeforeSideEffects	184.93
+TestNativeStaticRequirementsAndConfiguration	10.04
+TestNativeTerminalPolicyAndLateStop	161.2
 TestNativeUnsupportedPlatformBeforeEffects	0
-TestOriginalMockGuardAndLockErrorParity	2.62
-TestOriginalMockPolicyGoldenUnionParity	4.81
-TestOriginalMockSourceProjectionParity	12.22
+TestOriginalMockGuardAndLockErrorParity	2.75
+TestOriginalMockPolicyGoldenUnionParity	4.67
+TestOriginalMockSourceProjectionParity	12.59
 TestPlanningInputRequiresExplicitFields	0
-TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment	276.21
-TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection	80.89
-TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection	7.01
-TestSourceBoundCollection	4.64
-TestSourceDriftBeforeBegin	1.69
-TestSourcePlanBoundaries	8.24
+TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment	279.36
+TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection	83.39
+TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection	7.27
+TestSourceBoundCollection	4.61
+TestSourceDriftBeforeBegin	1.72
+TestSourcePlanBoundaries	8.34
