@@ -45,7 +45,7 @@ func TerminationOutcome(resource Resource) string {
 // checks shape only; these are the cross-field rules readers must enforce.
 func (r *Report) CheckTerminal(outcome string) error {
 	seen := map[Resource]Usage{}
-	anyExceeded, anyUsed := false, false
+	anyExceeded, anyUsed, missingUsage := false, false, false
 	for _, row := range r.Resources {
 		if !slices.Contains(Resources, row.Resource) {
 			return fmt.Errorf("budget report lists unknown resource %q", row.Resource)
@@ -58,6 +58,7 @@ func (r *Report) CheckTerminal(outcome string) error {
 			return fmt.Errorf("budget report %s: %w", row.Resource, err)
 		}
 		anyUsed = anyUsed || row.Used != nil
+		missingUsage = missingUsage || (row.Measurement == Measured && row.Used == nil)
 		anyExceeded = anyExceeded || (row.Exceeded != nil && *row.Exceeded)
 	}
 	if len(seen) != len(Resources) {
@@ -76,6 +77,10 @@ func (r *Report) CheckTerminal(outcome string) error {
 		if err := r.Termination.checkUsage(row.Used); err != nil {
 			return err
 		}
+	}
+	started := r.State == StateWithinBudget || r.State == StateExceeded || r.State == StateTerminated
+	if started && missingUsage {
+		return fmt.Errorf("budget state %s requires usage for every measured resource", r.State)
 	}
 	switch r.State {
 	case StateRejectedUnsupported:

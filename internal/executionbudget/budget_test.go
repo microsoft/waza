@@ -188,6 +188,36 @@ func TestMeterWallTimeTerminatesAsDeadline(t *testing.T) {
 	require.GreaterOrEqual(t, report.Termination.Observed, int64(10))
 }
 
+func TestMeterFinishEnforcesPassedWallDeadline(t *testing.T) {
+	caps := capabilitiesFor("linux", "amd64", unixSupport)
+	clock := &fakeClock{now: time.Unix(0, 0)}
+	plan, _ := Plan(Request{Limits: Limits{WallTimeMS: ptr(60_000)}}, caps)
+	ctx, meter := start(context.Background(), *plan, func() sample { return sample{} }, clock.Now)
+	clock.advance(61 * time.Second)
+	report := meter.Finish()
+	require.Equal(t, &Termination{Resource: WallTime, Limit: 60_000, Observed: 61_000}, report.Termination,
+		"a passed deadline whose timer has not fired still ends the attempt")
+	require.ErrorIs(t, context.Cause(ctx), context.DeadlineExceeded)
+	require.NoError(t, report.CheckTerminal("timeout"))
+
+	plan, _ = Plan(Request{Limits: Limits{WallTimeMS: ptr(60_000), ModelTurns: ptr(0)}}, caps)
+	clock = &fakeClock{now: time.Unix(0, 0)}
+	_, meter = start(context.Background(), *plan, func() sample { return sample{} }, clock.Now)
+	meter.ModelTurnStarted()
+	clock.advance(61 * time.Second)
+	require.Equal(t, ModelTurns, meter.Finish().Termination.Resource, "an earlier counted stop keeps its cause")
+
+	enclosing, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	plan, _ = Plan(Request{Limits: Limits{WallTimeMS: ptr(60_000)}}, caps)
+	clock = &fakeClock{now: time.Unix(0, 0)}
+	_, meter = start(enclosing, *plan, func() sample { return sample{} }, clock.Now)
+	clock.advance(61 * time.Second)
+	report = meter.Finish()
+	require.Nil(t, report.Termination, "an earlier request deadline is not attributed to the budget")
+	require.Equal(t, StateExceeded, report.State)
+}
+
 func TestMeterWithinBudgetAndMeasurementOnlyExceedance(t *testing.T) {
 	caps := capabilitiesFor("linux", "amd64", unixSupport)
 	plan, _ := Plan(Request{Limits: Limits{ModelTurns: ptr(3)}}, caps)
@@ -263,6 +293,9 @@ func TestCheckTerminalRejectsContradictions(t *testing.T) {
 			r.Resources[1].Used, r.Resources[1].Remaining, r.Resources[1].Exceeded = nil, nil, nil
 		}),
 		"understated usage": mutate(func(r *Report) { *r.Resources[1].Used = 0 }),
+		"measured row without usage": mutate(func(r *Report) {
+			r.Resources[2].Used, r.Resources[2].Remaining, r.Resources[2].Exceeded = nil, nil, nil
+		}),
 	} {
 		require.Error(t, report.CheckTerminal("cancelled"), name) //nolint:misspell // wire value
 	}

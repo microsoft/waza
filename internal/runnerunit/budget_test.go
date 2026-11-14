@@ -354,5 +354,7 @@ func TestUnrepresentableEvidenceKeepsBudgetTerminationConsistent(t *testing.T) {
 	require.Equal(t, runnerterminal.Canceled, envelope.Outcome, "%+v", envelope)
 	require.Equal(t, "execution", envelope.FailureBoundary)
 	require.Equal(t, executionbudget.StateTerminated, envelope.Budget.State)
+	require.Len(t, envelope.Diagnostics, 2)
+	require.Equal(t, "budget_exceeded", envelope.Diagnostics[1].Code, "the fallback keeps the budget stop diagnostic")
 	encodeTerminal(t, envelope, binding)
 }

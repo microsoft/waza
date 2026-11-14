@@ -33,6 +33,7 @@ type Meter struct {
 	plan     Report
 	cancel   context.CancelCauseFunc
 	stopWall context.CancelFunc
+	parent   context.Context
 	ctx      context.Context
 	start    time.Time
 	before   sample
@@ -57,7 +58,7 @@ func Start(ctx context.Context, plan Report) (context.Context, *Meter) {
 }
 
 func start(ctx context.Context, plan Report, sampler func() sample, now func() time.Time) (context.Context, *Meter) {
-	m := &Meter{plan: plan, sampler: sampler, now: now, stopWall: func() {}}
+	m := &Meter{plan: plan, parent: ctx, sampler: sampler, now: now, stopWall: func() {}}
 	ctx, m.cancel = context.WithCancelCause(ctx)
 	if limit, ok := m.limit(WallTime); ok {
 		ctx, m.stopWall = context.WithTimeoutCause(ctx, time.Duration(limit)*time.Millisecond,
@@ -117,15 +118,34 @@ func (m *Meter) errLocked() error {
 	return nil
 }
 
+// expireWallLocked ends the attempt on a wall deadline that has passed but
+// whose timer has not fired yet. An earlier cancellation, or an enclosing
+// deadline no later than the wall deadline, keeps its own cause.
+func (m *Meter) expireWallLocked(elapsed time.Duration) {
+	limit, ok := m.limit(WallTime)
+	if !ok || m.ctx.Err() != nil || elapsed < time.Duration(limit)*time.Millisecond {
+		return
+	}
+	if enclosing, has := m.parent.Deadline(); has {
+		if wall, _ := m.ctx.Deadline(); !enclosing.After(wall) {
+			return
+		}
+	}
+	m.cancel(&ExceededError{Termination: Termination{Resource: WallTime, Limit: limit, Observed: limit}})
+}
+
 // Finish stops enforcement and returns the measured terminal report. Later
-// observer calls are ignored. The wall timer is stopped before the terminal
-// cause is read, so a deadline cannot fire unrecorded after the report is built.
+// observer calls are ignored. A passed wall deadline is enforced before the
+// timer is stopped, and the timer is stopped before the terminal cause is
+// read, so a deadline cannot be lost or fire unrecorded after the report is built.
 func (m *Meter) Finish() *Report {
 	m.mu.Lock()
 	m.finished = true
+	elapsedTime := m.now().Sub(m.start)
+	m.expireWallLocked(elapsedTime)
 	m.stopWall()
 	cause := m.errLocked()
-	elapsed := m.now().Sub(m.start).Milliseconds()
+	elapsed := elapsedTime.Milliseconds()
 	after := m.sampler()
 	report := m.plan
 	report.Resources = make([]Usage, len(m.plan.Resources))

@@ -116,12 +116,7 @@ func terminal(report Report) (runnerterminal.Envelope, *runnerterminal.Binding) 
 		envelope.Observation = observed
 	}
 	envelope.Budget = report.budget.Clone()
-	if budget := report.budget; budget != nil && budget.Termination != nil && len(envelope.Diagnostics) < runnerterminal.MaxDiagnostics {
-		envelope.Diagnostics = append(envelope.Diagnostics, runnerterminal.Diagnostic{
-			Code: "budget_exceeded", Message: fmt.Sprintf("Enforced execution budget %s was exceeded (observed %d, limit %d); inspect budget.resources.",
-				budget.Termination.Resource, budget.Termination.Observed, budget.Termination.Limit),
-		})
-	}
+	appendBudgetDiagnostic(&envelope, report.budget)
 	if _, err := runnerterminal.Encode(envelope, report.binding); err != nil {
 		// Bounds never silently turn incomplete/oversize evidence into success.
 		// The admitted binding and call count survive; the unavailable summary
@@ -137,6 +132,18 @@ func terminal(report Report) (runnerterminal.Envelope, *runnerterminal.Binding) 
 			"unrepresentable_evidence", fmt.Sprintf("Original outcome %s at %s cannot be represented; observation/diagnostic detail unavailable: %.600s", envelope.Outcome, envelope.FailureBoundary, err))
 		envelope.Selection, envelope.Identity, envelope.EngineCalls = report.Resolved, report.Identity, report.Calls
 		envelope.Budget = report.budget.Clone()
+		appendBudgetDiagnostic(&envelope, report.budget)
 	}
 	return envelope, report.binding
+}
+
+// appendBudgetDiagnostic records an enforced budget stop, within the bound.
+func appendBudgetDiagnostic(envelope *runnerterminal.Envelope, budget *executionbudget.Report) {
+	if budget == nil || budget.Termination == nil || len(envelope.Diagnostics) >= runnerterminal.MaxDiagnostics {
+		return
+	}
+	envelope.Diagnostics = append(envelope.Diagnostics, runnerterminal.Diagnostic{
+		Code: "budget_exceeded", Message: fmt.Sprintf("Enforced execution budget %s was exceeded (observed %d, limit %d); inspect budget.resources.",
+			budget.Termination.Resource, budget.Termination.Observed, budget.Termination.Limit),
+	})
 }

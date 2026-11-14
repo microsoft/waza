@@ -66,7 +66,9 @@ export function checkBudget(budget: BudgetReport, outcome: string): string | nul
   const termination = budget.termination;
   let anyUsed = false;
   let anyExceeded = false;
+  let missingUsage = false;
   for (const row of budget.resources) {
+    missingUsage ||= row.measurement === "measured" && row.used === undefined;
     anyUsed ||= row.used !== undefined;
     anyExceeded ||= row.exceeded === true;
     const derived = row.remaining !== undefined || row.exceeded !== undefined;
@@ -94,6 +96,8 @@ export function checkBudget(budget: BudgetReport, outcome: string): string | nul
       : used >= termination.observed;
     if (!consistent) return "Budget termination contradicts its measured usage.";
   }
+  const started = budget.state === "within_budget" || budget.state === "exceeded" || budget.state === "terminated";
+  if (started && missingUsage) return "Budget report omits usage for a measured resource.";
   switch (budget.state) {
     case "rejected_unsupported":
       return outcome === "unsupported_capability" && !anyUsed && !termination && budget.unsupported === "reject"

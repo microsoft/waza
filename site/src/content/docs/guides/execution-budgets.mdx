@@ -112,7 +112,8 @@ example `remaining` that is not `limit - used`, a `terminated` state whose
 outcome is not `timeout`/`cancelled` for that resource, a termination
 whose resource has no measured `used` or a counted `used` below
 `termination.observed` (wall time may round below a deadline recorded as
-`observed == limit`), usage on a `rejected_unsupported` report, or a
+`observed == limit`), a `within_budget`/`exceeded`/`terminated` report that
+omits `used` on a measured row, usage on a `rejected_unsupported` report, or a
 `not_started` report on a `success`/`evaluation_failure` outcome or alongside
 engine calls or an observation. Through `runner submit`, a rejected budget is
 published with only the `unsupported_budget` diagnostic code (messages are
@@ -124,7 +125,8 @@ deadline (the earlier of `timeout_ms` and `wall_time_ms`); a wall-time stop is
 recorded as a `deadline` cancellation and a model-turn or tool-call stop as a
 `caller` cancellation (the limit is caller policy). When `timeout_ms` expires
 first, the attempt stays a request `timeout` even if a budget is crossed later
-during shutdown.
+during shutdown. A wall deadline that has passed when the attempt finishes is
+enforced even if its timer has not fired yet.
 
 ## For operators
 

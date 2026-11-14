@@ -111,6 +111,14 @@ test.describe("Lab execution budgets", () => {
       row.resource === "wall_time_ms" ? { ...row, remaining: 1 } : row);
     await readTerminal(page, { ...fixture.terminated, budget: { ...fixture.terminated.budget, resources } });
     await expect(panel(page).getByRole("alert")).toHaveText("Budget wall_time_ms remaining does not equal limit minus used.");
+    const unreported: Partial<(typeof fixture.terminated.budget.resources)[number]>[] = structuredClone(fixture.terminated.budget.resources);
+    for (const row of unreported.filter((candidate) => candidate.resource === "wall_time_ms")) {
+      delete row.used;
+      delete row.remaining;
+      delete row.exceeded;
+    }
+    await readTerminal(page, { ...fixture.terminated, budget: { ...fixture.terminated.budget, resources: unreported } });
+    await expect(panel(page).getByRole("alert")).toHaveText("Budget report omits usage for a measured resource.");
     await readTerminal(page, withTurnUsage(undefined));
     await expect(panel(page).getByRole("alert")).toHaveText("Budget termination has no measured usage.");
     await readTerminal(page, withTurnUsage(0));
