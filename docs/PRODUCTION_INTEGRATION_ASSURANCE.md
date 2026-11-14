@@ -19,11 +19,13 @@ go run ./cmd/waza runner assurance build --format markdown
 
 The JSON output is a normalized `waza.production-integration-assurance` 1.0
 package. The Markdown output is the deterministic site page. Both operations
-run offline and fail if the package schema is invalid, a referenced published
-contract schema or evidence file is missing, a referenced schema has no Waza
-schema ID, any of the three conformance states is absent, or a linked Lab guide
-no longer describes its named panel. `internal/runnerassurance` tests require
-the checked-in page to match generated output.
+run offline and fail if the package schema is invalid, a capability's state
+differs from the version 1.0 conformance matrix, a referenced published contract
+schema or evidence file is missing, a referenced schema has no Waza schema ID,
+any of the three conformance states is absent, or a linked Lab guide is not a
+documentation-site guide that describes its named panel. `internal/runnerassurance`
+tests require the checked-in page to match generated output independent of
+checkout line endings.
 
 When a v0.42.0 contract or its evidence changes:
 

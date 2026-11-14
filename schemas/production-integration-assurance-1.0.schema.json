@@ -115,7 +115,7 @@
         "properties": {
           "issue": { "type": "integer", "minimum": 769, "maximum": 774 },
           "panel": { "type": "string", "minLength": 1 },
-          "guide": { "$ref": "#/$defs/repoPath" }
+          "guide": { "$ref": "#/$defs/siteGuidePath" }
         }
       }
     },
@@ -135,6 +135,10 @@
     "repoPath": {
       "type": "string",
       "pattern": "^(docs|schemas|internal|cmd|site|examples|\\.github)/[A-Za-z0-9._/-]+$"
+    },
+    "siteGuidePath": {
+      "type": "string",
+      "pattern": "^site/src/content/docs/guides/[A-Za-z0-9._/-]+\\.mdx$"
     },
     "evidence": {
       "type": "object",

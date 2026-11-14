@@ -2,6 +2,7 @@ package runnerassurance
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,8 @@ func TestBuildMatchesPublishedPackagePage(t *testing.T) {
 
 	published, err := os.ReadFile(filepath.Join(root, "site", "src", "content", "docs", "guides", "production-integration-assurance.mdx"))
 	require.NoError(t, err)
-	require.True(t, bytes.Equal(published, result.Markdown), "generated site page is stale; regenerate it with `waza runner assurance build --format markdown`")
+	normalizedPublished := bytes.ReplaceAll(published, []byte("\r\n"), []byte("\n"))
+	require.True(t, bytes.Equal(normalizedPublished, result.Markdown), "generated site page is stale; regenerate it with `waza runner assurance build --format markdown`")
 
 	roundTrip, err := Build(result.JSON, root)
 	require.NoError(t, err)
@@ -46,6 +48,18 @@ func TestBuildRejectsUnknownStateAndStaleEvidence(t *testing.T) {
 
 	unknownState := bytes.Replace(input, []byte(`"state": "supported"`), []byte(`"state": "unverified"`), 1)
 	_, err = Build(unknownState, root)
+	require.ErrorIs(t, err, ErrInvalid)
+
+	var promotedState Package
+	require.NoError(t, json.Unmarshal(input, &promotedState))
+	for i := range promotedState.ConformanceMatrix {
+		if promotedState.ConformanceMatrix[i].ID == "provenance-keyless-kms" {
+			promotedState.ConformanceMatrix[i].State = "supported"
+		}
+	}
+	promotedBytes, err := json.Marshal(promotedState)
+	require.NoError(t, err)
+	_, err = Build(promotedBytes, root)
 	require.ErrorIs(t, err, ErrInvalid)
 
 	staleReference := bytes.Replace(input, []byte("internal/provenance/provenance_test.go"), []byte("internal/provenance/missing_test.go"), 1)
@@ -65,6 +79,12 @@ func TestBuildRejectsMissingLabViewEvidenceAndUnsafePaths(t *testing.T) {
 
 	unsafePath := bytes.Replace(input, []byte("docs/EXECUTION_PROVENANCE.md"), []byte("../outside.md"), 1)
 	_, err = Build(unsafePath, root)
+	require.ErrorIs(t, err, ErrInvalid)
+
+	nonGuideLabEvidence := bytes.Replace(input,
+		[]byte(`"guide": "site/src/content/docs/guides/execution-provenance.mdx"`),
+		[]byte(`"guide": "docs/EXECUTION_PROVENANCE.md"`), 1)
+	_, err = Build(nonGuideLabEvidence, root)
 	require.ErrorIs(t, err, ErrInvalid)
 }
 

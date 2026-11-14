@@ -28,6 +28,20 @@ const (
 
 var ErrInvalid = errors.New("invalid production integration assurance package")
 
+var expectedCapabilityStates = map[string]string{
+	"provenance-local-signing":                    "supported",
+	"provenance-keyless-kms":                      "unavailable",
+	"image-inventory-generation-verification":     "supported",
+	"inventory-refresh-and-legacy-images":         "unavailable",
+	"post-run-telemetry":                          "supported",
+	"wall-time-and-activity-budgets":              "supported",
+	"os-resource-budget-gaps":                     "unsupported",
+	"off-host-network-and-remote-tools":           "supported",
+	"filesystem-environment-subprocess-isolation": "unavailable",
+	"adapter-translation":                         "supported",
+	"adapter-scheduler-and-provenance-hook":       "unsupported",
+}
+
 type Package struct {
 	Kind               string          `json:"kind"`
 	SchemaVersion      string          `json:"schema_version"`
@@ -176,6 +190,10 @@ func validatePackage(pkg Package, repoRoot string) error {
 		if seenCapabilities[row.ID] {
 			return fmt.Errorf("%w: duplicate conformance id %q", ErrInvalid, row.ID)
 		}
+		expectedState, knownCapability := expectedCapabilityStates[row.ID]
+		if !knownCapability || row.State != expectedState {
+			return fmt.Errorf("%w: conformance %q has an unknown capability or unsupported state %q", ErrInvalid, row.ID, row.State)
+		}
 		seenCapabilities[row.ID] = true
 		states[row.State] = true
 		for _, ref := range row.Schemas {
@@ -203,6 +221,9 @@ func validatePackage(pkg Package, repoRoot string) error {
 			return fmt.Errorf("conformance %q: %w", row.ID, err)
 		}
 	}
+	if len(seenCapabilities) != len(expectedCapabilityStates) {
+		return fmt.Errorf("%w: conformance matrix must include every version 1.0 capability", ErrInvalid)
+	}
 	if !states["supported"] || !states["unsupported"] || !states["unavailable"] {
 		return fmt.Errorf("%w: conformance matrix must distinguish supported, unsupported, and unavailable states", ErrInvalid)
 	}
@@ -226,6 +247,9 @@ func validatePackage(pkg Package, repoRoot string) error {
 	for _, item := range pkg.LabEvidence {
 		if item.Issue < 769 || item.Issue > 774 || seenLab[item.Issue] {
 			return fmt.Errorf("%w: Lab evidence must link each issue #769 through #774 exactly once", ErrInvalid)
+		}
+		if !strings.HasPrefix(item.Guide, "site/src/content/docs/guides/") || !strings.HasSuffix(item.Guide, ".mdx") {
+			return fmt.Errorf("%w: Lab evidence guide %q must be a documentation-site guide", ErrInvalid, item.Guide)
 		}
 		seenLab[item.Issue] = true
 		guide, err := readRepositoryFile(root, item.Guide)
