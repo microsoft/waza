@@ -64,8 +64,18 @@ func TestRunnerInventoryRejectsWriterlessFIFOs(t *testing.T) {
 		})
 	}
 	t.Run("embedded", func(t *testing.T) {
-		if _, err := inventory.EmbeddedComponents(embedded, nil); err == nil || !strings.Contains(err.Error(), "is not a regular file") {
-			t.Fatalf("embedded FIFO error = %v; want a regular-file error", err)
+		done := make(chan error, 1)
+		go func() {
+			_, err := inventory.EmbeddedComponents(embedded, nil)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+				t.Fatalf("embedded FIFO error = %v; want a regular-file error", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("opening an embedded writerless FIFO blocked")
 		}
 	})
 }
