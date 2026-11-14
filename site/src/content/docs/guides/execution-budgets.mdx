@@ -126,7 +126,7 @@ recorded as a `deadline` cancellation and a model-turn or tool-call stop as a
 `caller` cancellation (the limit is caller policy). When `timeout_ms` or the
 eval/task timeout expires first (or the attempt otherwise fails first), the
 attempt keeps that outcome even if a budget is crossed later during shutdown;
-the crossing is reported as `exceeded`. A wall deadline that has passed when the attempt finishes is
+the crossing is reported as `exceeded`. A wall deadline that has passed when the attempt ends or fails is
 enforced even if its timer has not fired yet.
 
 ## For operators

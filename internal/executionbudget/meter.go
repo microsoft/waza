@@ -147,6 +147,9 @@ func (m *Meter) count(resource Resource, counter *int64) {
 func (m *Meter) Preempt() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// A wall deadline that passed before its timer callback ran still ends
+	// the attempt; only a budget that has not yet been reached is preempted.
+	m.expireWallLocked(m.now().Sub(m.start))
 	if m.ctx.Err() == nil {
 		m.preempted = true
 		m.disarmWall()
