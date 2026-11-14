@@ -23,7 +23,7 @@
     "refresh:docs-media": "WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.42.8",
+    "@astrojs/starlight": "^0.42.10",
     "astro": "^7.4.5",
     "sharp": "^0.35.5"
   },
