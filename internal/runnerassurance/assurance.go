@@ -230,7 +230,7 @@ func validatePackage(pkg Package, repoRoot string) error {
 		seenLab[item.Issue] = true
 		guide, err := readRepositoryFile(root, item.Guide)
 		if err != nil {
-			return fmt.Errorf("Lab guide for issue #%d: %w", item.Issue, err)
+			return fmt.Errorf("lab guide for issue #%d: %w", item.Issue, err)
 		}
 		if !strings.Contains(strings.ToLower(string(guide)), strings.ToLower(item.Panel)) {
 			return fmt.Errorf("%w: Lab panel %q for issue #%d is not described by %s", ErrInvalid, item.Panel, item.Issue, item.Guide)
