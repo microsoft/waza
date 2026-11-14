@@ -42,6 +42,18 @@ export default defineConfig({
 					slug: 'getting-started',
 				},
 				{
+					label: 'Production Integration',
+					items: [
+						{ label: 'Assurance Package', slug: 'guides/production-integration-assurance' },
+						{ label: 'Execution Provenance', slug: 'guides/execution-provenance' },
+						{ label: 'Component Inventories', slug: 'guides/component-inventory' },
+						{ label: 'Execution Telemetry', slug: 'guides/execution-telemetry' },
+						{ label: 'Execution Budgets', slug: 'guides/execution-budgets' },
+						{ label: 'Execution Isolation', slug: 'guides/execution-isolation' },
+						{ label: 'External Execution Adapters', slug: 'guides/runner-adapters' },
+					],
+				},
+				{
 					label: 'Guides',
 					items: [
 						{ label: 'Writing Eval Specs', slug: 'guides/eval-yaml' },

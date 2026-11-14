@@ -426,7 +426,15 @@ waza runner negotiate < examples/runner/negotiation.json
 waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
 waza runner budgets   # main-only, after v0.41.0: per-OS budget matrix
+waza runner assurance build  # validate and print the versioned production-integration package
 ```
+
+`waza runner assurance build` is an offline maintainer command run from a source
+checkout. It validates `docs/PRODUCTION_INTEGRATION_ASSURANCE-1.0.json` against
+the package schema, contract schemas, evidence files, and existing Lab guides;
+`--format markdown` emits the generated site page. See the [operator and
+maintainer guide](docs/PRODUCTION_INTEGRATION_ASSURANCE.md) and [production
+integration assurance site page](https://microsoft.github.io/waza/guides/production-integration-assurance/).
 
 Builds from `main` (after v0.41.0) accept optional request `budgets` (wall time, model
 turns, tool calls, CPU, memory, disk, process count). Limits the host cannot

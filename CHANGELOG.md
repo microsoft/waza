@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Production integration assurance package (#775).** Added the versioned
+  `waza.production-integration-assurance` 1.0 package and offline
+  `waza runner assurance build` validation/rendering, with generated operator
+  conformance matrix, threat model, production-readiness checklist, evidence
+  links, migration notes, and verification limits. The package links existing
+  Lab views for #769–#774; it adds no dashboard view. Its v0.42.0 candidate
+  explicitly records unavailable keyless/KMS signing, manual inventory
+  publication and missing attestations for old images, post-run-only telemetry,
+  unsupported OS resource accounting, the limited off-host isolation proof,
+  and the adapter's lack of a scheduler and configured provenance hook. See
+  [maintainer guidance](docs/PRODUCTION_INTEGRATION_ASSURANCE.md) and the
+  [generated site page](site/src/content/docs/guides/production-integration-assurance.mdx).
+
 - **Native platform evidence (#905).** A platform table in `docs/RELEASE.md`
   separates native, cross-build-only, emulated, unavailable and unsupported
   evidence for the six distributed targets. The new reusable
