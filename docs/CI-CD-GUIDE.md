@@ -60,8 +60,9 @@ deadline, atomic coverage, full discovery inventory, and selected test names;
 the aggregate gate verifies identical inventories and exactly-once selection.
 The planner places whole top-level tests, so a single long test bounds every
 shard. Keep each native top-level test well under a quarter of the total; split
-long table-driven tests into separate top-level tests (as the frozen 15c parity,
-observed-failure, and public-payload tests are) rather than relying on subtests.
+long table-driven tests into independently measured top-level groups of complete
+cases (as the frozen 15c parity, observed-failure, and public-payload tests are)
+rather than relying on subtests. Preserve every case once when regrouping.
 
 Squad Release and Squad Insider Release run remaining-package validation in
 parallel with these shards. Publication waits for both branches to succeed,

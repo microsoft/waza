@@ -111,22 +111,22 @@ func TestNativeReaderSuppliedDecisionProcess(t *testing.T) {
 	require.Equal(t, got.Root.Native, api[0].Decision.Native)
 }
 
-// The parity cases are split across two top-level tests so the native CI shard
-// planner can place each half independently. Only this test dispatches the
-// frozen oracle subprocess.
+// The parity cases are split across top-level tests so the native CI shard
+// planner can place independently measured groups. Only this test dispatches
+// the frozen oracle subprocess.
 func TestNativeReaderFrozen15cDecisionParity(t *testing.T) {
 	if raw, subprocess := readeroracle.Input(t); subprocess {
 		frozenNativeDecisionProcess(t, raw)
 		return
 	}
 	testNativeReaderFrozen15cDecisionParity(t, "decision-frozen15c-observations.json", true,
-		"writer", "whitespace", "trailing_document", "duplicate_blob", "unsafe_truncated_object",
+		"writer", "whitespace", "duplicate_blob", "unsafe_truncated_object",
 		"unicode_before_syntax", "blob_failure_before_unknown", "unknown_before_blob_failure")
 }
 
-func TestNativeReaderFrozen15cDecisionParityReordered(t *testing.T) {
-	testNativeReaderFrozen15cDecisionParity(t, "decision-frozen15c-reordered-observations.json", false,
-		"escaped_member", "member_order")
+func TestNativeReaderFrozen15cDecisionParityAdditionalInputs(t *testing.T) {
+	testNativeReaderFrozen15cDecisionParity(t, "decision-frozen15c-additional-inputs-observations.json", false,
+		"escaped_member", "member_order", "trailing_document")
 }
 
 func testNativeReaderFrozen15cDecisionParity(t *testing.T, proofName string, proofCapture bool, selected ...string) {
