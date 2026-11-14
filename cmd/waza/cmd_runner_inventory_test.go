@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -117,9 +118,25 @@ func TestRunnerInventoryRecordsEmbeddedCopilotPayloads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A real platform payload exercises the CLI binding without rescanning every bundled asset.
+	payload := "zcopilot_1.0.105_" + runtime.GOOS + "_" + runtime.GOARCH + ".zst"
+	if runtime.GOOS == "windows" {
+		payload = strings.TrimSuffix(payload, ".zst") + ".exe.zst"
+	}
+	embeddedDir := filepath.Join(t.TempDir(), "embedded")
+	if err := os.Mkdir(embeddedDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	payloadData, err := os.ReadFile(filepath.Join("../../internal/embedded", payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(embeddedDir, payload), payloadData, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	inv := filepath.Join(t.TempDir(), "image.cdx.json")
 	if out, code := runRunnerCLI(t, "inventory", "generate", "--name", "ghcr.io/microsoft/waza-runner", "--digest", "sha256:"+strings.Repeat("b", 64),
-		"--go-binary", self, "--embedded-dir", "../../internal/embedded", "--out", inv); code != 0 {
+		"--go-binary", self, "--embedded-dir", embeddedDir, "--out", inv); code != 0 {
 		t.Fatalf("generate: %d %s", code, out)
 	}
 	data, err := os.ReadFile(inv)
