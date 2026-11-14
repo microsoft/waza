@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 
 	"github.com/microsoft/waza/internal/inventory"
 	"github.com/microsoft/waza/internal/rootedfile"
@@ -55,7 +54,7 @@ func readInventoryPrefix(path string) ([]byte, error) {
 
 // fileDigest streams a regular file into its sha256 digest.
 func fileDigest(path string) (string, error) {
-	file, err := os.Open(path)
+	file, err := rootedfile.OpenPath(path)
 	if err != nil {
 		return "", err
 	}

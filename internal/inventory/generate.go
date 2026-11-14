@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/microsoft/waza/internal/rootedfile"
 )
 
 // GenerateInput describes one inventory. SubjectDigest must be the immutable
@@ -228,7 +230,7 @@ const (
 // openRegular opens path only if it is a regular file no larger than limit,
 // so devices, FIFOs and directories cannot block or exhaust generation.
 func openRegular(path string, limit int64) (*os.File, error) {
-	file, err := os.Open(path)
+	file, err := rootedfile.OpenPath(path)
 	if err != nil {
 		return nil, err
 	}

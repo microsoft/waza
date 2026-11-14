@@ -493,10 +493,10 @@ func TestInvalidExpectedKindFailsClosed(t *testing.T) {
 
 func TestDiskInputsMustBeRegularFiles(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := inventory.GoBinaryComponents(dir); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+	if _, err := inventory.GoBinaryComponents(dir); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("directory accepted as Go binary: %v", err)
 	}
-	if _, err := inventory.FileComponent(dir); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+	if _, err := inventory.FileComponent(dir); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("directory accepted as file: %v", err)
 	}
 	path := filepath.Join(dir, "payload.bin")
