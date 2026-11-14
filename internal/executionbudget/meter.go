@@ -40,10 +40,11 @@ type Meter struct {
 	sampler  func() sample
 	now      func() time.Time
 
-	mu       sync.Mutex
-	finished bool
-	turns    int64
-	tools    int64
+	mu        sync.Mutex
+	finished  bool
+	preempted bool
+	turns     int64
+	tools     int64
 }
 
 type sample struct {
@@ -95,10 +96,22 @@ func (m *Meter) count(resource Resource, counter *int64) {
 	// Usage is always counted, but a budget terminates the attempt only when
 	// it is the first cancellation; a later event after a wall deadline or
 	// caller cancellation must not claim the termination.
-	if limited && observed > limit && m.ctx.Err() == nil {
+	if limited && observed > limit && m.ctx.Err() == nil && !m.preempted {
 		m.cancel(&ExceededError{Termination: Termination{Resource: resource, Limit: limit, Observed: observed}})
 	}
 	m.mu.Unlock()
+}
+
+// Preempt records that the attempt already ended with its own cause, such as
+// an eval or task timeout outside the metered context. Later crossings are
+// still measured and reported as exceeded but no longer terminate or claim the
+// attempt. It has no effect once a budget or the caller has canceled.
+func (m *Meter) Preempt() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ctx.Err() == nil {
+		m.preempted = true
+	}
 }
 
 // Err returns the enforced-budget error that ended the attempt, if any.
@@ -109,8 +122,12 @@ func (m *Meter) Err() error {
 }
 
 // The attempt context's cause is authoritative: whichever of the wall
-// deadline, a counted budget or the caller canceled first.
+// deadline, a counted budget or the caller canceled first, unless the attempt
+// was preempted before any of them.
 func (m *Meter) errLocked() error {
+	if m.preempted {
+		return nil
+	}
 	var exceeded *ExceededError
 	if errors.As(context.Cause(m.ctx), &exceeded) {
 		return exceeded
@@ -123,7 +140,7 @@ func (m *Meter) errLocked() error {
 // deadline no later than the wall deadline, keeps its own cause.
 func (m *Meter) expireWallLocked(elapsed time.Duration) {
 	limit, ok := m.limit(WallTime)
-	if !ok || m.ctx.Err() != nil || elapsed < time.Duration(limit)*time.Millisecond {
+	if !ok || m.preempted || m.ctx.Err() != nil || elapsed < time.Duration(limit)*time.Millisecond {
 		return
 	}
 	if enclosing, has := m.parent.Deadline(); has {

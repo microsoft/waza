@@ -484,6 +484,13 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	default:
 		result.Status = "completed"
 	}
+	if result.failure != nil && ctx.Err() == nil {
+		// The attempt already ended with its own cause (for example an eval or
+		// task timeout); a budget crossed later during shutdown must not replace it.
+		if meter, ok := execution.ActivityObserverFrom(ctx).(interface{ Preempt() }); ok {
+			meter.Preempt()
+		}
+	}
 	if local && run != nil {
 		result.localOutcome, err = runner.ProjectInlineOutcome(input.task, run, started, usage.Snapshot())
 		if err != nil {

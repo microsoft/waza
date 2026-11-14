@@ -295,6 +295,24 @@ func TestRequestTimeoutBeforeBudgetKeepsTimeout(t *testing.T) {
 	encodeTerminal(t, envelope, binding)
 }
 
+func TestTaskTimeoutBeforeBudgetKeepsTimeout(t *testing.T) {
+	request := fixture(t)
+	request.TimeoutMS = 60_000
+	request.Budgets = &executionbudget.Request{Limits: executionbudget.Limits{WallTimeMS: limit(60_000), ToolCalls: limit(0)}}
+	report, input := admit(wire(t, request))
+	require.NotNil(t, input)
+	input.spec.Config.TimeoutSec = 1
+	report.Mode = "mock"
+	engine := &lateActivityEngine{instrumented: &instrumented{AgentEngine: execution.NewMockEngine(input.spec.Config.ModelID), mode: "timeout"}}
+	report = admittedAttempt(t.Context(), input, false, func(ctx context.Context) Report { return execute(ctx, report, input, engine) })
+	envelope, binding := terminal(report)
+	require.Equal(t, runnerterminal.Timeout, envelope.Outcome, "the task timeout ended the attempt first: %+v", envelope)
+	require.Nil(t, envelope.Budget.Termination, "a tool call during shutdown is reported, not attributed")
+	require.Equal(t, executionbudget.StateExceeded, envelope.Budget.State)
+	require.True(t, *budgetRow(t, envelope.Budget, executionbudget.ToolCalls).Exceeded)
+	encodeTerminal(t, envelope, binding)
+}
+
 func TestSubmittedBudgetStopsAreJournaled(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

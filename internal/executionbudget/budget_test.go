@@ -218,6 +218,27 @@ func TestMeterFinishEnforcesPassedWallDeadline(t *testing.T) {
 	require.Equal(t, StateExceeded, report.State)
 }
 
+func TestPreemptedMeterReportsLaterCrossings(t *testing.T) {
+	caps := capabilitiesFor("linux", "amd64", unixSupport)
+	clock := &fakeClock{now: time.Unix(0, 0)}
+	plan, _ := Plan(Request{Limits: Limits{WallTimeMS: ptr(60_000), ToolCalls: ptr(0)}}, caps)
+	ctx, meter := start(context.Background(), *plan, func() sample { return sample{} }, clock.Now)
+	meter.Preempt()
+	meter.ToolCallStarted()
+	clock.advance(61 * time.Second)
+	require.NoError(t, ctx.Err(), "a preempted attempt is not canceled by a later crossing")
+	report := meter.Finish()
+	require.Nil(t, report.Termination)
+	require.Equal(t, StateExceeded, report.State)
+	require.NoError(t, report.CheckTerminal("timeout"))
+
+	plan, _ = Plan(Request{Limits: Limits{ToolCalls: ptr(0)}}, caps)
+	_, meter = start(context.Background(), *plan, func() sample { return sample{} }, time.Now)
+	meter.ToolCallStarted()
+	meter.Preempt()
+	require.Equal(t, ToolCalls, meter.Finish().Termination.Resource, "an earlier budget stop is kept")
+}
+
 func TestMeterWithinBudgetAndMeasurementOnlyExceedance(t *testing.T) {
 	caps := capabilitiesFor("linux", "amd64", unixSupport)
 	plan, _ := Plan(Request{Limits: Limits{ModelTurns: ptr(3)}}, caps)
