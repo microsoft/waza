@@ -17,8 +17,9 @@ type attemptContext struct {
 	done     chan struct{}
 	release  func() bool
 
-	mu  sync.Mutex
-	err error
+	mu     sync.Mutex
+	err    error
+	afters map[*func()]struct{}
 }
 
 func newAttemptContext(parent context.Context, deadline time.Time) *attemptContext {
@@ -43,18 +44,64 @@ func (a *attemptContext) Done() <-chan struct{} { return a.done }
 
 func (a *attemptContext) Err() error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.inheritLocked()
-	return a.err
+	run := a.inheritLocked()
+	err := a.err
+	a.mu.Unlock()
+	run()
+	return err
+}
+
+// AfterFunc lets context.AfterFunc and derived contexts observe a stop as
+// synchronously as with a stdlib cancel context: the callback is claimed when
+// the attempt stops, so a stop function racing a fast return cannot drop it.
+func (a *attemptContext) AfterFunc(f func()) func() bool {
+	a.mu.Lock()
+	run := a.inheritLocked()
+	if a.err != nil {
+		a.mu.Unlock()
+		run()
+		go f()
+		return func() bool { return false }
+	}
+	if a.afters == nil {
+		a.afters = map[*func()]struct{}{}
+	}
+	key := &f
+	a.afters[key] = struct{}{}
+	a.mu.Unlock()
+	run()
+	return func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		_, pending := a.afters[key]
+		delete(a.afters, key)
+		return pending
+	}
 }
 
 // inheritLocked observes an enclosing cancellation synchronously, so a later
-// budget event cannot claim an attempt the caller already canceled.
-func (a *attemptContext) inheritLocked() {
+// budget event cannot claim an attempt the caller already canceled. The
+// returned function runs claimed callbacks and must be called after unlocking.
+func (a *attemptContext) inheritLocked() func() {
 	if a.err == nil {
 		if err := a.parent.Err(); err != nil {
-			a.err = err
-			close(a.done)
+			return a.stopLocked(err)
+		}
+	}
+	return func() {}
+}
+
+func (a *attemptContext) stopLocked(err error) func() {
+	a.err = err
+	close(a.done)
+	claimed := make([]func(), 0, len(a.afters))
+	for key := range a.afters {
+		claimed = append(claimed, *key)
+	}
+	a.afters = nil
+	return func() {
+		for _, f := range claimed {
+			f()
 		}
 	}
 }
@@ -64,12 +111,12 @@ func (a *attemptContext) Value(key any) any { return a.parent.Value(key) }
 // cancel records the first cancellation and reports whether it was this one.
 func (a *attemptContext) cancel(err error) bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.inheritLocked()
-	if a.err != nil {
-		return false
+	run := a.inheritLocked()
+	first := a.err == nil
+	if first {
+		run = a.stopLocked(err)
 	}
-	a.err = err
-	close(a.done)
-	return true
+	a.mu.Unlock()
+	run()
+	return first
 }

@@ -54,13 +54,25 @@ type sample struct {
 
 // Start begins metering. The returned context carries the wall-time deadline
 // and is canceled when an enforced limit is exceeded; Err returns the typed
-// *ExceededError.
-func Start(ctx context.Context, plan Report) (context.Context, *Meter) {
-	return start(ctx, plan, hostSample, time.Now)
+// *ExceededError. A non-nil observe installs the meter into the parent beneath
+// the returned context, which must stay outermost so context.AfterFunc
+// observes budget stops synchronously.
+func Start(ctx context.Context, plan Report, observe func(context.Context, *Meter) context.Context) (context.Context, *Meter) {
+	return startObserved(ctx, plan, hostSample, time.Now, observe)
 }
 
 func start(ctx context.Context, plan Report, sampler func() sample, now func() time.Time) (context.Context, *Meter) {
-	m := &Meter{plan: plan, parent: ctx, sampler: sampler, now: now}
+	return startObserved(ctx, plan, sampler, now, nil)
+}
+
+func startObserved(ctx context.Context, plan Report, sampler func() sample, now func() time.Time,
+	observe func(context.Context, *Meter) context.Context,
+) (context.Context, *Meter) {
+	m := &Meter{plan: plan, sampler: sampler, now: now}
+	if observe != nil {
+		ctx = observe(ctx, m)
+	}
+	m.parent = ctx
 	var deadline time.Time
 	limit, walled := m.limit(WallTime)
 	if walled {

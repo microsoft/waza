@@ -353,8 +353,10 @@ func startBudget(ctx context.Context, input *admitted) (context.Context, func(Re
 	if input.budget == nil {
 		return ctx, func(result Report) Report { return result }
 	}
-	ctx, meter := executionbudget.Start(ctx, *input.budget)
-	return execution.WithActivityObserver(ctx, meter), func(result Report) Report {
+	ctx, meter := executionbudget.Start(ctx, *input.budget, func(ctx context.Context, meter *executionbudget.Meter) context.Context {
+		return execution.WithActivityObserver(ctx, meter)
+	})
+	return ctx, func(result Report) Report {
 		return finishBudget(result, meter)
 	}
 }

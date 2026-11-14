@@ -30,8 +30,9 @@ func TestCopilotExecuteEnforcesCountedBudgetsFromSessionEvents(t *testing.T) {
 			over := int64(tt.starts) > one
 			plan, unsupported := executionbudget.Plan(executionbudget.Request{Limits: tt.limits}, executionbudget.HostCapabilities())
 			require.Empty(t, unsupported)
-			ctx, meter := executionbudget.Start(t.Context(), *plan)
-			ctx = WithActivityObserver(ctx, meter)
+			ctx, meter := executionbudget.Start(t.Context(), *plan, func(ctx context.Context, meter *executionbudget.Meter) context.Context {
+				return WithActivityObserver(ctx, meter)
+			})
 
 			ctrl := gomock.NewController(t)
 			client := newClientMock(ctrl)

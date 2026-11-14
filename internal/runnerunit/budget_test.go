@@ -373,7 +373,7 @@ func TestSubmittedBudgetStopsAreJournaled(t *testing.T) {
 			lifecycle := lineageAttempt(t, backend, result).Lifecycle
 			require.Equal(t, tc.state, lifecycle.State, "%+v", lifecycle)
 			require.Equal(t, "acknowledged", lifecycle.Cancellation)
-			require.Equal(t, tc.reason, lifecycle.CancellationReason)
+			require.Equal(t, tc.reason, lifecycle.CancellationReason, "%+v", lifecycle)
 			require.Equal(t, tc.deadline, lifecycle.DeadlineExceeded)
 			require.NotNil(t, lifecycle.DeadlineAt)
 			if tc.limits.WallTimeMS != nil {

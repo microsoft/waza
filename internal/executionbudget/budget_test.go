@@ -178,7 +178,7 @@ func TestMeterCountedLimitsCancelOnFirstOverLimitStart(t *testing.T) {
 
 func TestMeterWallTimeTerminatesAsDeadline(t *testing.T) {
 	plan, _ := Plan(Request{Limits: Limits{WallTimeMS: ptr(10)}}, capabilitiesFor("linux", "amd64", unixSupport))
-	ctx, meter := Start(context.Background(), *plan)
+	ctx, meter := Start(context.Background(), *plan, nil)
 	<-ctx.Done()
 	require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
 	require.ErrorIs(t, meter.Err(), context.DeadlineExceeded)
@@ -239,6 +239,26 @@ func TestPreemptedMeterReportsLaterCrossings(t *testing.T) {
 	require.Equal(t, ToolCalls, meter.Finish().Termination.Resource, "an earlier budget stop is kept")
 }
 
+func TestBudgetStopClaimsAfterFuncsSynchronously(t *testing.T) {
+	caps := capabilitiesFor("linux", "amd64", unixSupport)
+	plan, _ := Plan(Request{Limits: Limits{ToolCalls: ptr(0)}}, caps)
+	for range 200 {
+		type key struct{}
+		ctx, meter := startObserved(context.Background(), *plan, func() sample { return sample{} }, time.Now,
+			func(ctx context.Context, m *Meter) context.Context { return context.WithValue(ctx, key{}, m) })
+		require.Same(t, meter, ctx.Value(key{}), "the observer is installed beneath the attempt context")
+		fired := make(chan struct{})
+		stop := context.AfterFunc(ctx, func() { close(fired) })
+		child, cancel := context.WithCancel(ctx)
+		meter.ToolCallStarted()
+		require.Error(t, child.Err(), "a derived context observes the stop when it happens")
+		require.False(t, stop(), "a stop racing a fast return cannot drop the callback")
+		<-fired
+		cancel()
+		meter.Finish()
+	}
+}
+
 func TestMeterWithinBudgetAndMeasurementOnlyExceedance(t *testing.T) {
 	caps := capabilitiesFor("linux", "amd64", unixSupport)
 	plan, _ := Plan(Request{Limits: Limits{ModelTurns: ptr(3)}}, caps)
@@ -267,7 +287,7 @@ func TestMeterWithinBudgetAndMeasurementOnlyExceedance(t *testing.T) {
 func TestMeterLateEventsDoNotClaimTermination(t *testing.T) {
 	caps := capabilitiesFor("linux", "amd64", unixSupport)
 	plan, _ := Plan(Request{Limits: Limits{WallTimeMS: ptr(5), ToolCalls: ptr(0)}}, caps)
-	ctx, meter := Start(context.Background(), *plan)
+	ctx, meter := Start(context.Background(), *plan, nil)
 	<-ctx.Done()
 	meter.ToolCallStarted()
 	report := meter.Finish()
@@ -278,7 +298,7 @@ func TestMeterLateEventsDoNotClaimTermination(t *testing.T) {
 
 	parent, cancel := context.WithCancel(context.Background())
 	plan, _ = Plan(Request{Limits: Limits{ModelTurns: ptr(0)}}, caps)
-	_, meter = Start(parent, *plan)
+	_, meter = Start(parent, *plan, nil)
 	cancel()
 	meter.ModelTurnStarted()
 	require.NoError(t, meter.Err())
