@@ -28,6 +28,10 @@ func TestRunnerInventoryRejectsWriterlessFIFOs(t *testing.T) {
 	if err := unix.Mkfifo(filepath.Join(embedded, "zcopilot_1.0.0_linux-x64.tgz"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	digest := "sha256:" + strings.Repeat("b", 64)
 	inventoryPath := filepath.Join(dir, "plugin.cdx.json")
 	if _, code := runRunnerCLI(t, "inventory", "generate", "--subject", "plugin", "--name", "p", "--digest", digest,
@@ -38,6 +42,7 @@ func TestRunnerInventoryRejectsWriterlessFIFOs(t *testing.T) {
 		"subject file": {"inventory", "generate", "--subject", "plugin", "--name", "p", "--subject-file", fifo, "--file", "../../go.mod"},
 		"go binary":    {"inventory", "generate", "--name", "r", "--digest", digest, "--go-binary", fifo},
 		"file":         {"inventory", "generate", "--name", "r", "--digest", digest, "--file", fifo},
+		"embedded":     {"inventory", "generate", "--name", "r", "--digest", digest, "--go-binary", self, "--embedded-dir", embedded},
 		"plugin":       {"inventory", "verify", "--inventory", inventoryPath, "--plugin", fifo},
 	} {
 		t.Run(name, func(t *testing.T) {
