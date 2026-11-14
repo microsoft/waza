@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// ExceededError is the cancellation cause for an enforced limit. It unwraps to
-// the context error the terminal classifier maps: DeadlineExceeded for wall
-// time (timeout) and Canceled for counted model/tool budgets.
+// ExceededError is the meter's record of an enforced limit. It unwraps to the
+// context error the attempt context reports and the terminal classifier maps:
+// DeadlineExceeded for wall time (timeout) and Canceled for counted budgets.
 type ExceededError struct {
 	Termination Termination
 }
@@ -30,19 +30,19 @@ func (e *ExceededError) Unwrap() error {
 // Meter enforces wall-time and counted budgets for one attempt and collects
 // measured usage. Its observer methods are safe for concurrent event streams.
 type Meter struct {
-	plan     Report
-	cancel   context.CancelCauseFunc
-	stopWall context.CancelFunc
-	parent   context.Context
-	ctx      context.Context
-	start    time.Time
-	before   sample
-	sampler  func() sample
-	now      func() time.Time
+	plan    Report
+	parent  context.Context
+	ctx     *attemptContext
+	wall    *time.Timer
+	start   time.Time
+	before  sample
+	sampler func() sample
+	now     func() time.Time
 
 	mu        sync.Mutex
 	finished  bool
 	preempted bool
+	stopped   *ExceededError
 	turns     int64
 	tools     int64
 }
@@ -53,20 +53,45 @@ type sample struct {
 }
 
 // Start begins metering. The returned context carries the wall-time deadline
-// and is canceled with an *ExceededError when a counted limit is exceeded.
+// and is canceled when an enforced limit is exceeded; Err returns the typed
+// *ExceededError.
 func Start(ctx context.Context, plan Report) (context.Context, *Meter) {
 	return start(ctx, plan, hostSample, time.Now)
 }
 
 func start(ctx context.Context, plan Report, sampler func() sample, now func() time.Time) (context.Context, *Meter) {
-	m := &Meter{plan: plan, parent: ctx, sampler: sampler, now: now, stopWall: func() {}}
-	ctx, m.cancel = context.WithCancelCause(ctx)
-	if limit, ok := m.limit(WallTime); ok {
-		ctx, m.stopWall = context.WithTimeoutCause(ctx, time.Duration(limit)*time.Millisecond,
-			&ExceededError{Termination: Termination{Resource: WallTime, Limit: limit, Observed: limit}})
+	m := &Meter{plan: plan, parent: ctx, sampler: sampler, now: now}
+	var deadline time.Time
+	limit, walled := m.limit(WallTime)
+	if walled {
+		deadline = time.Now().Add(time.Duration(limit) * time.Millisecond)
 	}
-	m.ctx, m.start, m.before = ctx, now(), sampler()
-	return ctx, m
+	m.ctx, m.start, m.before = newAttemptContext(ctx, deadline), now(), sampler()
+	if walled {
+		m.wall = time.AfterFunc(time.Until(deadline), m.wallExpired)
+	}
+	return m.ctx, m
+}
+
+func (m *Meter) wallExpired() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit, ok := m.limit(WallTime); ok && !m.finished && !m.preempted {
+		m.stopLocked(&ExceededError{Termination: Termination{Resource: WallTime, Limit: limit, Observed: limit}})
+	}
+}
+
+// stopLocked ends the attempt on an enforced limit unless it already ended.
+func (m *Meter) stopLocked(exceeded *ExceededError) {
+	if m.ctx.cancel(exceeded.Unwrap()) {
+		m.stopped = exceeded
+	}
+}
+
+func (m *Meter) disarmWall() {
+	if m.wall != nil {
+		m.wall.Stop()
+	}
 }
 
 func (m *Meter) limit(resource Resource) (int64, bool) {
@@ -97,20 +122,22 @@ func (m *Meter) count(resource Resource, counter *int64) {
 	// it is the first cancellation; a later event after a wall deadline or
 	// caller cancellation must not claim the termination.
 	if limited && observed > limit && m.ctx.Err() == nil && !m.preempted {
-		m.cancel(&ExceededError{Termination: Termination{Resource: resource, Limit: limit, Observed: observed}})
+		m.stopLocked(&ExceededError{Termination: Termination{Resource: resource, Limit: limit, Observed: observed}})
 	}
 	m.mu.Unlock()
 }
 
 // Preempt records that the attempt already ended with its own cause, such as
 // an eval or task timeout outside the metered context. Later crossings are
-// still measured and reported as exceeded but no longer terminate or claim the
-// attempt. It has no effect once a budget or the caller has canceled.
+// still measured and reported as exceeded but no longer cancel, terminate or
+// claim the attempt: the wall deadline is disarmed without canceling the
+// context. It has no effect once a budget or the caller has canceled.
 func (m *Meter) Preempt() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.ctx.Err() == nil {
 		m.preempted = true
+		m.disarmWall()
 	}
 }
 
@@ -121,18 +148,13 @@ func (m *Meter) Err() error {
 	return m.errLocked()
 }
 
-// The attempt context's cause is authoritative: whichever of the wall
-// deadline, a counted budget or the caller canceled first, unless the attempt
-// was preempted before any of them.
+// The first cancellation is authoritative: a budget claims the attempt only
+// when it canceled before the wall deadline, another budget or the caller.
 func (m *Meter) errLocked() error {
-	if m.preempted {
+	if m.stopped == nil {
 		return nil
 	}
-	var exceeded *ExceededError
-	if errors.As(context.Cause(m.ctx), &exceeded) {
-		return exceeded
-	}
-	return nil
+	return m.stopped
 }
 
 // expireWallLocked ends the attempt on a wall deadline that has passed but
@@ -143,12 +165,10 @@ func (m *Meter) expireWallLocked(elapsed time.Duration) {
 	if !ok || m.preempted || m.ctx.Err() != nil || elapsed < time.Duration(limit)*time.Millisecond {
 		return
 	}
-	if enclosing, has := m.parent.Deadline(); has {
-		if wall, _ := m.ctx.Deadline(); !enclosing.After(wall) {
-			return
-		}
+	if enclosing, has := m.parent.Deadline(); has && !enclosing.After(m.ctx.deadline) {
+		return
 	}
-	m.cancel(&ExceededError{Termination: Termination{Resource: WallTime, Limit: limit, Observed: limit}})
+	m.stopLocked(&ExceededError{Termination: Termination{Resource: WallTime, Limit: limit, Observed: limit}})
 }
 
 // Finish stops enforcement and returns the measured terminal report. Later
@@ -160,7 +180,7 @@ func (m *Meter) Finish() *Report {
 	m.finished = true
 	elapsedTime := m.now().Sub(m.start)
 	m.expireWallLocked(elapsedTime)
-	m.stopWall()
+	m.disarmWall()
 	cause := m.errLocked()
 	elapsed := elapsedTime.Milliseconds()
 	after := m.sampler()
@@ -177,7 +197,8 @@ func (m *Meter) Finish() *Report {
 	}
 	turns, tools := m.turns, m.tools
 	m.mu.Unlock()
-	m.cancel(nil)
+	m.ctx.cancel(context.Canceled)
+	m.ctx.release()
 
 	report.State = StateWithinBudget
 	for i, row := range m.plan.Resources {

@@ -151,7 +151,7 @@ func TestMeterCountedLimitsCancelOnFirstOverLimitStart(t *testing.T) {
 			tc.observe(meter)
 			require.ErrorIs(t, ctx.Err(), context.Canceled)
 			var exceeded *ExceededError
-			require.ErrorAs(t, context.Cause(ctx), &exceeded)
+			require.ErrorAs(t, meter.Err(), &exceeded)
 			require.Equal(t, Termination{Resource: tc.resource, Limit: 1, Observed: 2}, exceeded.Termination)
 			require.ErrorIs(t, meter.Err(), context.Canceled)
 			tc.observe(meter)

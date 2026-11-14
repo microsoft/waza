@@ -370,6 +370,26 @@ func TestSubmittedBudgetStopsAreJournaled(t *testing.T) {
 	}
 }
 
+func TestSubmittedPreemptedWallBudgetIsNotJournaled(t *testing.T) {
+	backend := submissionBackend(t)
+	request := fixture(t)
+	request.Budgets = &executionbudget.Request{Limits: executionbudget.Limits{WallTimeMS: limit(20)}}
+	service := NewService(nil)
+	service.heartbeat = 2 * time.Millisecond
+	service.dispatch = func(ctx context.Context, report Report, input *admitted) Report {
+		report.Mode = "mock"
+		engine := &lateActivityEngine{instrumented: &instrumented{AgentEngine: execution.NewMockEngine(input.spec.Config.ModelID), mode: "execution"}, delay: 80 * time.Millisecond}
+		return execute(ctx, report, input, engine)
+	}
+	result, err := service.Submit(t.Context(), submissionWire(t, request, nil), backend, SubmissionHooks{})
+	require.NoError(t, err)
+	require.NoError(t, result.LifecycleError())
+	lifecycle := lineageAttempt(t, backend, result).Lifecycle
+	require.False(t, lifecycle.DeadlineExceeded, "shutdown past a preempted wall budget is not a deadline: %+v", lifecycle)
+	require.Empty(t, lifecycle.CancellationReason, "%+v", lifecycle)
+	require.NotEqual(t, "acknowledged", lifecycle.Cancellation)
+}
+
 func TestUnrepresentableEvidenceKeepsBudgetTerminationConsistent(t *testing.T) {
 	report, input := admit(budgeted(t, executionbudget.Request{Limits: executionbudget.Limits{ToolCalls: limit(0)}}))
 	require.NotNil(t, input)

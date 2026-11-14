@@ -444,7 +444,6 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 		interrupt = native.ForceStopRunnerText
 	}
 	stopInterrupt := interruptRunnerRuntime(ctx, interrupt)
-	preempted := false
 	defer func() {
 		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), runtimeShutdownBound)
 		defer stop()
@@ -462,11 +461,7 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 			result.executionError("shutdown", fmt.Errorf("runtime shutdown deadline: %w", err))
 		}
 		result.Calls = observed.calls
-		// A budget crossed after the attempt already failed is reported by the
-		// meter, not as a new shutdown cause that would rewrite the outcome.
-		var exceeded *executionbudget.ExceededError
-		lateBudget := preempted && errors.As(context.Cause(ctx), &exceeded)
-		if err := ctx.Err(); err != nil && !errors.Is(result.failure, err) && !lateBudget {
+		if err := ctx.Err(); err != nil && !errors.Is(result.failure, err) {
 			result.executionError("shutdown", err)
 		}
 	}()
@@ -491,10 +486,10 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	}
 	if result.failure != nil && ctx.Err() == nil {
 		// The attempt already ended with its own cause (for example an eval or
-		// task timeout); a budget crossed later during shutdown must not replace it.
+		// task timeout); a budget crossed later during shutdown must neither
+		// cancel the attempt nor replace that cause.
 		if meter, ok := execution.ActivityObserverFrom(ctx).(interface{ Preempt() }); ok {
 			meter.Preempt()
-			preempted = true
 		}
 	}
 	if local && run != nil {
