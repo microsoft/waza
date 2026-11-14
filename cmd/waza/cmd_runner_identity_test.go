@@ -23,6 +23,8 @@ import (
 )
 
 func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
+	t.Parallel()
+
 	data, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
 	base, err := runnercontract.Parse(data)

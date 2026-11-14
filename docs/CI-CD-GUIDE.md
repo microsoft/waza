@@ -63,6 +63,11 @@ shard. Keep each native top-level test well under a quarter of the total; split
 long table-driven tests into independently measured top-level groups of complete
 cases (as the frozen 15c parity, observed-failure, and public-payload tests are)
 rather than relying on subtests. Preserve every case once when regrouping.
+The Linux remaining-package suite also contains long, independent CLI tests.
+Mark expensive top-level tests parallel only when they use isolated fixtures and
+do not mutate process-wide environment, working directory, or shared state;
+keep tests that do so sequential. Validate concurrency with the race-enabled CI
+suite.
 
 Squad Release and Squad Insider Release run remaining-package validation in
 parallel with these shards. Publication waits for both branches to succeed,

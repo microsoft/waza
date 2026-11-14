@@ -157,6 +157,8 @@ func TestRunnerAdapterCompleteTaskPathCompiledProcess(t *testing.T) {
 }
 
 func TestRunnerAdapterAdmissionCompiledProcess(t *testing.T) {
+	t.Parallel()
+
 	binary := buildRecoveryCLI(t)
 	t.Run("absolute task cannot select an external file", func(t *testing.T) {
 		evalPath, taskPath, eval, task := adapterCommandInputs(t)

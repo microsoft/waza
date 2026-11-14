@@ -111,6 +111,8 @@ func TestRunnerInventoryImageAndPlugin(t *testing.T) {
 }
 
 func TestRunnerInventoryRecordsEmbeddedCopilotPayloads(t *testing.T) {
+	t.Parallel()
+
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
