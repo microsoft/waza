@@ -12,7 +12,7 @@ for (const name of ['adapter-work-descriptor', 'adapter-translation', 'adapter-r
 
 test('adapter guide is reachable from the sidebar and states the translation-only boundary', async ({ page }) => {
   await page.goto('/waza/guides/runner-container/');
-  const link = page.getByRole('link', { name: 'External Execution Adapters', exact: true });
+  const link = page.locator('#starlight__sidebar').getByRole('link', { name: 'External Execution Adapters', exact: true }).first();
   await expect(link).toHaveAttribute('href', '/waza/guides/runner-adapters/');
   await link.click();
   await expect(page).toHaveURL(/\/waza\/guides\/runner-adapters\/$/);

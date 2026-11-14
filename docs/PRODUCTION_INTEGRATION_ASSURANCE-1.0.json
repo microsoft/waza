@@ -1,0 +1,399 @@
+{
+  "kind": "waza.production-integration-assurance",
+  "schema_version": "1.0",
+  "package_version": "1.0",
+  "target_release": "v0.42.0",
+  "release_stage": "candidate",
+  "summary": "Evidence-linked qualification guidance for the v0.42.0 production-integration contracts. This package describes the checked-in candidate; it is not a blanket readiness certificate or deployment-specific risk assessment.",
+  "conformance_matrix": [
+    {
+      "id": "provenance-local-signing",
+      "area": "Execution provenance — local signing and offline verification",
+      "state": "supported",
+      "claim": "The provenance 1.0 profile binds canonical request identity, runner and Waza claims, policy, artifact manifest and objects, terminal outcome, and digest-bound extensions. This build generates and verifies local Ed25519 signatures offline against verifier-supplied public keys.",
+      "verification": "Use `waza runner provenance generate` and `waza runner provenance verify`; the verifier recomputes claims from bundle members and requires the trust anchor out of band.",
+      "limitations": "A signature does not establish who controls a locally generated key unless operators distribute and protect trust anchors. Sigstore keyless and managed-KMS signing are unavailable.",
+      "issues": [769],
+      "schemas": [
+        "schemas/provenance-bundle-1.0.schema.json",
+        "schemas/provenance-statement-1.0.schema.json",
+        "schemas/provenance-verification-1.0.schema.json"
+      ],
+      "evidence": [
+        { "label": "Provenance contract and signing modes", "path": "docs/EXECUTION_PROVENANCE.md" },
+        { "label": "Provenance implementation tests", "path": "internal/provenance/provenance_test.go" },
+        { "label": "CLI verification tests", "path": "cmd/waza/cmd_runner_provenance_test.go" }
+      ]
+    },
+    {
+      "id": "provenance-keyless-kms",
+      "area": "Execution provenance — keyless and managed KMS",
+      "state": "unavailable",
+      "claim": "There is no Sigstore keyless or managed-KMS signer in this build.",
+      "verification": "Requesting either signer returns the documented unavailable state; verification cannot accept such a bundle without a supported verifier.",
+      "limitations": "Only local Ed25519 signing is implemented. No external identity, KMS, keyless signing service, key rotation, or managed trust distribution is provided.",
+      "issues": [769, 756],
+      "schemas": ["schemas/provenance-verification-1.0.schema.json"],
+      "evidence": [
+        { "label": "Unavailable signing modes", "path": "docs/EXECUTION_PROVENANCE.md" },
+        { "label": "Provenance CLI tests", "path": "cmd/waza/cmd_runner_provenance_test.go" }
+      ]
+    },
+    {
+      "id": "image-inventory-generation-verification",
+      "area": "Runner image and plugin component inventory",
+      "state": "supported",
+      "claim": "The inventory 1.0 profile generates deterministic CycloneDX component inventories and verifies their subject, components, and immutable image or plugin digest offline. Reference image workflows can attest inventories to the image digest.",
+      "verification": "Generate an inventory from the image's binary and OS package inputs, then run `waza runner inventory verify` with the consumed image digest; verify the publisher attestation separately.",
+      "limitations": "Inventory is evidence, not vulnerability or license analysis. A digest check alone does not authenticate an inventory; verify its attestation or signed provenance binding.",
+      "issues": [770],
+      "schemas": [
+        "schemas/component-inventory-1.0.schema.json",
+        "schemas/inventory-verification-1.0.schema.json"
+      ],
+      "evidence": [
+        { "label": "Inventory format and verification", "path": "docs/COMPONENT_INVENTORY.md" },
+        { "label": "Inventory implementation tests", "path": "internal/inventory/inventory_test.go" },
+        { "label": "Reference image publisher", "path": ".github/workflows/publish-runner-reference.yml" }
+      ]
+    },
+    {
+      "id": "inventory-refresh-and-legacy-images",
+      "area": "Runner image inventory — refresh and previously published images",
+      "state": "unavailable",
+      "claim": "This build does not attest an inventory for images published before the inventory workflow was introduced, and inventory publication is manually triggered rather than an automatic refresh guarantee.",
+      "verification": "Inspect the reference-image publication workflow trigger and require an inventory attestation for the exact image digest being admitted.",
+      "limitations": "Previously published images remain without an inventory attestation until they are explicitly republished through the workflow. Do not infer inventory coverage from a mutable tag or from a successful unrelated workflow run.",
+      "issues": [770, 756],
+      "schemas": ["schemas/component-inventory-1.0.schema.json"],
+      "evidence": [
+        { "label": "Reference image publisher trigger and attestation steps", "path": ".github/workflows/publish-runner-reference.yml" },
+        { "label": "Inventory verification requirements", "path": "docs/COMPONENT_INVENTORY.md" }
+      ]
+    },
+    {
+      "id": "post-run-telemetry",
+      "area": "Execution telemetry — post-run derivation and export",
+      "state": "supported",
+      "claim": "The telemetry 1.0 report derives correlated traces, metrics, and logs from completed runner contract documents. It exports OTLP/JSON files or sends OTLP/HTTP JSON; payloads are excluded by default.",
+      "verification": "Run `waza runner telemetry` with a terminal and optional matching manifest, attempt, lineage, result, or aggregate, then inspect the versioned report and export diagnostics.",
+      "limitations": "This is post-run derivation, not live emission from the execution path. It requires completed contract documents; OTLP gRPC/protobuf and raw-payload export are not provided.",
+      "issues": [771],
+      "schemas": ["schemas/execution-telemetry-1.0.schema.json"],
+      "evidence": [
+        { "label": "Telemetry inputs, payload policy, and export modes", "path": "docs/EXECUTION_TELEMETRY.md" },
+        { "label": "Telemetry derivation tests", "path": "internal/executiontelemetry/telemetry_test.go" },
+        { "label": "Telemetry CLI tests", "path": "cmd/waza/cmd_runner_telemetry_test.go" }
+      ]
+    },
+    {
+      "id": "wall-time-and-activity-budgets",
+      "area": "Execution budgets — wall time, model turns, and tool calls",
+      "state": "supported",
+      "claim": "Wall-time deadlines and model-turn/tool-call starts are checked and enforced before or during a selected attempt on supported hosts; unsupported limits can be rejected before execution.",
+      "verification": "Inspect `waza runner budgets`, use `unsupported: reject`, and verify the terminal's configured limits, usage, enforcement, and termination report.",
+      "limitations": "Counted limits can cancel after the over-limit call has begun. Budgets are controls, not a sandbox, and are not per-model/provider billing guarantees.",
+      "issues": [772],
+      "schemas": [
+        "schemas/execution-budget-1.0.schema.json",
+        "schemas/runner-request-1.0.schema.json",
+        "schemas/runner-terminal-1.0.schema.json"
+      ],
+      "evidence": [
+        { "label": "Budget host capability matrix", "path": "docs/EXECUTION_BUDGETS.md" },
+        { "label": "Budget enforcement and report tests", "path": "internal/executionbudget/budget_test.go" },
+        { "label": "Runner budget CLI tests", "path": "cmd/waza/cmd_runner_budget_test.go" }
+      ]
+    },
+    {
+      "id": "os-resource-budget-gaps",
+      "area": "Execution budgets — CPU, memory, disk, and process limits",
+      "state": "unsupported",
+      "claim": "This runner does not enforce CPU, memory, disk, or process-count quotas. CPU and peak RSS are measured only at runner-process scope on supported OSes; disk and process count are not measured.",
+      "verification": "Inspect each OS row in `waza runner budgets`; any unsupported configured limit must be rejected or explicitly reported as unenforced.",
+      "limitations": "Process-scoped CPU/RSS observations are not isolated per attempt and can include concurrent work or pre-attempt usage. No cgroup, job-object, rlimit, workspace-disk quota, or process-tree accounting is claimed.",
+      "issues": [772, 756],
+      "schemas": ["schemas/execution-budget-1.0.schema.json"],
+      "evidence": [
+        { "label": "OS-specific budget measurements and unsupported limits", "path": "docs/EXECUTION_BUDGETS.md" },
+        { "label": "Budget capability implementation", "path": "internal/executionbudget/budget.go" }
+      ]
+    },
+    {
+      "id": "off-host-network-and-remote-tools",
+      "area": "Isolation — off-host network and remote-tool boundaries",
+      "state": "supported",
+      "claim": "The host provider can prove off-host network and remote-tool unreachability only when the process has no up non-loopback interface and the required probes support that result. Loopback remains within the boundary.",
+      "verification": "Run isolation preflight in the actual worker boundary with representative declared remote endpoints; accept only `effective: restricted` backed by the required host probes.",
+      "limitations": "Waza declares and probes but does not enforce isolation. The proof covers off-host reachability only under the documented no-interface condition; it does not restrict loopback or prove general sandboxing.",
+      "issues": [773],
+      "schemas": ["schemas/execution-isolation-1.0.schema.json"],
+      "evidence": [
+        { "label": "Network and remote-tool probe limits", "path": "docs/EXECUTION_ISOLATION.md" },
+        { "label": "Isolation provider implementation", "path": "internal/executionisolation/providers.go" },
+        { "label": "Isolation probe tests", "path": "internal/executionisolation/isolation_test.go" }
+      ]
+    },
+    {
+      "id": "filesystem-environment-subprocess-isolation",
+      "area": "Isolation — filesystem, environment, subprocess, and native sandbox",
+      "state": "unavailable",
+      "claim": "This build cannot prove restricted filesystem writes, secret withholding, process-wide subprocess denial, or a Copilot-native sandbox. A host declaration is a hypothesis, not proof.",
+      "verification": "Treat requested dimensions as unavailable unless an external provider supplies independently verifiable enforcement evidence; check the preflight diagnostics before dispatch.",
+      "limitations": "Waza itself enforces no isolation dimension. Filesystem denials, absent secret names, and sampled subprocess denials are inconclusive; the native sandbox provider is absent.",
+      "issues": [773, 756],
+      "schemas": ["schemas/execution-isolation-1.0.schema.json"],
+      "evidence": [
+        { "label": "Isolation dimensions and unavailable providers", "path": "docs/EXECUTION_ISOLATION.md" },
+        { "label": "Isolation provider implementation", "path": "internal/executionisolation/providers.go" },
+        { "label": "Isolation conformance tests", "path": "internal/executionisolation/isolation_test.go" }
+      ]
+    },
+    {
+      "id": "adapter-translation",
+      "area": "External execution adapter — translation and contract reply mapping",
+      "state": "supported",
+      "claim": "An adapter descriptor is translated to exactly one public runner contract call or rejected, and the reply maps to a status and returned manifest without re-encoding request or policy bytes.",
+      "verification": "Run the vendor-neutral CLI and container fixtures for submit, reuse, retry, checkpoint, resume, lineage, malformed descriptors, and returned manifest mapping.",
+      "limitations": "The adapter makes one call per descriptor and has no built-in queue, placement, lease, retry loop, fleet manager, or scheduler. Those guarantees belong to the external system.",
+      "issues": [774],
+      "schemas": [
+        "schemas/adapter-work-descriptor-1.0.schema.json",
+        "schemas/adapter-translation-1.0.schema.json",
+        "schemas/adapter-result-1.0.schema.json"
+      ],
+      "evidence": [
+        { "label": "Adapter public contract and translation-only boundary", "path": "docs/RUNNER_ADAPTERS.md" },
+        { "label": "Adapter implementation and fixture tests", "path": "internal/runneradapter/adapter_test.go" },
+        { "label": "CLI dispatch sequence tests", "path": "cmd/waza/cmd_runner_adapter_test.go" }
+      ]
+    },
+    {
+      "id": "adapter-scheduler-and-provenance-hook",
+      "area": "External execution adapter — scheduler and provenance hook",
+      "state": "unsupported",
+      "claim": "No real scheduler is included, and the adapter CLI does not configure its optional provenance-verifier hook.",
+      "verification": "Inspect the adapter result's provenance state and independently confirm that the external scheduler owns retry, placement, leasing, dispatch, and provenance policy.",
+      "limitations": "An adapter result with `not_configured` is not a provenance verification. The one-call adapter does not claim delivery, at-least-once, exactly-once, or scheduling guarantees.",
+      "issues": [774, 756],
+      "schemas": ["schemas/adapter-result-1.0.schema.json"],
+      "evidence": [
+        { "label": "Optional provenance hook and CLI configuration boundary", "path": "docs/RUNNER_ADAPTERS.md" },
+        { "label": "Adapter contract implementation", "path": "internal/runneradapter/contract.go" },
+        { "label": "Translation-only architecture test", "path": "internal/runneradapter/architecture_test.go" }
+      ]
+    }
+  ],
+  "threat_model": [
+    {
+      "id": "altered-inputs-or-artifacts",
+      "boundary": "Runner request, artifact store, terminal, and provenance bundle",
+      "threat": "An attacker or storage fault alters inputs, artifacts, outcomes, or adds unbound bundle members after execution.",
+      "controls": "Provenance verification recomputes canonical identities and outcome bindings, checks digests and signatures, and rejects unbound or irregular bundle members. Inventory and terminal readers validate their closed profiles.",
+      "residual_risk": "Verification is only as trustworthy as the verifier binary, the operator-supplied key, and the storage from which the original expected digest was obtained.",
+      "evidence": [
+        { "label": "Offline provenance verification", "path": "docs/EXECUTION_PROVENANCE.md" },
+        { "label": "Provenance verifier tests", "path": "internal/provenance/provenance_test.go" },
+        { "label": "Inventory verification", "path": "docs/COMPONENT_INVENTORY.md" }
+      ]
+    },
+    {
+      "id": "untrusted-signing-key",
+      "boundary": "Signing identity and verifier trust store",
+      "threat": "A compromised or misidentified local key creates signatures that an operator mistakes for trusted publisher provenance.",
+      "controls": "The verifier accepts only public keys supplied out of band and checks the signed statement against bundle members.",
+      "residual_risk": "Key generation, custody, distribution, rotation, identity binding, keyless signing, and managed KMS are outside this build.",
+      "evidence": [
+        { "label": "Signing modes and trust-anchor requirements", "path": "docs/EXECUTION_PROVENANCE.md" },
+        { "label": "Keyless and KMS unavailable state", "path": "cmd/waza/cmd_runner_provenance_test.go" }
+      ]
+    },
+    {
+      "id": "uninventoried-or-replaced-image",
+      "boundary": "Reference image registry and consumed image digest",
+      "threat": "A mutable tag or previously published image is treated as covered by an inventory attestation that was never produced for its digest.",
+      "controls": "Inventory verification pins the consumed immutable digest; the reference-image workflow emits an inventory attestation when that workflow is explicitly run.",
+      "residual_risk": "The workflow is manually triggered and prior images have no inventory attestation until explicitly republished. Inventory does not evaluate vulnerabilities or licenses.",
+      "evidence": [
+        { "label": "Reference image workflow", "path": ".github/workflows/publish-runner-reference.yml" },
+        { "label": "Digest-bound inventory requirements", "path": "docs/COMPONENT_INVENTORY.md" }
+      ]
+    },
+    {
+      "id": "host-boundary-and-secrets",
+      "boundary": "Waza process, runtime, filesystem, environment, subprocesses, and tools",
+      "threat": "Untrusted work escapes its workspace, reads credentials, starts unauthorized child processes, or reaches a remote service.",
+      "controls": "Isolation preflight reports only evidenced capabilities and rejects requested restricted dimensions it cannot prove. Off-host network and remote-tool checks require no up non-loopback interface.",
+      "residual_risk": "Waza does not enforce isolation. Filesystem, environment, and subprocess restriction remain unproven; loopback is reachable; the native sandbox provider is absent.",
+      "evidence": [
+        { "label": "Isolation threat boundaries and probe semantics", "path": "docs/EXECUTION_ISOLATION.md" },
+        { "label": "Isolation providers", "path": "internal/executionisolation/providers.go" }
+      ]
+    },
+    {
+      "id": "resource-exhaustion",
+      "boundary": "Runner process and host resource scheduler",
+      "threat": "A workload exceeds expected compute, memory, storage, time, or child-process usage.",
+      "controls": "Wall-time, model-turn, and tool-call limits are enforced where documented. Unsupported requested limits can be rejected before execution and the terminal reports measured or unavailable states.",
+      "residual_risk": "CPU, memory, disk, and process-count quotas are not enforced. Process-scope CPU/RSS measurements are not per-attempt; disk and process count are unmeasured.",
+      "evidence": [
+        { "label": "Budget enforcement and OS accounting matrix", "path": "docs/EXECUTION_BUDGETS.md" },
+        { "label": "Budget capability implementation", "path": "internal/executionbudget/budget.go" }
+      ]
+    },
+    {
+      "id": "telemetry-disclosure",
+      "boundary": "Completed execution evidence and telemetry receiver",
+      "threat": "Identifiers or operational metadata are disclosed to a telemetry backend, or payloads are unintentionally exported.",
+      "controls": "Telemetry is derived after execution, excludes payloads by default, catalogs attributes, and bounds signals and dimensions.",
+      "residual_risk": "Exporting identifiers to a receiver is an operator choice. There is no live execution-path emission, and digest policy still exposes payload-derived hashes and lengths.",
+      "evidence": [
+        { "label": "Telemetry payload policy and export", "path": "docs/EXECUTION_TELEMETRY.md" },
+        { "label": "Telemetry export tests", "path": "internal/executiontelemetry/telemetry_test.go" }
+      ]
+    },
+    {
+      "id": "scheduler-delivery-semantics",
+      "boundary": "External scheduler, adapter invocation, and Waza public runner contract",
+      "threat": "An operator mistakes one translation call for durable queueing, safe automatic retries, exclusive scheduling, or provenance verification.",
+      "controls": "Adapter rejects lossy scheduler fields, makes one contract call per descriptor, and maps the actual reply; separate public submission policies cover explicit reuse or distinct attempts.",
+      "residual_risk": "The external scheduler owns delivery, retry, placement, leases, duplicate handling, and trust policy. The optional provenance hook is not configured by the CLI.",
+      "evidence": [
+        { "label": "Adapter operation and non-goals", "path": "docs/RUNNER_ADAPTERS.md" },
+        { "label": "Translation-only architecture guard", "path": "internal/runneradapter/architecture_test.go" }
+      ]
+    }
+  ],
+  "readiness_checklist": [
+    {
+      "id": "pin-and-identify",
+      "action": "Record the exact Waza version, runner API profile, worker OS, runner image digest, and operator trust anchors for each deployment.",
+      "acceptance": "The evidence names immutable digests and the installed CLI's observed version; do not treat a tag, request, or configured identity as proof of execution.",
+      "evidence": [
+        { "label": "Runner capabilities and identity contracts", "path": "docs/RUNNER_CONTRACT.md" },
+        { "label": "Provenance verification and pinning", "path": "docs/EXECUTION_PROVENANCE.md" }
+      ]
+    },
+    {
+      "id": "verify-image-inventory",
+      "action": "Verify the component inventory and its attestation against the exact image digest before admitting a reference image.",
+      "acceptance": "Keep the verifier report and attestation result for the digest actually consumed. For images without an inventory, republish explicitly or record that the evidence is unavailable.",
+      "evidence": [
+        { "label": "Inventory generation, verification, and image attestation", "path": "docs/COMPONENT_INVENTORY.md" },
+        { "label": "Manual reference-image publication workflow", "path": ".github/workflows/publish-runner-reference.yml" },
+        { "label": "Operator example", "path": "examples/runner/assurance/README.md" }
+      ]
+    },
+    {
+      "id": "verify-provenance",
+      "action": "Generate and verify execution provenance for completed work, with a locally managed Ed25519 key and a public trust anchor distributed out of band.",
+      "acceptance": "Require a verified report bound to the exact request, image, artifact manifest, artifact objects, and terminal outcome. Record unavailable keyless/KMS signing as a deployment gap.",
+      "evidence": [
+        { "label": "Provenance CLI and verification procedure", "path": "docs/EXECUTION_PROVENANCE.md" },
+        { "label": "Provenance contract schemas", "path": "schemas/provenance-statement-1.0.schema.json" }
+      ]
+    },
+    {
+      "id": "check-host-budgets",
+      "action": "Inspect the budget matrix on every worker OS and set unsupported policy to reject when an unenforceable limit would make the work unsafe.",
+      "acceptance": "Accept only limits shown enforced by that host. Treat CPU/RSS as runner-process measurements where available, not per-attempt quotas; do not claim disk or process-count accounting.",
+      "evidence": [
+        { "label": "Per-OS budget capability matrix", "path": "docs/EXECUTION_BUDGETS.md" },
+        { "label": "Budget example request", "path": "examples/runner/budget-unit.json" }
+      ]
+    },
+    {
+      "id": "prove-external-isolation",
+      "action": "Enforce the execution boundary outside Waza and run isolation preflight inside the final worker/container boundary before dispatch.",
+      "acceptance": "Require evidenced off-host network/remote-tool restrictions under the no-non-loopback-interface condition. Do not infer filesystem, environment, or subprocess isolation from host declarations or inconclusive probes.",
+      "evidence": [
+        { "label": "Isolation preflight and provider limits", "path": "docs/EXECUTION_ISOLATION.md" },
+        { "label": "Isolation contract schema", "path": "schemas/execution-isolation-1.0.schema.json" }
+      ]
+    },
+    {
+      "id": "export-telemetry-deliberately",
+      "action": "Derive telemetry only from completed contract evidence and choose an approved OTLP/HTTP receiver and payload policy.",
+      "acceptance": "Confirm the receiver, access controls, retention, and identifier handling; use the default payload exclusion unless digest disclosure is explicitly accepted.",
+      "evidence": [
+        { "label": "Post-run telemetry inputs and export behavior", "path": "docs/EXECUTION_TELEMETRY.md" },
+        { "label": "Telemetry 1.0 schema", "path": "schemas/execution-telemetry-1.0.schema.json" }
+      ]
+    },
+    {
+      "id": "integrate-adapter",
+      "action": "Keep queueing, placement, leases, retry policy, and delivery guarantees in the external scheduler; dispatch through one adapter call per descriptor.",
+      "acceptance": "Exercise the external scheduler's failure, duplicate-delivery, and retry behavior independently. Treat adapter provenance `not_configured` as no verification.",
+      "evidence": [
+        { "label": "Adapter contract and limitations", "path": "docs/RUNNER_ADAPTERS.md" },
+        { "label": "Portable adapter example", "path": "examples/runner/adapter/submit.json" }
+      ]
+    },
+    {
+      "id": "inspect-existing-lab-evidence",
+      "action": "Use the existing Lab panels to inspect published evidence and diagnostics; do not assume the assurance package adds a new dashboard view.",
+      "acceptance": "Correlate each view with its source contract and preserve the JSON/report used for the operator decision.",
+      "evidence": [
+        { "label": "Existing Lab evidence and navigation", "path": "site/src/content/docs/guides/dashboard-lab.mdx" },
+        { "label": "Versioned assurance package", "path": "docs/PRODUCTION_INTEGRATION_ASSURANCE-1.0.json" }
+      ]
+    },
+    {
+      "id": "reassess-after-upgrade",
+      "action": "After every Waza or runner-image upgrade, re-negotiate capabilities, re-verify the consumed image inventory, and reassess the deployment against this package version.",
+      "acceptance": "Compare the new schemas and package applicability to the previous evidence; regenerate signed evidence for the upgraded image and retain any unavailable or unsupported states.",
+      "evidence": [
+        { "label": "Runner compatibility and migration", "path": "docs/RUNNER_COMPATIBILITY_MIGRATION.md" },
+        { "label": "Versioned production package", "path": "docs/PRODUCTION_INTEGRATION_ASSURANCE-1.0.json" }
+      ]
+    }
+  ],
+  "verification_limits": [
+    "This package describes the v0.42.0 source candidate and the listed public contract profiles; it does not certify every Waza binary, image, host, runtime, scheduler, model, or deployment.",
+    "Local Ed25519 signatures are offline-verifiable only relative to a verifier-supplied trust anchor. Keyless Sigstore and managed-KMS signing are unavailable.",
+    "Reference-image inventory publication is manually triggered. Previously published images have no inventory attestation until explicitly republished and verified by digest.",
+    "Telemetry is derived from completed runner documents and can be exported as files or OTLP/HTTP JSON; there is no live execution-path telemetry emission.",
+    "Budgets enforce wall time, model-turn, and tool-call limits only. CPU and memory observations are process-scoped on supported OSes and are not per-attempt limits; disk and process-count accounting are unavailable.",
+    "Isolation evidence proves only off-host network and remote-tool boundaries when no up non-loopback interface is present. Loopback remains reachable; Waza does not enforce filesystem, environment, subprocess, or general sandbox boundaries.",
+    "Adapters translate one descriptor to one public runner call. No scheduler is included, and the optional provenance hook is not configured by the CLI.",
+    "A green local test or documentation-site build establishes repository conformance only; it is not a deployment-specific assessment, penetration test, vulnerability scan, or production workload measurement."
+  ],
+  "lab_evidence": [
+    {
+      "issue": 769,
+      "panel": "Execution provenance",
+      "guide": "site/src/content/docs/guides/execution-provenance.mdx"
+    },
+    {
+      "issue": 770,
+      "panel": "Component inventory",
+      "guide": "site/src/content/docs/guides/component-inventory.mdx"
+    },
+    {
+      "issue": 771,
+      "panel": "Execution telemetry",
+      "guide": "site/src/content/docs/guides/execution-telemetry.mdx"
+    },
+    {
+      "issue": 772,
+      "panel": "Execution budgets",
+      "guide": "site/src/content/docs/guides/execution-budgets.mdx"
+    },
+    {
+      "issue": 773,
+      "panel": "Execution isolation",
+      "guide": "site/src/content/docs/guides/execution-isolation.mdx"
+    },
+    {
+      "issue": 774,
+      "panel": "External adapter dispatch",
+      "guide": "site/src/content/docs/guides/runner-adapters.mdx"
+    }
+  ],
+  "migration": {
+    "summary": "The package and its evidence links are additive; they do not change runner request, terminal, manifest, or adapter wire contracts.",
+    "old_runner": "Older runners do not implement these v0.42.0 features and may reject newly added contract fields. Negotiate the installed runner's capabilities and upgrade deliberately before depending on an optional profile.",
+    "previous_images": "Images published before inventory attestation require explicit republishing through the manually triggered inventory workflow; existing image digests are not retroactively covered.",
+    "reassessment": "For each Waza or image upgrade, verify the exact consumed digest, refresh inventory and provenance evidence, repeat host capability/preflight checks, and review updated limitations rather than inheriting a prior qualification."
+  }
+}

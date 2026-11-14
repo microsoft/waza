@@ -1966,6 +1966,22 @@ missing, malformed, altered, bound to another image or plugin, or no digest was
 supplied, 2 for invalid flags. See
 [component inventories](../../guides/component-inventory/).
 
+### Production integration assurance package (source checkout)
+
+```bash
+go run ./cmd/waza runner assurance build
+go run ./cmd/waza runner assurance build --format markdown
+```
+
+`assurance build` validates the versioned
+[`waza.production-integration-assurance` 1.0 package](/waza/schemas/production-integration-assurance-1.0.schema.json),
+its local evidence references, the referenced contract schemas, and the linked
+existing Lab guides. JSON package output is the default; `--format markdown`
+renders the published conformance matrix, threat model, readiness checklist,
+verification limits, migration notes, and links to the #769–#774 evidence
+views. This maintainer command is offline and requires a Waza source checkout.
+See the [production integration assurance guide](../../guides/production-integration-assurance/).
+
 ## waza serve
 
 Standalone v0.40.0 also exposes negotiation and exact-unit validation/run through HTTP.
