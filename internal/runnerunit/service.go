@@ -467,6 +467,7 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	}()
 	if err := engine.Initialize(ctx); err != nil {
 		result.executionError("startup", errors.Join(fmt.Errorf("initializing runtime: %w", err), ctx.Err()))
+		preemptBudget(ctx, result)
 		return result
 	}
 	runner := orchestration.NewEvalRunner(config.NewEvalConfig(input.spec), observed)
@@ -484,14 +485,7 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 	default:
 		result.Status = "completed"
 	}
-	if result.failure != nil && ctx.Err() == nil {
-		// The attempt already ended with its own cause (for example an eval or
-		// task timeout); a budget crossed later during shutdown must neither
-		// cancel the attempt nor replace that cause.
-		if meter, ok := execution.ActivityObserverFrom(ctx).(interface{ Preempt() }); ok {
-			meter.Preempt()
-		}
-	}
+	preemptBudget(ctx, result)
 	if local && run != nil {
 		result.localOutcome, err = runner.ProjectInlineOutcome(input.task, run, started, usage.Snapshot())
 		if err != nil {
@@ -499,6 +493,18 @@ func executeWithProjection(ctx context.Context, report Report, input *admitted, 
 		}
 	}
 	return result
+}
+
+// preemptBudget keeps an attempt's own earlier cause (for example a startup
+// failure or an eval or task timeout): a budget crossed later during shutdown
+// must neither cancel the attempt nor replace that cause.
+func preemptBudget(ctx context.Context, result Report) {
+	if result.failure == nil || ctx.Err() != nil {
+		return
+	}
+	if meter, ok := execution.ActivityObserverFrom(ctx).(interface{ Preempt() }); ok {
+		meter.Preempt()
+	}
 }
 
 // RunLocal projects the same admitted execution used by RunTerminal into the

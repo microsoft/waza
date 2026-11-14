@@ -327,6 +327,20 @@ func TestExecutionFailureBeforeWallBudgetKeepsOutcome(t *testing.T) {
 	encodeTerminal(t, envelope, binding)
 }
 
+func TestStartupFailureBeforeWallBudgetKeepsOutcome(t *testing.T) {
+	report, input := admit(budgeted(t, executionbudget.Request{Limits: executionbudget.Limits{WallTimeMS: limit(20)}}))
+	require.NotNil(t, input)
+	report.Mode = "mock"
+	engine := &lateActivityEngine{instrumented: &instrumented{AgentEngine: execution.NewMockEngine(input.spec.Config.ModelID), mode: "initialize"}, delay: 80 * time.Millisecond}
+	report = metered(t.Context(), input, func(ctx context.Context) Report { return execute(ctx, report, input, engine) })
+	envelope, binding := terminal(report)
+	require.Equal(t, runnerterminal.InfrastructureFailure, envelope.Outcome, "shutdown past the wall budget does not rewrite the startup failure: %+v", envelope)
+	require.Equal(t, "startup", envelope.FailureBoundary)
+	require.Nil(t, envelope.Budget.Termination)
+	require.Equal(t, executionbudget.StateExceeded, envelope.Budget.State)
+	encodeTerminal(t, envelope, binding)
+}
+
 func TestSubmittedBudgetStopsAreJournaled(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
