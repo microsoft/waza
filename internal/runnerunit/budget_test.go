@@ -313,6 +313,51 @@ func TestTaskTimeoutBeforeBudgetKeepsTimeout(t *testing.T) {
 	encodeTerminal(t, envelope, binding)
 }
 
+// drainingEngine keeps working after its execution deadline before returning.
+type drainingEngine struct {
+	*instrumented
+	tools int
+	drain time.Duration
+}
+
+func (e *drainingEngine) Execute(ctx context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.calls++
+	<-ctx.Done()
+	for range e.tools {
+		execution.ActivityObserverFrom(ctx).ToolCallStarted()
+	}
+	time.Sleep(e.drain)
+	return nil, ctx.Err()
+}
+
+func TestTaskTimeoutWinsBudgetCrossedWhileDraining(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		limits executionbudget.Limits
+		tools  int
+		drain  time.Duration
+	}{
+		{"over-limit activity", executionbudget.Limits{WallTimeMS: limit(60_000), ToolCalls: limit(0)}, 1, 0},
+		{"wall deadline", executionbudget.Limits{WallTimeMS: limit(1_300)}, 0, 600 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := fixture(t)
+			request.TimeoutMS = 60_000
+			request.Budgets = &executionbudget.Request{Limits: tc.limits}
+			report, input := admit(wire(t, request))
+			require.NotNil(t, input)
+			input.spec.Config.TimeoutSec = 1
+			report.Mode = "mock"
+			engine := &drainingEngine{instrumented: &instrumented{AgentEngine: execution.NewMockEngine(input.spec.Config.ModelID)}, tools: tc.tools, drain: tc.drain}
+			report = admittedAttempt(t.Context(), input, false, func(ctx context.Context) Report { return execute(ctx, report, input, engine) })
+			envelope, binding := terminal(report)
+			require.Equal(t, runnerterminal.Timeout, envelope.Outcome, "%+v", envelope)
+			require.Nil(t, envelope.Budget.Termination, "the task deadline ended the attempt before the budget: %+v", envelope.Budget)
+			encodeTerminal(t, envelope, binding)
+		})
+	}
+}
+
 func TestExecutionFailureBeforeWallBudgetKeepsOutcome(t *testing.T) {
 	report, input := admit(budgeted(t, executionbudget.Request{Limits: executionbudget.Limits{WallTimeMS: limit(20)}}))
 	require.NotNil(t, input)
