@@ -187,7 +187,10 @@ inventories, duplicate or omitted package/test selections, invalid profiles,
 and mismatched run/source identities before merging the four profiles into the
 main Linux profile. The existing four native shards and full Windows suite are
 unchanged. Timing history determines placement only; it is not acceptance
-evidence. Issue #825 requires three distinct successful main-push runs after
+evidence. Refresh package costs after material package, test, or runner-topology
+changes using complete successful Linux remaining-test executions; retain the
+source run, attempt, and commit, and exclude canceled or incomplete test
+executions. Issue #825 requires three distinct successful main-push runs after
 merge, each with a native shard max/min ratio `<= 1.25` and total Go CI
 critical-path span `< 25 minutes`; a planned assignment cannot satisfy either
 measured threshold.

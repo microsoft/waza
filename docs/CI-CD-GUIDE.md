@@ -81,7 +81,11 @@ different inventories, duplicate/missing package or test selections, invalid
 profiles, or mismatched run/source identities; it merges the four remaining
 profiles into the one main profile, preserving four native profiles plus one
 remaining-suite profile for the final gate. The cost table is placement data,
-not acceptance evidence. The Windows job continues to run the full suite.
+not acceptance evidence. Refresh package costs after material package, test,
+or runner-topology changes using complete successful Linux remaining-test
+executions; retain their run, attempt, and source commit, and do not use
+canceled or incomplete test executions. The Windows job continues to run the
+full suite.
 For issue #825, acceptance remains three distinct successful main-push runs
 after merge, each with native shard max/min `<= 1.25` and total Go CI
 critical-path span `< 25 minutes`; a balanced plan or cost table cannot satisfy

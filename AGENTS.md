@@ -378,6 +378,10 @@ in a package together, including all of `cmd/waza`. Each worker discovers the
 same complete remaining-package and test inventories, executes only its
 assigned packages with `-p=4`, race detection, atomic coverage, and a
 30-minute test deadline, then retains its selection and execution receipt.
+Refresh package costs after material package, test, or runner-topology changes
+from complete successful Linux remaining-test executions; retain the run,
+attempt, and source commit, and never time from canceled or incomplete
+executions.
 The collector requires all four successful receipts, identical inventories,
 exactly-once package and test selection, and valid atomic coverage before
 merging the four remaining profiles into the single main profile. Windows
