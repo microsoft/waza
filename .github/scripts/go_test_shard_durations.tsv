@@ -1,60 +1,63 @@
-# Observed Linux race/atomic top-level durations (seconds), 2026-11-14.
+# Observed Linux race/atomic top-level durations (seconds), 2026-11-15.
 # Previous mean of top-level PASS records from three successful post-#998
 # main-push Go CI runs, successively refreshed with passing native-shard samples
-# from PR runs 43629705788 attempt 1, 43634202737 attempt 1, and 43639808598
-# attempt 1 (Linux X64, retries 0, test-result cache disabled, warm Go
-# dependency cache; all four native jobs passed, but each run was cancelled or
-# failed before overall validation passed). These refreshes are for placement
-# only, not issue acceptance evidence:
+# from PR runs 43629705788 attempt 1, 43634202737 attempt 1, 43639808598
+# attempt 1, and 43766161368 attempt 1 (Linux X64, retries 0, test-result
+# cache disabled, warm Go dependency cache). The first three runs had all four
+# native jobs pass but were cancelled or failed before overall validation
+# passed. In 43766161368, native shards 2 and 3 passed; shards 0 and 1 failed
+# after runner shutdown, and overall validation failed. These refreshes are
+# for placement only, not issue acceptance evidence:
 # https://github.com/microsoft/waza/actions/runs/43531197971 (9310d91f250b3aea389fa32743255964134ac466)
 # https://github.com/microsoft/waza/actions/runs/43517457296 (93b76bf48aa66518835bdc8c31ea1404150fc8d3)
 # https://github.com/microsoft/waza/actions/runs/43509686688 (2b93eddefe9f5df44fd166c73a85c8efd2e3d0d8)
 # https://github.com/microsoft/waza/actions/runs/43629705788
 # https://github.com/microsoft/waza/actions/runs/43634202737
 # https://github.com/microsoft/waza/actions/runs/43639808598
+# https://github.com/microsoft/waza/actions/runs/43766161368 (091e26db)
 # Each refresh blended 75% of the prior estimate with 25% of the newest passing
 # native-shard sample. Rows without a passing sample retain their prior value.
 # Unchanged rows use mean top-level PASS seconds; regrouped rows use disjoint
 # child PASS seconds where cases moved between top-level tests. Never add child
 # durations to their parent when calculating a cost.
 TestAssuredBuiltCLIWorkflow	0.00
-TestAssuredCollectionRealOfflineVerifierAndRegrade	89.50
-TestAssuredCurrentReviewRevocationAndArmSwap	54.24
+TestAssuredCollectionRealOfflineVerifierAndRegrade	94.23
+TestAssuredCurrentReviewRevocationAndArmSwap	56.50
 TestAssuredCurrentSourceChangesRejectBeforeCollection	59.01
-TestAssuredFullRowsAndRegradeCannotAdoptPass	33.34
+TestAssuredFullRowsAndRegradeCannotAdoptPass	34.84
 TestAssuredRechecksAfterActualVerifier	25.69
-TestAssuredUnreviewedRemainsNonpass	32.91
+TestAssuredUnreviewedRemainsNonpass	32.24
 TestNativeArtifactPublicWireBoundBeforeOpen	0.00
 TestNativeArtifactRejectsFIFOReplacementBeforeOpen	0.00
 TestNativeArtifactsAreRequiredAndConfined	131.49
-TestNativeCollectionAcceptedAndFrozenReader	122.02
-TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime	56.71
+TestNativeCollectionAcceptedAndFrozenReader	127.41
+TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime	54.05
 TestNativeCollectionDiscoveryOrder	99.35
 TestNativeCollectionObservedFailures	241.45
-TestNativeCollectionObservedFailuresOutputAndBudget	309.61
+TestNativeCollectionObservedFailuresOutputAndBudget	289.38
 TestNativeCollectionObservedFailuresShutdown	151.01
-TestNativeCollectionProductionLifecycle	99.18
+TestNativeCollectionProductionLifecycle	92.53
 TestNativeCollectionPublicPayloads	242.56
-TestNativeCollectionPublicPayloadsLargeOutput	184.38
+TestNativeCollectionPublicPayloadsLargeOutput	178.86
 TestNativeFrozenResourcesReachFreshSDKWorkspace	40.10
 TestNativeInnerProfileRejectsFrozenPolicyMemberOracle	0.00
-TestNativeLateFailurePreservesEveryStartedAttempt	406.38
-TestNativeReadSelectedDecisionCaptureVerification	317.22
+TestNativeLateFailurePreservesEveryStartedAttempt	420.63
+TestNativeReadSelectedDecisionCaptureVerification	297.50
 TestNativeReaderFrozen15cDecisionParity	575.83
 TestNativeReaderFrozen15cDecisionParityAdditionalInputs	579.59
 TestNativeReaderPreservesPrePolicyCoreFailures	90.79
-TestNativeReaderSuppliedDecisionProcess	13.52
-TestNativeSourceCurrentnessBeforeSideEffects	182.73
+TestNativeReaderSuppliedDecisionProcess	14.26
+TestNativeSourceCurrentnessBeforeSideEffects	188.19
 TestNativeStaticRequirementsAndConfiguration	9.39
-TestNativeTerminalPolicyAndLateStop	157.40
+TestNativeTerminalPolicyAndLateStop	151.25
 TestNativeUnsupportedPlatformBeforeEffects	0.00
-TestOriginalMockGuardAndLockErrorParity	2.78
-TestOriginalMockPolicyGoldenUnionParity	4.58
-TestOriginalMockSourceProjectionParity	12.02
+TestOriginalMockGuardAndLockErrorParity	2.71
+TestOriginalMockPolicyGoldenUnionParity	4.39
+TestOriginalMockSourceProjectionParity	11.75
 TestPlanningInputRequiresExplicitFields	0.00
-TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment	268.35
+TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment	274.91
 TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection	88.75
 TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection	7.18
-TestSourceBoundCollection	4.46
-TestSourceDriftBeforeBegin	1.58
+TestSourceBoundCollection	4.63
+TestSourceDriftBeforeBegin	1.65
 TestSourcePlanBoundaries	9.02

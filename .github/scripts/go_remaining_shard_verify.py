@@ -16,7 +16,7 @@ SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 COVERAGE_PATTERN = re.compile(
     r"^(?P<file>.+):(?P<start_line>[1-9][0-9]*)\.(?P<start_column>[1-9][0-9]*),"
     r"(?P<end_line>[1-9][0-9]*)\.(?P<end_column>[1-9][0-9]*) "
-    r"(?P<statements>[1-9][0-9]*) (?P<count>0|[1-9][0-9]*)$"
+    r"(?P<statements>0|[1-9][0-9]*) (?P<count>0|[1-9][0-9]*)$"
 )
 
 
@@ -116,6 +116,7 @@ def verify(directory):
                 or identity.get("repository") != "microsoft/waza"
                 or identity.get("workflow") != "Go Build and Test"
                 or identity.get("job") != "remaining"
+                or str(identity.get("shard")) != str(shard)
                 or identity.get("os") != "Linux"
                 or not identity.get("run_id") or not identity.get("attempt")):
             fail(f"shard {shard} source/run identity is invalid")

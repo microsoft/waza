@@ -1110,9 +1110,11 @@ func checkCanonicalGoWorkflow(source []byte) error {
 			Needs []string `yaml:"needs"`
 			If    string   `yaml:"if"`
 			Steps []struct {
-				ID  string `yaml:"id"`
-				If  string `yaml:"if"`
-				Run string `yaml:"run"`
+				ID   string            `yaml:"id"`
+				If   string            `yaml:"if"`
+				Run  string            `yaml:"run"`
+				Uses string            `yaml:"uses"`
+				With map[string]string `yaml:"with"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
@@ -1143,7 +1145,7 @@ func checkCanonicalGoWorkflow(source []byte) error {
 		!reflect.DeepEqual(merge.Needs, []string{"linux-remaining-shards"}) {
 		return fmt.Errorf("coverage merger must inspect remaining shards even after failure")
 	}
-	for _, stepID := range []string{"node", "web_dependencies"} {
+	for _, stepID := range []string{"node"} {
 		found := false
 		for _, step := range merge.Steps {
 			if step.ID == stepID {
@@ -1156,6 +1158,21 @@ func checkCanonicalGoWorkflow(source []byte) error {
 		if !found {
 			return fmt.Errorf("coverage merger is missing %s setup", stepID)
 		}
+	}
+	sourcesFound := false
+	for _, step := range merge.Steps {
+		if step.ID != "sources" {
+			continue
+		}
+		sourcesFound = true
+		if step.If != "" || !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
+			step.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ github.run_attempt }}-0" ||
+			step.With["path"] != "web/node_modules/flatted/golang/pkg/flatted" {
+			return fmt.Errorf("coverage source artifact must be restored on every event without npm setup")
+		}
+	}
+	if !sourcesFound {
+		return fmt.Errorf("coverage merger is missing the Go coverage source artifact")
 	}
 	gate := workflow.Jobs["linux-gate"]
 	if gate.Name != goRequiredName("ubuntu-latest", "'ubuntu-latest'") || gate.If != "${{ always() && "+goValidationIf+" }}" ||
@@ -1266,8 +1283,10 @@ func TestGoRemainingShardWorkflowContract(t *testing.T) {
 			} `yaml:"strategy"`
 			Steps []struct {
 				ID   string            `yaml:"id"`
+				If   string            `yaml:"if"`
 				Run  string            `yaml:"run"`
 				Uses string            `yaml:"uses"`
+				Env  map[string]string `yaml:"env"`
 				With map[string]string `yaml:"with"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
@@ -1282,24 +1301,37 @@ func TestGoRemainingShardWorkflowContract(t *testing.T) {
 		t.Fatalf("remaining-shard workflow changes its read-only four-shard contract: %+v", job)
 	}
 	steps := make(map[string]string, len(job.Steps))
+	shardIdentity, coldFixture := "", ""
 	for _, step := range job.Steps {
 		if step.ID != "" {
 			if _, duplicate := steps[step.ID]; duplicate {
 				t.Fatalf("duplicate remaining-shard step id %q", step.ID)
 			}
 			steps[step.ID] = strings.Join([]string{
-				step.Run, step.Uses, step.With["name"], step.With["path"],
+				step.If, step.Run, step.Uses, step.With["name"], step.With["path"],
 			}, " ")
+		}
+		if step.ID == "remaining_tests" {
+			shardIdentity = step.Env["WAZA_REMAINING_SHARD"]
+		}
+		if step.ID == "discovery_controls" {
+			coldFixture = step.Env["CI_EVIDENCE_COLD_REQUESTED"]
 		}
 	}
 	for id, command := range map[string]string{
 		"discovery_controls": "go_remaining_shard_test.sh",
 		"remaining_tests":    "go_remaining_test_shard.sh",
 		"coverage":           "go-remaining-shard-",
+		"coverage_sources":   "go-remaining-coverage-source-",
+		"observation":        "ci-evidence-go-remaining-",
 	} {
 		if !strings.Contains(steps[id], command) {
 			t.Errorf("remaining-shard step %q does not retain %q", id, command)
 		}
+	}
+	if shardIdentity != "${{ matrix.shard }}" || coldFixture != "false" {
+		t.Errorf("remaining-shard execution must bind its shard and disable cold observation only for synthetic controls: shard=%q cold=%q",
+			shardIdentity, coldFixture)
 	}
 	nodeCache := ""
 	for _, step := range job.Steps {

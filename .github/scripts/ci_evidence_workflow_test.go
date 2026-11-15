@@ -454,6 +454,8 @@ func checkRemainingShardEvidence(source []byte) error {
 	steps := releaseSteps(workflow.Jobs["remaining"])
 	execute := steps["Execute exhaustive remaining-package test shard"]
 	upload := steps["Retain remaining-shard coverage and selection evidence"]
+	sources := steps["Retain Go coverage sources for merger"]
+	observation := steps["Retain sanitized remaining-shard timing observation"]
 	requiredPaths := []string{
 		"coverage-remaining-${{ matrix.shard }}.txt",
 		"coverage-remaining-${{ matrix.shard }}.txt.all",
@@ -473,6 +475,22 @@ func checkRemainingShardEvidence(source []byte) error {
 		if !strings.Contains(upload.With["path"], path) {
 			return fmt.Errorf("Linux remaining-shard artifact is missing %s", path)
 		}
+	}
+	if sources.ID != "coverage_sources" ||
+		sources.If != "always() && steps.web_dependencies.outcome == 'success'" ||
+		!strings.HasPrefix(sources.Uses, "actions/upload-artifact@") ||
+		sources.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}" ||
+		sources.With["path"] != "web/node_modules/flatted/golang/pkg/flatted/**/*.go" ||
+		sources.With["retention-days"] != "14" || sources.With["if-no-files-found"] != "error" {
+		return fmt.Errorf("every remaining shard must retain its run-bound Go coverage sources")
+	}
+	if observation.ID != "observation" ||
+		observation.If != "always() && steps.remaining_tests.outcome != 'skipped' && steps.remaining_tests.outcome != ''" ||
+		!strings.HasPrefix(observation.Uses, "actions/upload-artifact@") ||
+		observation.With["name"] != "ci-evidence-go-remaining-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}" ||
+		observation.With["path"] != "coverage-remaining-${{ matrix.shard }}.txt.evidence.json" ||
+		observation.With["retention-days"] != "14" || observation.With["if-no-files-found"] != "error" {
+		return fmt.Errorf("every remaining shard must retain its source-bound timing observation")
 	}
 	return nil
 }
@@ -550,6 +568,8 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 		{"coverage-remaining-${{ matrix.shard }}.txt.evidence.json", "coverage-remaining-${{ matrix.shard }}.txt"},
 		{"retention-days: 14", "retention-days: 90"},
 		{"if-no-files-found: error", "if-no-files-found: warn"},
+		{"go-remaining-coverage-source-${{ github.run_id }}", "go-remaining-coverage-${{ github.run_id }}"},
+		{"ci-evidence-go-remaining-${{ github.run_id }}", "ci-evidence-go-shard-${{ github.run_id }}"},
 	} {
 		changed := strings.Replace(string(remaining), mutation[0], mutation[1], 1)
 		if changed == string(remaining) || checkRemainingShardEvidence([]byte(changed)) == nil {

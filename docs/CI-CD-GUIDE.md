@@ -76,12 +76,17 @@ whole, so all `cmd/waza` tests execute in the same test binary rather than being
 split across workers. Each worker independently discovers the full remaining
 package and test inventories, executes its assigned packages with `-p=4`,
 `-race`, `-covermode=atomic`, and the 30-minute deadline, and retains its
-coverage and execution receipt. A collector rejects missing or failed workers,
-different inventories, duplicate/missing package or test selections, invalid
+coverage, execution receipt, and shard-bound timing observation. Workers also
+retain the locked npm package's Go sources; the merger restores these
+same-run sources on every event before validating the combined profile. A
+collector rejects missing or failed workers, different inventories,
+duplicate/missing package or test selections, invalid
 profiles, or mismatched run/source identities; it merges the four remaining
 profiles into the one main profile, preserving four native profiles plus one
 remaining-suite profile for the final gate. The cost table is placement data,
-not acceptance evidence. Refresh package costs after material package, test,
+not acceptance evidence. Downstream timing history validates all four worker
+observations and their shard identities before admitting a successful sample.
+Refresh package costs after material package, test,
 or runner-topology changes using complete successful Linux remaining-test
 executions; retain their run, attempt, and source commit, and do not use
 canceled or incomplete test executions. The Windows job continues to run the

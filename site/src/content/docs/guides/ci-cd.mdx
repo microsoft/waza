@@ -181,11 +181,16 @@ contains package elapsed-time placement data; unmeasured packages use the
 median measured cost. Packages remain atomic scheduling units, keeping all
 `cmd/waza` tests in one test binary. Each worker records the same complete
 package/test inventory and its exact selection, executes with race detection,
-atomic coverage, and a 30-minute test deadline, then uploads its coverage and
-execution receipt. The collector rejects missing or failed workers, mismatched
-inventories, duplicate or omitted package/test selections, invalid profiles,
+atomic coverage, and a 30-minute test deadline, then uploads coverage, an
+execution receipt, and a shard-bound timing observation. Workers also upload
+the locked npm package's Go sources; the merger restores these same-run sources
+on every event before profile validation. The collector rejects missing or
+failed workers, mismatched inventories, duplicate or omitted package/test
+selections, invalid profiles,
 and mismatched run/source identities before merging the four profiles into the
-main Linux profile. The existing four native shards and full Windows suite are
+main Linux profile. Timing history admits a sample only after validating all
+four worker observations and their shard identities. The existing four native
+shards and full Windows suite are
 unchanged. Timing history determines placement only; it is not acceptance
 evidence. Refresh package costs after material package, test, or runner-topology
 changes using complete successful Linux remaining-test executions; retain the

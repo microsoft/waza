@@ -94,10 +94,12 @@ export GO_CACHE_HIT=false
 export NODE_CACHE_HIT=false
 
 for shard in 0 1 2 3; do
+  export WAZA_REMAINING_SHARD="$shard"
   bash "$scripts/go_remaining_test_shard.sh" "$shard" "$scratch/reports/coverage-remaining-$shard.txt"
 done
 python3 -B "$scripts/go_remaining_shard_verify.py" \
   "$scratch/reports" "$scratch/merged-coverage.txt" "$scratch/verification.json"
+export WAZA_REMAINING_SHARD=0
 
 expect_status() {
   local expected="$1"

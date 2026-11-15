@@ -8,6 +8,7 @@ import uuid
 verify_module = runpy.run_path(str(Path(__file__).with_name("go_remaining_shard_verify.py")))
 verify = verify_module["verify"]
 merge_coverage = verify_module["merge_coverage"]
+read_coverage = verify_module["read_coverage"]
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 
@@ -57,6 +58,7 @@ class RemainingShardVerifyTests(unittest.TestCase):
                     "repository": "microsoft/waza",
                     "workflow": "Go Build and Test",
                     "job": "remaining",
+                    "shard": str(shard),
                     "os": "Linux",
                     "run_id": "12345",
                     "attempt": "1",
@@ -147,6 +149,28 @@ class RemainingShardVerifyTests(unittest.TestCase):
         self.assertEqual(profile, "mode: atomic\nexample/shared.go:1.1,2.1 2 7\n")
         with self.assertRaisesRegex(ValueError, "statement counts disagree"):
             merge_coverage([{block: (1, 1)}, {block: (2, 1)}])
+
+    def test_accepts_zero_statement_coverage_blocks(self):
+        profile = self.root / "coverage-zero.txt"
+        profile.write_text(
+            "mode: atomic\ninternal/models/grader_params.go:1.1,1.1 0 0\n",
+            encoding="utf-8",
+        )
+        block = ("internal/models/grader_params.go", (1, 1), (1, 1))
+        self.assertEqual(read_coverage(profile), {block: (0, 0)})
+        self.assertEqual(
+            merge_coverage([read_coverage(profile)]),
+            "mode: atomic\ninternal/models/grader_params.go:1.1,1.1 0 0\n",
+        )
+
+    def test_rejects_receipt_from_another_shard(self):
+        self.create_artifacts()
+        receipt = self.root / "coverage-remaining-2.txt.evidence.json"
+        report = json.loads(receipt.read_text(encoding="utf-8"))
+        report["identity"]["shard"] = "1"
+        receipt.write_text(json.dumps(report), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "source/run identity is invalid"):
+            verify(self.root)
 
 
 if __name__ == "__main__":

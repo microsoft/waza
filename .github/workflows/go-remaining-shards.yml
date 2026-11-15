@@ -82,11 +82,14 @@ jobs:
           fi
       - name: Test remaining-shard planning and verification
         id: discovery_controls
+        env:
+          CI_EVIDENCE_COLD_REQUESTED: "false"
         run: bash .github/scripts/go_remaining_shard_test.sh
       - name: Execute exhaustive remaining-package test shard
         id: remaining_tests
         env:
           SHARD: ${{ matrix.shard }}
+          WAZA_REMAINING_SHARD: ${{ matrix.shard }}
           GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}
           NODE_CACHE_HIT: ${{ steps.node.outputs.cache-hit }}
         run: |
@@ -95,6 +98,15 @@ jobs:
             echo "Remaining test shard attempted to launch the Copilot runtime." >&2
             exit 1
           fi
+      - name: Retain Go coverage sources for merger
+        if: always() && steps.web_dependencies.outcome == 'success'
+        id: coverage_sources
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-remaining-coverage-source-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: web/node_modules/flatted/golang/pkg/flatted/**/*.go
+          retention-days: 14
+          if-no-files-found: error
       - name: Reject tolerated runtime launches
         id: no_launch
         run: |
@@ -115,6 +127,15 @@ jobs:
             coverage-remaining-${{ matrix.shard }}.txt.packages.all
             coverage-remaining-${{ matrix.shard }}.txt.packages.selected
             coverage-remaining-${{ matrix.shard }}.txt.evidence.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Retain sanitized remaining-shard timing observation
+        if: always() && steps.remaining_tests.outcome != 'skipped' && steps.remaining_tests.outcome != ''
+        id: observation
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-evidence-go-remaining-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: coverage-remaining-${{ matrix.shard }}.txt.evidence.json
           retention-days: 14
           if-no-files-found: error
       - name: Capture PR completeness receipt

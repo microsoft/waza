@@ -55,6 +55,7 @@ function identity(env = process.env, runtime = {}) {
     job: text(env.GITHUB_JOB), os: text(env.RUNNER_OS) || process.platform,
     arch: text(env.RUNNER_ARCH) || process.arch, node: process.version,
     os_release: os.release(), os_version: os.version(),
+    ...(env.WAZA_REMAINING_SHARD !== undefined ? { shard: text(env.WAZA_REMAINING_SHARD) } : {}),
     ...(env.ImageOS !== undefined ? { image_os: imageID(env.ImageOS) } : {}),
     ...(env.ImageVersion !== undefined ? { image_version: imageID(env.ImageVersion) } : {}),
     ...runtime,
@@ -688,6 +689,7 @@ function cohort(report) {
     kind: report.kind, workflow: report.identity.workflow, event: report.identity.event,
     source_sha: report.identity.source_sha,
     os: report.identity.os, arch: report.identity.arch, go: report.identity.go ?? null,
+    ...(report.identity.shard !== undefined ? { shard: report.identity.shard } : {}),
     os_release: report.identity.os_release, os_version: report.identity.os_version,
     node: report.identity.node, playwright: report.identity.playwright ?? null,
     policy: report.policy, selected: report.selected, cache: report.cache,
@@ -737,8 +739,9 @@ function collectObservations(runID, api, download = (id) => {
   return result.stdout;
 }, budget = { compressed: 0, expanded: 0, reports: 0 }) {
   const metadata = collectActions(runID, api), reports = [], diagnostics = [...metadata.diagnostics];
+  const remainingAttempts = new Map();
   for (const artifact of metadata.artifacts) {
-    const match = /^ci-evidence-(go-native|go-run|browser)-([1-9][0-9]*)-([1-9][0-9]*)(?:-([A-Za-z0-9_-]+))?$/.exec(artifact.name || "");
+    const match = /^ci-evidence-(go-native|go-run|go-remaining|browser)-([1-9][0-9]*)-([1-9][0-9]*)(?:-([A-Za-z0-9_-]+))?$/.exec(artifact.name || "");
     if (!match) continue;
     if (!artifact.source_bound || match[2] !== String(runID) || !Number.isSafeInteger(artifact.id) || artifact.expired !== false) {
       diagnostics.push("evidence-artifact-unavailable"); continue;
@@ -748,9 +751,13 @@ function collectObservations(runID, api, download = (id) => {
     budget.reports++;
     try {
       if ((match[1] === "go-native" && !/^[0-3]$/.test(match[4] || "")) ||
+          (match[1] === "go-remaining" && !/^[0-3]$/.test(match[4] || "")) ||
           (match[1] === "browser" && match[4] !== undefined) ||
           (match[1] === "go-run" && !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(match[4] || ""))) throw new Error("artifact-name-binding");
-      const expectedName = match[1] === "browser" ? "ci-evidence-browser.json" : match[1] === "go-run" ? "coverage.txt.evidence.json" : `coverage-native-${match[4]}.txt.evidence.json`;
+      const expectedName = match[1] === "browser" ? "ci-evidence-browser.json" :
+        match[1] === "go-run" ? "coverage.txt.evidence.json" :
+          match[1] === "go-remaining" ? `coverage-remaining-${match[4]}.txt.evidence.json` :
+            `coverage-native-${match[4]}.txt.evidence.json`;
       const { report, content_sha256 } = artifactJSON(download(artifact.id), expectedName, artifact.digest, budget);
       const partial = report.complete === false && Array.isArray(report.diagnostics) && report.diagnostics.length > 0 &&
         report.diagnostics.every((code) => text(code) !== null);
@@ -769,7 +776,9 @@ function collectObservations(runID, api, download = (id) => {
           report.identity?.attempt !== match[3] ||
           Number(match[3]) > metadata.run_attempt || metadata.run_attempt === null ||
           !selectedValid || !policyValid || !targetsValid || !cacheObservationValid || !cacheScopeValid || !report.cache || typeof report.cache !== "object" || Array.isArray(report.cache) ||
-          (match[1] === "go-run" && report.identity.job !== match[4])) throw new Error("artifact-report-binding");
+          (match[1] === "go-run" && report.identity.job !== match[4]) ||
+          (match[1] === "go-remaining" &&
+            (report.identity.job !== "remaining" || report.identity.shard !== match[4]))) throw new Error("artifact-report-binding");
       const checkoutVerified = /^[0-9a-f]{40}$/.test(metadata.source_sha || "") && report.identity.source_sha === metadata.source_sha && report.identity.workflow_sha === metadata.source_sha;
       if (!checkoutVerified && metadata.event !== "pull_request") throw new Error("artifact-checkout-binding");
       if (!checkoutVerified) diagnostics.push("pull-request-merge-checkout-binding-unavailable");
@@ -777,12 +786,34 @@ function collectObservations(runID, api, download = (id) => {
       // successful single-attempt run can supply a baseline timing sample.
       const sampleEligible = checkoutVerified && metadata.complete && metadata.run_attempt === 1 && match[3] === "1" && metadata.final_conclusion === "success" &&
         metadata.jobs.every((job) => ["success", "skipped"].includes(job.conclusion));
-      verifiedReports.set(report, { run_id: String(runID), artifact_id: artifact.id, content_sha256, metadata_complete: metadata.complete, checkout_binding: checkoutVerified ? "api-head" : "unavailable-pr-merge", sample_eligible: sampleEligible, attempt_binding: metadata.run_attempt === 1 ? "single-api-attempt" : "name-and-report-only" });
+      const binding = {
+        run_id: String(runID), artifact_id: artifact.id, content_sha256,
+        metadata_complete: metadata.complete,
+        checkout_binding: checkoutVerified ? "api-head" : "unavailable-pr-merge",
+        sample_eligible: sampleEligible,
+        attempt_binding: metadata.run_attempt === 1 ? "single-api-attempt" : "name-and-report-only",
+        family: match[1],
+        ...(match[1] === "go-remaining" ? { shard: match[4] } : {}),
+      };
+      verifiedReports.set(report, binding);
+      if (match[1] === "go-remaining") {
+        if (!remainingAttempts.has(match[3])) remainingAttempts.set(match[3], { shards: new Set(), reports: [], duplicate: false });
+        const remaining = remainingAttempts.get(match[3]);
+        if (remaining.shards.has(match[4])) remaining.duplicate = true;
+        remaining.shards.add(match[4]);
+        remaining.reports.push(report);
+      }
       if (match[1] === "go-native") nativeReports.add(report);
       reports.push(report);
     } catch (error) {
       if (error.message === "evidence-expanded-cap") { diagnostics.push("evidence-expanded-cap"); break; }
       diagnostics.push("evidence-artifact-invalid-or-unverified");
+    }
+  }
+  for (const remaining of remainingAttempts.values()) {
+    if (remaining.duplicate || remaining.shards.size !== 4) {
+      diagnostics.push("go-remaining-shards-incomplete");
+      for (const report of remaining.reports) verifiedReports.get(report).sample_eligible = false;
     }
   }
   if (!reports.length) diagnostics.push("test-evidence-unavailable");
@@ -847,7 +878,12 @@ function trends(reports, metadata = []) {
     if (!groups.has(key)) groups.set(key, { cohort: JSON.parse(key), observations: [], eligible: [], attainment: "not-assessed" });
     const group = groups.get(key);
     const binding = verifiedReports.get(report);
-    const source = { run_id: report.identity.run_id, attempt: report.identity.attempt, source_sha: report.identity.source_sha, job: report.identity.job, provenance: binding || "unverified" };
+    const source = {
+      run_id: report.identity.run_id, attempt: report.identity.attempt,
+      source_sha: report.identity.source_sha, job: report.identity.job,
+      ...(report.identity.shard !== undefined ? { shard: report.identity.shard } : {}),
+      provenance: binding || "unverified",
+    };
     const id = JSON.stringify([key, source.run_id, source.attempt, source.job]);
     if (seen.has(id)) continue;
     seen.add(id); group.observations.push(source);
@@ -869,12 +905,15 @@ function knownIdentity(report) {
   required.push(report.kind === "go" ? "go" : "playwright");
   return required.every((field) => text(report.identity[field]) !== null && report.identity[field].length > 0) &&
     /^[0-9a-f]{40}$/.test(report.identity.source_sha) &&
-    knownGoVersion(report.identity.go);
+    knownGoVersion(report.identity.go) &&
+    (report.identity.job !== "remaining" || /^[0-3]$/.test(report.identity.shard || ""));
 }
 function eligibleSample(report) {
   if (Object.hasOwn(report, "cache_observation") &&
       !cacheObservation.validObservation(report.cache_observation, report.identity, report.cache)) return false;
-  if (!verifiedReports.get(report)?.sample_eligible || !knownIdentity(report) ||
+  const binding = verifiedReports.get(report);
+  if (!binding?.sample_eligible || (report.identity.job === "remaining" &&
+      (binding.family !== "go-remaining" || binding.shard !== report.identity.shard)) || !knownIdentity(report) ||
       report.complete !== true || report.identity.attempt !== "1" || report.policy?.retries !== 0 ||
       report.cache.test_results !== "disabled") return false;
   if (report.cache.go_dependencies !== false ||
@@ -897,7 +936,13 @@ function historyProposal(reports) {
       if (!samples.has(key)) samples.set(key, []);
       const observations = samples.get(key);
       if (!Object.hasOwn(cohorts, cohortID)) cohorts[cohortID] = JSON.parse(cohortKey);
-      const source = { run_id: report.identity.run_id, attempt: report.identity.attempt, job: report.identity.job, source_sha: report.identity.source_sha, report_content_sha256: binding.content_sha256, seconds: target.seconds, cohort_id: cohortID, provenance: binding };
+      const source = {
+        run_id: report.identity.run_id, attempt: report.identity.attempt,
+        job: report.identity.job, source_sha: report.identity.source_sha,
+        ...(report.identity.shard !== undefined ? { shard: report.identity.shard } : {}),
+        report_content_sha256: binding.content_sha256, seconds: target.seconds,
+        cohort_id: cohortID, provenance: binding,
+      };
       if (!observations.some((item) => item.run_id === source.run_id && item.attempt === source.attempt && item.job === source.job && item.cohort_id === cohortID)) observations.push(source);
     }
   }

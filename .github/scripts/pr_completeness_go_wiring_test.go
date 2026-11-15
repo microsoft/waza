@@ -16,8 +16,8 @@ var goReceiptSteps = map[string][]string{
 	"linux":                {"checkout", "verify_modules", "download", "node", "guard", "inventory", "web_build", "format", "vet", "ci_tests", "no_launch", "binary", "integration"},
 	"windows":              {"checkout", "verify_modules", "download", "node", "guard", "vet", "ci_tests", "shell_controls", "no_launch", "binary", "integration"},
 	"native":               {"checkout", "discovery_controls", "guard", "native_tests", "coverage"},
-	"linux-remaining":      {"checkout", "verify_modules", "download", "guard", "web_dependencies", "discovery_controls", "remaining_tests", "no_launch", "coverage"},
-	"linux-coverage-merge": {"requirements", "checkout", "setup_go", "node", "web_dependencies", "download", "merge", "coverage"},
+	"linux-remaining":      {"checkout", "verify_modules", "download", "guard", "web_dependencies", "discovery_controls", "remaining_tests", "coverage_sources", "no_launch", "coverage", "observation"},
+	"linux-coverage-merge": {"requirements", "checkout", "setup_go", "node", "sources", "download", "merge", "coverage"},
 	"linux-gate":           {"requirements", "checkout", "coverage", "inventory"},
 }
 

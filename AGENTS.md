@@ -377,7 +377,10 @@ uses the median measured package duration. Package assignment keeps every test
 in a package together, including all of `cmd/waza`. Each worker discovers the
 same complete remaining-package and test inventories, executes only its
 assigned packages with `-p=4`, race detection, atomic coverage, and a
-30-minute test deadline, then retains its selection and execution receipt.
+30-minute test deadline, then retains its selection and execution receipt plus
+a shard-bound timing observation. Workers also retain the locked npm package's
+Go source files; the merger restores those same-run sources on every event
+before validating the combined coverage profile.
 Refresh package costs after material package, test, or runner-topology changes
 from complete successful Linux remaining-test executions; retain the run,
 attempt, and source commit, and never time from canceled or incomplete

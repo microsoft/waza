@@ -1166,9 +1166,15 @@ function archive(report, name = "coverage-native-0.txt.evidence.json", options =
   return Buffer.concat([local, filename, data, central, filename, end]);
 }
 function artifactFixture(report, overrides = {}, family = report.kind === "playwright" ? "browser" : "go-native") {
-  const filename = family === "browser" ? "ci-evidence-browser.json" : family === "go-run" ? "coverage.txt.evidence.json" : "coverage-native-0.txt.evidence.json";
+  const filename = family === "browser" ? "ci-evidence-browser.json" :
+    family === "go-run" ? "coverage.txt.evidence.json" :
+      family === "go-remaining" ? `coverage-remaining-${report.identity.shard}.txt.evidence.json` :
+        "coverage-native-0.txt.evidence.json";
   const zip = archive(report, filename), id = Number(report.identity.run_id);
-  const name = `ci-evidence-${family}-${id}-${report.identity.attempt}` + (family === "go-native" ? "-0" : family === "go-run" ? `-${report.identity.job}` : "");
+  const name = `ci-evidence-${family}-${id}-${report.identity.attempt}` +
+    (family === "go-native" ? "-0" :
+      family === "go-run" ? `-${report.identity.job}` :
+        family === "go-remaining" ? `-${report.identity.shard}` : "");
   const fixtureRun = { ...run, id, run_attempt: 1, run_started_at: "2026-11-07T10:01:00Z", ...overrides };
   const api = (endpoint) => {
     if (endpoint.includes("/jobs")) return { total_count: 1, jobs: [{ ...job(1, "01", "02"), run_id: id }] };
@@ -1182,6 +1188,53 @@ function verified(report, overrides = {}, family = report.kind === "playwright" 
   const fixture = artifactFixture(report, overrides, family);
   return collectObservations(fixture.id, fixture.api, () => fixture.zip);
 }
+test("remaining Go observations bind all four workers and reject incomplete or misidentified shards", () => {
+  const makeWorker = (shard) => {
+    const packageName = `example/pkg-${shard}`, testName = `TestShard${shard}`;
+    const report = parseGo([
+      { Action: "start", Package: packageName },
+      { Action: "run", Package: packageName, Test: testName },
+      { Action: "pass", Package: packageName, Test: testName, Elapsed: 2 },
+      { Action: "pass", Package: packageName, Elapsed: 3 },
+    ], { inventory_scope: "qualified" });
+    report.identity.source_sha = run.head_sha;
+    report.identity.job = "remaining";
+    report.identity.shard = String(shard);
+    report.selected = [`${packageName}::${testName}`];
+    report.discovered = [...report.selected];
+    return artifactFixture(report, {}, "go-remaining");
+  };
+  const collect = (workers, alterArtifact = (artifact) => artifact) => {
+    const artifacts = workers.map((worker, index) => {
+      const artifact = worker.api("/repos/microsoft/waza/actions/runs/10/artifacts").artifacts[0];
+      return alterArtifact({ ...artifact, id: 100 + index }, index);
+    });
+    const downloads = new Map(workers.map((worker, index) => [100 + index, worker.zip]));
+    const api = (endpoint) => endpoint.includes("/artifacts") ?
+      { total_count: artifacts.length, artifacts } : workers[0].api(endpoint);
+    return collectObservations("10", api, (id) => downloads.get(id));
+  };
+  const complete = collect([0, 1, 2, 3].map(makeWorker));
+  assert.equal(complete.reports.length, 4, JSON.stringify({
+    diagnostics: complete.diagnostics, artifacts: complete.metadata.artifacts,
+  }));
+  assert.deepEqual(complete.reports.map((report) => report.identity.shard).sort(), ["0", "1", "2", "3"]);
+  assert.deepEqual(complete.diagnostics, []);
+  const grouped = trends(complete.reports);
+  assert.equal(grouped.cohorts.length, 4, "worker identity separates shard timing cohorts");
+  assert.ok(grouped.cohorts.every((cohort) => cohort.eligible.length === 1));
+  assert.equal(historyProposal(complete.reports).targets.length, 4);
+
+  const incomplete = collect([0, 1, 2].map(makeWorker));
+  assert.equal(incomplete.reports.length, 3);
+  assert.ok(incomplete.diagnostics.includes("go-remaining-shards-incomplete"));
+  assert.ok(trends(incomplete.reports).cohorts.every((cohort) => cohort.eligible.length === 0));
+
+  const mismatched = collect([0, 1, 2, 3].map(makeWorker), (artifact, index) =>
+    index === 2 ? { ...artifact, name: artifact.name.replace(/-2$/, "-3") } : artifact);
+  assert.equal(mismatched.reports.length, 3, "artifact suffix must match the receipt shard");
+  assert.ok(mismatched.diagnostics.includes("go-remaining-shards-incomplete"));
+});
 test("browser retry inventories require consecutive integer attempts beginning at zero", () => {
   for (const retries of [[1], [-1], [0.5], [0, 2], [0, 0], [1, 0]]) {
     const data = browser();

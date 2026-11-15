@@ -296,11 +296,12 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
-      - name: Install web dependencies for profile source validation
-        if: github.event_name == 'pull_request'
-        id: web_dependencies
-        working-directory: web
-        run: npm ci
+      - name: Download Go coverage sources
+        id: sources
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-remaining-coverage-source-${{ github.run_id }}-${{ github.run_attempt }}-0
+          path: web/node_modules/flatted/golang/pkg/flatted
       - name: Download all remaining-shard evidence
         id: download
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
