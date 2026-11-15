@@ -71,7 +71,10 @@ The Linux remaining-package suite also contains long, independent CLI tests.
 Mark expensive top-level tests parallel only when they use isolated fixtures and
 do not mutate process-wide environment, working directory, or shared state;
 keep tests that do so sequential. Validate concurrency with the race-enabled CI
-suite.
+suite. The Linux remaining-package race/atomic run allows four Go package workers
+to shorten its measured package-scheduling critical path; this does not change
+the package inventory, per-package test parallelism, coverage settings, or
+selection checks.
 
 Squad Release and Squad Insider Release run remaining-package validation in
 parallel with these shards. Publication waits for both branches to succeed,
