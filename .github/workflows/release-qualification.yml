@@ -307,6 +307,9 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 90
+      - name: Expose exact evidence artifact name
+        id: evidence
+        run: printf 'artifact_name=%s\n' "release-qualification-evidence-${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
       - name: Create workflow-linked assurance package
         id: package
         env:
@@ -371,6 +374,66 @@ jobs:
         with:
           name: release-qualification-package-${{ needs.source.outputs.source_sha }}
           path: qualification-package/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload CLI package for native smoke linux/amd64
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-linux-amd64
+          path: |
+            dist/waza-linux-amd64
+            dist/waza-linux-amd64.sha256
+            dist/waza-linux-amd64.source-sha.txt
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload CLI package for native smoke linux/arm64
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-linux-arm64
+          path: |
+            dist/waza-linux-arm64
+            dist/waza-linux-arm64.sha256
+            dist/waza-linux-arm64.source-sha.txt
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload CLI package for native smoke darwin/amd64
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-darwin-amd64
+          path: |
+            dist/waza-darwin-amd64
+            dist/waza-darwin-amd64.sha256
+            dist/waza-darwin-amd64.source-sha.txt
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload CLI package for native smoke darwin/arm64
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-darwin-arm64
+          path: |
+            dist/waza-darwin-arm64
+            dist/waza-darwin-arm64.sha256
+            dist/waza-darwin-arm64.source-sha.txt
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload CLI package for native smoke windows/amd64
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-windows-amd64
+          path: |
+            dist/waza-windows-amd64.exe
+            dist/waza-windows-amd64.exe.sha256
+            dist/waza-windows-amd64.exe.source-sha.txt
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload CLI package for native smoke windows/arm64
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-waza-windows-arm64
+          path: |
+            dist/waza-windows-arm64.exe
+            dist/waza-windows-arm64.exe.sha256
+            dist/waza-windows-arm64.exe.source-sha.txt
           if-no-files-found: error
           retention-days: 90
       - name: Publish candidate run summary

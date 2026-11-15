@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -573,22 +572,12 @@ func callerJobs(t *testing.T, source []byte) map[string]callerJob {
 func checkReleaseHandoff(jobs map[string]callerJob) error {
 	smoke := jobs["native-smoke"]
 	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" || smoke.If != "" ||
-		!slices.Contains(smoke.Needs, "build-cli") || !slices.Contains(smoke.Needs, "release-extension") ||
+		!slices.Contains(smoke.Needs, "qualification") || !slices.Contains(smoke.Needs, "release-cli") ||
+		!slices.Contains(smoke.Needs, "release-extension") ||
 		smoke.With["source_sha"] != "${{ github.sha }}" || smoke.With["package_revision"] != "" ||
 		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" || smoke.With["report_only"] != "true" ||
 		len(smoke.Permissions) != 1 || smoke.Permissions["contents"] != "read" {
-		return errors.New("release native-smoke must call the reusable smoke on the exact tag packages")
-	}
-	var targets []string
-	for _, entry := range jobs["build-cli"].Strategy.Matrix.Include {
-		targets = append(targets, entry["os"]+"/"+entry["arch"])
-	}
-	var supported []string
-	for _, p := range platforms {
-		supported = append(supported, p.target())
-	}
-	if !slices.Equal(targets, supported) {
-		return fmt.Errorf("released CLI targets %v differ from the platform table %v", targets, supported)
+		return errors.New("release native-smoke must consume exact qualification CLI packages and extension packages")
 	}
 	provenance, upload := -1, -1
 	for i, step := range jobs["release-extension"].Steps {
@@ -613,15 +602,58 @@ func TestReleaseSmokesExactPublishedPackages(t *testing.T) {
 	if err := checkReleaseHandoff(callerJobs(t, source)); err != nil {
 		t.Fatal(err)
 	}
+	var qualification struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				Uses string            `yaml:"uses"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(repoFile(t, ".github", "workflows", "release-qualification.yml"), &qualification); err != nil {
+		t.Fatal(err)
+	}
+	expectedPaths := make(map[string][]string, len(platforms))
+	var expectedPackages []string
+	for _, p := range platforms {
+		name := cliBinaryName(p)
+		artifact := "cli-waza-" + p.OS + "-" + p.Arch
+		expectedPackages = append(expectedPackages, artifact)
+		expectedPaths[artifact] = []string{
+			"dist/" + name,
+			"dist/" + name + ".sha256",
+			"dist/" + name + ".source-sha.txt",
+		}
+	}
+	var packages []string
+	for _, step := range qualification.Jobs["qualify"].Steps {
+		if !strings.HasPrefix(step.Name, "Upload CLI package for native smoke ") {
+			continue
+		}
+		if !strings.HasPrefix(step.Uses, "actions/upload-artifact@") ||
+			step.With["if-no-files-found"] != "error" {
+			t.Fatalf("native smoke CLI package must be uploaded as a required artifact: %+v", step)
+		}
+		artifact := step.With["name"]
+		if !slices.Contains(expectedPackages, artifact) ||
+			!slices.Equal(strings.Fields(step.With["path"]), expectedPaths[artifact]) {
+			t.Fatalf("native smoke CLI artifact %q has an unexpected file set: %q", artifact, step.With["path"])
+		}
+		packages = append(packages, artifact)
+	}
+	if !slices.Equal(packages, expectedPackages) {
+		t.Fatalf("qualification CLI artifacts = %v, want %v", packages, expectedPackages)
+	}
 	for _, mutation := range [][2]string{
 		{"uses: ./.github/workflows/native-package-smoke.yml", "uses: ./.github/workflows/release-validation.yml"},
-		{"needs: [setup-version, build-cli, release-extension]", "needs: [setup-version, build-cli]"},
-		{"source_sha: ${{ github.sha }}", "source_sha: main"},
+		{"needs: [setup-version, qualification, release-cli, release-extension]", "needs: [setup-version, release-cli, release-extension]"},
+		{"    uses: ./.github/workflows/native-package-smoke.yml\n    with:\n      source_sha: ${{ github.sha }}",
+			"    uses: ./.github/workflows/native-package-smoke.yml\n    with:\n      source_sha: main"},
 		{"      report_only: true", "      report_only: false"},
 		{"        continue-on-error: true\n        uses: actions/upload-artifact", "        uses: actions/upload-artifact"},
 		{"          name: extension-packages\n", "          name: extension-rebuilt\n"},
 		{"      - name: Upload extension packages for native smoke", "      - name: Upload later"},
-		{"          - os: windows\n            arch: arm64\n", ""},
 	} {
 		normalized := strings.ReplaceAll(string(source), "\r\n", "\n")
 		mutated := strings.Replace(normalized, mutation[0], mutation[1], 1)

@@ -399,7 +399,7 @@ jobs:
 
   native-smoke:
     name: Native package smoke
-    needs: [setup-version, release-cli, release-extension]
+    needs: [setup-version, qualification, release-cli, release-extension]
     permissions:
       contents: read
     uses: ./.github/workflows/native-package-smoke.yml

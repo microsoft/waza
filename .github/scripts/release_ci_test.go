@@ -1700,7 +1700,7 @@ func testQualifiedTagRelease(t *testing.T, source []byte, workflow releaseWorkfl
 
 	smoke := workflow.Jobs["native-smoke"]
 	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" ||
-		!reflect.DeepEqual(smoke.Needs, []string{"setup-version", "release-cli", "release-extension"}) ||
+		!reflect.DeepEqual(smoke.Needs, []string{"setup-version", "qualification", "release-cli", "release-extension"}) ||
 		smoke.With["source_sha"] != "${{ github.sha }}" ||
 		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
 		smoke.With["report_only"] != "true" || smoke.Permissions["contents"] != "read" {
@@ -2422,7 +2422,8 @@ func validateQualifiedTagRelease(workflow releaseWorkflow) error {
 	}
 	publication := cliSteps["Create or Update GitHub Release"].Run
 	if !strings.HasPrefix(publication, "TAG=\"${{ needs.setup-version.outputs.tag }}\"\nbash .github/scripts/release_tag_check.sh \"$TAG\"\n") ||
-		!strings.Contains(publication, `--verify-tag --target "$GITHUB_SHA"`) {
+		(!strings.Contains(publication, `--verify-tag --target "$GITHUB_SHA"`) &&
+			!strings.Contains(publication, `--target "$GITHUB_SHA" --verify-tag`)) {
 		return fmt.Errorf("CLI release must verify the exact pre-existing tag and validated commit")
 	}
 
@@ -2474,7 +2475,7 @@ func validateQualifiedTagRelease(workflow releaseWorkflow) error {
 
 	smoke := workflow.Jobs["native-smoke"]
 	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" ||
-		!reflect.DeepEqual(smoke.Needs, []string{"setup-version", "release-cli", "release-extension"}) ||
+		!reflect.DeepEqual(smoke.Needs, []string{"setup-version", "qualification", "release-cli", "release-extension"}) ||
 		smoke.With["source_sha"] != "${{ github.sha }}" ||
 		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
 		smoke.With["report_only"] != "true" || smoke.Permissions["contents"] != "read" {

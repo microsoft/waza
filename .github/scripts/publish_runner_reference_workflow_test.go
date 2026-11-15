@@ -26,6 +26,7 @@ type runnerReferenceJob struct {
 }
 
 type runnerReferenceStep struct {
+	ID    string            `yaml:"id"`
 	Name  string            `yaml:"name"`
 	Uses  string            `yaml:"uses"`
 	Run   string            `yaml:"run"`
@@ -320,6 +321,15 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 	qualifyJob, ok := workflow.Jobs["qualify"]
 	if !ok {
 		t.Fatal("missing qualification job")
+	}
+	if qualifyJob.Outputs["evidence_artifact_name"] != "${{ steps.evidence.outputs.artifact_name }}" ||
+		qualifyJob.Outputs["package_artifact_name"] != "${{ steps.package.outputs.artifact_name }}" {
+		t.Fatalf("qualification artifact outputs = %#v; want concrete evidence and package names", qualifyJob.Outputs)
+	}
+	evidenceName := findStep(qualifyJob.Steps, "Expose exact evidence artifact name")
+	if evidenceName == nil || evidenceName.ID != "evidence" ||
+		!strings.Contains(evidenceName.Run, "release-qualification-evidence-${SOURCE_SHA}") {
+		t.Fatalf("qualification must expose its exact uploaded evidence artifact name: %#v", evidenceName)
 	}
 	imageBuild := findStep(qualifyJob.Steps, "Build the release runner image")
 	for _, required := range []string{

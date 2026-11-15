@@ -7,8 +7,8 @@ test('container quickstart is navigable and distinguishes local IDs from publica
   await expect(page.getByRole('heading', { name: 'Execute and inspect local outputs', exact: true })).toBeVisible();
   await expect(page.locator('main')).toContainText('Published native reference from v0.40.0 source; accepted on Linux AMD64.');
   await expect(page.locator('main')).toContainText('Publication and public-image acceptance are separate gates');
-  await expect(page.locator('main')).toContainText('publisher run alone does not establish public visibility or caller acceptance');
-  await expect(page.locator('main')).toContainText('manual verifier must anonymously pull the exact digest');
+  await expect(page.locator('main')).toContainText('tag or publisher run alone did not establish public visibility or caller acceptance');
+  await expect(page.locator('main')).toContainText('separate verifier must anonymously pull the exact digest');
   await expect(page.locator('main')).toContainText('verify its source, platform and signed provenance');
   await expect(page.locator('main')).toContainText('ghcr.io/microsoft/waza-runner-reference@sha256:ded068a636dc721b8e38dc2a68bcbcbdb0d4b33ce5da8d182d562d189a712a39');
   await expect(page.locator('main')).toContainText('93e80d7fdcbf9206215366d6ecca7ed08d26b2b3');
