@@ -13,7 +13,7 @@ func TestRunPublication(t *testing.T) {
 	const invocation = "https://github.com/microsoft/waza/actions/runs/42/attempts/2"
 	const endpoint = "repos/microsoft/waza/actions/runs/42/attempts/2"
 	for _, name := range []string{
-		"valid", "failed finalization", "canceled run", "incomplete run", "later successful attempt",
+		"valid", "valid release tag", "skipped release provenance", "failed finalization", "canceled run", "incomplete run", "later successful attempt",
 		"wrong source", "wrong repository", "wrong workflow", "wrong branch", "wrong event",
 		"missing publisher job", "skipped publisher job", "missing final guard", "failed final guard",
 		"skipped attestation", "skipped summary", "skipped inventory", "duplicate publisher job",
@@ -49,6 +49,35 @@ func TestRunPublication(t *testing.T) {
 				Digest: map[string]string{"sha256": strings.TrimPrefix(candidate.ImageDigest, "sha256:")},
 			})
 			switch name {
+			case "valid release tag", "skipped release provenance":
+				run.HeadBranch = "v0.42.0"
+				run.Path = releaseWorkflowPath
+				run.Event = "push"
+				jobsJSON = `[
+					{"jobs": [{"name": "Validate exact release tag", "status": "completed", "conclusion": "success"}]},
+					{"jobs": [{"name": "Publish Linux AMD64 release image", "status": "completed", "conclusion": "success",
+						"steps": [
+							{"name": "Publish the exact qualified OCI image digest", "status": "completed", "conclusion": "success"},
+							{"name": "Attest published runner image provenance", "status": "completed", "conclusion": "success"},
+							{"name": "Verify published runner image provenance offline", "status": "completed", "conclusion": "success"},
+							{"name": "Attest published runner image inventory", "status": "completed", "conclusion": "success"},
+							{"name": "Verify published image inventory attestation offline", "status": "completed", "conclusion": "success"},
+							{"name": "Revalidate release tag after publication", "status": "completed", "conclusion": "success"},
+							{"name": "Record published release digest", "status": "completed", "conclusion": "success"}
+						]}]}
+				]`
+				if name == "skipped release provenance" {
+					var pages []publicationJobs
+					if err := json.Unmarshal([]byte(jobsJSON), &pages); err != nil {
+						t.Fatal(err)
+					}
+					pages[1].Jobs[0].Steps[1].Conclusion = "failure"
+					encoded, err := json.Marshal(pages)
+					if err != nil {
+						t.Fatal(err)
+					}
+					jobsJSON = string(encoded)
+				}
 			case "failed finalization":
 				run.Conclusion = "failure"
 			case "canceled run":
@@ -143,7 +172,7 @@ func TestRunPublication(t *testing.T) {
 					return nil, nil
 				}
 			})
-			if name == "valid" {
+			if name == "valid" || name == "valid release tag" {
 				if err != nil || len(calls) != 2 {
 					t.Fatalf("valid finalized run rejected: %v; API calls: %v", err, calls)
 				}

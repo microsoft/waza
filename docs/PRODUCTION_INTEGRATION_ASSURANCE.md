@@ -45,7 +45,9 @@ assurance document contract, not an assurance level or a Waza software version.
 Evidence links are pinned to the `v0.42.0` tag so a released record cannot drift
 as `main` advances. While the package is a candidate, those links resolve after
 the release tag is published; the offline builder verifies the referenced files
-against the local checkout.
+against the local checkout. The candidate qualification workflow separately
+binds its run URL, artifact ID, artifact digest and per-file hashes into the
+workflow-linked assurance artifact; it does not create a tag or registry image.
 Do not silently expand a claim when a host, signer, image, workflow, runtime, or
 external scheduler does not produce the listed evidence.
 
@@ -60,9 +62,11 @@ so negotiate capabilities before depending on them. After a Waza or image
 upgrade, verify the exact consumed digest, refresh inventory and provenance
 evidence, and repeat host capability checks.
 
-Known gaps remain explicit: keyless/KMS signing is unavailable; reference-image
-inventory publication is manually triggered and does not attest old images;
+Known gaps remain explicit: Waza execution provenance still has no keyless/KMS
+signer (GitHub artifact attestations cover build outputs, not execution
+outcomes); reference-image inventory publication occurs only in the qualified
+tag-release path and does not retroactively attest old images;
 telemetry is post-run HTTP/JSON rather than live emission; several OS resource
 limits/accounting dimensions are unsupported; isolation proves only the
 documented off-host network and remote-tool boundary; and adapters include no
-scheduler and leave their provenance hook unconfigured.
+scheduler, while the optional provenance hook runs only when configured.

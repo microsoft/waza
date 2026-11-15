@@ -4,7 +4,7 @@
   "package_version": "1.0",
   "target_release": "v0.42.0",
   "release_stage": "candidate",
-  "summary": "Evidence-linked qualification guidance for the v0.42.0 production-integration contracts. This package describes the checked-in candidate; it is not a blanket readiness certificate or deployment-specific risk assessment.",
+  "summary": "Evidence-linked qualification guidance for the v0.42.0 production-integration contracts. This package describes the checked-in candidate; the qualification workflow separately binds its exact run and outputs. Neither is a blanket readiness certificate or deployment-specific risk assessment.",
   "conformance_matrix": [
     {
       "id": "provenance-local-signing",
@@ -12,7 +12,7 @@
       "state": "supported",
       "claim": "The provenance 1.0 profile binds canonical request identity, runner and Waza claims, policy, artifact manifest and objects, terminal outcome, and digest-bound extensions. This build generates and verifies local Ed25519 signatures offline against verifier-supplied public keys.",
       "verification": "Use `waza runner provenance generate` and `waza runner provenance verify`; the verifier recomputes claims from bundle members and requires the trust anchor out of band.",
-      "limitations": "A signature does not establish who controls a locally generated key unless operators distribute and protect trust anchors. Sigstore keyless and managed-KMS signing are unavailable.",
+      "limitations": "This is Waza execution provenance; a signature does not establish who controls a locally generated key unless operators distribute and protect trust anchors. The release workflow separately uses GitHub artifact attestations for build outputs, which do not replace the Waza-specific claims.",
       "issues": [769],
       "schemas": [
         "schemas/provenance-bundle-1.0.schema.json",
@@ -29,9 +29,9 @@
       "id": "provenance-keyless-kms",
       "area": "Execution provenance — keyless and managed KMS",
       "state": "unavailable",
-      "claim": "There is no Sigstore keyless or managed-KMS signer in this build.",
-      "verification": "Requesting either signer returns the documented unavailable state; verification cannot accept such a bundle without a supported verifier.",
-      "limitations": "Only local Ed25519 signing is implemented. No external identity, KMS, keyless signing service, key rotation, or managed trust distribution is provided.",
+      "claim": "The Waza execution-provenance CLI has no Sigstore keyless or managed-KMS signer.",
+      "verification": "Requesting either Waza signer returns the documented unavailable state. Separately, the release qualification workflow produces GitHub artifact attestations for exact binaries and the OCI image digest and verifies their bundles offline.",
+      "limitations": "Waza execution provenance supports only local Ed25519 signing; it does not provide external identity, KMS, keyless signing, key rotation, or managed trust distribution. GitHub artifact attestations cover build outputs and do not sign Waza execution outcomes.",
       "issues": [769, 756],
       "schemas": ["schemas/provenance-verification-1.0.schema.json"],
       "evidence": [
@@ -43,8 +43,8 @@
       "id": "image-inventory-generation-verification",
       "area": "Runner image and plugin component inventory",
       "state": "supported",
-      "claim": "The inventory 1.0 profile generates deterministic CycloneDX component inventories and verifies their subject, components, and immutable image or plugin digest offline. Reference image workflows can attest inventories to the image digest.",
-      "verification": "Generate an inventory from the image's binary and OS package inputs, then run `waza runner inventory verify` with the consumed image digest; verify the publisher attestation separately.",
+      "claim": "The inventory 1.0 profile generates deterministic CycloneDX component inventories and verifies their subject, components, and immutable image or plugin digest offline. Qualification attests the inventory to the exact OCI manifest digest; the tag-release publisher preserves that digest and publishes the inventory attestation.",
+      "verification": "Generate an inventory from the qualified image's binary and OS package inputs, run `waza runner inventory verify` against its OCI manifest digest, and verify both the workflow-run bundle and registry-attached release attestation offline.",
       "limitations": "Inventory is evidence, not vulnerability or license analysis. A digest check alone does not authenticate an inventory; verify its attestation or signed provenance binding.",
       "issues": [770],
       "schemas": [
@@ -61,13 +61,13 @@
       "id": "inventory-refresh-and-legacy-images",
       "area": "Runner image inventory — refresh and previously published images",
       "state": "unavailable",
-      "claim": "This build does not attest an inventory for images published before the inventory workflow was introduced, and inventory publication is manually triggered rather than an automatic refresh guarantee.",
-      "verification": "Inspect the reference-image publication workflow trigger and require an inventory attestation for the exact image digest being admitted.",
-      "limitations": "Previously published images remain without an inventory attestation until they are explicitly republished through the workflow. Do not infer inventory coverage from a mutable tag or from a successful unrelated workflow run.",
+      "claim": "This build does not retroactively attest images published before the inventory workflow was introduced; registry publication occurs only for a qualified versioned release rather than as an automatic refresh guarantee.",
+      "verification": "Inspect the tag-release reference-image publication workflow and require an inventory attestation for the exact image digest being admitted.",
+      "limitations": "Previously published image digests remain without inventory attestations; this workflow does not replace old version tags. Candidate qualification retains inventory and attestation evidence in workflow-run artifacts only. Do not infer registry publication or inventory coverage from a mutable tag or an unrelated workflow run.",
       "issues": [770, 756],
       "schemas": ["schemas/component-inventory-1.0.schema.json"],
       "evidence": [
-        { "label": "Reference image publisher trigger and attestation steps", "path": ".github/workflows/publish-runner-reference.yml" },
+        { "label": "Release-only reference image publisher and attestation steps", "path": ".github/workflows/publish-runner-reference.yml" },
         { "label": "Inventory verification requirements", "path": "docs/COMPONENT_INVENTORY.md" }
       ]
     },
@@ -169,18 +169,33 @@
       ]
     },
     {
-      "id": "adapter-scheduler-and-provenance-hook",
-      "area": "External execution adapter — scheduler and provenance hook",
+      "id": "adapter-scheduler-orchestration",
+      "area": "External execution adapter — scheduler orchestration",
       "state": "unsupported",
-      "claim": "No real scheduler is included, and the adapter CLI does not configure its optional provenance-verifier hook.",
-      "verification": "Inspect the adapter result's provenance state and independently confirm that the external scheduler owns retry, placement, leasing, dispatch, and provenance policy.",
-      "limitations": "An adapter result with `not_configured` is not a provenance verification. The one-call adapter does not claim delivery, at-least-once, exactly-once, or scheduling guarantees.",
+      "claim": "No queue, placement, lease, retry loop, fleet manager, or production scheduler is included.",
+      "verification": "Inspect the one-call adapter boundary and confirm that dispatch and redelivery policy remain with the external scheduler.",
+      "limitations": "The adapter makes one public contract call per descriptor and does not claim delivery, at-least-once, exactly-once, or scheduling guarantees.",
       "issues": [774, 756],
       "schemas": ["schemas/adapter-result-1.0.schema.json"],
       "evidence": [
-        { "label": "Optional provenance hook and CLI configuration boundary", "path": "docs/RUNNER_ADAPTERS.md" },
+        { "label": "Translation-only scheduler boundary", "path": "docs/RUNNER_ADAPTERS.md" },
         { "label": "Adapter contract implementation", "path": "internal/runneradapter/contract.go" },
         { "label": "Translation-only architecture test", "path": "internal/runneradapter/architecture_test.go" }
+      ]
+    },
+    {
+      "id": "adapter-provenance-hook",
+      "area": "External execution adapter — configured provenance hook",
+      "state": "supported",
+      "claim": "The adapter CLI can invoke a configured verifier after a terminal public response and records only its validated state; it never retries or changes the runner outcome based on that state.",
+      "verification": "Run the adapter CLI with a test verifier executable; confirm it receives the returned manifest digest and public result, produces `verified`, and dispatch remains exactly once.",
+      "limitations": "The configured verifier is an operator-trusted executable. The adapter does not implement a scheduler or independently authenticate the verifier's assertion.",
+      "issues": [774, 756],
+      "schemas": ["schemas/adapter-result-1.0.schema.json"],
+      "evidence": [
+        { "label": "Verifier command contract and CLI flags", "path": "docs/RUNNER_ADAPTERS.md" },
+        { "label": "Adapter verifier implementation", "path": "cmd/waza/cmd_runner_adapter_provenance.go" },
+        { "label": "Configured CLI verifier E2E test", "path": "cmd/waza/cmd_runner_adapter_test.go" }
       ]
     }
   ],
@@ -202,7 +217,7 @@
       "boundary": "Signing identity and verifier trust store",
       "threat": "A compromised or misidentified local key creates signatures that an operator mistakes for trusted publisher provenance.",
       "controls": "The verifier accepts only public keys supplied out of band and checks the signed statement against bundle members.",
-      "residual_risk": "Key generation, custody, distribution, rotation, identity binding, keyless signing, and managed KMS are outside this build.",
+      "residual_risk": "Waza local-key generation, custody, distribution, rotation, identity binding, keyless signing, and managed KMS remain operator responsibilities or unavailable. GitHub artifact attestations establish workflow identity for build evidence, not execution outcomes.",
       "evidence": [
         { "label": "Signing modes and trust-anchor requirements", "path": "docs/EXECUTION_PROVENANCE.md" },
         { "label": "Keyless and KMS unavailable state", "path": "cmd/waza/cmd_runner_provenance_test.go" }
@@ -212,8 +227,8 @@
       "id": "uninventoried-or-replaced-image",
       "boundary": "Reference image registry and consumed image digest",
       "threat": "A mutable tag or previously published image is treated as covered by an inventory attestation that was never produced for its digest.",
-      "controls": "Inventory verification pins the consumed immutable digest; the reference-image workflow emits an inventory attestation when that workflow is explicitly run.",
-      "residual_risk": "The workflow is manually triggered and prior images have no inventory attestation until explicitly republished. Inventory does not evaluate vulnerabilities or licenses.",
+      "controls": "Inventory verification pins the consumed immutable digest; the tag-release workflow emits an inventory attestation after exact-source qualification.",
+      "residual_risk": "Prior image digests have no inventory attestation; candidate qualification does not publish an image. Inventory does not evaluate vulnerabilities or licenses.",
       "evidence": [
         { "label": "Reference image workflow", "path": ".github/workflows/publish-runner-reference.yml" },
         { "label": "Digest-bound inventory requirements", "path": "docs/COMPONENT_INVENTORY.md" }
@@ -350,12 +365,12 @@
   ],
   "verification_limits": [
     "This package describes the v0.42.0 source candidate and the listed public contract profiles; it does not certify every Waza binary, image, host, runtime, scheduler, model, or deployment.",
-    "Local Ed25519 signatures are offline-verifiable only relative to a verifier-supplied trust anchor. Keyless Sigstore and managed-KMS signing are unavailable.",
-    "Reference-image inventory publication is manually triggered. Previously published images have no inventory attestation until explicitly republished and verified by digest.",
+    "Waza local Ed25519 signatures are offline-verifiable only relative to a verifier-supplied trust anchor; Waza keyless Sigstore and managed-KMS signers remain unavailable. GitHub artifact attestations separately cover qualification outputs and are not Waza execution provenance.",
+    "Candidate image and inventory evidence remains in workflow-run artifacts. Registry publication and inventory attestation occur only in the qualified tag-release path; previously published digests are not retroactively covered.",
     "Telemetry is derived from completed runner documents and can be exported as files or OTLP/HTTP JSON; there is no live execution-path telemetry emission.",
     "Budgets enforce wall time, model-turn, and tool-call limits only. CPU and memory observations are process-scoped on supported OSes and are not per-attempt limits; disk and process-count accounting are unavailable.",
     "Isolation evidence proves only off-host network and remote-tool boundaries when no up non-loopback interface is present. Loopback remains reachable; Waza does not enforce filesystem, environment, subprocess, or general sandbox boundaries.",
-    "Adapters translate one descriptor to one public runner call. No scheduler is included, and the optional provenance hook is not configured by the CLI.",
+    "Adapters translate one descriptor to one public runner call. No scheduler is included; the optional provenance hook runs only when an operator configures a verifier.",
     "A green local test or documentation-site build establishes repository conformance only; it is not a deployment-specific assessment, penetration test, vulnerability scan, or production workload measurement."
   ],
   "lab_evidence": [
@@ -393,7 +408,7 @@
   "migration": {
     "summary": "The package and its evidence links are additive; they do not change runner request, terminal, manifest, or adapter wire contracts.",
     "old_runner": "Older runners do not implement these v0.42.0 features and may reject newly added contract fields. Negotiate the installed runner's capabilities and upgrade deliberately before depending on an optional profile.",
-    "previous_images": "Images published before inventory attestation require explicit republishing through the manually triggered inventory workflow; existing image digests are not retroactively covered.",
+    "previous_images": "Images published before inventory attestation remain uncovered; the tag-release publisher refuses to replace an existing versioned image tag, and existing image digests are not retroactively covered.",
     "reassessment": "For each Waza or image upgrade, verify the exact consumed digest, refresh inventory and provenance evidence, repeat host capability/preflight checks, and review updated limitations rather than inheriting a prior qualification."
   }
 }

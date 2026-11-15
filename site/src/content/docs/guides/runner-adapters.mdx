@@ -134,9 +134,25 @@ built image, including a refused descriptor that carries a scheduler field.
 
 `adapter-result.provenance.state` is one of `not_applicable` (no call made),
 `not_configured` (the default), `verified`, `failed` or `unavailable`.
-`runneradapter.ProvenanceVerifier` is an optional hook for a verifier, such as
-the execution provenance work in #769. The CLI does not configure one, so the
-adapter makes no provenance claim.
+`dispatch` can run an operator-configured verifier without changing the public
+runner contract:
+
+```bash
+waza runner adapter dispatch \
+  --provenance-verifier ./verify-manifest \
+  --provenance-verifier-arg=--offline \
+  --provenance-verifier-arg=--public-key=trusted.pub \
+  < descriptor.json
+```
+
+The verifier receives one JSON object on stdin with `manifest_digest` and the
+verbatim `public_result`; it must write exactly one JSON object such as
+`{"state":"verified"}` to stdout. Only `verified`, `failed`, and `unavailable`
+are accepted. The adapter bounds execution to 30 seconds and the request and
+response to 16 KiB, records the validated state, and never retries or changes
+the runner outcome. It does not authenticate the verifier's assertion: the
+operator must trust and configure the verifier executable and its key source.
+Without a configured verifier, the result remains `not_configured`.
 
 ## Translation-only guarantee
 

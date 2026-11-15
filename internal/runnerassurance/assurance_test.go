@@ -27,7 +27,7 @@ func TestBuildMatchesPublishedPackagePage(t *testing.T) {
 	require.Contains(t, string(result.Markdown), "## Verification limits")
 	require.Contains(t, string(result.Markdown), "blob/v0.42.0/docs/EXECUTION_PROVENANCE.md")
 	require.NotContains(t, string(result.Markdown), "blob/main/docs/EXECUTION_PROVENANCE.md")
-	require.Contains(t, string(result.Markdown), "Evidence links are pinned to the `v0.42.0` release tag.")
+	require.Contains(t, string(result.Markdown), "Source evidence links are pinned to the `v0.42.0` release tag.")
 
 	published, err := os.ReadFile(filepath.Join(root, "site", "src", "content", "docs", "guides", "production-integration-assurance.mdx"))
 	require.NoError(t, err)
@@ -38,6 +38,75 @@ func TestBuildMatchesPublishedPackagePage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, result.JSON, roundTrip.JSON)
 	require.Equal(t, result.Markdown, roundTrip.Markdown)
+}
+
+func TestBuildWithWorkflowEvidenceBindsExactArtifactFiles(t *testing.T) {
+	root, err := FindRepositoryRoot(".")
+	require.NoError(t, err)
+	input, err := os.ReadFile(filepath.Join(root, "docs", "PRODUCTION_INTEGRATION_ASSURANCE-1.0.json"))
+	require.NoError(t, err)
+	evidenceRoot := writeQualificationFixture(t, root)
+	files, err := hashEvidenceFiles(evidenceRoot)
+	require.NoError(t, err)
+	workflowEvidence, err := json.Marshal(WorkflowEvidenceInput{
+		Repository: "microsoft/waza", SourceSHA: strings.Repeat("a", 40), ReleaseStage: "candidate",
+		Workflow: "Release qualification", RunID: 12345, RunAttempt: 1,
+		RunURL:       "https://github.com/microsoft/waza/actions/runs/12345",
+		ArtifactName: "release-qualification", ArtifactID: 67890,
+		ArtifactURL:    "https://github.com/microsoft/waza/actions/runs/12345/artifacts/67890",
+		ArtifactSHA256: strings.Repeat("b", 64), Files: files,
+	})
+	require.NoError(t, err)
+
+	result, err := BuildWithWorkflowEvidence(input, root, workflowEvidence, evidenceRoot)
+	require.NoError(t, err)
+	require.Equal(t, "candidate", result.Package.ReleaseStage)
+	require.Equal(t, int64(12345), result.Package.WorkflowEvidence.RunID)
+	require.Equal(t, files, result.Package.WorkflowEvidence.Files)
+	require.Contains(t, string(result.Markdown), "actions/runs/12345")
+	require.Contains(t, string(result.Markdown), "runner-inventory.cdx.json")
+
+	require.NoError(t, os.Remove(filepath.Join(evidenceRoot, "verification", "runner-inventory.json")))
+	_, err = BuildWithWorkflowEvidence(input, root, workflowEvidence, evidenceRoot)
+	require.ErrorIs(t, err, ErrInvalid, "missing inventory verification evidence must fail closed")
+
+	require.NoError(t, os.WriteFile(filepath.Join(evidenceRoot, "verification", "runner-inventory.json"), []byte("verification evidence"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(evidenceRoot, "contract-conformance.json"), []byte("tampered"), 0o600))
+	_, err = BuildWithWorkflowEvidence(input, root, workflowEvidence, evidenceRoot)
+	require.ErrorIs(t, err, ErrInvalid)
+}
+
+func writeQualificationFixture(t *testing.T, root string) string {
+	t.Helper()
+	evidenceRoot, err := os.MkdirTemp(root, ".workflow-evidence-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(evidenceRoot)) })
+	files := []string{
+		"contract-conformance.json", "offline-verification.json", "runner-image.oci.tar",
+		"runner-image.archive.sha256", "runner-image.config.digest", "runner-image.digest",
+		"runner-image.manifest.json", "runner-inventory.cdx.json", "trusted_root.jsonl",
+		"attestations/binaries.json", "attestations/runner-image.json",
+		"attestations/runner-inventory.json", "attestations/runner-image-archive.json",
+		"execution-provenance/statement.json", "execution-provenance/envelope.json",
+		"execution-provenance/verification.json", "execution-provenance/public-key.pem",
+		"execution-provenance/bundle/bundle.json", "execution-provenance/bundle/statement.dsse.json",
+		"verification/runner-image-archive-provenance.json",
+		"verification/runner-image-provenance.json", "verification/runner-inventory-sbom.json",
+		"verification/runner-inventory.json",
+	}
+	for _, binary := range []string{
+		"waza-linux-amd64", "waza-linux-arm64", "waza-darwin-amd64",
+		"waza-darwin-arm64", "waza-windows-amd64.exe", "waza-windows-arm64.exe",
+	} {
+		files = append(files, binary, binary+".source-sha.txt", binary+".sha256",
+			"verification/"+binary+".json")
+	}
+	for _, name := range files {
+		fullPath := filepath.Join(evidenceRoot, filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(fullPath), 0o700))
+		require.NoError(t, os.WriteFile(fullPath, []byte("qualification evidence: "+name), 0o600))
+	}
+	return evidenceRoot
 }
 
 func TestBuildRejectsUnknownStateAndStaleEvidence(t *testing.T) {

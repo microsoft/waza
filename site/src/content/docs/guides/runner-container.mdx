@@ -14,11 +14,13 @@ external network is used by that test. This is native execution evidence, not
 inference-quality or provider assurance.
 The [#762 publication and acceptance evidence](#published-image-and-acceptance-evidence)
 is recorded below. Publication and public-image acceptance are separate gates.
-The manual-only GHCR publisher
-may leave a pushed candidate even if finalization fails; a tag or publisher run
-alone does not establish public visibility or caller acceptance. The separate
-manual verifier must anonymously pull the exact digest, verify its source,
-platform and signed provenance, and pass mock and bundled-native
+The historical v0.40.0 GHCR publisher was manually invoked and could leave a
+pushed image if finalization failed; its tag or publisher run alone did not
+establish public visibility or caller acceptance. The v0.42.0 candidate
+qualification path does not publish to GHCR. Future versioned reference images
+are published only by the tag-release workflow after qualification succeeds.
+The separate verifier must anonymously pull the exact digest, verify its
+source, platform and signed provenance, and pass mock and bundled-native
 production-caller controls before each image is accepted. Local image IDs and
 mutable tags are not substitutes for the accepted registry digest.
 No Lab dashboard change is required: this adds no new evidence or status surface.

@@ -13,7 +13,7 @@ import (
 const defaultAssurancePackagePath = "docs/PRODUCTION_INTEGRATION_ASSURANCE-1.0.json"
 
 func newRunnerAssuranceCommand() *cobra.Command {
-	var inputPath, outputFormat string
+	var inputPath, outputFormat, candidateEvidencePath, evidenceRoot string
 	cmd := &cobra.Command{
 		Use:          "assurance",
 		Short:        "Build and validate the versioned production-integration assurance package",
@@ -25,7 +25,9 @@ func newRunnerAssuranceCommand() *cobra.Command {
 		Long: `Validate the v0.42.0 production-integration assurance package against its
 published schema, referenced contract schemas, repository evidence files, and
 existing Lab guides, then write the deterministic package or documentation to
-stdout. This maintainer command runs offline from a Waza source checkout.`,
+stdout. This maintainer command runs offline from a Waza source checkout.
+Use --candidate-evidence with --evidence-root to bind the generated package to
+one exact qualification workflow artifact and its locally verified file hashes.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := runnerassurance.FindRepositoryRoot(".")
@@ -43,7 +45,22 @@ stdout. This maintainer command runs offline from a Waza source checkout.`,
 			if err != nil {
 				return fmt.Errorf("reading assurance package %q: %w", inputPath, err)
 			}
-			result, err := runnerassurance.Build(input, root)
+			var result runnerassurance.Result
+			if candidateEvidencePath != "" {
+				if evidenceRoot == "" {
+					return fmt.Errorf("--evidence-root is required with --candidate-evidence")
+				}
+				evidence, err := os.ReadFile(candidateEvidencePath)
+				if err != nil {
+					return fmt.Errorf("reading workflow evidence %q: %w", candidateEvidencePath, err)
+				}
+				result, err = runnerassurance.BuildWithWorkflowEvidence(input, root, evidence, evidenceRoot)
+			} else {
+				if evidenceRoot != "" {
+					return fmt.Errorf("--evidence-root requires --candidate-evidence")
+				}
+				result, err = runnerassurance.Build(input, root)
+			}
 			if err != nil {
 				return err
 			}
@@ -62,6 +79,8 @@ stdout. This maintainer command runs offline from a Waza source checkout.`,
 	}
 	build.Flags().StringVar(&inputPath, "input", defaultAssurancePackagePath, "Versioned assurance package JSON (repository-relative)")
 	build.Flags().StringVar(&outputFormat, "format", "json", "Output format: json or markdown")
+	build.Flags().StringVar(&candidateEvidencePath, "candidate-evidence", "", "Workflow run and uploaded qualification artifact identity JSON")
+	build.Flags().StringVar(&evidenceRoot, "evidence-root", "", "Downloaded qualification artifact directory to hash and validate")
 	cmd.AddCommand(build)
 	return cmd
 }

@@ -18,7 +18,7 @@ import (
 
 const dashboardArtifactPath = "${{ runner.temp }}/release-dashboard"
 const dashboardArtifactName = "release-dashboard-${{ github.sha }}-${{ github.run_attempt }}"
-const dashboardManifestOutput = "${{ needs.validation.outputs.dashboard-manifest-sha256 }}"
+const dashboardManifestOutput = "${{ needs.qualification.outputs.dashboard_manifest_sha256 }}"
 const dashboardConsumerPathSetup = `echo "RELEASE_DASHBOARD_ARTIFACT=$RUNNER_TEMP/release-dashboard" >> "$GITHUB_ENV"`
 
 var releaseExpressions = regexp.MustCompile(`\$\{\{(?s:.*?)\}\}`)
@@ -67,7 +67,7 @@ func TestReleaseDashboardConsumerPathScope(t *testing.T) {
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"build-cli", "release-extension"} {
+	for _, name := range []string{"release-extension"} {
 		t.Run(name, func(t *testing.T) {
 			job := workflow.Jobs[name]
 			dir := t.TempDir()
@@ -140,8 +140,8 @@ func validateReleaseDashboardProducer(source []byte) error {
 	build := workflow.Jobs["build-test"]
 	steps := releaseSteps(build)
 	pack, upload := steps["Pack exact-source dashboard"], steps["Upload exact-source dashboard"]
-	if workflow.On.Call.Outputs["dashboard-manifest-sha256"].Value != "${{ jobs.build-test.outputs.dashboard-manifest-sha256 }}" ||
-		build.Outputs["dashboard-manifest-sha256"] != "${{ steps.dashboard.outputs.manifest_sha256 }}" ||
+	if workflow.On.Call.Outputs["dashboard_manifest_sha256"].Value != "${{ jobs.build-test.outputs.dashboard_manifest_sha256 }}" ||
+		build.Outputs["dashboard_manifest_sha256"] != "${{ steps.dashboard.outputs.manifest_sha256 }}" ||
 		pack.ID != "dashboard" || pack.Env["RELEASE_DASHBOARD_ARTIFACT"] != dashboardArtifactPath ||
 		pack.Run != `bash .github/scripts/release_dashboard_handoff.sh pack >> "$GITHUB_OUTPUT"` ||
 		!strings.HasPrefix(upload.Uses, "actions/upload-artifact@") ||
@@ -170,7 +170,7 @@ func TestReleaseDashboardWorkflowHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, mutation := range []struct{ old, new string }{
-		{"${{ jobs.build-test.outputs.dashboard-manifest-sha256 }}", "unbound"},
+		{"${{ jobs.build-test.outputs.dashboard_manifest_sha256 }}", "unbound"},
 		{"${{ steps.dashboard.outputs.manifest_sha256 }}", "unbound"},
 		{"id: dashboard", "id: other"},
 		{"  build-test:\n", "  build-test:\n    if: 'false'\n"},

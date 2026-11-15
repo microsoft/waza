@@ -1,9 +1,9 @@
 # Release Process
 
-This document describes how Waza validates and publishes releases. The canonical
-validation contract is `.github/workflows/release-validation.yml`; every retained
-publisher must complete that workflow successfully for the exact source SHA it
-publishes.
+This document describes how Waza qualifies and publishes releases. The reusable
+validation contract is `.github/workflows/release-validation.yml`; the reusable
+qualification contract is `.github/workflows/release-qualification.yml`.
+Every publisher must use the exact source SHA that completed qualification.
 
 The tag workflow retains GitHub's success-only dependency conditions for each
 builder and publisher. Required validation and evidence-verification steps may
@@ -41,37 +41,67 @@ read-only repository permissions and three-day dashboard artifact retention.
 This control does not replace release validation, establish native Windows
 execution, or repeat the retained twelve-product/six-package acceptance.
 
+## Candidate qualification without publication
+
+Before creating a version tag, dispatch **Release Qualification** from the
+reviewed `main` commit and provide that exact full commit SHA. The workflow
+rechecks that the selected commit is still the current `main` head, runs the
+release validation, builds the release binaries and runner image, generates and
+verifies the image inventory, creates GitHub artifact attestations, verifies
+them offline, and uploads the evidence and workflow-linked assurance package
+only to that workflow run. This candidate path has read-only repository
+permissions plus attestation permissions; it creates no version tag, GitHub
+Release assets, or public registry image.
+
+Review the candidate artifacts and verifier output before approving a release.
+The package identifies the workflow run, source commit, artifact ID and digest,
+and hashes every qualification file. A successful candidate run alone does not
+authorize publication.
+
 ## Cutting a Release
 
 Prepare and commit the target `version.txt`, `extension.yaml`, changelog, and
-matching dashboard index/favicon before creating the semver tag. Release builds
-reject a dashboard rebuild that changes tracked source; publication never repairs
-the tagged metadata. Create the tag on the reviewed commit, not a moving default:
+matching dashboard index/favicon before creating the semver tag. Review a
+successful candidate qualification for the exact release commit first. Release
+builds reject a dashboard rebuild that changes tracked source; publication never
+repairs the tagged metadata. Create the tag on the reviewed commit, not a moving default:
 
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-This triggers the full pipeline: exact-source validation → CLI build → extension
-build → GitHub Release → extension publish → registry-sync PR → GitHub Pages deploy.
+This triggers tag-release qualification, then publishes the qualified runner
+image and inventory, exact qualified CLI binaries and qualification bundle,
+builds the extension, opens its registry-sync PR, and deploys the GitHub Pages
+release notes. The GHCR publisher is reusable only from this tag-release path;
+it has no candidate `workflow_dispatch` route and refuses to replace an existing
+versioned image tag.
 
 ## What the Workflow Does
 
-1. **validation** — Calls the reusable release validation workflow for the tag's
+1. **qualification** — Calls the reusable release qualification workflow for the tag's
    exact SHA. It requires the four native Linux race/atomic shards, the remaining
    Linux race/atomic suite, native Windows race tests, vet, the checksum-pinned
    lint schema, fail-closed offline integration, exhaustive shard inventories,
-   and complete digest/source evidence. Missing, failed, cancelled, skipped,
-   stale-SHA, or incomplete evidence fails validation.
+  and complete digest/source evidence. It also builds the six CLI binaries and
+  an OCI runner image, generates an inventory for the OCI manifest digest,
+  creates provenance/SBOM attestations for that exact digest, downloads the
+  Sigstore trusted root, and verifies the binaries, manifest, archive and SBOM
+  offline. Missing, failed, cancelled,
+   skipped, stale-SHA, or incomplete evidence fails qualification.
 2. **setup-version** — Extracts the version from the pushed tag (strips `v`) and validates semver format.
-3. **build-cli** — After validation succeeds, installs the validation producer's
-   verified dashboard, then matrix-builds 6 platforms (linux,
-   darwin, windows × amd64, arm64). Each binary is accompanied by its SHA256
-   digest and exact source SHA.
-4. **release-cli** — Rejects missing or stale matrix evidence, verifies every
-   digest, and creates or updates the **CLI GitHub Release** (`Waza vX.Y.Z`).
-5. **release-extension** — After validation succeeds, verifies already-committed
+3. **runner-reference** — After qualification succeeds, downloads the exact OCI
+   image archive and inventory from that run, verifies the source-bound digest
+   attestations offline, and copies that archive to GHCR with digest preservation.
+   It fails if the registry digest differs, attaches the inventory attestation to
+   the same digest, verifies it offline, and uploads publication evidence.
+4. **release-cli** — Downloads the exact qualification artifact, verifies the
+   binary source and digest sidecars, and creates or updates the **CLI GitHub
+   Release** (`Waza vX.Y.Z`) with the binaries, assurance package and a
+   qualification evidence archive that includes the runner image, inventory,
+   signatures, trusted root and verification reports.
+5. **release-extension** — After qualification and runner-image publication succeed, verifies already-committed
    `version.txt` and `extension.yaml`, builds and packs the azd extension, records the exact source
    SHA and package digests in `release-provenance.txt`, creates the **Extension
    GitHub Release** (`Waza azd Extension vX.Y.Z`), publishes the package-only

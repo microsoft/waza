@@ -1,0 +1,383 @@
+name: Release Qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full commit SHA of the candidate at current main
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      release_stage:
+        description: Release lifecycle stage
+        required: true
+        type: string
+      source_sha:
+        description: Exact source commit from the release tag
+        required: true
+        type: string
+      version:
+        description: Semver version without the v prefix
+        required: true
+        type: string
+    outputs:
+      evidence_artifact_name:
+        description: Name of the exact workflow-run qualification evidence artifact
+        value: ${{ jobs.qualify.outputs.evidence_artifact_name }}
+      package_artifact_name:
+        description: Name of the workflow-linked assurance package artifact
+        value: ${{ jobs.qualify.outputs.package_artifact_name }}
+      dashboard_manifest_sha256:
+        description: Digest of this run's exact-source dashboard manifest
+        value: ${{ jobs.validation.outputs.dashboard_manifest_sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: Resolve exact candidate or tag source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      version: ${{ steps.resolve.outputs.version }}
+      release_stage: ${{ steps.resolve.outputs.release_stage }}
+    steps:
+      - name: Check out workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve candidate identity
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          RELEASE_STAGE: ${{ inputs.release_stage }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION_INPUT: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          checked_out="$(git rev-parse HEAD)"
+          test "$checked_out" = "$EVENT_SHA"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            test "$EVENT_REF" = "refs/heads/main"
+            test "$CANDIDATE_SHA" = "$EVENT_SHA"
+            git fetch --no-tags origin refs/heads/main
+            test "$(git rev-parse origin/main)" = "$EVENT_SHA"
+            stage=candidate
+            version=0.42.0
+          else
+            test "$EVENT_NAME" = "push"
+            test "$RELEASE_STAGE" = released
+            [[ "$EVENT_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+([-.+][A-Za-z0-9.-]+)?$ ]]
+            test "$SOURCE_SHA" = "$EVENT_SHA"
+            test "$(git rev-parse "${EVENT_REF}^{commit}")" = "$EVENT_SHA"
+            version="${EVENT_REF#refs/tags/v}"
+            test "$VERSION_INPUT" = "$version"
+            stage=released
+          fi
+          printf 'source_sha=%s\nversion=%s\nrelease_stage=%s\n' \
+            "$EVENT_SHA" "$version" "$stage" >> "$GITHUB_OUTPUT"
+
+  validation:
+    name: Run exact-source release validation
+    needs: source
+    uses: ./.github/workflows/release-validation.yml
+    permissions:
+      contents: read
+
+  qualify:
+    name: Build, attest, verify and package qualification evidence
+    needs: [source, validation]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      evidence_artifact_name: ${{ steps.evidence.outputs.artifact_name }}
+      package_artifact_name: ${{ steps.package.outputs.artifact_name }}
+    env:
+      SOURCE_SHA: ${{ needs.source.outputs.source_sha }}
+      RELEASE_STAGE: ${{ needs.source.outputs.release_stage }}
+      VERSION: ${{ needs.source.outputs.version }}
+      EVIDENCE_DIR: ${{ github.workspace }}/dist
+    steps:
+      - name: Check out validated source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.source_sha }}
+          fetch-depth: 1
+          lfs: true
+          persist-credentials: false
+      - name: Require exact, clean source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Create evidence directories
+        run: mkdir -p dist/attestations dist/execution-provenance dist/verification
+      - name: Build exact release CLI binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          targets=(
+            "linux amd64 waza-linux-amd64"
+            "linux arm64 waza-linux-arm64"
+            "darwin amd64 waza-darwin-amd64"
+            "darwin arm64 waza-darwin-arm64"
+            "windows amd64 waza-windows-amd64.exe"
+            "windows arm64 waza-windows-arm64.exe"
+          )
+          for target in "${targets[@]}"; do
+            read -r goos goarch name <<< "$target"
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-X main.version=${VERSION}" -o "dist/${name}" ./cmd/waza
+            bash .github/scripts/release_binary_check.sh "dist/${name}"
+            printf '%s\n' "$SOURCE_SHA" > "dist/${name}.source-sha.txt"
+            sha256sum "dist/${name}" | sed 's#dist/##' > "dist/${name}.sha256"
+          done
+      - name: Build the release runner image
+        id: image
+        env:
+          IMAGE_TAG: waza:qualification-${{ needs.source.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform linux/amd64 \
+            --output "type=oci,name=qualification-${SOURCE_SHA},dest=dist/runner-image.oci.tar" \
+            --output type=docker \
+            --label org.opencontainers.image.source=https://github.com/microsoft/waza \
+            --label "org.opencontainers.image.revision=${SOURCE_SHA}" \
+            --file examples/runner/container/Dockerfile \
+            --target native-reference \
+            --tag "$IMAGE_TAG" .
+          manifest_digest="$(tar -xOf dist/runner-image.oci.tar index.json |
+            jq -er '.manifests | select(length == 1) | .[0].digest | select(test("^sha256:[a-f0-9]{64}$"))')"
+          tar -xOf dist/runner-image.oci.tar "blobs/sha256/${manifest_digest#sha256:}" \
+            > dist/runner-image.manifest.json
+          test "$(sha256sum dist/runner-image.manifest.json | cut -d' ' -f1)" = "${manifest_digest#sha256:}"
+          config_digest="$(jq -er '.config.digest | select(test("^sha256:[a-f0-9]{64}$"))' dist/runner-image.manifest.json)"
+          test "$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")" = "$config_digest"
+          archive_sha256="$(sha256sum dist/runner-image.oci.tar | cut -d' ' -f1)"
+          printf '%s\n' "$manifest_digest" > dist/runner-image.digest
+          printf '%s  runner-image.oci.tar\n' "$archive_sha256" > dist/runner-image.archive.sha256
+          printf '%s\n' "$config_digest" > dist/runner-image.config.digest
+          printf 'digest=%s\n' "$manifest_digest" >> "$GITHUB_OUTPUT"
+          docker run --rm "$IMAGE_TAG" --version
+      - name: Generate and verify inventory for the exact runner image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/runner-inventory-sources"
+          mkdir -p "$source_dir"
+          container="$(docker create "waza:qualification-${SOURCE_SHA}")"
+          trap 'docker rm "$container" >/dev/null' EXIT
+          docker cp -L "$container:/waza" "$source_dir/waza"
+          docker cp -L "$container:/var/lib/dpkg/status" "$source_dir/dpkg-status"
+          docker cp -L "$container:/etc/os-release" "$source_dir/os-release"
+          go run ./cmd/waza runner inventory generate \
+            --name ghcr.io/microsoft/waza-runner-reference \
+            --digest "$(cat dist/runner-image.digest)" \
+            --go-binary "$source_dir/waza" \
+            --embedded-dir internal/embedded \
+            --dpkg-status "$source_dir/dpkg-status" \
+            --os-release "$source_dir/os-release" \
+            --out dist/runner-inventory.cdx.json
+          jq -e '[.components[] | select(.type == "application" and (.name | startswith("github-copilot-cli-")) and .version != null and (.hashes | length) == 1)] | length > 0' \
+            dist/runner-inventory.cdx.json >/dev/null
+          go run ./cmd/waza runner inventory verify \
+            --inventory dist/runner-inventory.cdx.json \
+            --image-digest "$(cat dist/runner-image.digest)" \
+            --image-reference ghcr.io/microsoft/waza-runner-reference \
+            > dist/verification/runner-inventory.json
+      - name: Run vendor-neutral contract and telemetry conformance
+        run: |
+          set -euo pipefail
+          go test -count=1 ./cmd/waza -run 'TestRunnerAdapter(VendorNeutralEndToEnd|ConfiguredProvenanceVerifier)'
+          go test -count=1 ./internal/executiontelemetry
+          go test -count=1 ./internal/executionbudget ./internal/executionisolation
+          jq -n --arg source_sha "$SOURCE_SHA" --arg stage "$RELEASE_STAGE" \
+            '{kind:"waza.release-qualification-conformance",schema_version:"1.0",source_sha:$source_sha,release_stage:$stage,checks:{adapter_dispatch_retry_resume_aggregation:"passed",adapter_verifier_hook_contract:"passed",telemetry_correlation_redaction:"passed",budget_capability_matrix:"passed",isolation_capability_matrix:"passed"}}' \
+            > dist/contract-conformance.json
+      - name: Verify the local Ed25519 provenance test vector
+        env:
+          WAZA_RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          WAZA_RELEASE_IMAGE_REFERENCE: ghcr.io/microsoft/waza-runner-reference
+          WAZA_RELEASE_INVENTORY_PATH: ${{ github.workspace }}/dist/runner-inventory.cdx.json
+          WAZA_RELEASE_PROVENANCE_EVIDENCE: ${{ github.workspace }}/dist/execution-provenance
+        run: |
+          set -euo pipefail
+          go test -count=1 ./cmd/waza -run '^TestRunnerProvenanceGenerateVerifyAndTamper$'
+          go run ./cmd/waza runner provenance verify \
+            --bundle dist/execution-provenance/bundle \
+            --public-key dist/execution-provenance/public-key.pem \
+            --require-inventory \
+            --expect-image-digest "$(cat dist/runner-image.digest)" \
+            > dist/execution-provenance/verification.json
+      - name: Attest the exact release binaries
+        id: attest_binaries
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/waza-linux-amd64
+            dist/waza-linux-arm64
+            dist/waza-darwin-amd64
+            dist/waza-darwin-arm64
+            dist/waza-windows-amd64.exe
+            dist/waza-windows-arm64.exe
+      - name: Retain binary provenance bundle
+        run: cp "${{ steps.attest_binaries.outputs.bundle-path }}" dist/attestations/binaries.json
+      - name: Attest the exact runner image archive
+        id: attest_archive
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/runner-image.oci.tar
+      - name: Retain runner image archive provenance bundle
+        run: cp "${{ steps.attest_archive.outputs.bundle-path }}" dist/attestations/runner-image-archive.json
+      - name: Attest the exact runner image digest
+        id: attest_image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/microsoft/waza-runner-reference
+          subject-digest: ${{ steps.image.outputs.digest }}
+      - name: Retain runner image digest provenance bundle
+        run: cp "${{ steps.attest_image.outputs.bundle-path }}" dist/attestations/runner-image.json
+      - name: Attest the runner image digest and CycloneDX inventory
+        id: attest_inventory
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/microsoft/waza-runner-reference
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: dist/runner-inventory.cdx.json
+      - name: Retain runner image inventory SBOM bundle
+        run: cp "${{ steps.attest_inventory.outputs.bundle-path }}" dist/attestations/runner-inventory.json
+      - name: Download Sigstore trusted roots
+        run: gh attestation trusted-root > dist/trusted_root.jsonl
+      - name: Verify all keyless attestations offline
+        env:
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release-qualification.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+          common=(--repo "$GITHUB_REPOSITORY" --custom-trusted-root dist/trusted_root.jsonl \
+            --signer-workflow "$SIGNER_WORKFLOW" --format json)
+          provenance=(--source-digest "$SOURCE_SHA")
+          for binary in dist/waza-linux-amd64 dist/waza-linux-arm64 dist/waza-darwin-amd64 \
+            dist/waza-darwin-arm64 dist/waza-windows-amd64.exe dist/waza-windows-arm64.exe; do
+            name="$(basename "$binary")"
+            gh attestation verify "$binary" "${common[@]}" "${provenance[@]}" \
+              --bundle dist/attestations/binaries.json > "dist/verification/${name}.json"
+          done
+          gh attestation verify dist/runner-image.oci.tar "${common[@]}" "${provenance[@]}" \
+            --bundle dist/attestations/runner-image-archive.json \
+            > dist/verification/runner-image-archive-provenance.json
+          gh attestation verify dist/runner-image.manifest.json "${common[@]}" "${provenance[@]}" \
+            --bundle dist/attestations/runner-image.json \
+            > dist/verification/runner-image-provenance.json
+          gh attestation verify dist/runner-image.manifest.json "${common[@]}" \
+            --predicate-type https://cyclonedx.org/bom \
+            --bundle dist/attestations/runner-inventory.json \
+            > dist/verification/runner-inventory-sbom.json
+          jq -n --arg digest "$(cat dist/runner-image.digest)" \
+            --arg trusted_root_sha256 "$(sha256sum dist/trusted_root.jsonl | cut -d' ' -f1)" \
+            '{kind:"waza.offline-attestation-verification",schema_version:"1.0",runner_image_digest:$digest,trusted_root_sha256:$trusted_root_sha256,verification:"passed",binary_subjects:6,runner_image_archive:"passed",runner_image_digest_provenance:"passed",runner_inventory_sbom:"passed"}' \
+            > dist/offline-verification.json
+      - name: Upload exact qualification evidence
+        id: upload_evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-qualification-evidence-${{ needs.source.outputs.source_sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Create workflow-linked assurance package
+        id: package
+        env:
+          ARTIFACT_ID: ${{ steps.upload_evidence.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload_evidence.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.upload_evidence.outputs.artifact-digest }}
+          ARTIFACT_NAME: release-qualification-evidence-${{ needs.source.outputs.source_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_NAME: Release Qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qualification-package
+          node - "$EVIDENCE_DIR" "$RUNNER_TEMP/candidate-evidence.json" <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const [root, evidencePath] = process.argv.slice(2);
+          const files = [];
+          function walk(directory) {
+            for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+              const full = path.join(directory, entry.name);
+              if (entry.isSymbolicLink()) throw new Error(`symlink in qualification evidence: ${full}`);
+              if (entry.isDirectory()) walk(full);
+              else if (entry.isFile()) {
+                files.push({
+                  path: path.relative(root, full).split(path.sep).join('/'),
+                  sha256: crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex'),
+                });
+              } else throw new Error(`non-regular qualification evidence: ${full}`);
+            }
+          }
+          walk(root);
+          if (files.length === 0 || files.length > 1024) throw new Error('qualification evidence file count is invalid');
+          const evidence = {
+            repository: process.env.GITHUB_REPOSITORY,
+            source_sha: process.env.SOURCE_SHA,
+            release_stage: process.env.RELEASE_STAGE,
+            workflow: process.env.WORKFLOW_NAME,
+            run_id: Number(process.env.GITHUB_RUN_ID),
+            run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            run_url: process.env.RUN_URL,
+            artifact_name: process.env.ARTIFACT_NAME,
+            artifact_id: Number(process.env.ARTIFACT_ID),
+            artifact_url: process.env.ARTIFACT_URL,
+            artifact_sha256: process.env.ARTIFACT_DIGEST,
+            files,
+          };
+          fs.writeFileSync(evidencePath, `${JSON.stringify(evidence)}\n`, { flag: 'wx' });
+          NODE
+          go run ./cmd/waza runner assurance build \
+            --candidate-evidence "$RUNNER_TEMP/candidate-evidence.json" \
+            --evidence-root "$EVIDENCE_DIR" \
+            --format json > qualification-package/assurance.json
+          go run ./cmd/waza runner assurance build \
+            --candidate-evidence "$RUNNER_TEMP/candidate-evidence.json" \
+            --evidence-root "$EVIDENCE_DIR" \
+            --format markdown > qualification-package/assurance.mdx
+          printf 'artifact_name=%s\n' "release-qualification-package-${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+      - name: Upload workflow-linked assurance package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-qualification-package-${{ needs.source.outputs.source_sha }}
+          path: qualification-package/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish candidate run summary
+        if: needs.source.outputs.release_stage == 'candidate'
+        env:
+          EVIDENCE_URL: ${{ steps.upload_evidence.outputs.artifact-url }}
+          PACKAGE_NAME: release-qualification-package-${{ needs.source.outputs.source_sha }}
+        run: |
+          printf 'Candidate qualification completed for `%s`.\n\nNo version tag, GitHub Release, or public registry image was created.\n\nEvidence artifact: %s\n\nAssurance package artifact: `%s`\n' \
+            "$SOURCE_SHA" "$EVIDENCE_URL" "$PACKAGE_NAME" >> "$GITHUB_STEP_SUMMARY"

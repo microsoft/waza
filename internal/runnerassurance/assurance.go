@@ -2,6 +2,8 @@ package runnerassurance
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -40,22 +43,59 @@ var expectedCapabilityStates = map[string]string{
 	"off-host-network-and-remote-tools":           "supported",
 	"filesystem-environment-subprocess-isolation": "unavailable",
 	"adapter-translation":                         "supported",
-	"adapter-scheduler-and-provenance-hook":       "unsupported",
+	"adapter-scheduler-orchestration":             "unsupported",
+	"adapter-provenance-hook":                     "supported",
 }
 
 type Package struct {
-	Kind               string          `json:"kind"`
-	SchemaVersion      string          `json:"schema_version"`
-	PackageVersion     string          `json:"package_version"`
-	TargetRelease      string          `json:"target_release"`
-	ReleaseStage       string          `json:"release_stage"`
-	Summary            string          `json:"summary"`
-	ConformanceMatrix  []Capability    `json:"conformance_matrix"`
-	ThreatModel        []Threat        `json:"threat_model"`
-	ReadinessChecklist []ChecklistItem `json:"readiness_checklist"`
-	VerificationLimits []string        `json:"verification_limits"`
-	LabEvidence        []LabEvidence   `json:"lab_evidence"`
-	Migration          Migration       `json:"migration"`
+	Kind               string            `json:"kind"`
+	SchemaVersion      string            `json:"schema_version"`
+	PackageVersion     string            `json:"package_version"`
+	TargetRelease      string            `json:"target_release"`
+	ReleaseStage       string            `json:"release_stage"`
+	Summary            string            `json:"summary"`
+	ConformanceMatrix  []Capability      `json:"conformance_matrix"`
+	ThreatModel        []Threat          `json:"threat_model"`
+	ReadinessChecklist []ChecklistItem   `json:"readiness_checklist"`
+	VerificationLimits []string          `json:"verification_limits"`
+	LabEvidence        []LabEvidence     `json:"lab_evidence"`
+	Migration          Migration         `json:"migration"`
+	WorkflowEvidence   *WorkflowEvidence `json:"workflow_evidence,omitempty"`
+}
+
+type WorkflowEvidenceInput struct {
+	Repository     string         `json:"repository"`
+	SourceSHA      string         `json:"source_sha"`
+	ReleaseStage   string         `json:"release_stage"`
+	Workflow       string         `json:"workflow"`
+	RunID          int64          `json:"run_id"`
+	RunAttempt     int            `json:"run_attempt"`
+	RunURL         string         `json:"run_url"`
+	ArtifactName   string         `json:"artifact_name"`
+	ArtifactID     int64          `json:"artifact_id"`
+	ArtifactURL    string         `json:"artifact_url"`
+	ArtifactSHA256 string         `json:"artifact_sha256"`
+	Files          []EvidenceFile `json:"files"`
+}
+
+type WorkflowEvidence struct {
+	Repository     string         `json:"repository"`
+	SourceSHA      string         `json:"source_sha"`
+	ReleaseStage   string         `json:"release_stage"`
+	Workflow       string         `json:"workflow"`
+	RunID          int64          `json:"run_id"`
+	RunAttempt     int            `json:"run_attempt"`
+	RunURL         string         `json:"run_url"`
+	ArtifactName   string         `json:"artifact_name"`
+	ArtifactID     int64          `json:"artifact_id"`
+	ArtifactURL    string         `json:"artifact_url"`
+	ArtifactSHA256 string         `json:"artifact_sha256"`
+	Files          []EvidenceFile `json:"files"`
+}
+
+type EvidenceFile struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
 }
 
 type Evidence struct {
@@ -160,6 +200,53 @@ func Build(data []byte, repoRoot string) (Result, error) {
 	return Result{Package: pkg, JSON: encoded, Markdown: render(pkg)}, nil
 }
 
+func BuildWithWorkflowEvidence(data []byte, repoRoot string, inputData []byte, evidenceRoot string) (Result, error) {
+	result, err := Build(data, repoRoot)
+	if err != nil {
+		return Result{}, err
+	}
+	if len(inputData) == 0 || len(inputData) > 64<<10 {
+		return Result{}, fmt.Errorf("%w: workflow evidence input must contain 1 to %d bytes", ErrInvalid, 64<<10)
+	}
+	var input WorkflowEvidenceInput
+	decoder := json.NewDecoder(bytes.NewReader(inputData))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		return Result{}, fmt.Errorf("%w: decoding workflow evidence input: %w", ErrInvalid, err)
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return Result{}, fmt.Errorf("%w: workflow evidence input contains trailing data", ErrInvalid)
+	}
+	if err := validateWorkflowEvidenceInput(input); err != nil {
+		return Result{}, err
+	}
+	files, err := hashEvidenceFiles(evidenceRoot)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := compareEvidenceFiles(input.Files, files); err != nil {
+		return Result{}, err
+	}
+	if err := requireQualificationFiles(files); err != nil {
+		return Result{}, err
+	}
+	result.Package.ReleaseStage = input.ReleaseStage
+	result.Package.WorkflowEvidence = &WorkflowEvidence{
+		Repository: input.Repository, SourceSHA: input.SourceSHA, ReleaseStage: input.ReleaseStage,
+		Workflow: input.Workflow, RunID: input.RunID, RunAttempt: input.RunAttempt, RunURL: input.RunURL,
+		ArtifactName: input.ArtifactName, ArtifactID: input.ArtifactID, ArtifactURL: input.ArtifactURL,
+		ArtifactSHA256: input.ArtifactSHA256, Files: files,
+	}
+	if err := validateWorkflowEvidence(*result.Package.WorkflowEvidence); err != nil {
+		return Result{}, err
+	}
+	encoded, err := json.MarshalIndent(result.Package, "", "  ")
+	if err != nil {
+		return Result{}, fmt.Errorf("encoding qualification package: %w", err)
+	}
+	return Build(append(encoded, '\n'), repoRoot)
+}
+
 func validatePackage(pkg Package, repoRoot string) error {
 	if pkg.Kind != Kind || pkg.SchemaVersion != Version || pkg.PackageVersion != Version {
 		return fmt.Errorf("%w: unsupported kind or package version", ErrInvalid)
@@ -169,6 +256,14 @@ func validatePackage(pkg Package, repoRoot string) error {
 	}
 	if pkg.ReleaseStage != "candidate" && pkg.ReleaseStage != "released" {
 		return fmt.Errorf("%w: release_stage must be candidate or released", ErrInvalid)
+	}
+	if pkg.WorkflowEvidence != nil {
+		if pkg.WorkflowEvidence.ReleaseStage != pkg.ReleaseStage {
+			return fmt.Errorf("%w: workflow evidence release stage differs from package stage", ErrInvalid)
+		}
+		if err := validateWorkflowEvidence(*pkg.WorkflowEvidence); err != nil {
+			return err
+		}
 	}
 	root, err := filepath.Abs(repoRoot)
 	if err != nil {
@@ -274,6 +369,202 @@ func validatePackage(pkg Package, repoRoot string) error {
 	for issue := 769; issue <= 774; issue++ {
 		if !seenLab[issue] {
 			return fmt.Errorf("%w: missing Lab evidence link for issue #%d", ErrInvalid, issue)
+		}
+	}
+	return nil
+}
+
+func validateWorkflowEvidenceInput(input WorkflowEvidenceInput) error {
+	if !repositoryPattern.MatchString(input.Repository) {
+		return fmt.Errorf("%w: invalid workflow evidence repository", ErrInvalid)
+	}
+	if !commitPattern.MatchString(input.SourceSHA) {
+		return fmt.Errorf("%w: workflow evidence source must be a full commit SHA", ErrInvalid)
+	}
+	if input.ReleaseStage != "candidate" && input.ReleaseStage != "released" {
+		return fmt.Errorf("%w: workflow evidence release stage must be candidate or released", ErrInvalid)
+	}
+	if strings.TrimSpace(input.Workflow) == "" || input.RunID <= 0 || input.RunAttempt <= 0 || input.ArtifactID <= 0 {
+		return fmt.Errorf("%w: workflow and run/artifact identities are required", ErrInvalid)
+	}
+	if strings.TrimSpace(input.ArtifactName) == "" || !sha256Pattern.MatchString(input.ArtifactSHA256) {
+		return fmt.Errorf("%w: artifact name or digest is invalid", ErrInvalid)
+	}
+	if err := validateEvidenceFiles(input.Files); err != nil {
+		return fmt.Errorf("%w: workflow evidence file digests are invalid", ErrInvalid)
+	}
+	if err := validateGitHubRunURL(input.Repository, input.RunID, input.RunURL, false); err != nil {
+		return err
+	}
+	return validateGitHubRunURL(input.Repository, input.RunID, input.ArtifactURL, true)
+}
+
+var (
+	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	commitPattern     = regexp.MustCompile(`^[a-f0-9]{40}$`)
+	sha256Pattern     = regexp.MustCompile(`^(?:sha256:)?[a-f0-9]{64}$`)
+)
+
+func validateWorkflowEvidence(evidence WorkflowEvidence) error {
+	if err := validateWorkflowEvidenceInput(WorkflowEvidenceInput{
+		Repository: evidence.Repository, SourceSHA: evidence.SourceSHA, ReleaseStage: evidence.ReleaseStage,
+		Workflow: evidence.Workflow, RunID: evidence.RunID, RunAttempt: evidence.RunAttempt, RunURL: evidence.RunURL,
+		ArtifactName: evidence.ArtifactName, ArtifactID: evidence.ArtifactID,
+		ArtifactURL: evidence.ArtifactURL, ArtifactSHA256: evidence.ArtifactSHA256,
+		Files: evidence.Files,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateEvidenceFiles(files []EvidenceFile) error {
+	if len(files) == 0 || len(files) > 1024 {
+		return fmt.Errorf("%w: qualification workflow evidence must list 1 to 1024 files", ErrInvalid)
+	}
+	seen := make(map[string]bool, len(files))
+	for _, file := range files {
+		if file.Path == "" || path.IsAbs(file.Path) || path.Clean(file.Path) != file.Path ||
+			strings.HasPrefix(file.Path, "../") || file.Path == ".." || strings.Contains(file.Path, "\\") ||
+			!sha256Pattern.MatchString(file.SHA256) {
+			return fmt.Errorf("%w: invalid qualification evidence file %q", ErrInvalid, file.Path)
+		}
+		if seen[file.Path] {
+			return fmt.Errorf("%w: duplicate qualification evidence file %q", ErrInvalid, file.Path)
+		}
+		seen[file.Path] = true
+	}
+	return nil
+}
+
+func compareEvidenceFiles(expected, actual []EvidenceFile) error {
+	if len(expected) != len(actual) {
+		return fmt.Errorf("%w: workflow artifact file list is incomplete or unexpected", ErrInvalid)
+	}
+	byPath := make(map[string]string, len(expected))
+	for _, file := range expected {
+		if file.Path == "" || !sha256Pattern.MatchString(file.SHA256) || byPath[file.Path] != "" {
+			return fmt.Errorf("%w: workflow evidence file list has an invalid or duplicate entry", ErrInvalid)
+		}
+		byPath[file.Path] = strings.TrimPrefix(file.SHA256, "sha256:")
+	}
+	for _, file := range actual {
+		if byPath[file.Path] != file.SHA256 {
+			return fmt.Errorf("%w: workflow artifact file %q is missing, unexpected, or tampered", ErrInvalid, file.Path)
+		}
+		delete(byPath, file.Path)
+	}
+	if len(byPath) != 0 {
+		return fmt.Errorf("%w: workflow artifact file list is incomplete", ErrInvalid)
+	}
+	return nil
+}
+
+func validateGitHubRunURL(repository string, runID int64, raw string, artifact bool) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("%w: workflow evidence URL must be an HTTPS GitHub link", ErrInvalid)
+	}
+	expected := fmt.Sprintf("/%s/actions/runs/%d", repository, runID)
+	if artifact {
+		expected += "/artifacts/"
+		if !strings.HasPrefix(parsed.Path, expected) || parsed.Path == expected ||
+			!artifactIDPattern.MatchString(strings.TrimPrefix(parsed.Path, expected)) {
+			return fmt.Errorf("%w: workflow evidence artifact URL does not identify this run and artifact", ErrInvalid)
+		}
+	} else if parsed.Path != expected {
+		return fmt.Errorf("%w: workflow evidence run URL does not identify this run", ErrInvalid)
+	}
+	return nil
+}
+
+var artifactIDPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
+
+func hashEvidenceFiles(root string) ([]EvidenceFile, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resolving qualification evidence root: %w", ErrInvalid, err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%w: qualification evidence root must be a real directory", ErrInvalid)
+	}
+	var files []EvidenceFile
+	var totalBytes int64
+	err = filepath.WalkDir(root, func(name string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink is not allowed in qualification evidence: %s", name)
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		fileInfo, err := entry.Info()
+		if err != nil || !fileInfo.Mode().IsRegular() {
+			return fmt.Errorf("qualification evidence is not a regular file: %s", name)
+		}
+		totalBytes += fileInfo.Size()
+		if len(files) >= 1024 || totalBytes > 5<<30 {
+			return fmt.Errorf("qualification evidence exceeds file or size limit")
+		}
+		file, err := os.Open(name)
+		if err != nil {
+			return err
+		}
+		hash := sha256.New()
+		_, readErr := io.Copy(hash, file)
+		closeErr := file.Close()
+		if err := errors.Join(readErr, closeErr); err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, name)
+		if err != nil {
+			return err
+		}
+		files = append(files, EvidenceFile{
+			Path: filepath.ToSlash(relative), SHA256: hex.EncodeToString(hash.Sum(nil)),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: hashing qualification workflow outputs: %w", ErrInvalid, err)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
+}
+
+func requireQualificationFiles(files []EvidenceFile) error {
+	required := []string{
+		"contract-conformance.json", "offline-verification.json", "runner-image.oci.tar",
+		"runner-image.archive.sha256", "runner-image.config.digest", "runner-image.digest",
+		"runner-image.manifest.json", "runner-inventory.cdx.json", "trusted_root.jsonl",
+		"attestations/binaries.json", "attestations/runner-image-archive.json",
+		"attestations/runner-image.json", "attestations/runner-inventory.json",
+		"execution-provenance/statement.json", "execution-provenance/envelope.json",
+		"execution-provenance/verification.json", "execution-provenance/public-key.pem",
+		"execution-provenance/bundle/bundle.json", "execution-provenance/bundle/statement.dsse.json",
+		"verification/runner-image-archive-provenance.json",
+		"verification/runner-image-provenance.json", "verification/runner-inventory-sbom.json",
+		"verification/runner-inventory.json",
+	}
+	binaries := []string{
+		"waza-linux-amd64", "waza-linux-arm64", "waza-darwin-amd64",
+		"waza-darwin-arm64", "waza-windows-amd64.exe", "waza-windows-arm64.exe",
+	}
+	for _, binary := range binaries {
+		required = append(required, binary, binary+".source-sha.txt", binary+".sha256",
+			"verification/"+binary+".json")
+	}
+	present := make(map[string]bool, len(files))
+	for _, file := range files {
+		present[file.Path] = true
+	}
+	for _, name := range required {
+		if !present[name] {
+			return fmt.Errorf("%w: qualification workflow output %q is missing", ErrInvalid, name)
 		}
 	}
 	return nil
@@ -386,9 +677,17 @@ func render(pkg Package) []byte {
 	fmt.Fprintf(&out, "---\ntitle: Production integration assurance package\ndescription: Versioned, evidence-linked production integration conformance and readiness guidance for %s.\n---\n\n", pkg.TargetRelease)
 	fmt.Fprintf(&out, "> **Package %s · %s · %s.** %s\n\n", pkg.PackageVersion, pkg.TargetRelease, pkg.ReleaseStage, pkg.Summary)
 	out.WriteString("This is an operator qualification aid, not a blanket production-readiness guarantee or a substitute for deployment-specific risk assessment. Evidence for the #769–#774 contracts is linked below; this package adds **no new Lab dashboard view**.\n\n")
-	fmt.Fprintf(&out, "Evidence links are pinned to the `%s` release tag. While this package is a candidate, those links resolve after the tag is published; the offline builder verifies each evidence file against the local checkout.\n\n", pkg.TargetRelease)
+	if pkg.WorkflowEvidence == nil {
+		fmt.Fprintf(&out, "Source evidence links are pinned to the `%s` release tag. The source package remains a candidate until tag-release qualification completes; its offline builder verifies each evidence file against the checked-out source.\n\n", pkg.TargetRelease)
+	} else {
+		renderWorkflowEvidence(&out, *pkg.WorkflowEvidence)
+	}
 	out.WriteString("**Contents:** [Conformance matrix](#operator-conformance-matrix) · [Threat model](#threat-model) · [Readiness checklist](#production-readiness-checklist) · [Verification limits](#verification-limits) · [Migration and reassessment](#migration-and-reassessment) · [Existing Lab evidence](#existing-lab-evidence)\n\n")
 
+	revision := pkg.TargetRelease
+	if pkg.WorkflowEvidence != nil {
+		revision = pkg.WorkflowEvidence.SourceSHA
+	}
 	out.WriteString("## Operator conformance matrix\n\n")
 	out.WriteString("| Capability | State | Claim and verification | Declared limitations | Evidence |\n| --- | --- | --- | --- | --- |\n")
 	for _, row := range pkg.ConformanceMatrix {
@@ -396,7 +695,7 @@ func render(pkg Package) []byte {
 		for i, issue := range row.Issues {
 			issues[i] = fmt.Sprintf("[#%d](https://github.com/microsoft/waza/issues/%d)", issue, issue)
 		}
-		evidence := renderEvidence(row.Evidence, pkg.TargetRelease) + "<br />Contracts: " + renderSchemas(row.Schemas)
+		evidence := renderEvidence(row.Evidence, revision) + "<br />Contracts: " + renderSchemas(row.Schemas)
 		fmt.Fprintf(&out, "| **%s** (%s)<br />`%s` | `%s` | %s %s | %s | %s |\n",
 			escapeCell(row.Area), strings.Join(issues, ", "), escapeCell(row.ID), row.State,
 			escapeCell(row.Claim), escapeCell(row.Verification), escapeCell(row.Limitations), evidence)
@@ -407,13 +706,13 @@ func render(pkg Package) []byte {
 	for _, threat := range pkg.ThreatModel {
 		fmt.Fprintf(&out, "| %s | %s | %s | %s | %s |\n",
 			escapeCell(threat.Boundary), escapeCell(threat.Threat), escapeCell(threat.Controls),
-			escapeCell(threat.ResidualRisk), renderEvidence(threat.Evidence, pkg.TargetRelease))
+			escapeCell(threat.ResidualRisk), renderEvidence(threat.Evidence, revision))
 	}
 
 	out.WriteString("\n## Production-readiness checklist\n\n")
 	for _, item := range pkg.ReadinessChecklist {
 		fmt.Fprintf(&out, "- [ ] **%s** — %s %s Evidence: %s\n",
-			escapeCell(item.Action), escapeCell(item.Acceptance), fmt.Sprintf("`%s`.", item.ID), renderEvidence(item.Evidence, pkg.TargetRelease))
+			escapeCell(item.Action), escapeCell(item.Acceptance), fmt.Sprintf("`%s`.", item.ID), renderEvidence(item.Evidence, revision))
 	}
 
 	out.WriteString("\n## Verification limits\n\n")
@@ -436,6 +735,18 @@ func render(pkg Package) []byte {
 	}
 	out.WriteString("\nMaintainers: update the versioned source package at [`docs/PRODUCTION_INTEGRATION_ASSURANCE-1.0.json`](https://github.com/microsoft/waza/blob/main/docs/PRODUCTION_INTEGRATION_ASSURANCE-1.0.json), then run `go run ./cmd/waza runner assurance build --format markdown` from the repository root and commit the regenerated page with the source change.\n")
 	return []byte(out.String())
+}
+
+func renderWorkflowEvidence(out *strings.Builder, evidence WorkflowEvidence) {
+	fmt.Fprintf(out, "**Qualification workflow:** [%s](%s) · source [`%s`](https://github.com/%s/commit/%s) · release stage `%s`.\n\n",
+		escapeCell(evidence.Workflow), evidence.RunURL, evidence.SourceSHA, evidence.Repository, evidence.SourceSHA, evidence.ReleaseStage)
+	fmt.Fprintf(out, "The exact workflow-run artifact [%s](%s) is bound to SHA-256 `%s`; its files and digests were derived from the downloaded artifact, and the workflow verified the artifact record before generating this package.\n\n",
+		escapeCell(evidence.ArtifactName), evidence.ArtifactURL, strings.TrimPrefix(evidence.ArtifactSHA256, "sha256:"))
+	out.WriteString("### Workflow output digests\n\n| File | SHA-256 |\n| --- | --- |\n")
+	for _, file := range evidence.Files {
+		fmt.Fprintf(out, "| [%s](%s) | `%s` |\n", escapeCell(file.Path), evidence.ArtifactURL, file.SHA256)
+	}
+	out.WriteByte('\n')
 }
 
 func renderEvidence(evidence []Evidence, revision string) string {

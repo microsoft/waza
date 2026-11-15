@@ -3,9 +3,9 @@ name: Release Validation
 on:
   workflow_call:
     outputs:
-      dashboard-manifest-sha256:
+      dashboard_manifest_sha256:
         description: Digest of this run's exact-source dashboard manifest
-        value: ${{ jobs.build-test.outputs.dashboard-manifest-sha256 }}
+        value: ${{ jobs.build-test.outputs.dashboard_manifest_sha256 }}
 
 permissions:
   contents: read
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
-      dashboard-manifest-sha256: ${{ steps.dashboard.outputs.manifest_sha256 }}
+      dashboard_manifest_sha256: ${{ steps.dashboard.outputs.manifest_sha256 }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
