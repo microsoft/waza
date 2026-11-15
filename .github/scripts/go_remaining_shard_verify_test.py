@@ -83,6 +83,31 @@ class RemainingShardVerifyTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+    def move_shards_to_attempt(self, attempt, shards):
+        for shard in shards:
+            prefix = f"coverage-remaining-{shard}.txt"
+            artifact_dir = self.root / f"go-remaining-shard-{shard}-12345-{attempt}"
+            artifact_dir.mkdir()
+            for source in list(self.root.glob(f"{prefix}*")):
+                shutil.move(source, artifact_dir / source.name)
+            receipt = artifact_dir / f"{prefix}.evidence.json"
+            report = json.loads(receipt.read_text(encoding="utf-8"))
+            report["identity"]["attempt"] = str(attempt)
+            receipt.write_text(json.dumps(report), encoding="utf-8")
+
+    def copy_shards_to_attempt(self, source_attempt, target_attempt, shards):
+        for shard in shards:
+            prefix = f"coverage-remaining-{shard}.txt"
+            source_dir = self.root / f"go-remaining-shard-{shard}-12345-{source_attempt}"
+            artifact_dir = self.root / f"go-remaining-shard-{shard}-12345-{target_attempt}"
+            artifact_dir.mkdir()
+            for source in source_dir.glob(f"{prefix}*"):
+                shutil.copy2(source, artifact_dir / source.name)
+            receipt = artifact_dir / f"{prefix}.evidence.json"
+            report = json.loads(receipt.read_text(encoding="utf-8"))
+            report["identity"]["attempt"] = str(target_attempt)
+            receipt.write_text(json.dumps(report), encoding="utf-8")
+
     def test_verifies_complete_exact_once_receipts_and_merges_profiles(self):
         self.create_artifacts()
         report, profile = verify(self.root)
@@ -107,6 +132,56 @@ class RemainingShardVerifyTests(unittest.TestCase):
         self.create_artifacts()
         (self.root / "coverage-remaining-3.txt.evidence.json").unlink()
         with self.assertRaisesRegex(ValueError, "receipt is missing"):
+            verify(self.root)
+
+    def test_accepts_testless_skipped_package_but_rejects_skipped_selected_tests(self):
+        self.create_artifacts()
+        empty_package = "example/pkg-z-empty"
+        packages = [f"example/pkg-{shard}" for shard in range(4)] + [empty_package]
+        for shard in range(4):
+            prefix = f"coverage-remaining-{shard}.txt"
+            (self.root / f"{prefix}.packages.all").write_text(
+                "\n".join(sorted(packages)) + "\n", encoding="utf-8"
+            )
+        prefix = "coverage-remaining-0.txt"
+        selected_packages = sorted(["example/pkg-0", empty_package])
+        (self.root / f"{prefix}.packages.selected").write_text(
+            "\n".join(selected_packages) + "\n", encoding="utf-8"
+        )
+        receipt = self.root / f"{prefix}.evidence.json"
+        report = json.loads(receipt.read_text(encoding="utf-8"))
+        report["packages"].append({
+            "package": empty_package,
+            "executed": True,
+            "status": "skip",
+        })
+        receipt.write_text(json.dumps(report), encoding="utf-8")
+
+        verified, _ = verify(self.root)
+        self.assertEqual(verified["package_count"], 5)
+
+        self.create_artifacts()
+        receipt = self.root / f"{prefix}.evidence.json"
+        report = json.loads(receipt.read_text(encoding="utf-8"))
+        report["packages"][0]["status"] = "skip"
+        receipt.write_text(json.dumps(report), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "skipped a package with selected tests"):
+            verify(self.root)
+
+    def test_merger_rerun_uses_one_complete_prior_attempt(self):
+        self.create_artifacts()
+        self.move_shards_to_attempt(1, range(4))
+        self.copy_shards_to_attempt(1, 2, [0])
+
+        report, _ = verify(self.root)
+        self.assertEqual(report["attempt"], "1")
+
+    def test_rejects_artifacts_split_across_attempts(self):
+        self.create_artifacts()
+        self.move_shards_to_attempt(1, range(3))
+        self.move_shards_to_attempt(2, [3])
+
+        with self.assertRaisesRegex(ValueError, "complete same-attempt"):
             verify(self.root)
 
     def test_rejects_duplicate_package_selection_and_non_atomic_coverage(self):

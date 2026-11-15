@@ -13,6 +13,9 @@ NATIVE_PACKAGE = "github.com/microsoft/waza/internal/controlledcomparison"
 MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
 MAX_TARGETS = 100_000
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+ARTIFACT_DIRECTORY_PATTERN = re.compile(
+    r"^go-remaining-shard-(?P<shard>[0-3])-(?P<run_id>[0-9]+)-(?P<attempt>[1-9][0-9]*)$"
+)
 COVERAGE_PATTERN = re.compile(
     r"^(?P<file>.+):(?P<start_line>[1-9][0-9]*)\.(?P<start_column>[1-9][0-9]*),"
     r"(?P<end_line>[1-9][0-9]*)\.(?P<end_column>[1-9][0-9]*) "
@@ -73,10 +76,42 @@ def merge_coverage(profiles):
     return "\n".join(lines) + "\n"
 
 
+def select_artifact_directories(root):
+    if (root / "coverage-remaining-0.txt").is_file():
+        return {shard: root for shard in range(SHARD_COUNT)}, None
+
+    attempts = {}
+    for path in root.iterdir():
+        if not path.is_dir():
+            continue
+        match = ARTIFACT_DIRECTORY_PATTERN.fullmatch(path.name)
+        if not match:
+            continue
+        shard = int(match.group("shard"))
+        key = (match.group("run_id"), match.group("attempt"))
+        attempt = attempts.setdefault(key, {})
+        if shard in attempt:
+            fail(f"duplicate remaining-shard artifact for shard {shard}, attempt {key[1]}")
+        attempt[shard] = path
+
+    complete = [
+        (key, shards) for key, shards in attempts.items()
+        if set(shards) == set(range(SHARD_COUNT))
+    ]
+    if not complete:
+        fail("complete same-attempt remaining-shard artifact set is missing")
+    run_ids = {key[0] for key, _ in complete}
+    if len(run_ids) != 1:
+        fail("remaining-shard artifacts do not share one workflow run")
+    key, shards = max(complete, key=lambda item: int(item[0][1]))
+    return shards, key
+
+
 def verify(directory):
     root = Path(directory)
     if not root.is_dir():
         fail("remaining-shard artifact directory is missing")
+    shard_directories, artifact_identity = select_artifact_directories(root)
 
     package_inventories = []
     package_selections = []
@@ -85,12 +120,13 @@ def verify(directory):
     profiles = []
     identities = []
     for shard in range(SHARD_COUNT):
+        shard_root = shard_directories[shard]
         prefix = f"coverage-remaining-{shard}.txt"
-        packages = read_lines(root / f"{prefix}.packages.all", "package inventory")
-        selected_packages = read_lines(root / f"{prefix}.packages.selected", "package selection")
-        tests = read_lines(root / f"{prefix}.all", "test inventory")
-        selected_tests = read_lines(root / f"{prefix}.selected", "test selection")
-        evidence_path = root / f"{prefix}.evidence.json"
+        packages = read_lines(shard_root / f"{prefix}.packages.all", "package inventory")
+        selected_packages = read_lines(shard_root / f"{prefix}.packages.selected", "package selection")
+        tests = read_lines(shard_root / f"{prefix}.all", "test inventory")
+        selected_tests = read_lines(shard_root / f"{prefix}.selected", "test selection")
+        evidence_path = shard_root / f"{prefix}.evidence.json"
         if not evidence_path.is_file() or evidence_path.stat().st_size > MAX_EVIDENCE_BYTES:
             fail(f"shard {shard} evidence receipt is missing or oversized")
         try:
@@ -120,6 +156,10 @@ def verify(directory):
                 or identity.get("os") != "Linux"
                 or not identity.get("run_id") or not identity.get("attempt")):
             fail(f"shard {shard} source/run identity is invalid")
+        if artifact_identity is not None and (
+                str(identity.get("run_id")) != artifact_identity[0]
+                or str(identity.get("attempt")) != artifact_identity[1]):
+            fail(f"shard {shard} receipt identity does not match its artifact attempt")
         identities.append((identity.get("source_sha"), str(identity.get("run_id")),
                            str(identity.get("attempt")), identity.get("event")))
 
@@ -150,10 +190,18 @@ def verify(directory):
             fail(f"shard {shard} package execution receipt is empty")
         observed_packages = set()
         for item in packages_seen:
-            if (not isinstance(item, dict) or not item.get("executed") or item.get("status") != "pass"
-                    or item.get("package") in observed_packages):
+            if not isinstance(item, dict) or not item.get("executed"):
                 fail(f"shard {shard} has a failed or duplicate package execution")
-            observed_packages.add(item["package"])
+            package = item.get("package")
+            status = item.get("status")
+            if not isinstance(package, str) or not package or package in observed_packages:
+                fail(f"shard {shard} has a failed or duplicate package execution")
+            if status not in ("pass", "skip"):
+                fail(f"shard {shard} has a failed or duplicate package execution")
+            if status == "skip" and any(
+                    target.partition("::")[0] == package for target in selected_tests):
+                fail(f"shard {shard} skipped a package with selected tests")
+            observed_packages.add(package)
         if observed_packages != set(selected_packages):
             fail(f"shard {shard} executed packages do not match its assignment")
 
@@ -176,7 +224,7 @@ def verify(directory):
         package_selections.append(selected_packages)
         test_inventories.append(tests)
         test_selections.append(selected_tests)
-        profiles.append(read_coverage(root / prefix))
+        profiles.append(read_coverage(shard_root / prefix))
 
     if any(identity != identities[0] for identity in identities[1:]):
         fail("remaining-shard receipts do not share one source, run, attempt, and event")

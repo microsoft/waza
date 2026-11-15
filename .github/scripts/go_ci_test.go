@@ -1160,19 +1160,36 @@ func checkCanonicalGoWorkflow(source []byte) error {
 		}
 	}
 	sourcesFound := false
+	downloadFound := false
+	mergeFound := false
 	for _, step := range merge.Steps {
-		if step.ID != "sources" {
-			continue
-		}
-		sourcesFound = true
-		if step.If != "" || !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
-			step.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ github.run_attempt }}-0" ||
-			step.With["path"] != "web/node_modules/flatted/golang/pkg/flatted" {
-			return fmt.Errorf("coverage source artifact must be restored on every event without npm setup")
+		switch step.ID {
+		case "sources":
+			sourcesFound = true
+			if step.If != "" || !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
+				step.With["pattern"] != "go-remaining-coverage-source-${{ github.run_id }}-*-0" ||
+				step.With["merge-multiple"] != "false" || step.With["path"] != "remaining-sources" {
+				return fmt.Errorf("coverage source artifacts must be retained by attempt without npm setup")
+			}
+		case "download":
+			downloadFound = true
+			if !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
+				step.With["pattern"] != "go-remaining-shard-*-${{ github.run_id }}-*" ||
+				step.With["merge-multiple"] != "false" || step.With["path"] != "remaining-artifacts" {
+				return fmt.Errorf("coverage merger must keep remaining-shard attempts isolated")
+			}
+		case "merge":
+			mergeFound = true
+			if !strings.Contains(step.Run, "go_remaining_shard_verify.py") ||
+				!strings.Contains(step.Run, "remaining-artifacts") ||
+				!strings.Contains(step.Run, "source_attempt") ||
+				!strings.Contains(step.Run, "cp -R \"$source_dir\"/.") {
+				return fmt.Errorf("coverage merger must verify one complete attempt and restore its sources")
+			}
 		}
 	}
-	if !sourcesFound {
-		return fmt.Errorf("coverage merger is missing the Go coverage source artifact")
+	if !sourcesFound || !downloadFound || !mergeFound {
+		return fmt.Errorf("coverage merger is missing attempt-scoped sources, receipts, or verification")
 	}
 	gate := workflow.Jobs["linux-gate"]
 	if gate.Name != goRequiredName("ubuntu-latest", "'ubuntu-latest'") || gate.If != "${{ always() && "+goValidationIf+" }}" ||

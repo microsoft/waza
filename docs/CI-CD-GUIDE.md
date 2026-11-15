@@ -53,9 +53,11 @@ actual workflow sources. Shard and lint failure-handling checks use
 The four native Linux shards use deterministic longest-first duration balancing.
 `.github/scripts/go_test_shard_durations.tsv` records observed top-level
 race/atomic durations and their source run. Update it from top-level test results,
-not overlapping subtest times. Timing history affects placement only: discovery
-still determines the complete inventory, new tests receive the median historical
-duration, and removed tests are never resurrected. Python 3 (provided by the
+not overlapping subtest times. Use the latest completed PASS duration for a
+measured test and retain prior estimates for tests without a passing sample.
+Timing history affects placement only: discovery still determines the complete
+inventory, new tests receive the median historical duration, and removed tests
+are never resurrected. Python 3 (provided by the
 Ubuntu runner) computes the plan. Every shard still retains its 30-minute test
 deadline, atomic coverage, full discovery inventory, and selected test names;
 the aggregate gate verifies identical inventories and exactly-once selection.
@@ -76,14 +78,18 @@ whole, so all `cmd/waza` tests execute in the same test binary rather than being
 split across workers. Each worker independently discovers the full remaining
 package and test inventories, executes its assigned packages with `-p=4`,
 `-race`, `-covermode=atomic`, and the 30-minute deadline, and retains its
-coverage, execution receipt, and shard-bound timing observation. Workers also
-retain the locked npm package's Go sources; the merger restores these
-same-run sources on every event before validating the combined profile. A
-collector rejects missing or failed workers, different inventories,
-duplicate/missing package or test selections, invalid
-profiles, or mismatched run/source identities; it merges the four remaining
-profiles into the one main profile, preserving four native profiles plus one
-remaining-suite profile for the final gate. The cost table is placement data,
+coverage, execution receipt, and shard-bound timing observation. The collector
+accepts a skipped package only when it has no selected tests; skipped packages
+with selected tests fail verification. Workers also retain the locked npm
+package's Go sources. The merger downloads attempt-isolated artifacts and uses
+the newest complete four-shard set from one run and attempt, so a merger-only
+rerun can reuse successful worker evidence without mixing attempts. It restores
+the source artifact for that same attempt before validating the combined
+profile. Missing or failed workers, different inventories, duplicate/missing
+package or test selections, invalid profiles, or mismatched run/source
+identities fail closed; the merger combines the four remaining profiles into
+the one main profile, preserving four native profiles plus one remaining-suite
+profile for the final gate. The cost table is placement data,
 not acceptance evidence. Downstream timing history validates all four worker
 observations and their shard identities before admitting a successful sample.
 Refresh package costs after material package, test,
