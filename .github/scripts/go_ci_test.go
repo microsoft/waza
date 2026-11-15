@@ -1101,9 +1101,9 @@ func checkCanonicalGoWorkflow(source []byte) error {
 			Needs []string `yaml:"needs"`
 			If    string   `yaml:"if"`
 			Steps []struct {
-				ID   string `yaml:"id"`
-				If   string `yaml:"if"`
-				Run  string `yaml:"run"`
+				ID  string `yaml:"id"`
+				If  string `yaml:"if"`
+				Run string `yaml:"run"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
@@ -1247,7 +1247,7 @@ func TestGoRemainingShardWorkflowContract(t *testing.T) {
 	var workflow struct {
 		Permissions map[string]string `yaml:"permissions"`
 		Jobs        map[string]struct {
-			RunsOn        string `yaml:"runs-on"`
+			RunsOn         string `yaml:"runs-on"`
 			TimeoutMinutes int    `yaml:"timeout-minutes"`
 			Strategy       struct {
 				FailFast bool `yaml:"fail-fast"`
@@ -1291,6 +1291,15 @@ func TestGoRemainingShardWorkflowContract(t *testing.T) {
 		if !strings.Contains(steps[id], command) {
 			t.Errorf("remaining-shard step %q does not retain %q", id, command)
 		}
+	}
+	nodeCache := ""
+	for _, step := range job.Steps {
+		if step.ID == "node" {
+			nodeCache = step.With["cache"]
+		}
+	}
+	if nodeCache != "${{ !inputs.cold_observation && 'npm' || '' }}" {
+		t.Errorf("remaining-shard Node cache must select npm or be disabled: %q", nodeCache)
 	}
 	shardScript, err := os.ReadFile(filepath.Join("..", "scripts", "go_remaining_test_shard.sh"))
 	if err != nil {
