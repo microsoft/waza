@@ -159,7 +159,8 @@ test('real plan and admission callers validate a stacked merge and expose legiti
   const result = control.admit();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.result.passed, true);
-  assert.equal(result.input.receipts.length, 8, 'all native Go units must be exercised');
+  assert.deepEqual(result.input.receipts.map(({ unit }) => unit).sort(), Object.keys(contracts.go.units).sort(),
+    'all required Go workflow units must be exercised');
   assert.deepEqual(result.result.scopes, {
     go: 'validated', dashboard: 'not_applicable', site: 'not_applicable', examples: 'not_applicable',
     assurance: 'not_applicable', container: 'not_applicable', tools: 'not_applicable', runtime: 'not_applicable',

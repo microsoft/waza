@@ -12,11 +12,13 @@ import (
 )
 
 var goReceiptSteps = map[string][]string{
-	"lint":       {"checkout", "lint_controls", "workflow_controls", "lint"},
-	"linux":      {"checkout", "verify_modules", "download", "node", "guard", "inventory", "web_build", "format", "vet", "ci_tests", "no_launch", "binary", "integration"},
-	"windows":    {"checkout", "verify_modules", "download", "node", "guard", "vet", "ci_tests", "shell_controls", "no_launch", "binary", "integration"},
-	"native":     {"checkout", "discovery_controls", "guard", "native_tests", "coverage"},
-	"linux-gate": {"requirements", "checkout", "coverage", "inventory"},
+	"lint":                 {"checkout", "lint_controls", "workflow_controls", "lint"},
+	"linux":                {"checkout", "verify_modules", "download", "node", "guard", "inventory", "web_build", "format", "vet", "ci_tests", "no_launch", "binary", "integration"},
+	"windows":              {"checkout", "verify_modules", "download", "node", "guard", "vet", "ci_tests", "shell_controls", "no_launch", "binary", "integration"},
+	"native":               {"checkout", "discovery_controls", "guard", "native_tests", "coverage"},
+	"linux-remaining":      {"checkout", "verify_modules", "download", "guard", "web_dependencies", "discovery_controls", "remaining_tests", "no_launch", "coverage"},
+	"linux-coverage-merge": {"requirements", "checkout", "setup_go", "node", "web_dependencies", "download", "merge", "coverage"},
+	"linux-gate":           {"requirements", "checkout", "coverage", "inventory"},
 }
 
 func checkGoReceiptJob(job releaseJob, label, guard, unit string, contracts ...string) error {
@@ -65,12 +67,15 @@ func checkGoReceiptJob(job releaseJob, label, guard, unit string, contracts ...s
 	return nil
 }
 
-func checkGoCompletenessWiring(goCI, native []byte) error {
-	var workflow, shards releaseWorkflow
+func checkGoCompletenessWiring(goCI, native, remaining []byte) error {
+	var workflow, shards, remainingShards releaseWorkflow
 	if err := yaml.Unmarshal(goCI, &workflow); err != nil {
 		return err
 	}
 	if err := yaml.Unmarshal(native, &shards); err != nil {
+		return err
+	}
+	if err := yaml.Unmarshal(remaining, &remainingShards); err != nil {
 		return err
 	}
 	pr := "github.event_name == 'pull_request'"
@@ -81,7 +86,10 @@ func checkGoCompletenessWiring(goCI, native []byte) error {
 		checkGoReceiptJob(jobs["build-and-test"], "linux", pr, matrixUnit, "linux", "windows"),
 		checkGoReceiptJob(jobs["build-and-test-windows"], "windows", pr, matrixUnit, "linux", "windows"),
 		checkGoReceiptJob(jobs["linux-gate"], "linux-gate", pr, "linux-gate", "linux-gate"),
+		checkGoReceiptJob(jobs["linux-coverage-merge"], "linux-coverage-merge", pr, "linux-coverage-merge", "linux-coverage-merge"),
 		checkGoReceiptJob(shards.Jobs["native"], "native", "inputs.pr_completeness", "native-${{ matrix.shard }}", "native"),
+		checkGoReceiptJob(remainingShards.Jobs["remaining"], "linux-remaining", "inputs.pr_completeness",
+			"linux-remaining-${{ matrix.shard }}", "linux-remaining"),
 	} {
 		if check != nil {
 			return check
@@ -89,6 +97,9 @@ func checkGoCompletenessWiring(goCI, native []byte) error {
 	}
 	if jobs["native-test-shards"].With["pr_completeness"] != "${{ github.event_name == 'pull_request' }}" {
 		return fmt.Errorf("native shards must capture receipts for pull requests")
+	}
+	if jobs["linux-remaining-shards"].With["pr_completeness"] != "${{ github.event_name == 'pull_request' }}" {
+		return fmt.Errorf("remaining Linux shards must capture receipts for pull requests")
 	}
 	if jobs["pr-scope"].If != pr+" && "+goValidationIf || jobs["pr-scope"].Uses != "./.github/workflows/pr-completeness-plan.yml" {
 		return fmt.Errorf("pull requests must determine a source-bound plan")
@@ -130,47 +141,52 @@ func TestGoCompletenessReceiptWiring(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return string(source)
+		return string(normalizeWorkflowLineEndings(source))
 	}
-	goCI, native := read("go-ci.yml"), read("go-native-shards.yml")
-	if err := checkGoCompletenessWiring([]byte(goCI), []byte(native)); err != nil {
+	goCI, native, remaining := read("go-ci.yml"), read("go-native-shards.yml"), read("go-remaining-shards.yml")
+	if err := checkGoCompletenessWiring([]byte(goCI), []byte(native), []byte(remaining)); err != nil {
 		t.Fatal(err)
 	}
 	for _, mutation := range []struct {
-		native           bool
-		old, replacement string
+		native, remaining bool
+		old, replacement  string
 	}{
-		{false, "        id: lint_controls\n", ""},
-		{false, "        id: integration\n", ""},
-		{false, "        id: requirements\n", ""},
-		{true, "        id: discovery_controls\n", ""},
-		{true, "        if: always() && inputs.pr_completeness\n", "        if: inputs.pr_completeness\n"},
-		{false, "if: always() && github.event_name == 'pull_request'\n        id: receipt", "if: github.event_name == 'pull_request'\n        id: receipt"},
-		{false, "      pr_completeness: ${{ github.event_name == 'pull_request' }}", "      pr_completeness: false"},
-		{false, "      dependency_results: ${{ toJSON(needs) }}", "      dependency_results: '{}'"},
-		{false, "      dashboard, documentation,", "      documentation,"},
-		{false, "if: ${{ always() && github.event_name == 'pull_request' && " + goValidationIf + " }}", "if: ${{ always() && github.event_name == 'pull_request' }}"},
-		{false, "    if: github.event_name == 'pull_request' && " + goValidationIf + "\n", "    if: github.event_name == 'pull_request'\n"},
-		{false, "        id: receipt\n        # A stale-base receipt failure must not fail this required check;\n        # admission still fails closed on the missing receipt.\n        continue-on-error: true\n", "        id: receipt\n"},
-		{true, "        continue-on-error: true\n", ""},
-		{false, "    uses: ./.github/workflows/docker-ci.yml\n    with:\n      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}", "    uses: ./.github/workflows/docker-ci.yml"},
-		{false, `"$receipt_dir/plan.json" go "lint"`, `"$receipt_dir/plan.json" go "linux"`},
+		{old: "        id: lint_controls\n"},
+		{old: "        id: integration\n"},
+		{old: "        id: requirements\n"},
+		{native: true, old: "        id: discovery_controls\n"},
+		{native: true, old: "        if: always() && inputs.pr_completeness\n", replacement: "        if: inputs.pr_completeness\n"},
+		{old: "if: always() && github.event_name == 'pull_request'\n        id: receipt", replacement: "if: github.event_name == 'pull_request'\n        id: receipt"},
+		{old: "      pr_completeness: ${{ github.event_name == 'pull_request' }}", replacement: "      pr_completeness: false"},
+		{old: "      dependency_results: ${{ toJSON(needs) }}", replacement: "      dependency_results: '{}'"},
+		{old: "      dashboard, documentation,", replacement: "      documentation,"},
+		{old: "if: ${{ always() && github.event_name == 'pull_request' && " + goValidationIf + " }}", replacement: "if: ${{ always() && github.event_name == 'pull_request' }}"},
+		{old: "    if: github.event_name == 'pull_request' && " + goValidationIf + "\n", replacement: "    if: github.event_name == 'pull_request'\n"},
+		{old: "        id: receipt\n        # A stale-base receipt failure must not fail this required check;\n        # admission still fails closed on the missing receipt.\n        continue-on-error: true\n", replacement: "        id: receipt\n"},
+		{native: true, old: "        continue-on-error: true\n"},
+		{remaining: true, old: "        id: remaining_tests\n"},
+		{old: "    uses: ./.github/workflows/docker-ci.yml\n    with:\n      pr_completeness_plan: ${{ needs.pr-scope.outputs.plan_artifact }}", replacement: "    uses: ./.github/workflows/docker-ci.yml"},
+		{old: `"$receipt_dir/plan.json" go "lint"`, replacement: `"$receipt_dir/plan.json" go "linux"`},
 	} {
 		source := &goCI
 		if mutation.native {
 			source = &native
+		} else if mutation.remaining {
+			source = &remaining
 		}
 		mutated := strings.Replace(*source, mutation.old, mutation.replacement, 1)
 		if mutated == *source {
 			t.Fatalf("mutation did not change workflow: %q", mutation.old)
 		}
-		g, n := goCI, native
+		g, n, r := goCI, native, remaining
 		if mutation.native {
 			n = mutated
+		} else if mutation.remaining {
+			r = mutated
 		} else {
 			g = mutated
 		}
-		if checkGoCompletenessWiring([]byte(g), []byte(n)) == nil {
+		if checkGoCompletenessWiring([]byte(g), []byte(n), []byte(r)) == nil {
 			t.Fatalf("mutation was admitted: %q", mutation.old)
 		}
 	}
