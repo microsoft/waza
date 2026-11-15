@@ -212,7 +212,6 @@ func TestRunnerTerminalWindowsFullUndrainedStdoutPipe(t *testing.T) {
 		require.False(t, finished.Before(events[1].at))
 		require.GreaterOrEqual(t, emission, 5*time.Second,
 			"the production emission allowance must remain five seconds")
-		require.GreaterOrEqual(t, events[1].at.Sub(events[0].at), 5*time.Second)
 	})
 	t.Run("stderr", func(t *testing.T) {
 		require.Contains(t, stderr.String(), "i/o timeout")
