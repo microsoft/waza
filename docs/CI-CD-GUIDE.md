@@ -45,8 +45,9 @@ native Linux/Windows results and independent approvals before merging.
 The lint job runs the trigger regression test. Run it locally with
 `go test -count=1 -v ./.github/scripts`; it checks default and feature-base
 selection, excluded activity types, the union of prior push branches, and mutations of the
-actual workflow sources. Shard and lint failure-handling checks remain
-`bash .github/scripts/go_test_shard_test.sh` and
+actual workflow sources. Shard and lint failure-handling checks use
+`bash .github/scripts/go_test_shard_test.sh`,
+`bash .github/scripts/go_remaining_shard_test.sh`, and
 `bash .github/scripts/lint_test.sh`.
 
 The four native Linux shards use deterministic longest-first duration balancing.
@@ -67,14 +68,33 @@ cases (as the frozen 15c parity, observed-failure, and public-payload tests are)
 rather than relying on subtests. Preserve every case once when regrouping.
 Independent subtests may also run with `t.Parallel()` when each owns isolated
 files and process state, but the planner still treats their parent as one item.
-The Linux remaining-package suite also contains long, independent CLI tests.
-Mark expensive top-level tests parallel only when they use isolated fixtures and
-do not mutate process-wide environment, working directory, or shared state;
-keep tests that do so sequential. Validate concurrency with the race-enabled CI
-suite. The Linux remaining-package race/atomic run allows four Go package workers
-to shorten its measured package-scheduling critical path; this does not change
-the package inventory, per-package test parallelism, coverage settings, or
-selection checks.
+Ordinary Go CI also runs the complete remaining package inventory in four
+deterministic package-level shards. The planner uses race/atomic package elapsed
+times recorded in `.github/scripts/go_remaining_package_durations.tsv`; an
+unmeasured package receives the median measured package cost. A package stays
+whole, so all `cmd/waza` tests execute in the same test binary rather than being
+split across workers. Each worker independently discovers the full remaining
+package and test inventories, executes its assigned packages with `-p=4`,
+`-race`, `-covermode=atomic`, and the 30-minute deadline, and retains its
+coverage and execution receipt. A collector rejects missing or failed workers,
+different inventories, duplicate/missing package or test selections, invalid
+profiles, or mismatched run/source identities; it merges the four remaining
+profiles into the one main profile, preserving four native profiles plus one
+remaining-suite profile for the final gate. The cost table is placement data,
+not acceptance evidence. The Windows job continues to run the full suite.
+For issue #825, acceptance remains three distinct successful main-push runs
+after merge, each with native shard max/min `<= 1.25` and total Go CI
+critical-path span `< 25 minutes`; a balanced plan or cost table cannot satisfy
+either measurement.
+
+The remaining-package tests include long, independent CLI tests. Mark expensive
+top-level tests parallel only when they use isolated fixtures and do not mutate
+process-wide environment, working directory, or shared state; keep tests that do
+so sequential. Validate concurrency changes with the race-enabled CI suite.
+Squad Release and Squad Insider Release retain their existing single remaining
+package capture; the four-worker package assignment applies to ordinary Go CI.
+No tests, package inventory, per-package test parallelism, or native shard
+selection are dropped to meet timing targets.
 
 Squad Release and Squad Insider Release run remaining-package validation in
 parallel with these shards. Publication waits for both branches to succeed,

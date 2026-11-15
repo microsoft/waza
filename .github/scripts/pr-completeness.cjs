@@ -6,15 +6,21 @@ const { parseStrictJSON } = require('../../web/src/lib/strictJson.ts');
 const producerTitle = 'actual offline producer outputs retain version boundaries and operational failures';
 const contracts = {
   go: {
-    needs: ['lint', 'build-and-test', 'build-and-test-windows', 'native-test-shards', 'linux-gate'],
+    needs: ['lint', 'build-and-test', 'build-and-test-windows', 'native-test-shards',
+      'linux-remaining-shards', 'linux-coverage-merge', 'linux-gate'],
     units: {
       lint: ['checkout', 'lint_controls', 'workflow_controls', 'lint'],
-      linux: ['checkout', 'verify_modules', 'download', 'node', 'guard', 'inventory', 'web_build', 'format', 'vet', 'ci_tests', 'no_launch', 'binary', 'integration'],
+      linux: ['checkout', 'verify_modules', 'download', 'node', 'guard', 'inventory', 'web_build', 'format', 'vet', 'no_launch', 'binary', 'integration'],
       windows: ['checkout', 'verify_modules', 'download', 'node', 'guard', 'vet', 'ci_tests', 'shell_controls', 'no_launch', 'binary', 'integration'],
       'native-0': ['checkout', 'discovery_controls', 'guard', 'native_tests', 'coverage'],
       'native-1': ['checkout', 'discovery_controls', 'guard', 'native_tests', 'coverage'],
       'native-2': ['checkout', 'discovery_controls', 'guard', 'native_tests', 'coverage'],
       'native-3': ['checkout', 'discovery_controls', 'guard', 'native_tests', 'coverage'],
+      'linux-remaining-0': ['checkout', 'verify_modules', 'download', 'guard', 'web_dependencies', 'discovery_controls', 'remaining_tests', 'no_launch', 'coverage'],
+      'linux-remaining-1': ['checkout', 'verify_modules', 'download', 'guard', 'web_dependencies', 'discovery_controls', 'remaining_tests', 'no_launch', 'coverage'],
+      'linux-remaining-2': ['checkout', 'verify_modules', 'download', 'guard', 'web_dependencies', 'discovery_controls', 'remaining_tests', 'no_launch', 'coverage'],
+      'linux-remaining-3': ['checkout', 'verify_modules', 'download', 'guard', 'web_dependencies', 'discovery_controls', 'remaining_tests', 'no_launch', 'coverage'],
+      'linux-coverage-merge': ['requirements', 'checkout', 'setup_go', 'node', 'web_dependencies', 'download', 'merge', 'coverage'],
       'linux-gate': ['requirements', 'checkout', 'coverage', 'inventory'],
     },
   },
