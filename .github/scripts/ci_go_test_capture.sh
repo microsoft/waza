@@ -14,7 +14,7 @@ test_parallelism=()
 
 if [ "$scope" = remaining ]; then
   remaining_package_parallelism=4
-  test_parallelism=(-p "$remaining_package_parallelism")
+  test_parallelism=(-p="$remaining_package_parallelism")
   packages="$(go list ./...)"
   selected=()
   while IFS= read -r package; do

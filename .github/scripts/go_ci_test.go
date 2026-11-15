@@ -517,6 +517,9 @@ func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages
 		return err
 	}
 	requiredFlags := []string{"-count=1", "-json", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
+	if sharded {
+		requiredFlags = append(requiredFlags, "-p=4")
+	}
 	var flags, selected []string
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
@@ -549,6 +552,9 @@ func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages
 	}
 	discoveryArgs := strings.Split(strings.TrimSuffix(string(discovered), "\n"), "\n")
 	prefix := []string{"-race", "-covermode=atomic", "-json", "-list", "."}
+	if sharded {
+		prefix = append([]string{"-p=4"}, prefix...)
+	}
 	if len(discoveryArgs) < len(prefix) || !slices.Equal(discoveryArgs[:len(prefix)], prefix) {
 		return fmt.Errorf("%s: discovery flags = %q; want nonexecuting %q", platform, discoveryArgs, prefix)
 	}

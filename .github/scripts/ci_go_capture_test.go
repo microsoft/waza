@@ -170,7 +170,7 @@ printf '%s\n' "$@" >> "$CALLS"
 echo --end-- >> "$CALLS"
 if [ "$1" != test ]; then exit 88; fi
 shift
-if [ "$1" = -p ]; then shift 2; fi
+if [[ "$1" = -p=* ]]; then shift; fi
 if [ "$1" = -race ]; then
   phase=discovery
   shift 5
@@ -239,7 +239,7 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 				}
 				testParallelism := []string{}
 				if scope == "remaining" {
-					testParallelism = []string{"-p", "4"}
+					testParallelism = []string{"-p=4"}
 				}
 				discovery := append([]string{"test"}, testParallelism...)
 				discovery = append(discovery, "-race", "-covermode=atomic", "-json", "-list", ".")
