@@ -29,7 +29,7 @@ func (offlineCredential) GetToken(context.Context, policy.TokenRequestOptions) (
 type stallingAzure struct {
 	mu      sync.Mutex
 	objects map[string][]byte
-	started chan time.Time
+	started chan struct{}
 	release chan struct{}
 }
 
@@ -46,7 +46,7 @@ func (b *stallingAzure) Do(request *http.Request) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		b.started <- time.Now()
+		b.started <- struct{}{}
 		<-b.release
 		b.mu.Lock()
 		defer b.mu.Unlock()
@@ -65,7 +65,7 @@ func (b *stallingAzure) Do(request *http.Request) (*http.Response, error) {
 }
 
 func TestJournalBoundsStalledProviderWrites(t *testing.T) {
-	fake := &stallingAzure{objects: map[string][]byte{}, started: make(chan time.Time, 1), release: make(chan struct{})}
+	fake := &stallingAzure{objects: map[string][]byte{}, started: make(chan struct{}, 1), release: make(chan struct{})}
 	backend, err := artifactmanifest.NewAzure("https://offline.invalid/container", offlineCredential{}, &container.ClientOptions{
 		ClientOptions: azcore.ClientOptions{Transport: fake, Retry: policy.RetryOptions{MaxRetries: -1}},
 	})
@@ -79,19 +79,17 @@ func TestJournalBoundsStalledProviderWrites(t *testing.T) {
 	}
 	journal.bound = 300 * time.Millisecond
 	type appendResult struct {
-		err        error
-		startedAt  time.Time
-		returnedAt time.Time
+		err     error
+		elapsed time.Duration
 	}
 	appendDone := make(chan appendResult, 1)
 	go func() {
 		startedAt := time.Now()
 		err := journal.Append(context.Background(), started(time.Second, at(time.Minute)))
-		appendDone <- appendResult{err: err, startedAt: startedAt, returnedAt: time.Now()}
+		appendDone <- appendResult{err: err, elapsed: time.Since(startedAt)}
 	}()
-	var stalledAt time.Time
 	select {
-	case stalledAt = <-fake.started:
+	case <-fake.started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("provider write never entered its synchronized stall")
 	}
@@ -104,13 +102,8 @@ func TestJournalBoundsStalledProviderWrites(t *testing.T) {
 	if !errors.Is(result.err, ErrWriteStalled) {
 		t.Fatalf("stalled write was not bounded: %v", result.err)
 	}
-	waitStartedAt := result.startedAt
-	// Use call start if scheduling delays transport; never accept a negative duration.
-	if stalledAt.Before(result.returnedAt) {
-		waitStartedAt = stalledAt
-	}
-	if elapsed := result.returnedAt.Sub(waitStartedAt); elapsed > journal.bound+journal.bound/3 {
-		t.Fatalf("caller waited %s for a stalled write beyond the %s bound", elapsed, journal.bound)
+	if result.elapsed > journal.bound+journal.bound/3 {
+		t.Fatalf("caller waited %s for a stalled write beyond the %s bound", result.elapsed, journal.bound)
 	}
 	if err := journal.Append(context.Background(), Event{Event: Heartbeat, At: epoch}); !errors.Is(err, ErrWriteStalled) {
 		t.Fatalf("journal continued after a stalled write: %v", err)
