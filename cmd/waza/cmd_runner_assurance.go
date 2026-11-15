@@ -50,9 +50,9 @@ one exact qualification workflow artifact and its locally verified file hashes.`
 				if evidenceRoot == "" {
 					return fmt.Errorf("--evidence-root is required with --candidate-evidence")
 				}
-				evidence, err := os.ReadFile(candidateEvidencePath)
-				if err != nil {
-					return fmt.Errorf("reading workflow evidence %q: %w", candidateEvidencePath, err)
+				evidence, evidenceErr := os.ReadFile(candidateEvidencePath)
+				if evidenceErr != nil {
+					return fmt.Errorf("reading workflow evidence %q: %w", candidateEvidencePath, evidenceErr)
 				}
 				result, err = runnerassurance.BuildWithWorkflowEvidence(input, root, evidence, evidenceRoot)
 			} else {

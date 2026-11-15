@@ -406,13 +406,7 @@ var (
 )
 
 func validateWorkflowEvidence(evidence WorkflowEvidence) error {
-	if err := validateWorkflowEvidenceInput(WorkflowEvidenceInput{
-		Repository: evidence.Repository, SourceSHA: evidence.SourceSHA, ReleaseStage: evidence.ReleaseStage,
-		Workflow: evidence.Workflow, RunID: evidence.RunID, RunAttempt: evidence.RunAttempt, RunURL: evidence.RunURL,
-		ArtifactName: evidence.ArtifactName, ArtifactID: evidence.ArtifactID,
-		ArtifactURL: evidence.ArtifactURL, ArtifactSHA256: evidence.ArtifactSHA256,
-		Files: evidence.Files,
-	}); err != nil {
+	if err := validateWorkflowEvidenceInput(WorkflowEvidenceInput(evidence)); err != nil {
 		return err
 	}
 	return nil

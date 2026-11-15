@@ -40,7 +40,7 @@ func (v commandProvenanceVerifier) VerifyProvenance(ctx context.Context, manifes
 	command.Stdout = output
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {
-			return runneradapter.Provenance{State: "unavailable", Detail: "provenance verifier timed out or was cancelled"}
+			return runneradapter.Provenance{State: "unavailable", Detail: "provenance verifier timed out or was canceled"}
 		}
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {

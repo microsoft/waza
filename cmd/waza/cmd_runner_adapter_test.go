@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/artifactmanifest"
 	"github.com/microsoft/waza/internal/executionattempt"
@@ -23,7 +24,6 @@ import (
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
-	"time"
 )
 
 // publicCLIContract serves adapter calls with the public runner commands

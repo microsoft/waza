@@ -178,16 +178,15 @@ func copyProvenanceFixture(bundleDir, publicKeyPath, evidenceDir string) error {
 		if err != nil {
 			return err
 		}
-		defer input.Close()
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
+			return errors.Join(err, input.Close())
 		}
 		output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
-			return err
+			return errors.Join(err, input.Close())
 		}
 		_, copyErr := io.Copy(output, input)
-		return errors.Join(copyErr, output.Close())
+		return errors.Join(copyErr, input.Close(), output.Close())
 	}); err != nil {
 		return err
 	}
