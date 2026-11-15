@@ -29,6 +29,7 @@ func (offlineCredential) GetToken(context.Context, policy.TokenRequestOptions) (
 type stallingAzure struct {
 	mu      sync.Mutex
 	objects map[string][]byte
+	started chan time.Time
 	release chan struct{}
 }
 
@@ -45,6 +46,7 @@ func (b *stallingAzure) Do(request *http.Request) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
+		b.started <- time.Now()
 		<-b.release
 		b.mu.Lock()
 		defer b.mu.Unlock()
@@ -63,7 +65,7 @@ func (b *stallingAzure) Do(request *http.Request) (*http.Response, error) {
 }
 
 func TestJournalBoundsStalledProviderWrites(t *testing.T) {
-	fake := &stallingAzure{objects: map[string][]byte{}, release: make(chan struct{})}
+	fake := &stallingAzure{objects: map[string][]byte{}, started: make(chan time.Time, 1), release: make(chan struct{})}
 	backend, err := artifactmanifest.NewAzure("https://offline.invalid/container", offlineCredential{}, &container.ClientOptions{
 		ClientOptions: azcore.ClientOptions{Transport: fake, Retry: policy.RetryOptions{MaxRetries: -1}},
 	})
@@ -76,16 +78,42 @@ func TestJournalBoundsStalledProviderWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	journal.bound = 300 * time.Millisecond
-	begin := time.Now()
-	if err := journal.Append(context.Background(), started(time.Second, at(time.Minute))); !errors.Is(err, ErrWriteStalled) {
-		t.Fatalf("stalled write was not bounded: %v", err)
+	type appendResult struct {
+		err        error
+		startedAt  time.Time
+		returnedAt time.Time
+	}
+	appendDone := make(chan appendResult, 1)
+	go func() {
+		startedAt := time.Now()
+		err := journal.Append(context.Background(), started(time.Second, at(time.Minute)))
+		appendDone <- appendResult{err: err, startedAt: startedAt, returnedAt: time.Now()}
+	}()
+	var stalledAt time.Time
+	select {
+	case stalledAt = <-fake.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("provider write never entered its synchronized stall")
+	}
+	var result appendResult
+	select {
+	case result = <-appendDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("journal append did not return after its write bound")
+	}
+	if !errors.Is(result.err, ErrWriteStalled) {
+		t.Fatalf("stalled write was not bounded: %v", result.err)
+	}
+	waitStartedAt := result.startedAt
+	// Use call start if scheduling delays transport; never accept a negative duration.
+	if stalledAt.Before(result.returnedAt) {
+		waitStartedAt = stalledAt
+	}
+	if elapsed := result.returnedAt.Sub(waitStartedAt); elapsed > journal.bound+journal.bound/3 {
+		t.Fatalf("caller waited %s for a stalled write beyond the %s bound", elapsed, journal.bound)
 	}
 	if err := journal.Append(context.Background(), Event{Event: Heartbeat, At: epoch}); !errors.Is(err, ErrWriteStalled) {
 		t.Fatalf("journal continued after a stalled write: %v", err)
-	}
-	// Scheduling slack stays below any grace beyond the bound.
-	if elapsed := time.Since(begin); elapsed > journal.bound+journal.bound/3 {
-		t.Fatalf("caller waited %s for stalled I/O beyond the %s bound", elapsed, journal.bound)
 	}
 	if err := journal.Wait(10 * time.Millisecond); !errors.Is(err, ErrWriteStalled) {
 		t.Fatalf("Wait hid the in-flight write: %v", err)
