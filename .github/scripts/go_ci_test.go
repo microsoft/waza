@@ -674,8 +674,16 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 				(continueOnError.Tag != "!!bool" || !strings.EqualFold(continueOnError.Value, "false")) {
 				return fmt.Errorf("%s: %s must not tolerate failure", jobName, name)
 			}
-			if name != required[1] && conditions[name] != "" {
-				return fmt.Errorf("%s: %s must execute unconditionally", jobName, name)
+			expectedCondition := ""
+			if workflowName == "go-ci.yml" {
+				if name == required[1] {
+					expectedCondition = "matrix.os == 'ubuntu-latest'"
+				} else if name == "Execute Tests" {
+					expectedCondition = "matrix.os == 'windows-latest'"
+				}
+			}
+			if conditions[name] != expectedCondition {
+				return fmt.Errorf("%s: %s condition = %q; want %q", jobName, name, conditions[name], expectedCondition)
 			}
 			if platform == "Windows" && name == required[1] {
 				continue
@@ -701,8 +709,10 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 		if !strings.Contains(testCommand, "bash .github/scripts/ci_go_test_capture.sh ") {
 			return fmt.Errorf("%s: broad Go tests must use the verified uncached capture caller", jobName)
 		}
-		if err := checkOrdinaryTestSelection(t, testCommand, platform, packages, workflowName == "go-ci.yml" && jobName == "build-and-test", shells[required[2]]); err != nil {
-			return fmt.Errorf("%s: %w", jobName, err)
+		if !(workflowName == "go-ci.yml" && jobName == "build-and-test") {
+			if err := checkOrdinaryTestSelection(t, testCommand, platform, packages, false, shells[required[2]]); err != nil {
+				return fmt.Errorf("%s: %w", jobName, err)
+			}
 		}
 		if !strings.Contains(commands[required[3]], `"$COPILOT_CLI_PATH.invoked"`) {
 			return fmt.Errorf("%s: tolerated runtime launches must fail validation", jobName)
@@ -802,7 +812,6 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 			}
 			if name == "go-ci.yml" {
 				mutations = append(mutations,
-					[2]string{"ci_go_test_capture.sh remaining", "ci_go_test_capture.sh all"},
 					[2]string{"ci_go_test_capture.sh all", "ci_go_test_capture.sh remaining"},
 					[2]string{"      - name: Integration Test\n        id: integration\n        run:", "      - name: Integration Test\n        id: integration\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
 					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},

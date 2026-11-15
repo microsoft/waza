@@ -393,7 +393,14 @@ func checkOrdinaryEvidence(source []byte, name string) error {
 	}
 	jobs := []string{"validate"}
 	if name == "go-ci.yml" {
-		jobs = []string{"build-and-test", "build-and-test-windows"}
+		jobs = []string{"build-and-test-windows"}
+		linuxSteps := releaseSteps(workflow.Jobs["build-and-test"])
+		linuxExecute := linuxSteps["Execute Tests"]
+		linuxUpload := linuxSteps["Retain sanitized Go execution evidence"]
+		if linuxExecute.If != "matrix.os == 'windows-latest'" ||
+			linuxUpload.If != "matrix.os == 'windows-latest' && always() && steps.ci_tests.outcome != 'skipped' && steps.ci_tests.outcome != ''" {
+			return fmt.Errorf("Linux build job must leave test execution and its evidence to the dedicated Linux shards")
+		}
 	} else if isRelease {
 		jobs = []string{"build-test", "windows-test"}
 	}
@@ -404,7 +411,14 @@ func checkOrdinaryEvidence(source []byte, name string) error {
 		if isRelease && id == "windows-test" {
 			execute = steps["Execute complete Windows tests"]
 		}
+		executeIf := ""
+		uploadIf := "always() && steps.ci_tests.outcome != 'skipped' && steps.ci_tests.outcome != ''"
+		if name == "go-ci.yml" {
+			executeIf = "matrix.os == 'windows-latest'"
+			uploadIf = "matrix.os == 'windows-latest' && " + uploadIf
+		}
 		if job.TimeoutMinutes != 60 || execute.ID != "ci_tests" ||
+			execute.If != executeIf ||
 			execute.Env["GO_CACHE_HIT"] != "${{ steps.go.outputs.cache-hit }}" ||
 			execute.Env["NODE_CACHE_HIT"] != "${{ steps.node.outputs.cache-hit }}" {
 			return fmt.Errorf("%s: capture must bind actual execution and observed caches", id)
@@ -421,12 +435,43 @@ func checkOrdinaryEvidence(source []byte, name string) error {
 		if !goSetup || !nodeSetup {
 			return fmt.Errorf("%s: observed cache outputs must refer to setup steps", id)
 		}
-		if upload.If != "always() && steps.ci_tests.outcome != 'skipped' && steps.ci_tests.outcome != ''" ||
+		if upload.If != uploadIf ||
 			!strings.HasPrefix(upload.Uses, "actions/upload-artifact@") ||
 			upload.With["name"] != "ci-evidence-go-run-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" ||
 			upload.With["path"] != "coverage.txt.evidence.json" || upload.With["retention-days"] != "14" ||
 			upload.ContinueOnError {
 			return fmt.Errorf("%s: retain sanitized attempt/job evidence after failures", id)
+		}
+	}
+	return nil
+}
+
+func checkRemainingShardEvidence(source []byte) error {
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	steps := releaseSteps(workflow.Jobs["remaining"])
+	execute := steps["Execute exhaustive remaining-package test shard"]
+	upload := steps["Retain remaining-shard coverage and selection evidence"]
+	requiredPaths := []string{
+		"coverage-remaining-${{ matrix.shard }}.txt",
+		"coverage-remaining-${{ matrix.shard }}.txt.all",
+		"coverage-remaining-${{ matrix.shard }}.txt.selected",
+		"coverage-remaining-${{ matrix.shard }}.txt.packages.all",
+		"coverage-remaining-${{ matrix.shard }}.txt.packages.selected",
+		"coverage-remaining-${{ matrix.shard }}.txt.evidence.json",
+	}
+	if execute.ID != "remaining_tests" || !strings.Contains(execute.Run, "go_remaining_test_shard.sh") ||
+		upload.If != "always() && steps.remaining_tests.outcome != 'skipped' && steps.remaining_tests.outcome != ''" ||
+		!strings.HasPrefix(upload.Uses, "actions/upload-artifact@") ||
+		upload.With["name"] != "go-remaining-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}" ||
+		upload.With["retention-days"] != "14" || upload.With["if-no-files-found"] != "error" {
+		return fmt.Errorf("Linux remaining shards must retain complete attempt-scoped test evidence after failures")
+	}
+	for _, path := range requiredPaths {
+		if !strings.Contains(upload.With["path"], path) {
+			return fmt.Errorf("Linux remaining-shard artifact is missing %s", path)
 		}
 	}
 	return nil
@@ -463,7 +508,7 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 			{"        id: ci_tests\n", ""},
 			{"        id: node\n", ""},
 			{"GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}", "GO_CACHE_HIT: false"},
-			{"if: always() && steps.ci_tests.outcome", "if: success() && steps.ci_tests.outcome"},
+			{"steps.ci_tests.outcome != 'skipped'", "steps.ci_tests.outcome == 'skipped'"},
 			{"${{ github.run_attempt }}-${{ github.job }}", "1-${{ github.job }}"},
 			{"${{ github.job }}", "fixed-job"},
 			{"path: coverage.txt.evidence.json", "path: coverage.txt*"},
@@ -491,6 +536,24 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 					t.Fatalf("Windows release evidence mutation admitted: %s", mutation[0])
 				}
 			}
+		}
+	}
+	remaining, err := os.ReadFile(filepath.Join("..", "workflows", "go-remaining-shards.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRemainingShardEvidence(remaining); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range [][2]string{
+		{"if: always() && steps.remaining_tests.outcome", "if: success() && steps.remaining_tests.outcome"},
+		{"coverage-remaining-${{ matrix.shard }}.txt.evidence.json", "coverage-remaining-${{ matrix.shard }}.txt"},
+		{"retention-days: 14", "retention-days: 90"},
+		{"if-no-files-found: error", "if-no-files-found: warn"},
+	} {
+		changed := strings.Replace(string(remaining), mutation[0], mutation[1], 1)
+		if changed == string(remaining) || checkRemainingShardEvidence([]byte(changed)) == nil {
+			t.Fatalf("remaining-shard evidence mutation admitted: %s", mutation[0])
 		}
 	}
 	for _, mutation := range [][2]string{
