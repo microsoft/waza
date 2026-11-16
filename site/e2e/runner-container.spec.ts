@@ -14,7 +14,8 @@ test('container quickstart is navigable and distinguishes local IDs from publica
   await expect(page.locator('main')).toContainText('93e80d7fdcbf9206215366d6ecca7ed08d26b2b3');
   await expect(page.locator('main')).toContainText('1/1 test, 0 skipped');
   await expect(page.locator('main')).toContainText('waived for this one publication, not performed');
-  await expect(page.locator('main')).toContainText('Dockerfile does not inject main.version; the source default is dev');
+  await expect(page.locator('main')).toContainText('historical image predates release-version stamping and reports the source default dev');
+  await expect(page.locator('main')).toContainText('passes WAZA_VERSION to the Docker build and verifies that the resulting image reports the candidate version');
   await expect(page.locator('pre').filter({ hasText: 'docker pull --platform linux/amd64' }))
     .toContainText('native_image=');
   await expect(page.getByRole('link', { name: 'verifier result', exact: true }))
