@@ -160,7 +160,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Create evidence directories
-        run: mkdir -p dist/attestations dist/execution-provenance dist/verification
+        run: mkdir -p dist/attestations dist/execution-provenance dist/verification/attestations
       - name: Build exact release CLI binaries
         shell: bash
         run: |
@@ -318,25 +318,25 @@ jobs:
             dist/waza-darwin-arm64 dist/waza-windows-amd64.exe dist/waza-windows-arm64.exe; do
             name="$(basename "$binary")"
             gh attestation verify "$binary" "${common[@]}" "${provenance[@]}" \
-              --bundle dist/attestations/binaries.json > "dist/verification/${name}.json"
+              --bundle dist/attestations/binaries.json > "dist/verification/attestations/${name}.json"
           done
           gh attestation verify dist/runner-image.oci.tar "${common[@]}" "${provenance[@]}" \
             --bundle dist/attestations/runner-image-archive.json \
-            > dist/verification/runner-image-archive-provenance.json
+            > dist/verification/attestations/runner-image-archive-provenance.json
           gh attestation verify dist/runner-image.manifest.json "${common[@]}" "${provenance[@]}" \
             --bundle dist/attestations/runner-image.json \
-            > dist/verification/runner-image-provenance.json
+            > dist/verification/attestations/runner-image-provenance.json
           gh attestation verify dist/runner-image.manifest.json "${common[@]}" \
             --predicate-type https://cyclonedx.org/bom \
             --signer-digest "$SOURCE_SHA" \
             --bundle dist/attestations/runner-inventory.json \
-            > dist/verification/runner-inventory-sbom.json
+            > dist/verification/attestations/runner-inventory-sbom.json
           jq -e --slurpfile inventory dist/runner-inventory.cdx.json \
             'any(.[]; .verificationResult.statement.predicate == $inventory[0])' \
-            dist/verification/runner-inventory-sbom.json >/dev/null
+            dist/verification/attestations/runner-inventory-sbom.json >/dev/null
           go run ./.github/scripts/attestation-policy verify \
             "$EXPECTED_REPOSITORY_ID" "$EXPECTED_TRUSTED_ROOT_SHA256" \
-            dist/trusted_root.jsonl dist/verification/*.json
+            dist/trusted_root.jsonl dist/verification/attestations/*.json
           jq -n --arg digest "$(cat dist/runner-image.digest)" \
             --arg trusted_root_sha256 "$(sha256sum dist/trusted_root.jsonl | cut -d' ' -f1)" \
             '{kind:"waza.offline-attestation-verification",schema_version:"1.0",runner_image_digest:$digest,trusted_root_sha256:$trusted_root_sha256,verification:"passed",binary_subjects:6,runner_image_archive:"passed",runner_image_digest_provenance:"passed",runner_inventory_sbom:"passed"}' \

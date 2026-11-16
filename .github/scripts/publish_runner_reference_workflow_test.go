@@ -415,6 +415,8 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 	}
 	imageAttestation := findStep(qualifyJob.Steps, "Attest the exact runner image digest")
 	sbomAttestation := findStep(qualifyJob.Steps, "Attest the runner image digest and CycloneDX inventory")
+	evidenceDirectories := findStep(qualifyJob.Steps, "Create evidence directories")
+	inventoryVerification := findStep(qualifyJob.Steps, "Generate and verify inventory for the exact runner image digest")
 	rootDownload := findStep(qualifyJob.Steps, "Download Sigstore trusted roots")
 	offlineVerification := findStep(qualifyJob.Steps, "Verify all keyless attestations offline")
 	if imageAttestation == nil || imageAttestation.With["subject-name"] != "ghcr.io/microsoft/waza-runner-reference" ||
@@ -423,6 +425,13 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 		sbomAttestation.With["subject-digest"] != "${{ steps.image.outputs.digest }}" ||
 		sbomAttestation.With["sbom-path"] != "dist/runner-inventory.cdx.json" {
 		t.Fatal("candidate image provenance and SBOM must bind to the exact OCI manifest digest")
+	}
+	if evidenceDirectories == nil ||
+		evidenceDirectories.Run != "mkdir -p dist/attestations dist/execution-provenance dist/verification/attestations" ||
+		inventoryVerification == nil ||
+		!strings.Contains(inventoryVerification.Run, "> dist/verification/runner-inventory.json") ||
+		strings.Contains(inventoryVerification.Run, "dist/verification/attestations/") {
+		t.Fatal("non-attestation inventory verification must remain outside the attestation-report directory")
 	}
 	if offlineVerification == nil ||
 		rootDownload == nil || rootDownload.Run != "gh attestation trusted-root > dist/trusted_root.jsonl" ||
@@ -435,9 +444,18 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 		!strings.Contains(offlineVerification.Run, "--bundle dist/attestations/runner-inventory.json") ||
 		!strings.Contains(offlineVerification.Run, "attestation-policy verify") ||
 		!strings.Contains(offlineVerification.Run, `"$EXPECTED_REPOSITORY_ID" "$EXPECTED_TRUSTED_ROOT_SHA256"`) ||
-		!strings.Contains(offlineVerification.Run, "dist/trusted_root.jsonl dist/verification/*.json") ||
+		!strings.Contains(offlineVerification.Run, "dist/trusted_root.jsonl dist/verification/attestations/*.json") ||
+		strings.Contains(offlineVerification.Run, "dist/verification/*.json") ||
+		strings.Count(offlineVerification.Run, "gh attestation verify") != 4 ||
+		!strings.Contains(offlineVerification.Run, "for binary in dist/waza-linux-amd64 dist/waza-linux-arm64 dist/waza-darwin-amd64") ||
+		!strings.Contains(offlineVerification.Run, "dist/waza-darwin-arm64 dist/waza-windows-amd64.exe dist/waza-windows-arm64.exe; do") ||
+		!strings.Contains(offlineVerification.Run, `> "dist/verification/attestations/${name}.json"`) ||
+		!strings.Contains(offlineVerification.Run, "> dist/verification/attestations/runner-image-archive-provenance.json") ||
+		!strings.Contains(offlineVerification.Run, "> dist/verification/attestations/runner-image-provenance.json") ||
+		!strings.Contains(offlineVerification.Run, "> dist/verification/attestations/runner-inventory-sbom.json") ||
+		!strings.Contains(offlineVerification.Run, "dist/verification/attestations/runner-inventory-sbom.json >/dev/null") ||
 		!strings.Contains(offlineVerification.Run, `any(.[]; .verificationResult.statement.predicate == $inventory[0])`) {
-		t.Fatalf("candidate attestations must verify the independently pinned root and every trusted repository ID: %#v", offlineVerification)
+		t.Fatalf("offline policy must include every attestation report and exclude non-attestation verification output: %#v", offlineVerification)
 	}
 	if strings.Contains(string(source), "packages: write") ||
 		strings.Contains(string(source), "push-to-registry: true") ||
