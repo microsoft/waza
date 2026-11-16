@@ -139,6 +139,7 @@ func TestWorkflowMatricesMatchNativePlatforms(t *testing.T) {
 		"actions: read",
 		"gh api --paginate",
 		"attempts/$attempt/jobs?per_page=100",
+		"^(native-smoke|Native package smoke) / (CLI|Extension) ",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("native package smoke workflow lacks attempt-scoped handoff %q", required)
@@ -686,6 +687,7 @@ func TestRunRejectsIncompleteInvocations(t *testing.T) {
 }
 
 type callerJob struct {
+	Name            string            `yaml:"name"`
 	Needs           []string          `yaml:"needs"`
 	ContinueOnError string            `yaml:"continue-on-error"`
 	Uses            string            `yaml:"uses"`
@@ -724,7 +726,8 @@ func callerJobs(t *testing.T, source []byte) map[string]callerJob {
 // extension packages it publishes, without rebuilding them.
 func checkReleaseHandoff(jobs map[string]callerJob) error {
 	smoke := jobs["native-smoke"]
-	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" || smoke.If != "" ||
+	if smoke.Name != "Native package smoke" ||
+		smoke.Uses != "./.github/workflows/native-package-smoke.yml" || smoke.If != "" ||
 		!slices.Contains(smoke.Needs, "qualification") || !slices.Contains(smoke.Needs, "release-cli") ||
 		!slices.Contains(smoke.Needs, "release-extension") ||
 		smoke.With["source_sha"] != "${{ github.sha }}" || smoke.With["package_revision"] != "" ||
@@ -834,7 +837,8 @@ func TestReleaseSmokesExactPublishedPackages(t *testing.T) {
 func TestCandidateWorkflowSmokesItsOwnPackages(t *testing.T) {
 	jobs := callerJobs(t, repoFile(t, ".github", "workflows", "native-platform.yml"))
 	smoke := jobs["native-smoke"]
-	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" || !slices.Equal(smoke.Needs, []string{"candidate-packages"}) ||
+	if smoke.Name != "" || smoke.Uses != "./.github/workflows/native-package-smoke.yml" ||
+		!slices.Equal(smoke.Needs, []string{"candidate-packages"}) ||
 		len(smoke.Permissions) != 2 || smoke.Permissions["actions"] != "read" || smoke.Permissions["contents"] != "read" ||
 		smoke.With["source_sha"] != "${{ github.sha }}" ||
 		smoke.With["package_revision"] != "${{ needs.candidate-packages.outputs.revision }}" ||

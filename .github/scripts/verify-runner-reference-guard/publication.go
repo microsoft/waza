@@ -125,7 +125,7 @@ func requireFinalizedRun(invocation, source string, api func(string) ([]byte, er
 			}
 			if releaseJob {
 				requiredSteps = []string{
-					"Publish the exact qualified OCI image digest",
+					"Admit existing release image only at the qualified digest",
 					"Attest published runner image provenance",
 					"Verify published runner image provenance offline",
 					"Attest published runner image inventory",
@@ -143,6 +143,21 @@ func requireFinalizedRun(invocation, source string, api func(string) ([]byte, er
 				}
 				if !passed {
 					return fmt.Errorf("publisher finalization step %q did not succeed", required)
+				}
+			}
+			if releaseJob {
+				copySteps := 0
+				copyAccepted := false
+				for _, step := range job.Steps {
+					if step.Name != "Publish the exact qualified OCI image digest" {
+						continue
+					}
+					copySteps++
+					copyAccepted = step.Status == "completed" &&
+						(step.Conclusion == "success" || step.Conclusion == "skipped")
+				}
+				if copySteps != 1 || !copyAccepted {
+					return errors.New("release image copy must succeed or be skipped after exact-digest admission")
 				}
 			}
 		}

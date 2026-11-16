@@ -274,10 +274,10 @@ jobs:
                 "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$attempt/jobs?per_page=100" |
                 jq -c '
                   .jobs[]
-                  | select((.name | startswith("native-smoke / CLI ")) or (.name | startswith("native-smoke / Extension ")))
+                  | select(.name | test("^(native-smoke|Native package smoke) / (CLI|Extension) "))
                   | {
-                      kind: (if (.name | startswith("native-smoke / CLI ")) then "cli" else "extension" end),
-                      target: (.name | sub("^native-smoke / (CLI|Extension) "; "")),
+                      kind: (if (.name | test(" / CLI ")) then "cli" else "extension" end),
+                      target: (.name | sub("^(native-smoke|Native package smoke) / (CLI|Extension) "; "")),
                       run_attempt,
                       conclusion,
                       upload_conclusion: ([.steps[]? | select(.name == "Upload native receipt and status") | .conclusion] | first // "missing")
