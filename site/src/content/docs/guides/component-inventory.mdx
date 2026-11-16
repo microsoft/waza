@@ -29,7 +29,8 @@ profile `waza.component-inventory/1.0`
 - `components` lists each component once, sorted by `bom-ref` (the package URL
   when one exists). At most 20,000 components and 16 MiB.
 
-Generation is deterministic.
+Generation is deterministic; the required `serialNumber` is a version 5
+`urn:uuid` derived from the inventory content.
 
 ## Verify a published reference image offline
 

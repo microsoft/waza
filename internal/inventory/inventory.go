@@ -45,11 +45,12 @@ var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
 // Document is the closed CycloneDX subset emitted and accepted by the profile.
 type Document struct {
-	BOMFormat   string      `json:"bomFormat"`
-	SpecVersion string      `json:"specVersion"`
-	Version     int         `json:"version"`
-	Metadata    Metadata    `json:"metadata"`
-	Components  []Component `json:"components"`
+	BOMFormat    string      `json:"bomFormat"`
+	SpecVersion  string      `json:"specVersion"`
+	SerialNumber string      `json:"serialNumber"`
+	Version      int         `json:"version"`
+	Metadata     Metadata    `json:"metadata"`
+	Components   []Component `json:"components"`
 }
 
 type Metadata struct {
