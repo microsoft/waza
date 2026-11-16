@@ -81,15 +81,16 @@ package and test inventories, executes its assigned packages with `-p=4`,
 coverage, execution receipt, and shard-bound timing observation. The collector
 accepts a skipped package only when it has no selected tests; skipped packages
 with selected tests fail verification. Workers also retain the locked npm
-package's Go sources. The merger downloads attempt-isolated artifacts and uses
-the newest complete four-shard set from one run and attempt, so a merger-only
-rerun can reuse successful worker evidence without mixing attempts. It restores
-the source artifact for that same attempt before validating the combined
-profile. Missing or failed workers, different inventories, duplicate/missing
-package or test selections, invalid profiles, or mismatched run/source
-identities fail closed; the merger combines the four remaining profiles into
-the one main profile, preserving four native profiles plus one remaining-suite
-profile for the final gate. The cost table is placement data,
+package's Go sources. The merger downloads attempt-isolated artifacts and
+selects the newest complete receipt with `execution_exit` equal to zero for
+each shard. This allows a failed-job rerun to reuse successful shard evidence
+from earlier attempts within the same workflow run and tested source. It
+restores the source artifact for selected shard 0 before validating the
+combined profile. Missing or failed workers, different inventories,
+duplicate/missing package or test selections, invalid profiles, or mismatched
+run/source identities fail closed; the merger combines the four remaining
+profiles into the one main profile, preserving four native profiles plus one
+remaining-suite profile for the final gate. The cost table is placement data,
 not acceptance evidence. Downstream timing history validates all four worker
 observations and their shard identities before admitting a successful sample.
 Refresh package costs after material package, test,
@@ -101,13 +102,16 @@ runs the embedded-bundle checks without allowing them to skip; remaining-test
 workers use a minimal `web/dist` stub because their package tests run
 independently.
 
-PR completeness receipts are also retained per workflow attempt, but admission
-downloads receipts from all attempts of the same run. This lets a failed-job
-rerun reuse successful units from an earlier attempt only when the run and
-tested source still match. For each unit, the newest receipt is authoritative;
-a failed newer receipt cannot fall back to an older passing one. The merged
-coverage artifact is replaceable on retry so rerunning its producer does not
-fail on an existing artifact name.
+Selected shards may come from different attempts only when their run ID and
+tested source match. The collector verifies identical inventories,
+exactly-once assignments, and valid coverage across all four selected
+receipts. The merged coverage artifact is replaceable on retry so rerunning
+its producer does not fail on an existing artifact name.
+
+PR completeness receipts are also retained per workflow attempt, and admission
+downloads receipts from all attempts of the same run. For each unit, the
+newest receipt is authoritative; a failed newer receipt cannot fall back to an
+older passing one.
 
 For issue #825, acceptance remains three distinct successful main-push runs
 after merge, each with native shard max/min `<= 1.25` and total Go CI

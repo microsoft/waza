@@ -77,7 +77,8 @@ func TestJournalBoundsStalledProviderWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal.bound = 300 * time.Millisecond
+	bound := 300 * time.Millisecond
+	journal.bound = bound
 	appendDone := make(chan error, 1)
 	go func() {
 		appendDone <- journal.Append(context.Background(), started(time.Second, at(time.Minute)))
@@ -87,11 +88,15 @@ func TestJournalBoundsStalledProviderWrites(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("provider write never entered its synchronized stall")
 	}
+	writeStarted := time.Now()
 	var result error
 	select {
 	case result = <-appendDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("journal append did not return after its write bound")
+	}
+	if elapsed := time.Since(writeStarted); elapsed >= bound*3 {
+		t.Fatalf("journal append exceeded its configured bound: elapsed %s, expected under %s", elapsed, bound*3)
 	}
 	if !errors.Is(result, ErrWriteStalled) {
 		t.Fatalf("stalled write was not bounded: %v", result)

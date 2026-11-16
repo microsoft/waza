@@ -168,20 +168,31 @@ class RemainingShardVerifyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "skipped a package with selected tests"):
             verify(self.root)
 
-    def test_merger_rerun_uses_one_complete_prior_attempt(self):
+    def test_merger_selects_newest_successful_attempt_per_shard(self):
         self.create_artifacts()
         self.move_shards_to_attempt(1, range(4))
-        self.copy_shards_to_attempt(1, 2, [0])
+        self.copy_shards_to_attempt(1, 2, [0, 1])
+
+        failed_receipt = (
+            self.root / "go-remaining-shard-1-12345-2" / "coverage-remaining-1.txt.evidence.json"
+        )
+        report = json.loads(failed_receipt.read_text(encoding="utf-8"))
+        report["complete"] = False
+        report["diagnostics"] = ["execution-failed"]
+        report["execution_exit"] = 7
+        failed_receipt.write_text(json.dumps(report), encoding="utf-8")
 
         report, _ = verify(self.root)
-        self.assertEqual(report["attempt"], "1")
+        self.assertEqual(report["attempts"], {"0": "2", "1": "1", "2": "1", "3": "1"})
 
-    def test_rejects_artifacts_split_across_attempts(self):
+    def test_rejects_mixed_run_artifacts_across_attempts(self):
         self.create_artifacts()
         self.move_shards_to_attempt(1, range(3))
         self.move_shards_to_attempt(2, [3])
+        artifact = self.root / "go-remaining-shard-3-12345-2"
+        artifact.rename(self.root / "go-remaining-shard-3-67890-2")
 
-        with self.assertRaisesRegex(ValueError, "complete same-attempt"):
+        with self.assertRaisesRegex(ValueError, "do not share one workflow run"):
             verify(self.root)
 
     def test_rejects_duplicate_package_selection_and_non_atomic_coverage(self):

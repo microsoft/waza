@@ -88,23 +88,52 @@ def select_artifact_directories(root):
         if not match:
             continue
         shard = int(match.group("shard"))
-        key = (match.group("run_id"), match.group("attempt"))
-        attempt = attempts.setdefault(key, {})
-        if shard in attempt:
-            fail(f"duplicate remaining-shard artifact for shard {shard}, attempt {key[1]}")
-        attempt[shard] = path
+        run_id = match.group("run_id")
+        attempt = match.group("attempt")
+        key = (run_id, attempt)
+        shard_attempts = attempts.setdefault(shard, {})
+        if key in shard_attempts:
+            fail(f"duplicate remaining-shard artifact for shard {shard}, attempt {attempt}")
+        shard_attempts[key] = path
 
-    complete = [
-        (key, shards) for key, shards in attempts.items()
-        if set(shards) == set(range(SHARD_COUNT))
-    ]
-    if not complete:
-        fail("complete same-attempt remaining-shard artifact set is missing")
-    run_ids = {key[0] for key, _ in complete}
+    if not attempts:
+        fail("remaining-shard artifacts are missing")
+    run_ids = {
+        run_id for shard_attempts in attempts.values()
+        for run_id, _ in shard_attempts
+    }
     if len(run_ids) != 1:
         fail("remaining-shard artifacts do not share one workflow run")
-    key, shards = max(complete, key=lambda item: int(item[0][1]))
-    return shards, key
+
+    selected = {}
+    artifact_identities = {}
+    for shard in range(SHARD_COUNT):
+        shard_attempts = attempts.get(shard)
+        if not shard_attempts:
+            fail(f"remaining-shard artifact is missing for shard {shard}")
+        candidates = sorted(
+            shard_attempts.items(),
+            key=lambda item: int(item[0][1]),
+            reverse=True,
+        )
+        for (run_id, attempt), path in candidates:
+            evidence_path = path / f"coverage-remaining-{shard}.txt.evidence.json"
+            if not evidence_path.is_file() or evidence_path.stat().st_size > MAX_EVIDENCE_BYTES:
+                continue
+            try:
+                report = json.loads(evidence_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if (not isinstance(report, dict) or report.get("complete") is not True
+                    or type(report.get("execution_exit")) is not int
+                    or report.get("execution_exit") != 0):
+                continue
+            selected[shard] = path
+            artifact_identities[shard] = (run_id, attempt)
+            break
+        if shard not in selected:
+            fail(f"no complete successful remaining-shard artifact exists for shard {shard}")
+    return selected, artifact_identities
 
 
 def verify(directory):
@@ -137,7 +166,7 @@ def verify(directory):
             fail(f"shard {shard} evidence receipt has an unsupported schema")
         if report.get("complete") is not True or report.get("diagnostics") != []:
             fail(f"shard {shard} evidence is incomplete: {report.get('diagnostics')}")
-        if any(report.get(key) != 0 for key in
+        if any(type(report.get(key)) is not int or report.get(key) != 0 for key in
                ("discovery_exit", "discovery_collector_exit", "execution_exit", "collector_exit")):
             fail(f"shard {shard} discovery, execution, or collector failed")
         if report.get("inventory_scope") != "qualified":
@@ -156,9 +185,12 @@ def verify(directory):
                 or identity.get("os") != "Linux"
                 or not identity.get("run_id") or not identity.get("attempt")):
             fail(f"shard {shard} source/run identity is invalid")
-        if artifact_identity is not None and (
-                str(identity.get("run_id")) != artifact_identity[0]
-                or str(identity.get("attempt")) != artifact_identity[1]):
+        expected_artifact_identity = (
+            artifact_identity.get(shard) if artifact_identity is not None else None
+        )
+        if expected_artifact_identity is not None and (
+                str(identity.get("run_id")) != expected_artifact_identity[0]
+                or str(identity.get("attempt")) != expected_artifact_identity[1]):
             fail(f"shard {shard} receipt identity does not match its artifact attempt")
         identities.append((identity.get("source_sha"), str(identity.get("run_id")),
                            str(identity.get("attempt")), identity.get("event")))
@@ -226,8 +258,10 @@ def verify(directory):
         test_selections.append(selected_tests)
         profiles.append(read_coverage(shard_root / prefix))
 
-    if any(identity != identities[0] for identity in identities[1:]):
-        fail("remaining-shard receipts do not share one source, run, attempt, and event")
+    if any((identity[0], identity[1], identity[3]) !=
+           (identities[0][0], identities[0][1], identities[0][3])
+           for identity in identities[1:]):
+        fail("remaining-shard receipts do not share one source, run, and event")
     if any(items != package_inventories[0] for items in package_inventories[1:]):
         fail("remaining shards discovered different package inventories")
     if any(set(items) != set(test_inventories[0]) for items in test_inventories[1:]):
@@ -247,7 +281,7 @@ def verify(directory):
         "schema": 1,
         "source_sha": identities[0][0],
         "run_id": identities[0][1],
-        "attempt": identities[0][2],
+        "attempts": {str(shard): identities[shard][2] for shard in range(SHARD_COUNT)},
         "shard_count": SHARD_COUNT,
         "package_count": len(package_inventories[0]),
         "test_count": len(test_inventories[0]),

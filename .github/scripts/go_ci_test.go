@@ -1168,9 +1168,9 @@ func checkCanonicalGoWorkflow(source []byte) error {
 		case "sources":
 			sourcesFound = true
 			if step.If != "" || !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
-				step.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ steps.merge.outputs.attempt }}-0" ||
+				step.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ steps.merge.outputs.shard0_attempt }}-0" ||
 				step.With["path"] != "web/node_modules/flatted/golang/pkg/flatted" {
-				return fmt.Errorf("coverage source artifact must match the verified attempt on every event")
+				return fmt.Errorf("coverage source artifact must match the verified shard 0 attempt")
 			}
 		case "download":
 			downloadFound = true
@@ -1184,9 +1184,10 @@ func checkCanonicalGoWorkflow(source []byte) error {
 			if !strings.Contains(step.Run, "go_remaining_shard_verify.py") ||
 				!strings.Contains(step.Run, "remaining-artifacts") ||
 				!strings.Contains(step.Run, "go-remaining-verification.json") ||
-				!strings.Contains(step.Run, "attempt=") ||
+				!strings.Contains(step.Run, "shard0_attempt=") ||
+				!strings.Contains(step.Run, `["attempts"]["0"]`) ||
 				!strings.Contains(step.Run, "GITHUB_OUTPUT") {
-				return fmt.Errorf("coverage merger must expose the verified attempt")
+				return fmt.Errorf("coverage merger must expose the verified shard 0 attempt")
 			}
 		case "cover_summary":
 			coverSummaryFound = true
