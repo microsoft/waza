@@ -32,6 +32,7 @@ import (
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/telemetry"
 	"github.com/microsoft/waza/internal/transcript"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/microsoft/waza/internal/utils"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -388,6 +389,19 @@ func (r *EvalRunner) takeSetup(ctx context.Context) (*RunSetup, error) {
 // RunBenchmark executes the entire benchmark
 // If Baseline is enabled, runs twice: skills-enabled and skills-disabled
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+	started := time.Now()
+	outcome, err := r.runBenchmark(ctx)
+	failed, errored, tasks := 0, 0, 0
+	if outcome != nil {
+		failed, errored, tasks = outcome.Digest.Failed, outcome.Digest.Errors, outcome.Digest.TotalTests
+	}
+	usagetelemetry.RecordExecution(usagetelemetry.SurfaceBenchmark,
+		usagetelemetry.ExecutionMode(r.cfg.Spec().Config.EngineType),
+		usagetelemetry.ExecutionOutcome(ctx, err, failed, errored), tasks, time.Since(started))
+	return outcome, err
+}
+
+func (r *EvalRunner) runBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
 	// before_run may generate task inputs, so it runs before tasks are loaded
 	// for MCP admission and before the engine starts. The first benchmark pass
 	// consumes this setup; an earlier failure still runs after_run once.

@@ -87,6 +87,7 @@ export default defineConfig({
 						{ label: 'Explore the Dashboard', slug: 'guides/dashboard-explore' },
 						{ label: 'CI/CD Integration', slug: 'guides/ci-cd' },
 						{ label: 'OpenTelemetry Tracing', slug: 'guides/otel' },
+						{ label: 'Product Usage Telemetry', slug: 'guides/usage-telemetry' },
 						{ label: 'Execution Telemetry Correlation', slug: 'guides/execution-telemetry' },
 						{ label: 'Adversarial Harness', slug: 'guides/adversarial' },
 						{ label: 'Snapshot & Replay', slug: 'guides/snapshot-replay' },

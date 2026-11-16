@@ -19,6 +19,7 @@ import (
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 )
 
 // Report is an invocation-local selection/attempt receipt, not a persisted
@@ -313,7 +314,29 @@ func (s *Service) run(ctx context.Context, data []byte, local bool) (report Repo
 	if input == nil {
 		return report
 	}
-	return s.executeAdmitted(ctx, report, input, local)
+	started := time.Now()
+	report = s.executeAdmitted(ctx, report, input, local)
+	recordUsage(ctx, report, time.Since(started))
+	return report
+}
+
+// recordUsage counts one admitted runner unit as a single logical execution.
+func recordUsage(ctx context.Context, report Report, elapsed time.Duration) {
+	var failed, errored int
+	switch {
+	case report.Status == "execution_error":
+		errored = 1
+	case report.Observation != nil && report.Observation.Status == models.StatusError:
+		errored = 1
+	case report.Observation != nil && report.Observation.Status == models.StatusFailed:
+		failed = 1
+	}
+	mode := usagetelemetry.ModeLive
+	if report.Mode == "mock" {
+		mode = usagetelemetry.ModeMock
+	}
+	usagetelemetry.RecordExecution(usagetelemetry.SurfaceRunnerUnit, mode,
+		usagetelemetry.ExecutionOutcome(ctx, nil, failed, errored), 1, elapsed)
 }
 
 func (s *Service) executeAdmitted(ctx context.Context, report Report, input *admitted, local bool) Report {

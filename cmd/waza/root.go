@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/microsoft/waza/cmd/waza/dev"
 	"github.com/microsoft/waza/cmd/waza/tokens"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	versionpkg "github.com/microsoft/waza/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -33,6 +36,8 @@ performance against predefined test cases.`,
 
 	debugLogging := cmd.PersistentFlags().Bool("debug", false, "Enable debug logging")
 	noUpdateCheck := cmd.PersistentFlags().Bool("no-update-check", false, "Disable automatic update check")
+	// Honored by the usage telemetry policy, which scans argv before Cobra runs.
+	cmd.PersistentFlags().Bool(usagetelemetry.NoFlagName, false, "Disable product usage telemetry for this invocation and its child processes")
 
 	var checker *versionpkg.Checker
 	cmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
@@ -89,14 +94,78 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newArtifactCommand())
 	cmd.AddCommand(newAggregateCommand())
 	cmd.AddCommand(newInteropCommand())
+	cmd.AddCommand(newTelemetryCommand())
 
 	return cmd
 }
 
-func execute(diagnostics io.Writer) error {
+// execute runs the CLI and reports the resolved command and whether its run
+// function was entered, so argument and setup failures are distinguishable.
+func execute(diagnostics io.Writer, args []string) (*cobra.Command, bool, error) {
 	rootCmd := newRootCommand()
 	rootCmd.SetErr(diagnostics)
-	return rootCmd.Execute()
+	rootCmd.SetArgs(args)
+	entered := false
+	markCommandEntry(rootCmd, &entered)
+	cmd, err := rootCmd.ExecuteC()
+	return cmd, entered, err
+}
+
+func markCommandEntry(cmd *cobra.Command, entered *bool) {
+	if runE := cmd.RunE; runE != nil {
+		cmd.RunE = func(c *cobra.Command, args []string) error {
+			*entered = true
+			return runE(c, args)
+		}
+	} else if run := cmd.Run; run != nil {
+		cmd.Run = func(c *cobra.Command, args []string) {
+			*entered = true
+			run(c, args)
+		}
+	}
+	for _, child := range cmd.Commands() {
+		markCommandEntry(child, entered)
+	}
+}
+
+// collectableCommand excludes telemetry management, help, shell completion,
+// and hidden internal helpers from usage collection.
+func collectableCommand(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Hidden || strings.HasPrefix(c.Name(), "__") {
+			return false
+		}
+		if c.HasParent() && !c.Parent().HasParent() {
+			switch c.Name() {
+			case "telemetry", "help", "completion":
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// commandName returns the canonical command path without the root name. It
+// never includes arguments or flag values.
+func commandName(cmd *cobra.Command) string {
+	if cmd == nil || !cmd.HasParent() {
+		return ""
+	}
+	return strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
+}
+
+func commandOutcome(err error, code int, entered bool) string {
+	switch {
+	case err == nil:
+		return usagetelemetry.CommandSuccess
+	case errors.Is(err, context.Canceled):
+		return usagetelemetry.CommandCancelled
+	case !entered:
+		return usagetelemetry.CommandSetupError
+	case code == ExitTestFailed:
+		return usagetelemetry.CommandTestFailed
+	}
+	return usagetelemetry.CommandRuntimeError
 }
 
 func shouldRunUpdateCheck(cmd *cobra.Command, noUpdateCheck bool) bool {
@@ -104,7 +173,7 @@ func shouldRunUpdateCheck(cmd *cobra.Command, noUpdateCheck bool) bool {
 		return false
 	}
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "update" || c.Name() == "preflight" || c.Name() == "compare-plan" || c.Name() == "compare-assurance-plan" || c.Name() == "compare-collect" || c.Name() == "assure" || c.Name() == "runner" || c.Name() == "interop" || c.Name() == "aggregate" {
+		if c.Name() == "update" || c.Name() == "telemetry" || c.Name() == "preflight" || c.Name() == "compare-plan" || c.Name() == "compare-assurance-plan" || c.Name() == "compare-collect" || c.Name() == "assure" || c.Name() == "runner" || c.Name() == "interop" || c.Name() == "aggregate" {
 			return false
 		}
 	}

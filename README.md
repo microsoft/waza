@@ -165,6 +165,20 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: waza update
 
 Run `waza update` to download and execute the official OS-specific installer after an explicit confirmation prompt. It uses the Bash installer on macOS/Linux and the PowerShell installer on native Windows. Use `waza update --yes` to skip the prompt in scripted environments. The check is non-blocking (never slows commands), cached for 24 hours, and can be disabled with `--no-update-check` or `WAZA_NO_UPDATE_CHECK=1`.
 
+## Product Usage Telemetry
+
+Waza includes an opt-out product usage telemetry client that is **inert in this
+build**: no collector endpoint is configured, so it makes no network requests,
+creates no installation identifier, and keeps no event queue. Activation awaits
+privacy and security approval, a ready collector, and an explicit decision on
+the collection default and CI policy. Opt out at any time with
+`WAZA_TELEMETRY_OPTOUT=1`, `--no-telemetry`, `waza telemetry disable`,
+`telemetry.disabled: true` in `.waza.yaml`, or `DO_NOT_TRACK=1`. Run
+`waza telemetry status` to see the current state. See
+[docs/USAGE-TELEMETRY.md](docs/USAGE-TELEMETRY.md) for the closed event
+contract, opt-out precedence, and the
+[Microsoft Privacy Statement](https://go.microsoft.com/fwlink/?LinkId=521839).
+
 ## Quick Start
 
 For contributor regression gates and sanitized MCP, CLI, and repository
@@ -213,6 +227,9 @@ waza init [directory]
 
 # Update waza to the latest release
 waza update
+
+# Inspect or change product usage telemetry (local-only)
+waza telemetry status
 
 # Create a new skill
 waza new skill skill-name
@@ -617,6 +634,20 @@ Update waza to the latest release by running the official OS-specific installer 
 waza update
 waza update --yes
 ```
+
+### `waza telemetry`
+
+Manage product usage telemetry. All subcommands are local-only and never collected.
+
+| Subcommand | Description |
+|------------|-------------|
+| `status` | Show whether collection is active and why |
+| `disable` | Persistently disable collection and delete the installation ID |
+| `enable` | Remove a persistent disable; opt-outs still win |
+| `reset-id` | Delete the installation ID |
+
+The global `--no-telemetry` flag disables collection for one invocation and its
+child processes.
 
 ### `waza init [directory]`
 

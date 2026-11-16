@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Product usage telemetry client, inert (#1045).** Added an opt-out product
+  usage telemetry client with a closed v1 event contract
+  (`schemas/usage-telemetry-1.0.schema.json`, 4 KiB max) for
+  `command_completed`, `execution_completed`, and `feature_used`, using only
+  enums, buckets, booleans, and random UUIDv4s. Added `waza telemetry
+  status|disable|enable|reset-id` (local-only), the global `--no-telemetry`
+  flag, `WAZA_TELEMETRY_OPTOUT`, and project `telemetry.disabled` in
+  `.waza.yaml`; `DO_NOT_TRACK` and azd's telemetry denial are honored, and any
+  opt-out wins. No collector endpoint is configured, so this build sends
+  nothing, creates no installation identifier, and writes no queue. Activation
+  awaits privacy/security approval, collector readiness, the collection default
+  and CI policy decision, and a live smoke test. See
+  [docs/USAGE-TELEMETRY.md](docs/USAGE-TELEMETRY.md).
+
 - **Release qualification and attestations (#756).** The manual
   `Release Qualification` workflow accepts only the exact current `main`
   commit and stores candidate evidence and its workflow-linked assurance

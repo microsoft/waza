@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/microsoft/waza/schemas"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -105,7 +106,8 @@ func (c *CommandAdapter) Propose(ctx context.Context, req ProposeRequest) (Propo
 
 func (c *CommandAdapter) env() []string {
 	env := []string{}
-	for _, key := range append(append([]string{}, baseAdapterEnv...), c.EnvKeys...) {
+	keys := append(append(append([]string{}, baseAdapterEnv...), usagetelemetry.PolicyEnvKeys()...), c.EnvKeys...)
+	for _, key := range keys {
 		if v, ok := os.LookupEnv(key); ok {
 			env = append(env, key+"="+v)
 		}
