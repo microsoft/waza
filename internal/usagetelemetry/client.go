@@ -266,36 +266,40 @@ func Shutdown(timeout time.Duration) {
 	queue := c.queue
 	c.queue = nil
 	c.mu.Unlock()
-	if len(queue) == 0 || !c.stillPermitted() {
+	if len(queue) == 0 {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	for _, body := range queue {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || !c.deliver(ctx, body) {
 			return
 		}
-		c.deliver(ctx, body)
 	}
 }
 
 // deliver sends one event, retrying once with the identical body so the
-// event ID is stable across retries.
-func (c *client) deliver(ctx context.Context, body []byte) {
+// event ID is stable across retries. Persisted settings are rechecked before
+// every request; it returns false when permission was withdrawn.
+func (c *client) deliver(ctx context.Context, body []byte) bool {
 	for attempt := 0; attempt < maxAttempts && ctx.Err() == nil; attempt++ {
+		if !c.stillPermitted() {
+			return false
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.policy.endpoint.String(), bytes.NewReader(body))
 		if err != nil {
-			return
+			return true
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := c.httpClient.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500 {
-				return
+				return true
 			}
 		}
 	}
+	return true
 }
 
 var compiledSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {

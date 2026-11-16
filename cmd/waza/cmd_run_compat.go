@@ -23,7 +23,7 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 	var unsupported []string
 	cmd.Flags().Visit(func(flag *pflag.Flag) {
 		switch flag.Name {
-		case "runner-compat", "output", "no-summary", "no-update-check", "debug":
+		case "runner-compat", "output", "no-summary", "no-update-check", "no-telemetry", "debug":
 		default:
 			unsupported = append(unsupported, "--"+flag.Name)
 		}

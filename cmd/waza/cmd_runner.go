@@ -188,7 +188,7 @@ func emitTerminal(cmd *cobra.Command, envelope runnerterminal.Envelope, binding 
 			return &ExitCodeError{Code: 2, Err: err}
 		}
 		if code != 0 {
-			return &ExitCodeError{Code: code, Err: fmt.Errorf("runner run: %s", envelope.Outcome)}
+			return &ExitCodeError{Code: code, Err: runnerOutcomeError{envelope.Outcome}}
 		}
 		return nil
 	}
@@ -197,7 +197,20 @@ func emitTerminal(cmd *cobra.Command, envelope runnerterminal.Envelope, binding 
 		return &ExitCodeError{Code: 2, Err: err}
 	}
 	if code != 0 {
-		return &ExitCodeError{Code: code, Err: fmt.Errorf("runner run: %s", envelope.Outcome)}
+		return &ExitCodeError{Code: code, Err: runnerOutcomeError{envelope.Outcome}}
+	}
+	return nil
+}
+
+// runnerOutcomeError reports a non-success runner terminal outcome. A
+// canceled outcome unwraps to context.Canceled for command classification.
+type runnerOutcomeError struct{ outcome runnerterminal.Outcome }
+
+func (e runnerOutcomeError) Error() string { return "runner run: " + string(e.outcome) }
+
+func (e runnerOutcomeError) Unwrap() error {
+	if e.outcome == runnerterminal.Canceled {
+		return context.Canceled
 	}
 	return nil
 }

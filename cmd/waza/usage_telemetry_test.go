@@ -122,6 +122,15 @@ func TestUsageTelemetry_OutputAndExitUnchanged(t *testing.T) {
 	}
 }
 
+func TestUsageTelemetry_NoTelemetryIsAdmittedByRunnerCompat(t *testing.T) {
+	isolateUsageTelemetry(t)
+	spec := "./" + filepath.ToSlash(filepath.Join(filepath.Base(t.TempDir()), "missing.yaml"))
+	without := invokeCLI(t, "--no-update-check", "run", spec, "--runner-compat", "--no-summary")
+	with := invokeCLI(t, "--no-update-check", "--no-telemetry", "run", spec, "--runner-compat", "--no-summary")
+	assert.Equal(t, without, with, "--no-telemetry must not change a runner-compat invocation")
+	assert.NotContains(t, with.stderr, "--no-telemetry")
+}
+
 func TestUsageTelemetry_RunRecordsCommandAndOneExecution(t *testing.T) {
 	isolateUsageTelemetry(t)
 	collector := newUsageCollector(t)

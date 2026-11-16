@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/microsoft/waza/schemas"
 	"github.com/stretchr/testify/require"
 )
@@ -62,7 +63,7 @@ func TestHelperAdapterProcess(t *testing.T) {
 		time.Sleep(time.Minute)
 	case "env":
 		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion, "done": true,
-			"usage": map[string]any{"input_tokens": len(os.Getenv("WAZA_SECRET_PROBE")), "output_tokens": 0, "premium_requests": 0}})
+			"usage": map[string]any{"input_tokens": len(os.Getenv("WAZA_SECRET_PROBE")), "output_tokens": len(os.Getenv(usagetelemetry.OptOutEnv)), "premium_requests": 0}})
 	case "null-content":
 		write(map[string]any{"kind": AdapterResponseKind, "contract_version": ContractVersion,
 			"candidate": map[string]any{"parent_id": "sha256:" + strings.Repeat("a", 64), "files": []any{map[string]any{"path": "g.md", "content": nil}}}})
@@ -165,6 +166,13 @@ func TestCommandAdapterEnvironmentAllowlist(t *testing.T) {
 	resp, err = helperAdapter(t, "env", time.Minute, "WAZA_SECRET_PROBE").Propose(context.Background(), proposeReq())
 	require.NoError(t, err)
 	require.Equal(t, len("secret"), resp.Usage.InputTokens, "--adapter-env passes named variables")
+}
+
+func TestCommandAdapterPreservesUsageTelemetryDenial(t *testing.T) {
+	t.Setenv(usagetelemetry.OptOutEnv, "1")
+	resp, err := helperAdapter(t, "env", time.Minute).Propose(context.Background(), proposeReq())
+	require.NoError(t, err)
+	require.Equal(t, 1, resp.Usage.OutputTokens, "adapter children inherit the telemetry opt-out")
 }
 
 func TestCommandAdapterResponsesMatchSchema(t *testing.T) {

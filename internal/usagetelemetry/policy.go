@@ -160,6 +160,12 @@ func ResolveProcess(args []string, full bool) Policy {
 // started by this process. Denial is inherited through WAZA_TELEMETRY_OPTOUT;
 // active collection marks children as nested so only this process reports
 // command usage.
+// PolicyEnvKeys lists the variables that carry the telemetry policy to child
+// processes. Code that builds an allowlisted child environment must keep them.
+func PolicyEnvKeys() []string {
+	return []string{OptOutEnv, NestedEnv, doNotTrackEnv, azdTelemetryEnv}
+}
+
 func Propagate(p Policy) {
 	if p.Denied {
 		_ = os.Setenv(OptOutEnv, "1")
@@ -260,7 +266,7 @@ func projectDenial(workDir string) projectState {
 		return projectInvalid
 	}
 	raw, present := doc["telemetry"]
-	if !present || raw == nil {
+	if !present {
 		return projectAllowed
 	}
 	section, ok := raw.(map[string]any)

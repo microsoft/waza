@@ -31,6 +31,10 @@ var errSettingsLocked = errors.New("telemetry settings are locked by another pro
 // withSettingsLock serializes read-modify-write updates across waza processes
 // so a concurrent installation-ID write cannot overwrite a disable.
 func withSettingsLock(path string, fn func() error) error {
+	return withSettingsLockWait(path, settingsLockWait, fn)
+}
+
+func withSettingsLockWait(path string, wait time.Duration, fn func() error) error {
 	if path == "" {
 		return errors.New("telemetry settings path is unavailable")
 	}
@@ -38,7 +42,7 @@ func withSettingsLock(path string, fn func() error) error {
 		return err
 	}
 	lock := path + ".lock"
-	deadline := time.Now().Add(settingsLockWait)
+	deadline := time.Now().Add(wait)
 	for {
 		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
@@ -98,14 +102,9 @@ func LoadSettings(path string) (Settings, error) {
 	if len(data) > maxSettingsBytes {
 		return Settings{}, errors.New("telemetry settings file is too large")
 	}
-	var s Settings
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&s); err != nil {
+	s, err := decodeSettings(data)
+	if err != nil {
 		return Settings{}, fmt.Errorf("parsing telemetry settings: %w", err)
-	}
-	if decoder.More() {
-		return Settings{}, errors.New("telemetry settings contain trailing data")
 	}
 	switch s.Collection {
 	case "", CollectionEnabled, CollectionDisabled:
@@ -117,6 +116,51 @@ func LoadSettings(path string) (Settings, error) {
 	}
 	if s.Collection == CollectionDisabled && s.InstallationID != "" {
 		return Settings{}, errors.New("disabled telemetry settings must not hold an installation ID")
+	}
+	return s, nil
+}
+
+// decodeSettings accepts exactly one JSON object whose known keys appear at
+// most once with string values; null, duplicates, and other types are errors.
+func decodeSettings(data []byte) (Settings, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := decoder.Token(); err != nil || tok != json.Delim('{') {
+		return Settings{}, errors.New("settings must be a JSON object")
+	}
+	var s Settings
+	seen := map[string]bool{}
+	for decoder.More() {
+		keyTok, err := decoder.Token()
+		if err != nil {
+			return Settings{}, err
+		}
+		key, _ := keyTok.(string)
+		if seen[key] {
+			return Settings{}, fmt.Errorf("duplicate key %q", key)
+		}
+		seen[key] = true
+		valueTok, err := decoder.Token()
+		if err != nil {
+			return Settings{}, err
+		}
+		value, ok := valueTok.(string)
+		if !ok {
+			return Settings{}, fmt.Errorf("key %q must be a string", key)
+		}
+		switch key {
+		case "collection":
+			s.Collection = value
+		case "installationId":
+			s.InstallationID = value
+		default:
+			return Settings{}, fmt.Errorf("unknown key %q", key)
+		}
+	}
+	if _, err := decoder.Token(); err != nil {
+		return Settings{}, err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return Settings{}, errors.New("trailing data")
 	}
 	return s, nil
 }
@@ -153,13 +197,11 @@ func SaveSettings(path string, s Settings) error {
 // discards any pending in-memory events. It never sends anything.
 func Disable(path string) error {
 	discardPending()
-	disabled := Settings{Collection: CollectionDisabled}
-	err := withSettingsLock(path, func() error { return SaveSettings(path, disabled) })
-	if errors.Is(err, errSettingsLocked) {
-		// A disable must always win, even against a wedged lock holder.
-		return SaveSettings(path, disabled)
-	}
-	return err
+	// Waiting past staleLockAge lets a disable break an abandoned lock without
+	// ever racing a live installation-ID writer.
+	return withSettingsLockWait(path, staleLockAge+settingsLockWait, func() error {
+		return SaveSettings(path, Settings{Collection: CollectionDisabled})
+	})
 }
 
 // Enable persists the enabled choice. It does not create an installation ID.

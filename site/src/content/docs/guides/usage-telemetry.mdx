@@ -66,7 +66,7 @@ themselves collected.
 | `waza telemetry enable` | Remove a persistent disable; opt-outs and activation gates still apply |
 | `waza telemetry reset-id` | Delete the installation ID |
 
-Settings are stored in `~/.waza/telemetry.json`.
+Settings are stored in `~/.waza/telemetry.json`. Updates are serialized across waza processes with a short-lived `telemetry.json.lock` file. Other running waza processes re-check these settings before every request, so a `disable` or `reset-id` also stops their pending events.
 
 ## What would be collected
 

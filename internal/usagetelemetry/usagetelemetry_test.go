@@ -139,12 +139,19 @@ func TestPolicyResolution(t *testing.T) {
 		{name: "malformed settings", settings: `{"collection":`, denied: true},
 		{name: "unknown settings field", settings: `{"collection":"enabled","extra":1}`, denied: true},
 		{name: "bad collection value", settings: `{"collection":"sometimes"}`, denied: true},
+		{name: "null settings", settings: `null`, denied: true},
+		{name: "null collection", settings: `{"collection":null}`, denied: true},
+		{name: "duplicate collection keys", settings: `{"collection":"disabled","collection":"enabled"}`, denied: true},
+		{name: "non-string collection", settings: `{"collection":true}`, denied: true},
+		{name: "settings trailing data", settings: `{"collection":"enabled"} {}`, denied: true},
 		{name: "disabled with id is invalid", settings: `{"collection":"disabled","installationId":"5f1b3a0e-8f5b-4c39-9a51-2f1f2b9d1c3e"}`, denied: true},
 		{name: "project disabled", project: "telemetry:\n  disabled: true\n", denied: true},
 		{name: "project explicit false", project: "telemetry:\n  disabled: false\n", enabled: true},
 		{name: "project unknown key", project: "telemetry:\n  enabled: true\n", denied: true},
 		{name: "project wrong type", project: "telemetry:\n  disabled: \"yes\"\n", denied: true},
 		{name: "project malformed yaml", project: "telemetry: [", denied: true},
+		{name: "project null section", project: "telemetry: null\n", denied: true},
+		{name: "project bare section", project: "telemetry:\n", denied: true},
 		{name: "ci not approved", env: map[string]string{"GITHUB_ACTIONS": "true"}, ci: true},
 		{name: "ci false is not ci", env: map[string]string{"CI": "false"}, enabled: true},
 	}
@@ -377,14 +384,48 @@ func TestInstallationIDNeverOverwritesConcurrentDisable(t *testing.T) {
 	assert.Empty(t, collector.events(t))
 }
 
-func TestDisableWinsOverHeldLock(t *testing.T) {
+func TestSettingsLockIsNeverBypassed(t *testing.T) {
 	path := settingsPath(t)
 	writeFile(t, path+".lock", "")
-	require.NoError(t, Disable(path))
+	assert.ErrorIs(t, Enable(path), errSettingsLocked, "a live lock holder is never overwritten")
+	assert.NoFileExists(t, path)
+
+	old := time.Now().Add(-2 * staleLockAge)
+	require.NoError(t, os.Chtimes(path+".lock", old, old))
+	require.NoError(t, Disable(path), "an abandoned lock is broken, not bypassed")
 	s, err := LoadSettings(path)
 	require.NoError(t, err)
 	assert.Equal(t, CollectionDisabled, s.Collection)
-	assert.ErrorIs(t, Enable(path), errSettingsLocked)
+	assert.NoFileExists(t, path+".lock")
+}
+
+func TestPermissionIsRecheckedBeforeEveryRequest(t *testing.T) {
+	for name, change := range map[string]func(string) error{
+		"disable":  func(path string) error { return SaveSettings(path, Settings{Collection: CollectionDisabled}) },
+		"reset-id": ResetID,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := settingsPath(t)
+			var mu sync.Mutex
+			requests := 0
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				mu.Lock()
+				requests++
+				mu.Unlock()
+				require.NoError(t, change(path), "another process withdraws permission mid-batch")
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			t.Cleanup(server.Close)
+			t.Cleanup(OverrideActivationForTesting(server.URL, server.Client(), true, false))
+			startClient(t, nil, path)
+			RecordFeature(FeatureHTTPAPI)
+			RecordFeature(FeatureDashboard)
+			Shutdown(5 * time.Second)
+			mu.Lock()
+			defer mu.Unlock()
+			assert.Equal(t, 1, requests, "no retry or later event after permission changes")
+		})
+	}
 }
 
 func TestResetIDAndInvalidSettings(t *testing.T) {
