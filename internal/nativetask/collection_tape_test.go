@@ -56,11 +56,12 @@ func TestCollectionTapeIndependentDescriptorBudgets(t *testing.T) {
 	profile := collectionDescriptorProfile(t, prepared, record)
 	admissions := make([]*Admitted, 2)
 	rows := make([][]byte, len(admissions))
+	// The fixture deliberately retains more than 128 MiB of descriptor data.
+	// Keep admissions and tape checks serial under race instrumentation.
 	t.Run("admissions", func(t *testing.T) {
 		for i := range admissions {
 			i := i
 			t.Run(fmt.Sprintf("attempt-%d", i+1), func(t *testing.T) {
-				t.Parallel()
 				key := record.Key
 				key.Trial = i + 1
 				admitted, err := Admit(t.Context(), prepared, profile, key)
@@ -88,8 +89,6 @@ func TestCollectionTapeIndependentDescriptorBudgets(t *testing.T) {
 	t.Logf("descriptor bytes=%d each, combined=%d; event bytes=%d; row bytes=%d",
 		len(prepared.data), len(admissions)*len(prepared.data), len(events), len(payload))
 	t.Run("reader", func(t *testing.T) {
-		t.Parallel()
-
 		prefix, err := InspectCollectionPrefix(t.Context(), events, payload, admissions)
 		require.NoError(t, err)
 		require.Len(t, prefix.Records, len(admissions))
@@ -103,8 +102,6 @@ func TestCollectionTapeIndependentDescriptorBudgets(t *testing.T) {
 		require.Equal(t, admissions[1].binding, *prefix.Pending)
 	})
 	t.Run("writer", func(t *testing.T) {
-		t.Parallel()
-
 		parent, err := os.OpenRoot(t.TempDir())
 		require.NoError(t, err)
 		defer func() { require.NoError(t, parent.Close()) }()

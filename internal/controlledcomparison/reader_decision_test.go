@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/microsoft/waza/internal/controlledcomparison"
@@ -210,14 +209,14 @@ func testNativeReaderFrozen15cDecisionParity(t *testing.T, proofName string, pro
 		byName[test.Name] = i
 	}
 	observations := map[string]frozenDecisionObservation{}
-	var observationsMu sync.Mutex
+	// Each case starts a race-instrumented oracle subprocess; keep them serial
+	// to bound the native shard's peak memory.
 	t.Run("cases", func(t *testing.T) {
 		for _, name := range selected {
 			index, ok := byName[name]
 			require.True(t, ok, "unknown frozen parity case %q", name)
 			test := cases[index]
 			t.Run(test.Name, func(t *testing.T) {
-				t.Parallel()
 				caseRoot := t.TempDir()
 				caseDirectory := filepath.Join(caseRoot, "native")
 				require.NoError(t, os.CopyFS(caseDirectory, os.DirFS(directory)))
@@ -261,9 +260,7 @@ func testNativeReaderFrozen15cDecisionParity(t *testing.T, proofName string, pro
 				} else {
 					require.Equal(t, got.RootError, api[0].Error)
 				}
-				observationsMu.Lock()
 				observations[test.Name] = expected
-				observationsMu.Unlock()
 			})
 		}
 	})

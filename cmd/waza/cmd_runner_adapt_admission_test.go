@@ -156,9 +156,8 @@ func TestRunnerAdapterCompleteTaskPathCompiledProcess(t *testing.T) {
 	}
 }
 
+// Keep this CLI-build and subprocess integration test serial under -race.
 func TestRunnerAdapterAdmissionCompiledProcess(t *testing.T) {
-	t.Parallel()
-
 	binary := buildRecoveryCLI(t)
 	t.Run("absolute task cannot select an external file", func(t *testing.T) {
 		evalPath, taskPath, eval, task := adapterCommandInputs(t)
@@ -271,8 +270,6 @@ func TestRunnerAdapterAdmissionCompiledProcess(t *testing.T) {
 		for _, delta := range []int{-2, -1, 0, 1} {
 			delta := delta
 			t.Run(strconv.Itoa(delta), func(t *testing.T) {
-				t.Parallel()
-
 				evalPath, taskPath, _, task := adapterCommandInputs(t)
 				directory := filepath.Dir(evalPath)
 				target := runnercontract.MaxRequestBytes + delta
