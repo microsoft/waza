@@ -1585,6 +1585,84 @@ done
 	}
 }
 
+func TestGoCIRequiresEmbeddedDashboardAssetTests(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = normalizeWorkflowLineEndings(source)
+
+	const stepName = "Verify embedded dashboard asset tests"
+	const command = `output=$(go test -count=1 -v -timeout=5m -run '^(TestEmbeddedAssetsDirectoryContainsBundles|TestIndexHTMLReferencesExistingAssets)$' ./internal/webserver 2>&1) || {
+  printf '%s\n' "$output"
+  exit 1
+}
+printf '%s\n' "$output"
+if grep -q '^--- SKIP:' <<<"$output"; then
+  echo "Embedded dashboard asset tests must not skip." >&2
+  exit 1
+fi
+for test in TestEmbeddedAssetsDirectoryContainsBundles TestIndexHTMLReferencesExistingAssets; do
+  grep -Fxq "=== RUN   $test" <<<"$output"
+  grep -Eq "^--- PASS: $test \([0-9.]+s\)$" <<<"$output"
+done
+`
+
+	var workflow struct {
+		Defaults ordinaryRunDefaults `yaml:"defaults"`
+		Jobs     map[string]struct {
+			If       string                  `yaml:"if"`
+			Steps    []ordinaryExecutionStep `yaml:"steps"`
+			Defaults ordinaryRunDefaults     `yaml:"defaults"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	job := workflow.Jobs["build-and-test"]
+	if job.If != goValidationIf {
+		t.Fatal("embedded asset tests require the Linux build job on every validation event")
+	}
+
+	positions := make(map[string]int, len(job.Steps))
+	selected := 0
+	for i, step := range job.Steps {
+		positions[step.Name] = i
+		if step.Name != stepName {
+			continue
+		}
+		selected++
+		if step.If != "matrix.os == 'ubuntu-latest'" || step.Run != command {
+			t.Fatal("embedded asset checker must run both tests and reject skips")
+		}
+		if step.ContinueOnError.Kind != 0 &&
+			(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false") {
+			t.Fatal("embedded asset checker must propagate failures")
+		}
+		if _, err := ordinaryShellArguments("Linux", workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, step.Shell); err != nil {
+			t.Fatalf("embedded asset checker requires a valid Linux shell: %v", err)
+		}
+	}
+	if selected != 1 {
+		t.Fatalf("embedded asset checker step count=%d; require one", selected)
+	}
+	for _, prerequisite := range []string{"Build Web UI", "Verify Module Dependencies"} {
+		position, present := positions[prerequisite]
+		if !present || position >= positions[stepName] {
+			t.Fatalf("embedded asset checker must follow %s", prerequisite)
+		}
+	}
+	stub, present := positions["Ensure web/dist exists (stub for go:embed)"]
+	if !present || positions[stepName] >= stub {
+		t.Fatal("embedded asset checker must run before the stub fallback")
+	}
+	build, present := positions["Build Web UI"]
+	if !present || job.Steps[build].If != "matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''" ||
+		job.Steps[build].Run != "npm ci && npm run build" {
+		t.Fatal("embedded asset checker must follow the real Linux dashboard build")
+	}
+}
+
 func TestGoWorkflowTriggers(t *testing.T) {
 	for _, tc := range []struct {
 		file         string

@@ -117,6 +117,23 @@ jobs:
         working-directory: web
         run: npm ci && npm run build
 
+      - name: Verify embedded dashboard asset tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          output=$(go test -count=1 -v -timeout=5m -run '^(TestEmbeddedAssetsDirectoryContainsBundles|TestIndexHTMLReferencesExistingAssets)$' ./internal/webserver 2>&1) || {
+            printf '%s\n' "$output"
+            exit 1
+          }
+          printf '%s\n' "$output"
+          if grep -q '^--- SKIP:' <<<"$output"; then
+            echo "Embedded dashboard asset tests must not skip." >&2
+            exit 1
+          fi
+          for test in TestEmbeddedAssetsDirectoryContainsBundles TestIndexHTMLReferencesExistingAssets; do
+            grep -Fxq "=== RUN   $test" <<<"$output"
+            grep -Eq "^--- PASS: $test \([0-9.]+s\)$" <<<"$output"
+          done
+
       # Bash syntax works on Windows runners too
       - name: Ensure web/dist exists (stub for go:embed)
         run: |

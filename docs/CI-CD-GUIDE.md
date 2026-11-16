@@ -96,7 +96,10 @@ Refresh package costs after material package, test,
 or runner-topology changes using complete successful Linux remaining-test
 executions; retain their run, attempt, and source commit, and do not use
 canceled or incomplete test executions. The Windows job continues to run the
-full suite.
+full suite. The Linux support job builds the real dashboard and explicitly
+runs the embedded-bundle checks without allowing them to skip; remaining-test
+workers use a minimal `web/dist` stub because their package tests run
+independently.
 
 PR completeness receipts are also retained per workflow attempt, but admission
 downloads receipts from all attempts of the same run. This lets a failed-job
