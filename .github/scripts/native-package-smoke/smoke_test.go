@@ -685,7 +685,7 @@ func TestCandidateWorkflowSmokesItsOwnPackages(t *testing.T) {
 		}
 	}
 	for _, p := range platforms {
-		if !uploads["cli-waza-"+p.OS+"-"+p.Arch] {
+		if !uploads["cli-waza-"+p.OS+"-"+p.Arch+"-${{ github.run_id }}-${{ github.run_attempt }}"] {
 			t.Errorf("candidate build does not upload %s", p.target())
 		}
 	}

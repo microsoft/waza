@@ -144,37 +144,37 @@ jobs:
       - name: Upload linux/amd64 CLI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cli-waza-linux-amd64
+          name: cli-waza-linux-amd64-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cli/linux-amd64
           if-no-files-found: error
       - name: Upload linux/arm64 CLI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cli-waza-linux-arm64
+          name: cli-waza-linux-arm64-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cli/linux-arm64
           if-no-files-found: error
       - name: Upload darwin/amd64 CLI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cli-waza-darwin-amd64
+          name: cli-waza-darwin-amd64-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cli/darwin-amd64
           if-no-files-found: error
       - name: Upload darwin/arm64 CLI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cli-waza-darwin-arm64
+          name: cli-waza-darwin-arm64-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cli/darwin-arm64
           if-no-files-found: error
       - name: Upload windows/amd64 CLI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cli-waza-windows-amd64
+          name: cli-waza-windows-amd64-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cli/windows-amd64
           if-no-files-found: error
       - name: Upload windows/arm64 CLI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cli-waza-windows-arm64
+          name: cli-waza-windows-arm64-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cli/windows-arm64
           if-no-files-found: error
 
