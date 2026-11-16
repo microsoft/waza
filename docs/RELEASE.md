@@ -62,10 +62,12 @@ publisher receives the qualification artifact name and its recorded producer
 attempt, rather than assuming it matches the publisher job's attempt. Native
 receipt collection downloads only artifacts from the exact workflow run and
 keeps each attempt in a separate directory. Each status and passing receipt is
-bound to its producing run and attempt; the collector uses the latest status
-per target, so it can retain validated receipts from successful jobs during a
-partial rerun while a newer failed or cancelled attempt supersedes an earlier
-pass.
+bound to its producing run and attempt. The collector also reads each native
+matrix job's attempt and receipt-upload step result from the Actions API. It
+requires the newest job attempt for each target to have a matching receipt
+artifact and successful upload, so a failed upload or an absent rerun artifact
+cannot silently reuse an earlier pass. Successful receipts from targets not
+rerun remain valid.
 
 Review the candidate artifacts and verifier output before approving a release.
 The package identifies the workflow run, source commit, artifact ID and digest,
@@ -90,7 +92,10 @@ image and inventory, exact qualified CLI binaries and qualification bundle,
 builds the extension, opens its registry-sync PR, and deploys the GitHub Pages
 release notes. The GHCR publisher is reusable only from this tag-release path;
 it has no candidate `workflow_dispatch` route and refuses to replace an existing
-versioned image tag.
+versioned image tag. A retry may continue only if the existing versioned tag
+already resolves to the exact digest from qualification; it then skips the
+image copy and repeats provenance/inventory attestation and verification.
+Different or unprovable registry state fails closed.
 
 ## What the Workflow Does
 
@@ -393,9 +398,13 @@ Validation evidence is scoped to the current workflow run and named with the
 exact `${{ github.sha }}`. Publishers do not search for a same-named check or
 artifact from another run or SHA. Retrying a failed run therefore repeats any
 missing validation/build work and cannot reuse stale evidence.
-Dashboard identity also includes `github.run_attempt`: a partial rerun without
-the matching producer artifact fails closed. Rerun the producer/validation and
-consumers together rather than relabeling a prior-attempt artifact.
+Dashboard identity also includes the producer's `github.run_attempt`: a partial
+rerun without the matching producer artifact fails closed. Validation carries the exact
+artifact name and producer attempt through reusable-workflow outputs, and each
+consumer installs using that recorded producer attempt rather than its own
+rerun number. This permits a failed downstream job to reuse the successful
+dashboard producer from the same workflow run without relabeling an artifact;
+missing or mismatched producer outputs still fail closed.
 
 This removes repeated dashboard compilation, not a measured release-speed claim.
 Observe cold and warm runs before reporting outcomes: compare summed runner work

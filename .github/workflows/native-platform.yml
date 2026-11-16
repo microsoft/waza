@@ -215,6 +215,9 @@ jobs:
   native-smoke:
     needs: [candidate-packages]
     uses: ./.github/workflows/native-package-smoke.yml
+    permissions:
+      actions: read
+      contents: read
     with:
       source_sha: ${{ github.sha }}
       package_revision: ${{ needs.candidate-packages.outputs.revision }}

@@ -167,9 +167,11 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-      - name: Refuse to replace an existing release image tag
+      - name: Admit existing release image only at the qualified digest
+        id: existing_image
         env:
           VERSION: ${{ needs.validate-release.outputs.version }}
+          IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -177,15 +179,24 @@ jobs:
           error="$RUNNER_TEMP/registry-inspect-error.txt"
           if skopeo inspect --authfile "$HOME/.docker/config.json" --raw "docker://$image" \
             > "$RUNNER_TEMP/existing-image-manifest.json" 2>"$error"; then
-            echo "Release image tag already exists; refusing to replace $image." >&2
-            exit 1
+            remote_digest="$(skopeo inspect --authfile "$HOME/.docker/config.json" --format '{{.Digest}}' "docker://$image")"
+            if [ "$remote_digest" != "$IMAGE_DIGEST" ]; then
+              echo "Release image tag $image already exists at $remote_digest, not the qualified digest $IMAGE_DIGEST." >&2
+              exit 1
+            fi
+            printf '%s\n' "$IMAGE_DIGEST" > "$RUNNER_TEMP/published-image.digest"
+            printf 'already_published=true\n' >> "$GITHUB_OUTPUT"
+            echo "$image already names the exact qualified digest; continuing without replacing it."
           elif ! grep -Eq 'manifest unknown|name unknown|404 Not Found' "$error"; then
             cat "$error" >&2
             echo "Could not prove the release image tag is absent; refusing publication." >&2
             exit 1
+          else
+            printf 'already_published=false\n' >> "$GITHUB_OUTPUT"
           fi
       - name: Publish the exact qualified OCI image digest
         id: publish_image
+        if: steps.existing_image.outputs.already_published != 'true'
         env:
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
           IMAGE_TAG: ghcr.io/microsoft/waza-runner-reference:v${{ needs.validate-release.outputs.version }}
@@ -303,7 +314,7 @@ jobs:
           printf 'Published the exact qualified image digest and verified its signed provenance and inventory attestations for source `%s`.\n\nTag: `%s`\n\nImmutable digest reference: `ghcr.io/microsoft/waza-runner-reference@%s`\n\nPlatform: `linux/amd64`\n' \
             "$SOURCE_SHA" "$IMAGE_TAG" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
       - name: Mark incomplete release image publication
-        if: always() && steps.publish_image.outcome == 'success' && (steps.image_attestation.outcome != 'success' || steps.verify_provenance.outcome != 'success' || steps.inventory_attestation.outcome != 'success' || steps.verify_inventory.outcome != 'success' || steps.final_guard.outcome != 'success')
+        if: always() && (steps.publish_image.outcome == 'success' || steps.publish_image.outcome == 'failure' || steps.existing_image.outputs.already_published == 'true') && (steps.publish_image.outcome == 'failure' || steps.image_attestation.outcome != 'success' || steps.verify_provenance.outcome != 'success' || steps.inventory_attestation.outcome != 'success' || steps.verify_inventory.outcome != 'success' || steps.final_guard.outcome != 'success')
         env:
           SOURCE_SHA: ${{ needs.validate-release.outputs.source_sha }}
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}

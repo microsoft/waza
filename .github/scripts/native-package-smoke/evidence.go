@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,6 +24,14 @@ type collectedReceipt struct {
 	receipt  receipt
 	valid    bool
 	problems []string
+}
+
+type jobAttempt struct {
+	Kind             string `json:"kind"`
+	Target           string `json:"target"`
+	RunAttempt       int    `json:"run_attempt"`
+	Conclusion       string `json:"conclusion"`
+	UploadConclusion string `json:"upload_conclusion"`
 }
 
 func parseReceiptArtifactName(name string) (receiptArtifact, error) {
@@ -46,9 +55,58 @@ func parseReceiptArtifactName(name string) (receiptArtifact, error) {
 	return receiptArtifact{kind: parts[2], runID: parts[3], attempt: attempt, index: index}, nil
 }
 
-func collectEvidence(dir, sourceSHA, revision, version, runID string, runAttempt int) (string, error) {
+func readJobAttempts(path string) ([]jobAttempt, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read authoritative native job attempts: %w", err)
+	}
+	var jobs []jobAttempt
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&jobs); err != nil {
+		return nil, fmt.Errorf("decode authoritative native job attempts: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, errors.New("decode authoritative native job attempts: trailing data")
+	}
+	if len(jobs) == 0 {
+		return nil, errors.New("authoritative native job attempts are empty")
+	}
+	return jobs, nil
+}
+
+func collectEvidence(dir, sourceSHA, revision, version, runID string, runAttempt int, jobAttempts []jobAttempt) (string, error) {
 	latest := map[string]collectedReceipt{}
+	latestJobs := map[string]jobAttempt{}
 	var problems []string
+	for _, job := range jobAttempts {
+		if job.Kind != "cli" && job.Kind != "extension" {
+			problems = append(problems, fmt.Sprintf("authoritative job has invalid kind %q", job.Kind))
+			continue
+		}
+		p, err := findPlatform(job.Target)
+		if err != nil || p.Evidence != evidenceNative || job.Kind == "extension" && !p.Extension {
+			problems = append(problems, fmt.Sprintf("authoritative job names an unselected target %q", job.Target))
+			continue
+		}
+		if job.RunAttempt < 1 || job.RunAttempt > runAttempt {
+			problems = append(problems, fmt.Sprintf("%s %s has invalid authoritative attempt %d", job.Kind, job.Target, job.RunAttempt))
+			continue
+		}
+		if job.Conclusion == "" || job.UploadConclusion == "" {
+			problems = append(problems, fmt.Sprintf("%s %s attempt %d has incomplete authoritative job status", job.Kind, job.Target, job.RunAttempt))
+			continue
+		}
+		key := job.Kind + "/" + job.Target
+		prior, ok := latestJobs[key]
+		switch {
+		case !ok || job.RunAttempt > prior.RunAttempt:
+			latestJobs[key] = job
+		case job.RunAttempt == prior.RunAttempt:
+			problems = append(problems, fmt.Sprintf("%s has multiple authoritative jobs for attempt %d", key, job.RunAttempt))
+		}
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		problems = append(problems, err.Error())
@@ -98,10 +156,24 @@ func collectEvidence(dir, sourceSHA, revision, version, runID string, runAttempt
 			case kind == "extension" && !p.Extension:
 				cells = append(cells, "not selected")
 			default:
+				job, jobOK := latestJobs[key]
+				if !jobOK {
+					problems = append(problems, fmt.Sprintf("%s %s: no authoritative job result in run %s", kind, p.target(), runID))
+					cells = append(cells, "**missing or invalid**")
+					continue
+				}
+				if job.Conclusion != "success" || job.UploadConclusion != "success" {
+					problems = append(problems, fmt.Sprintf("%s %s: latest job attempt %d concluded %s with receipt upload %s", kind, p.target(), job.RunAttempt, job.Conclusion, job.UploadConclusion))
+					cells = append(cells, "**missing or invalid**")
+					continue
+				}
 				record, ok := latest[key]
 				switch {
 				case !ok:
 					problems = append(problems, fmt.Sprintf("%s %s: no receipt artifact in run %s", kind, p.target(), runID))
+					cells = append(cells, "**missing or invalid**")
+				case record.status.RunAttempt != job.RunAttempt:
+					problems = append(problems, fmt.Sprintf("%s %s: latest receipt attempt %d does not match authoritative job attempt %d", kind, p.target(), record.status.RunAttempt, job.RunAttempt))
 					cells = append(cells, "**missing or invalid**")
 				case record.status.Status != "success":
 					problems = append(problems, fmt.Sprintf("%s %s: latest attempt %d ended with status %s", kind, p.target(), record.status.RunAttempt, record.status.Status))

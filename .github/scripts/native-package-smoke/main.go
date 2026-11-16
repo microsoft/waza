@@ -93,17 +93,22 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		version := flags.String("version", "", "package version")
 		runID := flags.String("run-id", "", "exact GitHub Actions run ID")
 		runAttempt := flags.Int("run-attempt", 0, "current GitHub Actions run attempt")
+		jobsFile := flags.String("jobs-file", "", "authoritative per-attempt native job results from the GitHub API")
 		summary := flags.String("summary", "", "markdown summary file to append to")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		if *dir == "" || *sourceSHA == "" || *version == "" || *runID == "" || *runAttempt < 1 {
-			return fmt.Errorf("evidence requires -dir, -source-sha, -version, -run-id and positive -run-attempt")
+		if *dir == "" || *sourceSHA == "" || *version == "" || *runID == "" || *runAttempt < 1 || *jobsFile == "" {
+			return fmt.Errorf("evidence requires -dir, -source-sha, -version, -run-id, positive -run-attempt and -jobs-file")
 		}
 		if *revision == "" {
 			*revision = *sourceSHA
 		}
-		table, err := collectEvidence(*dir, *sourceSHA, *revision, *version, *runID, *runAttempt)
+		jobs, err := readJobAttempts(*jobsFile)
+		if err != nil {
+			return err
+		}
+		table, err := collectEvidence(*dir, *sourceSHA, *revision, *version, *runID, *runAttempt, jobs)
 		fmt.Fprint(stdout, table)
 		if *summary != "" {
 			if appendErr := appendFile(*summary, table); appendErr != nil && err == nil {

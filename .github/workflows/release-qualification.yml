@@ -34,6 +34,12 @@ on:
       dashboard_manifest_sha256:
         description: Digest of this run's exact-source dashboard manifest
         value: ${{ jobs.validation.outputs.dashboard_manifest_sha256 }}
+      dashboard_artifact_name:
+        description: Exact dashboard artifact name from its producer attempt
+        value: ${{ jobs.validation.outputs.dashboard_artifact_name }}
+      dashboard_run_attempt:
+        description: Attempt that produced the exact dashboard artifact
+        value: ${{ jobs.validation.outputs.dashboard_run_attempt }}
 
 permissions:
   contents: read
@@ -117,6 +123,7 @@ jobs:
       EVIDENCE_ARTIFACT_NAME: release-qualification-evidence-${{ needs.source.outputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       PACKAGE_ARTIFACT_NAME: release-qualification-package-${{ needs.source.outputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       RELEASE_DASHBOARD_MANIFEST_SHA256: ${{ needs.validation.outputs.dashboard_manifest_sha256 }}
+      RELEASE_DASHBOARD_RUN_ATTEMPT: ${{ needs.validation.outputs.dashboard_run_attempt }}
     steps:
       - name: Check out validated source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -135,7 +142,7 @@ jobs:
       - name: Download exact-source dashboard
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-dashboard-${{ needs.source.outputs.source_sha }}-${{ github.run_attempt }}
+          name: ${{ needs.validation.outputs.dashboard_artifact_name }}
           path: ${{ runner.temp }}/release-dashboard
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

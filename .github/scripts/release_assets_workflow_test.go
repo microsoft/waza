@@ -18,7 +18,9 @@ import (
 
 const dashboardArtifactPath = "${{ runner.temp }}/release-dashboard"
 const dashboardArtifactName = "release-dashboard-${{ github.sha }}-${{ github.run_attempt }}"
+const dashboardArtifactOutput = "${{ needs.qualification.outputs.dashboard_artifact_name }}"
 const dashboardManifestOutput = "${{ needs.qualification.outputs.dashboard_manifest_sha256 }}"
+const dashboardAttemptOutput = "${{ needs.qualification.outputs.dashboard_run_attempt }}"
 const dashboardConsumerPathSetup = `echo "RELEASE_DASHBOARD_ARTIFACT=$RUNNER_TEMP/release-dashboard" >> "$GITHUB_ENV"`
 
 var releaseExpressions = regexp.MustCompile(`\$\{\{(?s:.*?)\}\}`)
@@ -42,8 +44,9 @@ func validateReleaseDashboardConsumer(job releaseJob) error {
 	}
 	if steps["Set dashboard artifact path"].Run != dashboardConsumerPathSetup ||
 		job.Env["RELEASE_DASHBOARD_MANIFEST_SHA256"] != dashboardManifestOutput ||
+		job.Env["RELEASE_DASHBOARD_RUN_ATTEMPT"] != dashboardAttemptOutput ||
 		!strings.HasPrefix(download.Uses, "actions/download-artifact@") ||
-		!reflect.DeepEqual(download.With, map[string]string{"name": dashboardArtifactName, "path": "${{ env.RELEASE_DASHBOARD_ARTIFACT }}"}) ||
+		!reflect.DeepEqual(download.With, map[string]string{"name": dashboardArtifactOutput, "path": "${{ env.RELEASE_DASHBOARD_ARTIFACT }}"}) ||
 		steps["Install exact-source dashboard"].Run != "bash .github/scripts/release_dashboard_handoff.sh install" ||
 		steps["Require built dashboard output"].Run != releaseDashboardCheck {
 		return fmt.Errorf("consumer must install same-run/source/attempt dashboard with independent producer digest and semantic admission")
@@ -52,7 +55,7 @@ func validateReleaseDashboardConsumer(job releaseJob) error {
 		if strings.Contains(step.Run, "npm ") {
 			return fmt.Errorf("consumer must not rebuild the producer dashboard")
 		}
-		for _, key := range []string{"RELEASE_DASHBOARD_ARTIFACT", "RELEASE_DASHBOARD_MANIFEST_SHA256"} {
+		for _, key := range []string{"RELEASE_DASHBOARD_ARTIFACT", "RELEASE_DASHBOARD_MANIFEST_SHA256", "RELEASE_DASHBOARD_RUN_ATTEMPT"} {
 			if _, override := step.Env[key]; override {
 				return fmt.Errorf("consumer step cannot override dashboard identity")
 			}
@@ -141,7 +144,11 @@ func validateReleaseDashboardProducer(source []byte) error {
 	steps := releaseSteps(build)
 	pack, upload := steps["Pack exact-source dashboard"], steps["Upload exact-source dashboard"]
 	if workflow.On.Call.Outputs["dashboard_manifest_sha256"].Value != "${{ jobs.build-test.outputs.dashboard_manifest_sha256 }}" ||
+		workflow.On.Call.Outputs["dashboard_artifact_name"].Value != "${{ jobs.build-test.outputs.dashboard_artifact_name }}" ||
+		workflow.On.Call.Outputs["dashboard_run_attempt"].Value != "${{ jobs.build-test.outputs.dashboard_run_attempt }}" ||
 		build.Outputs["dashboard_manifest_sha256"] != "${{ steps.dashboard.outputs.manifest_sha256 }}" ||
+		build.Outputs["dashboard_artifact_name"] != "${{ steps.dashboard.outputs.artifact_name }}" ||
+		build.Outputs["dashboard_run_attempt"] != "${{ steps.dashboard.outputs.run_attempt }}" ||
 		pack.ID != "dashboard" || pack.Env["RELEASE_DASHBOARD_ARTIFACT"] != dashboardArtifactPath ||
 		pack.Run != `bash .github/scripts/release_dashboard_handoff.sh pack >> "$GITHUB_OUTPUT"` ||
 		!strings.HasPrefix(upload.Uses, "actions/upload-artifact@") ||
@@ -172,6 +179,8 @@ func TestReleaseDashboardWorkflowHandoff(t *testing.T) {
 	for _, mutation := range []struct{ old, new string }{
 		{"${{ jobs.build-test.outputs.dashboard_manifest_sha256 }}", "unbound"},
 		{"${{ steps.dashboard.outputs.manifest_sha256 }}", "unbound"},
+		{"${{ jobs.build-test.outputs.dashboard_artifact_name }}", "unbound"},
+		{"${{ steps.dashboard.outputs.run_attempt }}", "unbound"},
 		{"id: dashboard", "id: other"},
 		{"  build-test:\n", "  build-test:\n    if: 'false'\n"},
 		{"  build-test:\n", "  build-test:\n    continue-on-error: true\n"},
@@ -196,14 +205,17 @@ func TestReleaseDashboardWorkflowHandoff(t *testing.T) {
 	}
 	for _, mutation := range []struct{ old, new string }{
 		{dashboardManifestOutput, "unbound"},
-		{dashboardArtifactName, "release-dashboard-other-source"},
+		{dashboardArtifactOutput, "release-dashboard-other-source"},
 		{dashboardConsumerPathSetup, "':'"},
 		{"name: Set dashboard artifact path", "name: Missing path setup"},
 		{"path: ${{ env.RELEASE_DASHBOARD_ARTIFACT }}", "path: /unbound-artifact"},
 		{"      RELEASE_DASHBOARD_MANIFEST_SHA256: " + dashboardManifestOutput,
 			"      RELEASE_DASHBOARD_ARTIFACT: " + dashboardArtifactPath + "\n      RELEASE_DASHBOARD_MANIFEST_SHA256: " + dashboardManifestOutput},
+		{"      RELEASE_DASHBOARD_RUN_ATTEMPT: " + dashboardAttemptOutput,
+			"      RELEASE_DASHBOARD_RUN_ATTEMPT: ${{ github.run_attempt }}"},
 		{"run: bash .github/scripts/release_dashboard_handoff.sh install", "run: npm ci && npm run build"},
-		{"name: release-dashboard-${{ github.sha }}-${{ github.run_attempt }}", "name: release-dashboard-${{ github.sha }}-${{ github.run_attempt }}\n          run-id: '123'"},
+		{"name: ${{ needs.qualification.outputs.dashboard_artifact_name }}",
+			"name: ${{ needs.qualification.outputs.dashboard_artifact_name }}\n          run-id: '123'"},
 	} {
 		changed := strings.Replace(string(consumers), mutation.old, mutation.new, 1)
 		if changed == string(consumers) {
@@ -244,7 +256,7 @@ exec "$(dirname "$0")/$program" "$@"
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, state := range []string{"valid", "alternative-valid", "relative-assets", "root-base", "comment-reference", "inert-reference", "symlink-root", "dirty-before-pack", "missing-before-pack", "missing-artifact", "wrong-sha", "stale-manifest-source", "wrong-run", "wrong-attempt",
+	for _, state := range []string{"valid", "producer-attempt", "alternative-valid", "relative-assets", "root-base", "comment-reference", "inert-reference", "symlink-root", "dirty-before-pack", "missing-before-pack", "missing-artifact", "wrong-sha", "stale-manifest-source", "wrong-run", "wrong-attempt",
 		"wrong-digest", "missing-digest", "digest-mismatch", "missing-member", "truncated", "dirty-equal-source", "dirty-after-install"} {
 		t.Run(state, func(t *testing.T) {
 			dir := t.TempDir()
@@ -340,10 +352,12 @@ exec "$(dirname "$0")/$program" "$@"
 				}
 				return
 			}
-			if err != nil || !strings.HasPrefix(string(output), "manifest_sha256=") || len(strings.TrimSpace(string(output))) != 80 {
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			if err != nil || len(lines) != 3 || !strings.HasPrefix(lines[0], "manifest_sha256=") ||
+				lines[1] != "artifact_name=release-dashboard-"+sha+"-1" || lines[2] != "run_attempt=1" {
 				t.Fatalf("production pack did not emit exact independent digest: %v\n%s", err, output)
 			}
-			digest := strings.TrimSpace(strings.TrimPrefix(string(output), "manifest_sha256="))
+			digest := strings.TrimPrefix(lines[0], "manifest_sha256=")
 			artifact := filepath.Join(dir, "artifact")
 			member := filepath.Join(artifact, "web", "dist", "assets", "index-abcdefgh.js")
 			switch state {
@@ -369,6 +383,8 @@ exec "$(dirname "$0")/$program" "$@"
 				env = append(env, "GITHUB_RUN_ID=456")
 			case "wrong-attempt":
 				env = append(env, "GITHUB_RUN_ATTEMPT=2")
+			case "producer-attempt":
+				env = append(env, "GITHUB_RUN_ATTEMPT=2", "RELEASE_DASHBOARD_RUN_ATTEMPT=1")
 			case "wrong-digest":
 				digest = strings.Repeat("0", 64)
 			case "missing-digest":
@@ -398,7 +414,7 @@ exec "$(dirname "$0")/$program" "$@"
 			}
 			env = append(env, "RELEASE_DASHBOARD_MANIFEST_SHA256="+digest)
 			output, err = run("install", env)
-			valid := state == "valid" || state == "alternative-valid" || state == "dirty-after-install" ||
+			valid := state == "valid" || state == "producer-attempt" || state == "alternative-valid" || state == "dirty-after-install" ||
 				state == "relative-assets" || state == "root-base" || state == "comment-reference" ||
 				state == "inert-reference" || state == "symlink-root"
 			if (err == nil) != valid {

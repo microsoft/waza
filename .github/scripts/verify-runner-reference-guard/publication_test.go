@@ -13,7 +13,8 @@ func TestRunPublication(t *testing.T) {
 	const invocation = "https://github.com/microsoft/waza/actions/runs/42/attempts/2"
 	const endpoint = "repos/microsoft/waza/actions/runs/42/attempts/2"
 	for _, name := range []string{
-		"valid", "valid release tag", "skipped release provenance", "failed finalization", "canceled run", "incomplete run", "later successful attempt",
+		"valid", "valid release tag", "skipped release provenance", "failed finalization", "canceled run",
+		"publisher complete while downstream jobs run", "later failed unrelated job", "later successful attempt",
 		"wrong source", "wrong repository", "wrong workflow", "wrong branch", "wrong event",
 		"missing publisher job", "skipped publisher job", "missing final guard", "failed final guard",
 		"skipped attestation", "skipped summary", "skipped inventory", "duplicate publisher job",
@@ -79,11 +80,22 @@ func TestRunPublication(t *testing.T) {
 					jobsJSON = string(encoded)
 				}
 			case "failed finalization":
-				run.Conclusion = "failure"
+				var pages []publicationJobs
+				if err := json.Unmarshal([]byte(jobsJSON), &pages); err != nil {
+					t.Fatal(err)
+				}
+				pages[1].Jobs[0].Steps[0].Conclusion = "failure"
+				encoded, err := json.Marshal(pages)
+				if err != nil {
+					t.Fatal(err)
+				}
+				jobsJSON = string(encoded)
 			case "canceled run":
 				run.Conclusion = "cancelled" //nolint:misspell // GitHub's exact run conclusion.
-			case "incomplete run":
+			case "publisher complete while downstream jobs run":
 				run.Status = "in_progress"
+			case "later failed unrelated job":
+				run.Conclusion = "failure"
 			case "later successful attempt":
 				run.RunAttempt = "3"
 			case "wrong source":
@@ -172,14 +184,15 @@ func TestRunPublication(t *testing.T) {
 					return nil, nil
 				}
 			})
-			if name == "valid" || name == "valid release tag" {
+			if name == "valid" || name == "valid release tag" || name == "canceled run" ||
+				name == "publisher complete while downstream jobs run" || name == "later failed unrelated job" {
 				if err != nil || len(calls) != 2 {
 					t.Fatalf("valid finalized run rejected: %v; API calls: %v", err, calls)
 				}
 			} else if err == nil {
 				t.Fatal("invalid publication accepted")
 			}
-			if name == "failed finalization" && !strings.Contains(err.Error(), "did not successfully complete") {
+			if name == "failed finalization" && !strings.Contains(err.Error(), "publisher finalization step") {
 				t.Fatalf("signed digest must be rejected specifically for failed publisher finalization: %v", err)
 			}
 		})

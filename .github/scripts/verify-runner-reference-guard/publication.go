@@ -94,8 +94,8 @@ func requireFinalizedRun(invocation, source string, api func(string) ([]byte, er
 	if run.ID.String() != match[1] || run.RunAttempt.String() != match[2] ||
 		run.Repository.FullName != "microsoft/waza" ||
 		(!legacyManualPublication && !tagReleasePublication) ||
-		run.HeadSHA != source || run.Status != "completed" || run.Conclusion != "success" {
-		return fmt.Errorf("signed publisher invocation %s did not successfully complete for source %s", invocation, source)
+		run.HeadSHA != source {
+		return fmt.Errorf("signed publisher invocation %s does not identify the expected repository, workflow, attempt, and source %s", invocation, source)
 	}
 	data, err = api(endpoint + "/jobs?per_page=100")
 	if err != nil {

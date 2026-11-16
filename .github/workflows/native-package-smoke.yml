@@ -241,6 +241,9 @@ jobs:
     continue-on-error: ${{ inputs.report_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -259,10 +262,35 @@ jobs:
           pattern: native-smoke-*-${{ github.run_id }}-*
           path: ${{ runner.temp }}/receipts
 
+      - name: Capture authoritative native job attempts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            for attempt in $(seq 1 "$GITHUB_RUN_ATTEMPT"); do
+              gh api --paginate \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$attempt/jobs?per_page=100" |
+                jq -c '
+                  .jobs[]
+                  | select((.name | startswith("native-smoke / CLI ")) or (.name | startswith("native-smoke / Extension ")))
+                  | {
+                      kind: (if (.name | startswith("native-smoke / CLI ")) then "cli" else "extension" end),
+                      target: (.name | sub("^native-smoke / (CLI|Extension) "; "")),
+                      run_attempt,
+                      conclusion,
+                      upload_conclusion: ([.steps[]? | select(.name == "Upload native receipt and status") | .conclusion] | first // "missing")
+                    }'
+            done
+          } | jq -s . > "$RUNNER_TEMP/native-smoke-job-attempts.json"
+
       - name: Require complete native evidence
         run: >-
           go run ./.github/scripts/native-package-smoke evidence
           -dir "$RUNNER_TEMP/receipts" -source-sha "${{ inputs.source_sha }}"
           -revision "${{ inputs.package_revision || inputs.source_sha }}"
           -version "${{ inputs.version }}" -run-id "${{ github.run_id }}"
-          -run-attempt "${{ github.run_attempt }}" -summary "$GITHUB_STEP_SUMMARY"
+          -run-attempt "${{ github.run_attempt }}"
+          -jobs-file "$RUNNER_TEMP/native-smoke-job-attempts.json"
+          -summary "$GITHUB_STEP_SUMMARY"

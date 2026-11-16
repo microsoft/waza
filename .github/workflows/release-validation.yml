@@ -6,6 +6,12 @@ on:
       dashboard_manifest_sha256:
         description: Digest of this run's exact-source dashboard manifest
         value: ${{ jobs.build-test.outputs.dashboard_manifest_sha256 }}
+      dashboard_artifact_name:
+        description: Exact dashboard artifact name from its producer attempt
+        value: ${{ jobs.build-test.outputs.dashboard_artifact_name }}
+      dashboard_run_attempt:
+        description: Attempt that produced the exact dashboard artifact
+        value: ${{ jobs.build-test.outputs.dashboard_run_attempt }}
 
 permissions:
   contents: read
@@ -20,6 +26,8 @@ jobs:
     timeout-minutes: 60
     outputs:
       dashboard_manifest_sha256: ${{ steps.dashboard.outputs.manifest_sha256 }}
+      dashboard_artifact_name: ${{ steps.dashboard.outputs.artifact_name }}
+      dashboard_run_attempt: ${{ steps.dashboard.outputs.run_attempt }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

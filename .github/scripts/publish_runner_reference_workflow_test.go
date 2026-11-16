@@ -2,6 +2,7 @@ package scripts
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -135,10 +136,13 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 		!strings.Contains(guard.Run, `test "$QUALIFICATION_ARTIFACT_NAME" = "$expected_artifact"`) {
 		t.Fatalf("publication must require the exact tag release source: %#v", guard)
 	}
-	if missingTag := findStep(publish.Steps, "Refuse to replace an existing release image tag"); missingTag == nil ||
-		!strings.Contains(missingTag.Run, "skopeo inspect --authfile") ||
-		!strings.Contains(missingTag.Run, "Could not prove the release image tag is absent") {
-		t.Fatal("release publication must refuse to replace a versioned image tag")
+	if admitTag := findStep(publish.Steps, "Admit existing release image only at the qualified digest"); admitTag == nil ||
+		admitTag.ID != "existing_image" ||
+		!strings.Contains(admitTag.Run, "skopeo inspect --authfile") ||
+		!strings.Contains(admitTag.Run, `"$remote_digest" != "$IMAGE_DIGEST"`) ||
+		!strings.Contains(admitTag.Run, `printf '%s\n' "$IMAGE_DIGEST" > "$RUNNER_TEMP/published-image.digest"`) ||
+		!strings.Contains(admitTag.Run, "Could not prove the release image tag is absent") {
+		t.Fatal("release publication must allow only an exact-digest idempotent retry")
 	}
 	if !hasRun(publish.Steps, "git status --porcelain --untracked-files=all") {
 		t.Fatal("publication must reject a non-clean source checkout")
@@ -200,7 +204,8 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 	if login == nil || login.Env["GHCR_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" {
 		t.Fatal("only the publication job should expose its scoped GITHUB_TOKEN to GHCR login")
 	}
-	if publishImage == nil || !strings.Contains(publishImage.Run, "skopeo copy --preserve-digests") ||
+	if publishImage == nil || publishImage.If != "steps.existing_image.outputs.already_published != 'true'" ||
+		!strings.Contains(publishImage.Run, "skopeo copy --preserve-digests") ||
 		!strings.Contains(publishImage.Run, "oci-archive:$RUNNER_TEMP/qualification/runner-image.oci.tar") ||
 		!strings.Contains(publishImage.Run, "test \"$published_digest\" = \"$IMAGE_DIGEST\"") ||
 		!strings.Contains(publishImage.Run, "test \"$remote_digest\" = \"$IMAGE_DIGEST\"") {
@@ -251,7 +256,7 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 		}
 		return -1
 	}
-	if stepIndex(publish.Steps, "Refuse to replace an existing release image tag") >= stepIndex(publish.Steps, publishImage.Name) ||
+	if stepIndex(publish.Steps, "Admit existing release image only at the qualified digest") >= stepIndex(publish.Steps, publishImage.Name) ||
 		stepIndex(publish.Steps, publishImage.Name) >= stepIndex(publish.Steps, imageAttestation.Name) ||
 		stepIndex(publish.Steps, imageAttestation.Name) >= stepIndex(publish.Steps, verifyProvenance.Name) ||
 		stepIndex(publish.Steps, verifyProvenance.Name) >= stepIndex(publish.Steps, inventoryAttestation.Name) ||
@@ -268,6 +273,8 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 	}
 	failureSummary := findStep(publish.Steps, "Mark incomplete release image publication")
 	if failureSummary == nil || !strings.Contains(failureSummary.If, "steps.publish_image.outcome == 'success'") ||
+		!strings.Contains(failureSummary.If, "steps.publish_image.outcome == 'failure'") ||
+		!strings.Contains(failureSummary.If, "steps.existing_image.outputs.already_published == 'true'") ||
 		!strings.Contains(failureSummary.If, "steps.image_attestation.outcome != 'success'") ||
 		!strings.Contains(failureSummary.If, "steps.verify_provenance.outcome != 'success'") ||
 		!strings.Contains(failureSummary.If, "steps.inventory_attestation.outcome != 'success'") ||
@@ -348,8 +355,10 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 	if err := workflow.On.Content[3].Decode(&qualificationCall); err != nil {
 		t.Fatal(err)
 	}
-	if qualificationCall.Outputs["evidence_run_attempt"].Value != "${{ jobs.qualify.outputs.evidence_run_attempt }}" {
-		t.Fatalf("qualification reusable output must expose the evidence producer attempt: %#v", qualificationCall.Outputs)
+	if qualificationCall.Outputs["evidence_run_attempt"].Value != "${{ jobs.qualify.outputs.evidence_run_attempt }}" ||
+		qualificationCall.Outputs["dashboard_artifact_name"].Value != "${{ jobs.validation.outputs.dashboard_artifact_name }}" ||
+		qualificationCall.Outputs["dashboard_run_attempt"].Value != "${{ jobs.validation.outputs.dashboard_run_attempt }}" {
+		t.Fatalf("qualification reusable outputs must expose producer-bound dashboard and evidence identities: %#v", qualificationCall.Outputs)
 	}
 	evidenceName := findStep(qualifyJob.Steps, "Expose exact evidence artifact name")
 	if evidenceName == nil || evidenceName.ID != "evidence" ||
@@ -387,12 +396,13 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 	}
 	dashboardDownload := findStep(qualifyJob.Steps, "Download exact-source dashboard")
 	if dashboardDownload == nil || dashboardDownload.Uses != "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333" ||
-		dashboardDownload.With["name"] != "release-dashboard-${{ needs.source.outputs.source_sha }}-${{ github.run_attempt }}" ||
+		dashboardDownload.With["name"] != "${{ needs.validation.outputs.dashboard_artifact_name }}" ||
 		dashboardDownload.With["path"] != "${{ runner.temp }}/release-dashboard" {
-		t.Fatalf("qualification must consume the exact-source validation dashboard outside the checkout: %#v", dashboardDownload)
+		t.Fatalf("qualification must consume the producer-attempt validation dashboard outside the checkout: %#v", dashboardDownload)
 	}
-	if qualifyJob.Env["RELEASE_DASHBOARD_MANIFEST_SHA256"] != "${{ needs.validation.outputs.dashboard_manifest_sha256 }}" {
-		t.Fatal("qualification must bind the dashboard handed off by exact-source validation")
+	if qualifyJob.Env["RELEASE_DASHBOARD_MANIFEST_SHA256"] != "${{ needs.validation.outputs.dashboard_manifest_sha256 }}" ||
+		qualifyJob.Env["RELEASE_DASHBOARD_RUN_ATTEMPT"] != "${{ needs.validation.outputs.dashboard_run_attempt }}" {
+		t.Fatal("qualification must bind the dashboard digest and producer attempt handed off by exact-source validation")
 	}
 	if upload := findStep(qualifyJob.Steps, "Upload exact qualification evidence"); upload == nil ||
 		upload.With["name"] != "${{ env.EVIDENCE_ARTIFACT_NAME }}" {
@@ -437,6 +447,82 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 				t.Errorf("action %q is not pinned to a full commit SHA", step.Uses)
 			}
 		}
+	}
+}
+
+func TestExistingReleaseImageRetryRequiresExactDigest(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "publish-runner-reference.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow runnerReferenceWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	step := findStep(workflow.Jobs["publish"].Steps, "Admit existing release image only at the qualified digest")
+	if step == nil {
+		t.Fatal("missing existing image digest admission")
+	}
+	bashEnv := filepath.Join(t.TempDir(), "bash-env")
+	if err := os.WriteFile(bashEnv, []byte(`skopeo() {
+  case " $* " in
+    *" --raw "*)
+      case "$FAKE_MODE" in
+        exact|different) printf '{"schemaVersion":2}\n' ;;
+        missing) echo 'manifest unknown' >&2; return 1 ;;
+        error) echo 'permission denied' >&2; return 1 ;;
+      esac
+      ;;
+    *" --format "*)
+      printf '%s\n' "$FAKE_DIGEST"
+      ;;
+    *) return 99 ;;
+  esac
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name       string
+		mode       string
+		digest     string
+		wantErr    bool
+		wantAdmit  string
+		wantDigest bool
+	}{
+		{name: "exact digest retry", mode: "exact", digest: "sha256:qualified", wantAdmit: "already_published=true", wantDigest: true},
+		{name: "different digest", mode: "different", digest: "sha256:other", wantErr: true},
+		{name: "absent tag", mode: "missing", wantAdmit: "already_published=false"},
+		{name: "unknown registry error", mode: "error", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			outputPath := filepath.Join(dir, "github-output")
+			cmd := exec.Command("bash", "-euo", "pipefail", "-c", step.Run)
+			cmd.Env = append(os.Environ(),
+				"BASH_ENV="+bashEnv, "HOME="+dir, "RUNNER_TEMP="+dir,
+				"GITHUB_OUTPUT="+outputPath, "VERSION=0.42.0",
+				"IMAGE_DIGEST=sha256:qualified", "FAKE_MODE="+test.mode, "FAKE_DIGEST="+test.digest,
+			)
+			output, err := cmd.CombinedOutput()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("admission error = %v, wantErr %t\n%s", err, test.wantErr, output)
+			}
+			if test.wantErr {
+				return
+			}
+			recorded, err := os.ReadFile(outputPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(recorded), test.wantAdmit) {
+				t.Fatalf("admission output = %q, want %q", recorded, test.wantAdmit)
+			}
+			_, err = os.Stat(filepath.Join(dir, "published-image.digest"))
+			if (err == nil) != test.wantDigest {
+				t.Fatalf("published digest present = %t, want %t (error %v)", err == nil, test.wantDigest, err)
+			}
+		})
 	}
 }
 
