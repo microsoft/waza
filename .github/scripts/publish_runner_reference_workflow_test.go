@@ -294,7 +294,7 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 		}
 		wantCommand := "go test -count=1 -v ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard ./.github/scripts/release-assets-helper"
 		if strings.Contains(workflowName, "release") {
-			wantCommand = "go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
+			wantCommand = "go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/attestation-policy ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard"
 		}
 		if !strings.Contains(string(workflow), wantCommand) {
 			t.Errorf("%s must explicitly select both hidden image guard packages' negative-path tests", workflowName)
