@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/usage-telemetry-1.0.schema.json",
+  "title": "Waza product usage telemetry event 1.0",
+  "description": "Closed v1 contract for opt-out product usage events. Every field is an approved enum, bucket, boolean, or random UUIDv4. Events never carry prompts, outputs, argv, paths, names, raw errors, environment values, URLs, hashes, or OpenTelemetry attributes. Serialized events must not exceed 4096 bytes.",
+  "type": "object",
+  "required": ["schema_version", "event_id", "event", "waza_version", "os", "arch", "distribution", "ci"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "event_id": {"$ref": "#/$defs/uuid_v4"},
+    "event": {"enum": ["command_completed", "execution_completed", "feature_used"]},
+    "waza_version": {"type": "string", "pattern": "^(?:(?:0|[1-9][0-9]{0,3})\\.(?:0|[1-9][0-9]{0,3})\\.(?:0|[1-9][0-9]{0,3})|dev|other)$"},
+    "os": {"enum": ["windows", "linux", "darwin", "other"]},
+    "arch": {"enum": ["amd64", "arm64", "other"]},
+    "distribution": {"enum": ["standalone", "azd_extension", "dev"]},
+    "ci": {"type": "boolean"},
+    "installation_id": {"$ref": "#/$defs/uuid_v4"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"ci": {"const": true}}},
+      "then": {"not": {"required": ["installation_id"]}},
+      "else": {"required": ["installation_id"]}
+    }
+  ],
+  "oneOf": [
+    {
+      "properties": {
+        "schema_version": true, "event_id": true, "waza_version": true, "os": true, "arch": true,
+        "distribution": true, "ci": true, "installation_id": true,
+        "event": {"const": "command_completed"},
+        "command": {"$ref": "#/$defs/command"},
+        "outcome": {"enum": ["success", "test_failed", "setup_error", "runtime_error", "canceled"]},
+        "duration_bucket": {"$ref": "#/$defs/duration_bucket"}
+      },
+      "required": ["command", "outcome", "duration_bucket"],
+      "additionalProperties": false
+    },
+    {
+      "properties": {
+        "schema_version": true, "event_id": true, "waza_version": true, "os": true, "arch": true,
+        "distribution": true, "ci": true, "installation_id": true,
+        "event": {"const": "execution_completed"},
+        "surface": {"enum": ["benchmark", "runner_unit"]},
+        "execution_mode": {"enum": ["live", "mock"]},
+        "outcome": {"enum": ["passed", "failed", "error", "canceled"]},
+        "task_count_bucket": {"$ref": "#/$defs/count_bucket"},
+        "duration_bucket": {"$ref": "#/$defs/duration_bucket"}
+      },
+      "required": ["surface", "execution_mode", "outcome", "task_count_bucket", "duration_bucket"],
+      "additionalProperties": false
+    },
+    {
+      "properties": {
+        "schema_version": true, "event_id": true, "waza_version": true, "os": true, "arch": true,
+        "distribution": true, "ci": true, "installation_id": true,
+        "event": {"const": "feature_used"},
+        "feature": {"enum": ["llm_judge", "http_api", "dashboard", "mcp_server"]}
+      },
+      "required": ["feature"],
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "uuid_v4": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "duration_bucket": {"enum": ["lt_1s", "1s_10s", "10s_1m", "1m_10m", "10m_1h", "ge_1h"]},
+    "count_bucket": {"enum": ["0", "1", "2_5", "6_20", "21_100", "gt_100"]},
+    "command": {
+      "enum": [
+        "root", "unknown",
+        "adversarial", "aggregate",
+        "artifact", "artifact create", "artifact finalize", "artifact inspect", "artifact upload",
+        "assure", "assure calibrate",
+        "cache", "cache clear",
+        "check", "compare", "compare-assurance-plan", "compare-collect", "compare-plan", "coverage",
+        "dev", "gate", "get", "grade", "init",
+        "interop", "interop export", "interop import",
+        "isolation", "isolation preflight",
+        "migrate", "models",
+        "new", "new eval", "new skill", "new task", "new task from-prompt",
+        "optimize", "optimize capabilities", "optimize run",
+        "preflight", "quality",
+        "registry", "registry add", "registry search",
+        "replay",
+        "results", "results compare", "results list",
+        "run",
+        "runner", "runner adapt", "runner adapter", "runner adapter dispatch", "runner adapter translate",
+        "runner assurance", "runner assurance build", "runner budgets", "runner capabilities",
+        "runner checkpoint", "runner checkpoint availability", "runner checkpoint create", "runner checkpoint resume",
+        "runner inventory", "runner inventory generate", "runner inventory verify",
+        "runner lineage", "runner negotiate",
+        "runner provenance", "runner provenance generate", "runner provenance keygen", "runner provenance verify",
+        "runner run", "runner submit", "runner telemetry", "runner validate",
+        "serve",
+        "session", "session list", "session view",
+        "spec", "spec verify",
+        "suggest",
+        "tokens", "tokens check", "tokens compare", "tokens count", "tokens profile", "tokens suggest",
+        "update"
+      ]
+    }
+  }
+}

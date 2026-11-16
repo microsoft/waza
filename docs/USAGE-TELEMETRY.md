@@ -1,0 +1,114 @@
+# Product Usage Telemetry
+
+Waza includes an opt-out product usage telemetry client (#1045) so the Waza team
+can learn which commands and features are used, how often evaluations succeed,
+and which platforms to support. It is separate from:
+
+- [OpenTelemetry trace export](https://microsoft.github.io/waza/guides/otel/)
+  (`--otel-*`), which you control and send to your own backend;
+- [execution telemetry correlation](EXECUTION_TELEMETRY.md) and evaluation
+  results, exports, artifacts, and storage uploads;
+- model provider calls made by the agent or LLM judges;
+- the [automatic update check](../README.md#update-notifications).
+
+None of these are product usage telemetry, and product usage telemetry never
+reads or forwards their data.
+
+## Current status: inert
+
+> **No usage data is sent by this build.** The client ships complete but
+> inactive. No collector endpoint is compiled in, so Waza makes zero usage
+> telemetry network requests, creates no installation identifier, and keeps no
+> event queue.
+
+Activation is gated on all of the following, none of which is part of this
+change:
+
+1. Microsoft privacy and security approval.
+2. A ready team collector with approved ingress and retention.
+3. An explicit decision on the collection default and on CI collection.
+4. A coordinated live smoke test against that collector.
+
+Until then, collection is off by default, CI collection is off, and the
+endpoint can only be set at build time. Waza never prompts you to opt in.
+`waza telemetry status` reports why collection is inactive.
+
+## Opting out
+
+Any opt-out wins over every other setting, including `waza telemetry enable`:
+
+| Control | Scope |
+|---------|-------|
+| `WAZA_TELEMETRY_OPTOUT=1` (or `true`) | Process and its children |
+| `--no-telemetry` | One invocation and its children |
+| `waza telemetry disable` | Persistent, per user |
+| `telemetry: { disabled: true }` in `.waza.yaml` | Project |
+| `DO_NOT_TRACK=1` | Host-wide convention |
+| `AZURE_DEV_COLLECT_TELEMETRY=no` | Inherited from `azd` |
+
+An invalid or unreadable telemetry settings file, or an invalid `telemetry`
+section in `.waza.yaml`, also disables collection. Policy is resolved before
+any command runs. A denial is exported to child processes, servers, and the
+dashboard through `WAZA_TELEMETRY_OPTOUT=1`.
+
+## Commands
+
+All `waza telemetry` subcommands are local-only, send nothing, and are never
+themselves collected.
+
+| Command | Effect |
+|---------|--------|
+| `waza telemetry status` | Show whether collection is active, why, the persistent setting, and whether an installation ID exists |
+| `waza telemetry disable` | Persistently disable collection, delete the installation ID, and discard pending events |
+| `waza telemetry enable` | Remove a persistent disable; opt-outs and activation gates still apply |
+| `waza telemetry reset-id` | Delete the installation ID |
+
+Settings are stored in `~/.waza/telemetry.json`. Updates are serialized across waza processes with a short-lived `telemetry.json.lock` file. Other running waza processes re-check these settings before every request, so a `disable` or `reset-id` also stops their pending events.
+
+## What would be collected
+
+Every event follows the closed v1 contract
+[`schemas/usage-telemetry-1.0.schema.json`](../schemas/usage-telemetry-1.0.schema.json).
+Events are at most 4 KiB, and Waza drops any event that fails validation.
+Every value is an approved enum, a bucket, a boolean, or a random UUIDv4.
+
+| Field | Values |
+|-------|--------|
+| `schema_version` | `1.0` |
+| `event_id` | Random UUIDv4, reused when a delivery is retried |
+| `event` | `command_completed`, `execution_completed`, `feature_used` |
+| `waza_version` | `X.Y.Z`, `dev`, or `other` |
+| `os` / `arch` | `windows`, `linux`, `darwin`, `other` / `amd64`, `arm64`, `other` |
+| `distribution` | `standalone`, `azd_extension`, `dev` |
+| `ci` | Whether a CI environment was detected |
+| `installation_id` | Random, resettable UUIDv4; never sent from CI |
+| `command` | Command path from the command tree, for example `run` or `runner submit`; otherwise `root` or `unknown` |
+| `outcome` | Commands: `success`, `test_failed`, `setup_error`, `runtime_error`, `canceled`. Executions: `passed`, `failed`, `error`, `canceled` |
+| `duration_bucket` | `lt_1s`, `1s_10s`, `10s_1m`, `1m_10m`, `10m_1h`, `ge_1h` |
+| `surface` | `benchmark`, `runner_unit` |
+| `execution_mode` | `live`, `mock` |
+| `task_count_bucket` | `0`, `1`, `2_5`, `6_20`, `21_100`, `gt_100` |
+| `feature` | `llm_judge`, `http_api`, `dashboard`, `mcp_server`, recorded at most once per process |
+
+Each logical evaluation execution is counted once. Waza never sends prompts,
+outputs, arguments, flag values, paths, file or skill names, raw errors,
+environment values, URLs, hashes, or OpenTelemetry attributes. The
+installation ID is pseudonymous: it is random, is not derived from your machine
+or account, and is deleted by `disable` or `reset-id`.
+
+## Delivery
+
+Events are kept in memory only, capped per process, and sent best-effort over
+HTTPS when the process exits. Delivery is bounded by a short shutdown deadline
+of about one second, with one retry. Slow, failing, or offline collectors drop
+events silently. Telemetry never changes results, output, exit status, or
+diagnostic tracing.
+
+Known limitation: a CI system that Waza does not detect is treated as a
+developer machine.
+
+## Retention and privacy
+
+The collector owner will define retention when the collector is approved; it is
+not decided yet. See the
+[Microsoft Privacy Statement](https://go.microsoft.com/fwlink/?LinkId=521839).

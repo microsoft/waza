@@ -286,12 +286,14 @@ func (s *Service) Submit(ctx context.Context, data []byte, backend artifactmanif
 	// Tracking observes the budgeted context, so the journal records the
 	// effective deadline and budget stops; it ends before the meter releases it.
 	attemptCtx, finishBudget := startBudget(ctx, input)
+	started := time.Now()
 	report = finishBudget(trackLifecycle(attemptCtx, recorder, interval, func(ctx context.Context) Report {
 		if executor.dispatch != nil {
 			return executor.dispatch(ctx, report, input)
 		}
 		return executor.executeUnmetered(ctx, report, input, false)
 	}))
+	recordUsage(ctx, report, time.Since(started))
 	envelope, terminalBinding := terminal(report)
 	finishLifecycle(recorder, envelope.Outcome)
 	if err := recorder.close(executionlifecycle.DefaultWriteBound); err != nil && result.lifecycleErr == nil {

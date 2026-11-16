@@ -15,6 +15,7 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 )
 
 const AllPromptsPassed = "All prompts passed"
@@ -122,6 +123,7 @@ func validatePromptSeed(name string, args models.PromptGraderParameters) error {
 
 // Grade implements [Grader].
 func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
+	usagetelemetry.RecordFeature(usagetelemetry.FeatureLLMJudge)
 	if p.args.EvidenceContext != nil {
 		return p.gradeEvidence(ctx, gradingContext)
 	}
