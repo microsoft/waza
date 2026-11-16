@@ -678,8 +678,14 @@ rm "$log"
 		{controlStep, controlStep + "        shell: bash -c true {0}\n"},
 		{controlStep, controlStep + "        shell: bash -e {0}\n"},
 		{"        os: [windows-latest]", "        os: [ubuntu-latest]"},
-		{"-timeout=5m", "-timeout=0"},
-		{"-count=1 -v -timeout=5m", "-count=1 -timeout=5m"},
+		{
+			`go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+			`go test -count=1 -v -timeout=0 -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+		},
+		{
+			`go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+			`go test -count=1 -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+		},
 		{"OrdinaryShellOverridesAndDisabledPaths)$", "MissingControl)$"},
 		{`          if grep -q -- '--- SKIP:' "$log"; then`, "          if false; then"},
 		{`            grep -Fxq "=== RUN   $control" "$log"`, ":"},
