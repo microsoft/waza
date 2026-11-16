@@ -19,6 +19,10 @@ on:
         description: Exact run-attempt qualification artifact produced by the caller
         required: true
         type: string
+      qualification_run_attempt:
+        description: Attempt that produced the exact qualification artifact
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -52,6 +56,7 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
           VERSION_INPUT: ${{ inputs.version }}
           QUALIFICATION_ARTIFACT_NAME: ${{ inputs.qualification_artifact_name }}
+          QUALIFICATION_RUN_ATTEMPT: ${{ inputs.qualification_run_attempt }}
         shell: bash
         run: |
           set -euo pipefail
@@ -64,7 +69,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EVENT_SHA"
           test "$SOURCE_SHA" = "$EVENT_SHA"
           test "$(git rev-parse "${REF}^{commit}")" = "$SOURCE_SHA"
-          expected_artifact="release-qualification-evidence-${SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ "$QUALIFICATION_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          expected_artifact="release-qualification-evidence-${SOURCE_SHA}-${GITHUB_RUN_ID}-${QUALIFICATION_RUN_ATTEMPT}"
           test "$QUALIFICATION_ARTIFACT_NAME" = "$expected_artifact"
           printf 'source_sha=%s\nversion=%s\n' "$SOURCE_SHA" "$version" >> "$GITHUB_OUTPUT"
 

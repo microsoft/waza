@@ -25,6 +25,9 @@ on:
       evidence_artifact_name:
         description: Name of the exact workflow-run qualification evidence artifact
         value: ${{ jobs.qualify.outputs.evidence_artifact_name }}
+      evidence_run_attempt:
+        description: Attempt that produced the exact qualification artifact
+        value: ${{ jobs.qualify.outputs.evidence_run_attempt }}
       package_artifact_name:
         description: Name of the workflow-linked assurance package artifact
         value: ${{ jobs.qualify.outputs.package_artifact_name }}
@@ -104,6 +107,7 @@ jobs:
       attestations: write
     outputs:
       evidence_artifact_name: ${{ steps.evidence.outputs.artifact_name }}
+      evidence_run_attempt: ${{ steps.evidence.outputs.run_attempt }}
       package_artifact_name: ${{ steps.package.outputs.artifact_name }}
     env:
       SOURCE_SHA: ${{ needs.source.outputs.source_sha }}
@@ -333,7 +337,9 @@ jobs:
           retention-days: 90
       - name: Expose exact evidence artifact name
         id: evidence
-        run: printf 'artifact_name=%s\n' "$EVIDENCE_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+        run: |
+          printf 'artifact_name=%s\n' "$EVIDENCE_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          printf 'run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - name: Create workflow-linked assurance package
         id: package
         env:

@@ -59,10 +59,10 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 	if err := workflow.On.Content[1].Decode(&call); err != nil {
 		t.Fatal(err)
 	}
-	if len(call.Inputs) != 4 {
-		t.Fatalf("publisher inputs = %#v; want release identity and exact qualification artifact", call.Inputs)
+	if len(call.Inputs) != 5 {
+		t.Fatalf("publisher inputs = %#v; want release identity, exact qualification artifact, and producer attempt", call.Inputs)
 	}
-	for _, name := range []string{"release_stage", "source_sha", "version", "qualification_artifact_name"} {
+	for _, name := range []string{"release_stage", "source_sha", "version", "qualification_artifact_name", "qualification_run_attempt"} {
 		input, ok := call.Inputs[name]
 		if !ok || !input.Required || input.Type != "string" {
 			t.Fatalf("%s input = %#v; want required string", name, input)
@@ -126,9 +126,12 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 		guard.Env["SOURCE_SHA"] != "${{ inputs.source_sha }}" ||
 		guard.Env["VERSION_INPUT"] != "${{ inputs.version }}" ||
 		guard.Env["QUALIFICATION_ARTIFACT_NAME"] != "${{ inputs.qualification_artifact_name }}" ||
+		guard.Env["QUALIFICATION_RUN_ATTEMPT"] != "${{ inputs.qualification_run_attempt }}" ||
 		!strings.Contains(guard.Run, `test "$EVENT_NAME" = push`) ||
 		!strings.Contains(guard.Run, `refs/tags/v`) ||
 		!strings.Contains(guard.Run, `git rev-parse "${REF}^{commit}"`) ||
+		!strings.Contains(guard.Run, `[[ "$QUALIFICATION_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]`) ||
+		!strings.Contains(guard.Run, `-${QUALIFICATION_RUN_ATTEMPT}"`) ||
 		!strings.Contains(guard.Run, `test "$QUALIFICATION_ARTIFACT_NAME" = "$expected_artifact"`) {
 		t.Fatalf("publication must require the exact tag release source: %#v", guard)
 	}
@@ -333,12 +336,25 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 		t.Fatal("missing qualification job")
 	}
 	if qualifyJob.Outputs["evidence_artifact_name"] != "${{ steps.evidence.outputs.artifact_name }}" ||
+		qualifyJob.Outputs["evidence_run_attempt"] != "${{ steps.evidence.outputs.run_attempt }}" ||
 		qualifyJob.Outputs["package_artifact_name"] != "${{ steps.package.outputs.artifact_name }}" {
-		t.Fatalf("qualification artifact outputs = %#v; want concrete evidence and package names", qualifyJob.Outputs)
+		t.Fatalf("qualification outputs = %#v; want concrete evidence name, producer attempt, and package name", qualifyJob.Outputs)
+	}
+	var qualificationCall struct {
+		Outputs map[string]struct {
+			Value string `yaml:"value"`
+		} `yaml:"outputs"`
+	}
+	if err := workflow.On.Content[3].Decode(&qualificationCall); err != nil {
+		t.Fatal(err)
+	}
+	if qualificationCall.Outputs["evidence_run_attempt"].Value != "${{ jobs.qualify.outputs.evidence_run_attempt }}" {
+		t.Fatalf("qualification reusable output must expose the evidence producer attempt: %#v", qualificationCall.Outputs)
 	}
 	evidenceName := findStep(qualifyJob.Steps, "Expose exact evidence artifact name")
 	if evidenceName == nil || evidenceName.ID != "evidence" ||
 		!strings.Contains(evidenceName.Run, "$EVIDENCE_ARTIFACT_NAME") ||
+		!strings.Contains(evidenceName.Run, "$GITHUB_RUN_ATTEMPT") ||
 		!strings.Contains(qualifyJob.Env["EVIDENCE_ARTIFACT_NAME"], "${{ github.run_id }}-${{ github.run_attempt }}") {
 		t.Fatalf("qualification must expose its exact uploaded evidence artifact name: %#v", evidenceName)
 	}

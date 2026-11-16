@@ -57,8 +57,15 @@ Qualification consumes the exact-source dashboard artifact produced by release
 validation and rechecks its manifest and installed output before building. It
 stamps the candidate version into the runner image and checks the image's
 `--version` output. Evidence, assurance-package, and native-smoke package
-artifacts include the workflow run ID and attempt so reruns cannot accidentally
-consume an earlier attempt's files.
+artifacts include the workflow run ID and producer attempt. The release
+publisher receives the qualification artifact name and its recorded producer
+attempt, rather than assuming it matches the publisher job's attempt. Native
+receipt collection downloads only artifacts from the exact workflow run and
+keeps each attempt in a separate directory. Each status and passing receipt is
+bound to its producing run and attempt; the collector uses the latest status
+per target, so it can retain validated receipts from successful jobs during a
+partial rerun while a newer failed or cancelled attempt supersedes an earlier
+pass.
 
 Review the candidate artifacts and verifier output before approving a release.
 The package identifies the workflow run, source commit, artifact ID and digest,

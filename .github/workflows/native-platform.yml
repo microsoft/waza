@@ -85,6 +85,7 @@ jobs:
     outputs:
       revision: ${{ steps.source.outputs.revision }}
       version: ${{ steps.source.outputs.version }}
+      artifact_run_attempt: ${{ steps.source.outputs.run_attempt }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,7 +120,8 @@ jobs:
               commit -qam "candidate: built dashboard for $GITHUB_SHA"
           fi
           test -z "$(git status --porcelain --untracked-files=normal)"
-          printf 'revision=%s\nversion=%s\n' "$(git rev-parse HEAD)" "$(cat version.txt)" >> "$GITHUB_OUTPUT"
+          printf 'revision=%s\nversion=%s\nrun_attempt=%s\n' \
+            "$(git rev-parse HEAD)" "$(cat version.txt)" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
       - name: Build CLI packages
         env:
@@ -206,7 +208,7 @@ jobs:
       - name: Upload extension packages
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: extension-packages
+          name: extension-packages-${{ github.run_id }}-${{ steps.source.outputs.run_attempt }}
           path: ${{ runner.temp }}/artifacts
           if-no-files-found: error
 
@@ -217,3 +219,5 @@ jobs:
       source_sha: ${{ github.sha }}
       package_revision: ${{ needs.candidate-packages.outputs.revision }}
       version: ${{ needs.candidate-packages.outputs.version }}
+      package_run_attempt: ${{ needs.candidate-packages.outputs.artifact_run_attempt }}
+      extension_package_run_attempt: ${{ needs.candidate-packages.outputs.artifact_run_attempt }}

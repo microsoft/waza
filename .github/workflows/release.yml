@@ -74,6 +74,7 @@ jobs:
       source_sha: ${{ github.sha }}
       version: ${{ needs.setup-version.outputs.version }}
       qualification_artifact_name: ${{ needs.qualification.outputs.evidence_artifact_name }}
+      qualification_run_attempt: ${{ needs.qualification.outputs.evidence_run_attempt }}
     permissions:
       contents: read
       packages: write
@@ -171,6 +172,8 @@ jobs:
     needs: [setup-version, qualification, runner-reference]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      extension_package_run_attempt: ${{ steps.extension_handoff.outputs.run_attempt }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.setup-version.outputs.version }}
@@ -273,13 +276,17 @@ jobs:
             sha256sum "${packages[@]}"
           } > artifacts/release-provenance.txt
 
+      - name: Record extension package producer attempt
+        id: extension_handoff
+        run: printf 'run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
       # Non-gating handoff: an artifact outage must not block publication;
       # the native smoke then reports the missing packages.
       - name: Upload extension packages for native smoke
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: extension-packages
+          name: extension-packages-${{ github.run_id }}-${{ steps.extension_handoff.outputs.run_attempt }}
           path: artifacts
           if-no-files-found: error
 
@@ -407,4 +414,6 @@ jobs:
     with:
       source_sha: ${{ github.sha }}
       version: ${{ needs.setup-version.outputs.version }}
+      package_run_attempt: ${{ needs.qualification.outputs.evidence_run_attempt }}
+      extension_package_run_attempt: ${{ needs.release-extension.outputs.extension_package_run_attempt }}
       report_only: true

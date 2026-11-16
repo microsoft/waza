@@ -1643,6 +1643,7 @@ func testQualifiedTagRelease(t *testing.T, source []byte, workflow releaseWorkfl
 		runner.With["source_sha"] != "${{ github.sha }}" ||
 		runner.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
 		runner.With["qualification_artifact_name"] != "${{ needs.qualification.outputs.evidence_artifact_name }}" ||
+		runner.With["qualification_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
 		!reflect.DeepEqual(runner.Permissions, map[string]string{
 			"contents": "read", "packages": "write", "attestations": "write", "id-token": "write",
 		}) {
@@ -1704,6 +1705,8 @@ func testQualifiedTagRelease(t *testing.T, source []byte, workflow releaseWorkfl
 		!reflect.DeepEqual(smoke.Needs, []string{"setup-version", "qualification", "release-cli", "release-extension"}) ||
 		smoke.With["source_sha"] != "${{ github.sha }}" ||
 		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		smoke.With["package_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
+		smoke.With["extension_package_run_attempt"] != "${{ needs.release-extension.outputs.extension_package_run_attempt }}" ||
 		smoke.With["report_only"] != "true" || smoke.Permissions["contents"] != "read" {
 		t.Fatal("native smoke must remain report-only and consume the exact published packages")
 	}
@@ -2377,6 +2380,7 @@ func validateQualifiedTagRelease(workflow releaseWorkflow) error {
 		runner.With["source_sha"] != "${{ github.sha }}" ||
 		runner.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
 		runner.With["qualification_artifact_name"] != "${{ needs.qualification.outputs.evidence_artifact_name }}" ||
+		runner.With["qualification_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
 		!reflect.DeepEqual(runner.Permissions, map[string]string{
 			"contents": "read", "packages": "write", "attestations": "write", "id-token": "write",
 		}) {
@@ -2480,6 +2484,8 @@ func validateQualifiedTagRelease(workflow releaseWorkflow) error {
 		!reflect.DeepEqual(smoke.Needs, []string{"setup-version", "qualification", "release-cli", "release-extension"}) ||
 		smoke.With["source_sha"] != "${{ github.sha }}" ||
 		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		smoke.With["package_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
+		smoke.With["extension_package_run_attempt"] != "${{ needs.release-extension.outputs.extension_package_run_attempt }}" ||
 		smoke.With["report_only"] != "true" || smoke.Permissions["contents"] != "read" {
 		return fmt.Errorf("native package smoke must remain report-only and consume exact published packages")
 	}
