@@ -84,6 +84,43 @@ func TestBuildWithWorkflowEvidenceBindsExactArtifactFiles(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
+func TestQualificationFileContractSeparatesAttestationReports(t *testing.T) {
+	root, err := FindRepositoryRoot(".")
+	require.NoError(t, err)
+	evidenceRoot := writeQualificationFixture(t, root)
+	files, err := hashEvidenceFiles(evidenceRoot)
+	require.NoError(t, err)
+
+	present := make(map[string]bool, len(files))
+	for _, file := range files {
+		present[file.Path] = true
+	}
+	for _, name := range []string{
+		"verification/attestations/waza-linux-amd64.json",
+		"verification/attestations/waza-linux-arm64.json",
+		"verification/attestations/waza-darwin-amd64.json",
+		"verification/attestations/waza-darwin-arm64.json",
+		"verification/attestations/waza-windows-amd64.exe.json",
+		"verification/attestations/waza-windows-arm64.exe.json",
+		"verification/attestations/runner-image-archive-provenance.json",
+		"verification/attestations/runner-image-provenance.json",
+		"verification/attestations/runner-inventory-sbom.json",
+	} {
+		require.True(t, present[name], "missing required attestation report %q", name)
+	}
+	require.True(t, present["verification/runner-inventory.json"], "non-attestation inventory verification must remain in the verification root")
+	require.False(t, present["verification/attestations/runner-inventory.json"], "inventory verification must not be treated as an attestation report")
+	require.NoError(t, requireQualificationFiles(files))
+
+	incomplete := make([]EvidenceFile, 0, len(files)-1)
+	for _, file := range files {
+		if file.Path != "verification/attestations/runner-inventory-sbom.json" {
+			incomplete = append(incomplete, file)
+		}
+	}
+	require.ErrorIs(t, requireQualificationFiles(incomplete), ErrInvalid, "missing attestation report must fail closed")
+}
+
 func writeQualificationFixture(t *testing.T, root string) string {
 	t.Helper()
 	evidenceRoot, err := os.MkdirTemp(root, ".workflow-evidence-test-")
@@ -98,8 +135,9 @@ func writeQualificationFixture(t *testing.T, root string) string {
 		"execution-provenance/statement.json", "execution-provenance/envelope.json",
 		"execution-provenance/verification.json", "execution-provenance/public-key.pem",
 		"execution-provenance/bundle/bundle.json", "execution-provenance/bundle/statement.dsse.json",
-		"verification/runner-image-archive-provenance.json",
-		"verification/runner-image-provenance.json", "verification/runner-inventory-sbom.json",
+		"verification/attestations/runner-image-archive-provenance.json",
+		"verification/attestations/runner-image-provenance.json",
+		"verification/attestations/runner-inventory-sbom.json",
 		"verification/runner-inventory.json",
 	}
 	for _, binary := range []string{
@@ -107,7 +145,7 @@ func writeQualificationFixture(t *testing.T, root string) string {
 		"waza-darwin-arm64", "waza-windows-amd64.exe", "waza-windows-arm64.exe",
 	} {
 		files = append(files, binary, binary+".source-sha.txt", binary+".sha256",
-			"verification/"+binary+".json")
+			"verification/attestations/"+binary+".json")
 	}
 	for _, name := range files {
 		fullPath := filepath.Join(evidenceRoot, filepath.FromSlash(name))

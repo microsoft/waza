@@ -542,8 +542,9 @@ func requireQualificationFiles(files []EvidenceFile) error {
 		"execution-provenance/statement.json", "execution-provenance/envelope.json",
 		"execution-provenance/verification.json", "execution-provenance/public-key.pem",
 		"execution-provenance/bundle/bundle.json", "execution-provenance/bundle/statement.dsse.json",
-		"verification/runner-image-archive-provenance.json",
-		"verification/runner-image-provenance.json", "verification/runner-inventory-sbom.json",
+		"verification/attestations/runner-image-archive-provenance.json",
+		"verification/attestations/runner-image-provenance.json",
+		"verification/attestations/runner-inventory-sbom.json",
 		"verification/runner-inventory.json",
 	}
 	binaries := []string{
@@ -552,7 +553,7 @@ func requireQualificationFiles(files []EvidenceFile) error {
 	}
 	for _, binary := range binaries {
 		required = append(required, binary, binary+".source-sha.txt", binary+".sha256",
-			"verification/"+binary+".json")
+			"verification/attestations/"+binary+".json")
 	}
 	present := make(map[string]bool, len(files))
 	for _, file := range files {
