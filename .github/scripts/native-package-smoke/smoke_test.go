@@ -82,7 +82,10 @@ func TestWorkflowMatricesMatchNativePlatforms(t *testing.T) {
 		if p.Evidence != evidenceNative {
 			continue
 		}
-		cli = append(cli, matrixEntry{Target: p.target(), Artifact: "cli-waza-" + p.OS + "-" + p.Arch, Runner: p.Runner})
+		cli = append(cli, matrixEntry{
+			Target: p.target(), Artifact: "cli-waza-" + p.OS + "-" + p.Arch + "-${{ github.run_id }}-${{ github.run_attempt }}",
+			Runner: p.Runner,
+		})
 		if p.Extension {
 			extension = append(extension, matrixEntry{Target: p.target(), Runner: p.Runner})
 		}
@@ -618,7 +621,7 @@ func TestReleaseSmokesExactPublishedPackages(t *testing.T) {
 	var expectedPackages []string
 	for _, p := range platforms {
 		name := cliBinaryName(p)
-		artifact := "cli-waza-" + p.OS + "-" + p.Arch
+		artifact := "cli-waza-" + p.OS + "-" + p.Arch + "-${{ github.run_id }}-${{ github.run_attempt }}"
 		expectedPackages = append(expectedPackages, artifact)
 		expectedPaths[artifact] = []string{
 			"dist/" + name,

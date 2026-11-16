@@ -13,13 +13,15 @@ import (
 )
 
 const (
-	provenanceVerifierTimeout = 30 * time.Second
-	provenanceVerifierMaxIO   = 16 << 10
+	provenanceVerifierTimeout   = 30 * time.Second
+	provenanceVerifierMaxIO     = 16 << 10
+	provenanceVerifierWaitDelay = time.Second
 )
 
 type commandProvenanceVerifier struct {
-	path string
-	args []string
+	path      string
+	args      []string
+	waitDelay time.Duration
 }
 
 func (v commandProvenanceVerifier) VerifyProvenance(ctx context.Context, manifestDigest string, public json.RawMessage) runneradapter.Provenance {
@@ -38,7 +40,15 @@ func (v commandProvenanceVerifier) VerifyProvenance(ctx context.Context, manifes
 	command.Stdin = bytes.NewReader(request)
 	output := &boundedVerifierOutput{}
 	command.Stdout = output
+	waitDelay := v.waitDelay
+	if waitDelay <= 0 {
+		waitDelay = provenanceVerifierWaitDelay
+	}
+	command.WaitDelay = waitDelay
 	if err := command.Run(); err != nil {
+		if errors.Is(err, exec.ErrWaitDelay) {
+			return runneradapter.Provenance{State: "unavailable", Detail: "provenance verifier output drain exceeded the wait delay"}
+		}
 		if ctx.Err() != nil {
 			return runneradapter.Provenance{State: "unavailable", Detail: "provenance verifier timed out or was canceled"}
 		}
@@ -66,12 +76,17 @@ func (v commandProvenanceVerifier) VerifyProvenance(ctx context.Context, manifes
 }
 
 type boundedVerifierOutput struct {
-	bytes.Buffer
+	data []byte
 }
 
 func (b *boundedVerifierOutput) Write(data []byte) (int, error) {
-	if len(data) > provenanceVerifierMaxIO-b.Len() {
+	if len(data) > provenanceVerifierMaxIO-len(b.data) {
 		return 0, errors.New("provenance verifier response exceeds the size limit")
 	}
-	return b.Buffer.Write(data)
+	b.data = append(b.data, data...)
+	return len(data), nil
+}
+
+func (b *boundedVerifierOutput) Bytes() []byte {
+	return b.data
 }

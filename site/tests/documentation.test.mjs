@@ -159,6 +159,7 @@ test('runner identity fixtures trigger consumer validation and publication witho
   const site = read('.github/workflows/site-ci.yml');
   const deploy = read('.github/workflows/pages.yml');
   for (const path of [
+    '.github/workflows/release-qualification.yml',
     '.github/workflows/publish-runner-reference.yml',
     '.github/workflows/verify-runner-reference.yml',
   ]) {
@@ -944,7 +945,8 @@ test('public image acceptance binds the literal digest to source, platform and v
   assert.match(record, /review was \*\*waived for\s+this one publication, not performed\*\*/);
   assert.match(record, /not an ARM64 or Windows claim/);
   assert.match(record, /not.*live-provider, billing or inference-quality evidence/);
-  assert.match(record, /Dockerfile does not inject `main\.version`; the source default is\s+`dev`/);
+  assert.match(record, /historical image predates release-version stamping and reports the source\s+default `dev`/);
+  assert.match(record, /passes `WAZA_VERSION` to the\s+Docker build and verifies that the resulting image reports the candidate\s+version/);
 });
 
 test('tagged source builds explicitly stamp the release rather than trusting stale metadata', () => {

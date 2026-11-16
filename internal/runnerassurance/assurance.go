@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -393,10 +394,10 @@ func validateWorkflowEvidenceInput(input WorkflowEvidenceInput) error {
 	if err := validateEvidenceFiles(input.Files); err != nil {
 		return fmt.Errorf("%w: workflow evidence file digests are invalid", ErrInvalid)
 	}
-	if err := validateGitHubRunURL(input.Repository, input.RunID, input.RunURL, false); err != nil {
+	if err := validateGitHubRunURL(input.Repository, input.RunID, 0, input.RunURL, false); err != nil {
 		return err
 	}
-	return validateGitHubRunURL(input.Repository, input.RunID, input.ArtifactURL, true)
+	return validateGitHubRunURL(input.Repository, input.RunID, input.ArtifactID, input.ArtifactURL, true)
 }
 
 var (
@@ -454,7 +455,7 @@ func compareEvidenceFiles(expected, actual []EvidenceFile) error {
 	return nil
 }
 
-func validateGitHubRunURL(repository string, runID int64, raw string, artifact bool) error {
+func validateGitHubRunURL(repository string, runID, artifactID int64, raw string, artifact bool) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil ||
 		parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -463,8 +464,9 @@ func validateGitHubRunURL(repository string, runID int64, raw string, artifact b
 	expected := fmt.Sprintf("/%s/actions/runs/%d", repository, runID)
 	if artifact {
 		expected += "/artifacts/"
-		if !strings.HasPrefix(parsed.Path, expected) || parsed.Path == expected ||
-			!artifactIDPattern.MatchString(strings.TrimPrefix(parsed.Path, expected)) {
+		pathArtifactID := strings.TrimPrefix(parsed.Path, expected)
+		if !strings.HasPrefix(parsed.Path, expected) || !artifactIDPattern.MatchString(pathArtifactID) ||
+			pathArtifactID != strconv.FormatInt(artifactID, 10) {
 			return fmt.Errorf("%w: workflow evidence artifact URL does not identify this run and artifact", ErrInvalid)
 		}
 	} else if parsed.Path != expected {

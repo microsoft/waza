@@ -15,6 +15,10 @@ on:
         description: Semver version without the v prefix
         required: true
         type: string
+      qualification_artifact_name:
+        description: Exact run-attempt qualification artifact produced by the caller
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -47,6 +51,7 @@ jobs:
           RELEASE_STAGE: ${{ inputs.release_stage }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           VERSION_INPUT: ${{ inputs.version }}
+          QUALIFICATION_ARTIFACT_NAME: ${{ inputs.qualification_artifact_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -59,6 +64,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EVENT_SHA"
           test "$SOURCE_SHA" = "$EVENT_SHA"
           test "$(git rev-parse "${REF}^{commit}")" = "$SOURCE_SHA"
+          expected_artifact="release-qualification-evidence-${SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test "$QUALIFICATION_ARTIFACT_NAME" = "$expected_artifact"
           printf 'source_sha=%s\nversion=%s\n' "$SOURCE_SHA" "$version" >> "$GITHUB_OUTPUT"
 
   publish:
@@ -82,8 +89,8 @@ jobs:
       - name: Download exact qualification evidence
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-qualification-evidence-${{ needs.validate-release.outputs.source_sha }}
-          path: qualification
+          name: ${{ inputs.qualification_artifact_name }}
+          path: ${{ runner.temp }}/qualification
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -106,36 +113,41 @@ jobs:
           SOURCE_SHA: ${{ needs.validate-release.outputs.source_sha }}
           EXPECTED_TAG: v${{ needs.validate-release.outputs.version }}
           SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release-qualification.yml
+          QUALIFICATION_DIR: ${{ runner.temp }}/qualification
         shell: bash
         run: |
           set -euo pipefail
-          test -s qualification/runner-image.oci.tar
-          test -s qualification/runner-image.digest
-          test -s qualification/runner-image.archive.sha256
-          image_digest="$(cat qualification/runner-image.digest)"
+          test -s "$QUALIFICATION_DIR/runner-image.oci.tar"
+          test -s "$QUALIFICATION_DIR/runner-image.digest"
+          test -s "$QUALIFICATION_DIR/runner-image.archive.sha256"
+          image_digest="$(cat "$QUALIFICATION_DIR/runner-image.digest")"
           [[ "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
-          (cd qualification && sha256sum --check runner-image.archive.sha256)
-          manifest_digest="$(tar -xOf qualification/runner-image.oci.tar index.json |
+          (cd "$QUALIFICATION_DIR" && sha256sum --check runner-image.archive.sha256)
+          manifest_digest="$(tar -xOf "$QUALIFICATION_DIR/runner-image.oci.tar" index.json |
             jq -er '.manifests | select(length == 1) | .[0].digest | select(test("^sha256:[a-f0-9]{64}$"))')"
           test "$manifest_digest" = "$image_digest"
-          tar -xOf qualification/runner-image.oci.tar "blobs/sha256/${image_digest#sha256:}" \
+          tar -xOf "$QUALIFICATION_DIR/runner-image.oci.tar" "blobs/sha256/${image_digest#sha256:}" \
             > "$RUNNER_TEMP/runner-image.manifest.json"
           test "$(sha256sum "$RUNNER_TEMP/runner-image.manifest.json" | cut -d' ' -f1)" = "${image_digest#sha256:}"
           go run ./cmd/waza runner inventory verify \
-            --inventory qualification/runner-inventory.cdx.json \
+            --inventory "$QUALIFICATION_DIR/runner-inventory.cdx.json" \
             --image-digest "$image_digest" \
             --image-reference ghcr.io/microsoft/waza-runner-reference \
             > "$RUNNER_TEMP/runner-inventory-verification.json"
-          common=(--repo "$GITHUB_REPOSITORY" --custom-trusted-root qualification/trusted_root.jsonl \
+          common=(--repo "$GITHUB_REPOSITORY" --custom-trusted-root "$QUALIFICATION_DIR/trusted_root.jsonl" \
             --signer-workflow "$SIGNER_WORKFLOW" --format json)
           gh attestation verify "$RUNNER_TEMP/runner-image.manifest.json" "${common[@]}" \
             --source-digest "$SOURCE_SHA" \
-            --bundle qualification/attestations/runner-image.json \
+            --bundle "$QUALIFICATION_DIR/attestations/runner-image.json" \
             > "$RUNNER_TEMP/runner-image-provenance-verification.json"
           gh attestation verify "$RUNNER_TEMP/runner-image.manifest.json" "${common[@]}" \
             --predicate-type https://cyclonedx.org/bom \
-            --bundle qualification/attestations/runner-inventory.json \
+            --signer-digest "$SOURCE_SHA" \
+            --bundle "$QUALIFICATION_DIR/attestations/runner-inventory.json" \
             > "$RUNNER_TEMP/runner-inventory-attestation-verification.json"
+          jq -e --slurpfile inventory "$QUALIFICATION_DIR/runner-inventory.cdx.json" \
+            'any(.[]; .verificationResult.statement.predicate == $inventory[0])' \
+            "$RUNNER_TEMP/runner-inventory-attestation-verification.json" >/dev/null
           printf 'image_digest=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
       - name: Install Skopeo
         run: |
@@ -178,7 +190,7 @@ jobs:
           skopeo copy --preserve-digests \
             --dest-authfile "$HOME/.docker/config.json" \
             --digestfile "$RUNNER_TEMP/published-image.digest" \
-            "oci-archive:qualification/runner-image.oci.tar:qualification-${SOURCE_SHA}" \
+            "oci-archive:$RUNNER_TEMP/qualification/runner-image.oci.tar" \
             "docker://$IMAGE_TAG"
           published_digest="$(cat "$RUNNER_TEMP/published-image.digest")"
           remote_digest="$(skopeo inspect --authfile "$HOME/.docker/config.json" --format '{{.Digest}}' "docker://$IMAGE_TAG")"
@@ -218,27 +230,33 @@ jobs:
         with:
           subject-name: ghcr.io/microsoft/waza-runner-reference
           subject-digest: ${{ steps.qualified.outputs.image_digest }}
-          sbom-path: qualification/runner-inventory.cdx.json
+          sbom-path: ${{ runner.temp }}/qualification/runner-inventory.cdx.json
           push-to-registry: true
           create-storage-record: false
       - name: Verify published image inventory attestation offline
         id: verify_inventory
         env:
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
+          SOURCE_SHA: ${{ needs.validate-release.outputs.source_sha }}
           SBOM_BUNDLE: ${{ steps.inventory_attestation.outputs.bundle-path }}
           SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/publish-runner-reference.yml
+          QUALIFICATION_DIR: ${{ runner.temp }}/qualification
         shell: bash
         run: |
           set -euo pipefail
           gh attestation verify "oci://ghcr.io/microsoft/waza-runner-reference@$IMAGE_DIGEST" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$SIGNER_WORKFLOW" \
+            --signer-digest "$SOURCE_SHA" \
             --predicate-type https://cyclonedx.org/bom \
             --custom-trusted-root "$RUNNER_TEMP/trusted_root.jsonl" \
             --bundle "$SBOM_BUNDLE" \
             --format json > "$RUNNER_TEMP/runner-inventory-attestation-verification.json"
+          jq -e --slurpfile inventory "$QUALIFICATION_DIR/runner-inventory.cdx.json" \
+            'any(.[]; .verificationResult.statement.predicate == $inventory[0])' \
+            "$RUNNER_TEMP/runner-inventory-attestation-verification.json" >/dev/null
           cp "$SBOM_BUNDLE" "$RUNNER_TEMP/runner-inventory-attestation.json"
-          cp qualification/runner-inventory.cdx.json "$RUNNER_TEMP/runner-inventory.cdx.json"
+          cp "$QUALIFICATION_DIR/runner-inventory.cdx.json" "$RUNNER_TEMP/runner-inventory.cdx.json"
           cp "$RUNNER_TEMP/trusted_root.jsonl" "$RUNNER_TEMP/runner-inventory-trusted-root.jsonl"
       - name: Upload runner image publication evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -262,7 +280,8 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin "$GITHUB_REF"
-          test "$(git rev-parse "${GITHUB_REF}^{commit}")" = "$SOURCE_SHA"
+          fetched_tag_sha="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+          test "$fetched_tag_sha" = "$SOURCE_SHA"
       - name: Log out of GHCR
         if: always() && steps.login.outcome == 'success'
         run: docker logout ghcr.io

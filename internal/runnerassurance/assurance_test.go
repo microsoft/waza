@@ -66,6 +66,14 @@ func TestBuildWithWorkflowEvidenceBindsExactArtifactFiles(t *testing.T) {
 	require.Contains(t, string(result.Markdown), "actions/runs/12345")
 	require.Contains(t, string(result.Markdown), "runner-inventory.cdx.json")
 
+	var mismatchedArtifact WorkflowEvidenceInput
+	require.NoError(t, json.Unmarshal(workflowEvidence, &mismatchedArtifact))
+	mismatchedArtifact.ArtifactID++
+	mismatchedArtifactBytes, err := json.Marshal(mismatchedArtifact)
+	require.NoError(t, err)
+	_, err = BuildWithWorkflowEvidence(input, root, mismatchedArtifactBytes, evidenceRoot)
+	require.ErrorIs(t, err, ErrInvalid, "artifact URL must identify the recorded artifact ID")
+
 	require.NoError(t, os.Remove(filepath.Join(evidenceRoot, "verification", "runner-inventory.json")))
 	_, err = BuildWithWorkflowEvidence(input, root, workflowEvidence, evidenceRoot)
 	require.ErrorIs(t, err, ErrInvalid, "missing inventory verification evidence must fail closed")

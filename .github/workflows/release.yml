@@ -73,6 +73,7 @@ jobs:
       release_stage: released
       source_sha: ${{ github.sha }}
       version: ${{ needs.setup-version.outputs.version }}
+      qualification_artifact_name: ${{ needs.qualification.outputs.evidence_artifact_name }}
     permissions:
       contents: read
       packages: write

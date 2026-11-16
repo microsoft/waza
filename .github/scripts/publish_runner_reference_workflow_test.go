@@ -22,6 +22,7 @@ type runnerReferenceJob struct {
 	Needs          yaml.Node             `yaml:"needs"`
 	Permissions    map[string]string     `yaml:"permissions"`
 	Outputs        map[string]string     `yaml:"outputs"`
+	Env            map[string]string     `yaml:"env"`
 	Steps          []runnerReferenceStep `yaml:"steps"`
 }
 
@@ -58,7 +59,10 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 	if err := workflow.On.Content[1].Decode(&call); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"release_stage", "source_sha", "version"} {
+	if len(call.Inputs) != 4 {
+		t.Fatalf("publisher inputs = %#v; want release identity and exact qualification artifact", call.Inputs)
+	}
+	for _, name := range []string{"release_stage", "source_sha", "version", "qualification_artifact_name"} {
 		input, ok := call.Inputs[name]
 		if !ok || !input.Required || input.Type != "string" {
 			t.Fatalf("%s input = %#v; want required string", name, input)
@@ -121,9 +125,11 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 		guard.Env["RELEASE_STAGE"] != "${{ inputs.release_stage }}" ||
 		guard.Env["SOURCE_SHA"] != "${{ inputs.source_sha }}" ||
 		guard.Env["VERSION_INPUT"] != "${{ inputs.version }}" ||
+		guard.Env["QUALIFICATION_ARTIFACT_NAME"] != "${{ inputs.qualification_artifact_name }}" ||
 		!strings.Contains(guard.Run, `test "$EVENT_NAME" = push`) ||
 		!strings.Contains(guard.Run, `refs/tags/v`) ||
-		!strings.Contains(guard.Run, `git rev-parse "${REF}^{commit}"`) {
+		!strings.Contains(guard.Run, `git rev-parse "${REF}^{commit}"`) ||
+		!strings.Contains(guard.Run, `test "$QUALIFICATION_ARTIFACT_NAME" = "$expected_artifact"`) {
 		t.Fatalf("publication must require the exact tag release source: %#v", guard)
 	}
 	if missingTag := findStep(publish.Steps, "Refuse to replace an existing release image tag"); missingTag == nil ||
@@ -176,21 +182,23 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 		}
 	}
 	if download == nil || download.Uses != "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333" ||
-		download.With["name"] != "release-qualification-evidence-${{ needs.validate-release.outputs.source_sha }}" ||
-		download.With["path"] != "qualification" {
+		download.With["name"] != "${{ inputs.qualification_artifact_name }}" ||
+		download.With["path"] != "${{ runner.temp }}/qualification" {
 		t.Fatalf("publisher must consume the exact same-run qualification artifact: %#v", download)
 	}
 	if qualified == nil || !strings.Contains(qualified.Run, "runner-image.oci.tar") ||
 		!strings.Contains(qualified.Run, "runner-image.digest") ||
 		!strings.Contains(qualified.Run, "runner-image.archive.sha256") ||
-		!strings.Contains(qualified.Run, "--source-digest \"$SOURCE_SHA\"") {
+		!strings.Contains(qualified.Run, "--source-digest \"$SOURCE_SHA\"") ||
+		!strings.Contains(qualified.Run, "--signer-digest \"$SOURCE_SHA\"") ||
+		!strings.Contains(qualified.Run, `any(.[]; .verificationResult.statement.predicate == $inventory[0])`) {
 		t.Fatalf("publisher must verify the qualification artifact and its source-bound image attestations: %#v", qualified)
 	}
 	if login == nil || login.Env["GHCR_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" {
 		t.Fatal("only the publication job should expose its scoped GITHUB_TOKEN to GHCR login")
 	}
 	if publishImage == nil || !strings.Contains(publishImage.Run, "skopeo copy --preserve-digests") ||
-		!strings.Contains(publishImage.Run, "oci-archive:qualification/runner-image.oci.tar") ||
+		!strings.Contains(publishImage.Run, "oci-archive:$RUNNER_TEMP/qualification/runner-image.oci.tar") ||
 		!strings.Contains(publishImage.Run, "test \"$published_digest\" = \"$IMAGE_DIGEST\"") ||
 		!strings.Contains(publishImage.Run, "test \"$remote_digest\" = \"$IMAGE_DIGEST\"") {
 		t.Fatalf("publication must preserve and verify the qualified image digest: %#v", publishImage)
@@ -214,20 +222,22 @@ func TestRunnerReferencePublisherIsReleaseOnlyAndLeastPrivilege(t *testing.T) {
 	}
 	if guard := findStep(publish.Steps, "Revalidate release tag after publication"); guard == nil ||
 		!strings.Contains(guard.Run, `git fetch --no-tags origin "$GITHUB_REF"`) ||
-		!strings.Contains(guard.Run, `git rev-parse "${GITHUB_REF}^{commit}"`) {
+		!strings.Contains(guard.Run, `git rev-parse --verify 'FETCH_HEAD^{commit}'`) {
 		t.Fatal("publisher must revalidate the exact release tag after publication")
 	}
 	if inventoryAttestation == nil || !strings.HasPrefix(inventoryAttestation.Uses, "actions/attest@") ||
 		inventoryAttestation.With["subject-name"] != "ghcr.io/microsoft/waza-runner-reference" ||
 		inventoryAttestation.With["subject-digest"] != "${{ steps.qualified.outputs.image_digest }}" ||
-		inventoryAttestation.With["sbom-path"] != "qualification/runner-inventory.cdx.json" ||
+		inventoryAttestation.With["sbom-path"] != "${{ runner.temp }}/qualification/runner-inventory.cdx.json" ||
 		inventoryAttestation.With["push-to-registry"] != "true" ||
 		inventoryAttestation.With["create-storage-record"] != "false" {
 		t.Fatalf("qualified component inventory must be published as an attestation for the exact digest: %#v", inventoryAttestation)
 	}
 	if verifyInventory == nil || !strings.Contains(verifyInventory.Run, "gh attestation verify \"oci://ghcr.io/microsoft/waza-runner-reference@$IMAGE_DIGEST\"") ||
 		!strings.Contains(verifyInventory.Run, "--custom-trusted-root") ||
-		!strings.Contains(verifyInventory.Run, `--bundle "$SBOM_BUNDLE"`) {
+		!strings.Contains(verifyInventory.Run, `--bundle "$SBOM_BUNDLE"`) ||
+		!strings.Contains(verifyInventory.Run, `--signer-digest "$SOURCE_SHA"`) ||
+		!strings.Contains(verifyInventory.Run, `any(.[]; .verificationResult.statement.predicate == $inventory[0])`) {
 		t.Fatalf("published inventory attestation must be verified offline against the registry digest: %#v", verifyInventory)
 	}
 	stepIndex := func(steps []runnerReferenceStep, name string) int {
@@ -328,19 +338,54 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 	}
 	evidenceName := findStep(qualifyJob.Steps, "Expose exact evidence artifact name")
 	if evidenceName == nil || evidenceName.ID != "evidence" ||
-		!strings.Contains(evidenceName.Run, "release-qualification-evidence-${SOURCE_SHA}") {
+		!strings.Contains(evidenceName.Run, "$EVIDENCE_ARTIFACT_NAME") ||
+		!strings.Contains(qualifyJob.Env["EVIDENCE_ARTIFACT_NAME"], "${{ github.run_id }}-${{ github.run_attempt }}") {
 		t.Fatalf("qualification must expose its exact uploaded evidence artifact name: %#v", evidenceName)
 	}
 	imageBuild := findStep(qualifyJob.Steps, "Build the release runner image")
 	for _, required := range []string{
 		`--output "type=oci,name=qualification-${SOURCE_SHA},dest=dist/runner-image.oci.tar"`,
-		`--output type=docker`,
+		`--output "type=docker,name=${IMAGE_TAG}"`,
 		`--label "org.opencontainers.image.revision=${SOURCE_SHA}"`,
+		`--build-arg "WAZA_VERSION=${VERSION}"`,
 		`docker image inspect --format '{{.Id}}' "$IMAGE_TAG"`,
+		`test "$reported_version" = "waza version ${VERSION}"`,
 	} {
 		if imageBuild == nil || !strings.Contains(imageBuild.Run, required) {
 			t.Errorf("runner image build must contain %q: %#v", required, imageBuild)
 		}
+	}
+	if strings.Contains(imageBuild.Run, `--tag "$IMAGE_TAG"`) {
+		t.Fatal("runner image must not use a global tag that overrides the OCI archive name")
+	}
+	for _, step := range []string{
+		"Download exact-source dashboard",
+		"Download dashboard checker dependency",
+		"Install exact-source dashboard",
+		"Require built dashboard output",
+		"Require clean packaged source",
+	} {
+		if findStep(qualifyJob.Steps, step) == nil {
+			t.Errorf("qualification must admit the validated exact-source dashboard before builds: %s", step)
+		}
+	}
+	dashboardDownload := findStep(qualifyJob.Steps, "Download exact-source dashboard")
+	if dashboardDownload == nil || dashboardDownload.Uses != "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333" ||
+		dashboardDownload.With["name"] != "release-dashboard-${{ needs.source.outputs.source_sha }}-${{ github.run_attempt }}" ||
+		dashboardDownload.With["path"] != "${{ runner.temp }}/release-dashboard" {
+		t.Fatalf("qualification must consume the exact-source validation dashboard outside the checkout: %#v", dashboardDownload)
+	}
+	if qualifyJob.Env["RELEASE_DASHBOARD_MANIFEST_SHA256"] != "${{ needs.validation.outputs.dashboard_manifest_sha256 }}" {
+		t.Fatal("qualification must bind the dashboard handed off by exact-source validation")
+	}
+	if upload := findStep(qualifyJob.Steps, "Upload exact qualification evidence"); upload == nil ||
+		upload.With["name"] != "${{ env.EVIDENCE_ARTIFACT_NAME }}" {
+		t.Fatalf("qualification evidence artifact must use the exact run-attempt name: %#v", upload)
+	}
+	if upload := findStep(qualifyJob.Steps, "Upload workflow-linked assurance package"); upload == nil ||
+		upload.With["name"] != "${{ env.PACKAGE_ARTIFACT_NAME }}" ||
+		!strings.Contains(qualifyJob.Env["PACKAGE_ARTIFACT_NAME"], "${{ github.run_id }}-${{ github.run_attempt }}") {
+		t.Fatalf("assurance package artifact must use the exact run-attempt name: %#v", upload)
 	}
 	imageAttestation := findStep(qualifyJob.Steps, "Attest the exact runner image digest")
 	sbomAttestation := findStep(qualifyJob.Steps, "Attest the runner image digest and CycloneDX inventory")
@@ -355,7 +400,8 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 	if offlineVerification == nil ||
 		!strings.Contains(offlineVerification.Run, "gh attestation verify dist/runner-image.manifest.json") ||
 		!strings.Contains(offlineVerification.Run, "--bundle dist/attestations/runner-image.json") ||
-		!strings.Contains(offlineVerification.Run, "--bundle dist/attestations/runner-inventory.json") {
+		!strings.Contains(offlineVerification.Run, "--bundle dist/attestations/runner-inventory.json") ||
+		!strings.Contains(offlineVerification.Run, `any(.[]; .verificationResult.statement.predicate == $inventory[0])`) {
 		t.Fatalf("candidate image provenance and inventory must be verified offline against the exact manifest: %#v", offlineVerification)
 	}
 	if strings.Contains(string(source), "packages: write") ||

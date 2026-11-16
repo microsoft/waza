@@ -1642,6 +1642,7 @@ func testQualifiedTagRelease(t *testing.T, source []byte, workflow releaseWorkfl
 		runner.With["release_stage"] != "released" ||
 		runner.With["source_sha"] != "${{ github.sha }}" ||
 		runner.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		runner.With["qualification_artifact_name"] != "${{ needs.qualification.outputs.evidence_artifact_name }}" ||
 		!reflect.DeepEqual(runner.Permissions, map[string]string{
 			"contents": "read", "packages": "write", "attestations": "write", "id-token": "write",
 		}) {
@@ -2375,6 +2376,7 @@ func validateQualifiedTagRelease(workflow releaseWorkflow) error {
 		runner.With["release_stage"] != "released" ||
 		runner.With["source_sha"] != "${{ github.sha }}" ||
 		runner.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		runner.With["qualification_artifact_name"] != "${{ needs.qualification.outputs.evidence_artifact_name }}" ||
 		!reflect.DeepEqual(runner.Permissions, map[string]string{
 			"contents": "read", "packages": "write", "attestations": "write", "id-token": "write",
 		}) {

@@ -53,6 +53,13 @@ only to that workflow run. This candidate path has read-only repository
 permissions plus attestation permissions; it creates no version tag, GitHub
 Release assets, or public registry image.
 
+Qualification consumes the exact-source dashboard artifact produced by release
+validation and rechecks its manifest and installed output before building. It
+stamps the candidate version into the runner image and checks the image's
+`--version` output. Evidence, assurance-package, and native-smoke package
+artifacts include the workflow run ID and attempt so reruns cannot accidentally
+consume an earlier attempt's files.
+
 Review the candidate artifacts and verifier output before approving a release.
 The package identifies the workflow run, source commit, artifact ID and digest,
 and hashes every qualification file. A successful candidate run alone does not

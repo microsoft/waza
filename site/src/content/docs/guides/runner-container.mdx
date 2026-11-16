@@ -53,10 +53,11 @@ production controls. Independent infrastructure-owner review was **waived for
 this one publication, not performed**; automated acceptance is not independent
 review. The supported platform is not an ARM64 or Windows claim.
 Do not treat this record as live-provider, billing or inference-quality evidence.
-The image Dockerfile does not inject `main.version`; the source default is
-`dev`, unlike the standalone release build's explicit `0.40.0` linker stamp.
-Identify this image by its immutable digest, source labels and verified
-provenance, not by assuming its `--version` output is `0.40.0`.
+This historical image predates release-version stamping and reports the source
+default `dev`; the v0.42.0 qualification build passes `WAZA_VERSION` to the
+Docker build and verifies that the resulting image reports the candidate
+version. Identify this historical image by its immutable digest, source labels
+and verified provenance, not by assuming its `--version` output is `0.40.0`.
 
 ## Host and build requirements
 

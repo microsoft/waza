@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -275,9 +276,44 @@ func TestRunnerAdapterConfiguredProvenanceVerifier(t *testing.T) {
 	require.Equal(t, 1, contract.calls, "verifier execution does not redispatch runner work")
 }
 
+func TestCommandProvenanceVerifierBoundsOutputAndPipeDrain(t *testing.T) {
+	var output boundedVerifierOutput
+	written, err := output.Write(make([]byte, provenanceVerifierMaxIO))
+	require.NoError(t, err)
+	require.Equal(t, provenanceVerifierMaxIO, written)
+	written, err = output.Write([]byte("x"))
+	require.Error(t, err)
+	require.Zero(t, written)
+	require.Len(t, output.Bytes(), provenanceVerifierMaxIO)
+
+	t.Setenv("WAZA_TEST_PROVENANCE_VERIFIER", "1")
+	t.Setenv("WAZA_TEST_VERIFIER_HOLD_PIPE", "1")
+	verifier := commandProvenanceVerifier{
+		path:      os.Args[0],
+		args:      []string{"-test.run=TestRunnerAdapterProvenanceVerifierProcessHelper"},
+		waitDelay: 25 * time.Millisecond,
+	}
+	result := verifier.VerifyProvenance(t.Context(), strings.Repeat("a", 64), json.RawMessage(`{}`))
+	require.Equal(t, "unavailable", result.State)
+	require.Contains(t, result.Detail, "output drain exceeded")
+}
+
 func TestRunnerAdapterProvenanceVerifierProcessHelper(t *testing.T) {
 	if os.Getenv("WAZA_TEST_PROVENANCE_VERIFIER") != "1" {
 		return
+	}
+	if os.Getenv("WAZA_TEST_VERIFIER_HOLD_PIPE_CHILD") == "1" {
+		time.Sleep(250 * time.Millisecond)
+		os.Exit(0)
+	}
+	if os.Getenv("WAZA_TEST_VERIFIER_HOLD_PIPE") == "1" {
+		child := exec.Command(os.Args[0], "-test.run=TestRunnerAdapterProvenanceVerifierProcessHelper")
+		child.Env = append(os.Environ(), "WAZA_TEST_VERIFIER_HOLD_PIPE_CHILD=1")
+		child.Stdout = os.Stdout
+		if err := child.Start(); err != nil {
+			os.Exit(3)
+		}
+		os.Exit(0)
 	}
 	data, err := io.ReadAll(io.LimitReader(os.Stdin, provenanceVerifierMaxIO+1))
 	if err != nil || len(data) > provenanceVerifierMaxIO {
