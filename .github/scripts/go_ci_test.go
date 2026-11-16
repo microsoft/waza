@@ -1386,6 +1386,36 @@ func TestGoRemainingShardWorkflowContract(t *testing.T) {
 	}
 }
 
+func TestGoCoverageMergeArtifactCanBeReplacedOnRetry(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				With struct {
+					Name      string `yaml:"name"`
+					Overwrite bool   `yaml:"overwrite"`
+				} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range workflow.Jobs["linux-coverage-merge"].Steps {
+		if step.Name == "Retain merged remaining-package coverage" {
+			if step.With.Name != "go-coverage-main" || !step.With.Overwrite {
+				t.Fatalf("coverage artifact must be replaceable on a same-run retry: %+v", step.With)
+			}
+			return
+		}
+	}
+	t.Fatal("Linux coverage merge does not retain its main coverage artifact")
+}
+
 func TestGoCIRequiresNativeWindowsReleaseDashboardChecker(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
 	if err != nil {

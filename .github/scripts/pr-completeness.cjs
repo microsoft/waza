@@ -167,6 +167,24 @@ function sameSource(actual, expected) {
   for (const key of Object.keys(expected)) requireValue(actual[key] === expected[key], `Source mismatch: ${key}`);
 }
 
+function sameSourceFromEarlierAttempt(actual, expected) {
+  validateSource(actual);
+  for (const key of Object.keys(expected)) {
+    if (key !== 'run_attempt') requireValue(actual[key] === expected[key], `Source mismatch: ${key}`);
+  }
+  requireValue(Number(actual.run_attempt) >= Number(expected.run_attempt),
+    'Current workflow attempt precedes the stored plan attempt');
+}
+
+function sameReceiptSource(actual, expected) {
+  validateSource(actual);
+  for (const key of Object.keys(expected)) {
+    if (key !== 'run_attempt') requireValue(actual[key] === expected[key], `Source mismatch: ${key}`);
+  }
+  requireValue(Number(actual.run_attempt) <= Number(expected.run_attempt),
+    'Receipt attempt exceeds the current workflow attempt');
+}
+
 function validatePlan(plan) {
   requireValue(record(plan) && plan.kind === 'waza.pr-completeness' && plan.schema === 1, 'Invalid completeness plan');
   validateSource(plan.source);
@@ -231,8 +249,8 @@ function verifyBrowser(report, family) {
 
 function validateReceipt(receipt, plan, family, unit) {
   requireValue(receipt.kind === 'waza.pr-completeness-receipt' && receipt.schema === 1, 'Invalid execution receipt');
-  sameSource(receipt.source, plan.source);
-  requireValue(receipt.artifact_name === receiptArtifactName(plan.source, family, unit), 'Invalid receipt artifact name');
+  sameReceiptSource(receipt.source, plan.source);
+  requireValue(receipt.artifact_name === receiptArtifactName(receipt.source, family, unit), 'Invalid receipt artifact name');
   requireValue(receipt.tested_sha === plan.source.tested_sha, 'Actual checkout SHA mismatch');
   requireValue(record(receipt.steps), 'Missing command outcomes');
   requireValue(receipt.steps.checkout?.outputs?.commit === plan.source.tested_sha, 'Initial checkout SHA mismatch or unavailable');
@@ -254,7 +272,7 @@ function receiptArtifactName(source, family, unit) {
 
 function captureReceipt(plan, family, unit, steps, testedSHA, reports, observedSource) {
   const selected = validatePlan(plan);
-  sameSource(observedSource, plan.source);
+  sameSourceFromEarlierAttempt(observedSource, plan.source);
   requireValue(typeof family === 'string' && Object.hasOwn(contracts, family) &&
     typeof unit === 'string' && Object.hasOwn(contracts[family].units, unit) &&
     selected[family] === true, 'Unknown or inapplicable receipt unit');
@@ -294,7 +312,7 @@ function captureReceipt(plan, family, unit, steps, testedSHA, reports, observedS
       };
     }
   }
-  validateReceipt(receipt, plan, family, unit);
+  validateReceipt(receipt, { ...plan, source: { ...observedSource } }, family, unit);
   return receipt;
 }
 
@@ -332,12 +350,19 @@ function evaluate(plan, needs, receipts, currentPR) {
     }
     for (const unit of Object.keys(contract.units)) {
       const found = receipts.filter((receipt) => record(receipt) && receipt.family === family && receipt.unit === unit);
-      if (found.length !== 1) {
-        errors.push(`${unit}: expected exactly one execution receipt, found ${found.length}`);
+      if (found.length === 0) {
+        errors.push(`${unit}: expected at least one execution receipt, found none`);
         continue;
       }
       try {
-        validateReceipt(found[0], plan, family, unit);
+        for (const receipt of found) {
+          sameReceiptSource(receipt.source, plan.source);
+          requireValue(receipt.artifact_name === receiptArtifactName(receipt.source, family, unit), 'Invalid receipt artifact name');
+        }
+        const latestAttempt = Math.max(...found.map((receipt) => Number(receipt.source.run_attempt)));
+        const latest = found.filter((receipt) => Number(receipt.source.run_attempt) === latestAttempt);
+        requireValue(latest.length === 1, `Expected one receipt from latest attempt ${latestAttempt}, found ${latest.length}`);
+        validateReceipt(latest[0], plan, family, unit);
       } catch (error) {
         errors.push(`${unit}: ${error.message}`);
       }
@@ -381,10 +406,11 @@ function discoverPlan(event, env, cwd) {
   return createPlan(source, text === '' ? [] : text.slice(0, -1).split('\0'));
 }
 
-function invocationPlan(plan, event, env, cwd) {
+function invocationPlan(plan, event, env, cwd, allowEarlierPlanAttempt = false) {
   validatePlan(plan);
   const observed = discoverPlan(event, env, cwd);
-  sameSource(observed.source, plan.source);
+  if (allowEarlierPlanAttempt) sameSourceFromEarlierAttempt(observed.source, plan.source);
+  else sameSource(observed.source, plan.source);
   const actualPaths = [...observed.paths].sort();
   const expectedPaths = [...plan.paths].sort();
   requireValue(actualPaths.length === expectedPaths.length &&
@@ -402,21 +428,22 @@ function main(args) {
   }
   if (args[0] === 'select' && args.length === 3) {
     requireValue(Object.hasOwn(contracts, args[2]), 'Unknown validation family');
-    const observed = invocationPlan(readJSON(args[1]), readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd());
+    const observed = invocationPlan(readJSON(args[1]), readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd(), true);
     return { family: args[2], applicable: observed.applicable[args[2]], source: observed.source };
   }
   if (args[0] === 'outputs' && args.length === 2) {
-    const observed = invocationPlan(readJSON(args[1]), readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd());
-    return planOutputs(observed);
+    const plan = readJSON(args[1]);
+    const observed = invocationPlan(plan, readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd(), true);
+    return { ...planOutputs(observed), plan_artifact: planOutputs(plan).plan_artifact };
   }
   if (args[0] === 'receipt' && [5, 6].includes(args.length)) {
     const plan = readJSON(args[1]);
-    const observed = invocationPlan(plan, readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd());
+    const observed = invocationPlan(plan, readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd(), true);
     return captureReceipt(plan, args[2], args[3], readJSON(args[4]), observed.source.tested_sha, args[5] === undefined ? undefined : readJSON(args[5]), observed.source);
   }
   requireValue(args[0] === 'evaluate' && args.length === 2, 'Usage: pr-completeness.cjs route | plan | outputs PLAN.json | select PLAN.json FAMILY | receipt PLAN.json FAMILY UNIT STEPS.json [BROWSER.json] | evaluate INPUT.json');
   const input = readJSON(args[1]);
-  const observed = invocationPlan(input.plan, readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd());
+  const observed = invocationPlan(input.plan, readJSON(process.env.GITHUB_EVENT_PATH), process.env, process.cwd(), true);
   return evaluate(observed, input.needs, input.receipts, input.current_pr);
 }
 

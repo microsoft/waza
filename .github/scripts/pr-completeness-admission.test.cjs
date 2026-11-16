@@ -42,6 +42,7 @@ function fixture(t, changed = 'AGENTS.md', retarget = false, selectedCommands = 
   }
   write('AGENTS.md', 'unchanged baseline\n');
   git('init', '-q');
+  git('config', 'core.autocrlf', 'false');
   git('config', 'user.name', 'Offline admission control');
   git('config', 'user.email', 'offline-admission@example.invalid');
   git('config', 'commit.gpgsign', 'false');

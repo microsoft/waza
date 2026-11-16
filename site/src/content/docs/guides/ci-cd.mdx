@@ -205,6 +205,13 @@ merge, each with a native shard max/min ratio `<= 1.25` and total Go CI
 critical-path span `< 25 minutes`; a planned assignment cannot satisfy either
 measured threshold.
 
+PR completeness admission downloads receipts from every attempt of the same
+workflow run, allowing successful units from earlier attempts to be reused
+after a failed-job rerun only when the run and tested source still match. For
+each unit, the newest receipt is authoritative, so a failed retry cannot fall
+back to an older passing receipt. The merged coverage artifact is replaceable
+on retry, avoiding a name collision when its producer is rerun.
+
 Go discovery uses the existing shard `.all`/`.selected` inventories. Top-level
 tests, nested tests and packages have separate observed/executed/pass/fail/skip
 counts. Complete Go admission requires a bounded, unique discovery inventory

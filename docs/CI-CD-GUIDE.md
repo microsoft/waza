@@ -97,6 +97,15 @@ or runner-topology changes using complete successful Linux remaining-test
 executions; retain their run, attempt, and source commit, and do not use
 canceled or incomplete test executions. The Windows job continues to run the
 full suite.
+
+PR completeness receipts are also retained per workflow attempt, but admission
+downloads receipts from all attempts of the same run. This lets a failed-job
+rerun reuse successful units from an earlier attempt only when the run and
+tested source still match. For each unit, the newest receipt is authoritative;
+a failed newer receipt cannot fall back to an older passing one. The merged
+coverage artifact is replaceable on retry so rerunning its producer does not
+fail on an existing artifact name.
+
 For issue #825, acceptance remains three distinct successful main-push runs
 after merge, each with native shard max/min `<= 1.25` and total Go CI
 critical-path span `< 25 minutes`; a balanced plan or cost table cannot satisfy

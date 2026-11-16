@@ -280,6 +280,17 @@ test('receipt artifacts are source-attempt and matrix-unit scoped', () => {
     'pr-completeness-receipt-assurance-assurance-123-1');
   assert.equal(receiptArtifactName(source, 'tools', 'windows'),
     'pr-completeness-receipt-tools-windows-123-1');
+  const retrySource = { ...source, run_attempt: '2' };
+  const retryPlan = fixture(['AGENTS.md'], source).plan;
+  const retrySteps = Object.fromEntries(contracts.go.units.lint.map((step) =>
+    [step, { outcome: 'success', conclusion: 'success' }]));
+  retrySteps.checkout.outputs = { commit: source.tested_sha };
+  const retryReceipt = captureReceipt(retryPlan, 'go', 'lint', retrySteps, source.tested_sha, undefined, retrySource);
+  assert.equal(retryReceipt.source.run_attempt, '2');
+  assert.equal(retryReceipt.artifact_name, receiptArtifactName(retrySource, 'go', 'lint'));
+  const futurePlan = createPlan({ ...source, run_attempt: '2' }, retryPlan.paths);
+  assert.throws(() => captureReceipt(futurePlan, 'go', 'lint', retrySteps, source.tested_sha, undefined, source),
+  /Current workflow attempt precedes the stored plan attempt/);
   assert.equal(receiptArtifactName({ ...source, run_attempt: '2' }, 'runtime', 'macos'),
     'pr-completeness-receipt-runtime-macos-123-2');
   assert.throws(() => receiptArtifactName(source, 'tools', 'unknown'));
@@ -393,6 +404,35 @@ test('final admission rejects a moved PR head/base, closure, missing API evidenc
   assert.ok(evaluate(baseline.plan, baseline.needs, baseline.receipts, multiple).diagnostics.length > 2);
 });
 
+test('failed-job retries reuse same-source receipts and select the newest attempt per unit', () => {
+  const baseline = fixture(['AGENTS.md']);
+  const plan = createPlan({ ...source, run_attempt: '2' }, baseline.plan.paths);
+  const prior = baseline.receipts.find((receipt) => receipt.family === 'go' && receipt.unit === 'lint');
+  const retry = structuredClone(prior);
+  retry.source.run_attempt = '2';
+  retry.artifact_name = receiptArtifactName(retry.source, retry.family, retry.unit);
+  const receipts = [...baseline.receipts, retry];
+  assert.equal(evaluate(plan, baseline.needs, receipts, baseline.current_pr).passed, true);
+
+  const failedRetry = structuredClone(retry);
+  failedRetry.steps[contracts.go.units.lint[0]] = { outcome: 'failure', conclusion: 'failure' };
+  const failedReceipts = [...baseline.receipts, failedRetry];
+  const failed = evaluate(plan, baseline.needs, failedReceipts, baseline.current_pr);
+  assert.equal(failed.passed, false, 'a failed latest attempt must not fall back to an older passing receipt');
+
+  const future = structuredClone(retry);
+  future.source.run_attempt = '3';
+  future.artifact_name = receiptArtifactName(future.source, future.family, future.unit);
+  assert.equal(evaluate(plan, baseline.needs, [...baseline.receipts, future], baseline.current_pr).passed, false,
+    'receipts from a future attempt are rejected');
+
+  const wrongSource = structuredClone(retry);
+  wrongSource.source.base_sha = 'd'.repeat(40);
+  wrongSource.artifact_name = receiptArtifactName(wrongSource.source, wrongSource.family, wrongSource.unit);
+  assert.equal(evaluate(plan, baseline.needs, [...baseline.receipts, wrongSource], baseline.current_pr).passed, false,
+    'retry receipts must retain the exact tested source');
+});
+
 test('receipt capture strips unrelated outputs and browser logs rather than retaining secrets', () => {
   const control = fixture();
   const candidate = control.receipts.find((receipt) => receipt.family === 'dashboard');
@@ -408,7 +448,10 @@ test('receipt capture strips unrelated outputs and browser logs rather than reta
   assert.throws(() => captureReceipt(control.plan, 'unknown', 'dashboard', steps, source.tested_sha, reports, source));
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, 'd'.repeat(40), reports, source));
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports, { ...source, workflow: 'Independent observation' }), /Source mismatch: workflow/);
-  assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports, { ...source, run_attempt: '2' }), /Source mismatch: run_attempt/);
+  const retryReceipt = captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports,
+    { ...source, run_attempt: '2' });
+  assert.equal(retryReceipt.source.run_attempt, '2');
+  assert.equal(retryReceipt.artifact_name, receiptArtifactName({ ...source, run_attempt: '2' }, 'dashboard', 'dashboard'));
   delete steps.tests;
   assert.throws(() => captureReceipt(control.plan, 'dashboard', 'dashboard', steps, source.tested_sha, reports, source));
 
@@ -483,6 +526,7 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   const directory = scratch(t);
   const git = (...args) => execFileSync('git', args, { cwd: directory, encoding: 'utf8' }).trim();
   git('init', '-q');
+  git('config', 'core.autocrlf', 'false');
   git('config', 'user.name', 'Offline Control');
   git('config', 'user.email', 'offline-control@example.invalid');
   git('config', 'commit.gpgsign', 'false');
@@ -542,6 +586,9 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   const evaluated = evaluateCLI();
   assert.equal(evaluated.status, 0, evaluated.stderr);
   assert.equal(JSON.parse(evaluated.stdout).passed, true);
+  const retryEvaluation = evaluateCLI({ GITHUB_RUN_ATTEMPT: '2' });
+  assert.equal(retryEvaluation.status, 0, retryEvaluation.stderr);
+  assert.equal(JSON.parse(retryEvaluation.stdout).passed, true, 'same-source receipts from the prior attempt remain admissible');
   const reorderedEvaluation = structuredClone(evaluation);
   reorderedEvaluation.plan.paths.reverse();
   fs.writeFileSync(evaluationPath, JSON.stringify(reorderedEvaluation));
@@ -552,7 +599,7 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   for (const extra of [
     { GITHUB_EVENT_NAME: 'push', GITHUB_RUN_ID: '999', GITHUB_RUN_ATTEMPT: '2', GITHUB_SHA: head },
     { GITHUB_EVENT_NAME: 'push' }, { GITHUB_WORKFLOW: 'Unrelated workflow' },
-    { GITHUB_RUN_ID: '999' }, { GITHUB_RUN_ATTEMPT: '2' }, { GITHUB_SHA: head },
+    { GITHUB_RUN_ID: '999' }, { GITHUB_SHA: head },
     { GITHUB_REPOSITORY: 'unrelated/repository' },
     { GITHUB_EVENT_PATH: path.join(directory, 'missing-event.json') },
   ]) {
@@ -587,6 +634,12 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   const outputs = spawnSync(process.execPath, [cli, 'outputs', planPath], { cwd: directory, env, encoding: 'utf8' });
   assert.equal(outputs.status, 0, outputs.stderr);
   assert.deepEqual(JSON.parse(outputs.stdout), planOutputs(plan));
+  const retryOutputs = spawnSync(process.execPath, [cli, 'outputs', planPath], {
+    cwd: directory, env: { ...env, GITHUB_RUN_ATTEMPT: '2' }, encoding: 'utf8',
+  });
+  assert.equal(retryOutputs.status, 0, retryOutputs.stderr);
+  assert.deepEqual(JSON.parse(retryOutputs.stdout), planOutputs(plan),
+    'a failed-job rerun keeps using the immutable plan artifact from the initial attempt');
   const steps = Object.fromEntries(contracts.go.units.lint.map((step) => [step, { outcome: 'success', conclusion: 'success' }]));
   steps.checkout.outputs = { commit: tested };
   fs.writeFileSync(stepsPath, JSON.stringify(steps));
@@ -594,9 +647,18 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   const captured = capture();
   assert.equal(captured.status, 0, captured.stderr);
   assert.equal(JSON.parse(captured.stdout).tested_sha, tested);
+  const retryCaptured = capture({ GITHUB_RUN_ATTEMPT: '2' });
+  assert.equal(retryCaptured.status, 0, retryCaptured.stderr);
+  assert.equal(JSON.parse(retryCaptured.stdout).source.run_attempt, '2');
+  assert.equal(JSON.parse(retryCaptured.stdout).artifact_name, `pr-completeness-receipt-go-lint-123-2`);
   const select = (family) => spawnSync(process.execPath, [cli, 'select', planPath, family], { cwd: directory, env, encoding: 'utf8' });
   assert.deepEqual(JSON.parse(select('dashboard').stdout), { family: 'dashboard', applicable: true, source: plan.source });
   assert.deepEqual(JSON.parse(select('runtime').stdout), { family: 'runtime', applicable: true, source: plan.source });
+  const retrySelection = spawnSync(process.execPath, [cli, 'select', planPath, 'dashboard'], {
+    cwd: directory, env: { ...env, GITHUB_RUN_ATTEMPT: '2' }, encoding: 'utf8',
+  });
+  assert.equal(retrySelection.status, 0, retrySelection.stderr);
+  assert.equal(JSON.parse(retrySelection.stdout).source.run_attempt, '2');
   fs.writeFileSync(planPath, JSON.stringify(createPlan(plan.source, plan.paths.filter((file) => file !== helperPath))));
   const omittedHelper = select('runtime');
   assert.equal(omittedHelper.status, 1);
@@ -623,7 +685,7 @@ test('production Git discovery covers renamed/deleted inputs and stacked bases; 
   fs.writeFileSync(planPath, JSON.stringify(plan));
   for (const extra of [
     { GITHUB_WORKFLOW: 'Independent observation' }, { GITHUB_WORKFLOW: '' },
-    { GITHUB_RUN_ATTEMPT: '2' }, { GITHUB_RUN_ID: '124' },
+    { GITHUB_RUN_ID: '124' },
     { GITHUB_EVENT_NAME: 'workflow_dispatch' }, { GITHUB_SHA: head },
   ]) {
     const wrongSource = capture(extra);

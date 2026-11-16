@@ -811,7 +811,12 @@ function collectObservations(runID, api, download = (id) => {
     }
   }
   for (const remaining of remainingAttempts.values()) {
-    if (remaining.duplicate || remaining.shards.size !== 4) {
+    const hasIncompleteWorker = remaining.reports.some((report) =>
+      report.complete !== true || report.discovery_exit !== 0 ||
+      report.discovery_collector_exit !== 0 || report.execution_exit !== 0 ||
+      report.collector_exit !== 0);
+    if (remaining.duplicate || remaining.shards.size !== 4 ||
+        remaining.reports.length !== 4 || hasIncompleteWorker) {
       diagnostics.push("go-remaining-shards-incomplete");
       for (const report of remaining.reports) verifiedReports.get(report).sample_eligible = false;
     }

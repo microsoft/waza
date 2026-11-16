@@ -1188,8 +1188,8 @@ function verified(report, overrides = {}, family = report.kind === "playwright" 
   const fixture = artifactFixture(report, overrides, family);
   return collectObservations(fixture.id, fixture.api, () => fixture.zip);
 }
-test("remaining Go observations bind all four workers and reject incomplete or misidentified shards", () => {
-  const makeWorker = (shard) => {
+test("remaining Go observations bind all four complete workers and reject incomplete or misidentified attempts", () => {
+  const makeWorker = (shard, mutateReport = () => {}) => {
     const packageName = `example/pkg-${shard}`, testName = `TestShard${shard}`;
     const report = parseGo([
       { Action: "start", Package: packageName },
@@ -1202,6 +1202,7 @@ test("remaining Go observations bind all four workers and reject incomplete or m
     report.identity.shard = String(shard);
     report.selected = [`${packageName}::${testName}`];
     report.discovered = [...report.selected];
+    mutateReport(report);
     return artifactFixture(report, {}, "go-remaining");
   };
   const collect = (workers, alterArtifact = (artifact) => artifact) => {
@@ -1214,7 +1215,7 @@ test("remaining Go observations bind all four workers and reject incomplete or m
       { total_count: artifacts.length, artifacts } : workers[0].api(endpoint);
     return collectObservations("10", api, (id) => downloads.get(id));
   };
-  const complete = collect([0, 1, 2, 3].map(makeWorker));
+  const complete = collect([0, 1, 2, 3].map((shard) => makeWorker(shard)));
   assert.equal(complete.reports.length, 4, JSON.stringify({
     diagnostics: complete.diagnostics, artifacts: complete.metadata.artifacts,
   }));
@@ -1225,12 +1226,21 @@ test("remaining Go observations bind all four workers and reject incomplete or m
   assert.ok(grouped.cohorts.every((cohort) => cohort.eligible.length === 1));
   assert.equal(historyProposal(complete.reports).targets.length, 4);
 
-  const incomplete = collect([0, 1, 2].map(makeWorker));
+  const incomplete = collect([0, 1, 2].map((shard) => makeWorker(shard)));
   assert.equal(incomplete.reports.length, 3);
   assert.ok(incomplete.diagnostics.includes("go-remaining-shards-incomplete"));
   assert.ok(trends(incomplete.reports).cohorts.every((cohort) => cohort.eligible.length === 0));
 
-  const mismatched = collect([0, 1, 2, 3].map(makeWorker), (artifact, index) =>
+  const partial = collect([0, 1, 2, 3].map((shard) => makeWorker(shard, shard === 2 ? (report) => {
+    report.complete = false;
+    report.diagnostics = ["collector-command-failed"];
+    report.collector_exit = 1;
+  } : undefined)));
+  assert.equal(partial.reports.length, 4, "all worker identities are present despite one partial report");
+  assert.ok(partial.diagnostics.includes("go-remaining-shards-incomplete"));
+  assert.ok(trends(partial.reports).cohorts.every((cohort) => cohort.eligible.length === 0));
+
+  const mismatched = collect([0, 1, 2, 3].map((shard) => makeWorker(shard)), (artifact, index) =>
     index === 2 ? { ...artifact, name: artifact.name.replace(/-2$/, "-3") } : artifact);
   assert.equal(mismatched.reports.length, 3, "artifact suffix must match the receipt shard");
   assert.ok(mismatched.diagnostics.includes("go-remaining-shards-incomplete"));

@@ -328,6 +328,7 @@ jobs:
             coverage.txt
             go-remaining-verification.json
           if-no-files-found: error
+          overwrite: true
       - name: Capture PR completeness receipt
         if: always() && github.event_name == 'pull_request'
         id: receipt

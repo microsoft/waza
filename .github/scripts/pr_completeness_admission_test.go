@@ -117,10 +117,10 @@ func checkAdmissionWorkflow(source []byte, mode string) error {
 				reflect.DeepEqual(step.With, map[string]string{
 					"name": "${{ inputs.pr_completeness_plan }}", "path": "${{ runner.temp }}/pr-completeness-plan",
 				})
-		case "Download individual receipts from this attempt":
+		case "Download receipts from all attempts of this run":
 			receiptDownload = strings.HasPrefix(step.Uses, "actions/download-artifact@") &&
 				reflect.DeepEqual(step.With, map[string]string{
-					"pattern":        "pr-completeness-receipt-*-${{ github.run_id }}-${{ github.run_attempt }}",
+					"pattern":        "pr-completeness-receipt-*-${{ github.run_id }}-*",
 					"merge-multiple": "false", "path": "${{ runner.temp }}/pr-completeness-receipts",
 				})
 		case "Admit current source and all applicable evidence":
