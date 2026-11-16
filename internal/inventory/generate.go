@@ -16,8 +16,25 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/microsoft/waza/internal/rootedfile"
 )
+
+// serialNamespace scopes name-based inventory serial numbers to this profile.
+var serialNamespace = uuid.NewSHA1(uuid.NameSpaceURL, []byte("https://microsoft.github.io/waza/schemas/component-inventory-1.0.schema.json"))
+
+// serialNumber derives a deterministic RFC 4122 version 5 URN from the
+// serialized inventory content, keeping generation reproducible while
+// supplying the serialNumber that CycloneDX consumers such as SBOM
+// attestation require.
+func serialNumber(doc Document) (string, error) {
+	doc.SerialNumber = ""
+	content, err := json.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+	return uuid.NewSHA1(serialNamespace, content).URN(), nil
+}
 
 // GenerateInput describes one inventory. SubjectDigest must be the immutable
 // sha256 digest of the image manifest or plugin artifact being described.
@@ -80,6 +97,11 @@ func Generate(in GenerateInput) ([]byte, error) {
 		}},
 		Components: components,
 	}
+	serial, err := serialNumber(doc)
+	if err != nil {
+		return nil, err
+	}
+	doc.SerialNumber = serial
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, err

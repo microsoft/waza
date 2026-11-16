@@ -28,6 +28,9 @@ restricted to the closed profile `waza.component-inventory/1.0`
   16 MiB per inventory.
 
 Generation is deterministic: the same image or plugin yields the same bytes.
+The required `serialNumber` is a version 5 `urn:uuid` derived from the
+inventory content, so it is stable across regenerations and satisfies
+CycloneDX SBOM attestation tooling.
 
 ```mermaid
 flowchart LR
