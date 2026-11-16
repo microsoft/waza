@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/microsoft/waza/internal/projectconfig"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 )
 
 // Config holds the HTTP server configuration.
@@ -51,7 +53,7 @@ func New(cfg Config) (*Server, error) {
 		logger: cfg.Logger,
 		srv: &http.Server{
 			Addr:              fmt.Sprintf("127.0.0.1:%d", cfg.Port),
-			Handler:           mux,
+			Handler:           recordUsage(mux),
 			ReadHeaderTimeout: 10 * time.Second,
 		},
 	}
@@ -60,6 +62,19 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// recordUsage notes, once per process, that the REST API or dashboard was used.
+// Only the feature category is recorded; paths and requests are never sent.
+func recordUsage(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			usagetelemetry.RecordFeature(usagetelemetry.FeatureHTTPAPI)
+		} else {
+			usagetelemetry.RecordFeature(usagetelemetry.FeatureDashboard)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ListenAndServe starts the HTTP server and optionally opens a browser.

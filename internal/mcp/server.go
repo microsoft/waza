@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/jsonrpc"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/microsoft/waza/internal/webapi"
 )
 
@@ -129,6 +130,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req *jsonrpc.Request) *jso
 		}
 	}
 
+	usagetelemetry.RecordFeature(usagetelemetry.FeatureMCPServer)
 	result, rpcErr := s.dispatchTool(ctx, p.Name, p.Arguments)
 	if rpcErr != nil {
 		return &jsonrpc.Response{

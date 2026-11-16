@@ -2051,6 +2051,24 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 
 The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Standalone v0.40.0 uses `github.com/github/copilot-sdk/go` v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
+## waza telemetry
+
+Manage product usage telemetry. Every subcommand is local-only, sends nothing,
+and is never itself collected. This build has no approved collector endpoint,
+so no usage data is sent; see [Product Usage Telemetry](/waza/guides/usage-telemetry/).
+
+```bash
+waza telemetry status    # Show whether collection is active and why
+waza telemetry disable   # Persistently disable and delete the installation ID
+waza telemetry enable    # Remove a persistent disable (opt-outs still win)
+waza telemetry reset-id  # Delete the installation ID
+```
+
+Settings are stored in `~/.waza/telemetry.json`. Any opt-out
+(`WAZA_TELEMETRY_OPTOUT=1`, `--no-telemetry`, `waza telemetry disable`,
+`telemetry.disabled` in `.waza.yaml`, `DO_NOT_TRACK=1`, or
+`AZURE_DEV_COLLECT_TELEMETRY=no`) wins over every other setting.
+
 ## Graders
 
 Waza supports multiple grader types for comprehensive evaluation. See the complete [Grader Reference](../../guides/graders/) for detailed documentation.
@@ -2244,6 +2262,7 @@ billing; historical readers do not rewrite old classifications.
 | `--version` | Show version |
 | `--verbose` | Enable debug output |
 | `--no-update-check` | Disable automatic version update check |
+| `--no-telemetry` | Disable product usage telemetry for this invocation and its child processes |
 
 ## Automatic Update Check
 
@@ -2273,6 +2292,7 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... |
 | `WAZA_HOME` | Config directory (default: `~/.waza`) |
 | `WAZA_CACHE` | Cache directory (default: `.waza-cache`) |
 | `WAZA_NO_UPDATE_CHECK` | Set to `1` to disable automatic version check |
+| `WAZA_TELEMETRY_OPTOUT` | Set to `1` or `true` to disable product usage telemetry |
 
 OpenTelemetry export is configured with the `waza run --otel-*` flags. v0.38.0 does not read `WAZA_OTEL_*` environment variables.
 

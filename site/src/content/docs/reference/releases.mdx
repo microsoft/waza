@@ -57,6 +57,11 @@ tag, GitHub Release or public image. The tag-release workflow reuses the
 qualification and publishes the versioned runner image only after qualification
 succeeds. See the [candidate qualification and release procedure](https://github.com/microsoft/waza/blob/main/docs/RELEASE.md#candidate-qualification-without-publication).
 
+v0.42.0 also includes an inert, opt-out [product usage telemetry](../../guides/usage-telemetry/)
+client. No collector endpoint is configured, so it sends nothing; activation
+awaits privacy and security approval, collector readiness, and a decision on
+the collection default and CI policy.
+
 ## Previous highlighted release: v0.40.1
 
 **Released:** November 6, 2026.
