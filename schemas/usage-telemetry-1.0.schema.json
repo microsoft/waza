@@ -30,7 +30,7 @@
         "distribution": true, "ci": true, "installation_id": true,
         "event": {"const": "command_completed"},
         "command": {"$ref": "#/$defs/command"},
-        "outcome": {"enum": ["success", "test_failed", "setup_error", "runtime_error", "cancelled"]},
+        "outcome": {"enum": ["success", "test_failed", "setup_error", "runtime_error", "canceled"]},
         "duration_bucket": {"$ref": "#/$defs/duration_bucket"}
       },
       "required": ["command", "outcome", "duration_bucket"],
@@ -43,7 +43,7 @@
         "event": {"const": "execution_completed"},
         "surface": {"enum": ["benchmark", "runner_unit"]},
         "execution_mode": {"enum": ["live", "mock"]},
-        "outcome": {"enum": ["passed", "failed", "error", "cancelled"]},
+        "outcome": {"enum": ["passed", "failed", "error", "canceled"]},
         "task_count_bucket": {"$ref": "#/$defs/count_bucket"},
         "duration_bucket": {"$ref": "#/$defs/duration_bucket"}
       },

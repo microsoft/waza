@@ -50,7 +50,7 @@ const (
 	ExecutionPassed    = "passed"
 	ExecutionFailed    = "failed"
 	ExecutionError     = "error"
-	ExecutionCancelled = "cancelled"
+	ExecutionCancelled = "canceled"
 )
 
 // Approved command outcomes.
@@ -59,7 +59,7 @@ const (
 	CommandTestFailed   = "test_failed"
 	CommandSetupError   = "setup_error"
 	CommandRuntimeError = "runtime_error"
-	CommandCancelled    = "cancelled"
+	CommandCancelled    = "canceled"
 )
 
 type client struct {

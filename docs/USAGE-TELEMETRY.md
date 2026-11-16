@@ -83,7 +83,7 @@ Every value is an approved enum, a bucket, a boolean, or a random UUIDv4.
 | `ci` | Whether a CI environment was detected |
 | `installation_id` | Random, resettable UUIDv4; never sent from CI |
 | `command` | Command path from the command tree, for example `run` or `runner submit`; otherwise `root` or `unknown` |
-| `outcome` | Commands: `success`, `test_failed`, `setup_error`, `runtime_error`, `cancelled`. Executions: `passed`, `failed`, `error`, `cancelled` |
+| `outcome` | Commands: `success`, `test_failed`, `setup_error`, `runtime_error`, `canceled`. Executions: `passed`, `failed`, `error`, `canceled` |
 | `duration_bucket` | `lt_1s`, `1s_10s`, `10s_1m`, `1m_10m`, `10m_1h`, `ge_1h` |
 | `surface` | `benchmark`, `runner_unit` |
 | `execution_mode` | `live`, `mock` |
