@@ -20,6 +20,12 @@
 # https://github.com/microsoft/waza/actions/runs/43766161368 (091e26db)
 # https://github.com/microsoft/waza/actions/runs/43772111703 (fc538b01)
 # https://github.com/microsoft/waza/actions/runs/43776438029 (96f3761e)
+# Run 43940264955 attempt 1 (01d7b0e532ba24cfa63dcfcebd2b46c005d41040) passed
+# all native shards after serializing the frozen-reader oracle cases. The prior
+# assignment measured job durations of 1252/1204/1398/1111 seconds (max/min 1.258).
+# Refreshing the split parity-test costs predicts 1123.79/1125.08/1124.02/1124.48
+# seconds of test work before runner overhead; this PR run is not acceptance evidence.
+# https://github.com/microsoft/waza/actions/runs/43940264955
 # Tests with a completed PASS in the latest run use that top-level duration;
 # rows without a passing sample retain their prior estimate. Use disjoint child
 # PASS durations only when cases moved between top-level tests; never add child
@@ -47,8 +53,8 @@ TestNativeFrozenResourcesReachFreshSDKWorkspace	32.61
 TestNativeInnerProfileRejectsFrozenPolicyMemberOracle	0.00
 TestNativeLateFailurePreservesEveryStartedAttempt	457.96
 TestNativeReadSelectedDecisionCaptureVerification	233.88
-TestNativeReaderFrozen15cDecisionParity	575.83
-TestNativeReaderFrozen15cDecisionParityAdditionalInputs	579.59
+TestNativeReaderFrozen15cDecisionParity	563.270
+TestNativeReaderFrozen15cDecisionParityAdditionalInputs	635.910
 TestNativeReaderPreservesPrePolicyCoreFailures	76.49
 TestNativeReaderSuppliedDecisionProcess	12.05
 TestNativeSourceCurrentnessBeforeSideEffects	138.10

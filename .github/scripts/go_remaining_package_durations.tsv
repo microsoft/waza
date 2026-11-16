@@ -1,8 +1,14 @@
 # Complete Linux remaining-package timings from Go evidence run 43660257588, attempt 6.
 # Source checkout: f26080e926f148efc90ab8b9e8299a6ab1339dd9; unit: seconds.
 # Placement data only; the run is not performance-acceptance evidence.
+# Refresh cmd/waza and internal/nativetask after serializing memory-heavy tests
+# from successful PR run 43940264955 attempt 1 (01d7b0e532ba24cfa63dcfcebd2b46c005d41040).
+# The remaining package rows retain the earlier observation; this PR run is not
+# acceptance evidence. The updated package-cost plan predicts about 1018 seconds
+# per worker before parallel test overhead.
+# https://github.com/microsoft/waza/actions/runs/43940264955
 github.com/microsoft/waza	5.817
-github.com/microsoft/waza/cmd/waza	1116.910
+github.com/microsoft/waza/cmd/waza	713.772
 github.com/microsoft/waza/cmd/waza/dev	2.941
 github.com/microsoft/waza/cmd/waza/newtask	1.067
 github.com/microsoft/waza/cmd/waza/tokens	5.762
@@ -53,7 +59,7 @@ github.com/microsoft/waza/internal/mcpmock	1.407
 github.com/microsoft/waza/internal/metrics	1.072
 github.com/microsoft/waza/internal/models	6.252
 github.com/microsoft/waza/internal/nativesnapshot	793.155
-github.com/microsoft/waza/internal/nativetask	904.073
+github.com/microsoft/waza/internal/nativetask	303.725
 github.com/microsoft/waza/internal/optimizer	27.874
 github.com/microsoft/waza/internal/orchestration	213.796
 github.com/microsoft/waza/internal/ownedsubmission	4.793
