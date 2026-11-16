@@ -101,10 +101,13 @@ inventory is internally consistent and bound to your digest.
 
 ### Published reference images
 
-Every reference image publication (`publish-runner-reference.yml`) generates the
-inventory from the pushed digest, verifies it, attests it with
-`actions/attest` (predicate type `https://cyclonedx.org/bom`) to the same
-digest on GHCR, and uploads it as a workflow artifact. To verify one yourself:
+The tag-release workflow calls `publish-runner-reference.yml` only after exact
+source qualification succeeds. It generates an inventory from the pushed
+versioned image digest, verifies it, attests it with `actions/attest` (predicate
+type `https://cyclonedx.org/bom`) to that digest on GHCR, and uploads it as a
+workflow artifact. Candidate qualification stores its image archive and
+digest-bound inventory only in workflow-run artifacts; it does not push an
+image or create a registry tag. To verify a published release image:
 
 ```bash
 digest=sha256:<hex>

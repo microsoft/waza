@@ -64,7 +64,6 @@ jobs:
             --signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml \
             --signer-digest "$SOURCE_REVISION" \
             --source-digest "$SOURCE_REVISION" \
-            --source-ref refs/heads/main \
             --format json > "$RUNNER_TEMP/verified-runner-provenance.json"
       - name: Verify signed component inventory for the exact digest
         env:
@@ -81,7 +80,6 @@ jobs:
             --signer-workflow microsoft/waza/.github/workflows/publish-runner-reference.yml \
             --signer-digest "$SOURCE_REVISION" \
             --source-digest "$SOURCE_REVISION" \
-            --source-ref refs/heads/main \
             --format json > "$verified"
           count="$(jq 'length' "$verified")"
           if [[ "$count" -lt 1 ]]; then

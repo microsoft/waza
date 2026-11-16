@@ -43,9 +43,12 @@ waza runner inventory verify --inventory runner.cdx.json \
   --image-digest "$digest" --image-reference ghcr.io/microsoft/waza-runner-reference
 ```
 
-The publisher generates the inventory from the pushed digest, verifies it, and
-attests it to that digest; the public-digest verifier rejects a digest without a
-verified inventory.
+The tag-release publisher generates the inventory from the pushed digest,
+verifies it, and attests it to that digest; the public-digest verifier rejects
+a digest without a verified inventory. Candidate qualification stores the
+runner image archive and digest-bound inventory only in workflow-run artifacts;
+it does not push an image or create a registry tag. See the
+[candidate qualification procedure](https://github.com/microsoft/waza/blob/main/docs/RELEASE.md#candidate-qualification-without-publication).
 
 ## Verify a plugin offline
 
