@@ -20,7 +20,8 @@ var siteFilterPaths = []string{
 	"schemas/**", "web/package.json", "web/playwright.config.ts",
 	"web/e2e/screenshots.spec.ts", "web/e2e/release-screenshots.spec.ts", "web/e2e/runner-negotiation.spec.ts",
 	".github/workflows/site-ci.yml", ".github/workflows/web-ci.yml", ".github/workflows/docker-ci.yml",
-	".github/workflows/publish-runner-reference.yml", ".github/workflows/verify-runner-reference.yml", ".github/workflows/pages.yml",
+	".github/workflows/release-qualification.yml", ".github/workflows/publish-runner-reference.yml",
+	".github/workflows/verify-runner-reference.yml", ".github/workflows/pages.yml",
 }
 
 var exampleFilterPaths = []string{
@@ -31,7 +32,8 @@ var exampleFilterPaths = []string{
 var sitePushPaths = []string{
 	"site/**", "docs/**", "examples/interop/**", "README.md", "CHANGELOG.md", "version.txt", "registry.json",
 	"cmd/waza/**", "internal/**", "schemas/**", "go.mod", "go.sum", "Makefile", "web/**",
-	".github/workflows/site-ci.yml", ".github/workflows/web-ci.yml", ".github/workflows/docker-ci.yml", ".github/workflows/publish-runner-reference.yml",
+	".github/workflows/site-ci.yml", ".github/workflows/web-ci.yml", ".github/workflows/docker-ci.yml",
+	".github/workflows/release-qualification.yml", ".github/workflows/publish-runner-reference.yml",
 	".github/workflows/verify-runner-reference.yml", ".github/workflows/pages.yml",
 }
 

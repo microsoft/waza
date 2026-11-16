@@ -11,8 +11,10 @@ import (
 )
 
 const publisherPath = ".github/workflows/publish-runner-reference.yml"
+const releaseWorkflowPath = ".github/workflows/release.yml"
 
 var publisherInvocation = regexp.MustCompile(`^https://github\.com/microsoft/waza/actions/runs/([1-9][0-9]*)/attempts/([1-9][0-9]*)$`)
+var releaseTagName = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+([-.+][A-Za-z0-9.-]+)?$`)
 
 type verifiedProvenance struct {
 	VerificationResult struct {
@@ -86,11 +88,14 @@ func requireFinalizedRun(invocation, source string, api func(string) ([]byte, er
 		return errors.New("publication evidence must identify exactly one run attempt")
 	}
 	run := runs[0]
+	legacyManualPublication := run.Path == publisherPath && run.HeadBranch == "main" && run.Event == "workflow_dispatch"
+	tagReleasePublication := (run.Path == releaseWorkflowPath || run.Path == publisherPath) &&
+		releaseTagName.MatchString(run.HeadBranch) && run.Event == "push"
 	if run.ID.String() != match[1] || run.RunAttempt.String() != match[2] ||
-		run.Repository.FullName != "microsoft/waza" || run.Path != publisherPath ||
-		run.HeadSHA != source || run.HeadBranch != "main" || run.Event != "workflow_dispatch" ||
-		run.Status != "completed" || run.Conclusion != "success" {
-		return fmt.Errorf("signed publisher invocation %s did not successfully complete for source %s", invocation, source)
+		run.Repository.FullName != "microsoft/waza" ||
+		(!legacyManualPublication && !tagReleasePublication) ||
+		run.HeadSHA != source {
+		return fmt.Errorf("signed publisher invocation %s does not identify the expected repository, workflow, attempt, and source %s", invocation, source)
 	}
 	data, err = api(endpoint + "/jobs?per_page=100")
 	if err != nil {
@@ -103,19 +108,33 @@ func requireFinalizedRun(invocation, source string, api func(string) ([]byte, er
 	found := false
 	for _, page := range pages {
 		for _, job := range page.Jobs {
-			if job.Name != "Publish reviewed Linux AMD64 image" {
+			legacyJob := job.Name == "Publish reviewed Linux AMD64 image"
+			releaseJob := strings.HasSuffix(job.Name, "Publish Linux AMD64 release image")
+			if !legacyJob && !releaseJob {
 				continue
 			}
 			if found || job.Status != "completed" || job.Conclusion != "success" {
 				return errors.New("publisher job must complete successfully exactly once")
 			}
 			found = true
-			for _, required := range []string{
+			requiredSteps := []string{
 				"Attest published image digest",
 				"Attest runner image component inventory",
 				"Revalidate protected main after push and attestation",
 				"Record pushed candidate digest",
-			} {
+			}
+			if releaseJob {
+				requiredSteps = []string{
+					"Admit existing release image only at the qualified digest",
+					"Attest published runner image provenance",
+					"Verify published runner image provenance offline",
+					"Attest published runner image inventory",
+					"Verify published image inventory attestation offline",
+					"Revalidate release tag after publication",
+					"Record published release digest",
+				}
+			}
+			for _, required := range requiredSteps {
 				passed := false
 				for _, step := range job.Steps {
 					if step.Name == required && step.Status == "completed" && step.Conclusion == "success" {
@@ -124,6 +143,21 @@ func requireFinalizedRun(invocation, source string, api func(string) ([]byte, er
 				}
 				if !passed {
 					return fmt.Errorf("publisher finalization step %q did not succeed", required)
+				}
+			}
+			if releaseJob {
+				copySteps := 0
+				copyAccepted := false
+				for _, step := range job.Steps {
+					if step.Name != "Publish the exact qualified OCI image digest" {
+						continue
+					}
+					copySteps++
+					copyAccepted = step.Status == "completed" &&
+						(step.Conclusion == "success" || step.Conclusion == "skipped")
+				}
+				if copySteps != 1 || !copyAccepted {
+					return errors.New("release image copy must succeed or be skipped after exact-digest admission")
 				}
 			}
 		}

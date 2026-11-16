@@ -110,22 +110,28 @@ test('ordinary runner guard rejects tolerated, conditional or neighboring requir
   }
 });
 
-test('manual runner publication and public acceptance remain independent fail-closed gates', () => {
+test('release-only runner publication and public acceptance remain independent fail-closed gates', () => {
   const workflow = read('.github/workflows/publish-runner-reference.yml');
-  assert.match(workflow, /^on:\n  workflow_dispatch:/m);
+  assert.match(workflow, /^on:\n  workflow_call:/m);
+  assert.doesNotMatch(workflow, /workflow_dispatch/);
   assert.doesNotMatch(workflow, /^  (push|pull_request|pull_request_target):/m);
   assert.match(workflow, /packages: write/);
   assert.match(workflow, /linux\/amd64/);
-  assert.match(workflow, /org\.opencontainers\.image\.revision/);
+  assert.match(workflow, /skopeo copy --preserve-digests/);
+  assert.match(workflow, /runner-image\.oci\.tar/);
+  assert.doesNotMatch(workflow, /docker\/build-push-action/);
+  const qualification = read('.github/workflows/release-qualification.yml');
+  assert.match(qualification, /org\.opencontainers\.image\.revision/);
+  assert.match(qualification, /subject-digest: \$\{\{ steps\.image\.outputs\.digest \}\}/);
   const maintainers = read('examples/runner/container/MAINTAINERS.md');
-  assert.match(maintainers, /manual-only GHCR publisher/);
+  assert.match(maintainers, /release-tag-only GHCR publisher/);
   assert.match(maintainers, /Publication and\s+public-image acceptance are separate gates/);
   assert.match(maintainers, /anonymous-pull\/provenance\/production-caller acceptance passed on Linux AMD64/);
   assert.match(maintainers, /review was waived for this one publication, not performed/);
   assert.match(maintainers, /permissions are declarations,\s+not proof/);
   assert.match(maintainers, /A successful push\/attestation is not public-image acceptance/);
   assert.match(maintainers, /failed, cancelled or incomplete publisher is not accepted/);
-  assert.match(maintainers, /signed\s+GitHub provenance\s+attestation binds the published image digest/);
+  assert.match(maintainers, /creates signed\s+GitHub provenance and CycloneDX SBOM attestations for the manifest digest/);
   assert.doesNotMatch(maintainers, /spboyer-native-container-integration/);
   assert.match(maintainers, /empty Docker configuration/);
   assert.match(maintainers, /manual-only `\.github\/workflows\/verify-runner-reference\.yml` workflow/);
@@ -153,6 +159,7 @@ test('runner identity fixtures trigger consumer validation and publication witho
   const site = read('.github/workflows/site-ci.yml');
   const deploy = read('.github/workflows/pages.yml');
   for (const path of [
+    '.github/workflows/release-qualification.yml',
     '.github/workflows/publish-runner-reference.yml',
     '.github/workflows/verify-runner-reference.yml',
   ]) {
@@ -829,7 +836,7 @@ test('released feature guides retain scope and separate publication gates', () =
   assert.match(overview ?? '', /guides describe standalone v0\.40\.0/);
   assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
   assert.match(overview ?? '', /General native file\/tool\/skill workflows and full external task\/suite interoperability remain incomplete/);
-  assert.match(overview ?? '', /manual-only GHCR publisher and separate verifier have independent gates/);
+  assert.match(overview ?? '', /For the historical v0\.40\.0 publication, the GHCR publisher and separate\s+verifier had independent gates/);
   assert.match(overview ?? '', /\[selected AgentV assertion adapter\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
   assert.match(overview ?? '', /`waza interop import\/export`/);
   assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);
@@ -938,7 +945,8 @@ test('public image acceptance binds the literal digest to source, platform and v
   assert.match(record, /review was \*\*waived for\s+this one publication, not performed\*\*/);
   assert.match(record, /not an ARM64 or Windows claim/);
   assert.match(record, /not.*live-provider, billing or inference-quality evidence/);
-  assert.match(record, /Dockerfile does not inject `main\.version`; the source default is\s+`dev`/);
+  assert.match(record, /historical image predates release-version stamping and reports the source\s+default `dev`/);
+  assert.match(record, /passes `WAZA_VERSION` to the\s+Docker build and verifies that the resulting image reports the candidate\s+version/);
 });
 
 test('tagged source builds explicitly stamp the release rather than trusting stale metadata', () => {
@@ -946,8 +954,9 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
   assert.match(makefile, /^VERSION\?=0\.1\.0$/m);
   assert.match(makefile, /^LDFLAGS=-ldflags "-X main\.version=\$\(VERSION\)"$/m);
   assert.match(makefile, /go build \$\(LDFLAGS\) -o \$\(BUILD_DIR\)\/\$\(BINARY_NAME\) \.\/cmd\/waza/);
-  const release = read('.github/workflows/release.yml');
-  assert.match(release, /VERSION="\$\{GITHUB_REF_NAME#v\}"/);
+  const release = read('.github/workflows/release-qualification.yml');
+  assert.match(release, /version="\$\{EVENT_REF#refs\/tags\/v\}"/);
+  assert.match(release, /test "\$VERSION_INPUT" = "\$version"/);
   assert.match(release, /-ldflags "-X main\.version=\$\{VERSION\}"/);
   for (const path of ['README.md', 'site/src/content/docs/reference/releases.mdx']) {
     const text = read(path);
@@ -1143,8 +1152,9 @@ test('production integration assurance package, site navigation and schema route
     assert.ok(page.includes(`#${issue}`), `missing rendered evidence link for #${issue}`);
   }
   assert.match(page, /no new Lab dashboard view/i);
-  assert.match(page, /keyless and managed-KMS signing are unavailable/i);
-  assert.match(page, /manually triggered/i);
+  assert.match(page, /Waza execution-provenance CLI has no Sigstore keyless or managed-KMS signer/i);
+  assert.match(page, /Candidate qualification retains inventory and attestation evidence in workflow-run artifacts only/i);
+  assert.match(page, /Registry publication and inventory attestation occur only in the qualified tag-release path/i);
   assert.match(page, /no live execution-path telemetry emission/i);
   assert.match(page, /no scheduler is included/i);
   assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-provenance'/);

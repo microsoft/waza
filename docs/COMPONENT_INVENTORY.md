@@ -28,6 +28,9 @@ restricted to the closed profile `waza.component-inventory/1.0`
   16 MiB per inventory.
 
 Generation is deterministic: the same image or plugin yields the same bytes.
+The required `serialNumber` is a version 5 `urn:uuid` derived from the
+inventory content, so it is stable across regenerations and satisfies
+CycloneDX SBOM attestation tooling.
 
 ```mermaid
 flowchart LR
@@ -101,10 +104,13 @@ inventory is internally consistent and bound to your digest.
 
 ### Published reference images
 
-Every reference image publication (`publish-runner-reference.yml`) generates the
-inventory from the pushed digest, verifies it, attests it with
-`actions/attest` (predicate type `https://cyclonedx.org/bom`) to the same
-digest on GHCR, and uploads it as a workflow artifact. To verify one yourself:
+The tag-release workflow calls `publish-runner-reference.yml` only after exact
+source qualification succeeds. It generates an inventory from the pushed
+versioned image digest, verifies it, attests it with `actions/attest` (predicate
+type `https://cyclonedx.org/bom`) to that digest on GHCR, and uploads it as a
+workflow artifact. Candidate qualification stores its image archive and
+digest-bound inventory only in workflow-run artifacts; it does not push an
+image or create a registry tag. To verify a published release image:
 
 ```bash
 digest=sha256:<hex>

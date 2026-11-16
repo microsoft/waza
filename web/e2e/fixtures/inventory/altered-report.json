@@ -3,7 +3,7 @@
   "schema_version": "1.0",
   "status": "failed",
   "exit_code": 1,
-  "inventory_sha256": "f05e38e0f6081acbf0816e9cee7ec690ba5bc67a720ad4ccf5cbbf6e6c59dad5",
+  "inventory_sha256": "4420eded493bbfeed51d0377ab9e3a640fc3f0e9c2859321d21922face91a605",
   "expected": {
     "kind": "image",
     "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
@@ -20,7 +20,7 @@
       "id": "inventory",
       "status": "passed",
       "code": "ok",
-      "message": "CycloneDX 1.6 inventory, 2418 bytes"
+      "message": "CycloneDX 1.6 inventory, 2485 bytes"
     },
     {
       "id": "profile",

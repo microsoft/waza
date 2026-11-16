@@ -10,11 +10,12 @@ RUN npm run build
 
 FROM golang:1.26.4-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS build
 WORKDIR /build
+ARG WAZA_VERSION=dev
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /build/web/dist/ web/dist/
-RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -ldflags="-s -w" -o /waza ./cmd/waza
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${WAZA_VERSION}" -o /waza ./cmd/waza
 RUN /waza runner capabilities
 
 FROM build AS controls-build

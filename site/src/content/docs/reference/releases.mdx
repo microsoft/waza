@@ -47,6 +47,16 @@ publication does not by itself establish execution on every platform.
 Unlike the historical v0.40.1 tags, the `v0.41.0` tag carries `0.41.0` in
 `version.txt` and `extension.yaml`.
 
+## v0.42.0 qualification (not released)
+
+The v0.42.0 work is not a release approval or publication claim. A manual
+**Release Qualification** run accepts only the exact current `main` commit and
+stores its binaries, runner image archive, inventory, attestations, verification
+reports and assurance package as workflow-run artifacts. It creates no version
+tag, GitHub Release or public image. The tag-release workflow reuses the
+qualification and publishes the versioned runner image only after qualification
+succeeds. See the [candidate qualification and release procedure](https://github.com/microsoft/waza/blob/main/docs/RELEASE.md#candidate-qualification-without-publication).
+
 ## Previous highlighted release: v0.40.1
 
 **Released:** November 6, 2026.
@@ -90,7 +100,8 @@ exact-unit Debian/glibc target, which is tested with the actual bundled CLI and 
 local synthetic provider without external runtime networking. Local image IDs
 are not registry pins; the published native reference passed digest-pinned
 acceptance on Linux AMD64.
-The manual-only GHCR publisher and separate verifier have independent gates.
+For the historical v0.40.0 publication, the GHCR publisher and separate
+verifier had independent gates.
 The [published image record](../../guides/runner-container/#published-image-and-acceptance-evidence)
 identifies its immutable digest, source and declared Linux AMD64 platform.
 Publisher attempt 1 and the verifier succeeded: anonymous pull, source/platform,

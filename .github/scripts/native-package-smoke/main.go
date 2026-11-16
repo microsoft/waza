@@ -10,11 +10,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
-const receiptSchema = "waza.native-package-smoke/1"
+const receiptSchema = "waza.native-package-smoke/2"
+const statusSchema = "waza.native-package-smoke-status/1"
 
 // Every check a native receipt must report as passed.
 var requiredChecks = []string{"native-host", "artifact-digest", "binary-target", "version", "help", "mock-run", "embedded-dashboard"}
@@ -25,6 +27,8 @@ type receipt struct {
 	Target          string   `json:"target"`
 	Artifact        string   `json:"artifact"`
 	SHA256          string   `json:"sha256"`
+	RunID           string   `json:"run_id"`
+	RunAttempt      int      `json:"run_attempt"`
 	SourceSHA       string   `json:"source_sha"`
 	Revision        string   `json:"revision"`
 	Version         string   `json:"version"`
@@ -34,8 +38,21 @@ type receipt struct {
 	Seconds         float64  `json:"seconds"`
 }
 
+type receiptStatus struct {
+	Schema     string `json:"schema"`
+	Kind       string `json:"kind"`
+	Target     string `json:"target"`
+	RunID      string `json:"run_id"`
+	RunAttempt int    `json:"run_attempt"`
+	Status     string `json:"status"`
+}
+
 func receiptName(kind string, p platform) string {
 	return "native-smoke-" + kind + "-" + p.OS + "-" + p.Arch + ".json"
+}
+
+func receiptArtifactName(kind, runID string, attempt, jobIndex int) string {
+	return fmt.Sprintf("native-smoke-%s-%s-%d-%d", kind, runID, attempt, jobIndex)
 }
 
 func main() {
@@ -74,17 +91,24 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		sourceSHA := flags.String("source-sha", "", "exact source commit")
 		revision := flags.String("revision", "", "commit the packages were built from (default -source-sha)")
 		version := flags.String("version", "", "package version")
+		runID := flags.String("run-id", "", "exact GitHub Actions run ID")
+		runAttempt := flags.Int("run-attempt", 0, "current GitHub Actions run attempt")
+		jobsFile := flags.String("jobs-file", "", "authoritative per-attempt native job results from the GitHub API")
 		summary := flags.String("summary", "", "markdown summary file to append to")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		if *dir == "" || *sourceSHA == "" || *version == "" {
-			return fmt.Errorf("evidence requires -dir, -source-sha and -version")
+		if *dir == "" || *sourceSHA == "" || *version == "" || *runID == "" || *runAttempt < 1 || *jobsFile == "" {
+			return fmt.Errorf("evidence requires -dir, -source-sha, -version, -run-id, positive -run-attempt and -jobs-file")
 		}
 		if *revision == "" {
 			*revision = *sourceSHA
 		}
-		table, err := collectEvidence(*dir, *sourceSHA, *revision, *version)
+		jobs, err := readJobAttempts(*jobsFile)
+		if err != nil {
+			return err
+		}
+		table, err := collectEvidence(*dir, *sourceSHA, *revision, *version, *runID, *runAttempt, jobs)
 		fmt.Fprint(stdout, table)
 		if *summary != "" {
 			if appendErr := appendFile(*summary, table); appendErr != nil && err == nil {
@@ -121,12 +145,17 @@ func runSmoke(ctx context.Context, kind string, args []string, stdout io.Writer)
 	if p.Evidence != evidenceNative || kind == "extension" && !p.Extension {
 		return fmt.Errorf("%s %s is not a native smoke target", kind, p.target())
 	}
+	runID := os.Getenv("GITHUB_RUN_ID")
+	runAttempt, err := strconv.Atoi(os.Getenv("GITHUB_RUN_ATTEMPT"))
+	if runID == "" || runAttempt < 1 {
+		return fmt.Errorf("native smoke requires GITHUB_RUN_ID and a positive GITHUB_RUN_ATTEMPT")
+	}
 	repoDir, err := filepath.Abs(*repo)
 	if err != nil {
 		return err
 	}
 	started := time.Now()
-	result := receipt{Schema: receiptSchema, Kind: kind, Target: p.target(), SourceSHA: *sourceSHA, Revision: *revision, Version: *version, Runner: os.Getenv("RUNNER_NAME")}
+	result := receipt{Schema: receiptSchema, Kind: kind, Target: p.target(), RunID: runID, RunAttempt: runAttempt, SourceSHA: *sourceSHA, Revision: *revision, Version: *version, Runner: os.Getenv("RUNNER_NAME")}
 	pass := func(check string) {
 		result.Checks = append(result.Checks, check)
 		fmt.Fprintf(stdout, "PASS %s %s %s\n", kind, p.target(), check)

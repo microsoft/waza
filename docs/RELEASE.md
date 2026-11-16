@@ -1,9 +1,9 @@
 # Release Process
 
-This document describes how Waza validates and publishes releases. The canonical
-validation contract is `.github/workflows/release-validation.yml`; every retained
-publisher must complete that workflow successfully for the exact source SHA it
-publishes.
+This document describes how Waza qualifies and publishes releases. The reusable
+validation contract is `.github/workflows/release-validation.yml`; the reusable
+qualification contract is `.github/workflows/release-qualification.yml`.
+Every publisher must use the exact source SHA that completed qualification.
 
 The tag workflow retains GitHub's success-only dependency conditions for each
 builder and publisher. Required validation and evidence-verification steps may
@@ -41,37 +41,134 @@ read-only repository permissions and three-day dashboard artifact retention.
 This control does not replace release validation, establish native Windows
 execution, or repeat the retained twelve-product/six-package acceptance.
 
+## Candidate qualification without publication
+
+Before creating a version tag, dispatch **Release Qualification** from the
+reviewed `main` commit and provide that exact full commit SHA. The workflow
+rechecks that the selected commit is still the current `main` head, runs the
+release validation, builds the release binaries and runner image, generates and
+verifies the image inventory, creates GitHub artifact attestations, verifies
+them offline, and uploads the evidence and workflow-linked assurance package
+only to that workflow run. This candidate path has read-only repository
+permissions plus attestation permissions; it creates no version tag, GitHub
+Release assets, or public registry image.
+
+Qualification consumes the exact-source dashboard artifact produced by release
+validation and rechecks its manifest and installed output before building. It
+stamps the candidate version into the runner image and checks the image's
+`--version` output. Evidence, assurance-package, and native-smoke package
+artifacts include the workflow run ID and producer attempt. The release
+publisher receives the qualification artifact name and its recorded producer
+attempt, rather than assuming it matches the publisher job's attempt. Native
+receipt collection downloads only artifacts from the exact workflow run and
+keeps each attempt in a separate directory. Each status and passing receipt is
+bound to its producing run and attempt. The collector also reads each native
+matrix job's attempt and receipt-upload step result from the Actions API. It
+requires the newest job attempt for each target to have a matching receipt
+artifact and successful upload, so a failed upload or an absent rerun artifact
+cannot silently reuse an earlier pass. Successful receipts from targets not
+rerun remain valid.
+
+Release validation's tested-binary and complete-validation artifacts include
+the workflow run attempt in their names. Reusable-workflow outputs carry each
+exact artifact name and producer attempt to consumers; release publishers
+download the reported artifact and check that its embedded source and attempt
+match those producer outputs. This avoids immutable artifact-name collisions
+when a workflow run is rerun while allowing a downstream retry to use the exact
+earlier validation artifact when only publication is rerun.
+
+Offline GitHub attestation verification requires two independently trusted
+policy values: the repository's immutable numeric ID and the SHA-256 digest of
+the Sigstore trusted-root file. The qualification workflow gets the repository
+ID from `github.repository_id` and requires the root digest in the
+`WAZA_SIGSTORE_TRUSTED_ROOT_SHA256` repository Actions variable. It checks the
+root digest before using that root and compares the repository ID in every
+verification result; `--repo` owner/name matching alone is not sufficient for
+locally supplied bundles. See GitHub's [offline verification
+guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline)
+and the [`upload-artifact` immutable-artifact
+behavior](https://github.com/actions/upload-artifact#not-uploading-to-the-same-artifact).
+
+To prepare policy values for an offline consumer, use a trusted online machine:
+
+```bash
+gh api repos/microsoft/waza --jq .id
+gh attestation trusted-root > trusted_root.jsonl
+sha256sum trusted_root.jsonl
+```
+
+Transfer the repository ID, trusted-root file, and its SHA-256 through a
+trusted policy channel separate from the artifact and attestation bundle.
+Record the expected digest there; do not calculate it from an untrusted root
+delivered beside the artifact. Refresh the root and its policy digest when
+Sigstore trust material is updated. Before invoking `gh attestation verify`
+offline, compare the root file to that policy digest, then verify every
+attestation with JSON output and require each
+`verificationResult.signature.certificate.sourceRepositoryIdentifier` to equal
+the independently obtained repository ID. The `-R`/`--repo` owner/name check
+does not replace this ID comparison.
+
+The repository's fail-closed policy checker can enforce both checks for
+locally supplied verification reports:
+
+```bash
+go run ./.github/scripts/attestation-policy verify \
+  "$EXPECTED_REPOSITORY_ID" "$EXPECTED_TRUSTED_ROOT_SHA256" \
+  trusted_root.jsonl verification/*.json
+```
+
+Review the candidate artifacts and verifier output before approving a release.
+The package identifies the workflow run, source commit, artifact ID and digest,
+and hashes every qualification file. A successful candidate run alone does not
+authorize publication.
+
 ## Cutting a Release
 
 Prepare and commit the target `version.txt`, `extension.yaml`, changelog, and
-matching dashboard index/favicon before creating the semver tag. Release builds
-reject a dashboard rebuild that changes tracked source; publication never repairs
-the tagged metadata. Create the tag on the reviewed commit, not a moving default:
+matching dashboard index/favicon before creating the semver tag. Review a
+successful candidate qualification for the exact release commit first. Release
+builds reject a dashboard rebuild that changes tracked source; publication never
+repairs the tagged metadata. Create the tag on the reviewed commit, not a moving default:
 
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-This triggers the full pipeline: exact-source validation → CLI build → extension
-build → GitHub Release → extension publish → registry-sync PR → GitHub Pages deploy.
+This triggers tag-release qualification, then publishes the qualified runner
+image and inventory, exact qualified CLI binaries and qualification bundle,
+builds the extension, opens its registry-sync PR, and deploys the GitHub Pages
+release notes. The GHCR publisher is reusable only from this tag-release path;
+it has no candidate `workflow_dispatch` route and refuses to replace an existing
+versioned image tag. A retry may continue only if the existing versioned tag
+already resolves to the exact digest from qualification; it then skips the
+image copy and repeats provenance/inventory attestation and verification.
+Different or unprovable registry state fails closed.
 
 ## What the Workflow Does
 
-1. **validation** — Calls the reusable release validation workflow for the tag's
+1. **qualification** — Calls the reusable release qualification workflow for the tag's
    exact SHA. It requires the four native Linux race/atomic shards, the remaining
    Linux race/atomic suite, native Windows race tests, vet, the checksum-pinned
    lint schema, fail-closed offline integration, exhaustive shard inventories,
-   and complete digest/source evidence. Missing, failed, cancelled, skipped,
-   stale-SHA, or incomplete evidence fails validation.
+  and complete digest/source evidence. It also builds the six CLI binaries and
+  an OCI runner image, generates an inventory for the OCI manifest digest,
+  creates provenance/SBOM attestations for that exact digest, downloads the
+  Sigstore trusted root, and verifies the binaries, manifest, archive and SBOM
+  offline. Missing, failed, cancelled,
+   skipped, stale-SHA, or incomplete evidence fails qualification.
 2. **setup-version** — Extracts the version from the pushed tag (strips `v`) and validates semver format.
-3. **build-cli** — After validation succeeds, installs the validation producer's
-   verified dashboard, then matrix-builds 6 platforms (linux,
-   darwin, windows × amd64, arm64). Each binary is accompanied by its SHA256
-   digest and exact source SHA.
-4. **release-cli** — Rejects missing or stale matrix evidence, verifies every
-   digest, and creates or updates the **CLI GitHub Release** (`Waza vX.Y.Z`).
-5. **release-extension** — After validation succeeds, verifies already-committed
+3. **runner-reference** — After qualification succeeds, downloads the exact OCI
+   image archive and inventory from that run, verifies the source-bound digest
+   attestations offline, and copies that archive to GHCR with digest preservation.
+   It fails if the registry digest differs, attaches the inventory attestation to
+   the same digest, verifies it offline, and uploads publication evidence.
+4. **release-cli** — Downloads the exact qualification artifact, verifies the
+   binary source and digest sidecars, and creates or updates the **CLI GitHub
+   Release** (`Waza vX.Y.Z`) with the binaries, assurance package and a
+   qualification evidence archive that includes the runner image, inventory,
+   signatures, trusted root and verification reports.
+5. **release-extension** — After qualification and runner-image publication succeed, verifies already-committed
    `version.txt` and `extension.yaml`, builds and packs the azd extension, records the exact source
    SHA and package digests in `release-provenance.txt`, creates the **Extension
    GitHub Release** (`Waza azd Extension vX.Y.Z`), publishes the package-only
@@ -349,9 +446,13 @@ Validation evidence is scoped to the current workflow run and named with the
 exact `${{ github.sha }}`. Publishers do not search for a same-named check or
 artifact from another run or SHA. Retrying a failed run therefore repeats any
 missing validation/build work and cannot reuse stale evidence.
-Dashboard identity also includes `github.run_attempt`: a partial rerun without
-the matching producer artifact fails closed. Rerun the producer/validation and
-consumers together rather than relabeling a prior-attempt artifact.
+Dashboard identity also includes the producer's `github.run_attempt`: a partial
+rerun without the matching producer artifact fails closed. Validation carries the exact
+artifact name and producer attempt through reusable-workflow outputs, and each
+consumer installs using that recorded producer attempt rather than its own
+rerun number. This permits a failed downstream job to reuse the successful
+dashboard producer from the same workflow run without relabeling an artifact;
+missing or mismatched producer outputs still fail closed.
 
 This removes repeated dashboard compilation, not a measured release-speed claim.
 Observe cold and warm runs before reporting outcomes: compare summed runner work

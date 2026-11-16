@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,11 +56,18 @@ func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
 	if err := os.WriteFile(policy, []byte("{\"policy\":\"release\"}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	digest := "sha256:" + strings.Repeat("a", 64)
+	digest := os.Getenv("WAZA_RELEASE_IMAGE_DIGEST")
+	if digest == "" {
+		digest = "sha256:" + strings.Repeat("a", 64)
+	}
+	imageReference := os.Getenv("WAZA_RELEASE_IMAGE_REFERENCE")
+	if imageReference == "" {
+		imageReference = "ghcr.io/microsoft/waza-runner:test"
+	}
 	generate := func(signer, out string) (string, int) {
 		return runProvenanceCLI(t, "generate", "--request", "../../examples/runner/unit.json",
 			"--manifest", "../../internal/artifactmanifest/testdata/publication-manifest.json",
-			"--artifacts", artifacts, "--policy", policy, "--image-reference", "ghcr.io/microsoft/waza-runner:test",
+			"--artifacts", artifacts, "--policy", policy, "--image-reference", imageReference,
 			"--image-digest", digest, "--waza-version", "0.42.0", "--signer", signer, "--signing-key", private, "--out", out)
 	}
 	bundle := filepath.Join(dir, "bundle")
@@ -102,10 +111,13 @@ func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
 	if r := verify("--require-inventory"); r["status"] != "failed" || !strings.Contains(string(mustJSON(t, r["checks"])), "binding_required_missing") {
 		t.Fatalf("bundle without an inventory satisfied --require-inventory: %v", r["checks"])
 	}
-	inventoryPath := filepath.Join(dir, "runner.cdx.json")
-	if out, code := runRunnerCLI(t, "inventory", "generate", "--name", "ghcr.io/microsoft/waza-runner:test", "--digest", digest,
-		"--dpkg-status", "../../internal/inventory/testdata/dpkg-status", "--out", inventoryPath); code != 0 {
-		t.Fatalf("inventory generate: %d %s", code, out)
+	inventoryPath := os.Getenv("WAZA_RELEASE_INVENTORY_PATH")
+	if inventoryPath == "" {
+		inventoryPath = filepath.Join(dir, "runner.cdx.json")
+		if out, code := runRunnerCLI(t, "inventory", "generate", "--name", imageReference, "--digest", digest,
+			"--dpkg-status", "../../internal/inventory/testdata/dpkg-status", "--out", inventoryPath); code != 0 {
+			t.Fatalf("inventory generate: %d %s", code, out)
+		}
 	}
 	bound := filepath.Join(dir, "bound")
 	if err := os.WriteFile(filepath.Join(artifacts, "terminal.json"), terminal, 0o644); err != nil {
@@ -113,13 +125,26 @@ func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
 	}
 	if out, code := runProvenanceCLI(t, "generate", "--request", "../../examples/runner/unit.json",
 		"--manifest", "../../internal/artifactmanifest/testdata/publication-manifest.json",
-		"--artifacts", artifacts, "--policy", policy, "--image-reference", "ghcr.io/microsoft/waza-runner:test",
+		"--artifacts", artifacts, "--policy", policy, "--image-reference", imageReference,
 		"--image-digest", digest, "--waza-version", "0.42.0", "--signing-key", private, "--out", bound,
 		"--bind", "component-inventory="+inventoryPath); code != 0 {
 		t.Fatalf("generate with inventory binding: %d %s", code, out)
 	}
-	if out, code := runProvenanceCLI(t, "verify", "--bundle", bound, "--public-key", public, "--require-inventory", "--expect-image-digest", digest); code != 0 {
-		t.Fatalf("bound inventory did not verify: %d %s", code, out)
+	verification, code := runProvenanceCLI(t, "verify", "--bundle", bound, "--public-key", public, "--require-inventory", "--expect-image-digest", digest)
+	if code != 0 {
+		t.Fatalf("bound inventory did not verify: %d %s", code, verification)
+	}
+	evidenceDir := os.Getenv("WAZA_RELEASE_PROVENANCE_EVIDENCE")
+	if evidenceDir == "" {
+		evidenceDir = filepath.Join(dir, "retained-evidence")
+	}
+	if err := copyProvenanceFixture(bound, public, evidenceDir); err != nil {
+		t.Fatalf("retaining local provenance evidence: %v", err)
+	}
+	for _, name := range []string{"statement.json", "envelope.json", "public-key.pem", filepath.Join("bundle", "bundle.json")} {
+		if _, err := os.Stat(filepath.Join(evidenceDir, name)); err != nil {
+			t.Fatalf("retained provenance evidence is missing %s: %v", name, err)
+		}
 	}
 	object := filepath.Join(bundle, "artifacts", "objects", "terminal.json")
 	if err := os.WriteFile(object, append(terminal, ' '), 0o644); err != nil {
@@ -128,6 +153,72 @@ func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
 	if r := verify(); r["status"] != "failed" || !strings.Contains(string(mustJSON(t, r["checks"])), "artifact_digest_mismatch") {
 		t.Fatalf("tampered artifact verified: %v", r["checks"])
 	}
+}
+
+func copyProvenanceFixture(bundleDir, publicKeyPath, evidenceDir string) error {
+	if err := os.MkdirAll(evidenceDir, 0o755); err != nil {
+		return err
+	}
+	if err := filepath.WalkDir(bundleDir, func(source string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return errors.New("provenance fixture contains a symlink")
+		}
+		relative, err := filepath.Rel(bundleDir, source)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(evidenceDir, "bundle", relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		input, err := os.Open(source)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return errors.Join(err, input.Close())
+		}
+		output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err != nil {
+			return errors.Join(err, input.Close())
+		}
+		_, copyErr := io.Copy(output, input)
+		return errors.Join(copyErr, input.Close(), output.Close())
+	}); err != nil {
+		return err
+	}
+	envelopePath := filepath.Join(bundleDir, "statement.dsse.json")
+	envelopeBytes, err := os.ReadFile(envelopePath)
+	if err != nil {
+		return err
+	}
+	var envelope struct {
+		Payload string `json:"payload"`
+	}
+	if err := json.Unmarshal(envelopeBytes, &envelope); err != nil {
+		return err
+	}
+	statement, err := base64.StdEncoding.DecodeString(envelope.Payload)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(evidenceDir, "envelope.json"), envelopeBytes, 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(evidenceDir, "statement.json"), statement, 0o644); err != nil {
+		return err
+	}
+	publicKey, err := os.ReadFile(publicKeyPath)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(evidenceDir, "public-key.pem"), publicKey, 0o644); err != nil {
+		return err
+	}
+	return nil
 }
 
 func mustJSON(t *testing.T, v any) []byte {

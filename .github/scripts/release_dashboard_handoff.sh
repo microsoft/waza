@@ -7,6 +7,7 @@ case "$mode" in
   *) echo "Unsupported dashboard handoff mode: $mode" >&2; exit 1 ;;
 esac
 artifact="${RELEASE_DASHBOARD_ARTIFACT:?require external dashboard artifact path}"
+run_attempt="${RELEASE_DASHBOARD_RUN_ATTEMPT:-${GITHUB_RUN_ATTEMPT:?}}"
 
 # Equality with an artifact is not admission of the checkout that embeds it.
 bash .github/scripts/release_source_check.sh
@@ -15,7 +16,7 @@ arguments=(
   "$mode" --input .
   --repository "${GITHUB_REPOSITORY:?}"
   --source-sha "${GITHUB_SHA:?}" --checkout-sha "$checkout_sha"
-  --run-id "${GITHUB_RUN_ID:?}" --run-attempt "${GITHUB_RUN_ATTEMPT:?}"
+  --run-id "${GITHUB_RUN_ID:?}" --run-attempt "$run_attempt"
 )
 if [ "$mode" = pack ]; then
   GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check
@@ -29,3 +30,7 @@ GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard
 bash .github/scripts/release_source_check.sh
 # Do not expose a producer digest until semantic and final source checks pass.
 printf '%s\n' "$result"
+if [ "$mode" = pack ]; then
+  printf 'artifact_name=release-dashboard-%s-%s\nrun_attempt=%s\n' \
+    "$GITHUB_SHA" "$run_attempt" "$run_attempt"
+fi

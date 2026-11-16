@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -100,6 +101,22 @@ func TestImageInventoryRoundTrip(t *testing.T) {
 	data := imageInventory(t, imageDigest)
 	if again := imageInventory(t, imageDigest); !bytes.Equal(data, again) {
 		t.Fatal("generation is not deterministic")
+	}
+	// SBOM attestation (actions/attest) detects CycloneDX by non-empty
+	// bomFormat, specVersion and serialNumber.
+	var header struct{ BOMFormat, SpecVersion, SerialNumber string }
+	if err := json.Unmarshal(data, &header); err != nil {
+		t.Fatal(err)
+	}
+	if header.BOMFormat == "" || header.SpecVersion == "" || !regexp.MustCompile(`^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(header.SerialNumber) {
+		t.Fatalf("inventory header is not attestable CycloneDX: %+v", header)
+	}
+	if other := imageInventory(t, otherDigest); bytes.Contains(other, []byte(header.SerialNumber)) {
+		t.Fatal("distinct inventories share a serial number")
+	}
+	unserialized := edit(t, data, func(doc map[string]any) { delete(doc, "serialNumber") })
+	if got := code(verify(t, unserialized, inventory.Expectation{Kind: inventory.SubjectImage, Digest: imageDigest})); got != "inventory_malformed" {
+		t.Fatalf("inventory without serialNumber: code = %q", got)
 	}
 	report := verify(t, data, inventory.Expectation{Kind: inventory.SubjectImage, Digest: imageDigest, Name: imageRepo})
 	if report.Status != "verified" || report.ExitCode != 0 {

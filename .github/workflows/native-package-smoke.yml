@@ -21,6 +21,14 @@ on:
         description: Version the packages must report
         type: string
         required: true
+      package_run_attempt:
+        description: Attempt that produced the exact CLI package artifacts
+        type: string
+        required: true
+      extension_package_run_attempt:
+        description: Attempt that produced the exact extension package artifact
+        type: string
+        required: true
       package_revision:
         description: Commit embedded in the packages when a candidate build committed regenerated dashboard output on top of source_sha
         type: string
@@ -46,50 +54,56 @@ jobs:
       matrix:
         include:
           - target: linux/amd64
-            artifact: cli-waza-linux-amd64
+            artifact: cli-waza-linux-amd64-${{ github.run_id }}-${{ inputs.package_run_attempt }}
             runner: ubuntu-latest
           - target: linux/arm64
-            artifact: cli-waza-linux-arm64
+            artifact: cli-waza-linux-arm64-${{ github.run_id }}-${{ inputs.package_run_attempt }}
             runner: ubuntu-24.04-arm
           - target: darwin/amd64
-            artifact: cli-waza-darwin-amd64
+            artifact: cli-waza-darwin-amd64-${{ github.run_id }}-${{ inputs.package_run_attempt }}
             runner: macos-15-intel
           - target: darwin/arm64
-            artifact: cli-waza-darwin-arm64
+            artifact: cli-waza-darwin-arm64-${{ github.run_id }}-${{ inputs.package_run_attempt }}
             runner: macos-latest
           - target: windows/amd64
-            artifact: cli-waza-windows-amd64
+            artifact: cli-waza-windows-amd64-${{ github.run_id }}-${{ inputs.package_run_attempt }}
             runner: windows-latest
           - target: windows/arm64
-            artifact: cli-waza-windows-arm64
+            artifact: cli-waza-windows-arm64-${{ github.run_id }}-${{ inputs.package_run_attempt }}
             runner: windows-11-arm
     steps:
       - name: Checkout exact source
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
 
       - name: Require exact source
+        id: source
         shell: bash
         run: test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
 
       - name: Setup Go Environment
+        id: setup
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
 
       - name: Install and prove rejecting runtime guard
+        id: guard
         shell: bash
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
 
       - name: Download exact package
+        id: package_download
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.artifact }}
           path: ${{ runner.temp }}/package
 
       - name: Smoke exact package natively
+        id: smoke
         shell: bash
         run: >-
           go run ./.github/scripts/native-package-smoke cli
@@ -99,14 +113,36 @@ jobs:
           -receipt-dir "$RUNNER_TEMP/receipts"
 
       - name: Reject tolerated runtime launches
+        id: reject
         shell: bash
         run: test ! -e "$COPILOT_CLI_PATH.invoked"
 
-      - name: Upload native receipt
+      - name: Record native smoke job status
+        if: always()
+        env:
+          OUTCOMES: ${{ steps.checkout.outcome }},${{ steps.source.outcome }},${{ steps.setup.outcome }},${{ steps.guard.outcome }},${{ steps.package_download.outcome }},${{ steps.smoke.outcome }},${{ steps.reject.outcome }}
+          SMOKE_KIND: cli
+          SMOKE_TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          status=success
+          if [[ "$OUTCOMES" != "success,success,success,success,success,success,success" ]]; then
+            status=failure
+            if [[ "$OUTCOMES" == *cancelled* ]]; then
+              status=cancelled
+            fi
+          fi
+          mkdir -p "$RUNNER_TEMP/receipts"
+          printf '{"schema":"waza.native-package-smoke-status/1","kind":"%s","target":"%s","run_id":"%s","run_attempt":%s,"status":"%s"}\n' \
+            "$SMOKE_KIND" "$SMOKE_TARGET" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$status" \
+            > "$RUNNER_TEMP/receipts/status.json"
+
+      - name: Upload native receipt and status
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-smoke-cli-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/receipts/*.json
+          name: native-smoke-cli-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/receipts
           if-no-files-found: error
 
   extension:
@@ -126,31 +162,37 @@ jobs:
             runner: windows-latest
     steps:
       - name: Checkout exact source
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
 
       - name: Require exact source
+        id: source
         shell: bash
         run: test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
 
       - name: Setup Go Environment
+        id: setup
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
 
       - name: Install and prove rejecting runtime guard
+        id: guard
         shell: bash
         run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
 
       - name: Download exact packages
+        id: package_download
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: extension-packages
+          name: extension-packages-${{ github.run_id }}-${{ inputs.extension_package_run_attempt }}
           path: ${{ runner.temp }}/package
 
       - name: Smoke exact package natively
+        id: smoke
         shell: bash
         run: >-
           go run ./.github/scripts/native-package-smoke extension
@@ -160,14 +202,36 @@ jobs:
           -receipt-dir "$RUNNER_TEMP/receipts"
 
       - name: Reject tolerated runtime launches
+        id: reject
         shell: bash
         run: test ! -e "$COPILOT_CLI_PATH.invoked"
 
-      - name: Upload native receipt
+      - name: Record native smoke job status
+        if: always()
+        env:
+          OUTCOMES: ${{ steps.checkout.outcome }},${{ steps.source.outcome }},${{ steps.setup.outcome }},${{ steps.guard.outcome }},${{ steps.package_download.outcome }},${{ steps.smoke.outcome }},${{ steps.reject.outcome }}
+          SMOKE_KIND: extension
+          SMOKE_TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          status=success
+          if [[ "$OUTCOMES" != "success,success,success,success,success,success,success" ]]; then
+            status=failure
+            if [[ "$OUTCOMES" == *cancelled* ]]; then
+              status=cancelled
+            fi
+          fi
+          mkdir -p "$RUNNER_TEMP/receipts"
+          printf '{"schema":"waza.native-package-smoke-status/1","kind":"%s","target":"%s","run_id":"%s","run_attempt":%s,"status":"%s"}\n' \
+            "$SMOKE_KIND" "$SMOKE_TARGET" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$status" \
+            > "$RUNNER_TEMP/receipts/status.json"
+
+      - name: Upload native receipt and status
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-smoke-extension-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/receipts/*.json
+          name: native-smoke-extension-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/receipts
           if-no-files-found: error
 
   evidence:
@@ -177,6 +241,9 @@ jobs:
     continue-on-error: ${{ inputs.report_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -192,13 +259,38 @@ jobs:
       - name: Download native receipts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: native-smoke-*
+          pattern: native-smoke-*-${{ github.run_id }}-*
           path: ${{ runner.temp }}/receipts
-          merge-multiple: true
+
+      - name: Capture authoritative native job attempts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            for attempt in $(seq 1 "$GITHUB_RUN_ATTEMPT"); do
+              gh api --paginate \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$attempt/jobs?per_page=100" |
+                jq -c '
+                  .jobs[]
+                  | select(.name | test("^(native-smoke|Native package smoke) / (CLI|Extension) "))
+                  | {
+                      kind: (if (.name | test(" / CLI ")) then "cli" else "extension" end),
+                      target: (.name | sub("^(native-smoke|Native package smoke) / (CLI|Extension) "; "")),
+                      run_attempt,
+                      conclusion,
+                      upload_conclusion: ([.steps[]? | select(.name == "Upload native receipt and status") | .conclusion] | first // "missing")
+                    }'
+            done
+          } | jq -s . > "$RUNNER_TEMP/native-smoke-job-attempts.json"
 
       - name: Require complete native evidence
         run: >-
           go run ./.github/scripts/native-package-smoke evidence
           -dir "$RUNNER_TEMP/receipts" -source-sha "${{ inputs.source_sha }}"
           -revision "${{ inputs.package_revision || inputs.source_sha }}"
-          -version "${{ inputs.version }}" -summary "$GITHUB_STEP_SUMMARY"
+          -version "${{ inputs.version }}" -run-id "${{ github.run_id }}"
+          -run-attempt "${{ github.run_attempt }}"
+          -jobs-file "$RUNNER_TEMP/native-smoke-job-attempts.json"
+          -summary "$GITHUB_STEP_SUMMARY"

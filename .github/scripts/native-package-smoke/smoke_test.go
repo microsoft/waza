@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,6 +25,8 @@ const (
 	testSHA      = "0123456789abcdef0123456789abcdef01234567"
 	testRevision = "89abcdef0123456789abcdef0123456789abcdef"
 	testVersion  = "1.2.3"
+	testRunID    = "123456789"
+	testAttempt  = 2
 )
 
 const exitEarlyEnv = "NATIVE_SMOKE_TEST_EXIT_EARLY"
@@ -54,8 +55,9 @@ type matrixEntry struct {
 }
 
 type workflowJob struct {
-	RunsOn          string `yaml:"runs-on"`
-	ContinueOnError string `yaml:"continue-on-error"`
+	RunsOn          string            `yaml:"runs-on"`
+	ContinueOnError string            `yaml:"continue-on-error"`
+	Permissions     map[string]string `yaml:"permissions"`
 	Strategy        struct {
 		Matrix struct {
 			Include []matrixEntry `yaml:"include"`
@@ -83,7 +85,10 @@ func TestWorkflowMatricesMatchNativePlatforms(t *testing.T) {
 		if p.Evidence != evidenceNative {
 			continue
 		}
-		cli = append(cli, matrixEntry{Target: p.target(), Artifact: "cli-waza-" + p.OS + "-" + p.Arch, Runner: p.Runner})
+		cli = append(cli, matrixEntry{
+			Target: p.target(), Artifact: "cli-waza-" + p.OS + "-" + p.Arch + "-${{ github.run_id }}-${{ inputs.package_run_attempt }}",
+			Runner: p.Runner,
+		})
 		if p.Extension {
 			extension = append(extension, matrixEntry{Target: p.target(), Runner: p.Runner})
 		}
@@ -116,6 +121,32 @@ func TestWorkflowMatricesMatchNativePlatforms(t *testing.T) {
 		if job.ContinueOnError != "${{ inputs.report_only }}" {
 			t.Errorf("%s job must honor report_only, got continue-on-error %q", name, job.ContinueOnError)
 		}
+	}
+	if evidencePermissions := jobs["evidence"].Permissions; len(evidencePermissions) != 2 ||
+		evidencePermissions["contents"] != "read" || evidencePermissions["actions"] != "read" {
+		t.Errorf("evidence permissions = %#v; want contents/actions read only", evidencePermissions)
+	}
+	workflow := string(repoFile(t, ".github", "workflows", "native-package-smoke.yml"))
+	for _, required := range []string{
+		"package_run_attempt:",
+		"extension_package_run_attempt:",
+		"name: extension-packages-${{ github.run_id }}-${{ inputs.extension_package_run_attempt }}",
+		"pattern: native-smoke-*-${{ github.run_id }}-*",
+		"OUTCOMES: ${{ steps.checkout.outcome }},${{ steps.source.outcome }},${{ steps.setup.outcome }},${{ steps.guard.outcome }},${{ steps.package_download.outcome }},${{ steps.smoke.outcome }},${{ steps.reject.outcome }}",
+		"name: native-smoke-cli-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}",
+		"name: native-smoke-extension-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}",
+		"- name: Upload native receipt and status\n        if: always()",
+		"actions: read",
+		"gh api --paginate",
+		"attempts/$attempt/jobs?per_page=100",
+		"^(native-smoke|Native package smoke) / (CLI|Extension) ",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("native package smoke workflow lacks attempt-scoped handoff %q", required)
+		}
+	}
+	if strings.Contains(workflow, "merge-multiple: true") {
+		t.Error("native receipt downloads must preserve artifact directories for attempt validation")
 	}
 }
 
@@ -372,35 +403,102 @@ func TestRequireGoTests(t *testing.T) {
 	}
 }
 
+func writeReceiptArtifact(t *testing.T, dir, kind string, p platform, attempt, index int, status string, mutate func(*receipt)) string {
+	t.Helper()
+	artifactDir := filepath.Join(dir, receiptArtifactName(kind, testRunID, attempt, index))
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	statusData, err := json.Marshal(receiptStatus{
+		Schema: statusSchema, Kind: kind, Target: p.target(), RunID: testRunID, RunAttempt: attempt, Status: status,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(artifactDir, "status.json"), string(statusData))
+	if status != "success" {
+		return artifactDir
+	}
+	artifact := cliBinaryName(p)
+	if kind == "extension" {
+		artifact = extensionArchiveName(p)
+	}
+	r := receipt{
+		Schema: receiptSchema, Kind: kind, Target: p.target(), Artifact: artifact,
+		SHA256: strings.Repeat("b", 64), RunID: testRunID, RunAttempt: attempt,
+		SourceSHA: testSHA, Revision: testRevision, Version: testVersion,
+		Runner: p.Runner, Checks: requiredChecks, DashboardAssets: 2, Seconds: 30,
+	}
+	if mutate != nil {
+		mutate(&r)
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(artifactDir, receiptName(kind, p)), string(data))
+	return artifactDir
+}
+
 func writeReceipts(t *testing.T, dir string, mutate func(*receipt)) {
 	t.Helper()
-	for _, p := range platforms {
+	for index, p := range platforms {
 		for _, kind := range []string{"cli", "extension"} {
 			if p.Evidence != evidenceNative || kind == "extension" && !p.Extension {
 				continue
 			}
-			artifact := cliBinaryName(p)
-			if kind == "extension" {
-				artifact = extensionArchiveName(p)
-			}
-			r := receipt{Schema: receiptSchema, Kind: kind, Target: p.target(), Artifact: artifact, SHA256: strings.Repeat("b", 64),
-				SourceSHA: testSHA, Revision: testRevision, Version: testVersion, Runner: p.Runner, Checks: requiredChecks, DashboardAssets: 2, Seconds: 30}
-			if mutate != nil {
-				mutate(&r)
-			}
-			data, err := json.Marshal(r)
-			if err != nil {
-				t.Fatal(err)
-			}
-			mustWrite(t, filepath.Join(dir, receiptName(kind, p)), string(data))
+			writeReceiptArtifact(t, dir, kind, p, 1, index, "success", mutate)
 		}
+	}
+}
+
+func successfulJobAttempts(attempt int) []jobAttempt {
+	var jobs []jobAttempt
+	for _, p := range platforms {
+		if p.Evidence != evidenceNative {
+			continue
+		}
+		for _, kind := range []string{"cli", "extension"} {
+			if kind == "extension" && !p.Extension {
+				continue
+			}
+			jobs = append(jobs, jobAttempt{
+				Kind: kind, Target: p.target(), RunAttempt: attempt,
+				Conclusion: "success", UploadConclusion: "success",
+			})
+		}
+	}
+	return jobs
+}
+
+func TestReadJobAttemptsRequiresStrictNonemptyJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	valid := `[{"kind":"cli","target":"linux/amd64","run_attempt":1,"conclusion":"success","upload_conclusion":"success"}]`
+	for _, test := range []struct {
+		name string
+		data string
+		ok   bool
+	}{
+		{name: "valid", data: valid, ok: true},
+		{name: "empty", data: "[]"},
+		{name: "unknown field", data: strings.TrimSuffix(valid, "}]") + `,"unexpected":true}]`},
+		{name: "trailing JSON", data: valid + `[]`},
+		{name: "malformed", data: `[`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mustWrite(t, path, test.data)
+			jobs, err := readJobAttempts(path)
+			if (err == nil) != test.ok || test.ok && len(jobs) != 1 {
+				t.Fatalf("readJobAttempts() = %#v, %v; want success %t", jobs, err, test.ok)
+			}
+		})
 	}
 }
 
 func TestCollectEvidence(t *testing.T) {
 	dir := t.TempDir()
 	writeReceipts(t, dir, nil)
-	table, err := collectEvidence(dir, testSHA, testRevision, testVersion)
+	table, err := collectEvidence(dir, testSHA, testRevision, testVersion, testRunID, testAttempt, successfulJobAttempts(1))
 	if err != nil {
 		t.Fatalf("complete evidence rejected: %v\n%s", err, table)
 	}
@@ -409,7 +507,7 @@ func TestCollectEvidence(t *testing.T) {
 			t.Errorf("table lacks %q:\n%s", want, table)
 		}
 	}
-	if _, err := collectEvidence(dir, testSHA, testSHA, testVersion); err == nil {
+	if _, err := collectEvidence(dir, testSHA, testSHA, testVersion, testRunID, testAttempt, successfulJobAttempts(1)); err == nil {
 		t.Error("receipts for another package revision accepted")
 	}
 	mutations := map[string]func(*receipt){
@@ -418,39 +516,91 @@ func TestCollectEvidence(t *testing.T) {
 		"no assets":       func(r *receipt) { r.DashboardAssets = 0 },
 		"other version":   func(r *receipt) { r.Version = "0.0.1" },
 		"other artifact":  func(r *receipt) { r.Artifact = "waza" },
+		"other run":       func(r *receipt) { r.RunID = "987654321" },
+		"other attempt":   func(r *receipt) { r.RunAttempt = 0 },
 		"reordered check": func(r *receipt) { r.Checks = append([]string{r.Checks[1], r.Checks[0]}, r.Checks[2:]...) },
 	}
 	for name, mutate := range mutations {
 		dir := t.TempDir()
 		writeReceipts(t, dir, mutate)
-		if _, err := collectEvidence(dir, testSHA, testRevision, testVersion); err == nil {
+		if _, err := collectEvidence(dir, testSHA, testRevision, testVersion, testRunID, testAttempt, successfulJobAttempts(1)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 	missing := t.TempDir()
 	writeReceipts(t, missing, nil)
 	darwin, _ := findPlatform("darwin/amd64")
-	if err := os.Remove(filepath.Join(missing, receiptName("cli", darwin))); err != nil {
+	if err := os.Remove(filepath.Join(missing, receiptArtifactName("cli", testRunID, 1, 2), receiptName("cli", darwin))); err != nil {
 		t.Fatal(err)
 	}
-	if table, err := collectEvidence(missing, testSHA, testRevision, testVersion); err == nil || !strings.Contains(table, "| darwin/amd64 | `macos-15-intel` | native | **missing or invalid** |") {
+	if table, err := collectEvidence(missing, testSHA, testRevision, testVersion, testRunID, testAttempt, successfulJobAttempts(1)); err == nil || !strings.Contains(table, "| darwin/amd64 | `macos-15-intel` | native | **missing or invalid** |") {
 		t.Errorf("missing receipt accepted: %v\n%s", err, table)
 	}
 	unexpected := t.TempDir()
 	writeReceipts(t, unexpected, nil)
-	mustWrite(t, filepath.Join(unexpected, "native-smoke-cli-linux-386.json"), "{}")
-	if _, err := collectEvidence(unexpected, testSHA, testRevision, testVersion); err == nil {
+	mustWrite(t, filepath.Join(unexpected, "unexpected.txt"), "{}")
+	if _, err := collectEvidence(unexpected, testSHA, testRevision, testVersion, testRunID, testAttempt, successfulJobAttempts(1)); err == nil {
 		t.Error("unexpected receipt accepted")
 	}
 	unselected := t.TempDir()
 	writeReceipts(t, unselected, nil)
 	linuxARM, _ := findPlatform("linux/arm64")
-	mustWrite(t, filepath.Join(unselected, receiptName("extension", linuxARM)), "{}")
-	if _, err := collectEvidence(unselected, testSHA, testRevision, testVersion); err == nil {
+	writeReceiptArtifact(t, unselected, "extension", linuxARM, 1, 7, "success", nil)
+	if _, err := collectEvidence(unselected, testSHA, testRevision, testVersion, testRunID, testAttempt, successfulJobAttempts(1)); err == nil {
 		t.Error("receipt for an unselected extension accepted")
 	}
-	if _, err := collectEvidence(filepath.Join(t.TempDir(), "none"), testSHA, testRevision, testVersion); err == nil {
+	if _, err := collectEvidence(filepath.Join(t.TempDir(), "none"), testSHA, testRevision, testVersion, testRunID, testAttempt, successfulJobAttempts(1)); err == nil {
 		t.Error("absent receipts accepted")
+	}
+
+	partial := t.TempDir()
+	writeReceipts(t, partial, nil)
+	writeReceiptArtifact(t, partial, "cli", darwin, 2, 0, "success", nil)
+	partialJobs := append(successfulJobAttempts(1), jobAttempt{
+		Kind: "cli", Target: darwin.target(), RunAttempt: 2, Conclusion: "success", UploadConclusion: "success",
+	})
+	if table, err := collectEvidence(partial, testSHA, testRevision, testVersion, testRunID, testAttempt, partialJobs); err != nil ||
+		!strings.Contains(table, "| darwin/amd64 | `macos-15-intel` | native | pass (30 s, 2 assets) | not selected |") {
+		t.Errorf("partial rerun did not retain and validate earlier successful receipts: %v\n%s", err, table)
+	}
+	failedRerun := t.TempDir()
+	writeReceipts(t, failedRerun, nil)
+	writeReceiptArtifact(t, failedRerun, "cli", darwin, 2, 0, "failure", nil)
+	failedJobs := append(successfulJobAttempts(1), jobAttempt{
+		Kind: "cli", Target: darwin.target(), RunAttempt: 2, Conclusion: "success", UploadConclusion: "success",
+	})
+	if table, err := collectEvidence(failedRerun, testSHA, testRevision, testVersion, testRunID, testAttempt, failedJobs); err == nil ||
+		!strings.Contains(err.Error(), "latest attempt 2 ended with status failure") {
+		t.Errorf("failed rerun was hidden by an earlier successful receipt: %v\n%s", err, table)
+	}
+	missingRerunReceipt := t.TempDir()
+	writeReceipts(t, missingRerunReceipt, nil)
+	missingRerunJobs := append(successfulJobAttempts(1), jobAttempt{
+		Kind: "cli", Target: darwin.target(), RunAttempt: 2, Conclusion: "success", UploadConclusion: "success",
+	})
+	if _, err := collectEvidence(missingRerunReceipt, testSHA, testRevision, testVersion, testRunID, testAttempt, missingRerunJobs); err == nil ||
+		!strings.Contains(err.Error(), "latest receipt attempt 1 does not match authoritative job attempt 2") {
+		t.Errorf("missing newer attempt artifact was hidden by an earlier pass: %v", err)
+	}
+	mismatchedStatus := t.TempDir()
+	writeReceipts(t, mismatchedStatus, nil)
+	statusPath := filepath.Join(mismatchedStatus, receiptArtifactName("cli", testRunID, 1, 0), "status.json")
+	var status receiptStatus
+	statusData, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(statusData, &status); err != nil {
+		t.Fatal(err)
+	}
+	status.RunAttempt = 2
+	statusData, err = json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, statusPath, string(statusData))
+	if _, err := collectEvidence(mismatchedStatus, testSHA, testRevision, testVersion, testRunID, testAttempt, successfulJobAttempts(1)); err == nil {
+		t.Error("status with a mismatched producer attempt accepted")
 	}
 }
 
@@ -461,7 +611,7 @@ func TestUnavailablePlatformIsNeverPassed(t *testing.T) {
 	platforms[5] = platform{OS: "windows", Arch: "arm64", Runner: "windows-11-arm", Evidence: evidenceUnavailable, Reason: "no hosted runner"}
 	dir := t.TempDir()
 	writeReceipts(t, dir, nil)
-	table, err := collectEvidence(dir, testSHA, testRevision, testVersion)
+	table, err := collectEvidence(dir, testSHA, testRevision, testVersion, testRunID, testAttempt, successfulJobAttempts(1))
 	if err != nil || !strings.Contains(table, "| windows/arm64 | `windows-11-arm` | unavailable: no hosted runner | unavailable | unavailable |") {
 		t.Fatalf("unavailable target misreported: %v\n%s", err, table)
 	}
@@ -537,10 +687,12 @@ func TestRunRejectsIncompleteInvocations(t *testing.T) {
 }
 
 type callerJob struct {
+	Name            string            `yaml:"name"`
 	Needs           []string          `yaml:"needs"`
 	ContinueOnError string            `yaml:"continue-on-error"`
 	Uses            string            `yaml:"uses"`
 	With            map[string]string `yaml:"with"`
+	Outputs         map[string]string `yaml:"outputs"`
 	If              string            `yaml:"if"`
 	Permissions     map[string]string `yaml:"permissions"`
 	Strategy        struct {
@@ -549,7 +701,9 @@ type callerJob struct {
 		} `yaml:"matrix"`
 	} `yaml:"strategy"`
 	Steps []struct {
+		ID              string            `yaml:"id"`
 		Name            string            `yaml:"name"`
+		Run             string            `yaml:"run"`
 		ContinueOnError string            `yaml:"continue-on-error"`
 		Uses            string            `yaml:"uses"`
 		If              string            `yaml:"if"`
@@ -572,38 +726,40 @@ func callerJobs(t *testing.T, source []byte) map[string]callerJob {
 // extension packages it publishes, without rebuilding them.
 func checkReleaseHandoff(jobs map[string]callerJob) error {
 	smoke := jobs["native-smoke"]
-	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" || smoke.If != "" ||
-		!slices.Contains(smoke.Needs, "build-cli") || !slices.Contains(smoke.Needs, "release-extension") ||
+	if smoke.Name != "Native package smoke" ||
+		smoke.Uses != "./.github/workflows/native-package-smoke.yml" || smoke.If != "" ||
+		!slices.Contains(smoke.Needs, "qualification") || !slices.Contains(smoke.Needs, "release-cli") ||
+		!slices.Contains(smoke.Needs, "release-extension") ||
 		smoke.With["source_sha"] != "${{ github.sha }}" || smoke.With["package_revision"] != "" ||
-		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" || smoke.With["report_only"] != "true" ||
-		len(smoke.Permissions) != 1 || smoke.Permissions["contents"] != "read" {
-		return errors.New("release native-smoke must call the reusable smoke on the exact tag packages")
+		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		smoke.With["package_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
+		smoke.With["extension_package_run_attempt"] != "${{ needs.release-extension.outputs.extension_package_run_attempt }}" ||
+		smoke.With["report_only"] != "true" ||
+		len(smoke.Permissions) != 2 || smoke.Permissions["contents"] != "read" ||
+		smoke.Permissions["actions"] != "read" {
+		return errors.New("release native-smoke must consume exact-attempt qualification CLI packages and extension packages")
 	}
-	var targets []string
-	for _, entry := range jobs["build-cli"].Strategy.Matrix.Include {
-		targets = append(targets, entry["os"]+"/"+entry["arch"])
-	}
-	var supported []string
-	for _, p := range platforms {
-		supported = append(supported, p.target())
-	}
-	if !slices.Equal(targets, supported) {
-		return fmt.Errorf("released CLI targets %v differ from the platform table %v", targets, supported)
-	}
-	provenance, upload := -1, -1
+	provenance, attempt, upload := -1, -1, -1
 	for i, step := range jobs["release-extension"].Steps {
 		switch step.Name {
 		case "Record extension artifact provenance":
 			provenance = i
+		case "Record extension package producer attempt":
+			if step.ID != "extension_handoff" || !strings.Contains(step.Run, "$GITHUB_RUN_ATTEMPT") {
+				return errors.New("release-extension must expose its exact package producer attempt")
+			}
+			attempt = i
 		case "Upload extension packages for native smoke":
 			if step.If == "" && step.ContinueOnError == "true" && strings.HasPrefix(step.Uses, "actions/upload-artifact@") &&
-				step.With["name"] == "extension-packages" && step.With["path"] == "artifacts" && step.With["if-no-files-found"] == "error" {
+				step.With["name"] == "extension-packages-${{ github.run_id }}-${{ steps.extension_handoff.outputs.run_attempt }}" &&
+				step.With["path"] == "artifacts" && step.With["if-no-files-found"] == "error" {
 				upload = i
 			}
 		}
 	}
-	if provenance < 0 || upload != provenance+1 {
-		return errors.New("release-extension must hand off the provenance-recorded packages immediately")
+	if jobs["release-extension"].Outputs["extension_package_run_attempt"] != "${{ steps.extension_handoff.outputs.run_attempt }}" ||
+		provenance < 0 || attempt != provenance+1 || upload != attempt+1 {
+		return errors.New("release-extension must hand off provenance-recorded packages with the exact producer attempt")
 	}
 	return nil
 }
@@ -613,15 +769,59 @@ func TestReleaseSmokesExactPublishedPackages(t *testing.T) {
 	if err := checkReleaseHandoff(callerJobs(t, source)); err != nil {
 		t.Fatal(err)
 	}
+	var qualification struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				Uses string            `yaml:"uses"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(repoFile(t, ".github", "workflows", "release-qualification.yml"), &qualification); err != nil {
+		t.Fatal(err)
+	}
+	expectedPaths := make(map[string][]string, len(platforms))
+	var expectedPackages []string
+	for _, p := range platforms {
+		name := cliBinaryName(p)
+		artifact := "cli-waza-" + p.OS + "-" + p.Arch + "-${{ github.run_id }}-${{ github.run_attempt }}"
+		expectedPackages = append(expectedPackages, artifact)
+		expectedPaths[artifact] = []string{
+			"dist/" + name,
+			"dist/" + name + ".sha256",
+			"dist/" + name + ".source-sha.txt",
+		}
+	}
+	var packages []string
+	for _, step := range qualification.Jobs["qualify"].Steps {
+		if !strings.HasPrefix(step.Name, "Upload CLI package for native smoke ") {
+			continue
+		}
+		if !strings.HasPrefix(step.Uses, "actions/upload-artifact@") ||
+			step.With["if-no-files-found"] != "error" {
+			t.Fatalf("native smoke CLI package must be uploaded as a required artifact: %+v", step)
+		}
+		artifact := step.With["name"]
+		if !slices.Contains(expectedPackages, artifact) ||
+			!slices.Equal(strings.Fields(step.With["path"]), expectedPaths[artifact]) {
+			t.Fatalf("native smoke CLI artifact %q has an unexpected file set: %q", artifact, step.With["path"])
+		}
+		packages = append(packages, artifact)
+	}
+	if !slices.Equal(packages, expectedPackages) {
+		t.Fatalf("qualification CLI artifacts = %v, want %v", packages, expectedPackages)
+	}
 	for _, mutation := range [][2]string{
 		{"uses: ./.github/workflows/native-package-smoke.yml", "uses: ./.github/workflows/release-validation.yml"},
-		{"needs: [setup-version, build-cli, release-extension]", "needs: [setup-version, build-cli]"},
-		{"source_sha: ${{ github.sha }}", "source_sha: main"},
+		{"needs: [setup-version, qualification, release-cli, release-extension]", "needs: [setup-version, release-cli, release-extension]"},
+		{"    uses: ./.github/workflows/native-package-smoke.yml\n    with:\n      source_sha: ${{ github.sha }}",
+			"    uses: ./.github/workflows/native-package-smoke.yml\n    with:\n      source_sha: main"},
 		{"      report_only: true", "      report_only: false"},
 		{"        continue-on-error: true\n        uses: actions/upload-artifact", "        uses: actions/upload-artifact"},
-		{"          name: extension-packages\n", "          name: extension-rebuilt\n"},
+		{"          name: extension-packages-${{ github.run_id }}-${{ steps.extension_handoff.outputs.run_attempt }}\n",
+			"          name: extension-rebuilt\n"},
 		{"      - name: Upload extension packages for native smoke", "      - name: Upload later"},
-		{"          - os: windows\n            arch: arm64\n", ""},
 	} {
 		normalized := strings.ReplaceAll(string(source), "\r\n", "\n")
 		mutated := strings.Replace(normalized, mutation[0], mutation[1], 1)
@@ -637,11 +837,20 @@ func TestReleaseSmokesExactPublishedPackages(t *testing.T) {
 func TestCandidateWorkflowSmokesItsOwnPackages(t *testing.T) {
 	jobs := callerJobs(t, repoFile(t, ".github", "workflows", "native-platform.yml"))
 	smoke := jobs["native-smoke"]
-	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" || !slices.Equal(smoke.Needs, []string{"candidate-packages"}) ||
+	if smoke.Name != "" || smoke.Uses != "./.github/workflows/native-package-smoke.yml" ||
+		!slices.Equal(smoke.Needs, []string{"candidate-packages"}) ||
+		len(smoke.Permissions) != 2 || smoke.Permissions["actions"] != "read" || smoke.Permissions["contents"] != "read" ||
 		smoke.With["source_sha"] != "${{ github.sha }}" ||
 		smoke.With["package_revision"] != "${{ needs.candidate-packages.outputs.revision }}" ||
-		smoke.With["version"] != "${{ needs.candidate-packages.outputs.version }}" || smoke.With["report_only"] != "" {
+		smoke.With["version"] != "${{ needs.candidate-packages.outputs.version }}" ||
+		smoke.With["package_run_attempt"] != "${{ needs.candidate-packages.outputs.artifact_run_attempt }}" ||
+		smoke.With["report_only"] != "" {
 		t.Fatalf("candidate smoke must bind the candidate build outputs: %+v", smoke)
+	}
+	candidateWorkflow := string(repoFile(t, ".github", "workflows", "native-platform.yml"))
+	if !strings.Contains(candidateWorkflow, "artifact_run_attempt: ${{ steps.source.outputs.run_attempt }}") ||
+		!strings.Contains(candidateWorkflow, "run_attempt=%s") {
+		t.Fatal("candidate package handoff must preserve the artifact producer attempt")
 	}
 	uploads := map[string]bool{}
 	for _, step := range jobs["candidate-packages"].Steps {
@@ -650,11 +859,11 @@ func TestCandidateWorkflowSmokesItsOwnPackages(t *testing.T) {
 		}
 	}
 	for _, p := range platforms {
-		if !uploads["cli-waza-"+p.OS+"-"+p.Arch] {
+		if !uploads["cli-waza-"+p.OS+"-"+p.Arch+"-${{ github.run_id }}-${{ github.run_attempt }}"] {
 			t.Errorf("candidate build does not upload %s", p.target())
 		}
 	}
-	if !uploads["extension-packages"] || len(uploads) != len(platforms)+1 {
+	if !uploads["extension-packages-${{ github.run_id }}-${{ steps.source.outputs.run_attempt }}"] || len(uploads) != len(platforms)+1 {
 		t.Errorf("candidate uploads = %v", uploads)
 	}
 }

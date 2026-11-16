@@ -1886,6 +1886,8 @@ Installed v0.40.x artifacts do not contain these commands.
 waza runner adapter translate < descriptor.json
 waza runner adapter dispatch --store .waza-artifacts < descriptor.json
 waza runner adapter dispatch --endpoint http://127.0.0.1:3000 < descriptor.json
+waza runner adapter dispatch --provenance-verifier ./verify-manifest \
+  --provenance-verifier-arg=--offline < descriptor.json
 ```
 
 `translate` reads one [`waza.adapter-work-descriptor`](/waza/schemas/adapter-work-descriptor-1.0.schema.json)
@@ -1900,7 +1902,11 @@ forwarded verbatim to the public subcommand of this binary (or `--waza PATH`);
 `--endpoint URL` uses the public HTTP route instead and cannot be combined with
 them. Rejected descriptors exit 6 without a call; transport failures or replies
 that contradict their published schema exit 2 as `contract_error`. The adapter
-never queues, places, prioritizes or retries. See
+never queues, places, prioritizes or retries. The optional verifier receives
+`manifest_digest` and the public result JSON on stdin and must return a single
+JSON object with `state` set to `verified`, `failed`, or `unavailable`. The
+adapter limits verifier runtime and I/O, but treats its executable as
+operator-trusted and does not authenticate its assertion. See
 [portable external execution adapters](../../guides/runner-adapters/).
 
 ### Provenance commands (unreleased, planned for v0.42.0)
@@ -1980,6 +1986,10 @@ existing Lab guides. JSON package output is the default; `--format markdown`
 renders the published conformance matrix, threat model, readiness checklist,
 verification limits, migration notes, and links to the #769–#774 evidence
 views. This maintainer command is offline and requires a Waza source checkout.
+`--candidate-evidence INPUT --evidence-root DIR` additionally requires the exact
+workflow-run and uploaded artifact identity, checks the artifact's listed file
+digests and qualification outputs, and binds the generated package to that
+candidate or tag-run evidence.
 See the [production integration assurance guide](../../guides/production-integration-assurance/).
 
 ## waza serve

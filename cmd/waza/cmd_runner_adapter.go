@@ -89,6 +89,8 @@ dispatch, when, where and whether to retry.`,
 		},
 	}
 	var options adapterContractOptions
+	var provenanceVerifierPath string
+	var provenanceVerifierArgs []string
 	dispatch := &cobra.Command{
 		Use:   "dispatch",
 		Short: "Read one work descriptor from stdin, make its one public call and print the adapter result",
@@ -116,7 +118,11 @@ retries; redeliver or retry from the external scheduler.`,
 			if err != nil {
 				return &ExitCodeError{Code: 2, Err: err}
 			}
-			result := runneradapter.Dispatch(ctx, contract, translation, nil)
+			var verifier runneradapter.ProvenanceVerifier
+			if provenanceVerifierPath != "" {
+				verifier = commandProvenanceVerifier{path: provenanceVerifierPath, args: provenanceVerifierArgs}
+			}
+			result := runneradapter.Dispatch(ctx, contract, translation, verifier)
 			encoded, err := runneradapter.EncodeResult(result)
 			if err != nil {
 				return &ExitCodeError{Code: 2, Err: fmt.Errorf("validating adapter result: %w", err)}
@@ -127,6 +133,8 @@ retries; redeliver or retry from the external scheduler.`,
 	addStoreFlags(dispatch, &options.directory, &options.azureURL)
 	dispatch.Flags().StringVar(&options.endpoint, "endpoint", "", "Public waza HTTP API base URL (for example http://127.0.0.1:3000) instead of the CLI")
 	dispatch.Flags().StringVar(&options.executable, "waza", "", "waza executable that serves the public CLI contract (default: this executable)")
+	dispatch.Flags().StringVar(&provenanceVerifierPath, "provenance-verifier", "", "Optional executable that verifies a returned manifest; receives a JSON request on stdin")
+	dispatch.Flags().StringArrayVar(&provenanceVerifierArgs, "provenance-verifier-arg", nil, "Argument for the configured provenance verifier (repeatable)")
 	cmd.AddCommand(translate, dispatch)
 	return cmd
 }

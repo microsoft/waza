@@ -148,7 +148,16 @@ func TestReleaseWorkflowGates(t *testing.T) {
 		{"tolerated-lint", "      - name: Verify pinned configuration and run golangci-lint\n", "      - name: Verify pinned configuration and run golangci-lint\n        continue-on-error: true\n"},
 		{"tolerated-lint-job", "  lint:\n", "  lint:\n    continue-on-error: true\n"},
 		{"skipped-build-source", "      - name: Require exact source\n", "      - name: Require exact source\n        if: 'false'\n"},
-		{"different-download", "          name: release-tested-${{ github.sha }}\n          path: .", "          name: other-binary\n          path: ."},
+		{"different-download", "          name: ${{ needs.build-test.outputs.release_tested_artifact_name }}\n          path: .", "          name: other-binary\n          path: ."},
+		{"unbound-tested-artifact-name", "${{ needs.build-test.outputs.release_tested_artifact_name }}", "release-tested-unbound"},
+		{"unbound-tested-run-attempt", "${{ needs.build-test.outputs.release_tested_run_attempt }}", "1"},
+		{"skipped-tested-artifact-identity", "      - name: Require exact tested artifact identity\n", "      - name: Removed tested artifact identity\n"},
+		{"unchecked-tested-artifact-identity", `test "$TESTED_ARTIFACT_NAME" = "release-tested-$SOURCE_SHA-$TESTED_RUN_ATTEMPT"`, ":"},
+		{"tested-artifact-without-attempt", "release-tested-${{ github.sha }}-${{ github.run_attempt }}", "release-tested-${{ github.sha }}"},
+		{"validation-artifact-without-attempt", "release-validation-${{ github.sha }}-${{ github.run_attempt }}", "release-validation-${{ github.sha }}"},
+		{"tested-output-without-attempt", "release_tested_run_attempt: ${{ github.run_attempt }}", "release_tested_run_attempt: '1'"},
+		{"validation-output-without-attempt", "release_validation_run_attempt: ${{ github.run_attempt }}", "release_validation_run_attempt: '1'"},
+		{"unexported-validation-artifact", "value: ${{ jobs.complete.outputs.release_validation_artifact_name }}", "value: unbound"},
 		{"missing-binary-digest", `test "$recorded_digest" = "$actual_digest"`, ":"},
 		{"unchecked-binary-hash", `actual_digest="$(sha256sum waza)"`, `actual_digest="$(sha256sum waza)" || true`},
 		{"unchecked-sidecar-read", `recorded_digest="$(cat waza.sha256)"`, `recorded_digest="$(cat waza.sha256)" || true`},
@@ -911,14 +920,18 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				{"missing-validation-dependency", "needs: [release-candidate, validation]", "needs: [release-candidate]"},
 				{"cancellation-bypass", "&& !cancelled()", "&& always()"}, //nolint:misspell // GitHub expression.
 				{"unbound-validation-result", "${{ needs.validation.result }}", "success"},
-				{"ignored-validation-result", `run: test "$VALIDATION_RESULT" = success`, "run: ':'"},
+				{"ignored-validation-result", `test "$VALIDATION_RESULT" = success`, ":"},
+				{"unbound-validation-artifact-name", "${{ needs.validation.outputs.release_validation_artifact_name }}", "release-validation-wrong"},
+				{"unbound-validation-attempt", "${{ needs.validation.outputs.release_validation_run_attempt }}", "1"},
+				{"unchecked-validation-artifact-identity", `test "$VALIDATION_ARTIFACT_NAME" = "release-validation-$VALIDATION_SOURCE_SHA-$VALIDATION_RUN_ATTEMPT"`, ":"},
+				{"unchecked-validation-attempt", `''|*[!0-9]*) exit 1 ;;`, `''*) exit 1 ;;`},
 				{"stale-source", `test "$source_sha" = "$GITHUB_SHA"`, ":"},
 				{"missing-digest", `test "$recorded_digest" = "$actual_digest"`, ":"},
 				{"unchecked-binary-hash", `actual_digest="$(sha256sum waza)"`, `actual_digest="$(sha256sum waza)" || true`},
 				{"unchecked-sidecar-read", `recorded_digest="$(cat waza.sha256)"`, `recorded_digest="$(cat waza.sha256)" || true`},
 				{"unchecked-recorded-source", `source_sha="$(cat source-sha.txt)"`, `source_sha="$(cat source-sha.txt)" || true`},
 				{"unchecked-tag-lookup", `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`, `mapfile -t candidates < <(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')`},
-				{"different-evidence", "name: release-validation-${{ github.sha }}", "name: release-validation-other"},
+				{"different-evidence", "name: ${{ needs.validation.outputs.release_validation_artifact_name }}", "name: release-validation-other"},
 				{"rebuild-before-publication", "run: |\n          if gh release view", "run: |\n          go build -o waza ./cmd/waza\n          if gh release view"},
 				{"included-generated-insider-tag", `if [[ "$tag" != *-insider ]]; then`, "if true; then"},
 				{"existing-release-success", "            exit 1\n          else\n", "            exit 0\n          else\n"},
@@ -1395,6 +1408,14 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 	if err := validateTagRelease([]byte(normalized)); err != nil {
 		t.Fatal(err)
 	}
+	var current releaseWorkflow
+	if err := yaml.Unmarshal([]byte(normalized), &current); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := current.Jobs["qualification"]; ok {
+		testQualifiedTagRelease(t, source, current)
+		return
+	}
 	testReleaseRunnerContracts(t, source, map[string]string{
 		"setup-version": "ubuntu-latest", "build-cli": "ubuntu-latest",
 		"release-cli": "ubuntu-latest", "release-extension": "ubuntu-latest", "validation": "",
@@ -1492,6 +1513,19 @@ func TestTagReleaseRequiresValidation(t *testing.T) {
 
 func testTagVersionPropagation(t *testing.T, workflow releaseWorkflow) {
 	t.Helper()
+	if qualification, ok := workflow.Jobs["qualification"]; ok {
+		version := releaseSteps(workflow.Jobs["setup-version"])["Determine Version"]
+		if !strings.Contains(version.Run, `VERSION="${GITHUB_REF_NAME#v}"`) ||
+			qualification.With["release_stage"] != "released" ||
+			qualification.With["source_sha"] != "${{ github.sha }}" ||
+			qualification.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+			!reflect.DeepEqual(workflow.Jobs["release-cli"].Needs, []string{"setup-version", "qualification", "runner-reference"}) ||
+			!reflect.DeepEqual(workflow.Jobs["release-extension"].Needs, []string{"setup-version", "qualification", "runner-reference"}) ||
+			workflow.Jobs["release-extension"].Env["VERSION"] != "${{ needs.setup-version.outputs.version }}" {
+			t.Fatal("tag release must pass the detected tag version and exact source to qualification")
+		}
+		return
+	}
 	detector := releaseSteps(workflow.Jobs["setup-version"])["Determine Version"]
 	for _, tc := range []struct{ tag, version string }{
 		{"v1.2.3", "1.2.3"}, {"v2.4.6-beta.2", "2.4.6-beta.2"},
@@ -1574,10 +1608,149 @@ func testTagVersionPropagation(t *testing.T, workflow releaseWorkflow) {
 	}
 }
 
+func testQualifiedTagRelease(t *testing.T, source []byte, workflow releaseWorkflow) {
+	t.Helper()
+	expectedRunners := map[string]string{
+		"setup-version":     "ubuntu-latest",
+		"qualification":     "",
+		"runner-reference":  "",
+		"release-cli":       "ubuntu-latest",
+		"release-extension": "ubuntu-latest",
+		"native-smoke":      "",
+	}
+	testReleaseRunnerContracts(t, source, expectedRunners, validateTagRelease)
+	if !strings.Contains(string(source), "on:\n  push:\n    tags:\n      - 'v*.*.*'") {
+		t.Fatal("release publication must remain tag-triggered only")
+	}
+	for name, job := range workflow.Jobs {
+		if job.If != "" || job.ContinueOnError {
+			t.Fatalf("release job %s must retain success-only dependency admission", name)
+		}
+	}
+	setup := workflow.Jobs["setup-version"]
+	version := releaseSteps(setup)["Determine Version"]
+	if setup.TimeoutMinutes <= 0 || version.ID != "version" ||
+		!reflect.DeepEqual(setup.Outputs, map[string]string{
+			"version": "${{ steps.version.outputs.version }}", "tag": "${{ steps.version.outputs.tag }}",
+		}) || !strings.Contains(version.Run, `VERSION="${GITHUB_REF_NAME#v}"`) ||
+		!strings.Contains(version.Run, `echo "version=$VERSION" >> "$GITHUB_OUTPUT"`) ||
+		!strings.Contains(version.Run, `echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"`) {
+		t.Fatal("tag release must derive its version and tag from the validated semver ref")
+	}
+
+	qualification := workflow.Jobs["qualification"]
+	if qualification.Uses != "./.github/workflows/release-qualification.yml" ||
+		!reflect.DeepEqual(qualification.Needs, []string{"setup-version"}) ||
+		qualification.With["release_stage"] != "released" ||
+		qualification.With["source_sha"] != "${{ github.sha }}" ||
+		qualification.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		!reflect.DeepEqual(qualification.Permissions, map[string]string{
+			"contents": "read", "id-token": "write", "attestations": "write",
+		}) {
+		t.Fatal("tag release must call exact-source qualification with least-privilege attestation permissions")
+	}
+	runner := workflow.Jobs["runner-reference"]
+	if runner.Uses != "./.github/workflows/publish-runner-reference.yml" ||
+		!reflect.DeepEqual(runner.Needs, []string{"setup-version", "qualification"}) ||
+		runner.With["release_stage"] != "released" ||
+		runner.With["source_sha"] != "${{ github.sha }}" ||
+		runner.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		runner.With["qualification_artifact_name"] != "${{ needs.qualification.outputs.evidence_artifact_name }}" ||
+		runner.With["qualification_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
+		!reflect.DeepEqual(runner.Permissions, map[string]string{
+			"contents": "read", "packages": "write", "attestations": "write", "id-token": "write",
+		}) {
+		t.Fatal("tag-only image publisher must consume qualification and receive scoped publication permissions")
+	}
+
+	cli := workflow.Jobs["release-cli"]
+	if !reflect.DeepEqual(cli.Needs, []string{"setup-version", "qualification", "runner-reference"}) ||
+		cli.TimeoutMinutes <= 0 {
+		t.Fatal("CLI publication must wait for qualification and runner image publication")
+	}
+	if err := orderedReleaseSteps(cli, []string{
+		"Checkout Repository", "Download CLI Artifacts", "Download workflow-linked assurance package",
+		"Generate SHA256 Checksums", "Create or Update GitHub Release",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cliSteps := releaseSteps(cli)
+	if cliSteps["Download CLI Artifacts"].With["name"] != "${{ needs.qualification.outputs.evidence_artifact_name }}" ||
+		cliSteps["Download CLI Artifacts"].With["path"] != "qualification" ||
+		cliSteps["Download workflow-linked assurance package"].With["name"] != "${{ needs.qualification.outputs.package_artifact_name }}" ||
+		cliSteps["Generate SHA256 Checksums"].Run == "" {
+		t.Fatal("CLI publication must consume the exact qualification evidence and assurance package")
+	}
+	testTagCLIArtifactVerification(t, cliSteps["Generate SHA256 Checksums"].Run)
+	publication := cliSteps["Create or Update GitHub Release"].Run
+	if !strings.HasPrefix(publication, "TAG=\"${{ needs.setup-version.outputs.tag }}\"\nbash .github/scripts/release_tag_check.sh \"$TAG\"\n") ||
+		!strings.Contains(publication, `--verify-tag --target "$GITHUB_SHA"`) {
+		t.Fatal("CLI release must verify the exact pre-existing tag and validated commit")
+	}
+
+	extension := workflow.Jobs["release-extension"]
+	if extension.TimeoutMinutes <= 0 || extension.Env["VERSION"] != "${{ needs.setup-version.outputs.version }}" ||
+		extension.Env["RELEASE_DASHBOARD_MANIFEST_SHA256"] != dashboardManifestOutput {
+		t.Fatal("extension release must bind the detected version and exact-source dashboard manifest")
+	}
+	if err := orderedReleaseSteps(extension, []string{
+		"Checkout Repository", "Require exact validated source", "Setup Go Environment",
+		"Set dashboard artifact path", "Download exact-source dashboard", "Download dashboard checker dependency",
+		"Install exact-source dashboard", "Require built dashboard output", "Require clean packaged source",
+		"Verify selected Extensions Kit contract", "Sync Version Files", "Build Extension", "Pack Extension",
+		"Record extension artifact provenance", "Create exact extension tag exclusively", "Release Extension",
+		"Require package-only extension release", "Publish Extension", "Publish Extension Provenance", "Create Release PR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateReleaseDashboard(extension); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateExtensionTail(releaseSteps(extension)); err != nil {
+		t.Fatal(err)
+	}
+	testReleaseDashboardMutations(t, source, "release-extension", validateTagRelease)
+	testExtensionProvenance(t, releaseSteps(extension)["Record extension artifact provenance"].Run)
+	testReleaseVersionMutations(t, source, "release-extension", "", validateTagRelease)
+
+	smoke := workflow.Jobs["native-smoke"]
+	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" ||
+		!reflect.DeepEqual(smoke.Needs, []string{"setup-version", "qualification", "release-cli", "release-extension"}) ||
+		smoke.With["source_sha"] != "${{ github.sha }}" ||
+		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		smoke.With["package_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
+		smoke.With["extension_package_run_attempt"] != "${{ needs.release-extension.outputs.extension_package_run_attempt }}" ||
+		smoke.With["report_only"] != "true" || smoke.Permissions["contents"] != "read" {
+		t.Fatal("native smoke must remain report-only and consume the exact published packages")
+	}
+	testTagVersionPropagation(t, workflow)
+
+	for _, mutation := range []struct{ name, old, new string }{
+		{"wrong-candidate-stage", "release_stage: released", "release_stage: candidate"},
+		{"unbound-candidate-source", "source_sha: ${{ github.sha }}", "source_sha: ${{ github.ref }}"},
+		{"missing-qualification-dependency", "needs: [setup-version, qualification]", "needs: [setup-version]"},
+		{"candidate-package-write", "      attestations: write\n", "      attestations: write\n      packages: write\n"},
+		{"missing-runner-publication-gate", "needs: [setup-version, qualification, runner-reference]", "needs: [setup-version, qualification]"},
+		{"unconditional-release-cli", "  release-cli:\n", "  release-cli:\n    if: always()\n"},
+		{"tolerated-extension-release", "  release-extension:\n", "  release-extension:\n    continue-on-error: true\n"},
+	} {
+		t.Run("qualified-release-"+mutation.name, func(t *testing.T) {
+			changed := strings.Replace(string(source), mutation.old, mutation.new, 1)
+			if changed == string(source) {
+				t.Fatal("mutation did not change production workflow")
+			}
+			if err := validateTagRelease([]byte(changed)); err == nil {
+				t.Fatal("unsafe release workflow mutation was admitted")
+			}
+		})
+	}
+}
+
 func testExtensionProvenance(t *testing.T, script string) {
 	t.Helper()
 	for _, state := range []string{"valid", "missing-directory", "empty", "archive-directory", "digest-failure", "discovery-failure"} {
 		t.Run("extension-provenance-"+state, func(t *testing.T) {
+			run := script
 			dir := t.TempDir()
 			artifacts := filepath.Join(dir, "artifacts")
 			if state != "missing-directory" {
@@ -1595,27 +1768,16 @@ func testExtensionProvenance(t *testing.T, script string) {
 					t.Fatal(err)
 				}
 			}
-			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
-			cmd.Dir = dir
-			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
 			if state == "digest-failure" {
-				path := filepath.Join(dir, "sha256sum")
-				writeReleaseFile(t, path, []byte("#!/bin/sh\nprintf 'partial digest\\n'\nexit 73\n"))
-				if err := os.Chmod(path, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				cmd.Env = append(cmd.Env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+				run = "sha256sum() { printf 'partial digest\\n'; return 73; }\n" + run
 			}
 			if state == "discovery-failure" {
-				for _, tool := range []string{"find", "sort"} {
-					path := filepath.Join(dir, tool)
-					writeReleaseFile(t, path, []byte("#!/bin/sh\nprintf invoked > discovery.invoked\nprintf 'artifacts/with space.zip\\000'\nexit 73\n"))
-					if err := os.Chmod(path, 0o700); err != nil {
-						t.Fatal(err)
-					}
-				}
-				cmd.Env = append(cmd.Env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+				run = "find() { printf invoked > discovery.invoked; printf 'artifacts/with space.zip\\000'; return 73; }\n" +
+					"sort() { printf invoked > discovery.invoked; return 73; }\n" + run
 			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_SHA=validated-source")
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != valid {
 				t.Fatalf("provenance state %s: %v\n%s", state, err, output)
@@ -1642,6 +1804,12 @@ func testExtensionProvenance(t *testing.T, script string) {
 
 func testTagCLIArtifactVerification(t *testing.T, run string) {
 	t.Helper()
+	qualificationDir := "."
+	checksumPath := "checksums.txt"
+	if strings.Contains(run, `"qualification/`) {
+		qualificationDir = "qualification"
+		checksumPath = filepath.Join("artifacts", "checksums.txt")
+	}
 	binaries := []string{
 		"waza-linux-amd64",
 		"waza-linux-arm64",
@@ -1654,48 +1822,58 @@ func testTagCLIArtifactVerification(t *testing.T, run string) {
 		"matching-source-error", "matching-sidecar-error", "matching-hash-error"} {
 		t.Run("cli-artifacts-"+mutation, func(t *testing.T) {
 			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, qualificationDir), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(run, "qualification-package/") {
+				if err := os.MkdirAll(filepath.Join(dir, "qualification-package"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				writeReleaseFile(t, filepath.Join(dir, "qualification-package", "assurance.json"), []byte("{}\n"))
+				writeReleaseFile(t, filepath.Join(dir, "qualification-package", "assurance.mdx"), []byte("# Assurance\n"))
+			}
 			for _, binary := range binaries {
-				writeReleaseFile(t, filepath.Join(dir, binary), []byte(binary))
-				writeReleaseFile(t, filepath.Join(dir, binary+".source-sha.txt"), []byte("validated-source\n"))
+				writeReleaseFile(t, filepath.Join(dir, qualificationDir, binary), []byte(binary))
+				writeReleaseFile(t, filepath.Join(dir, qualificationDir, binary+".source-sha.txt"), []byte("validated-source\n"))
 				cmd := exec.CommandContext(t.Context(), "sha256sum", binary)
-				cmd.Dir = dir
+				cmd.Dir = filepath.Join(dir, qualificationDir)
 				digest, err := cmd.Output()
 				if err != nil {
 					t.Fatal(err)
 				}
-				writeReleaseFile(t, filepath.Join(dir, binary+".sha256"), digest)
+				writeReleaseFile(t, filepath.Join(dir, qualificationDir, binary+".sha256"), digest)
 			}
 			target := binaries[len(binaries)-1]
 			switch mutation {
 			case "missing-binary":
-				if err := os.Remove(filepath.Join(dir, target)); err != nil {
+				if err := os.Remove(filepath.Join(dir, qualificationDir, target)); err != nil {
 					t.Fatal(err)
 				}
 			case "missing-source":
-				if err := os.Remove(filepath.Join(dir, target+".source-sha.txt")); err != nil {
+				if err := os.Remove(filepath.Join(dir, qualificationDir, target+".source-sha.txt")); err != nil {
 					t.Fatal(err)
 				}
 			case "missing-digest":
-				if err := os.Remove(filepath.Join(dir, target+".sha256")); err != nil {
+				if err := os.Remove(filepath.Join(dir, qualificationDir, target+".sha256")); err != nil {
 					t.Fatal(err)
 				}
 			case "stale-source":
-				writeReleaseFile(t, filepath.Join(dir, target+".source-sha.txt"), []byte("stale-source\n"))
+				writeReleaseFile(t, filepath.Join(dir, qualificationDir, target+".source-sha.txt"), []byte("stale-source\n"))
 			case "digest-mismatch":
-				writeReleaseFile(t, filepath.Join(dir, target), []byte("altered binary"))
+				writeReleaseFile(t, filepath.Join(dir, qualificationDir, target), []byte("altered binary"))
 			case "foreign-digest":
-				foreign, err := os.ReadFile(filepath.Join(dir, binaries[0]+".sha256"))
+				foreign, err := os.ReadFile(filepath.Join(dir, qualificationDir, binaries[0]+".sha256"))
 				if err != nil {
 					t.Fatal(err)
 				}
-				writeReleaseFile(t, filepath.Join(dir, target+".sha256"), foreign)
+				writeReleaseFile(t, filepath.Join(dir, qualificationDir, target+".sha256"), foreign)
 			}
 			script := run
 			switch mutation {
 			case "matching-source-error":
-				script = failingReleaseCommand("cat", target+".source-sha.txt") + script
+				script = failingReleaseCommand("cat", filepath.ToSlash(filepath.Join("artifacts", target+".source-sha.txt"))) + script
 			case "matching-sidecar-error":
-				script = failingReleaseCommand("cat", target+".sha256") + script
+				script = failingReleaseCommand("cat", filepath.ToSlash(filepath.Join("artifacts", target+".sha256"))) + script
 			case "matching-hash-error":
 				script = failingReleaseCommand("sha256sum", target) + script
 			}
@@ -1707,10 +1885,19 @@ func testTagCLIArtifactVerification(t *testing.T, run string) {
 				t.Fatalf("verification error = %v\n%s", err, output)
 			}
 			if strings.HasPrefix(mutation, "matching-") {
-				assertReleaseFailureObserved(t, dir)
+				failureDir := dir
+				if mutation == "matching-hash-error" {
+					failureDir = filepath.Join(dir, qualificationDir)
+				}
+				assertReleaseFailureObserved(t, failureDir)
+			}
+			if mutation == "none" {
+				if _, err := os.Stat(filepath.Join(dir, checksumPath)); err != nil {
+					t.Fatalf("verified CLI artifacts did not produce checksums: %v", err)
+				}
 			}
 			if mutation != "none" {
-				if _, err := os.Stat(filepath.Join(dir, "checksums.txt")); !os.IsNotExist(err) {
+				if _, err := os.Stat(filepath.Join(dir, checksumPath)); !os.IsNotExist(err) {
 					t.Fatalf("invalid artifacts reached publication checksum generation: %v", err)
 				}
 			}
@@ -1756,7 +1943,7 @@ func TestReleaseWorkflowLineEndings(t *testing.T) {
 						mutated = strings.Replace(string(normalized), "  windows-test:\n", "  windows-test:\n    if: 'false'\n", 1)
 					case "release.yml":
 						validate = validateTagRelease
-						mutated = strings.Replace(string(normalized), "  validation:\n", "  validation:\n    if: always()\n", 1)
+						mutated = strings.Replace(string(normalized), "  qualification:\n", "  qualification:\n    if: always()\n", 1)
 					}
 					if err := validate(normalized); err != nil {
 						t.Fatalf("valid normalized workflow: %v", err)
@@ -1778,6 +1965,7 @@ func TestReleaseWorkflowLineEndings(t *testing.T) {
 }
 
 type releaseWorkflow struct {
+	On          yaml.Node `yaml:"on"`
 	Permissions map[string]string
 	Jobs        map[string]releaseJob
 }
@@ -1891,6 +2079,24 @@ func validateReleaseValidation(source []byte) error {
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
+	var callOutputs map[string]struct {
+		Value string
+	}
+	for i := 0; i+1 < len(workflow.On.Content); i += 2 {
+		if workflow.On.Content[i].Value != "workflow_call" {
+			continue
+		}
+		var call struct {
+			Outputs map[string]struct {
+				Value string
+			}
+		}
+		if err := workflow.On.Content[i+1].Decode(&call); err != nil {
+			return err
+		}
+		callOutputs = call.Outputs
+		break
+	}
 	if err := validateReleaseRunners(workflow, map[string]string{
 		"build-test": "ubuntu-latest", "windows-test": "windows-latest",
 		"lint": "ubuntu-latest", "complete": "ubuntu-latest", "native-test-shards": "",
@@ -1902,6 +2108,16 @@ func validateReleaseValidation(source []byte) error {
 	windows := workflow.Jobs["windows-test"]
 	lint := workflow.Jobs["lint"]
 	complete := workflow.Jobs["complete"]
+	if callOutputs["release_tested_artifact_name"].Value != "${{ jobs.build-test.outputs.release_tested_artifact_name }}" ||
+		callOutputs["release_tested_run_attempt"].Value != "${{ jobs.build-test.outputs.release_tested_run_attempt }}" ||
+		callOutputs["release_validation_artifact_name"].Value != "${{ jobs.complete.outputs.release_validation_artifact_name }}" ||
+		callOutputs["release_validation_run_attempt"].Value != "${{ jobs.complete.outputs.release_validation_run_attempt }}" ||
+		build.Outputs["release_tested_artifact_name"] != "release-tested-${{ github.sha }}-${{ github.run_attempt }}" ||
+		build.Outputs["release_tested_run_attempt"] != "${{ github.run_attempt }}" ||
+		complete.Outputs["release_validation_artifact_name"] != "release-validation-${{ github.sha }}-${{ github.run_attempt }}" ||
+		complete.Outputs["release_validation_run_attempt"] != "${{ github.run_attempt }}" {
+		return fmt.Errorf("validation must export exact run-attempt artifact identities")
+	}
 	if workflow.Permissions["contents"] != "read" || complete.TimeoutMinutes != 15 ||
 		build.TimeoutMinutes != 60 || windows.TimeoutMinutes != 60 || lint.TimeoutMinutes != 10 ||
 		build.ContinueOnError || windows.ContinueOnError || lint.ContinueOnError || complete.ContinueOnError {
@@ -1925,7 +2141,7 @@ func validateReleaseValidation(source []byte) error {
 		return err
 	}
 	if err := orderedReleaseSteps(complete, []string{"Require every validation branch", "Checkout Repository", "Require exact source",
-		"Download tested release binary and remaining coverage", "Download native coverage and discovery evidence",
+		"Require exact tested artifact identity", "Download tested release binary and remaining coverage", "Download native coverage and discovery evidence",
 		"Verify exhaustive native test selection and coverage", "Verify and restore tested binary",
 		"Record validated source", "Upload complete validation evidence"}); err != nil {
 		return err
@@ -1964,7 +2180,7 @@ func validateReleaseValidation(source []byte) error {
 		return fmt.Errorf("completion must reject every non-success validation result")
 	}
 	if buildSteps["Install and prove rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
-		buildSteps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
+		buildSteps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/attestation-policy ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
 		buildSteps["Run Go Vet"].Run != "go vet ./..." ||
 		buildSteps["Build Release Binary"].Run != "go build -v -o waza ./cmd/waza\nbash .github/scripts/release_binary_check.sh waza\n./waza --version\n" ||
 		buildSteps["Verify packaged release dashboard"].Run != "bash .github/scripts/release_dashboard_integration_test.sh ./waza" ||
@@ -1979,10 +2195,19 @@ func validateReleaseValidation(source []byte) error {
 	if err := checkOrdinaryEvidence(source, "release-validation.yml"); err != nil {
 		return err
 	}
+	testedArtifactIdentity := steps["Require exact tested artifact identity"]
+	if testedArtifactIdentity.Env["TESTED_ARTIFACT_NAME"] != "${{ needs.build-test.outputs.release_tested_artifact_name }}" ||
+		testedArtifactIdentity.Env["TESTED_RUN_ATTEMPT"] != "${{ needs.build-test.outputs.release_tested_run_attempt }}" ||
+		testedArtifactIdentity.Env["SOURCE_SHA"] != "${{ github.sha }}" ||
+		testedArtifactIdentity.Run != "case \"$TESTED_RUN_ATTEMPT\" in\n  ''|*[!0-9]*) exit 1 ;;\nesac\ntest \"$TESTED_ARTIFACT_NAME\" = \"release-tested-$SOURCE_SHA-$TESTED_RUN_ATTEMPT\"\n" {
+		return fmt.Errorf("completion must bind the tested binary download to its producer attempt")
+	}
 	upload, download := buildSteps["Upload tested release binary and remaining coverage"], steps["Download tested release binary and remaining coverage"]
-	if !strings.HasPrefix(upload.Uses, "actions/upload-artifact@") || upload.With["name"] != "release-tested-${{ github.sha }}" ||
+	if !strings.HasPrefix(upload.Uses, "actions/upload-artifact@") ||
+		upload.With["name"] != "release-tested-${{ github.sha }}-${{ github.run_attempt }}" ||
 		upload.With["path"] != "waza\nwaza.sha256\ncoverage.txt\n" || upload.With["if-no-files-found"] != "error" ||
-		!strings.HasPrefix(download.Uses, "actions/download-artifact@") || download.With["name"] != upload.With["name"] || download.With["path"] != "." ||
+		!strings.HasPrefix(download.Uses, "actions/download-artifact@") ||
+		download.With["name"] != "${{ needs.build-test.outputs.release_tested_artifact_name }}" || download.With["path"] != "." ||
 		buildSteps["Record tested binary digest"].Run != "sha256sum waza > waza.sha256" ||
 		steps["Verify and restore tested binary"].Run != releaseDigestCheck+"chmod +x waza\n./waza --version\n" {
 		return fmt.Errorf("publication must retrieve the exact integration-tested binary, digest and remaining coverage")
@@ -2007,7 +2232,7 @@ func validateReleaseValidation(source []byte) error {
 		return fmt.Errorf("release validation must retain pinned lint schema verification")
 	}
 	evidence := steps["Upload complete validation evidence"]
-	if evidence.With["name"] != "release-validation-${{ github.sha }}" ||
+	if evidence.With["name"] != "release-validation-${{ github.sha }}-${{ github.run_attempt }}" ||
 		evidence.With["path"] != "waza\nwaza.sha256\nsource-sha.txt\n" ||
 		evidence.With["if-no-files-found"] != "error" ||
 		steps["Record validated source"].Run != "printf '%s\\n' \"$GITHUB_SHA\" > source-sha.txt" {
@@ -2096,11 +2321,14 @@ func validateBranchPublisher(source []byte, file string) error {
 	}
 	gate := steps["Require successful complete validation"]
 	if gate.Env["VALIDATION_RESULT"] != "${{ needs.validation.result }}" ||
-		gate.Run != `test "$VALIDATION_RESULT" = success` {
+		gate.Env["VALIDATION_ARTIFACT_NAME"] != "${{ needs.validation.outputs.release_validation_artifact_name }}" ||
+		gate.Env["VALIDATION_RUN_ATTEMPT"] != "${{ needs.validation.outputs.release_validation_run_attempt }}" ||
+		gate.Env["VALIDATION_SOURCE_SHA"] != "${{ github.sha }}" ||
+		gate.Run != "test \"$VALIDATION_RESULT\" = success\ncase \"$VALIDATION_RUN_ATTEMPT\" in\n  ''|*[!0-9]*) exit 1 ;;\nesac\ntest \"$VALIDATION_ARTIFACT_NAME\" = \"release-validation-$VALIDATION_SOURCE_SHA-$VALIDATION_RUN_ATTEMPT\"\n" {
 		return fmt.Errorf("publisher must reject missing, failed, canceled or skipped validation")
 	}
 	download := steps["Download complete validation evidence"]
-	if download.With["name"] != "release-validation-${{ github.sha }}" || download.With["path"] != "." ||
+	if download.With["name"] != "${{ needs.validation.outputs.release_validation_artifact_name }}" || download.With["path"] != "." ||
 		steps["Require exact validated source and tested binary"].Run != releaseRecordedSourceCheck+releaseDigestCheck+"chmod +x waza\n./waza --version\n" {
 		return fmt.Errorf("publisher must consume complete exact-source tested evidence")
 	}
@@ -2151,10 +2379,193 @@ func validateReleaseDashboard(job releaseJob) error {
 	return nil
 }
 
+func validateQualifiedTagRelease(workflow releaseWorkflow) error {
+	if err := validateReleaseRunners(workflow, map[string]string{
+		"setup-version":     "ubuntu-latest",
+		"qualification":     "",
+		"runner-reference":  "",
+		"release-cli":       "ubuntu-latest",
+		"release-extension": "ubuntu-latest",
+		"native-smoke":      "",
+	}); err != nil {
+		return err
+	}
+	if !hasVersionTagPushTrigger(workflow.On) {
+		return fmt.Errorf("release publisher must be restricted to version-tag pushes")
+	}
+	for name, job := range workflow.Jobs {
+		if job.If != "" || job.ContinueOnError {
+			return fmt.Errorf("release job %s must retain success-only dependency admission", name)
+		}
+	}
+	if workflow.Permissions["contents"] != "write" || workflow.Permissions["pull-requests"] != "write" ||
+		len(workflow.Permissions) != 2 {
+		return fmt.Errorf("release permissions must be limited to release contents and extension PR creation")
+	}
+
+	setup := workflow.Jobs["setup-version"]
+	version := releaseSteps(setup)["Determine Version"]
+	if setup.TimeoutMinutes <= 0 || version.ID != "version" ||
+		!reflect.DeepEqual(setup.Outputs, map[string]string{
+			"version": "${{ steps.version.outputs.version }}", "tag": "${{ steps.version.outputs.tag }}",
+		}) || !strings.Contains(version.Run, `VERSION="${GITHUB_REF_NAME#v}"`) ||
+		!strings.Contains(version.Run, `echo "version=$VERSION" >> "$GITHUB_OUTPUT"`) ||
+		!strings.Contains(version.Run, `echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"`) {
+		return fmt.Errorf("tag and extension versions must bind the production semver detector")
+	}
+
+	qualification := workflow.Jobs["qualification"]
+	if qualification.Uses != "./.github/workflows/release-qualification.yml" ||
+		!reflect.DeepEqual(qualification.Needs, []string{"setup-version"}) ||
+		qualification.With["release_stage"] != "released" ||
+		qualification.With["source_sha"] != "${{ github.sha }}" ||
+		qualification.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		!reflect.DeepEqual(qualification.Permissions, map[string]string{
+			"contents": "read", "id-token": "write", "attestations": "write",
+		}) {
+		return fmt.Errorf("tag release must call exact-source qualification with only required attestation permissions")
+	}
+
+	runner := workflow.Jobs["runner-reference"]
+	if runner.Uses != "./.github/workflows/publish-runner-reference.yml" ||
+		!reflect.DeepEqual(runner.Needs, []string{"setup-version", "qualification"}) ||
+		runner.With["release_stage"] != "released" ||
+		runner.With["source_sha"] != "${{ github.sha }}" ||
+		runner.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		runner.With["qualification_artifact_name"] != "${{ needs.qualification.outputs.evidence_artifact_name }}" ||
+		runner.With["qualification_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
+		!reflect.DeepEqual(runner.Permissions, map[string]string{
+			"contents": "read", "packages": "write", "attestations": "write", "id-token": "write",
+		}) {
+		return fmt.Errorf("runner image publisher must be tag-only, depend on qualification and hold scoped publication permissions")
+	}
+
+	cli := workflow.Jobs["release-cli"]
+	if !reflect.DeepEqual(cli.Needs, []string{"setup-version", "qualification", "runner-reference"}) ||
+		cli.TimeoutMinutes <= 0 {
+		return fmt.Errorf("CLI release must wait for successful qualification and runner image publication")
+	}
+	if err := orderedReleaseSteps(cli, []string{
+		"Checkout Repository", "Download CLI Artifacts", "Download workflow-linked assurance package",
+		"Generate SHA256 Checksums", "Create or Update GitHub Release",
+	}); err != nil {
+		return err
+	}
+	cliSteps := releaseSteps(cli)
+	if !strings.HasPrefix(cliSteps["Download CLI Artifacts"].Uses, "actions/download-artifact@") ||
+		cliSteps["Download CLI Artifacts"].With["name"] != "${{ needs.qualification.outputs.evidence_artifact_name }}" ||
+		cliSteps["Download CLI Artifacts"].With["path"] != "qualification" ||
+		!strings.HasPrefix(cliSteps["Download workflow-linked assurance package"].Uses, "actions/download-artifact@") ||
+		cliSteps["Download workflow-linked assurance package"].With["name"] != "${{ needs.qualification.outputs.package_artifact_name }}" ||
+		cliSteps["Download workflow-linked assurance package"].With["path"] != "qualification-package" {
+		return fmt.Errorf("CLI release must consume the exact workflow-run qualification artifacts")
+	}
+	checks := cliSteps["Generate SHA256 Checksums"].Run
+	expectedCLIBinaries := `expected=(
+  waza-linux-amd64
+  waza-linux-arm64
+  waza-darwin-amd64
+  waza-darwin-arm64
+  waza-windows-amd64.exe
+  waza-windows-arm64.exe
+)`
+	if !strings.Contains(checks, expectedCLIBinaries) ||
+		!strings.Contains(checks, `cp "qualification/$binary" artifacts/`) ||
+		!strings.Contains(checks, `source_sha="$(cat "artifacts/$source")"`) ||
+		!strings.Contains(checks, `test "$source_sha" = "$GITHUB_SHA"`) ||
+		!strings.Contains(checks, `recorded_digest="$(cat "artifacts/$digest")"`) ||
+		!strings.Contains(checks, `actual_digest="$(cd qualification && sha256sum "$binary")"`) ||
+		!strings.Contains(checks, `(cd artifacts && sha256sum "${expected[@]}") > artifacts/checksums.txt`) ||
+		!strings.Contains(checks, `tar -czf artifacts/release-qualification-evidence.tar.gz -C qualification .`) {
+		return fmt.Errorf("CLI release must verify every exact-source binary digest and include its qualification evidence")
+	}
+	publication := cliSteps["Create or Update GitHub Release"].Run
+	if !strings.HasPrefix(publication, "TAG=\"${{ needs.setup-version.outputs.tag }}\"\nbash .github/scripts/release_tag_check.sh \"$TAG\"\n") ||
+		(!strings.Contains(publication, `--verify-tag --target "$GITHUB_SHA"`) &&
+			!strings.Contains(publication, `--target "$GITHUB_SHA" --verify-tag`)) {
+		return fmt.Errorf("CLI release must verify the exact pre-existing tag and validated commit")
+	}
+
+	extension := workflow.Jobs["release-extension"]
+	if !reflect.DeepEqual(extension.Needs, []string{"setup-version", "qualification", "runner-reference"}) ||
+		extension.TimeoutMinutes <= 0 ||
+		extension.Env["VERSION"] != "${{ needs.setup-version.outputs.version }}" ||
+		extension.Env["RELEASE_DASHBOARD_MANIFEST_SHA256"] != dashboardManifestOutput {
+		return fmt.Errorf("extension release must wait for qualification and consume exact version and dashboard identities")
+	}
+	if err := orderedReleaseSteps(extension, []string{
+		"Checkout Repository", "Require exact validated source", "Setup Go Environment",
+		"Set dashboard artifact path", "Download exact-source dashboard", "Download dashboard checker dependency",
+		"Install exact-source dashboard", "Require built dashboard output", "Require clean packaged source",
+		"Verify selected Extensions Kit contract", "Sync Version Files", "Build Extension", "Pack Extension",
+		"Record extension artifact provenance", "Create exact extension tag exclusively", "Release Extension",
+		"Require package-only extension release", "Publish Extension", "Publish Extension Provenance", "Create Release PR",
+	}); err != nil {
+		return err
+	}
+	extensionSteps := releaseSteps(extension)
+	if err := validateReleaseDashboard(extension); err != nil {
+		return err
+	}
+	if err := validateExtensionTail(extensionSteps); err != nil {
+		return err
+	}
+	if extensionSteps["Require exact validated source"].Run != releaseSourceCheck ||
+		extensionSteps["Build Extension"].Run != "azd x build --all --skip-install" ||
+		extensionSteps["Build Extension"].Env["REQUIRE_RELEASE_ADMISSION"] != "1" {
+		return fmt.Errorf("extension release must consume the exact validated source and retain release admission")
+	}
+	provenance := extensionSteps["Record extension artifact provenance"].Run
+	if !strings.Contains(provenance, "test -d artifacts\nshopt -s nullglob\npackages=(artifacts/*.zip artifacts/*.tar.gz)\n") ||
+		!strings.Contains(provenance, `test "${#packages[@]}" -gt 0`) ||
+		!strings.Contains(provenance, "for package in \"${packages[@]}\"; do\n  test -f \"$package\"\ndone\n") ||
+		!strings.Contains(provenance, `printf 'source_sha=%s\n' "$GITHUB_SHA"`) ||
+		!strings.Contains(provenance, `sha256sum "${packages[@]}"`) ||
+		!strings.Contains(extensionSteps["Publish Extension Provenance"].Run,
+			`gh release upload "azd-ext-microsoft-azd-waza_${VERSION}"`) ||
+		!strings.Contains(extensionSteps["Publish Extension Provenance"].Run, "artifacts/release-provenance.txt") {
+		return fmt.Errorf("extension release must publish source-bound package digest evidence")
+	}
+	for _, step := range extension.Steps {
+		if _, overrides := step.Env["VERSION"]; overrides {
+			return fmt.Errorf("extension step %q must not override its detected version", step.Name)
+		}
+	}
+
+	smoke := workflow.Jobs["native-smoke"]
+	if smoke.Uses != "./.github/workflows/native-package-smoke.yml" ||
+		!reflect.DeepEqual(smoke.Needs, []string{"setup-version", "qualification", "release-cli", "release-extension"}) ||
+		smoke.With["source_sha"] != "${{ github.sha }}" ||
+		smoke.With["version"] != "${{ needs.setup-version.outputs.version }}" ||
+		smoke.With["package_run_attempt"] != "${{ needs.qualification.outputs.evidence_run_attempt }}" ||
+		smoke.With["extension_package_run_attempt"] != "${{ needs.release-extension.outputs.extension_package_run_attempt }}" ||
+		smoke.With["report_only"] != "true" || smoke.Permissions["contents"] != "read" {
+		return fmt.Errorf("native package smoke must remain report-only and consume exact published packages")
+	}
+	return nil
+}
+
+func hasVersionTagPushTrigger(on yaml.Node) bool {
+	if on.Kind != yaml.MappingNode || len(on.Content) != 2 ||
+		on.Content[0].Value != "push" || on.Content[1].Kind != yaml.MappingNode {
+		return false
+	}
+	push := on.Content[1]
+	if push.Kind != yaml.MappingNode || len(push.Content) != 2 ||
+		push.Content[0].Value != "tags" || push.Content[1].Kind != yaml.SequenceNode ||
+		len(push.Content[1].Content) != 1 {
+		return false
+	}
+	return push.Content[1].Content[0].Value == "v*.*.*"
+}
+
 func validateTagRelease(source []byte) error {
 	var workflow releaseWorkflow
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
+	}
+	if _, qualified := workflow.Jobs["qualification"]; qualified {
+		return validateQualifiedTagRelease(workflow)
 	}
 	if err := validateReleaseRunners(workflow, map[string]string{
 		"setup-version": "ubuntu-latest", "build-cli": "ubuntu-latest",

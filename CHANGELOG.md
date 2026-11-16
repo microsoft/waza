@@ -9,16 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Release qualification and attestations (#756).** The manual
+  `Release Qualification` workflow accepts only the exact current `main`
+  commit and stores candidate evidence and its workflow-linked assurance
+  package as run artifacts; it creates no version tag, GitHub Release, or
+  registry image. The tag release reuses the same validation, exact binary and
+  runner-image builds, CycloneDX inventory, keyless GitHub provenance/SBOM
+  attestations, trusted root, offline verification, and evidence packaging.
+  Release assets are sourced from the validated qualification artifact rather
+  than rebuilt binaries. The separate GHCR image publisher is callable only from
+  the tag-release path after qualification; candidate qualification is not
+  release approval.
+
 - **Production integration assurance package (#775).** Added the versioned
   `waza.production-integration-assurance` 1.0 package and offline
   `waza runner assurance build` validation/rendering, with generated operator
   conformance matrix, threat model, production-readiness checklist, evidence
   links, migration notes, and verification limits. The package links existing
   Lab views for #769–#774; it adds no dashboard view. Its v0.42.0 candidate
-  explicitly records unavailable keyless/KMS signing, manual inventory
-  publication and missing attestations for old images, post-run-only telemetry,
-  unsupported OS resource accounting, the limited off-host isolation proof,
-  and the adapter's lack of a scheduler and configured provenance hook. See
+  explicitly records unavailable Waza-local keyless/KMS signing, unqualified
+  legacy image inventories, post-run-only telemetry, unsupported OS resource
+  accounting, the limited off-host isolation proof, and the adapter's lack of a
+  scheduler. The adapter now supports a bounded operator-configured provenance
+  verifier hook. See
   [maintainer guidance](docs/PRODUCTION_INTEGRATION_ASSURANCE.md) and the
   [generated site page](site/src/content/docs/guides/production-integration-assurance.mdx).
 
@@ -46,8 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checks offline that the inventory describes exactly the consumed image
   (`--image-digest`) or plugin (`--plugin`) and prints a
   `waza.inventory-verification` 1.0 report (exit 0 verified, 1 failed). The
-  reference image publisher now generates, verifies and attests the inventory
-  to the pushed digest (`actions/attest`, predicate `https://cyclonedx.org/bom`),
+  reference image publisher now runs only in the qualified tag-release path and
+  generates, verifies and attests the inventory to the pushed digest
+  (`actions/attest`, predicate `https://cyclonedx.org/bom`),
   and `verify-runner-reference.yml` verifies the signed inventory before
   accepting a digest. Provenance bundles bind it with
   `--bind component-inventory=PATH` (checked against the signed image digest)
