@@ -1162,14 +1162,15 @@ func checkCanonicalGoWorkflow(source []byte) error {
 	sourcesFound := false
 	downloadFound := false
 	mergeFound := false
+	coverSummaryFound := false
 	for _, step := range merge.Steps {
 		switch step.ID {
 		case "sources":
 			sourcesFound = true
 			if step.If != "" || !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
-				step.With["pattern"] != "go-remaining-coverage-source-${{ github.run_id }}-*-0" ||
-				step.With["merge-multiple"] != "false" || step.With["path"] != "remaining-sources" {
-				return fmt.Errorf("coverage source artifacts must be retained by attempt without npm setup")
+				step.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ steps.merge.outputs.attempt }}-0" ||
+				step.With["path"] != "web/node_modules/flatted/golang/pkg/flatted" {
+				return fmt.Errorf("coverage source artifact must match the verified attempt on every event")
 			}
 		case "download":
 			downloadFound = true
@@ -1182,13 +1183,19 @@ func checkCanonicalGoWorkflow(source []byte) error {
 			mergeFound = true
 			if !strings.Contains(step.Run, "go_remaining_shard_verify.py") ||
 				!strings.Contains(step.Run, "remaining-artifacts") ||
-				!strings.Contains(step.Run, "source_attempt") ||
-				!strings.Contains(step.Run, "cp -R \"$source_dir\"/.") {
-				return fmt.Errorf("coverage merger must verify one complete attempt and restore its sources")
+				!strings.Contains(step.Run, "go-remaining-verification.json") ||
+				!strings.Contains(step.Run, "attempt=") ||
+				!strings.Contains(step.Run, "GITHUB_OUTPUT") {
+				return fmt.Errorf("coverage merger must expose the verified attempt")
+			}
+		case "cover_summary":
+			coverSummaryFound = true
+			if !strings.Contains(step.Run, "go tool cover -func=coverage.txt") {
+				return fmt.Errorf("coverage merger must validate the merged profile source paths")
 			}
 		}
 	}
-	if !sourcesFound || !downloadFound || !mergeFound {
+	if !sourcesFound || !downloadFound || !mergeFound || !coverSummaryFound {
 		return fmt.Errorf("coverage merger is missing attempt-scoped sources, receipts, or verification")
 	}
 	gate := workflow.Jobs["linux-gate"]

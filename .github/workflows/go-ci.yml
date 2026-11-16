@@ -296,13 +296,6 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
-      - name: Download Go coverage sources
-        id: sources
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: go-remaining-coverage-source-${{ github.run_id }}-*-0
-          merge-multiple: false
-          path: remaining-sources
       - name: Download all remaining-shard evidence
         id: download
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -315,11 +308,16 @@ jobs:
         run: |
           python3 -B .github/scripts/go_remaining_shard_verify.py \
             remaining-artifacts coverage.txt go-remaining-verification.json
-          source_attempt="$(python3 -c 'import json; print(json.load(open("go-remaining-verification.json", encoding="utf-8"))["attempt"])')"
-          source_dir="remaining-sources/go-remaining-coverage-source-${GITHUB_RUN_ID}-${source_attempt}-0"
-          test -d "$source_dir"
-          mkdir -p web/node_modules/flatted/golang/pkg/flatted
-          cp -R "$source_dir"/. web/node_modules/flatted/golang/pkg/flatted/
+          echo "attempt=$(python3 -c 'import json; print(json.load(open("go-remaining-verification.json", encoding="utf-8"))["attempt"])')" >> "$GITHUB_OUTPUT"
+      - name: Download Go coverage sources for the verified attempt
+        id: sources
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-remaining-coverage-source-${{ github.run_id }}-${{ steps.merge.outputs.attempt }}-0
+          path: web/node_modules/flatted/golang/pkg/flatted
+      - name: Validate merged coverage source paths
+        id: cover_summary
+        run: |
           go tool cover -func=coverage.txt > coverage-summary.txt
       - name: Retain merged remaining-package coverage
         id: coverage
