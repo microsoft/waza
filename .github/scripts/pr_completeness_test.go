@@ -98,7 +98,7 @@ process.stdout.write(JSON.stringify(require("./pr-completeness.cjs").applicabili
 
 func TestCompletenessProductionCLIControls(t *testing.T) {
 	output := runCompletenessNode(t, "--test", "--test-reporter=tap", "pr-completeness.test.cjs")
-	for metric, count := range map[string]int{"tests": 18, "pass": 18, "fail": 0, "cancelled": 0, "skipped": 0} { //nolint:misspell // Node TAP field name.
+	for metric, count := range map[string]int{"tests": 19, "pass": 19, "fail": 0, "cancelled": 0, "skipped": 0} { //nolint:misspell // Node TAP field name.
 		pattern := regexp.MustCompile(fmt.Sprintf(`(?m)^# %s %d\r?$`, metric, count))
 		if !pattern.Match(output) {
 			t.Fatalf("production Node controls lack expected %s=%d evidence:\n%s", metric, count, output)
@@ -669,16 +669,23 @@ rm "$log"
 			t.Fatal("higher unsafe GOFLAGS must not inherit lower empty admission")
 		}
 	})
+	controlStep := "      - name: Test native Windows shell controls\n        id: shell_controls\n        if: matrix.os == 'windows-latest'\n"
 	for _, mutation := range []struct{ old, replacement string }{
 		{"      - name: Test native Windows shell controls", "      - name: Missing Windows shell controls"},
-		{"        if: matrix.os == 'windows-latest'", "        if: false"},
-		{"        if: matrix.os == 'windows-latest'", "        if: matrix.os == 'ubuntu-latest'"},
-		{"        if: matrix.os == 'windows-latest'", "        if: matrix.os == 'windows-latest'\n        continue-on-error: true"},
-		{"        if: matrix.os == 'windows-latest'", "        if: matrix.os == 'windows-latest'\n        shell: bash -c true {0}"},
-		{"        if: matrix.os == 'windows-latest'", "        if: matrix.os == 'windows-latest'\n        shell: bash -e {0}"},
+		{controlStep, strings.Replace(controlStep, "if: matrix.os == 'windows-latest'", "if: false", 1)},
+		{controlStep, strings.Replace(controlStep, "if: matrix.os == 'windows-latest'", "if: matrix.os == 'ubuntu-latest'", 1)},
+		{controlStep, controlStep + "        continue-on-error: true\n"},
+		{controlStep, controlStep + "        shell: bash -c true {0}\n"},
+		{controlStep, controlStep + "        shell: bash -e {0}\n"},
 		{"        os: [windows-latest]", "        os: [ubuntu-latest]"},
-		{"-timeout=5m", "-timeout=0"},
-		{"-count=1 -v -timeout=5m", "-count=1 -timeout=5m"},
+		{
+			`go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+			`go test -count=1 -v -timeout=0 -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+		},
+		{
+			`go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+			`go test -count=1 -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+		},
 		{"OrdinaryShellOverridesAndDisabledPaths)$", "MissingControl)$"},
 		{`          if grep -q -- '--- SKIP:' "$log"; then`, "          if false; then"},
 		{`            grep -Fxq "=== RUN   $control" "$log"`, ":"},
@@ -696,8 +703,7 @@ rm "$log"
 		"        continue-on-error: false",
 		"        shell: bash -e -o pipefail {0}",
 	} {
-		mutated := strings.Replace(string(source), "        if: matrix.os == 'windows-latest'",
-			"        if: matrix.os == 'windows-latest'\n"+declaration, 1)
+		mutated := strings.Replace(string(source), controlStep, controlStep+declaration+"\n", 1)
 		if mutated == string(source) {
 			t.Fatal("alternative-valid native-selection mutation did not change production source")
 		}

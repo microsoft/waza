@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/internal/inventory"
 	"golang.org/x/sys/unix"
 )
 
@@ -27,7 +29,7 @@ func TestRunnerInventoryRejectsWriterlessFIFOs(t *testing.T) {
 	if err := unix.Mkfifo(filepath.Join(embedded, "zcopilot_1.0.0_linux-x64.tgz"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	self, err := os.Executable()
+	goBinary, err := exec.LookPath("go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,7 @@ func TestRunnerInventoryRejectsWriterlessFIFOs(t *testing.T) {
 		"subject file": {"inventory", "generate", "--subject", "plugin", "--name", "p", "--subject-file", fifo, "--file", "../../go.mod"},
 		"go binary":    {"inventory", "generate", "--name", "r", "--digest", digest, "--go-binary", fifo},
 		"file":         {"inventory", "generate", "--name", "r", "--digest", digest, "--file", fifo},
-		"embedded":     {"inventory", "generate", "--name", "r", "--digest", digest, "--go-binary", self, "--embedded-dir", embedded},
+		"embedded CLI": {"inventory", "generate", "--name", "r", "--digest", digest, "--go-binary", goBinary, "--embedded-dir", embedded},
 		"plugin":       {"inventory", "verify", "--inventory", inventoryPath, "--plugin", fifo},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -49,10 +51,11 @@ func TestRunnerInventoryRejectsWriterlessFIFOs(t *testing.T) {
 				args = append(args, "--out", filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".cdx.json"))
 			}
 			done := make(chan error, 1)
+			var stderr bytes.Buffer
 			go func() {
 				cmd := newRunnerCommand()
 				cmd.SetOut(&bytes.Buffer{})
-				cmd.SetErr(&bytes.Buffer{})
+				cmd.SetErr(&stderr)
 				cmd.SetArgs(args)
 				done <- cmd.Execute()
 			}()
@@ -62,9 +65,27 @@ func TestRunnerInventoryRejectsWriterlessFIFOs(t *testing.T) {
 				if !errors.As(err, &exit) || exit.Code != 2 {
 					t.Fatalf("err = %v; want exit 2", err)
 				}
+				if name == "embedded CLI" && !strings.Contains(stderr.String(), "is not a regular file") {
+					t.Fatalf("embedded FIFO diagnostic = %q; want a regular-file error", stderr.String())
+				}
 			case <-time.After(10 * time.Second):
 				t.Fatal("opening a writerless FIFO blocked")
 			}
 		})
 	}
+	t.Run("embedded", func(t *testing.T) {
+		done := make(chan error, 1)
+		go func() {
+			_, err := inventory.EmbeddedComponents(embedded, nil)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+				t.Fatalf("embedded FIFO error = %v; want a regular-file error", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("opening an embedded writerless FIFO blocked")
+		}
+	})
 }

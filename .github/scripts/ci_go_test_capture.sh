@@ -10,8 +10,11 @@ scope="$1"
 profile="$2"
 scripts="$(cd "$(dirname "$0")" && pwd)"
 node "$scripts/ci-evidence.cjs" init-go "$profile.evidence.json"
+test_parallelism=()
 
 if [ "$scope" = remaining ]; then
+  remaining_package_parallelism=4
+  test_parallelism=(-p="$remaining_package_parallelism")
   packages="$(go list ./...)"
   selected=()
   while IFS= read -r package; do
@@ -28,7 +31,7 @@ else
 fi
 
 set +e
-go test -race -covermode=atomic -json -list . "${selected[@]}" |
+go test "${test_parallelism[@]}" -race -covermode=atomic -json -list . "${selected[@]}" |
   node "$scripts/ci-evidence.cjs" discover "$profile.all"
 discovery_status=("${PIPESTATUS[@]}")
 set -e
@@ -39,7 +42,7 @@ if [ "${discovery_status[1]}" -ne 0 ]; then exit "${discovery_status[1]}"; fi
 if [ "$finalization_status" -ne 0 ]; then exit "$finalization_status"; fi
 cp "$profile.all" "$profile.selected"
 set +e
-go test -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
+go test "${test_parallelism[@]}" -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
   "${selected[@]}" |
   node "$scripts/ci-evidence.cjs" go "$profile.evidence.json" "$profile.all" "$profile.selected"
 status=("${PIPESTATUS[@]}")

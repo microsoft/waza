@@ -560,6 +560,7 @@ func buildRunnerReadProgressCLI(t *testing.T) (string, string) {
 	return binary, nonce
 }
 
+// Keep the GOOS=windows compile subprocess serial with other test binaries.
 func TestRunnerTerminalReadProgressOverlayBuildOnly(t *testing.T) {
 	binary, _ := buildRunnerReadProgressCLI(t)
 	image, err := pe.Open(binary)

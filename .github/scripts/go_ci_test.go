@@ -517,6 +517,9 @@ func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages
 		return err
 	}
 	requiredFlags := []string{"-count=1", "-json", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
+	if sharded {
+		requiredFlags = append(requiredFlags, "-p=4")
+	}
 	var flags, selected []string
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
@@ -549,6 +552,9 @@ func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages
 	}
 	discoveryArgs := strings.Split(strings.TrimSuffix(string(discovered), "\n"), "\n")
 	prefix := []string{"-race", "-covermode=atomic", "-json", "-list", "."}
+	if sharded {
+		prefix = append([]string{"-p=4"}, prefix...)
+	}
 	if len(discoveryArgs) < len(prefix) || !slices.Equal(discoveryArgs[:len(prefix)], prefix) {
 		return fmt.Errorf("%s: discovery flags = %q; want nonexecuting %q", platform, discoveryArgs, prefix)
 	}
@@ -668,8 +674,16 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 				(continueOnError.Tag != "!!bool" || !strings.EqualFold(continueOnError.Value, "false")) {
 				return fmt.Errorf("%s: %s must not tolerate failure", jobName, name)
 			}
-			if name != required[1] && conditions[name] != "" {
-				return fmt.Errorf("%s: %s must execute unconditionally", jobName, name)
+			expectedCondition := ""
+			if workflowName == "go-ci.yml" {
+				if name == required[1] {
+					expectedCondition = "matrix.os == 'ubuntu-latest'"
+				} else if name == "Execute Tests" {
+					expectedCondition = "matrix.os == 'windows-latest'"
+				}
+			}
+			if conditions[name] != expectedCondition {
+				return fmt.Errorf("%s: %s condition = %q; want %q", jobName, name, conditions[name], expectedCondition)
 			}
 			if platform == "Windows" && name == required[1] {
 				continue
@@ -695,8 +709,10 @@ func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName st
 		if !strings.Contains(testCommand, "bash .github/scripts/ci_go_test_capture.sh ") {
 			return fmt.Errorf("%s: broad Go tests must use the verified uncached capture caller", jobName)
 		}
-		if err := checkOrdinaryTestSelection(t, testCommand, platform, packages, workflowName == "go-ci.yml" && jobName == "build-and-test", shells[required[2]]); err != nil {
-			return fmt.Errorf("%s: %w", jobName, err)
+		if !(workflowName == "go-ci.yml" && jobName == "build-and-test") {
+			if err := checkOrdinaryTestSelection(t, testCommand, platform, packages, false, shells[required[2]]); err != nil {
+				return fmt.Errorf("%s: %w", jobName, err)
+			}
 		}
 		if !strings.Contains(commands[required[3]], `"$COPILOT_CLI_PATH.invoked"`) {
 			return fmt.Errorf("%s: tolerated runtime launches must fail validation", jobName)
@@ -796,7 +812,6 @@ func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
 			}
 			if name == "go-ci.yml" {
 				mutations = append(mutations,
-					[2]string{"ci_go_test_capture.sh remaining", "ci_go_test_capture.sh all"},
 					[2]string{"ci_go_test_capture.sh all", "ci_go_test_capture.sh remaining"},
 					[2]string{"      - name: Integration Test\n        id: integration\n        run:", "      - name: Integration Test\n        id: integration\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
 					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
@@ -1095,7 +1110,11 @@ func checkCanonicalGoWorkflow(source []byte) error {
 			Needs []string `yaml:"needs"`
 			If    string   `yaml:"if"`
 			Steps []struct {
-				Run string `yaml:"run"`
+				ID   string            `yaml:"id"`
+				If   string            `yaml:"if"`
+				Run  string            `yaml:"run"`
+				Uses string            `yaml:"uses"`
+				With map[string]string `yaml:"with"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
@@ -1111,18 +1130,81 @@ func checkCanonicalGoWorkflow(source []byte) error {
 	}
 	if workflow.Jobs["lint"].Name != goRequiredName("Lint", "'Lint'") ||
 		workflow.Jobs["build-and-test-windows"].Name != goRequiredName("windows-latest", "matrix.os") ||
-		workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" {
+		workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" ||
+		workflow.Jobs["linux-remaining-shards"].Uses != "./.github/workflows/go-remaining-shards.yml" {
 		return fmt.Errorf("required native and lint jobs must be retained")
 	}
-	for _, job := range []string{"lint", "build-and-test", "build-and-test-windows", "native-test-shards"} {
+	for _, job := range []string{"lint", "build-and-test", "build-and-test-windows",
+		"native-test-shards", "linux-remaining-shards"} {
 		if workflow.Jobs[job].If != goValidationIf {
 			return fmt.Errorf("%s must skip only metadata-only PR edits", job)
 		}
 	}
+	merge := workflow.Jobs["linux-coverage-merge"]
+	if merge.If != "${{ always() && "+goValidationIf+" }}" ||
+		!reflect.DeepEqual(merge.Needs, []string{"linux-remaining-shards"}) {
+		return fmt.Errorf("coverage merger must inspect remaining shards even after failure")
+	}
+	for _, stepID := range []string{"node"} {
+		found := false
+		for _, step := range merge.Steps {
+			if step.ID == stepID {
+				found = true
+				if step.If != "github.event_name == 'pull_request'" {
+					return fmt.Errorf("coverage merger %s setup must not extend main-push critical path", stepID)
+				}
+			}
+		}
+		if !found {
+			return fmt.Errorf("coverage merger is missing %s setup", stepID)
+		}
+	}
+	sourcesFound := false
+	downloadFound := false
+	mergeFound := false
+	coverSummaryFound := false
+	for _, step := range merge.Steps {
+		switch step.ID {
+		case "sources":
+			sourcesFound = true
+			if step.If != "" || !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
+				step.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ steps.merge.outputs.shard0_attempt }}-0" ||
+				step.With["path"] != "web/node_modules/flatted/golang/pkg/flatted" {
+				return fmt.Errorf("coverage source artifact must match the verified shard 0 attempt")
+			}
+		case "download":
+			downloadFound = true
+			if !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
+				step.With["pattern"] != "go-remaining-shard-*-${{ github.run_id }}-*" ||
+				step.With["merge-multiple"] != "false" || step.With["path"] != "remaining-artifacts" {
+				return fmt.Errorf("coverage merger must keep remaining-shard attempts isolated")
+			}
+		case "merge":
+			mergeFound = true
+			if !strings.Contains(step.Run, "go_remaining_shard_verify.py") ||
+				!strings.Contains(step.Run, "remaining-artifacts") ||
+				!strings.Contains(step.Run, "go-remaining-verification.json") ||
+				!strings.Contains(step.Run, "shard0_attempt=") ||
+				!strings.Contains(step.Run, `["attempts"]["0"]`) ||
+				!strings.Contains(step.Run, "GITHUB_OUTPUT") {
+				return fmt.Errorf("coverage merger must expose the verified shard 0 attempt")
+			}
+		case "cover_summary":
+			coverSummaryFound = true
+			if !strings.Contains(step.Run, "go tool cover -func=coverage.txt") {
+				return fmt.Errorf("coverage merger must validate the merged profile source paths")
+			}
+		}
+	}
+	if !sourcesFound || !downloadFound || !mergeFound || !coverSummaryFound {
+		return fmt.Errorf("coverage merger is missing attempt-scoped sources, receipts, or verification")
+	}
 	gate := workflow.Jobs["linux-gate"]
 	if gate.Name != goRequiredName("ubuntu-latest", "'ubuntu-latest'") || gate.If != "${{ always() && "+goValidationIf+" }}" ||
-		!reflect.DeepEqual(gate.Needs, []string{"build-and-test", "native-test-shards"}) {
-		return fmt.Errorf("required Linux gate must inspect both validation branches even after failure")
+		!reflect.DeepEqual(gate.Needs, []string{
+			"build-and-test", "native-test-shards", "linux-remaining-shards", "linux-coverage-merge",
+		}) {
+		return fmt.Errorf("required Linux gate must inspect every validation branch even after failure")
 	}
 	var commands string
 	for _, step := range gate.Steps {
@@ -1131,6 +1213,8 @@ func checkCanonicalGoWorkflow(source []byte) error {
 	for _, required := range []string{
 		`test "$BUILD_RESULT" = success`,
 		`test "$NATIVE_RESULT" = success`,
+		`test "$REMAINING_RESULT" = success`,
+		`test "$MERGE_RESULT" = success`,
 		"bash .github/scripts/go_test_shard_verify.sh coverage-reports",
 	} {
 		if !strings.Contains(commands, required) {
@@ -1164,11 +1248,13 @@ func TestCanonicalGoWorkflow(t *testing.T) {
 		{"'PR metadata (Lint not selected)' || 'Lint' }}", "'Lint' || 'Lint' }}"},
 		{"'ubuntu-latest' }}", "'Linux renamed' }}"},
 		{"'PR metadata (windows-latest not selected)' || matrix.os }}", "matrix.os || matrix.os }}"},
-		{"    name: Linux build and remaining tests\n    if: " + goValidationIf, "    name: Linux build and remaining tests\n    if: github.event_name != 'pull_request'"},
+		{"    name: Linux build and support checks\n    if: " + goValidationIf, "    name: Linux build and support checks\n    if: github.event_name != 'pull_request'"},
 		{"  native-test-shards:\n    if: " + goValidationIf, "  native-test-shards:\n    if: github.event.action != 'edited'"},
-		{"needs: [build-and-test, native-test-shards]", "needs: [build-and-test]"},
+		{"needs: [build-and-test, native-test-shards, linux-remaining-shards, linux-coverage-merge]", "needs: [build-and-test]"},
 		{"if: ${{ always() && " + goValidationIf + " }}", "if: ${{ always() }}"},
 		{`test "$NATIVE_RESULT" = success`, ":"},
+		{`test "$REMAINING_RESULT" = success`, ":"},
+		{`test "$MERGE_RESULT" = success`, ":"},
 		{"bash .github/scripts/go_test_shard_verify.sh coverage-reports", ":"},
 	} {
 		mutated := strings.Replace(string(source), mutation[0], mutation[1], 1)
@@ -1202,6 +1288,133 @@ func TestCanonicalGoWorkflow(t *testing.T) {
 	if _, err := os.Stat(filepath.Join("..", "workflows", "squad-ci.yml")); !os.IsNotExist(err) {
 		t.Fatalf("obsolete Squad CI workflow must be removed: %v", err)
 	}
+}
+
+func TestGoRemainingShardWorkflowContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-remaining-shards.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Jobs        map[string]struct {
+			RunsOn         string `yaml:"runs-on"`
+			TimeoutMinutes int    `yaml:"timeout-minutes"`
+			Strategy       struct {
+				FailFast bool `yaml:"fail-fast"`
+				Matrix   struct {
+					Shard []int `yaml:"shard"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+			Steps []struct {
+				ID   string            `yaml:"id"`
+				If   string            `yaml:"if"`
+				Run  string            `yaml:"run"`
+				Uses string            `yaml:"uses"`
+				Env  map[string]string `yaml:"env"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	job := workflow.Jobs["remaining"]
+	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) ||
+		job.RunsOn != "ubuntu-latest" || job.TimeoutMinutes != 40 ||
+		job.Strategy.FailFast || !reflect.DeepEqual(job.Strategy.Matrix.Shard, []int{0, 1, 2, 3}) {
+		t.Fatalf("remaining-shard workflow changes its read-only four-shard contract: %+v", job)
+	}
+	steps := make(map[string]string, len(job.Steps))
+	shardIdentity, coldFixture := "", ""
+	for _, step := range job.Steps {
+		if step.ID != "" {
+			if _, duplicate := steps[step.ID]; duplicate {
+				t.Fatalf("duplicate remaining-shard step id %q", step.ID)
+			}
+			steps[step.ID] = strings.Join([]string{
+				step.If, step.Run, step.Uses, step.With["name"], step.With["path"],
+			}, " ")
+		}
+		if step.ID == "remaining_tests" {
+			shardIdentity = step.Env["WAZA_REMAINING_SHARD"]
+		}
+		if step.ID == "discovery_controls" {
+			coldFixture = step.Env["CI_EVIDENCE_COLD_REQUESTED"]
+		}
+	}
+	for id, command := range map[string]string{
+		"discovery_controls": "go_remaining_shard_test.sh",
+		"remaining_tests":    "go_remaining_test_shard.sh",
+		"coverage":           "go-remaining-shard-",
+		"coverage_sources":   "go-remaining-coverage-source-",
+		"observation":        "ci-evidence-go-remaining-",
+	} {
+		if !strings.Contains(steps[id], command) {
+			t.Errorf("remaining-shard step %q does not retain %q", id, command)
+		}
+	}
+	if shardIdentity != "${{ matrix.shard }}" || coldFixture != "false" {
+		t.Errorf("remaining-shard execution must bind its shard and disable cold observation only for synthetic controls: shard=%q cold=%q",
+			shardIdentity, coldFixture)
+	}
+	nodeCache := ""
+	for _, step := range job.Steps {
+		if step.ID == "node" {
+			nodeCache = step.With["cache"]
+		}
+	}
+	if nodeCache != "${{ !inputs.cold_observation && 'npm' || '' }}" {
+		t.Errorf("remaining-shard Node cache must select npm or be disabled: %q", nodeCache)
+	}
+	shardScript, err := os.ReadFile(filepath.Join("..", "scripts", "go_remaining_test_shard.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"go_remaining_package_durations.tsv",
+		"go_remaining_shard_plan.py",
+		"go test -p=4 -count=1 -json -v -race -timeout=30m",
+		"-covermode=atomic",
+		"CI_EVIDENCE_INVENTORY_SCOPE=qualified",
+	} {
+		if !strings.Contains(string(shardScript), required) {
+			t.Errorf("remaining test shard script missing %q", required)
+		}
+	}
+	if strings.Contains(string(shardScript), "-run ") {
+		t.Fatal("remaining shard must execute every test in each assigned package")
+	}
+}
+
+func TestGoCoverageMergeArtifactCanBeReplacedOnRetry(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				With struct {
+					Name      string `yaml:"name"`
+					Overwrite bool   `yaml:"overwrite"`
+				} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range workflow.Jobs["linux-coverage-merge"].Steps {
+		if step.Name == "Retain merged remaining-package coverage" {
+			if step.With.Name != "go-coverage-main" || !step.With.Overwrite {
+				t.Fatalf("coverage artifact must be replaceable on a same-run retry: %+v", step.With)
+			}
+			return
+		}
+	}
+	t.Fatal("Linux coverage merge does not retain its main coverage artifact")
 }
 
 func TestGoCIRequiresNativeWindowsReleaseDashboardChecker(t *testing.T) {
@@ -1370,6 +1583,84 @@ done
 		if mutated := moveStepBefore(mutation.before); check([]byte(mutated)) == nil {
 			t.Fatalf("dashboard checker step-order mutation admitted: %s", mutation.name)
 		}
+	}
+}
+
+func TestGoCIRequiresEmbeddedDashboardAssetTests(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = normalizeWorkflowLineEndings(source)
+
+	const stepName = "Verify embedded dashboard asset tests"
+	const command = `output=$(go test -count=1 -v -timeout=5m -run '^(TestEmbeddedAssetsDirectoryContainsBundles|TestIndexHTMLReferencesExistingAssets)$' ./internal/webserver 2>&1) || {
+  printf '%s\n' "$output"
+  exit 1
+}
+printf '%s\n' "$output"
+if grep -q '^--- SKIP:' <<<"$output"; then
+  echo "Embedded dashboard asset tests must not skip." >&2
+  exit 1
+fi
+for test in TestEmbeddedAssetsDirectoryContainsBundles TestIndexHTMLReferencesExistingAssets; do
+  grep -Fxq "=== RUN   $test" <<<"$output"
+  grep -Eq "^--- PASS: $test \([0-9.]+s\)$" <<<"$output"
+done
+`
+
+	var workflow struct {
+		Defaults ordinaryRunDefaults `yaml:"defaults"`
+		Jobs     map[string]struct {
+			If       string                  `yaml:"if"`
+			Steps    []ordinaryExecutionStep `yaml:"steps"`
+			Defaults ordinaryRunDefaults     `yaml:"defaults"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	job := workflow.Jobs["build-and-test"]
+	if job.If != goValidationIf {
+		t.Fatal("embedded asset tests require the Linux build job on every validation event")
+	}
+
+	positions := make(map[string]int, len(job.Steps))
+	selected := 0
+	for i, step := range job.Steps {
+		positions[step.Name] = i
+		if step.Name != stepName {
+			continue
+		}
+		selected++
+		if step.If != "matrix.os == 'ubuntu-latest'" || step.Run != command {
+			t.Fatal("embedded asset checker must run both tests and reject skips")
+		}
+		if step.ContinueOnError.Kind != 0 &&
+			(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false") {
+			t.Fatal("embedded asset checker must propagate failures")
+		}
+		if _, err := ordinaryShellArguments("Linux", workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, step.Shell); err != nil {
+			t.Fatalf("embedded asset checker requires a valid Linux shell: %v", err)
+		}
+	}
+	if selected != 1 {
+		t.Fatalf("embedded asset checker step count=%d; require one", selected)
+	}
+	for _, prerequisite := range []string{"Build Web UI", "Verify Module Dependencies"} {
+		position, present := positions[prerequisite]
+		if !present || position >= positions[stepName] {
+			t.Fatalf("embedded asset checker must follow %s", prerequisite)
+		}
+	}
+	stub, present := positions["Ensure web/dist exists (stub for go:embed)"]
+	if !present || positions[stepName] >= stub {
+		t.Fatal("embedded asset checker must run before the stub fallback")
+	}
+	build, present := positions["Build Web UI"]
+	if !present || job.Steps[build].If != "matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''" ||
+		job.Steps[build].Run != "npm ci && npm run build" {
+		t.Fatal("embedded asset checker must follow the real Linux dashboard build")
 	}
 }
 

@@ -410,19 +410,36 @@ Linux executes `internal/controlledcomparison` in four deterministic shards
 through `.github/workflows/go-native-shards.yml`, balanced longest-first using
 observed top-level durations in `.github/scripts/go_test_shard_durations.tsv`.
 Python 3 computes placement only; discovery remains authoritative and new tests
-use the median historical duration. All remaining packages run in
-the main Linux build job. Discovery uses the same race/atomic build and includes
-tests, examples, and fuzz seed targets without changing their fixtures or
-internal skip behavior. Each shard retains the 30-minute Go test deadline.
-Windows continues to execute the complete suite in one job.
+use the median historical duration. The remaining packages run in four
+deterministic package-level shards through
+`.github/workflows/go-remaining-shards.yml`, balanced from
+`.github/scripts/go_remaining_package_durations.tsv`; an unmeasured package
+uses the median measured package duration. Package assignment keeps every test
+in a package together, including all of `cmd/waza`. Each worker discovers the
+same complete remaining-package and test inventories, executes only its
+assigned packages with `-p=4`, race detection, atomic coverage, and a
+30-minute test deadline, then retains its selection and execution receipt plus
+a shard-bound timing observation. Workers also retain the locked npm package's
+Go source files; the merger restores those same-run sources on every event
+before validating the combined coverage profile.
+Refresh package costs after material package, test, or runner-topology changes
+from complete successful Linux remaining-test executions; retain the run,
+attempt, and source commit, and never time from canceled or incomplete
+executions.
+The collector requires all four successful receipts, identical inventories,
+exactly-once package and test selection, and valid atomic coverage before
+merging the four remaining profiles into the single main profile. Windows
+continues to execute the complete suite in one job.
 
-The required `ubuntu-latest` gate explicitly fails if any build or native shard
-fails, is cancelled, or is skipped. It also requires all five atomic coverage
-profiles, identical native test inventories, and exactly-once selection across
-the four shards before uploading coverage. Do not replace it with a skipped
+The required `ubuntu-latest` gate explicitly fails if the build, any native or
+remaining-package shard, or the coverage merger fails, is cancelled, or is
+skipped. It requires the four native profiles and the merged remaining profile
+(five atomic profiles total), identical native inventories, and exactly-once
+native selection before uploading coverage. Do not replace it with a skipped
 dependent job or remove a package without providing exhaustive required shards.
-Exercise discovery and all failure branches with
-`bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
+Exercise native and remaining-shard discovery, selection, failure handling, and
+coverage merging with `bash .github/scripts/go_test_shard_test.sh` and
+`bash .github/scripts/go_remaining_shard_test.sh`.
 
 Squad Release and Squad Insider Release reuse the same four native shards and
 30-minute race/atomic package deadline, running remaining validation in parallel.

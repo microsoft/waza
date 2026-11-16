@@ -386,10 +386,14 @@ func TestNativeCollectionAcceptedAndFrozenReader(t *testing.T) {
 	checkFrozen("stripped-core-only", native.Policy)
 }
 
-// The observed-failure cases are split across two top-level tests so the
-// native CI shard planner can place each half independently.
+// The observed-failure cases are split across top-level tests so the native CI
+// shard planner can place independently measured groups.
 func TestNativeCollectionObservedFailures(t *testing.T) {
-	testNativeCollectionObservedFailures(t, "retry", "initialize", "execute", "shutdown", "disconnect")
+	testNativeCollectionObservedFailures(t, "retry", "initialize", "execute")
+}
+
+func TestNativeCollectionObservedFailuresShutdown(t *testing.T) {
+	testNativeCollectionObservedFailures(t, "shutdown", "disconnect")
 }
 
 func TestNativeCollectionObservedFailuresOutputAndBudget(t *testing.T) {
