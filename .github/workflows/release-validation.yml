@@ -12,6 +12,18 @@ on:
       dashboard_run_attempt:
         description: Attempt that produced the exact dashboard artifact
         value: ${{ jobs.build-test.outputs.dashboard_run_attempt }}
+      release_tested_artifact_name:
+        description: Exact run-attempt name of the integration-tested binary artifact
+        value: ${{ jobs.build-test.outputs.release_tested_artifact_name }}
+      release_tested_run_attempt:
+        description: Attempt that produced the integration-tested binary artifact
+        value: ${{ jobs.build-test.outputs.release_tested_run_attempt }}
+      release_validation_artifact_name:
+        description: Exact run-attempt name of the complete validation artifact
+        value: ${{ jobs.complete.outputs.release_validation_artifact_name }}
+      release_validation_run_attempt:
+        description: Attempt that produced the complete validation artifact
+        value: ${{ jobs.complete.outputs.release_validation_run_attempt }}
 
 permissions:
   contents: read
@@ -28,6 +40,8 @@ jobs:
       dashboard_manifest_sha256: ${{ steps.dashboard.outputs.manifest_sha256 }}
       dashboard_artifact_name: ${{ steps.dashboard.outputs.artifact_name }}
       dashboard_run_attempt: ${{ steps.dashboard.outputs.run_attempt }}
+      release_tested_artifact_name: release-tested-${{ github.sha }}-${{ github.run_attempt }}
+      release_tested_run_attempt: ${{ github.run_attempt }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -93,7 +107,7 @@ jobs:
       - name: Test release gate failure handling
         run: |
           bash .github/scripts/release_gate_test.sh
-          go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard
+          go test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/attestation-policy ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard
 
       - name: Run Go Vet
         run: go vet ./...
@@ -135,7 +149,7 @@ jobs:
       - name: Upload tested release binary and remaining coverage
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-tested-${{ github.sha }}
+          name: release-tested-${{ github.sha }}-${{ github.run_attempt }}
           path: |
             waza
             waza.sha256
@@ -258,6 +272,9 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      release_validation_artifact_name: release-validation-${{ github.sha }}-${{ github.run_attempt }}
+      release_validation_run_attempt: ${{ github.run_attempt }}
     steps:
       - name: Require every validation branch
         env:
@@ -279,10 +296,21 @@ jobs:
           source_sha="$(git rev-parse HEAD)"
           test "$source_sha" = "$GITHUB_SHA"
 
+      - name: Require exact tested artifact identity
+        env:
+          TESTED_ARTIFACT_NAME: ${{ needs.build-test.outputs.release_tested_artifact_name }}
+          TESTED_RUN_ATTEMPT: ${{ needs.build-test.outputs.release_tested_run_attempt }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          case "$TESTED_RUN_ATTEMPT" in
+            ''|*[!0-9]*) exit 1 ;;
+          esac
+          test "$TESTED_ARTIFACT_NAME" = "release-tested-$SOURCE_SHA-$TESTED_RUN_ATTEMPT"
+
       - name: Download tested release binary and remaining coverage
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-tested-${{ github.sha }}
+          name: ${{ needs.build-test.outputs.release_tested_artifact_name }}
           path: .
 
       - name: Download native coverage and discovery evidence
@@ -311,7 +339,7 @@ jobs:
       - name: Upload complete validation evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-validation-${{ github.sha }}
+          name: release-validation-${{ github.sha }}-${{ github.run_attempt }}
           path: |
             waza
             waza.sha256

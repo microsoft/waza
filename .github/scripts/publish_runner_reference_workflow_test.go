@@ -415,6 +415,7 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 	}
 	imageAttestation := findStep(qualifyJob.Steps, "Attest the exact runner image digest")
 	sbomAttestation := findStep(qualifyJob.Steps, "Attest the runner image digest and CycloneDX inventory")
+	rootDownload := findStep(qualifyJob.Steps, "Download Sigstore trusted roots")
 	offlineVerification := findStep(qualifyJob.Steps, "Verify all keyless attestations offline")
 	if imageAttestation == nil || imageAttestation.With["subject-name"] != "ghcr.io/microsoft/waza-runner-reference" ||
 		imageAttestation.With["subject-digest"] != "${{ steps.image.outputs.digest }}" ||
@@ -424,11 +425,19 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 		t.Fatal("candidate image provenance and SBOM must bind to the exact OCI manifest digest")
 	}
 	if offlineVerification == nil ||
+		rootDownload == nil || rootDownload.Run != "gh attestation trusted-root > dist/trusted_root.jsonl" ||
+		offlineVerification.Env["EXPECTED_REPOSITORY_ID"] != "${{ github.repository_id }}" ||
+		offlineVerification.Env["EXPECTED_TRUSTED_ROOT_SHA256"] != "${{ vars.WAZA_SIGSTORE_TRUSTED_ROOT_SHA256 }}" ||
+		!strings.Contains(offlineVerification.Run, "attestation-policy root") ||
+		!strings.Contains(offlineVerification.Run, `"$EXPECTED_REPOSITORY_ID" "$EXPECTED_TRUSTED_ROOT_SHA256" dist/trusted_root.jsonl`) ||
 		!strings.Contains(offlineVerification.Run, "gh attestation verify dist/runner-image.manifest.json") ||
 		!strings.Contains(offlineVerification.Run, "--bundle dist/attestations/runner-image.json") ||
 		!strings.Contains(offlineVerification.Run, "--bundle dist/attestations/runner-inventory.json") ||
+		!strings.Contains(offlineVerification.Run, "attestation-policy verify") ||
+		!strings.Contains(offlineVerification.Run, `"$EXPECTED_REPOSITORY_ID" "$EXPECTED_TRUSTED_ROOT_SHA256"`) ||
+		!strings.Contains(offlineVerification.Run, "dist/trusted_root.jsonl dist/verification/*.json") ||
 		!strings.Contains(offlineVerification.Run, `any(.[]; .verificationResult.statement.predicate == $inventory[0])`) {
-		t.Fatalf("candidate image provenance and inventory must be verified offline against the exact manifest: %#v", offlineVerification)
+		t.Fatalf("candidate attestations must verify the independently pinned root and every trusted repository ID: %#v", offlineVerification)
 	}
 	if strings.Contains(string(source), "packages: write") ||
 		strings.Contains(string(source), "push-to-registry: true") ||

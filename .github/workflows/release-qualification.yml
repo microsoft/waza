@@ -304,9 +304,13 @@ jobs:
       - name: Verify all keyless attestations offline
         env:
           SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release-qualification.yml
+          EXPECTED_REPOSITORY_ID: ${{ github.repository_id }}
+          EXPECTED_TRUSTED_ROOT_SHA256: ${{ vars.WAZA_SIGSTORE_TRUSTED_ROOT_SHA256 }}
         shell: bash
         run: |
           set -euo pipefail
+          go run ./.github/scripts/attestation-policy root \
+            "$EXPECTED_REPOSITORY_ID" "$EXPECTED_TRUSTED_ROOT_SHA256" dist/trusted_root.jsonl
           common=(--repo "$GITHUB_REPOSITORY" --custom-trusted-root dist/trusted_root.jsonl \
             --signer-workflow "$SIGNER_WORKFLOW" --format json)
           provenance=(--source-digest "$SOURCE_SHA")
@@ -330,6 +334,9 @@ jobs:
           jq -e --slurpfile inventory dist/runner-inventory.cdx.json \
             'any(.[]; .verificationResult.statement.predicate == $inventory[0])' \
             dist/verification/runner-inventory-sbom.json >/dev/null
+          go run ./.github/scripts/attestation-policy verify \
+            "$EXPECTED_REPOSITORY_ID" "$EXPECTED_TRUSTED_ROOT_SHA256" \
+            dist/trusted_root.jsonl dist/verification/*.json
           jq -n --arg digest "$(cat dist/runner-image.digest)" \
             --arg trusted_root_sha256 "$(sha256sum dist/trusted_root.jsonl | cut -d' ' -f1)" \
             '{kind:"waza.offline-attestation-verification",schema_version:"1.0",runner_image_digest:$digest,trusted_root_sha256:$trusted_root_sha256,verification:"passed",binary_subjects:6,runner_image_archive:"passed",runner_image_digest_provenance:"passed",runner_inventory_sbom:"passed"}' \

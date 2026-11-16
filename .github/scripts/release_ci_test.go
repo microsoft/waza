@@ -148,7 +148,16 @@ func TestReleaseWorkflowGates(t *testing.T) {
 		{"tolerated-lint", "      - name: Verify pinned configuration and run golangci-lint\n", "      - name: Verify pinned configuration and run golangci-lint\n        continue-on-error: true\n"},
 		{"tolerated-lint-job", "  lint:\n", "  lint:\n    continue-on-error: true\n"},
 		{"skipped-build-source", "      - name: Require exact source\n", "      - name: Require exact source\n        if: 'false'\n"},
-		{"different-download", "          name: release-tested-${{ github.sha }}\n          path: .", "          name: other-binary\n          path: ."},
+		{"different-download", "          name: ${{ needs.build-test.outputs.release_tested_artifact_name }}\n          path: .", "          name: other-binary\n          path: ."},
+		{"unbound-tested-artifact-name", "${{ needs.build-test.outputs.release_tested_artifact_name }}", "release-tested-unbound"},
+		{"unbound-tested-run-attempt", "${{ needs.build-test.outputs.release_tested_run_attempt }}", "1"},
+		{"skipped-tested-artifact-identity", "      - name: Require exact tested artifact identity\n", "      - name: Removed tested artifact identity\n"},
+		{"unchecked-tested-artifact-identity", `test "$TESTED_ARTIFACT_NAME" = "release-tested-$SOURCE_SHA-$TESTED_RUN_ATTEMPT"`, ":"},
+		{"tested-artifact-without-attempt", "release-tested-${{ github.sha }}-${{ github.run_attempt }}", "release-tested-${{ github.sha }}"},
+		{"validation-artifact-without-attempt", "release-validation-${{ github.sha }}-${{ github.run_attempt }}", "release-validation-${{ github.sha }}"},
+		{"tested-output-without-attempt", "release_tested_run_attempt: ${{ github.run_attempt }}", "release_tested_run_attempt: '1'"},
+		{"validation-output-without-attempt", "release_validation_run_attempt: ${{ github.run_attempt }}", "release_validation_run_attempt: '1'"},
+		{"unexported-validation-artifact", "value: ${{ jobs.complete.outputs.release_validation_artifact_name }}", "value: unbound"},
 		{"missing-binary-digest", `test "$recorded_digest" = "$actual_digest"`, ":"},
 		{"unchecked-binary-hash", `actual_digest="$(sha256sum waza)"`, `actual_digest="$(sha256sum waza)" || true`},
 		{"unchecked-sidecar-read", `recorded_digest="$(cat waza.sha256)"`, `recorded_digest="$(cat waza.sha256)" || true`},
@@ -911,14 +920,18 @@ func TestReleasePublishersRequireValidation(t *testing.T) {
 				{"missing-validation-dependency", "needs: [release-candidate, validation]", "needs: [release-candidate]"},
 				{"cancellation-bypass", "&& !cancelled()", "&& always()"}, //nolint:misspell // GitHub expression.
 				{"unbound-validation-result", "${{ needs.validation.result }}", "success"},
-				{"ignored-validation-result", `run: test "$VALIDATION_RESULT" = success`, "run: ':'"},
+				{"ignored-validation-result", `test "$VALIDATION_RESULT" = success`, ":"},
+				{"unbound-validation-artifact-name", "${{ needs.validation.outputs.release_validation_artifact_name }}", "release-validation-wrong"},
+				{"unbound-validation-attempt", "${{ needs.validation.outputs.release_validation_run_attempt }}", "1"},
+				{"unchecked-validation-artifact-identity", `test "$VALIDATION_ARTIFACT_NAME" = "release-validation-$VALIDATION_SOURCE_SHA-$VALIDATION_RUN_ATTEMPT"`, ":"},
+				{"unchecked-validation-attempt", `''|*[!0-9]*) exit 1 ;;`, `''*) exit 1 ;;`},
 				{"stale-source", `test "$source_sha" = "$GITHUB_SHA"`, ":"},
 				{"missing-digest", `test "$recorded_digest" = "$actual_digest"`, ":"},
 				{"unchecked-binary-hash", `actual_digest="$(sha256sum waza)"`, `actual_digest="$(sha256sum waza)" || true`},
 				{"unchecked-sidecar-read", `recorded_digest="$(cat waza.sha256)"`, `recorded_digest="$(cat waza.sha256)" || true`},
 				{"unchecked-recorded-source", `source_sha="$(cat source-sha.txt)"`, `source_sha="$(cat source-sha.txt)" || true`},
 				{"unchecked-tag-lookup", `tag_output="$(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')"`, `mapfile -t candidates < <(git tag --points-at "$GITHUB_SHA" --list 'v*.*.*')`},
-				{"different-evidence", "name: release-validation-${{ github.sha }}", "name: release-validation-other"},
+				{"different-evidence", "name: ${{ needs.validation.outputs.release_validation_artifact_name }}", "name: release-validation-other"},
 				{"rebuild-before-publication", "run: |\n          if gh release view", "run: |\n          go build -o waza ./cmd/waza\n          if gh release view"},
 				{"included-generated-insider-tag", `if [[ "$tag" != *-insider ]]; then`, "if true; then"},
 				{"existing-release-success", "            exit 1\n          else\n", "            exit 0\n          else\n"},
@@ -2066,6 +2079,24 @@ func validateReleaseValidation(source []byte) error {
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
+	var callOutputs map[string]struct {
+		Value string
+	}
+	for i := 0; i+1 < len(workflow.On.Content); i += 2 {
+		if workflow.On.Content[i].Value != "workflow_call" {
+			continue
+		}
+		var call struct {
+			Outputs map[string]struct {
+				Value string
+			}
+		}
+		if err := workflow.On.Content[i+1].Decode(&call); err != nil {
+			return err
+		}
+		callOutputs = call.Outputs
+		break
+	}
 	if err := validateReleaseRunners(workflow, map[string]string{
 		"build-test": "ubuntu-latest", "windows-test": "windows-latest",
 		"lint": "ubuntu-latest", "complete": "ubuntu-latest", "native-test-shards": "",
@@ -2077,6 +2108,16 @@ func validateReleaseValidation(source []byte) error {
 	windows := workflow.Jobs["windows-test"]
 	lint := workflow.Jobs["lint"]
 	complete := workflow.Jobs["complete"]
+	if callOutputs["release_tested_artifact_name"].Value != "${{ jobs.build-test.outputs.release_tested_artifact_name }}" ||
+		callOutputs["release_tested_run_attempt"].Value != "${{ jobs.build-test.outputs.release_tested_run_attempt }}" ||
+		callOutputs["release_validation_artifact_name"].Value != "${{ jobs.complete.outputs.release_validation_artifact_name }}" ||
+		callOutputs["release_validation_run_attempt"].Value != "${{ jobs.complete.outputs.release_validation_run_attempt }}" ||
+		build.Outputs["release_tested_artifact_name"] != "release-tested-${{ github.sha }}-${{ github.run_attempt }}" ||
+		build.Outputs["release_tested_run_attempt"] != "${{ github.run_attempt }}" ||
+		complete.Outputs["release_validation_artifact_name"] != "release-validation-${{ github.sha }}-${{ github.run_attempt }}" ||
+		complete.Outputs["release_validation_run_attempt"] != "${{ github.run_attempt }}" {
+		return fmt.Errorf("validation must export exact run-attempt artifact identities")
+	}
 	if workflow.Permissions["contents"] != "read" || complete.TimeoutMinutes != 15 ||
 		build.TimeoutMinutes != 60 || windows.TimeoutMinutes != 60 || lint.TimeoutMinutes != 10 ||
 		build.ContinueOnError || windows.ContinueOnError || lint.ContinueOnError || complete.ContinueOnError {
@@ -2100,7 +2141,7 @@ func validateReleaseValidation(source []byte) error {
 		return err
 	}
 	if err := orderedReleaseSteps(complete, []string{"Require every validation branch", "Checkout Repository", "Require exact source",
-		"Download tested release binary and remaining coverage", "Download native coverage and discovery evidence",
+		"Require exact tested artifact identity", "Download tested release binary and remaining coverage", "Download native coverage and discovery evidence",
 		"Verify exhaustive native test selection and coverage", "Verify and restore tested binary",
 		"Record validated source", "Upload complete validation evidence"}); err != nil {
 		return err
@@ -2139,7 +2180,7 @@ func validateReleaseValidation(source []byte) error {
 		return fmt.Errorf("completion must reject every non-success validation result")
 	}
 	if buildSteps["Install and prove rejecting runtime guard"].Run != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` ||
-		buildSteps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
+		buildSteps["Test release gate failure handling"].Run != "bash .github/scripts/release_gate_test.sh\ngo test -count=1 -timeout=10m ./.github/scripts ./.github/scripts/attestation-policy ./.github/scripts/publish-runner-reference-guard ./.github/scripts/verify-runner-reference-guard\n" ||
 		buildSteps["Run Go Vet"].Run != "go vet ./..." ||
 		buildSteps["Build Release Binary"].Run != "go build -v -o waza ./cmd/waza\nbash .github/scripts/release_binary_check.sh waza\n./waza --version\n" ||
 		buildSteps["Verify packaged release dashboard"].Run != "bash .github/scripts/release_dashboard_integration_test.sh ./waza" ||
@@ -2154,10 +2195,19 @@ func validateReleaseValidation(source []byte) error {
 	if err := checkOrdinaryEvidence(source, "release-validation.yml"); err != nil {
 		return err
 	}
+	testedArtifactIdentity := steps["Require exact tested artifact identity"]
+	if testedArtifactIdentity.Env["TESTED_ARTIFACT_NAME"] != "${{ needs.build-test.outputs.release_tested_artifact_name }}" ||
+		testedArtifactIdentity.Env["TESTED_RUN_ATTEMPT"] != "${{ needs.build-test.outputs.release_tested_run_attempt }}" ||
+		testedArtifactIdentity.Env["SOURCE_SHA"] != "${{ github.sha }}" ||
+		testedArtifactIdentity.Run != "case \"$TESTED_RUN_ATTEMPT\" in\n  ''|*[!0-9]*) exit 1 ;;\nesac\ntest \"$TESTED_ARTIFACT_NAME\" = \"release-tested-$SOURCE_SHA-$TESTED_RUN_ATTEMPT\"\n" {
+		return fmt.Errorf("completion must bind the tested binary download to its producer attempt")
+	}
 	upload, download := buildSteps["Upload tested release binary and remaining coverage"], steps["Download tested release binary and remaining coverage"]
-	if !strings.HasPrefix(upload.Uses, "actions/upload-artifact@") || upload.With["name"] != "release-tested-${{ github.sha }}" ||
+	if !strings.HasPrefix(upload.Uses, "actions/upload-artifact@") ||
+		upload.With["name"] != "release-tested-${{ github.sha }}-${{ github.run_attempt }}" ||
 		upload.With["path"] != "waza\nwaza.sha256\ncoverage.txt\n" || upload.With["if-no-files-found"] != "error" ||
-		!strings.HasPrefix(download.Uses, "actions/download-artifact@") || download.With["name"] != upload.With["name"] || download.With["path"] != "." ||
+		!strings.HasPrefix(download.Uses, "actions/download-artifact@") ||
+		download.With["name"] != "${{ needs.build-test.outputs.release_tested_artifact_name }}" || download.With["path"] != "." ||
 		buildSteps["Record tested binary digest"].Run != "sha256sum waza > waza.sha256" ||
 		steps["Verify and restore tested binary"].Run != releaseDigestCheck+"chmod +x waza\n./waza --version\n" {
 		return fmt.Errorf("publication must retrieve the exact integration-tested binary, digest and remaining coverage")
@@ -2182,7 +2232,7 @@ func validateReleaseValidation(source []byte) error {
 		return fmt.Errorf("release validation must retain pinned lint schema verification")
 	}
 	evidence := steps["Upload complete validation evidence"]
-	if evidence.With["name"] != "release-validation-${{ github.sha }}" ||
+	if evidence.With["name"] != "release-validation-${{ github.sha }}-${{ github.run_attempt }}" ||
 		evidence.With["path"] != "waza\nwaza.sha256\nsource-sha.txt\n" ||
 		evidence.With["if-no-files-found"] != "error" ||
 		steps["Record validated source"].Run != "printf '%s\\n' \"$GITHUB_SHA\" > source-sha.txt" {
@@ -2271,11 +2321,14 @@ func validateBranchPublisher(source []byte, file string) error {
 	}
 	gate := steps["Require successful complete validation"]
 	if gate.Env["VALIDATION_RESULT"] != "${{ needs.validation.result }}" ||
-		gate.Run != `test "$VALIDATION_RESULT" = success` {
+		gate.Env["VALIDATION_ARTIFACT_NAME"] != "${{ needs.validation.outputs.release_validation_artifact_name }}" ||
+		gate.Env["VALIDATION_RUN_ATTEMPT"] != "${{ needs.validation.outputs.release_validation_run_attempt }}" ||
+		gate.Env["VALIDATION_SOURCE_SHA"] != "${{ github.sha }}" ||
+		gate.Run != "test \"$VALIDATION_RESULT\" = success\ncase \"$VALIDATION_RUN_ATTEMPT\" in\n  ''|*[!0-9]*) exit 1 ;;\nesac\ntest \"$VALIDATION_ARTIFACT_NAME\" = \"release-validation-$VALIDATION_SOURCE_SHA-$VALIDATION_RUN_ATTEMPT\"\n" {
 		return fmt.Errorf("publisher must reject missing, failed, canceled or skipped validation")
 	}
 	download := steps["Download complete validation evidence"]
-	if download.With["name"] != "release-validation-${{ github.sha }}" || download.With["path"] != "." ||
+	if download.With["name"] != "${{ needs.validation.outputs.release_validation_artifact_name }}" || download.With["path"] != "." ||
 		steps["Require exact validated source and tested binary"].Run != releaseRecordedSourceCheck+releaseDigestCheck+"chmod +x waza\n./waza --version\n" {
 		return fmt.Errorf("publisher must consume complete exact-source tested evidence")
 	}

@@ -69,6 +69,54 @@ artifact and successful upload, so a failed upload or an absent rerun artifact
 cannot silently reuse an earlier pass. Successful receipts from targets not
 rerun remain valid.
 
+Release validation's tested-binary and complete-validation artifacts include
+the workflow run attempt in their names. Reusable-workflow outputs carry each
+exact artifact name and producer attempt to consumers; release publishers
+download the reported artifact and check that its embedded source and attempt
+match those producer outputs. This avoids immutable artifact-name collisions
+when a workflow run is rerun while allowing a downstream retry to use the exact
+earlier validation artifact when only publication is rerun.
+
+Offline GitHub attestation verification requires two independently trusted
+policy values: the repository's immutable numeric ID and the SHA-256 digest of
+the Sigstore trusted-root file. The qualification workflow gets the repository
+ID from `github.repository_id` and requires the root digest in the
+`WAZA_SIGSTORE_TRUSTED_ROOT_SHA256` repository Actions variable. It checks the
+root digest before using that root and compares the repository ID in every
+verification result; `--repo` owner/name matching alone is not sufficient for
+locally supplied bundles. See GitHub's [offline verification
+guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline)
+and the [`upload-artifact` immutable-artifact
+behavior](https://github.com/actions/upload-artifact#not-uploading-to-the-same-artifact).
+
+To prepare policy values for an offline consumer, use a trusted online machine:
+
+```bash
+gh api repos/microsoft/waza --jq .id
+gh attestation trusted-root > trusted_root.jsonl
+sha256sum trusted_root.jsonl
+```
+
+Transfer the repository ID, trusted-root file, and its SHA-256 through a
+trusted policy channel separate from the artifact and attestation bundle.
+Record the expected digest there; do not calculate it from an untrusted root
+delivered beside the artifact. Refresh the root and its policy digest when
+Sigstore trust material is updated. Before invoking `gh attestation verify`
+offline, compare the root file to that policy digest, then verify every
+attestation with JSON output and require each
+`verificationResult.signature.certificate.sourceRepositoryIdentifier` to equal
+the independently obtained repository ID. The `-R`/`--repo` owner/name check
+does not replace this ID comparison.
+
+The repository's fail-closed policy checker can enforce both checks for
+locally supplied verification reports:
+
+```bash
+go run ./.github/scripts/attestation-policy verify \
+  "$EXPECTED_REPOSITORY_ID" "$EXPECTED_TRUSTED_ROOT_SHA256" \
+  trusted_root.jsonl verification/*.json
+```
+
 Review the candidate artifacts and verifier output before approving a release.
 The package identifies the workflow run, source commit, artifact ID and digest,
 and hashes every qualification file. A successful candidate run alone does not
