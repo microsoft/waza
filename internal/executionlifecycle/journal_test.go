@@ -27,10 +27,17 @@ func (offlineCredential) GetToken(context.Context, policy.TokenRequestOptions) (
 // stallingAzure is an in-memory container whose creates block, ignoring the
 // request context, until release is closed.
 type stallingAzure struct {
-	mu      sync.Mutex
-	objects map[string][]byte
-	started chan struct{}
-	release chan struct{}
+	mu        sync.Mutex
+	objects   map[string][]byte
+	startedAt time.Time
+	started   chan struct{}
+	release   chan struct{}
+}
+
+func (b *stallingAzure) elapsedSinceStarted() time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return time.Since(b.startedAt)
 }
 
 func (b *stallingAzure) Do(request *http.Request) (*http.Response, error) {
@@ -46,6 +53,9 @@ func (b *stallingAzure) Do(request *http.Request) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
+		b.mu.Lock()
+		b.startedAt = time.Now()
+		b.mu.Unlock()
 		b.started <- struct{}{}
 		<-b.release
 		b.mu.Lock()
@@ -79,27 +89,31 @@ func TestJournalBoundsStalledProviderWrites(t *testing.T) {
 	}
 	bound := 300 * time.Millisecond
 	journal.bound = bound
-	appendDone := make(chan error, 1)
+	type appendResult struct {
+		err     error
+		elapsed time.Duration
+	}
+	appendDone := make(chan appendResult, 1)
 	go func() {
-		appendDone <- journal.Append(context.Background(), started(time.Second, at(time.Minute)))
+		err := journal.Append(context.Background(), started(time.Second, at(time.Minute)))
+		appendDone <- appendResult{err: err, elapsed: fake.elapsedSinceStarted()}
 	}()
 	select {
 	case <-fake.started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("provider write never entered its synchronized stall")
 	}
-	writeStarted := time.Now()
-	var result error
+	var result appendResult
 	select {
 	case result = <-appendDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("journal append did not return after its write bound")
 	}
-	if elapsed := time.Since(writeStarted); elapsed >= bound*3 {
-		t.Fatalf("journal append exceeded its configured bound: elapsed %s, expected under %s", elapsed, bound*3)
+	if result.elapsed >= bound*3 {
+		t.Fatalf("journal append exceeded its configured bound: elapsed %s, expected under %s", result.elapsed, bound*3)
 	}
-	if !errors.Is(result, ErrWriteStalled) {
-		t.Fatalf("stalled write was not bounded: %v", result)
+	if !errors.Is(result.err, ErrWriteStalled) {
+		t.Fatalf("stalled write was not bounded: %v", result.err)
 	}
 	if err := journal.Append(context.Background(), Event{Event: Heartbeat, At: epoch}); !errors.Is(err, ErrWriteStalled) {
 		t.Fatalf("journal continued after a stalled write: %v", err)
