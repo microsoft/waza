@@ -24,6 +24,10 @@ import (
 
 const (
 	runnerTerminalTimingPrefix = "waza-runner-terminal-timing "
+
+	// Serialized UnixNano markers omit Go's monotonic clock component. Limit
+	// this tolerance to marker deltas, never the reported emission duration.
+	runnerTerminalWallClockMarkerTolerance = time.Millisecond
 )
 
 type runnerTerminalTimingEvent struct {
@@ -203,16 +207,18 @@ func TestRunnerTerminalWindowsFullUndrainedStdoutPipe(t *testing.T) {
 		require.Equal(t, "emit-timeout", events[1].phase)
 		preEmission := events[0].at.Sub(started)
 		emission := events[1].emitElapsed
+		markerElapsed := events[1].at.Sub(events[0].at)
 		postEmission := finished.Sub(events[1].at)
 		total := finished.Sub(started)
-		t.Logf("native production-caller phases: start_call=%s pre_emission=%s emission=%s post_emission_exit_wait=%s total=%s",
-			startReturned.Sub(started), preEmission, emission, postEmission, total)
+		t.Logf("native production-caller phases: start_call=%s pre_emission=%s emission=%s marker_elapsed=%s post_emission_exit_wait=%s total=%s",
+			startReturned.Sub(started), preEmission, emission, markerElapsed, postEmission, total)
 		require.False(t, events[0].at.Before(started))
 		require.False(t, events[1].at.Before(events[0].at))
 		require.False(t, finished.Before(events[1].at))
 		require.GreaterOrEqual(t, emission, 5*time.Second,
 			"the production emission allowance must remain five seconds")
-		require.GreaterOrEqual(t, events[1].at.Sub(events[0].at), 5*time.Second)
+		require.GreaterOrEqual(t, markerElapsed, 5*time.Second-runnerTerminalWallClockMarkerTolerance,
+			"wall-clock marker delta may under-report by at most %s", runnerTerminalWallClockMarkerTolerance)
 	})
 	t.Run("stderr", func(t *testing.T) {
 		require.Contains(t, stderr.String(), "i/o timeout")
