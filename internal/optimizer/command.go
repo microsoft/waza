@@ -109,6 +109,12 @@ func (c *CommandAdapter) env() []string {
 	keys := append(append(append([]string{}, baseAdapterEnv...), usagetelemetry.PolicyEnvKeys()...), c.EnvKeys...)
 	for _, key := range keys {
 		if v, ok := os.LookupEnv(key); ok {
+			if key == usagetelemetry.CIEnv {
+				if v == "" || v == "0" || strings.EqualFold(v, "false") {
+					continue
+				}
+				v = "1"
+			}
 			env = append(env, key+"="+v)
 		}
 	}

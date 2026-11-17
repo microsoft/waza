@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/microsoft/waza/internal/cache"
@@ -386,18 +387,28 @@ func (r *EvalRunner) takeSetup(ctx context.Context) (*RunSetup, error) {
 	return StartRunSetup(ctx, r.cfg, r.verbose)
 }
 
-// RunBenchmark executes the entire benchmark
-// If Baseline is enabled, runs twice: skills-enabled and skills-disabled
+type taskExecutionCounterKey struct{}
+type taskExecutionMarkerKey struct{}
+
+type taskExecutionMarker struct {
+	counted atomic.Bool
+	counter *atomic.Int64
+}
+
+// RunBenchmark executes the entire benchmark.
+// If Baseline is enabled, it runs twice: skills-enabled and skills-disabled.
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
 	started := time.Now()
+	var executed atomic.Int64
+	ctx = context.WithValue(ctx, taskExecutionCounterKey{}, &executed)
 	outcome, err := r.runBenchmark(ctx)
-	failed, errored, tasks := 0, 0, 0
+	failed, errored := 0, 0
 	if outcome != nil {
-		failed, errored, tasks = outcome.Digest.Failed, outcome.Digest.Errors, outcome.Digest.TotalTests
+		failed, errored = outcome.Digest.Failed, outcome.Digest.Errors
 	}
 	usagetelemetry.RecordExecution(usagetelemetry.SurfaceBenchmark,
 		usagetelemetry.ExecutionMode(r.cfg.Spec().Config.EngineType),
-		usagetelemetry.ExecutionOutcome(ctx, err, failed, errored), tasks, time.Since(started))
+		usagetelemetry.ExecutionOutcome(ctx, err, failed, errored), int(executed.Load()), time.Since(started))
 	return outcome, err
 }
 
@@ -1134,6 +1145,9 @@ func (r *EvalRunner) writeTaskTranscript(tc *models.TestCase, outcome models.Tes
 }
 
 func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, testNum, totalTests int) models.TestOutcome {
+	if counter, ok := ctx.Value(taskExecutionCounterKey{}).(*atomic.Int64); ok {
+		ctx = context.WithValue(ctx, taskExecutionMarkerKey{}, &taskExecutionMarker{counter: counter})
+	}
 	spec := r.cfg.Spec()
 	runsPerTest := spec.Config.TrialsPerTask
 	maxAttempts := spec.Config.MaxAttempts
@@ -1413,6 +1427,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
+	if marker, ok := ctx.Value(taskExecutionMarkerKey{}).(*taskExecutionMarker); ok && marker.counted.CompareAndSwap(false, true) {
+		marker.counter.Add(1)
+	}
 	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
 	if resp != nil && captureHasExecutionFailure(resp, err) {
 		additionalInfrastructureFailure = true
