@@ -260,6 +260,7 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 					require.Nil(t, saved.InfrastructureDiagnostic)
 				} else {
 					require.Equal(t, models.CaptureFailed, saved.InfrastructureDiagnostic.Code)
+					require.Equal(t, mode.goError, saved.InfrastructureDiagnostic.AdditionalFailure)
 				}
 				if mode.goError {
 					require.Contains(t, saved.ErrorMsg, engine.lastErr.Error())

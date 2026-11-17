@@ -120,6 +120,32 @@ func TestReleaseAssuranceSchemasProducerShapes(t *testing.T) {
 	}
 }
 
+func TestReleaseResultsSchemaAcceptsSafeInfrastructureDiagnostic(t *testing.T) {
+	result := releasepolicy.Results{
+		Kind: "waza.release-results", Version: releasepolicy.Version,
+		Arm: releasepolicy.Baseline,
+		Rows: []releasepolicy.ActualRunRow{{Run: models.RunResult{
+			RunNumber: 1, Attempts: 1, Status: models.StatusError,
+			InfrastructureDiagnostic: &models.InfrastructureDiagnostic{
+				Code: models.CaptureFileBytes, Limit: 16777216, AdditionalFailure: true,
+			},
+		}}},
+	}
+	document := assuranceJSON(t, result)
+	for _, resource := range []string{"release-artifacts-1.0.schema.json", "release-artifacts-1.0.schema.json#/$defs/releasepolicy_Results"} {
+		require.NoError(t, releaseAssuranceSchema(t, resource).Validate(document))
+	}
+	rows := document["rows"].([]any)
+	diagnostic := assuranceObject(t, rows[0], "run", "infrastructure_diagnostic")
+	schema := releaseAssuranceSchema(t, "release-artifacts-1.0.schema.json#/$defs/releasepolicy_Results")
+	diagnostic["code"] = "/private/secret"
+	require.Error(t, schema.Validate(document))
+	diagnostic["code"] = string(models.CaptureFileBytes)
+	require.NoError(t, schema.Validate(document))
+	diagnostic["limit"] = float64(models.MaxInfrastructureDiagnosticLimit + 1)
+	require.Error(t, schema.Validate(document))
+}
+
 func TestReleaseAssuranceSchemasStrictAdmission(t *testing.T) {
 	cases := []struct {
 		name, artifact string

@@ -22,10 +22,10 @@ func TestInfrastructureDiagnosticsProjection(t *testing.T) {
 	require.Nil(t, task.InfrastructureRuns[0].Diagnostic)
 	require.Equal(t, 1, task.InfrastructureRuns[0].RunNumber)
 	require.Equal(t, 2, task.InfrastructureRuns[1].Attempts)
-	require.Equal(t, models.CaptureFailed, task.InfrastructureRuns[1].Diagnostic.Code)
+	require.Equal(t, models.InfrastructureError, task.InfrastructureRuns[1].Diagnostic.Code)
 	require.Equal(t, models.CaptureFileBytes, task.InfrastructureRuns[2].Diagnostic.Code)
 	require.EqualValues(t, 16777216, task.InfrastructureRuns[2].Diagnostic.Limit)
-	require.Equal(t, models.CaptureFailed, task.InfrastructureRuns[3].Diagnostic.Code)
+	require.Equal(t, models.InfrastructureError, task.InfrastructureRuns[3].Diagnostic.Code)
 	raw, err := json.Marshal(task)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "secret-token")
@@ -44,6 +44,56 @@ func TestInfrastructureDiagnosticsProjection(t *testing.T) {
 	require.NotContains(t, response.Body.String(), "secret-token")
 	require.NotContains(t, response.Body.String(), "/private")
 	require.JSONEq(t, string(raw), taskJSONFromDetail(t, response.Body.Bytes()))
+}
+
+func TestResponderReasonsAreNeverProjected(t *testing.T) {
+	for _, outcome := range []string{
+		models.ResponderOutcomeError, models.ResponderOutcomeAbstained,
+		models.ResponderOutcomeStopped, models.ResponderOutcomeCapExhausted, "/private/secret-token",
+	} {
+		t.Run(outcome, func(t *testing.T) {
+			original := models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{Runs: []models.RunResult{{
+				Responder: &models.ResponderInfo{Outcome: outcome, Reason: "/private/secret-token"},
+			}}}}}
+			data, err := json.Marshal(outcomeToDetail(&original))
+			require.NoError(t, err)
+			require.NotContains(t, string(data), "/private/secret-token")
+			artifact, err := json.Marshal(original)
+			require.NoError(t, err)
+			require.Contains(t, string(artifact), "/private/secret-token")
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.json"), artifact, 0o600))
+			response := httptest.NewRecorder()
+			NewHandlers(NewFileStore(dir)).HandleRunDetail(response, httptest.NewRequest(http.MethodGet, "/api/runs/eval", nil))
+			require.Equal(t, http.StatusOK, response.Code)
+			require.NotContains(t, response.Body.String(), "/private/secret-token")
+		})
+	}
+}
+
+func TestLegacyAttemptIsOmitted(t *testing.T) {
+	outcome := models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{Runs: []models.RunResult{{
+		RunNumber: 7, Status: models.StatusError, ErrorMsg: "private",
+	}}}}}
+	data, err := json.Marshal(outcomeToDetail(&outcome))
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"runNumber":7`)
+	require.NotContains(t, string(data), `"attempts"`)
+	require.Contains(t, string(data), `"code":"infrastructure_error"`)
+}
+
+func TestPromptJudgingFixtureInfrastructureProjection(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "web", "e2e", "fixtures", "prompt-judging.json"))
+	require.NoError(t, err)
+	var fixture RunDetail
+	require.NoError(t, json.Unmarshal(data, &fixture))
+	require.Len(t, fixture.Tasks, 1)
+	outcome := models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{Runs: []models.RunResult{
+		{RunNumber: 1, Attempts: 1, Status: models.StatusFailed},
+		{RunNumber: 2, Attempts: 1, Status: models.StatusError},
+		{RunNumber: 3, Attempts: 1, Status: models.StatusPassed},
+	}}}}
+	require.Equal(t, outcomeToDetail(&outcome).Tasks[0].InfrastructureRuns, fixture.Tasks[0].InfrastructureRuns)
 }
 
 func taskJSONFromDetail(t *testing.T, data []byte) string {

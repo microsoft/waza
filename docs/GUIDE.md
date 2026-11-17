@@ -820,7 +820,9 @@ unchanged; this is not a containment guarantee or a dashboard result change.
 
 Expanded task rows show per-trial infrastructure errors even without grader results.
 Workspace-capture limits use bounded structured diagnostics; older or unrecognized
-errors are generic. Raw artifact error messages are not displayed in these rows.
+errors are generic. Additional concurrent infrastructure failures are indicated
+without their raw details. Raw artifact error messages and responder reasons are
+not displayed in these rows.
 
 **Examples:**
 

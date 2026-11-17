@@ -542,6 +542,33 @@
       ],
       "type": "object"
     },
+    "models_InfrastructureDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "additional_failure": {
+          "type": "boolean"
+        },
+        "code": {
+          "enum": [
+            "infrastructure_error",
+            "workspace_capture_failed",
+            "workspace_capture_file_count",
+            "workspace_capture_entry_count",
+            "workspace_capture_file_bytes",
+            "workspace_capture_total_bytes"
+          ]
+        },
+        "limit": {
+          "maximum": 1099511627776,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
     "models_JudgeEvidence": {
       "additionalProperties": false,
       "properties": {
@@ -1046,6 +1073,9 @@
         },
         "host_lifecycle": {
           "$ref": "#/$defs/models_HostLifecycle"
+        },
+        "infrastructure_diagnostic": {
+          "$ref": "#/$defs/models_InfrastructureDiagnostic"
         },
         "judge_evidence": {
           "$ref": "#/$defs/models_JudgeEvidence"

@@ -481,6 +481,11 @@
           "omitempty": true
         },
         {
+          "name": "infrastructure_diagnostic",
+          "type": "ptr:opaque",
+          "omitempty": true
+        },
+        {
           "name": "skill_invocations",
           "type": "slice:models.SkillInvocation",
           "omitempty": true

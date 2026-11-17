@@ -99,12 +99,11 @@ function ResponderBadge({ responder }: { responder?: ResponderInfo }) {
   }
 
   const replyLabel = responder.followupsSent === 1 ? "reply" : "replies";
-  const reason = responder.reason ? ` — ${responder.reason}` : "";
+  const outcome = ["stopped", "abstained", "cap_exhausted", "error"].includes(responder.outcome) ? responder.outcome : "unknown";
 
   return (
     <span className={className} data-testid="responder-badge">
-      Responder: {responder.outcome} ({responder.followupsSent} {replyLabel})
-      {reason}
+      Responder: {outcome} ({responder.followupsSent} {replyLabel})
     </span>
   );
 }
@@ -342,7 +341,8 @@ function TaskRow({ task }: { task: TaskResult }) {
       {expanded && task.infrastructureRuns?.map((run, index) => run.diagnostic && (
         <tr key={index} className="border-b border-zinc-700/50">
           <td colSpan={6} className="px-8 py-3 text-sm text-red-300">
-            Trial {run.runNumber}, attempt {run.attempts}: {infrastructureMessage(run.diagnostic)}
+            Trial {run.runNumber}{run.attempts != null && run.attempts > 0 ? `, attempt ${run.attempts}` : ""}: {infrastructureMessage(run.diagnostic)}
+            {run.diagnostic.additional_failure === true && " Another infrastructure failure occurred."}
           </td>
         </tr>
       ))}

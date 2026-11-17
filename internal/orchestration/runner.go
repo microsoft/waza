@@ -1257,9 +1257,11 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var frozenJudgeEvidence *models.JudgeEvidence
 	var promptJudging []models.PromptJudgeObservation
 	var mockAttempt *copilotconfig.MCPMockAttempt
+	additionalInfrastructureFailure := false
 	diagnosticCategory := "setup"
 	returnWithArtifacts := func(run models.RunResult, cause error) attemptResult {
 		if closeErr := mockAttempt.Close(); closeErr != nil {
+			additionalInfrastructureFailure = true
 			run.Status = models.StatusError
 			cleanupErr := fmt.Errorf("clean up MCP mock attempt state: %w", closeErr)
 			cause = errors.Join(cause, cleanupErr)
@@ -1281,6 +1283,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		if resp != nil {
 			if resp.WorkspaceCaptureError != "" {
 				run.InfrastructureDiagnostic = execution.CaptureDiagnostic(resp.CaptureFailure())
+				run.InfrastructureDiagnostic.AdditionalFailure = additionalInfrastructureFailure || resp.AdditionalInfrastructureFailure
 			}
 			if run.ToolEvents == nil {
 				run.ToolEvents = buildToolEvents(copilotevents.ToSDK(resp.Events))
@@ -1393,6 +1396,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
 	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
+	if resp != nil && captureHasExecutionFailure(resp, err) {
+		additionalInfrastructureFailure = true
+	}
 	execErr := execCtx.Err()
 	if controlled && err == nil && execErr != nil {
 		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execErr)
@@ -1405,6 +1411,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	cancelExec()
 	if err != nil {
+		additionalInfrastructureFailure = true
 		cause := err
 		if controlled && execErr != nil && !errors.Is(err, execErr) {
 			// Preserve the observed engine error text and both typed causes;
@@ -1468,6 +1475,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	if userInput != nil {
 		finishErr := userInput.Finish()
 		resp.UserInputRequests = userInput.Records()
+		if finishErr != nil {
+			additionalInfrastructureFailure = true
+		}
 		if finishErr != nil && resp.ErrorMsg == "" {
 			resp.Success = false
 			resp.ErrorMsg = finishErr.Error()
@@ -1477,6 +1487,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	if finalizer, ok := r.engine.(execution.CommandMockFinalizer); ok {
 		commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
 		if err != nil {
+			additionalInfrastructureFailure = true
 			resp.Success = false
 			if resp.WorkspaceCaptureError != "" && resp.ErrorMsg != "" {
 				resp.ErrorMsg = fmt.Sprintf("%s; command mock finalization: %v", resp.ErrorMsg, err)
@@ -2467,6 +2478,9 @@ func mergeLaterTurnResponse(resp, turn *execution.ExecutionResponse, executionEr
 	if executionErr != nil && (turn == nil || turn.WorkspaceCaptureError == "") {
 		return false
 	}
+	if turn.WorkspaceCaptureError != "" {
+		resp.AdditionalInfrastructureFailure = resp.AdditionalInfrastructureFailure || captureHasExecutionFailure(turn, executionErr)
+	}
 	resp.CommandInvocations = turn.CommandInvocations
 	resp.UserInputRequests = turn.UserInputRequests
 	markToolPolicyViolation(turn)
@@ -2475,6 +2489,22 @@ func mergeLaterTurnResponse(resp, turn *execution.ExecutionResponse, executionEr
 		mergeCompletedTurnResponse(resp, turn)
 	}
 	return true
+}
+
+func captureHasExecutionFailure(resp *execution.ExecutionResponse, executionErr error) bool {
+	if resp.WorkspaceCaptureError == "" {
+		return false
+	}
+	if executionErr != nil || resp.AdditionalInfrastructureFailure {
+		return true
+	}
+	// Typed native capture responses record execution success independently.
+	if resp.WorkspaceCaptureCause != nil {
+		return !resp.ExecutionSucceeded
+	}
+	// Custom engines may not set ExecutionSucceeded; only a distinct error
+	// string is evidence of another failure, never a source of public text.
+	return resp.ErrorMsg != "" && resp.ErrorMsg != resp.WorkspaceCaptureError
 }
 
 func mergeCompletedTurnResponse(resp, turn *execution.ExecutionResponse) {

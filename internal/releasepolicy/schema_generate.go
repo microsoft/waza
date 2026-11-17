@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/controlledcomparison"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/nativetask"
 	"github.com/microsoft/waza/internal/releasepolicy"
 	"github.com/microsoft/waza/internal/webapi"
@@ -142,6 +143,12 @@ func main() {
 		properties := definition["properties"].(document)
 		properties["kind"], properties["version"] = document{"const": root.kind}, document{"const": releasepolicy.Version}
 	}
+	diagnostic := g.definitions["models_InfrastructureDiagnostic"].(document)["properties"].(document)
+	diagnostic["code"] = document{"enum": []models.InfrastructureDiagnosticCode{
+		models.InfrastructureError, models.CaptureFailed, models.CaptureFileCount,
+		models.CaptureEntryCount, models.CaptureFileBytes, models.CaptureTotalBytes,
+	}}
+	diagnostic["limit"] = document{"type": "integer", "minimum": 1, "maximum": models.MaxInfrastructureDiagnosticLimit}
 	policy := g.definitions["releasepolicy_Policy"].(document)["properties"].(document)
 	policy["collection_profile"] = document{"const": releasepolicy.NativeCollectionProfile}
 	policy["arms"] = document{"type": "object", "required": []string{"baseline", "candidate"},

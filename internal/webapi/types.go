@@ -91,7 +91,7 @@ type TaskResult struct {
 
 type InfrastructureRunResponse struct {
 	RunNumber  int                              `json:"runNumber"`
-	Attempts   int                              `json:"attempts"`
+	Attempts   int                              `json:"attempts,omitempty"`
 	Diagnostic *models.InfrastructureDiagnostic `json:"diagnostic,omitempty"`
 }
 

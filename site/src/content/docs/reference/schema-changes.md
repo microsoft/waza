@@ -44,6 +44,14 @@ writes `1.7`. See [release availability](/waza/reference/releases/).
 | `waza.grader-reference` labels / `waza.grader-review` declaration | `schema_version` | Exact `1.0` (independent profiles) |
 | `waza.grader-assurance` report | `schema_version` | Separately selected `1.0`, `1.1`, or `1.2` |
 
+Result trials may optionally include `infrastructure_diagnostic` with an
+allowlisted `code`, a positive `limit` no greater than 1,099,511,627,776, and
+an optional `additional_failure` boolean. The limit is present only for
+workspace-capture limit codes. Missing and unknown diagnostics remain generic
+in the dashboard; legacy artifacts remain readable. The raw `error_msg` and
+responder reason remain in artifacts and may contain sensitive data. The
+release-results schema references the updated release-artifacts definition.
+
 Optional task `requirements` introduced by #660 are descriptive v1-compatible
 metadata, without a global schema bump or new runtime/exit semantics. Old readers
 can ignore them; a minimum-version note does not enforce requirements.

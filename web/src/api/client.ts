@@ -128,8 +128,8 @@ export interface TaskResult {
   promptJudgingRuns?: PromptJudgingRun[];
   infrastructureRuns?: {
     runNumber: number;
-    attempts: number;
-    diagnostic?: { code: string; limit?: number };
+    attempts?: number;
+    diagnostic?: { code: string; limit?: number; additional_failure?: boolean };
   }[];
 }
 

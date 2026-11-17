@@ -287,7 +287,7 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 				safe := run.InfrastructureDiagnostic.Safe()
 				infrastructure.Diagnostic = &safe
 			} else if run.Status == models.StatusError {
-				infrastructure.Diagnostic = &models.InfrastructureDiagnostic{Code: models.CaptureFailed}
+				infrastructure.Diagnostic = &models.InfrastructureDiagnostic{Code: models.InfrastructureError}
 			}
 			hasInfrastructureError = hasInfrastructureError || infrastructure.Diagnostic != nil
 			tr.InfrastructureRuns = append(tr.InfrastructureRuns, infrastructure)
@@ -377,10 +377,15 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			tr.Transcript = mapTranscriptEvents(run.Transcript)
 			tr.SessionDigest = mapSessionDigest(&run.SessionDigest)
 			if run.Responder != nil {
+				outcome := run.Responder.Outcome
+				switch outcome {
+				case models.ResponderOutcomeStopped, models.ResponderOutcomeAbstained, models.ResponderOutcomeCapExhausted, models.ResponderOutcomeError:
+				default:
+					outcome = "unknown"
+				}
 				tr.Responder = &ResponderInfoResponse{
 					FollowupsSent: run.Responder.FollowupsSent,
-					Outcome:       run.Responder.Outcome,
-					Reason:        run.Responder.Reason,
+					Outcome:       outcome,
 				}
 			}
 		}
