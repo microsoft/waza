@@ -90,15 +90,16 @@ Every value is an approved enum, a bucket, a boolean, or a random UUIDv4.
 | `task_count_bucket` | `0`, `1`, `2_5`, `6_20`, `21_100`, `gt_100` |
 | `feature` | `llm_judge`, `http_api`, `dashboard`, `mcp_server`, recorded at most once per process |
 
-Each logical evaluation execution is counted once. Benchmark task counts include
-each task with an observed actor-turn start, once per benchmark pass, excluding
-cache hits and failures before the first observed start. Trials and retries do
-not add tasks. Copilot uses the SDK's assistant-turn-start event; mock execution
-signals its synthetic turn after workspace setup. An engine that omits a start
-signal, or reports it after execution returns, can be undercounted: a `0` bucket
-does not prove that no actor work began. Bucketed volumes bound the observed
-counts, not necessarily actual execution volume, and are not exact sums; the
-highest bucket has no upper bound. Waza never sends prompts,
+Benchmark counts include each task at most once per pass across actor turns,
+trials, and retries; cache hits and tasks proven not to have reached an actor
+are excluded. Copilot observes the SDK's assistant-turn-start event, while mock
+execution signals a synthetic turn. Missing or late signals, and engines without
+a trusted observation contract, leave the task's start unknown. Waza emits the
+benchmark execution event only when every possible task count fits the same
+bucket; otherwise it omits the whole event, including its outcome. This can bias
+observed outcomes and volume downward. Bucketed volumes are bounded estimates,
+not exact totals, and the highest bucket has no upper bound. Runner-unit events
+count admitted units, not observed actor starts. Waza never sends prompts,
 outputs, arguments, flag values, paths, file or skill names, raw errors,
 environment values, URLs, hashes, or OpenTelemetry attributes. The
 installation ID is pseudonymous: it is random, is not derived from your machine

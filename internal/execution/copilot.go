@@ -1069,6 +1069,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	userInputCtx, cancelUserInput := context.WithCancel(sendCtx)
 	releaseUserInput := req.UserInput.BindTurn(userInputCtx)
 	var retireClient bool
+	NotifyActorDispatch(ctx)
 	_, sessionAbandoned, retireClient, err = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
