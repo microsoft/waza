@@ -1279,6 +1279,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			run.Attempts = attempt
 		}
 		if resp != nil {
+			if resp.WorkspaceCaptureError != "" {
+				run.InfrastructureDiagnostic = execution.CaptureDiagnostic(resp.CaptureFailure())
+			}
 			if run.ToolEvents == nil {
 				run.ToolEvents = buildToolEvents(copilotevents.ToSDK(resp.Events))
 			}

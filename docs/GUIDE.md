@@ -818,6 +818,10 @@ unchanged; this is not a containment guarantee or a dashboard result change.
 - **Trends** — Pass rate and timing trends over time
 - **Live View** — Real-time results during active runs
 
+Expanded task rows show per-trial infrastructure errors even without grader results.
+Workspace-capture limits use bounded structured diagnostics; older or unrecognized
+errors are generic. Raw artifact error messages are not displayed in these rows.
+
 **Examples:**
 
 Start the dashboard:

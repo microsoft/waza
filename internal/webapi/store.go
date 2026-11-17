@@ -280,7 +280,17 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 		}
 		hasEvidenceMetadata := false
 		hasPromptJudging := false
+		hasInfrastructureError := false
 		for _, run := range to.Runs {
+			infrastructure := InfrastructureRunResponse{RunNumber: run.RunNumber, Attempts: run.Attempts}
+			if run.InfrastructureDiagnostic != nil {
+				safe := run.InfrastructureDiagnostic.Safe()
+				infrastructure.Diagnostic = &safe
+			} else if run.Status == models.StatusError {
+				infrastructure.Diagnostic = &models.InfrastructureDiagnostic{Code: models.CaptureFailed}
+			}
+			hasInfrastructureError = hasInfrastructureError || infrastructure.Diagnostic != nil
+			tr.InfrastructureRuns = append(tr.InfrastructureRuns, infrastructure)
 			hasPromptJudging = hasPromptJudging || run.JudgeEvidence != nil || len(run.PromptJudging) > 0
 			tr.PromptJudgingRuns = append(tr.PromptJudgingRuns, judgeevidence.ProjectRun(o.RunID, to.TestID, to.Cached, run))
 			hasEvidenceMetadata = hasEvidenceMetadata || run.Evidence != nil || len(run.RequirementExplanations) > 0
@@ -314,6 +324,9 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 				}
 			}
 			tr.EvidenceRuns = append(tr.EvidenceRuns, row)
+		}
+		if !hasInfrastructureError {
+			tr.InfrastructureRuns = nil
 		}
 		if !hasEvidenceMetadata {
 			tr.EvidenceRuns = nil

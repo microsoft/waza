@@ -254,19 +254,20 @@ type RunResult struct {
 	// Status contains the overall status of the run.
 	// NOTE: if Status == [StatusError], then [ErrorMsg] will be set to the
 	// message from the error.
-	Status           Status                   `json:"status"`
-	DurationMs       int64                    `json:"duration_ms"`
-	Validations      map[string]GraderResults `json:"validations"`
-	SessionDigest    SessionDigest            `json:"session_digest"`
-	GraderSessions   []SessionDigest          `json:"grader_sessions,omitempty"`
-	Transcript       []TranscriptEvent        `json:"transcript,omitempty"`
-	FinalOutput      string                   `json:"final_output"`
-	ErrorMsg         string                   `json:"error_msg,omitempty"`
-	SkillInvocations []SkillInvocation        `json:"skill_invocations,omitempty"`
-	Usage            *UsageStats              `json:"usage,omitempty"`
-	WorkspaceDir     string                   `json:"workspace_dir,omitempty"`
-	FailureArtifacts *FailureArtifacts        `json:"failure_artifacts,omitempty"`
-	Responder        *ResponderInfo           `json:"responder,omitempty"`
+	Status                   Status                    `json:"status"`
+	DurationMs               int64                     `json:"duration_ms"`
+	Validations              map[string]GraderResults  `json:"validations"`
+	SessionDigest            SessionDigest             `json:"session_digest"`
+	GraderSessions           []SessionDigest           `json:"grader_sessions,omitempty"`
+	Transcript               []TranscriptEvent         `json:"transcript,omitempty"`
+	FinalOutput              string                    `json:"final_output"`
+	ErrorMsg                 string                    `json:"error_msg,omitempty"`
+	InfrastructureDiagnostic *InfrastructureDiagnostic `json:"infrastructure_diagnostic,omitempty"`
+	SkillInvocations         []SkillInvocation         `json:"skill_invocations,omitempty"`
+	Usage                    *UsageStats               `json:"usage,omitempty"`
+	WorkspaceDir             string                    `json:"workspace_dir,omitempty"`
+	FailureArtifacts         *FailureArtifacts         `json:"failure_artifacts,omitempty"`
+	Responder                *ResponderInfo            `json:"responder,omitempty"`
 	// Checkpoints captures per-turn checkpoint grader results, one entry per
 	// configured TestCase.Checkpoint that actually ran (i.e., turn index was
 	// reached). Empty / omitted when the task defines no checkpoints.

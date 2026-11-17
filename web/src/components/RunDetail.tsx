@@ -279,6 +279,21 @@ function PromptsTab({ tasks }: { tasks: TaskResult[] }) {
   );
 }
 
+function infrastructureMessage(diagnostic: { code: string; limit?: number }): string {
+  const reasons: Record<string, string> = {
+    workspace_capture_file_count: "Workspace capture exceeded the file count limit",
+    workspace_capture_entry_count: "Workspace capture exceeded the traversal entry limit",
+    workspace_capture_file_bytes: "Workspace capture exceeded the per-file byte limit",
+    workspace_capture_total_bytes: "Workspace capture exceeded the total byte limit",
+  };
+  const reason = Object.prototype.hasOwnProperty.call(reasons, diagnostic.code) ? reasons[diagnostic.code] : undefined;
+  if (!reason) return "An infrastructure error occurred.";
+  const limit = diagnostic.limit;
+  return Number.isSafeInteger(limit) && limit! > 0 && limit! <= 2 ** 40
+    ? `${reason} (${limit}).`
+    : `${reason}.`;
+}
+
 function TaskRow({ task }: { task: TaskResult }) {
   const [expanded, setExpanded] = useState(false);
   const ws = computeWeightedScore(task);
@@ -324,6 +339,18 @@ function TaskRow({ task }: { task: TaskResult }) {
           {formatDuration(task.duration)}
         </td>
       </tr>
+      {expanded && task.infrastructureRuns?.map((run, index) => run.diagnostic && (
+        <tr key={index} className="border-b border-zinc-700/50">
+          <td colSpan={6} className="px-8 py-3 text-sm text-red-300">
+            Trial {run.runNumber}, attempt {run.attempts}: {infrastructureMessage(run.diagnostic)}
+          </td>
+        </tr>
+      ))}
+      {expanded && !task.infrastructureRuns?.some((run) => run.diagnostic) && task.outcome === "error" && (
+        <tr className="border-b border-zinc-700/50">
+          <td colSpan={6} className="px-8 py-3 text-sm text-red-300">An infrastructure error occurred.</td>
+        </tr>
+      )}
       {expanded &&
         task.graderResults.map((g) => (
           <GraderRow key={g.name} grader={g} />

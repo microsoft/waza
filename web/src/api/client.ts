@@ -126,6 +126,11 @@ export interface TaskResult {
   trials?: { passed: number; total: number };
   evidenceRuns?: EvidenceRun[];
   promptJudgingRuns?: PromptJudgingRun[];
+  infrastructureRuns?: {
+    runNumber: number;
+    attempts: number;
+    diagnostic?: { code: string; limit?: number };
+  }[];
 }
 
 export interface PromptJudgeUsage {
