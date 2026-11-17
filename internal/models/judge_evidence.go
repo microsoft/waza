@@ -10,6 +10,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/microsoft/waza/internal/fixtureliterals"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/schemas"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -17,15 +18,17 @@ import (
 )
 
 const (
-	JudgeEvidenceVersion      = "1.0"
-	JudgeEvidenceMaxFiles     = 64
-	JudgeEvidenceMaxFileBytes = 64 << 10
-	JudgeEvidenceMaxBytes     = 256 << 10
+	JudgeEvidenceVersion        = "1.0"
+	JudgeEvidenceFixtureVersion = "1.1"
+	JudgeEvidenceMaxFiles       = 64
+	JudgeEvidenceMaxFileBytes   = 64 << 10
+	JudgeEvidenceMaxBytes       = 256 << 10
 )
 
 type PromptEvidenceContext struct {
-	Files         []string `yaml:"files,omitempty" json:"files,omitempty"`
-	EvaluatorOnly []string `yaml:"evaluator_only,omitempty" json:"evaluator_only,omitempty"`
+	Files             []string  `yaml:"files,omitempty" json:"files,omitempty"`
+	EvaluatorOnly     []string  `yaml:"evaluator_only,omitempty" json:"evaluator_only,omitempty"`
+	NonSecretLiterals *[]string `yaml:"non_secret_literals,omitempty" json:"non_secret_literals,omitempty"`
 }
 
 func ValidateJudgeEvidencePath(name string) error {
@@ -47,6 +50,14 @@ func (p PromptGraderParameters) ValidateEvidenceContext() error {
 	}
 	if p.ContinueSession || p.Mode != "" && p.Mode != PromptGraderModeIndependent {
 		return errors.New("evidence_context requires independent mode and continue_session: false")
+	}
+	if p.EvidenceContext.NonSecretLiterals != nil {
+		if *p.EvidenceContext.NonSecretLiterals == nil {
+			return errors.New("non_secret_literals must be an array, not null")
+		}
+		if err := fixtureliterals.Validate(*p.EvidenceContext.NonSecretLiterals); err != nil {
+			return err
+		}
 	}
 	for _, paths := range [][]string{p.EvidenceContext.Files, p.EvidenceContext.EvaluatorOnly} {
 		if len(paths) > JudgeEvidenceMaxFiles {
@@ -88,15 +99,15 @@ func validatePromptEvidenceNode(node *yaml.Node) error {
 		}
 		for j := 0; j+1 < len(value.Content); j += 2 {
 			key, list := value.Content[j], value.Content[j+1]
-			if key.Tag != "!!str" || key.Value != "files" && key.Value != "evaluator_only" {
-				return errors.New("evidence_context only supports files and evaluator_only")
+			if key.Tag != "!!str" || key.Value != "files" && key.Value != "evaluator_only" && key.Value != "non_secret_literals" {
+				return errors.New("evidence_context only supports files, evaluator_only and non_secret_literals")
 			}
 			if list.Kind != yaml.SequenceNode || list.Tag != "!!seq" {
 				return fmt.Errorf("evidence_context.%s must be an array of strings", key.Value)
 			}
 			for _, item := range list.Content {
 				if item.Kind != yaml.ScalarNode || item.Tag != "!!str" {
-					return errors.New("evidence_context paths must be strings, not aliases or coerced scalars")
+					return errors.New("evidence_context entries must be strings, not aliases or coerced scalars")
 				}
 			}
 		}
@@ -177,7 +188,7 @@ func (p *PromptGraderParameters) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(raw, &members); err != nil {
 			return err
 		}
-		for _, name := range []string{"files", "evaluator_only"} {
+		for _, name := range []string{"files", "evaluator_only", "non_secret_literals"} {
 			if value, ok := members[name]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 				return fmt.Errorf("evidence_context.%s must be an array", name)
 			}
@@ -212,24 +223,35 @@ type JudgeEvidenceSection[T any] struct {
 // JudgeEvidence is independent of snapshot manifests. Its digest is integrity
 // metadata, not authentication of the producer or truth of the contents.
 type JudgeEvidence struct {
-	Version       string                                       `json:"version"`
-	SHA256        string                                       `json:"sha256"`
-	Origin        EvidenceOrigin                               `json:"origin"`
-	Boundary      string                                       `json:"boundary"`
-	ExecutionMode string                                       `json:"execution_mode"`
-	Task          JudgeEvidenceSection[string]                 `json:"task"`
-	Output        JudgeEvidenceSection[string]                 `json:"output"`
-	Messages      JudgeEvidenceSection[[]JudgeEvidenceMessage] `json:"messages"`
-	ToolEvents    JudgeEvidenceSection[[]ToolEvent]            `json:"tool_events"`
-	Files         JudgeEvidenceSection[[]JudgeEvidenceFile]    `json:"files"`
-	Selection     PromptEvidenceContext                        `json:"selection"`
-	Redaction     EvidenceRedaction                            `json:"redaction"`
-	Limits        JudgeEvidenceLimits                          `json:"limits"`
-	Diagnostics   []EvidenceDiagnostic                         `json:"diagnostics,omitempty"`
+	Version         string                                       `json:"version"`
+	SHA256          string                                       `json:"sha256"`
+	Origin          EvidenceOrigin                               `json:"origin"`
+	Boundary        string                                       `json:"boundary"`
+	ExecutionMode   string                                       `json:"execution_mode"`
+	Task            JudgeEvidenceSection[string]                 `json:"task"`
+	Output          JudgeEvidenceSection[string]                 `json:"output"`
+	Messages        JudgeEvidenceSection[[]JudgeEvidenceMessage] `json:"messages"`
+	ToolEvents      JudgeEvidenceSection[[]ToolEvent]            `json:"tool_events"`
+	Files           JudgeEvidenceSection[[]JudgeEvidenceFile]    `json:"files"`
+	Selection       PromptEvidenceContext                        `json:"selection"`
+	Redaction       EvidenceRedaction                            `json:"redaction"`
+	Limits          JudgeEvidenceLimits                          `json:"limits"`
+	Diagnostics     []EvidenceDiagnostic                         `json:"diagnostics,omitempty"`
+	FixtureLiterals *JudgeFixtureLiterals                        `json:"fixture_literals,omitempty"`
+}
+
+// JudgeFixtureLiterals records policy use without retaining the declarations.
+type JudgeFixtureLiterals struct {
+	DeclaredCount    int `json:"declared_count"`
+	PreservedMatches int `json:"preserved_matches"`
 }
 
 var judgeEvidenceSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	return compileEvidenceManifestSchema(schemas.JudgeEvidenceSchemaJSON)
+})
+
+var judgeFixtureEvidenceSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileEvidenceManifestSchema(schemas.JudgeFixtureEvidenceSchemaJSON)
 })
 
 func (e *JudgeEvidence) UnmarshalJSON(data []byte) error {
@@ -262,6 +284,9 @@ func (e *JudgeEvidence) UnmarshalJSON(data []byte) error {
 		return errors.New("judge evidence keys must use their exact spelling")
 	}
 	schema, err := judgeEvidenceSchema()
+	if object, ok := instance.(map[string]any); ok && object["version"] == JudgeEvidenceFixtureVersion {
+		schema, err = judgeFixtureEvidenceSchema()
+	}
 	if err != nil {
 		return err
 	}
@@ -281,9 +306,10 @@ func (e *JudgeEvidence) UnmarshalJSON(data []byte) error {
 }
 
 type JudgeFileCapture struct {
-	Files       []JudgeEvidenceFile
-	Diagnostics []EvidenceDiagnostic
-	Redaction   EvidenceRedaction
+	Files             []JudgeEvidenceFile
+	Diagnostics       []EvidenceDiagnostic
+	Redaction         EvidenceRedaction
+	PreservedLiterals int
 }
 
 type JudgeEvidenceLimits struct {

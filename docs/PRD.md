@@ -152,6 +152,18 @@ Private-file cleanup failures preserve at most one independently verified comple
 
 `grade --evidence-snapshot` verifies one selected task/run's original full origin, manifest hash, and complete unredacted text/digests, then privately materializes only explicit required file-grader inputs. Other grader types, output-based expectations, wildcard/absence checks, ambiguous runs, and explicit `--workspace` combinations are rejected. Checks cover the materialized captured subset, not original-workspace absence; `must_not_match` checks complete verified text of a selected file. Regrading retains the original capture hash but invalidates original result/validation/grader-configuration/checkpoint links; existing workspace grading remains unchanged and may use a paid prompt judge. Offline replay checks event sequencing and stored score/pass consistency or bisects tapes; it does not rerun graders, reconstruct a workspace, or support live replay. See the [portable evidence guide](../site/src/content/docs/guides/snapshot-replay.mdx).
 
+Frozen judging supports evaluator-authored `evidence_context.non_secret_literals`
+for exact non-secret fixture identifiers and synthetic contacts (#898).
+Declarations are bounded, statically validated and unioned across final graders;
+only whole-token regex matches or exact structured sensitive-key string values
+are preserved. Neither shape nor field names confer trust. Actor/tool output
+cannot author declarations. Missing or redacted required evidence still fails
+before isolated judge startup; snapshots, origin/path admission and session/tool
+isolation are unchanged. Explicit declarations write independent judge bundle
+`1.1` with counts only; absent declarations retain bundle `1.0`. Saved regrading
+cannot restore previously withheld content. See the
+[fixture privacy contract](../site/src/content/docs/guides/graders.mdx#evaluator-controlled-non-secret-fixtures).
+
 Scenario evals with exact `schemaVersion: "2.0"` can define finite MCP and CLI
 response sequences. Each matching call consumes one step; sequences are bounded
 to 100 steps and delays to 300,000 ms. Unmatched calls and exhausted sequences

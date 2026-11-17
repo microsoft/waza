@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/microsoft/waza/internal/fixtureliterals"
 	"gopkg.in/yaml.v3"
 )
 
@@ -41,8 +42,39 @@ type Policy struct {
 	// Snapshot.Redaction.Policy.
 	label string `yaml:"-" json:"-"`
 
-	matchCount   int             `yaml:"-" json:"-"`
-	matchedRules map[string]bool `yaml:"-" json:"-"`
+	matchCount        int             `yaml:"-" json:"-"`
+	matchedRules      map[string]bool `yaml:"-" json:"-"`
+	nonSecretLiterals map[string]bool
+	preservedCount    int
+}
+
+// DefaultPolicyWithNonSecretLiterals is only for evaluator-controlled synthetic
+// fixture declarations in frozen judging. Never derive values from actor output.
+// The ordinary snapshot policy remains unchanged.
+func DefaultPolicyWithNonSecretLiterals(values []string) (*Policy, error) {
+	if err := fixtureliterals.Validate(values); err != nil {
+		return nil, err
+	}
+	p := DefaultPolicy()
+	if len(values) > 0 {
+		p.nonSecretLiterals = make(map[string]bool, len(values))
+		for _, value := range values {
+			p.nonSecretLiterals[value] = true
+		}
+	}
+	return p, nil
+}
+
+// PreservedCount reports skipped regex/key-rule matches, not unique values.
+func (p *Policy) PreservedCount() int { return p.preservedCount }
+
+func (p *Policy) preserveValue(value any) bool {
+	text, ok := value.(string)
+	if ok && p.nonSecretLiterals[text] {
+		p.preservedCount++
+		return true
+	}
+	return false
 }
 
 // DefaultPolicy returns the shipped redaction policy. The rules target the
@@ -139,9 +171,10 @@ func (p *Policy) forCapture() (*Policy, error) {
 		return DefaultPolicy(), nil
 	}
 	copy := &Policy{
-		Rules:          append([]RedactionRule(nil), p.Rules...),
-		EnvKeyDenyList: append([]string(nil), p.EnvKeyDenyList...),
-		label:          p.label,
+		Rules:             append([]RedactionRule(nil), p.Rules...),
+		EnvKeyDenyList:    append([]string(nil), p.EnvKeyDenyList...),
+		label:             p.label,
+		nonSecretLiterals: p.nonSecretLiterals,
 	}
 	if err := copy.compile(); err != nil {
 		// Custom patterns and compiler errors can themselves contain secrets.
@@ -194,6 +227,7 @@ func (p *Policy) ResetCounters() {
 	}
 	p.matchCount = 0
 	p.matchedRules = nil
+	p.preservedCount = 0
 }
 
 // RedactString applies every rule in order to s and returns the redacted
@@ -201,6 +235,9 @@ func (p *Policy) ResetCounters() {
 func (p *Policy) RedactString(s string) string {
 	if p == nil || s == "" {
 		return s
+	}
+	if len(p.nonSecretLiterals) > 0 {
+		return p.redactFixtureString(s)
 	}
 	for _, r := range p.Rules {
 		if r.compiled == nil {
@@ -217,6 +254,56 @@ func (p *Policy) RedactString(s string) string {
 		p.matchedRules[r.Name] = true
 		p.matchCount += len(matches)
 		s = r.compiled.ReplaceAllString(s, RedactionPlaceholder)
+	}
+	return s
+}
+
+func (p *Policy) redactFixtureString(s string) string {
+	original := s
+	origins := make([]int, len(s))
+	for i := range origins {
+		origins[i] = i
+	}
+	for _, rule := range p.Rules {
+		if rule.compiled == nil {
+			continue
+		}
+		matches := rule.compiled.FindAllStringIndex(s, -1)
+		if len(matches) == 0 {
+			continue
+		}
+		var out strings.Builder
+		nextOrigins := make([]int, 0, len(s))
+		cursor := 0
+		for _, match := range matches {
+			start, end := match[0], match[1]
+			out.WriteString(s[cursor:start])
+			nextOrigins = append(nextOrigins, origins[cursor:start]...)
+			// Earlier redactions must not manufacture a token boundary that
+			// turns a substring of the original input into an exemption.
+			preserve := end > start && p.nonSecretLiterals[s[start:end]] &&
+				origins[start] >= 0 && origins[end-1]-origins[start] == end-start-1 &&
+				fixtureliterals.WholeToken(original, origins[start], origins[end-1]+1)
+			if preserve {
+				out.WriteString(s[start:end])
+				nextOrigins = append(nextOrigins, origins[start:end]...)
+				p.preservedCount++
+			} else {
+				out.WriteString(RedactionPlaceholder)
+				for range len(RedactionPlaceholder) {
+					nextOrigins = append(nextOrigins, -1)
+				}
+				if p.matchedRules == nil {
+					p.matchedRules = map[string]bool{}
+				}
+				p.matchedRules[rule.Name] = true
+				p.matchCount++
+			}
+			cursor = end
+		}
+		out.WriteString(s[cursor:])
+		nextOrigins = append(nextOrigins, origins[cursor:]...)
+		s, origins = out.String(), nextOrigins
 	}
 	return s
 }
@@ -259,8 +346,11 @@ func (p *Policy) RedactStringMap(in map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(in))
 	for k, v := range in {
-		if p.IsSensitiveKey(k) {
+		if p.IsSensitiveKey(k) && !p.preserveValue(v) {
 			out[k] = RedactionPlaceholder
+			if len(p.nonSecretLiterals) > 0 {
+				p.recordSensitiveMatch()
+			}
 			continue
 		}
 		out[k] = p.RedactString(v)
@@ -281,8 +371,11 @@ func (p *Policy) RedactAny(v any) any {
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, val := range x {
-			if p.IsSensitiveKey(k) {
+			if p.IsSensitiveKey(k) && !p.preserveValue(val) {
 				out[k] = RedactionPlaceholder
+				if len(p.nonSecretLiterals) > 0 {
+					p.recordSensitiveMatch()
+				}
 				continue
 			}
 			out[k] = p.RedactAny(val)

@@ -301,6 +301,11 @@
           "name": "evaluator_only",
           "type": "slice:string",
           "omitempty": true
+        },
+        {
+          "name": "non_secret_literals",
+          "type": "ptr:slice:string",
+          "omitempty": true
         }
       ]
     },

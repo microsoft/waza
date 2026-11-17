@@ -1619,6 +1619,12 @@ task/conversation/tool/output evidence in a fresh isolated session, without acto
 continuation or live workspace access. Add `files: [report.json]` inside that
 object for explicit selected-file evidence. Required evidence fails closed;
 checkpoint, pairwise, and continued-session evidence judging are unsupported.
+With fix #898 (not in published v0.41.0),
+`evidence_context.non_secret_literals` can preserve declared exact whole-token
+Git SHAs, synthetic contacts and tracker identifiers in evaluator-controlled
+fixtures. Never populate it from actor/tool output or list real credentials.
+Undeclared values still redact and block required evidence; ordinary snapshot
+privacy is unchanged.
 Saved evidence-only grading needs neither the original workspace nor a snapshot,
 but calls the judge model and records new usage separately from execution billing.
 See the [canonical evidence-judging guide](https://microsoft.github.io/waza/guides/graders/#evidence-backed-independent-judging)

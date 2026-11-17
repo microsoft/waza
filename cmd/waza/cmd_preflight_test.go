@@ -177,7 +177,10 @@ graders:
     config: {command: offline-service}
   - name: judge
     type: prompt
-    config: {prompt: "never judge"}
+    config:
+      prompt: "never judge"
+      evidence_context:
+        non_secret_literals: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fixture@example.invalid, PROJ-1]
   - name: external-schema
     type: json_schema
     config: {schema: {$ref: 'https://never-contact.invalid/schema'}}

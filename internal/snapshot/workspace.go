@@ -64,6 +64,7 @@ func CaptureWorkspaceWithAccounting(root string, paths []string, evaluatorOnly [
 	defer func() {
 		summary = SnapshotRedaction{
 			Policy: p.Label(), AppliedRules: p.MatchedRules(), RedactionCount: p.MatchCount(),
+			PreservedLiterals: p.PreservedCount(),
 		}
 	}()
 	for _, excluded := range evaluatorOnly {
@@ -187,6 +188,15 @@ func workspaceText(content []byte) bool {
 func workspaceSanitize(content string, p *Policy, limit int64) (string, error) {
 	if int64(len(content)) > limit {
 		return "", errors.New("sanitized content exceeds byte limits")
+	}
+	if len(p.nonSecretLiterals) > 0 {
+		// Keep original token boundaries across all shipped rules. Input is
+		// already file/bundle bounded; this policy contains only shipped rules.
+		sanitized := p.RedactString(content)
+		if int64(len(sanitized)) > limit {
+			return "", errors.New("sanitized content exceeds byte limits")
+		}
+		return sanitized, nil
 	}
 	rules := p.Rules
 	// Run one counting rule at a time on the capture-local policy so each

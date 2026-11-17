@@ -116,7 +116,15 @@ Optional snapshot `1.2` references the frozen digest as `judgeEvidenceSHA256`;
 ordinary snapshots remain `1.1`.
 
 Final eval/task `prompt` config accepts an optional object `evidence_context`
-with exact slash-relative `files` and `evaluator_only` arrays. `{}` opts into core
+with exact slash-relative `files` and `evaluator_only` arrays, plus optional
+`non_secret_literals` for evaluator-controlled non-secret fixtures (requires
+fix #898, not in published v0.41.0). That array
+permits at most 64 unique 3–128 byte ASCII identifiers; exact whole-token matches
+only, never pattern, email-shape or field-name exemptions. Explicit declarations
+write judge bundle `1.1` with counts in `fixture_literals`, not the declarations.
+The historical `1.0` profile is unchanged when the option is absent.
+See [fixture privacy](/waza/guides/graders/#evaluator-controlled-non-secret-fixtures).
+`{}` opts into core
 recorded evidence; null/wrong types, duplicate paths, traversal and glob paths are
 invalid. Checkpoint, pairwise and `continue_session: true` combinations are
 unsupported. The new profile rejects ambiguous keys, aliases/merges, malformed

@@ -1,7 +1,9 @@
 package judgeevidence
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,6 +24,133 @@ func observedInput() CaptureInput {
 			{Data: &copilot.AssistantMessageData{Content: "Report completed"}},
 		},
 	}
+}
+
+func TestFixtureAccountingPreservesLegacyCaptureBudget(t *testing.T) {
+	// Frozen using unmodified capture/model source from commit 5bb43e31.
+	const legacyMaximumItems = 16333
+	for _, count := range []int{legacyMaximumItems - 1, legacyMaximumItems, legacyMaximumItems + 1} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			input := observedInput()
+			input.Selection.Files = []string{"report.txt"}
+			input.Files = &models.JudgeFileCapture{
+				Files:     []models.JudgeEvidenceFile{{Path: "report.txt", SHA256: fmt.Sprintf("%x", sha256.Sum256(nil))}},
+				Redaction: models.EvidenceRedaction{Policy: "default"},
+			}
+			input.Events = append(input.Events,
+				copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{
+					ToolCallID: "call", ToolName: "fixture", Arguments: map[string]any{"items": make([]string, count)},
+				}},
+				copilot.SessionEvent{Data: &copilot.ToolExecutionCompleteData{
+					ToolCallID: "call", Success: true, Result: &copilot.ToolExecutionCompleteResult{Content: ""},
+				}},
+			)
+			bundle := Capture(input)
+			err := Verify(bundle, input.Origin)
+			if count <= legacyMaximumItems {
+				require.NoError(t, err)
+				require.NotNil(t, bundle.Files.Items)
+				require.Len(t, *bundle.Files.Items, 1)
+			} else {
+				require.Error(t, err)
+				require.Equal(t, "unavailable", bundle.Files.Availability)
+			}
+		})
+	}
+}
+
+func TestFixtureLiteralSelectionUnionIsBoundedDetachedAndNotSerialized(t *testing.T) {
+	first, second := []string{"PROJ-1"}, []string{"fixture@example.invalid"}
+	configs := []models.GraderConfig{{Parameters: models.PromptGraderParameters{
+		EvidenceContext: &models.PromptEvidenceContext{NonSecretLiterals: &first},
+	}}}
+	task := &models.TestCase{Validators: []models.ValidatorInline{{Parameters: models.PromptGraderParameters{
+		EvidenceContext: &models.PromptEvidenceContext{NonSecretLiterals: &second},
+	}}}}
+	selection, err := Selection(configs, task)
+	require.NoError(t, err)
+	require.Equal(t, []string{"PROJ-1", "fixture@example.invalid"}, *selection.NonSecretLiterals)
+	first[0], second[0] = "MUTATED-1", "MUTATED-2"
+	input := observedInput()
+	input.Selection = selection
+	bundle := Capture(input)
+	require.NoError(t, Verify(bundle, input.Origin))
+	require.Equal(t, &models.JudgeFixtureLiterals{DeclaredCount: 2}, bundle.FixtureLiterals)
+	raw, err := json.Marshal(bundle)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "PROJ-1")
+	require.NotContains(t, string(raw), "fixture@example.invalid")
+	require.NotContains(t, string(raw), "non_secret_literals")
+	var restored models.JudgeEvidence
+	require.NoError(t, json.Unmarshal(raw, &restored))
+	delivery, err := Delivery(&restored, input.Origin, selection)
+	require.NoError(t, err)
+	require.Nil(t, delivery.Selection.NonSecretLiterals)
+	require.Equal(t, bundle.FixtureLiterals, delivery.FixtureLiterals)
+	for i := range 64 {
+		first = append(first, fmt.Sprintf("FIRST-%d", i))
+	}
+	require.Error(t, ValidateSelection(configs, task))
+	first = first[:64]
+	require.Error(t, ValidateSelection(configs, task), "individually valid lists must not exceed the union bound")
+}
+
+func TestFixtureLiteralsDoNotExemptBindingOrInvalidDeclarations(t *testing.T) {
+	input := observedInput()
+	values := []string{"fixture@example.invalid"}
+	input.Selection.NonSecretLiterals = &values
+	input.Origin.EvalID = values[0]
+	bundle := Capture(input)
+	require.Error(t, Verify(bundle, input.Origin))
+	require.Empty(t, bundle.Origin.EvalID, "declarations are not identity provenance")
+	input = observedInput()
+	values = []string{"INVALID DECLARATION CANARY"}
+	input.Selection.NonSecretLiterals = &values
+	bundle = Capture(input)
+	require.Error(t, Verify(bundle, input.Origin))
+	encoded, err := json.Marshal(bundle)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), values[0])
+	require.Contains(t, string(encoded), "invalid_fixture_literals")
+}
+
+func TestFixtureLiteralsApplyToSelectedFileContentNotPaths(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("secure selected-file capture requires Linux/macOS")
+	}
+	root := t.TempDir()
+	const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	values := []string{sha, "PROJ-1", "fixture@example.invalid"}
+	selection := models.PromptEvidenceContext{Files: []string{"report.json"}, NonSecretLiterals: &values}
+	for _, test := range []struct {
+		body string
+		pass bool
+	}{
+		{`{"projectKey":"PROJ-1","sha":"` + sha + `","contact":"fixture@example.invalid"}`, true},
+		{`{"projectKey":"PRIVATE_CREDENTIAL_CANARY","sha":"` + sha + `"}`, false},
+		{`{"sha":"` + sha + `aa"}`, false},
+		{`{"contact":"private@example.invalid"}`, false},
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "report.json"), []byte(test.body), 0600))
+		input := observedInput()
+		input.Selection, input.Files = selection, CaptureFiles(root, selection)
+		bundle := Capture(input)
+		if test.pass {
+			require.NoError(t, Verify(bundle, input.Origin))
+			require.Positive(t, bundle.FixtureLiterals.PreservedMatches)
+			require.Contains(t, (*bundle.Files.Items)[0].Content, sha)
+			require.Contains(t, (*bundle.Files.Items)[0].Content, `"projectKey":"PROJ-1"`)
+		} else {
+			require.Error(t, Verify(bundle, input.Origin))
+			require.NotEmpty(t, bundle.Diagnostics)
+			raw, err := json.Marshal(bundle)
+			require.NoError(t, err)
+			require.NotContains(t, string(raw), "PRIVATE_CREDENTIAL_CANARY")
+		}
+	}
+	selection.Files = []string{sha + ".txt"}
+	require.NoError(t, os.WriteFile(filepath.Join(root, selection.Files[0]), []byte("fixture"), 0600))
+	require.NotEmpty(t, CaptureFiles(root, selection).Diagnostics, "fixture declarations must not weaken path admission")
 }
 
 func TestCaptureKnownEmptyAndUnobservedAreDistinct(t *testing.T) {

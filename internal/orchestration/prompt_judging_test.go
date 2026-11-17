@@ -61,6 +61,65 @@ func evidenceRunner(t *testing.T) (*EvalRunner, *copilotfake.Client) {
 	return runner, client
 }
 
+func TestEvidenceRunnerFixtureDeclarationsStayOutsideActorSession(t *testing.T) {
+	const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, declared := range []bool{false, true} {
+		t.Run(fmt.Sprintf("declared=%t", declared), func(t *testing.T) {
+			runner, client := evidenceRunner(t)
+			grader := evidenceConfig("fixture")
+			params := grader.Parameters.(models.PromptGraderParameters)
+			if declared {
+				values := []string{sha, "PROJ-1", "fixture@example.invalid", "EVALUATOR_ONLY_DECLARATION_CANARY"}
+				params.EvidenceContext.NonSecretLiterals = &values
+			}
+			runner.cfg.Spec().Graders = []models.GraderConfig{grader}
+			client.Send = func(session *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+				require.Equal(t, "Inspect "+sha, options.Prompt)
+				require.Empty(t, session.Tools)
+				require.Empty(t, session.MCPServers)
+				require.NotContains(t, options.Prompt, "EVALUATOR_ONLY_DECLARATION_CANARY")
+				return []copilot.SessionEvent{
+					{Data: &copilot.UserMessageData{Content: options.Prompt}},
+					{Data: &copilot.ToolExecutionStartData{ToolCallID: "call", ToolName: "github_query", Arguments: map[string]any{"issueIdOrKey": "PROJ-1"}}},
+					{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "call", Success: true, Result: &copilot.ToolExecutionCompleteResult{Content: sha + " fixture@example.invalid"}}},
+					{Data: &copilot.AssistantMessageData{Content: "Done"}},
+				}, nil
+			}
+			calls := 0
+			runner.evidenceExecutor = scriptedEvidenceJudge(func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				calls++
+				require.Empty(t, req.SessionID)
+				require.Empty(t, req.WorkspaceDir)
+				require.Empty(t, req.MCPServers)
+				require.Empty(t, req.Resources)
+				require.True(t, req.NoSkills)
+				require.Len(t, req.Tools, 2)
+				require.Contains(t, req.Message, sha)
+				require.Contains(t, req.Message, `"issueIdOrKey":"PROJ-1"`)
+				require.NotContains(t, req.Message, "EVALUATOR_ONLY_DECLARATION_CANARY")
+				_, err := req.Tools[0].Handler(copilot.ToolInvocation{ToolName: req.Tools[0].Name})
+				return &execution.ExecutionResponse{Success: true, SessionID: "isolated-judge"}, err
+			})
+			task := &models.TestCase{TestID: "task", DisplayName: "Fixture", Stimulus: models.TaskStimulus{Message: "Inspect " + sha}}
+			run := runner.executeAttempt(t.Context(), task, 1, 1)
+			require.Equal(t, int64(1), client.Creates.Load())
+			require.Zero(t, client.Resumes.Load())
+			if declared {
+				require.Equal(t, models.StatusPassed, run.Status, run.ErrorMsg)
+				require.Equal(t, 1, calls)
+				require.NoError(t, judgeevidence.Verify(run.JudgeEvidence, run.JudgeEvidence.Origin))
+			} else {
+				require.Equal(t, models.StatusError, run.Status, run.ErrorMsg)
+				require.Zero(t, calls)
+			}
+			encoded, err := json.Marshal(run)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "EVALUATOR_ONLY_DECLARATION_CANARY")
+			require.NotContains(t, string(encoded), "non_secret_literals")
+		})
+	}
+}
+
 func TestRecoveryBenchmarkPreservesMCPAdmissionAndIndependentJudgeCapture(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("secure selected-file capture requires Linux/macOS")

@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,42 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCacheKeyIncludesFrozenFixtureDeclarationsAtBothScopes(t *testing.T) {
+	for _, taskScope := range []bool{false, true} {
+		t.Run(fmt.Sprintf("task=%t", taskScope), func(t *testing.T) {
+			spec, task := &models.EvalSpec{}, &models.TestCase{}
+			var params models.PromptGraderParameters
+			require.NoError(t, json.Unmarshal([]byte(`{"prompt":"Judge.","evidence_context":{}}`), &params))
+			config := models.GraderConfig{Identifier: "judge", Kind: models.GraderKindPrompt, Parameters: params}
+			set := func() {
+				config.Parameters = params
+				if taskScope {
+					task.Validators = []models.ValidatorInline{{Identifier: config.Identifier, Kind: config.Kind, Parameters: params}}
+				} else {
+					spec.Graders = []models.GraderConfig{config}
+				}
+			}
+			set()
+			baseline, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			values := []string{}
+			params.EvidenceContext.NonSecretLiterals = &values
+			set()
+			empty, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			require.NotEqual(t, baseline, empty, "explicit empty declaration retains its presence")
+			values = []string{"PROJ-1"}
+			declared, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			require.NotEqual(t, empty, declared)
+			values[0] = "PROJ-2"
+			changed, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			require.NotEqual(t, declared, changed)
+		})
+	}
+}
 
 func TestCacheKeyMCPEffectiveFixtures(t *testing.T) {
 	dir := t.TempDir()

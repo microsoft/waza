@@ -104,6 +104,68 @@ func TestEvidenceSavedGradeUsesRecordedContextWithoutWorkspaceAndKeepsBillingSep
 	require.Equal(t, original.TestOutcomes[0].Runs[0].JudgeEvidence.SHA256, graded.TestOutcomes[0].Runs[0].JudgeEvidence.SHA256)
 }
 
+func TestEvidenceSavedGradeFixtureLiteralsRetainsFrozenAdmission(t *testing.T) {
+	for _, declared := range []bool{false, true} {
+		t.Run(fmt.Sprintf("declared=%t", declared), func(t *testing.T) {
+			spec, results, original := savedEvidenceFixture(t)
+			const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			config := []byte(`{non_secret_literals: ["` + sha + `", fixture@example.invalid, PROJ-1, UNUSED_FIXTURE_CANARY]}`)
+			source, err := os.ReadFile(spec)
+			require.NoError(t, err)
+			source = bytes.Replace(source, []byte("evidence_context: {}"), append([]byte("evidence_context: "), config...), 1)
+			require.NoError(t, os.WriteFile(spec, source, 0600))
+			parsed, err := models.ParseEvalSpec(source, spec)
+			require.NoError(t, err)
+			selection, err := judgeevidence.Selection(parsed.Graders, nil)
+			require.NoError(t, err)
+			if !declared {
+				selection.NonSecretLiterals = nil
+			}
+			run := &original.TestOutcomes[0].Runs[0]
+			run.JudgeEvidence = judgeevidence.Capture(judgeevidence.CaptureInput{
+				Origin: run.JudgeEvidence.Origin, Task: "Inspect " + sha, Output: "Done", OutputPresent: true,
+				Selection: selection, ExecutionMode: "mock",
+				Events: []copilot.SessionEvent{
+					{Data: &copilot.UserMessageData{Content: "Inspect " + sha}},
+					{Data: &copilot.ToolExecutionStartData{ToolCallID: "call", ToolName: "github_query", Arguments: map[string]any{"projectKey": "PROJ-1"}}},
+					{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "call", Success: true, Result: &copilot.ToolExecutionCompleteResult{Content: sha + " fixture@example.invalid"}}},
+					{Data: &copilot.AssistantMessageData{Content: "Done"}},
+				},
+			})
+			require.NoError(t, saveOutcome(original, results))
+			calls := 0
+			judge := savedEvidenceJudge(func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				calls++
+				require.Empty(t, req.SessionID)
+				require.Empty(t, req.WorkspaceDir)
+				require.Empty(t, req.MCPServers)
+				require.Contains(t, req.Message, sha)
+				require.Contains(t, req.Message, "fixture@example.invalid")
+				require.Contains(t, req.Message, `"projectKey":"PROJ-1"`)
+				require.NotContains(t, req.Message, "UNUSED_FIXTURE_CANARY")
+				_, err := req.Tools[0].Handler(copilot.ToolInvocation{ToolName: req.Tools[0].Name})
+				return &execution.ExecutionResponse{Success: true}, err
+			})
+			output := filepath.Join(t.TempDir(), "graded.json")
+			err = runGradeWithJudge(t.Context(), io.Discard, io.Discard, spec, "task", results, "", "", output, false, "", judge)
+			if declared {
+				require.NoError(t, err)
+				require.Equal(t, 1, calls)
+				saved, err := os.ReadFile(output)
+				require.NoError(t, err)
+				regraded, err := models.ParseEvaluationOutcome(saved, output)
+				require.NoError(t, err)
+				require.Equal(t, run.JudgeEvidence.SHA256, regraded.TestOutcomes[0].Runs[0].JudgeEvidence.SHA256)
+				require.NotContains(t, string(saved), "UNUSED_FIXTURE_CANARY")
+				require.NotContains(t, string(saved), "non_secret_literals")
+			} else {
+				require.Error(t, err)
+				require.Zero(t, calls, "new config must not rehabilitate previously redacted evidence")
+			}
+		})
+	}
+}
+
 func TestEvidenceSavedGradeKeepsRecoveryEvidenceVisibleToInlineGrader(t *testing.T) {
 	for _, recorded := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
