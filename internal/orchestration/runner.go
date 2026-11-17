@@ -2134,6 +2134,9 @@ func responderUserInputFallback(classifier responderClassifier, timeout time.Dur
 	return func(ctx context.Context, request copilot.UserInputRequest) (string, error) {
 		callCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
+		// The responder runs inside the actor turn but is not an actor turn.
+		callCtx = execution.WithActorStartObserver(callCtx, nil)
+		callCtx = execution.WithActorDispatchObserver(callCtx, nil)
 		decision, err := classifier.Classify(callCtx, nativeQuestionMessage(request))
 		if err != nil {
 			return "", err

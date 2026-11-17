@@ -94,7 +94,8 @@ Benchmark counts include each task at most once per pass across actor turns,
 trials, and retries; cache hits and tasks proven not to have reached an actor
 are excluded. Copilot observes the SDK's assistant-turn-start event, while mock
 execution signals a synthetic turn. Missing or late signals, and engines without
-a trusted observation contract, leave the task's start unknown. Waza emits the
+a trusted observation contract, leave the task's start unknown. Responder and
+grader turns are not actor starts. Waza emits the
 benchmark execution event only when every possible task count fits the same
 bucket; otherwise it omits the whole event, including its outcome. This can bias
 observed outcomes and volume downward. Bucketed volumes are bounded estimates,

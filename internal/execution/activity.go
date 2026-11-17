@@ -19,7 +19,8 @@ type actorStartObserverKey struct{}
 type actorDispatchObserverKey struct{}
 
 // WithActorStartObserver attaches an optional observed actor-turn callback.
-// The callback may run concurrently and must not block.
+// The callback may run concurrently and must not block. A nil observer
+// suppresses an inherited actor-start observer.
 func WithActorStartObserver(ctx context.Context, observer func()) context.Context {
 	return context.WithValue(ctx, actorStartObserverKey{}, observer)
 }
@@ -37,7 +38,8 @@ func actorStartObserverFrom(ctx context.Context) func() {
 }
 
 // WithActorDispatchObserver records that an engine may initiate an actor turn.
-// It is not evidence that the actor actually started.
+// It is not evidence that the actor actually started. A nil observer
+// suppresses an inherited actor-dispatch observer.
 func WithActorDispatchObserver(ctx context.Context, observer func()) context.Context {
 	return context.WithValue(ctx, actorDispatchObserverKey{}, observer)
 }

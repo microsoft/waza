@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -343,6 +344,97 @@ func TestBenchmarkUsageIgnoresResponderClassifierStarts(t *testing.T) {
 	_, err := runner.RunBenchmark(t.Context())
 	require.NoError(t, err)
 	expectUsageBucket(t, events, "")
+}
+
+func TestBenchmarkUsageIgnoresNativeInputResponderStarts(t *testing.T) {
+	for _, actorStart := range []bool{false, true} {
+		t.Run(fmt.Sprintf("actor-start=%t", actorStart), func(t *testing.T) {
+			task := "id: synthetic\nname: synthetic\ninputs:\n  prompt: start\n  responder: {instructions: reply, max_followups: 1}\n"
+			cfg, dir := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+			events := startUsageCollector(t, dir)
+			var actorCalls, responderCalls atomic.Int32
+			client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+				for _, tool := range config.Tools {
+					if tool.Name == "responder_reply" || tool.Name == "responder_stop" {
+						responderCalls.Add(1)
+						name, args := "responder_stop", map[string]any{}
+						if strings.Contains(options.Prompt, "Question: Your name?") {
+							name, args = "responder_reply", map[string]any{"answer": "Ada"}
+						}
+						for _, candidate := range config.Tools {
+							if candidate.Name == name {
+								if _, err := candidate.Handler(copilot.ToolInvocation{ToolName: name, Arguments: args}); err != nil {
+									return nil, err
+								}
+							}
+						}
+						return []copilot.SessionEvent{{Data: &copilot.AssistantTurnStartData{}}}, nil
+					}
+				}
+				actorCalls.Add(1)
+				if config.OnUserInputRequest == nil {
+					return nil, fmt.Errorf("native user-input callback missing")
+				}
+				answer, err := config.OnUserInputRequest(copilot.UserInputRequest{Question: "Your name?"},
+					copilot.UserInputInvocation{SessionID: "actor"})
+				if err != nil {
+					return nil, err
+				}
+				var events []copilot.SessionEvent
+				if actorStart {
+					events = append(events, copilot.SessionEvent{Data: &copilot.AssistantTurnStartData{}})
+				}
+				return append(events, copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "Hello " + answer.Answer}}), nil
+			}}
+			runner := NewEvalRunner(cfg, client.Engine(), WithSkipGraders())
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.NoError(t, err)
+			run := outcome.TestOutcomes[0].Runs[0]
+			require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+			require.EqualValues(t, 1, actorCalls.Load())
+			require.EqualValues(t, 2, responderCalls.Load())
+			require.Equal(t, "Ada", *models.UserInputRecordsOf(run.UserInputRequests)[0].Answer)
+			if actorStart {
+				expectUsageBucket(t, events, "1")
+			} else {
+				expectUsageBucket(t, events, "")
+			}
+		})
+	}
+}
+
+type fallbackActivityCounter struct{ starts atomic.Int32 }
+
+func (c *fallbackActivityCounter) ModelTurnStarted() { c.starts.Add(1) }
+func (*fallbackActivityCounter) ToolCallStarted()    {}
+
+type fallbackObservationProbe struct{}
+
+func (fallbackObservationProbe) Classify(ctx context.Context, _ string) (responder.Decision, error) {
+	execution.NotifyActorStart(ctx)
+	execution.NotifyActorDispatch(ctx)
+	execution.ActivityObserverFrom(ctx).ModelTurnStarted()
+	return responder.Decision{Kind: responder.DecisionReply, Answer: "synthetic"}, nil
+}
+
+func (fallbackObservationProbe) Close(context.Context) error { return nil }
+
+func TestNativeInputFallbackPreservesActivityObservation(t *testing.T) {
+	var actorStarts, actorDispatches atomic.Int32
+	activity := &fallbackActivityCounter{}
+	ctx := execution.WithActivityObserver(t.Context(), activity)
+	ctx = execution.WithActorStartObserver(ctx, func() { actorStarts.Add(1) })
+	ctx = execution.WithActorDispatchObserver(ctx, func() { actorDispatches.Add(1) })
+	answer, err := responderUserInputFallback(fallbackObservationProbe{}, time.Second)(ctx, copilot.UserInputRequest{Question: "synthetic"})
+	require.NoError(t, err)
+	require.Equal(t, "synthetic", answer)
+	require.Zero(t, actorStarts.Load())
+	require.Zero(t, actorDispatches.Load())
+	require.EqualValues(t, 1, activity.starts.Load())
+	execution.NotifyActorStart(ctx)
+	execution.NotifyActorDispatch(ctx)
+	require.EqualValues(t, 1, actorStarts.Load())
+	require.EqualValues(t, 1, actorDispatches.Load())
 }
 
 type forwardingMockEngine struct {
