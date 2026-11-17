@@ -27,6 +27,7 @@ const (
 
 	maxQueuedEvents = 32
 	requestTimeout  = 2 * time.Second
+	flushInterval   = time.Second
 	maxAttempts     = 2
 	schemaID        = "https://microsoft.github.io/waza/schemas/usage-telemetry-1.0.schema.json"
 )
@@ -72,6 +73,10 @@ type client struct {
 	idReady   bool
 	queue     [][]byte
 	features  map[string]bool
+	stopping  bool
+	stop      chan struct{}
+	done      chan struct{}
+	cancel    context.CancelFunc
 }
 
 var (
@@ -86,6 +91,9 @@ var (
 func Start(p Policy, wazaVersion string) {
 	activeMu.Lock()
 	defer activeMu.Unlock()
+	if active != nil {
+		active.discard()
+	}
 	active = nil
 	if !p.Enabled || p.endpoint == nil {
 		return
@@ -96,8 +104,10 @@ func Start(p Policy, wazaVersion string) {
 	}
 	redirectless := *httpClient
 	redirectless.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	ctx, cancel := context.WithCancel(context.Background())
 	active = &client{policy: p, version: normalizeVersion(wazaVersion), httpClient: &redirectless,
-		features: map[string]bool{}}
+		features: map[string]bool{}, stop: make(chan struct{}), done: make(chan struct{}), cancel: cancel}
+	go active.run(ctx)
 }
 
 // Active reports whether a collecting client is running in this process.
@@ -117,10 +127,16 @@ func discardPending() {
 	active = nil
 	activeMu.Unlock()
 	if c != nil {
-		c.mu.Lock()
-		c.queue = nil
-		c.mu.Unlock()
+		c.discard()
 	}
+}
+
+func (c *client) discard() {
+	c.mu.Lock()
+	c.stopping = true
+	c.queue = nil
+	c.cancel()
+	c.mu.Unlock()
 }
 
 // RecordCommand records one outer CLI invocation. Nested processes never
@@ -183,7 +199,7 @@ func ExecutionOutcome(ctx context.Context, err error, failed, errored int) strin
 func (c *client) enqueue(fields map[string]any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.queue) >= maxQueuedEvents || !c.ensureInstallID() {
+	if c.stopping || len(c.queue) >= maxQueuedEvents || !c.ensureInstallID() {
 		return
 	}
 	fields["schema_version"] = "1.0"
@@ -252,8 +268,8 @@ func (c *client) stillPermitted() bool {
 	return c.policy.CI || s.InstallationID == c.installID
 }
 
-// Shutdown delivers queued events best-effort within timeout, then drops the
-// rest. It never writes output and never returns an error.
+// Shutdown delivers queued events best-effort within timeout, then cancels
+// in-flight work. It never writes output and never returns an error.
 func Shutdown(timeout time.Duration) {
 	activeMu.Lock()
 	c := active
@@ -263,19 +279,55 @@ func Shutdown(timeout time.Duration) {
 		return
 	}
 	c.mu.Lock()
-	queue := c.queue
-	c.queue = nil
+	c.stopping = true
+	close(c.stop)
 	c.mu.Unlock()
-	if len(queue) == 0 {
-		return
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-c.done:
+	case <-timer.C:
+		c.cancel()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	for _, body := range queue {
-		if ctx.Err() != nil || !c.deliver(ctx, body) {
+}
+
+func (c *client) run(ctx context.Context) {
+	defer close(c.done)
+	defer c.cancel()
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
 			return
+		case <-c.stop:
+			c.flush(ctx)
+			return
+		case <-ticker.C:
+			if !c.flush(ctx) {
+				c.discard()
+				return
+			}
 		}
 	}
+}
+
+func (c *client) flush(ctx context.Context) bool {
+	for ctx.Err() == nil {
+		c.mu.Lock()
+		if len(c.queue) == 0 {
+			c.mu.Unlock()
+			return true
+		}
+		body := c.queue[0]
+		c.queue[0] = nil
+		c.queue = c.queue[1:]
+		c.mu.Unlock()
+		if !c.deliver(ctx, body) {
+			return false
+		}
+	}
+	return false
 }
 
 // deliver sends one event, retrying once with the identical body so the
@@ -286,17 +338,22 @@ func (c *client) deliver(ctx context.Context, body []byte) bool {
 		if !c.stillPermitted() {
 			return false
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.policy.endpoint.String(), bytes.NewReader(body))
+		requestCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, c.policy.endpoint.String(), bytes.NewReader(body))
 		if err != nil {
+			cancel()
 			return true
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := c.httpClient.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
+			cancel()
 			if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500 {
 				return true
 			}
+		} else {
+			cancel()
 		}
 	}
 	return true
