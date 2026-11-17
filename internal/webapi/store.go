@@ -555,6 +555,11 @@ func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventRespo
 		r := TranscriptEventResponse{
 			Type: string(e.Type()),
 		}
+		if e.Type() == copilot.SessionEventTypeSessionError {
+			r.Message = "A session error occurred."
+			resp = append(resp, r)
+			continue
+		}
 		if content, ok := copilotevents.Content(e.SessionEvent); ok {
 			r.Content = content
 		}
@@ -588,9 +593,11 @@ func mapSessionDigest(d *models.SessionDigest) *SessionDigestResponse {
 	if toolsUsed == nil {
 		toolsUsed = []string{}
 	}
-	errs := d.Errors
-	if errs == nil {
-		errs = []string{}
+	errs := make([]string, len(d.Errors))
+	for i, message := range d.Errors {
+		if message != "" {
+			errs[i] = "A session error occurred."
+		}
 	}
 	res := &SessionDigestResponse{
 		ToolPolicyMode:    d.ToolPolicyMode,

@@ -1600,7 +1600,7 @@ test.describe("Real dashboard lab", () => {
     ).toBeVisible();
     expect(requests).toEqual(["run-001"]);
     await page.getByRole("tab", { name: "Trajectory", exact: true }).click();
-    await expect(dialog).toContainText("Rate limit exceeded");
+    await expect(dialog).toContainText("A session error occurred.");
     await expect(dialog).not.toContainText("Illustrative task trace");
     await page.getByRole("tab", { name: "Configuration" }).click();
     await expect(dialog.locator("pre")).toContainText(

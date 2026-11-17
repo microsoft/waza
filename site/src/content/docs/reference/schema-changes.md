@@ -53,6 +53,10 @@ responder reason and user-input errors remain in artifacts and may contain sensi
 published 1.0 release exports omit `infrastructure_diagnostic` to remain
 compatible with the closed release-artifacts 1.0 schema; normal run artifacts
 retain it.
+The 1.0 assurance ledger binds those projected rows; it does not bind a
+diagnostic sidecar. A separate sidecar would require an independently versioned
+contract and explicit verification before it could be treated as assurance
+evidence.
 
 Optional task `requirements` introduced by #660 are descriptive v1-compatible
 metadata, without a global schema bump or new runtime/exit semantics. Old readers

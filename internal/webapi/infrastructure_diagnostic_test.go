@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -102,6 +103,36 @@ func TestUserInputErrorsAreNeverProjected(t *testing.T) {
 	stored, err := os.ReadFile(filepath.Join(dir, "eval.json"))
 	require.NoError(t, err)
 	require.Equal(t, artifact, stored)
+}
+
+func TestSessionErrorsAreNeverProjected(t *testing.T) {
+	const artifact = `{"run_id":"eval","tasks":[{"test_id":"task","status":"error","runs":[{"run_number":1,"status":"error","error_msg":"/private/execution-secret","responder":{"outcome":"error","reason":"/private/responder-secret"},"infrastructure_diagnostic":{"code":"workspace_capture_file_bytes","limit":16,"additional_failure":true},"transcript":[{"type":"assistant.message","content":"Ordinary assistant response"},{"type":"session.error","message":"follow-up failed: /private/transcript-secret"},{"type":"session.error","message":"another arbitrary token-123"}],"session_digest":{"errors":["/private/digest-secret","token-456",""]}}]}]}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "eval.json")
+	require.NoError(t, os.WriteFile(path, []byte(artifact), 0o600))
+	response := httptest.NewRecorder()
+	NewHandlers(NewFileStore(dir)).HandleRunDetail(response, httptest.NewRequest(http.MethodGet, "/api/runs/eval", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	for _, private := range []string{"/private", "transcript-secret", "digest-secret", "token-123", "token-456"} {
+		require.NotContains(t, response.Body.String(), private)
+	}
+	var detail RunDetail
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &detail))
+	task := detail.Tasks[0]
+	require.Equal(t, "Ordinary assistant response", task.Transcript[0].Content)
+	require.Equal(t, "A session error occurred.", task.Transcript[1].Message)
+	require.Equal(t, "A session error occurred.", task.Transcript[2].Message)
+	require.Equal(t, []string{"A session error occurred.", "A session error occurred.", ""}, task.SessionDigest.Errors)
+	require.True(t, task.InfrastructureRuns[0].Diagnostic.AdditionalFailure)
+	stored, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, artifact, string(stored))
+
+	rawError := &copilot.SessionErrorData{Message: "/private/modern-secret"}
+	modern := models.TranscriptEvent{SessionEvent: copilot.SessionEvent{Data: rawError}}
+	projected := mapTranscriptEvents([]models.TranscriptEvent{modern})
+	require.Equal(t, "A session error occurred.", projected[0].Message)
+	require.Equal(t, "/private/modern-secret", rawError.Message)
 }
 
 func TestLegacyAttemptIsOmitted(t *testing.T) {
