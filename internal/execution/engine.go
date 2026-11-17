@@ -192,9 +192,11 @@ type ExecutionResponse struct {
 	// WorkspaceCaptureCause retains the safe diagnostic's typed cause at
 	// runtime. It is never serialized into response or artifact bytes.
 	WorkspaceCaptureCause error `json:"-"`
-	JudgeFiles            *models.JudgeFileCapture
-	SessionID             string // Copilot session ID
-	Usage                 *models.UsageStats
+	// AdditionalInfrastructureFailure records a separate later-turn failure.
+	AdditionalInfrastructureFailure bool `json:"-"`
+	JudgeFiles                      *models.JudgeFileCapture
+	SessionID                       string // Copilot session ID
+	Usage                           *models.UsageStats
 	// UsageIsCumulative distinguishes a session snapshot from per-execution
 	// usage. Engines that report per-turn usage leave this false.
 	UsageIsCumulative bool

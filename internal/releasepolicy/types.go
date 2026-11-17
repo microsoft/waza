@@ -262,6 +262,24 @@ type Results struct {
 	Rows         []ActualRunRow `json:"rows"`
 }
 
+// releaseV1Row preserves the published closed 1.0 release schema.
+func releaseV1Row(row ActualRunRow) ActualRunRow {
+	row.Run.InfrastructureDiagnostic = nil
+	return row
+}
+
+func (r Results) MarshalJSON() ([]byte, error) {
+	type resultsJSON Results
+	if r.Version == "1.0" && r.Rows != nil {
+		rows := make([]ActualRunRow, len(r.Rows))
+		for i, row := range r.Rows {
+			rows[i] = releaseV1Row(row)
+		}
+		r.Rows = rows
+	}
+	return json.Marshal(resultsJSON(r))
+}
+
 type Receipt struct {
 	Kind          string                 `json:"kind"`
 	Version       string                 `json:"version"`

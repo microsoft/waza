@@ -107,7 +107,7 @@ function generationDetail(run: RunSummary, generation: string, score: number): R
       transcript: [
         { type: "ToolExecutionStart", toolCallId: "read", toolName: "read_file", arguments: { path: `${generation}-${run.id}.txt` } },
         { type: "ToolExecutionComplete", toolCallId: "read", toolResult: `${generation} ${run.id} artifact`, success: true },
-        { type: "Error", message: `${generation} ${run.id} trajectory` },
+        { type: "assistant.message", content: `${generation} ${run.id} trajectory` },
       ],
     }],
   };
@@ -474,7 +474,7 @@ test.describe("Real dashboard lab", () => {
         transcript: [
           { type: "ToolExecutionStart", toolCallId: `${id}-call`, toolName: "read_file", arguments: { path: `${id}-artifact.txt` } },
           { type: "ToolExecutionComplete", toolCallId: `${id}-call`, toolResult: `Recorded ${id}-artifact contents`, success: true },
-          { type: "Error", message: `${id} recorded trajectory` },
+          { type: "assistant.message", content: `${id} recorded trajectory` },
         ],
       });
       const selected = recordedTask("selected-task", "Selected task", "pass");
@@ -1600,7 +1600,7 @@ test.describe("Real dashboard lab", () => {
     ).toBeVisible();
     expect(requests).toEqual(["run-001"]);
     await page.getByRole("tab", { name: "Trajectory", exact: true }).click();
-    await expect(dialog).toContainText("Rate limit exceeded");
+    await expect(dialog).toContainText("A session error occurred.");
     await expect(dialog).not.toContainText("Illustrative task trace");
     await page.getByRole("tab", { name: "Configuration" }).click();
     await expect(dialog.locator("pre")).toContainText(

@@ -7,16 +7,33 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/microsoft/waza/internal/models"
 )
 
 // The cause remains available to errors.Is/As, never to public diagnostic text.
 type workspaceCaptureDiagnostic struct {
-	message string
-	cause   error
+	message    string
+	cause      error
+	diagnostic models.InfrastructureDiagnostic
 }
 
 func (e *workspaceCaptureDiagnostic) Error() string { return e.message }
 func (e *workspaceCaptureDiagnostic) Unwrap() error { return e.cause }
+
+func captureLimitError(code models.InfrastructureDiagnosticCode, limit int64, message string) error {
+	return &workspaceCaptureDiagnostic{message: message, diagnostic: models.InfrastructureDiagnostic{Code: code, Limit: limit}}
+}
+
+// CaptureDiagnostic projects typed capture failures without copying error text.
+func CaptureDiagnostic(err error) *models.InfrastructureDiagnostic {
+	var capture *workspaceCaptureDiagnostic
+	if errors.As(err, &capture) && capture.diagnostic.Code != "" {
+		safe := capture.diagnostic.Safe()
+		return &safe
+	}
+	return &models.InfrastructureDiagnostic{Code: models.CaptureFailed}
+}
 
 func captureIOError(operation, path string, cause error) error {
 	code := "io"
@@ -134,13 +151,13 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 			return nil
 		}
 		if len(files) >= limits.maxFiles {
-			return fmt.Errorf("file count exceeds limit of %d before %q", limits.maxFiles, captureDiagnosticPath(rel))
+			return captureLimitError(models.CaptureFileCount, int64(limits.maxFiles), fmt.Sprintf("file count exceeds limit of %d before %q", limits.maxFiles, captureDiagnosticPath(rel)))
 		}
 		if info.Size() > limits.maxFileBytes {
-			return fmt.Errorf("file %q is %d bytes and exceeds per-file limit of %d bytes", captureDiagnosticPath(rel), info.Size(), limits.maxFileBytes)
+			return captureLimitError(models.CaptureFileBytes, limits.maxFileBytes, fmt.Sprintf("file %q is %d bytes and exceeds per-file limit of %d bytes", captureDiagnosticPath(rel), info.Size(), limits.maxFileBytes))
 		}
 		if info.Size() > limits.maxTotalBytes-totalBytes {
-			return fmt.Errorf("capturing %q would exceed total limit of %d bytes", captureDiagnosticPath(rel), limits.maxTotalBytes)
+			return captureLimitError(models.CaptureTotalBytes, limits.maxTotalBytes, fmt.Sprintf("capturing %q would exceed total limit of %d bytes", captureDiagnosticPath(rel), limits.maxTotalBytes))
 		}
 
 		readLimit := min(limits.maxFileBytes, limits.maxTotalBytes-totalBytes)
@@ -150,9 +167,9 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 		}
 		if exceeded {
 			if readLimit == limits.maxTotalBytes-totalBytes {
-				return fmt.Errorf("capturing %q would exceed total limit of %d bytes", captureDiagnosticPath(rel), limits.maxTotalBytes)
+				return captureLimitError(models.CaptureTotalBytes, limits.maxTotalBytes, fmt.Sprintf("capturing %q would exceed total limit of %d bytes", captureDiagnosticPath(rel), limits.maxTotalBytes))
 			}
-			return fmt.Errorf("file %q exceeds per-file limit of %d bytes", captureDiagnosticPath(rel), limits.maxFileBytes)
+			return captureLimitError(models.CaptureFileBytes, limits.maxFileBytes, fmt.Sprintf("file %q exceeds per-file limit of %d bytes", captureDiagnosticPath(rel), limits.maxFileBytes))
 		}
 
 		files[rel] = content
@@ -228,7 +245,7 @@ func walkWorkspaceCapture(root *os.Root, maxEntries int, captureFile func(path, 
 			for _, entry := range entries {
 				entriesSeen++
 				if entriesSeen > maxEntries {
-					walkErr = fmt.Errorf("traversal entries exceed limit of %d", maxEntries)
+					walkErr = captureLimitError(models.CaptureEntryCount, int64(maxEntries), fmt.Sprintf("traversal entries exceed limit of %d", maxEntries))
 					break
 				}
 				path := entry.Name()

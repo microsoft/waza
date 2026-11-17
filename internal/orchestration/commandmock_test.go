@@ -14,6 +14,7 @@ import (
 type commandMockFinalizerTestEngine struct {
 	response    *execution.ExecutionResponse
 	finalizeErr error
+	executeErr  error
 	finalized   bool
 }
 
@@ -29,7 +30,7 @@ func (e *commandMockFinalizerTestEngine) Execute(context.Context, *execution.Exe
 			WorkspaceDir: "/workspace",
 		}
 	}
-	return e.response, nil
+	return e.response, e.executeErr
 }
 func (e *commandMockFinalizerTestEngine) FinalizeCommandMocks(string) ([]models.CommandInvocation, error) {
 	e.finalized = true
@@ -64,6 +65,7 @@ func TestWorkspaceCaptureFailureFinalizesCommandMocks(t *testing.T) {
 			WorkspaceDir:          "/workspace",
 		},
 	}
+
 	runner := NewEvalRunner(
 		config.NewEvalConfig(&models.EvalSpec{Config: models.Config{TimeoutSec: 30}}),
 		engine,
@@ -77,4 +79,36 @@ func TestWorkspaceCaptureFailureFinalizesCommandMocks(t *testing.T) {
 	require.Equal(t, models.StatusError, run.Status)
 	require.Contains(t, run.ErrorMsg, captureErr)
 	require.Contains(t, run.ErrorMsg, engine.finalizeErr.Error())
+	require.NotNil(t, run.InfrastructureDiagnostic)
+	require.True(t, run.InfrastructureDiagnostic.AdditionalFailure)
+}
+
+func TestWorkspaceCaptureAndExecutionFailuresAreDistinct(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		executed   bool
+		executeErr error
+		additional bool
+	}{
+		{name: "capture only", executed: true},
+		{name: "execution and capture", additional: true},
+		{name: "go error and capture", executed: true, executeErr: errors.New("private execution error"), additional: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			captureErr := errors.New("capture /private/secret")
+			engine := &commandMockFinalizerTestEngine{
+				executeErr: tc.executeErr,
+				response: &execution.ExecutionResponse{
+					ExecutionSucceeded: tc.executed, WorkspaceCaptureError: captureErr.Error(),
+					WorkspaceCaptureCause: captureErr, ErrorMsg: captureErr.Error(), WorkspaceDir: t.TempDir(),
+				},
+			}
+			runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{Config: models.Config{TimeoutSec: 30}}),
+				engine, WithSkipGraders())
+			run := runner.executeRun(t.Context(), &models.TestCase{Stimulus: models.TaskStimulus{Message: "run"}}, 1)
+			require.NotNil(t, run.InfrastructureDiagnostic)
+			require.Equal(t, tc.additional, run.InfrastructureDiagnostic.AdditionalFailure)
+			require.Equal(t, models.CaptureFailed, run.InfrastructureDiagnostic.Code)
+		})
+	}
 }
