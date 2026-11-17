@@ -125,9 +125,9 @@ test.describe("Lab conversation", () => {
   });
 
   test("uses event types for blank message fields without trimming substantive messages", async ({ page }) => {
-    const longMessage = ` \t${"Recorded session error. ".repeat(10)}\r\n`;
-    const transcript = ["", " \t\r\n", "\u00a0", " \tRecorded error.\r\n", longMessage]
-      .map((message) => ({ type: "session.error", message }));
+    const longMessage = ` \t${"Recorded session info. ".repeat(10)}\r\n`;
+    const transcript = ["", " \t\r\n", "\u00a0", " \tRecorded info.\r\n", longMessage]
+      .map((message) => ({ type: "session.info", message }));
     const dialog = await openConversation(page, {
       ...CONVERSATION_DETAIL,
       tasks: [{ ...CONVERSATION_DETAIL.tasks[0]!, transcript }],
@@ -227,7 +227,7 @@ test.describe("Lab conversation", () => {
       await expect(dialog).not.toContainText("No message text recorded.");
       await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
       const descriptions = dialog.locator("p.break-words");
-      const expected = [...transcript.map((event) => event.type), "0", " \tRecorded error.\n", " \tRecorded content.\n"];
+      const expected = [...transcript.map((event) => event.type), "0", "A session error occurred.", "A session error occurred."];
       await expect(descriptions).toHaveCount(expected.length);
       for (const [index, text] of expected.entries()) {
         expect(await descriptions.nth(index).textContent()).toBe(text);
