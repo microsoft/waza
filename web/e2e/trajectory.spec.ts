@@ -91,7 +91,29 @@ test.describe("Trajectory Viewer", () => {
 
     // Errors section
     await expect(page.getByText("Errors (1)")).toBeVisible();
-    await expect(page.getByText("Rate limit exceeded").last()).toBeVisible();
+    await expect(page.getByText("A session error occurred.").first()).toBeVisible();
+  });
+
+  test("withholds session errors in the trajectory without hiding assistant messages", async ({ page }) => {
+    const detail = structuredClone(RUN_DETAIL);
+    detail.tasks[0].transcript = [
+      { type: "assistant.message", content: "Ordinary assistant response" },
+      { type: "session.error", message: "/private/transcript-secret", content: "/private/content-secret", arguments: { secret: "argument-secret" } },
+      { type: "Error", message: "/private/legacy-secret" },
+    ];
+    detail.tasks[0].sessionDigest!.errors = ["/private/digest-secret"];
+    await page.route(/\/api\/runs\/run-001$/, (route) => route.fulfill({ json: detail }));
+    await page.goto("/#/runs/run-001");
+    await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+    await page.getByRole("button", { name: "explain-fibonacci" }).click();
+    await expect(page.getByText("Ordinary assistant response")).toBeVisible();
+    await expect(page.getByText("A session error occurred.")).toHaveCount(3);
+    const showDetails = page.getByRole("button", { name: "Show details" });
+    while (await showDetails.count()) {
+      await showDetails.first().click();
+    }
+    await expect(page.locator("body")).not.toContainText("/private");
+    await expect(page.locator("body")).not.toContainText("secret");
   });
 
   test("timeline renders tool call entries", async ({ page }) => {

@@ -86,6 +86,13 @@ type TaskResult struct {
 	Trials             *TrialCountsResponse        `json:"trials,omitempty"`
 	EvidenceRuns       []EvidenceRunResponse       `json:"evidenceRuns,omitempty"`
 	PromptJudgingRuns  []PromptJudgingRunResponse  `json:"promptJudgingRuns,omitempty"`
+	InfrastructureRuns []InfrastructureRunResponse `json:"infrastructureRuns,omitempty"`
+}
+
+type InfrastructureRunResponse struct {
+	RunNumber  int                              `json:"runNumber"`
+	Attempts   int                              `json:"attempts,omitempty"`
+	Diagnostic *models.InfrastructureDiagnostic `json:"diagnostic,omitempty"`
 }
 
 type EvidenceRunResponse struct {

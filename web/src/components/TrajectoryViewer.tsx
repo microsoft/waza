@@ -43,6 +43,7 @@ function classifyEvent(ev: TranscriptEvent): EventKind {
     case "Turn":
       return "turn";
     case "Error":
+    case "session.error":
       return "error";
     default:
       return "fallback";
@@ -133,13 +134,17 @@ function correlateToolCalls(
 // ---------------------------------------------------------------------------
 
 function TimelineRow({
-  event,
+  event: sourceEvent,
   correlated,
 }: {
   event: TranscriptEvent;
   correlated: Map<string, CorrelatedToolCall>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const event: TranscriptEvent =
+    sourceEvent.type === "session.error" || sourceEvent.type === "Error"
+      ? { type: sourceEvent.type, message: "A session error occurred." }
+      : sourceEvent;
   const kind = classifyEvent(event);
   const Icon = iconMap[kind];
   const content = typeof event.content === "string" ? event.content : undefined;

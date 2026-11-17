@@ -199,6 +199,9 @@ func TestResponderCaptureFailureCountsOnlySuccessfulExecution(t *testing.T) {
 					require.EqualValues(t, 16*1024*1024+1, info.Size())
 					require.Nil(t, last.WorkspaceFiles)
 					require.Contains(t, saved.ErrorMsg, "workspace capture incomplete")
+					require.Equal(t, models.CaptureFileBytes, saved.InfrastructureDiagnostic.Code)
+					require.EqualValues(t, 16*1024*1024, saved.InfrastructureDiagnostic.Limit)
+					require.Equal(t, !completed, saved.InfrastructureDiagnostic.AdditionalFailure)
 				}
 				require.NotNil(t, saved.Responder)
 				wantCount := 1
