@@ -278,12 +278,13 @@ type BehaviorRules struct {
 
 // ValidatorInline is a validator embedded in a test case
 type ValidatorInline struct {
-	Identifier string           `yaml:"name" json:"identifier"`
-	Kind       GraderKind       `yaml:"type,omitempty" json:"kind,omitempty"`
-	Checks     []string         `yaml:"assertions,omitempty" json:"checks,omitempty"`
-	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
-	Weight     float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
-	Parameters GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+	Identifier           string           `yaml:"name" json:"identifier"`
+	Kind                 GraderKind       `yaml:"type,omitempty" json:"kind,omitempty"`
+	Checks               []string         `yaml:"assertions,omitempty" json:"checks,omitempty"`
+	Rubric               string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
+	Weight               float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Parameters           GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+	captureUnknownFields bool
 }
 
 func (v *ValidatorInline) EffectiveWeight() float64 {
@@ -330,6 +331,7 @@ func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
 	v.Rubric = raw.Rubric
 	v.Weight = raw.Weight
 	v.Parameters = params
+	v.captureUnknownFields = captureGraderUnknownFields(bytesData, &raw, &raw.Parameters, params)
 
 	// Validate grader-type-specific required fields
 	if err := v.Validate(); err != nil {

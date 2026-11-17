@@ -112,6 +112,15 @@ func PinSuite(opts SuiteOptions) (*SuitePin, error) {
 			return nil, newError(CategoryInvalidSuite, "task %q is in both the optimization and qualification splits", id)
 		}
 	}
+	selected := make([]*models.TestCase, 0, len(opt.TestIDs)+len(qual.TestIDs))
+	for _, tc := range cases {
+		if slices.Contains(opt.TestIDs, tc.TestID) || slices.Contains(qual.TestIDs, tc.TestID) {
+			selected = append(selected, tc)
+		}
+	}
+	if err := models.ValidateWorkspaceCapture(spec, selected); err != nil {
+		return nil, wrapError(CategoryInvalidSuite, err, "workspace capture admission")
+	}
 
 	contextDir := opts.ContextDir
 	if contextDir == "" {
