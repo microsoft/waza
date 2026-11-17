@@ -64,8 +64,27 @@ func hasDiagnostic(r *Report, code string, state State) bool {
 		if d.Code == code && d.State == state {
 			return true
 		}
+
 	}
 	return false
+}
+
+func TestInspectWorkspaceCaptureAdmission(t *testing.T) {
+	eval := strings.Replace(validEval, "  executor: mock", "  workspace_capture: none\n  executor: mock", 1)
+	path, _ := writeSuite(t, eval, validTask)
+	report := Inspect(path, Options{})
+	require.False(t, hasDiagnostic(report, "eval.schema", Invalid), "%+v", report.Diagnostics)
+	require.False(t, hasDiagnostic(report, "workspace.capture", Invalid))
+	bad := strings.Replace(validTask, "type: text", "type: file", 1)
+	bad = strings.Replace(bad, `contains: ["ready"]`, `must_exist: ["report"]`, 1)
+	path, _ = writeSuite(t, eval, bad)
+	require.True(t, hasDiagnostic(Inspect(path, Options{}), "workspace.capture", Invalid))
+	for _, invalid := range []string{"invalid", `""`, "null"} {
+		path, _ = writeSuite(t, strings.Replace(eval, "workspace_capture: none", "workspace_capture: "+invalid, 1), validTask)
+		require.True(t, Inspect(path, Options{}).Failed(false))
+		_, err := models.LoadEvalSpec(path)
+		require.ErrorContains(t, err, "workspace_capture")
+	}
 }
 
 func TestInspectValidDeterministicAndDescriptive(t *testing.T) {

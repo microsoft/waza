@@ -83,6 +83,15 @@ func Inspect(evalPath string, opts Options) *Report {
 	inspectCapabilities(r, spec)
 	inspectGraders(r, spec.Graders, evalPath, "", contextDir)
 	tasks, sources, blockedMocks := discoverTasks(r, spec, base)
+	var activeTasks []*models.TestCase
+	for _, task := range tasks {
+		if task.Active == nil || *task.Active {
+			activeTasks = append(activeTasks, task)
+		}
+	}
+	if err := models.ValidateWorkspaceCapture(spec, activeTasks); err != nil {
+		r.add("workspace.capture", Invalid, evalPath, "", "", err.Error(), "Use full capture or only supported output/tool graders.")
+	}
 	taskMocks := blockedMocks
 	for _, task := range tasks {
 		taskMocks = append(taskMocks, task.MCPMocks)

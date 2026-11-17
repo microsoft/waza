@@ -425,6 +425,28 @@ Unknown pack names and empty `packs` lists are rejected with a configuration err
 
 ## config Section
 
+### workspace_capture
+
+**Type:** `full` or `none`
+**Default:** `full`
+
+`full` preserves bounded, fail-closed post-turn workspace capture. Set `none`
+for evaluations whose selected tasks use only `text`, `json_schema`, `behavior`,
+`action_sequence`, `skill_invocation`, `tool_constraint`, or `tool_calls` graders.
+The same restriction applies to eval, task, and checkpoint graders; references,
+scripts, outcome expectations, prompt/file evidence, and unknown graders are
+rejected. `--snapshot-file` cannot be combined with `none`. `preflight` checks
+all enabled tasks; `run` checks the tasks selected by its filters.
+
+```yaml
+config:
+  workspace_capture: none
+```
+
+This setting only skips Waza's post-turn workspace snapshot for grading; it does
+not deny workspace access to the actor. Older Waza versions may ignore unknown
+fields, so use a version that supports this setting.
+
 ### trials_per_task
 
 **Type:** integer  

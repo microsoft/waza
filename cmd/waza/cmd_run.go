@@ -893,6 +893,9 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		triggerErr = fmt.Errorf("loading trigger tests: %w", triggerErr)
 	}
 	usesEvalMCP := triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType)
+	if spec.Config.WorkspaceCapture == "none" && len(snapshotFiles) > 0 {
+		return nil, fmt.Errorf("workspace_capture none cannot be used with --snapshot-file")
+	}
 	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, usesEvalMCP)
 	if err := errors.Join(triggerErr, admissionErr); err != nil {
 		return nil, err

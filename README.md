@@ -1795,6 +1795,13 @@ skills/                Example skills
 
 ## Eval Spec Format
 
+Post-turn workspace capture defaults to `full` and remains bounded and fail-closed.
+For output/tool-only evaluations, opt in with `config.workspace_capture: none`.
+Waza rejects unsupported graders, checkpoint graders, outcome expectations, and
+selected snapshot files before actor execution. This does **not** prevent the actor
+from accessing its workspace. Use a Waza version that recognizes this setting;
+older versions may ignore unknown configuration fields.
+
 Task YAML's `inputs.environment` is accepted for compatibility but is **not
 applied** during execution. Non-empty maps emit a task-load warning and an
 unsupported `task.environment` preflight diagnostic; omitted or empty maps do
