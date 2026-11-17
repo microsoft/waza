@@ -98,7 +98,6 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		return nil, err
 	}
 
-	// The synthetic response is one model turn for budget observers.
 	if activity := ActivityObserverFrom(ctx); activity != nil {
 		activity.ModelTurnStarted()
 		if err := ctx.Err(); err != nil {
@@ -107,6 +106,8 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 	}
 
 	// Simple mock response
+	NotifyActorDispatch(ctx)
+	NotifyActorStart(ctx)
 	output := fmt.Sprintf("Mock response for: %s", req.Message)
 
 	// Echo task metadata so output_contains expectations that reference

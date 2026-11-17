@@ -23,6 +23,7 @@ import (
 const (
 	OptOutEnv  = "WAZA_TELEMETRY_OPTOUT"
 	NestedEnv  = "WAZA_TELEMETRY_NESTED"
+	CIEnv      = "WAZA_TELEMETRY_CI"
 	NoFlagName = "no-telemetry"
 
 	doNotTrackEnv   = "DO_NOT_TRACK"
@@ -72,8 +73,8 @@ type Inputs struct {
 // Policy is the resolved, side-effect-free collection decision.
 type Policy struct {
 	Enabled bool
-	// Denied is true when an explicit opt-out (flag, env, host, user, project,
-	// or invalid configuration) applies; children inherit it.
+	// Denied is true when an opt-out, invalid configuration, or unapproved
+	// CI collection applies; children inherit it.
 	Denied     bool
 	FlagDenied bool
 	CI         bool
@@ -111,6 +112,9 @@ func Resolve(in Inputs) Policy {
 	if hostDenies(getenv) {
 		deny(ReasonHostDenied)
 	}
+	if p.CI && !ciCollectionOn {
+		deny(ReasonCI)
+	}
 	p.endpoint = approvedEndpoint(endpoint)
 	if p.endpoint == nil {
 		p.Reasons = append(p.Reasons, ReasonNoEndpoint)
@@ -137,9 +141,6 @@ func Resolve(in Inputs) Policy {
 	case projectInvalid:
 		deny(ReasonProjectInvalid)
 	}
-	if p.CI && !ciCollectionOn {
-		p.Reasons = append(p.Reasons, ReasonCI)
-	}
 	if !defaultCollectionOn && !explicitEnable {
 		p.Reasons = append(p.Reasons, ReasonNotEnabled)
 	}
@@ -156,17 +157,18 @@ func ResolveProcess(args []string, full bool) Policy {
 	return Resolve(Inputs{Args: args, WorkDir: wd, Full: full})
 }
 
-// Propagate exports the decision to child processes, servers, and helpers
-// started by this process. Denial is inherited through WAZA_TELEMETRY_OPTOUT;
-// active collection marks children as nested so only this process reports
-// command usage.
 // PolicyEnvKeys lists the variables that carry the telemetry policy to child
 // processes. Code that builds an allowlisted child environment must keep them.
 func PolicyEnvKeys() []string {
-	return []string{OptOutEnv, NestedEnv, doNotTrackEnv, azdTelemetryEnv}
+	return []string{OptOutEnv, NestedEnv, CIEnv, doNotTrackEnv, azdTelemetryEnv}
 }
 
+// Propagate exports denial and a sanitized CI marker to children. Active
+// collection also marks them as nested so only the parent reports commands.
 func Propagate(p Policy) {
+	if p.CI {
+		_ = os.Setenv(CIEnv, "1")
+	}
 	if p.Denied {
 		_ = os.Setenv(OptOutEnv, "1")
 	}
@@ -215,12 +217,21 @@ func hostDenies(getenv func(string) string) bool {
 }
 
 func detectCI(getenv func(string) string) bool {
+	if CIContextMarkerEnabled(getenv(CIEnv)) {
+		return true
+	}
 	for _, name := range ciEnvVars {
 		if v := getenv(name); v != "" && !falsy(v) {
 			return true
 		}
 	}
 	return false
+}
+
+// CIContextMarkerEnabled interprets the internal CI marker using the same
+// false values as policy resolution.
+func CIContextMarkerEnabled(value string) bool {
+	return truthy(value)
 }
 
 func falsy(v string) bool {

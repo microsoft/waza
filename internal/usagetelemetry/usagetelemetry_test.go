@@ -152,7 +152,7 @@ func TestPolicyResolution(t *testing.T) {
 		{name: "project malformed yaml", project: "telemetry: [", denied: true},
 		{name: "project null section", project: "telemetry: null\n", denied: true},
 		{name: "project bare section", project: "telemetry:\n", denied: true},
-		{name: "ci not approved", env: map[string]string{"GITHUB_ACTIONS": "true"}, ci: true},
+		{name: "ci not approved", env: map[string]string{"GITHUB_ACTIONS": "true"}, ci: true, denied: true},
 		{name: "ci false is not ci", env: map[string]string{"CI": "false"}, enabled: true},
 	}
 	activate(t, newFakeCollector(t), false)
@@ -306,6 +306,80 @@ func TestSlowCollectorIsCutOffAtDeadline(t *testing.T) {
 	assert.Less(t, time.Since(started), time.Second)
 }
 
+func TestPeriodicDeliveryAndQueueBound(t *testing.T) {
+	collector := newFakeCollector(t)
+	activate(t, collector, false)
+	startClient(t, nil, settingsPath(t))
+	for range maxQueuedEvents {
+		RecordExecution(SurfaceRunnerUnit, ModeMock, ExecutionPassed, 1, time.Second)
+	}
+	require.Eventually(t, func() bool { return len(collector.events(t)) == maxQueuedEvents }, 5*time.Second, 20*time.Millisecond)
+	RecordExecution(SurfaceRunnerUnit, ModeMock, ExecutionPassed, 1, time.Second)
+	require.Eventually(t, func() bool { return len(collector.events(t)) == maxQueuedEvents+1 }, 5*time.Second, 20*time.Millisecond)
+	Shutdown(time.Second)
+}
+
+func TestBlockedPeriodicDeliveryIsBoundedAndCancelled(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	exited := make(chan struct{})
+	release := make(chan struct{})
+	server := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		entered <- struct{}{}
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+		close(exited)
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(release) })
+	t.Cleanup(OverrideActivationForTesting(server.URL, server.Client(), true, false))
+	startClient(t, nil, settingsPath(t))
+	RecordExecution(SurfaceRunnerUnit, ModeMock, ExecutionPassed, 1, time.Second)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("periodic delivery did not start")
+	}
+	for range maxQueuedEvents * 2 {
+		RecordExecution(SurfaceRunnerUnit, ModeMock, ExecutionPassed, 1, time.Second)
+	}
+	c := current()
+	c.mu.Lock()
+	assert.Len(t, c.queue, maxQueuedEvents)
+	c.mu.Unlock()
+	started := time.Now()
+	Shutdown(100 * time.Millisecond)
+	assert.Less(t, time.Since(started), time.Second)
+	select {
+	case <-c.done:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop after shutdown")
+	}
+	select {
+	case <-exited:
+	case <-time.After(time.Second):
+		t.Fatal("request was not canceled")
+	}
+}
+
+func TestConcurrentRecordAndShutdown(t *testing.T) {
+	collector := newFakeCollector(t)
+	activate(t, collector, false)
+	startClient(t, nil, settingsPath(t))
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 100 {
+				RecordExecution(SurfaceRunnerUnit, ModeMock, ExecutionPassed, 1, time.Second)
+			}
+		})
+	}
+	Shutdown(100 * time.Millisecond)
+	wg.Wait()
+}
+
 func TestDeniedPolicyMakesNoRequestsOrIdentifier(t *testing.T) {
 	collector := newFakeCollector(t)
 	activate(t, collector, false)
@@ -420,6 +494,12 @@ func TestPermissionIsRecheckedBeforeEveryRequest(t *testing.T) {
 			startClient(t, nil, path)
 			RecordFeature(FeatureHTTPAPI)
 			RecordFeature(FeatureDashboard)
+			c := current()
+			select {
+			case <-c.done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("periodic delivery did not stop after permission withdrawal")
+			}
 			Shutdown(5 * time.Second)
 			mu.Lock()
 			defer mu.Unlock()

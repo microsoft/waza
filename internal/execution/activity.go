@@ -15,6 +15,44 @@ type ActivityObserver interface {
 
 type activityObserverKey struct{}
 
+type actorStartObserverKey struct{}
+type actorDispatchObserverKey struct{}
+
+// WithActorStartObserver attaches an optional observed actor-turn callback.
+// The callback may run concurrently and must not block. A nil observer
+// suppresses an inherited actor-start observer.
+func WithActorStartObserver(ctx context.Context, observer func()) context.Context {
+	return context.WithValue(ctx, actorStartObserverKey{}, observer)
+}
+
+// NotifyActorStart reports an observed actor turn, independently of budgets.
+func NotifyActorStart(ctx context.Context) {
+	if observer := actorStartObserverFrom(ctx); observer != nil {
+		observer()
+	}
+}
+
+func actorStartObserverFrom(ctx context.Context) func() {
+	observer, _ := ctx.Value(actorStartObserverKey{}).(func())
+	return observer
+}
+
+// WithActorDispatchObserver records that an engine may initiate an actor turn.
+// It is not evidence that the actor actually started. A nil observer
+// suppresses an inherited actor-dispatch observer.
+func WithActorDispatchObserver(ctx context.Context, observer func()) context.Context {
+	return context.WithValue(ctx, actorDispatchObserverKey{}, observer)
+}
+
+// NotifyActorDispatch marks the point beyond which absence of a start signal
+// cannot prove that the actor did not start.
+func NotifyActorDispatch(ctx context.Context) {
+	observer, _ := ctx.Value(actorDispatchObserverKey{}).(func())
+	if observer != nil {
+		observer()
+	}
+}
+
 // WithActivityObserver attaches observer to executions using ctx.
 func WithActivityObserver(ctx context.Context, observer ActivityObserver) context.Context {
 	return context.WithValue(ctx, activityObserverKey{}, observer)

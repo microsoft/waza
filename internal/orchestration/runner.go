@@ -386,18 +386,26 @@ func (r *EvalRunner) takeSetup(ctx context.Context) (*RunSetup, error) {
 	return StartRunSetup(ctx, r.cfg, r.verbose)
 }
 
-// RunBenchmark executes the entire benchmark
-// If Baseline is enabled, runs twice: skills-enabled and skills-disabled
+// RunBenchmark executes the entire benchmark.
+// If Baseline is enabled, it runs twice: skills-enabled and skills-disabled.
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
-	started := time.Now()
-	outcome, err := r.runBenchmark(ctx)
-	failed, errored, tasks := 0, 0, 0
-	if outcome != nil {
-		failed, errored, tasks = outcome.Digest.Failed, outcome.Digest.Errors, outcome.Digest.TotalTests
+	if !usagetelemetry.Active() {
+		return r.runBenchmark(ctx)
 	}
-	usagetelemetry.RecordExecution(usagetelemetry.SurfaceBenchmark,
-		usagetelemetry.ExecutionMode(r.cfg.Spec().Config.EngineType),
-		usagetelemetry.ExecutionOutcome(ctx, err, failed, errored), tasks, time.Since(started))
+	started := time.Now()
+	var executed taskExecutionCounter
+	ctx = context.WithValue(ctx, taskExecutionCounterKey{}, &executed)
+	outcome, err := r.runBenchmark(ctx)
+	failed, errored := 0, 0
+	if outcome != nil {
+		failed, errored = outcome.Digest.Failed, outcome.Digest.Errors
+	}
+	lower, upper := executed.bounds()
+	if usagetelemetry.CountBucket(lower) == usagetelemetry.CountBucket(upper) {
+		usagetelemetry.RecordExecution(usagetelemetry.SurfaceBenchmark,
+			usagetelemetry.ExecutionMode(r.cfg.Spec().Config.EngineType),
+			usagetelemetry.ExecutionOutcome(ctx, err, failed, errored), lower, time.Since(started))
+	}
 	return outcome, err
 }
 
@@ -1134,6 +1142,11 @@ func (r *EvalRunner) writeTaskTranscript(tc *models.TestCase, outcome models.Tes
 }
 
 func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, testNum, totalTests int) models.TestOutcome {
+	if counter, ok := ctx.Value(taskExecutionCounterKey{}).(*taskExecutionCounter); ok {
+		marker := &taskExecutionMarker{counter: counter}
+		defer marker.finish()
+		ctx = context.WithValue(ctx, taskExecutionMarkerKey{}, marker)
+	}
 	spec := r.cfg.Spec()
 	runsPerTest := spec.Config.TrialsPerTask
 	maxAttempts := spec.Config.MaxAttempts
@@ -1413,7 +1426,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
-	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
+	resp, err = r.executeActorRecorded(execCtx, req)
 	if resp != nil && captureHasExecutionFailure(resp, err) {
 		additionalInfrastructureFailure = true
 	}
@@ -2121,6 +2134,9 @@ func responderUserInputFallback(classifier responderClassifier, timeout time.Dur
 	return func(ctx context.Context, request copilot.UserInputRequest) (string, error) {
 		callCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
+		// The responder runs inside the actor turn but is not an actor turn.
+		callCtx = execution.WithActorStartObserver(callCtx, nil)
+		callCtx = execution.WithActorDispatchObserver(callCtx, nil)
 		decision, err := classifier.Classify(callCtx, nativeQuestionMessage(request))
 		if err != nil {
 			return "", err
@@ -2327,7 +2343,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			Prompt:       prompt,
 		})
 		followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
-		followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
+		followResp, err := r.executeActorRecorded(followCtx, followReq)
 		cancelFollow()
 		if mergeLaterTurnResponse(resp, followResp, err) {
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -2474,7 +2490,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	})
 	defer turnSpan.End()
 	followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
-	followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
+	followResp, err := r.executeActorRecorded(followCtx, followReq)
 	cancelFollow()
 	if mergeLaterTurnResponse(resp, followResp, err) {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
