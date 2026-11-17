@@ -67,7 +67,8 @@ func TestEvidenceRunnerFixtureDeclarationsStayOutsideActorSession(t *testing.T) 
 		t.Run(fmt.Sprintf("declared=%t", declared), func(t *testing.T) {
 			runner, client := evidenceRunner(t)
 			grader := evidenceConfig("fixture")
-			params := grader.Parameters.(models.PromptGraderParameters)
+			params, ok := grader.Parameters.(models.PromptGraderParameters)
+			require.True(t, ok)
 			if declared {
 				values := []string{sha, "PROJ-1", "fixture@example.invalid", "EVALUATOR_ONLY_DECLARATION_CANARY"}
 				params.EvidenceContext.NonSecretLiterals = &values

@@ -10,6 +10,7 @@ on:
       - 'go.sum'
       - 'internal/embedded/**'
       - 'internal/execution/**'
+      - 'internal/fixtureliterals/**'
       - 'internal/graders/**'
       - 'internal/judgeevidence/**'
       - 'internal/models/**'

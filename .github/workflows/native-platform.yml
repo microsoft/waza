@@ -30,6 +30,7 @@ on:
       - '.github/scripts/release_integration_test.sh'
       - 'build.sh'
       - 'cmd/waza/scenario_directory*.go'
+      - 'internal/fixtureliterals/**'
       - 'internal/pathadmission/**'
       - 'internal/snapshot/**'
 
