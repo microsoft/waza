@@ -64,6 +64,9 @@ func (r *Runner) Run(ctx context.Context) (*models.TriggerMetrics, error) {
 }
 
 func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *models.TriggerMetrics, error) {
+	if err := models.ValidateWorkspaceCapture(r.cfg.Spec(), nil); err != nil {
+		return nil, nil, err
+	}
 	if r.mcpError != nil {
 		return nil, nil, fmt.Errorf("trigger MCP mock admission: %w", r.mcpError)
 	}
@@ -175,6 +178,9 @@ func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *mode
 
 func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.ExecutionResponse, error) {
 	spec := r.cfg.Spec()
+	if err := models.ValidateWorkspaceCapture(spec, nil); err != nil {
+		return nil, err
+	}
 	timeout := spec.Config.TimeoutSec
 	if timeout <= 0 {
 		timeout = 60
@@ -196,6 +202,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		Resources:               r.fixtures,
 		MCPServers:              r.mcpConfig,
 		CancelOnSkillInvocation: true,
+		SkipWorkspaceCapture:    spec.Config.WorkspaceCapture == "none",
 	})
 	if err == nil && resp != nil && resp.WorkspaceCaptureError != "" {
 		err = fmt.Errorf("trigger workspace capture failed: %w", resp.CaptureFailure())

@@ -143,7 +143,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 | `--otel-file` | | string | | File path for span JSON when `--otel-exporter=file` |
 | `--otel-include-payloads` | | bool | false | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
 | `--snapshot` | | string | | Capture redacted per-trial observations and portable evidence to the given directory; not a complete workspace. See [Snapshot & Replay](/waza/guides/snapshot-replay/). |
-| `--snapshot-file` | | string[] | | Repeatable reviewed agent-visible UTF-8 regular-file allow-list; requires `--snapshot`. Linux/macOS only. |
+| `--snapshot-file` | | string[] | | Repeatable reviewed agent-visible UTF-8 regular-file allow-list; requires `--snapshot` and full workspace capture. Linux/macOS only. |
 | `--snapshot-evaluator-only` | | string[] | | Repeatable evaluator-only file/directory exclusions; requires `--snapshot` and `--snapshot-file`. Metadata inventory capped at 256 inspections/depth 32 before selected content; limit/inspection/resource failure prevents capture. Never capture credentials or evaluator-only files. |
 | `--snapshot-max-file-bytes` | | int64 | 1048576 | Positive input/sanitized byte limit per file (1 MiB). |
 | `--snapshot-max-total-bytes` | | int64 | 10485760 | Positive aggregate input/sanitized byte limit (10 MiB). |
