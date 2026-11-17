@@ -204,6 +204,16 @@ executions. Issue #825 requires three distinct successful main-push runs after
 merge, each with a native shard max/min ratio `<= 1.25` and total Go CI
 critical-path span `< 25 minutes`; a planned assignment cannot satisfy either
 measured threshold.
+The native source-currentness, late-failure, observed-failure, and public-payload
+cases are separate serial top-level tests, each retaining its isolated fixture,
+planning, collection, and assertions. Their costs average disjoint child PASS
+spans from main-push runs 44123339679 attempt 1
+(`719c9326a7e72ad7237ff1f986476e3e80ab28de`) and 44137275613 attempt 1
+(`fc993836f6ea06ac95fa970e5cc5cda103a3e45b`), before promotion. The initial
+single-run estimate was about 24:50; the two-run mean model projects about 25:17
+and 22:12 across those samples. Both actual runs missed #825's measured
+thresholds, so these projections remain placement diagnostics, not acceptance
+evidence.
 
 PR completeness admission downloads receipts from every attempt of the same
 workflow run, allowing successful units from earlier attempts to be reused
@@ -463,9 +473,12 @@ require both observed Go and Playwright versions; missing or invalid Go versions
 remain explicitly ineligible, including in retained schema-1 artifacts.
 Review the complete source-bound artifacts and final Actions report before
 applying a same-cohort refresh to `.github/scripts/go_test_shard_durations.tsv`
-in a normal reviewed change. Use the latest completed top-level PASS duration
-for a measured test, retain prior estimates for tests without a passing sample,
-and never add overlapping parent/subtest durations. The canonical planner still
+in a normal reviewed change. Record run, attempt, and checkout SHA for every
+sample; document aggregation and apply it consistently rather than
+cherry-picking. When independent cases are promoted from a parent, use each
+case's disjoint child PASS span, never both parent and child durations. The
+current table averages two successful main-push runs and retains prior
+estimates for tests skipped in both. The canonical planner still
 uses authoritative discovery, longest-first assignment and the median
 historical duration for unknown targets (1 second only with empty history).
 History never admits or

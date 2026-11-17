@@ -52,9 +52,12 @@ actual workflow sources. Shard and lint failure-handling checks use
 
 The four native Linux shards use deterministic longest-first duration balancing.
 `.github/scripts/go_test_shard_durations.tsv` records observed top-level
-race/atomic durations and their source run. Update it from top-level test results,
-not overlapping subtest times. Use the latest completed PASS duration for a
-measured test and retain prior estimates for tests without a passing sample.
+race/atomic durations and their source runs. Record run, attempt, and checkout
+SHA for every sample; document any aggregation and apply it consistently rather
+than cherry-picking runs. When independent cases are promoted from a parent,
+use each case's disjoint child PASS span, never both parent and child durations.
+The current table averages two successful main-push samples and retains prior
+estimates for tests skipped in both.
 Timing history affects placement only: discovery still determines the complete
 inventory, new tests receive the median historical duration, and removed tests
 are never resurrected. Python 3 (provided by the
@@ -68,6 +71,16 @@ shard. Keep each native top-level test well under a quarter of the total; split
 long table-driven tests into independently measured top-level groups of complete
 cases (as the frozen 15c parity, observed-failure, and public-payload tests are)
 rather than relying on subtests. Preserve every case once when regrouping.
+Native source-currentness, late-failure, observed-failure, and public-payload
+cases are now separate serial top-level tests; each retains its own fixture,
+planning, collection, and assertions. Their cost rows average disjoint child
+PASS spans from main-push runs 44123339679 attempt 1
+(`719c9326a7e72ad7237ff1f986476e3e80ab28de`) and 44137275613 attempt 1
+(`fc993836f6ea06ac95fa970e5cc5cda103a3e45b`), before promotion. The first
+sample's counterfactual was about 24:50; including the second sample gives
+conservative projected spans of about 25:17 and 22:12 across the two observed
+profiles. Both real runs missed #825's measured thresholds; projections are
+placement diagnostics only, not acceptance evidence.
 Independent subtests may also run with `t.Parallel()` when each owns isolated
 files and process state, but the planner still treats their parent as one item.
 Ordinary Go CI also runs the complete remaining package inventory in four
