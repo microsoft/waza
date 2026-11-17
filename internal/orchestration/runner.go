@@ -1427,10 +1427,13 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
-	if marker, ok := ctx.Value(taskExecutionMarkerKey{}).(*taskExecutionMarker); ok && marker.counted.CompareAndSwap(false, true) {
-		marker.counter.Add(1)
+	err = execCtx.Err()
+	if err == nil {
+		if marker, ok := ctx.Value(taskExecutionMarkerKey{}).(*taskExecutionMarker); ok && marker.counted.CompareAndSwap(false, true) {
+			marker.counter.Add(1)
+		}
+		resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
 	}
-	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
 	if resp != nil && captureHasExecutionFailure(resp, err) {
 		additionalInfrastructureFailure = true
 	}

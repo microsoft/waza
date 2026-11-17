@@ -110,7 +110,7 @@ func (c *CommandAdapter) env() []string {
 	for _, key := range keys {
 		if v, ok := os.LookupEnv(key); ok {
 			if key == usagetelemetry.CIEnv {
-				if v == "" || v == "0" || strings.EqualFold(v, "false") {
+				if !usagetelemetry.CIContextMarkerEnabled(v) {
 					continue
 				}
 				v = "1"

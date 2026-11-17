@@ -90,11 +90,14 @@ Every value is an approved enum, a bucket, a boolean, or a random UUIDv4.
 | `task_count_bucket` | `0`, `1`, `2_5`, `6_20`, `21_100`, `gt_100` |
 | `feature` | `llm_judge`, `http_api`, `dashboard`, `mcp_server`, recorded at most once per process |
 
-Each logical evaluation execution is counted once. Benchmark task counts include
-each task whose agent execution started, once per benchmark pass, excluding
-cache hits and failures before agent execution; trials and retries do not add
-tasks. Bucketed volumes are bounded estimates, not exact sums; the highest
-bucket has no upper bound. Waza never sends prompts,
+Each logical evaluation execution is counted once. Benchmark task counts use
+each task whose actor is invoked after a non-canceled context check as a proxy for
+execution, once per benchmark pass. They exclude cache hits, failures before
+invocation, and tasks already canceled at that boundary; trials and retries
+do not add tasks. The engine does not acknowledge the actual start, so an
+invocation can be counted even if cancellation races or the engine rejects it
+before work begins. Bucketed volumes are bounded estimates, not exact sums;
+the highest bucket has no upper bound. Waza never sends prompts,
 outputs, arguments, flag values, paths, file or skill names, raw errors,
 environment values, URLs, hashes, or OpenTelemetry attributes. The
 installation ID is pseudonymous: it is random, is not derived from your machine

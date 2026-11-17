@@ -1,12 +1,15 @@
 package orchestration
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +28,7 @@ func TestBenchmarkUsageCountsExecutedTasks(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"),
 			[]byte("id: "+name+"\nname: "+name+"\ninputs:\n  prompt: synthetic\n"), 0o600))
 	}
+
 	var mu sync.Mutex
 	var buckets []string
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,4 +81,77 @@ func TestBenchmarkUsageCountsExecutedTasks(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, []string{"2_5", "0", "1", "1"}, buckets)
+}
+
+type cancelQueuedEngine struct {
+	execution.AgentEngine
+	started chan struct{}
+	calls   atomic.Int32
+}
+
+func (e *cancelQueuedEngine) Execute(ctx context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	if e.calls.Add(1) == 1 {
+		close(e.started)
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestBenchmarkUsageExcludesCanceledQueuedTasks(t *testing.T) {
+	dir := t.TempDir()
+	var tasks []string
+	for i := range 8 {
+		name := fmt.Sprintf("task-%d", i)
+		tasks = append(tasks, name+".yaml")
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"),
+			[]byte("id: "+name+"\nname: "+name+"\ninputs:\n  prompt: synthetic\n"), 0o600))
+	}
+	events := make(chan string, 1)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var event struct {
+			Count string `json:"task_count_bucket"`
+		}
+		if json.NewDecoder(r.Body).Decode(&event) == nil {
+			events <- event.Count
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(usagetelemetry.OverrideActivationForTesting(server.URL, server.Client(), true, false))
+	p := usagetelemetry.Resolve(usagetelemetry.Inputs{Getenv: func(string) string { return "" },
+		SettingsPath: filepath.Join(dir, "telemetry.json"), WorkDir: dir})
+	require.True(t, p.Enabled)
+	usagetelemetry.Start(p, "dev")
+	t.Cleanup(func() { usagetelemetry.Shutdown(0) })
+	spec := &models.EvalSpec{SpecIdentity: models.SpecIdentity{Name: "synthetic"},
+		Config: models.Config{EngineType: "mock", ModelID: "offline", TrialsPerTask: 1, TimeoutSec: 30,
+			Concurrent: true, Workers: 1}, Tasks: tasks}
+	engine := &cancelQueuedEngine{AgentEngine: execution.NewMockEngine("offline"), started: make(chan struct{})}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine, WithSkipGraders())
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = runner.RunBenchmark(ctx)
+	}()
+	select {
+	case <-engine.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first actor did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("benchmark did not stop")
+	}
+	require.EqualValues(t, 1, engine.calls.Load(), "queued tasks must not invoke the actor after cancellation")
+	usagetelemetry.Shutdown(5 * time.Second)
+	select {
+	case bucket := <-events:
+		require.Equal(t, "1", bucket)
+	default:
+		t.Fatal("benchmark telemetry was not delivered")
+	}
 }

@@ -275,6 +275,54 @@ func TestCommandAdapterPreservesCIPrivacy(t *testing.T) {
 	}
 }
 
+func TestCommandAdapterFalseCIMarkersStayFalse(t *testing.T) {
+	for _, value := range []string{"off", "no", "  OFF  ", "FALSE", "0"} {
+		t.Run(value, func(t *testing.T) {
+			events := make(chan map[string]any, 1)
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var event map[string]any
+				if json.NewDecoder(r.Body).Decode(&event) == nil {
+					events <- event
+				}
+				w.WriteHeader(http.StatusAccepted)
+			}))
+			t.Cleanup(server.Close)
+			t.Setenv(usagetelemetry.CIEnv, value)
+			t.Setenv(usagetelemetry.OptOutEnv, "")
+			t.Setenv(usagetelemetry.NestedEnv, "1")
+			t.Setenv("DO_NOT_TRACK", "")
+			t.Setenv("AZURE_DEV_COLLECT_TELEMETRY", "")
+			t.Setenv("TEST_COLLECTOR_CERT", base64.StdEncoding.EncodeToString(server.Certificate().Raw))
+			t.Setenv("TEST_COLLECTOR_URL", server.URL)
+			t.Setenv("TEST_CI_ON", "0")
+			dir := t.TempDir()
+			path := filepath.Join(dir, "telemetry.json")
+			t.Setenv("TEST_SETTINGS", path)
+			restore := usagetelemetry.OverrideActivationForTesting(server.URL, server.Client(), true, false)
+			defer restore()
+			parent := usagetelemetry.Resolve(usagetelemetry.Inputs{SettingsPath: path, WorkDir: dir,
+				Getenv: func(key string) string {
+					if key == usagetelemetry.CIEnv {
+						return value
+					}
+					return ""
+				}})
+			require.False(t, parent.CI)
+			require.True(t, parent.Enabled)
+			resp, err := helperAdapter(t, "telemetry", time.Minute, "TEST_COLLECTOR_CERT", "TEST_COLLECTOR_URL", "TEST_SETTINGS", "TEST_CI_ON").Propose(t.Context(), proposeReq())
+			require.NoError(t, err)
+			require.Zero(t, resp.Usage.OutputTokens, "false marker must not be forwarded as CI")
+			select {
+			case event := <-events:
+				require.Equal(t, false, event["ci"])
+				require.Contains(t, event, "installation_id")
+			default:
+				t.Fatal("non-CI child did not deliver an event")
+			}
+		})
+	}
+}
+
 func TestCommandAdapterResponsesMatchSchema(t *testing.T) {
 	a := helperAdapter(t, "plus", time.Minute)
 	info, err := a.Describe(context.Background())

@@ -217,7 +217,7 @@ func hostDenies(getenv func(string) string) bool {
 }
 
 func detectCI(getenv func(string) string) bool {
-	if truthy(getenv(CIEnv)) {
+	if CIContextMarkerEnabled(getenv(CIEnv)) {
 		return true
 	}
 	for _, name := range ciEnvVars {
@@ -226,6 +226,12 @@ func detectCI(getenv func(string) string) bool {
 		}
 	}
 	return false
+}
+
+// CIContextMarkerEnabled interprets the internal CI marker using the same
+// false values as policy resolution.
+func CIContextMarkerEnabled(value string) bool {
+	return truthy(value)
 }
 
 func falsy(v string) bool {
