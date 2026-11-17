@@ -98,7 +98,8 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		return nil, err
 	}
 
-	// The synthetic response is one model turn for budget observers.
+	// The synthetic response starts one model turn.
+	NotifyActorStart(ctx)
 	if activity := ActivityObserverFrom(ctx); activity != nil {
 		activity.ModelTurnStarted()
 		if err := ctx.Err(); err != nil {

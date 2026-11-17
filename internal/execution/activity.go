@@ -15,6 +15,26 @@ type ActivityObserver interface {
 
 type activityObserverKey struct{}
 
+type actorStartObserverKey struct{}
+
+// WithActorStartObserver attaches an optional observed actor-turn callback.
+// The callback may run concurrently and must not block.
+func WithActorStartObserver(ctx context.Context, observer func()) context.Context {
+	return context.WithValue(ctx, actorStartObserverKey{}, observer)
+}
+
+// NotifyActorStart reports an observed actor turn, independently of budgets.
+func NotifyActorStart(ctx context.Context) {
+	if observer := actorStartObserverFrom(ctx); observer != nil {
+		observer()
+	}
+}
+
+func actorStartObserverFrom(ctx context.Context) func() {
+	observer, _ := ctx.Value(actorStartObserverKey{}).(func())
+	return observer
+}
+
 // WithActivityObserver attaches observer to executions using ctx.
 func WithActivityObserver(ctx context.Context, observer ActivityObserver) context.Context {
 	return context.WithValue(ctx, activityObserverKey{}, observer)

@@ -13,11 +13,13 @@ import (
 	"testing"
 	"time"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/testutil/copilotfake"
 	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/stretchr/testify/require"
 )
@@ -91,10 +93,93 @@ type cancelQueuedEngine struct {
 
 func (e *cancelQueuedEngine) Execute(ctx context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	if e.calls.Add(1) == 1 {
+		execution.NotifyActorStart(ctx)
 		close(e.started)
 	}
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+type mockSetupFailureEngine struct {
+	*execution.MockEngine
+	calls atomic.Int32
+}
+
+func (e *mockSetupFailureEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.calls.Add(1)
+	request := *req
+	request.WorkDir = "../synthetic"
+	return e.MockEngine.Execute(ctx, &request)
+}
+
+func TestBenchmarkUsageObservesActorStarts(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		engineType string
+		turnStart  bool
+		setupFail  bool
+		wantBucket string
+	}{
+		{name: "engine setup fails", engineType: "mock", setupFail: true, wantBucket: "0"},
+		{name: "observed copilot turn", engineType: "copilot-sdk", turnStart: true, wantBucket: "1"},
+		{name: "copilot turn not observed", engineType: "copilot-sdk", wantBucket: "0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"),
+				[]byte("id: synthetic\nname: synthetic\ninputs:\n  prompt: synthetic\n"), 0o600))
+			events := make(chan string, 1)
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var event struct {
+					Count string `json:"task_count_bucket"`
+				}
+				if json.NewDecoder(r.Body).Decode(&event) == nil {
+					events <- event.Count
+				}
+				w.WriteHeader(http.StatusAccepted)
+			}))
+			t.Cleanup(server.Close)
+			t.Cleanup(usagetelemetry.OverrideActivationForTesting(server.URL, server.Client(), true, false))
+			p := usagetelemetry.Resolve(usagetelemetry.Inputs{Getenv: func(string) string { return "" },
+				SettingsPath: filepath.Join(dir, "telemetry.json"), WorkDir: dir})
+			require.True(t, p.Enabled)
+			usagetelemetry.Start(p, "dev")
+			t.Cleanup(func() { usagetelemetry.Shutdown(0) })
+			spec := &models.EvalSpec{SpecIdentity: models.SpecIdentity{Name: "synthetic"},
+				Config: models.Config{EngineType: tc.engineType, ModelID: "actor-model", TrialsPerTask: 1, TimeoutSec: 30},
+				Tasks:  []string{"task.yaml"}}
+			var engine execution.AgentEngine
+			var setupEngine *mockSetupFailureEngine
+			if tc.setupFail {
+				setupEngine = &mockSetupFailureEngine{MockEngine: execution.NewMockEngine("actor-model")}
+				engine = setupEngine
+			} else {
+				client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+					var events []copilot.SessionEvent
+					if tc.turnStart {
+						events = append(events, copilot.SessionEvent{Data: &copilot.AssistantTurnStartData{}})
+					}
+					return append(events, copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "synthetic"}}), nil
+				}}
+				engine = client.Engine()
+			}
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine, WithSkipGraders())
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.NoError(t, err)
+			require.Len(t, outcome.TestOutcomes, 1)
+			if tc.setupFail {
+				require.EqualValues(t, 1, setupEngine.calls.Load(), "failure must occur inside the engine")
+				require.Equal(t, models.StatusError, outcome.TestOutcomes[0].Status)
+			}
+			usagetelemetry.Shutdown(5 * time.Second)
+			select {
+			case bucket := <-events:
+				require.Equal(t, tc.wantBucket, bucket)
+			default:
+				t.Fatal("benchmark telemetry was not delivered")
+			}
+		})
+	}
 }
 
 func TestBenchmarkUsageExcludesCanceledQueuedTasks(t *testing.T) {

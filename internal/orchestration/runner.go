@@ -1429,10 +1429,21 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	diagnosticCategory = "execution"
 	err = execCtx.Err()
 	if err == nil {
-		if marker, ok := ctx.Value(taskExecutionMarkerKey{}).(*taskExecutionMarker); ok && marker.counted.CompareAndSwap(false, true) {
-			marker.counter.Add(1)
+		var observerMu sync.Mutex
+		observing := true
+		if marker, ok := ctx.Value(taskExecutionMarkerKey{}).(*taskExecutionMarker); ok {
+			execCtx = execution.WithActorStartObserver(execCtx, func() {
+				observerMu.Lock()
+				defer observerMu.Unlock()
+				if observing && marker.counted.CompareAndSwap(false, true) {
+					marker.counter.Add(1)
+				}
+			})
 		}
 		resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
+		observerMu.Lock()
+		observing = false
+		observerMu.Unlock()
 	}
 	if resp != nil && captureHasExecutionFailure(resp, err) {
 		additionalInfrastructureFailure = true

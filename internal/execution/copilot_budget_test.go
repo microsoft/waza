@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -33,6 +34,8 @@ func TestCopilotExecuteEnforcesCountedBudgetsFromSessionEvents(t *testing.T) {
 			ctx, meter := executionbudget.Start(t.Context(), *plan, func(ctx context.Context, meter *executionbudget.Meter) context.Context {
 				return WithActivityObserver(ctx, meter)
 			})
+			var actorStarts atomic.Int64
+			ctx = WithActorStartObserver(ctx, func() { actorStarts.Add(1) })
 
 			ctrl := gomock.NewController(t)
 			client := newClientMock(ctrl)
@@ -74,6 +77,11 @@ func TestCopilotExecuteEnforcesCountedBudgetsFromSessionEvents(t *testing.T) {
 				require.NoError(t, sendErr)
 			}
 			require.Equal(t, !over, response.Success)
+			if tt.resource == executionbudget.ModelTurns {
+				require.EqualValues(t, tt.starts, actorStarts.Load())
+			} else {
+				require.Zero(t, actorStarts.Load())
+			}
 
 			report := meter.Finish()
 			for _, row := range report.Resources {

@@ -941,6 +941,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	// stored in e.collectors so we can read final usage after shutdown.
 	var eventsMu sync.Mutex
 	activity := ActivityObserverFrom(ctx)
+	actorStart := actorStartObserverFrom(ctx)
 	collectEvent := func(event copilot.SessionEvent) {
 		if activity != nil {
 			switch event.Type() {
@@ -952,6 +953,9 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		}
 		eventsMu.Lock()
 		defer eventsMu.Unlock()
+		if actorStart != nil && event.Type() == copilot.SessionEventTypeAssistantTurnStart {
+			actorStart()
+		}
 		eventsCollector.On(event)
 	}
 	var sendDiagnostic atomic.Bool
