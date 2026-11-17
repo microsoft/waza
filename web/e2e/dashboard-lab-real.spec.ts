@@ -107,7 +107,7 @@ function generationDetail(run: RunSummary, generation: string, score: number): R
       transcript: [
         { type: "ToolExecutionStart", toolCallId: "read", toolName: "read_file", arguments: { path: `${generation}-${run.id}.txt` } },
         { type: "ToolExecutionComplete", toolCallId: "read", toolResult: `${generation} ${run.id} artifact`, success: true },
-        { type: "Error", message: `${generation} ${run.id} trajectory` },
+        { type: "assistant.message", content: `${generation} ${run.id} trajectory` },
       ],
     }],
   };
@@ -474,7 +474,7 @@ test.describe("Real dashboard lab", () => {
         transcript: [
           { type: "ToolExecutionStart", toolCallId: `${id}-call`, toolName: "read_file", arguments: { path: `${id}-artifact.txt` } },
           { type: "ToolExecutionComplete", toolCallId: `${id}-call`, toolResult: `Recorded ${id}-artifact contents`, success: true },
-          { type: "Error", message: `${id} recorded trajectory` },
+          { type: "assistant.message", content: `${id} recorded trajectory` },
         ],
       });
       const selected = recordedTask("selected-task", "Selected task", "pass");
