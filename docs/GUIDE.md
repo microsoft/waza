@@ -1076,6 +1076,14 @@ expected:
 
 The `worktree` strategy uses `git worktree add --detach` against the local source clone — it shares the source repo's `.git` object store (so it's cheap, no network) and uses `--detach` so branch/tag names won't conflict with the source repo's current checkout. Worktrees are removed via `git worktree remove --force` when the engine shuts down. See `## Git Repository Resources` in the README for the full field reference.
 
+Post-turn workspace capture is bounded and fail-closed by default. To run an
+output/tool-only eval against a repository containing unrelated oversized files,
+set `config.workspace_capture: none`. Admission rejects workspace-dependent or
+unknown graders and checkpoints, outcome expectations, and `--snapshot-file`.
+This does not restrict the actor's access to the workspace. See the
+[schema reference](https://microsoft.github.io/waza/reference/schema/#workspace_capture)
+for the supported grader allowlist.
+
 For non-git fixture workspaces, set `inputs.context.fixture` to a file or directory relative to the eval spec directory. Directory fixture contents are copied into the fresh task workspace before the agent runs:
 
 ```yaml

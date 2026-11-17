@@ -517,6 +517,9 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	if len(testCases) == 0 {
 		return nil, fmt.Errorf("no test cases found")
 	}
+	if err := models.ValidateWorkspaceCapture(spec, testCases); err != nil {
+		return nil, err
+	}
 	r.partialMu.Lock()
 	r.partialOutcomes = make([]models.TestOutcome, len(testCases))
 	r.partialStart = startTime
@@ -820,7 +823,10 @@ func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 	if err := mcpmock.ValidateMCPMocksForPhases(r.cfg.Spec(), testCases, r.cfg.SpecDir(), usesEvalMCP); err != nil {
 		return errors.Join(selectionErr, fmt.Errorf("MCP mock admission: %w", err))
 	}
-	return selectionErr
+	if r.cfg.Spec().Config.WorkspaceCapture == "none" && len(r.snapshotWorkspacePaths) > 0 {
+		return errors.Join(selectionErr, fmt.Errorf("workspace_capture none cannot be used with workspace snapshot files"))
+	}
+	return errors.Join(selectionErr, models.ValidateWorkspaceCapture(r.cfg.Spec(), testCases))
 }
 
 // admissionTestCases selects the active tasks a run would execute, after task
@@ -1319,12 +1325,24 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 
 	// Prepare execution request
+	if err := models.ValidateWorkspaceCapture(r.cfg.Spec(), []*models.TestCase{tc}); err != nil {
+		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError, ErrorMsg: err.Error()}, err)
+	}
+	if r.cfg.Spec().Config.WorkspaceCapture == "none" && len(r.snapshotWorkspacePaths) > 0 {
+		err := fmt.Errorf("workspace_capture none cannot be used with workspace snapshot files")
+		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError, ErrorMsg: err.Error()}, err)
+	}
 	if controlled && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
 		err := fmt.Errorf("evidence_context is not supported by controlled execution")
 		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError,
 			ErrorMsg: err.Error()}, err)
 	}
 	req = prepared
+	if req != nil && (req.SkipWorkspaceCapture != (r.cfg.Spec().Config.WorkspaceCapture == "none") ||
+		(req.SkipWorkspaceCapture && (len(req.WorkspaceCapturePaths) != 0 || req.CaptureJudgeFiles != nil))) {
+		err := fmt.Errorf("prepared request workspace capture does not match validated configuration")
+		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError, ErrorMsg: err.Error()}, err)
+	}
 	if req == nil {
 		req, mockAttempt, err = r.buildAttemptExecutionRequest(tc)
 	}
@@ -1945,6 +1963,9 @@ func warnStderr(format string, args ...any) {
 }
 
 func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMCP func(*models.EvalSpec) (map[string]copilot.MCPServerConfig, error)) (*execution.ExecutionRequest, error) {
+	if err := models.ValidateWorkspaceCapture(r.cfg.Spec(), []*models.TestCase{tc}); err != nil {
+		return nil, err
+	}
 	// Load resource files
 	r.setRequestInputRole("context_fixture")
 	resources, err := r.loadContextFixtureResources(tc)
@@ -2013,6 +2034,7 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 		ReasoningEffort:       spec.Config.ReasoningEffort,
 		CaptureJudgeFiles:     captureJudgeFiles,
 		WorkspaceCapturePaths: capturePaths,
+		SkipWorkspaceCapture:  spec.Config.WorkspaceCapture == "none",
 	}, nil
 }
 

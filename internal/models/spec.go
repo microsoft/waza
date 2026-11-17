@@ -99,6 +99,7 @@ type Config struct {
 	Workers              int      `yaml:"workers,omitempty" json:"workers,omitempty"`
 	StopOnError          bool     `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
 	EngineType           string   `yaml:"executor" json:"engine_type"`
+	WorkspaceCapture     string   `yaml:"workspace_capture,omitempty" json:"workspace_capture,omitempty"`
 	ModelID              string   `yaml:"model" json:"model_id"`
 	ReasoningEffort      string   `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
 	SkillPaths           []string `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
@@ -267,14 +268,15 @@ func (c *Config) ShouldTriggerSkillRouting() bool {
 
 // GraderConfig defines a validator/grader
 type GraderConfig struct {
-	Ref        string           `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Kind       GraderKind       `yaml:"type" json:"kind"`
-	Identifier string           `yaml:"name" json:"identifier"`
-	ScriptPath string           `yaml:"script,omitempty" json:"script_path,omitempty"`
-	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
-	ModelID    string           `yaml:"model,omitempty" json:"model_id,omitempty"`
-	Weight     float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
-	Parameters GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+	Ref                  string           `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Kind                 GraderKind       `yaml:"type" json:"kind"`
+	Identifier           string           `yaml:"name" json:"identifier"`
+	ScriptPath           string           `yaml:"script,omitempty" json:"script_path,omitempty"`
+	Rubric               string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
+	ModelID              string           `yaml:"model,omitempty" json:"model_id,omitempty"`
+	Weight               float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Parameters           GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+	captureUnknownFields bool
 }
 
 func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
@@ -320,6 +322,7 @@ func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 	g.ModelID = raw.ModelID
 	g.Weight = raw.Weight
 	g.Parameters = params
+	g.captureUnknownFields = captureGraderUnknownFields(bytesData, &raw, &raw.Parameters, params)
 
 	// Validate grader-type-specific required fields
 	if err := g.Validate(); err != nil {
@@ -573,6 +576,20 @@ func parseEvalSpec(data []byte, path string, offline bool, validate func(string,
 	if err != nil {
 		return nil, err
 	}
+	var captureHeader struct {
+		Config map[string]yaml.Node `yaml:"config"`
+	}
+	if err := yaml.Unmarshal(data, &captureHeader); err != nil {
+		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
+	}
+	if capture, ok := captureHeader.Config["workspace_capture"]; ok {
+		for capture.Kind == yaml.AliasNode && capture.Alias != nil {
+			capture = *capture.Alias
+		}
+		if capture.Kind != yaml.ScalarNode || capture.Tag != "!!str" || (capture.Value != "full" && capture.Value != "none") {
+			return nil, fmt.Errorf("workspace_capture must be full or none")
+		}
+	}
 
 	var sourceErr error
 	if err := validateDeclaredFaults(data, version, false); err != nil {
@@ -614,6 +631,9 @@ func parseEvalSpec(data []byte, path string, offline bool, validate func(string,
 
 // Validate checks that the spec is valid
 func (s *EvalSpec) Validate() error {
+	if s.Config.WorkspaceCapture != "" && s.Config.WorkspaceCapture != "full" && s.Config.WorkspaceCapture != "none" {
+		return fmt.Errorf("workspace_capture must be full or none, got %q", s.Config.WorkspaceCapture)
+	}
 	if s.Scenario != "" {
 		if strings.TrimSpace(s.Scenario) == "" {
 			return fmt.Errorf("scenario must be a non-empty workflow identity")
