@@ -49,8 +49,10 @@ allowlisted `code`, a positive `limit` no greater than 1,099,511,627,776, and
 an optional `additional_failure` boolean. The limit is present only for
 workspace-capture limit codes. Missing and unknown diagnostics remain generic
 in the dashboard; legacy artifacts remain readable. The raw `error_msg` and
-responder reason remain in artifacts and may contain sensitive data. The
-release-results schema references the updated release-artifacts definition.
+responder reason and user-input errors remain in artifacts and may contain sensitive data. The
+published 1.0 release exports omit `infrastructure_diagnostic` to remain
+compatible with the closed release-artifacts 1.0 schema; normal run artifacts
+retain it.
 
 Optional task `requirements` introduced by #660 are descriptive v1-compatible
 metadata, without a global schema bump or new runtime/exit semantics. Old readers

@@ -71,6 +71,39 @@ func TestResponderReasonsAreNeverProjected(t *testing.T) {
 	}
 }
 
+func TestUserInputErrorsAreNeverProjected(t *testing.T) {
+	records := []models.UserInputRecord{
+		{Sequence: 1, Question: "first", Error: "native input abstained: /private/secret-token"},
+		{Sequence: 2, Question: "second", Error: "another arbitrary secret-value"},
+		{Sequence: 3, Question: "third"},
+	}
+	original := models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{Runs: []models.RunResult{{
+		UserInputRequests: &records,
+	}}}}}
+	artifact, err := json.Marshal(original)
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.json"), artifact, 0o600))
+	response := httptest.NewRecorder()
+	NewHandlers(NewFileStore(dir)).HandleRunDetail(response, httptest.NewRequest(http.MethodGet, "/api/runs/eval", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	require.NotContains(t, response.Body.String(), "/private")
+	require.NotContains(t, response.Body.String(), "secret-token")
+	require.NotContains(t, response.Body.String(), "secret-value")
+	var detail RunDetail
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &detail))
+	projected := *detail.Tasks[0].UserInputRequests
+	require.Len(t, projected, 3)
+	require.Equal(t, "A user input error occurred.", projected[0].Error)
+	require.Equal(t, "A user input error occurred.", projected[1].Error)
+	require.Empty(t, projected[2].Error)
+	require.Equal(t, 3, projected[2].Sequence)
+	require.Equal(t, "native input abstained: /private/secret-token", records[0].Error)
+	stored, err := os.ReadFile(filepath.Join(dir, "eval.json"))
+	require.NoError(t, err)
+	require.Equal(t, artifact, stored)
+}
+
 func TestLegacyAttemptIsOmitted(t *testing.T) {
 	outcome := models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{Runs: []models.RunResult{{
 		RunNumber: 7, Status: models.StatusError, ErrorMsg: "private",

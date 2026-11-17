@@ -120,7 +120,7 @@ func TestReleaseAssuranceSchemasProducerShapes(t *testing.T) {
 	}
 }
 
-func TestReleaseResultsSchemaAcceptsSafeInfrastructureDiagnostic(t *testing.T) {
+func TestReleaseResultsPreservePublishedSchema(t *testing.T) {
 	result := releasepolicy.Results{
 		Kind: "waza.release-results", Version: releasepolicy.Version,
 		Arm: releasepolicy.Baseline,
@@ -135,15 +135,20 @@ func TestReleaseResultsSchemaAcceptsSafeInfrastructureDiagnostic(t *testing.T) {
 	for _, resource := range []string{"release-artifacts-1.0.schema.json", "release-artifacts-1.0.schema.json#/$defs/releasepolicy_Results"} {
 		require.NoError(t, releaseAssuranceSchema(t, resource).Validate(document))
 	}
-	rows := document["rows"].([]any)
-	diagnostic := assuranceObject(t, rows[0], "run", "infrastructure_diagnostic")
+	rows, ok := document["rows"].([]any)
+	require.True(t, ok)
+	run := assuranceObject(t, rows[0], "run")
+	require.NotContains(t, run, "infrastructure_diagnostic")
+	require.NotNil(t, result.Rows[0].Run.InfrastructureDiagnostic)
+	normal := assuranceJSON(t, result.Rows[0].Run)
+	require.Contains(t, normal, "infrastructure_diagnostic")
+	run["infrastructure_diagnostic"] = normal["infrastructure_diagnostic"]
 	schema := releaseAssuranceSchema(t, "release-artifacts-1.0.schema.json#/$defs/releasepolicy_Results")
-	diagnostic["code"] = "/private/secret"
 	require.Error(t, schema.Validate(document))
-	diagnostic["code"] = string(models.CaptureFileBytes)
-	require.NoError(t, schema.Validate(document))
-	diagnostic["limit"] = float64(models.MaxInfrastructureDiagnosticLimit + 1)
-	require.Error(t, schema.Validate(document))
+	result.Version = "2.0"
+	futureRows, ok := assuranceJSON(t, result)["rows"].([]any)
+	require.True(t, ok)
+	require.Contains(t, assuranceObject(t, futureRows[0], "run"), "infrastructure_diagnostic")
 }
 
 func TestReleaseAssuranceSchemasStrictAdmission(t *testing.T) {

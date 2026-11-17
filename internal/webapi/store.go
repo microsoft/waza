@@ -359,6 +359,11 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			tr.CommandInvocations = append([]models.CommandInvocation(nil), run.CommandInvocations...)
 			if run.UserInputRequests != nil {
 				records := append([]models.UserInputRecord{}, *run.UserInputRequests...)
+				for i := range records {
+					if records[i].Error != "" {
+						records[i].Error = "A user input error occurred."
+					}
+				}
 				tr.UserInputRequests = &records
 			}
 			if tr.Duration == 0 {

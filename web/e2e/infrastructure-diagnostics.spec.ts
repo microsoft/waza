@@ -9,6 +9,7 @@ test("shows safe trial diagnostics independently of graders", async ({ page }) =
     tasks: [{
       ...RUN_DETAIL.tasks[0], name: "capture failure", outcome: "error", graderResults: [],
       responder: { outcome: "error", followupsSent: 1, reason: "/private/secret-token" },
+      userInputRequests: [{ sequence: 1, question: "Continue?", error: "/private/user-input-secret" }],
       infrastructureRuns: [
         { runNumber: 1, attempts: 2, diagnostic: { code: "workspace_capture_file_bytes", limit: 16777216, additional_failure: true } },
         { runNumber: 2, attempts: 1 },
@@ -33,6 +34,7 @@ test("shows safe trial diagnostics independently of graders", async ({ page }) =
   await page.getByRole("row").filter({ hasText: "legacy failure" }).click();
   await expect(page.getByText("An infrastructure error occurred.", { exact: true })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("secret-token");
+  await expect(page.locator("body")).not.toContainText("user-input-secret");
   await expect(page.locator("body")).not.toContainText("/private");
   await expect(page.locator("body")).not.toContainText("9999999999999");
 });

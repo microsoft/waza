@@ -87,6 +87,9 @@ func (g *generator) fields(typ reflect.Type) (document, []string) {
 	requiredNames := map[string]bool{}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+		if typ == reflect.TypeFor[models.RunResult]() && field.Name == "InfrastructureDiagnostic" {
+			continue
+		}
 		tag := field.Tag.Get("json")
 		if !field.IsExported() || tag == "-" {
 			continue
@@ -143,12 +146,6 @@ func main() {
 		properties := definition["properties"].(document)
 		properties["kind"], properties["version"] = document{"const": root.kind}, document{"const": releasepolicy.Version}
 	}
-	diagnostic := g.definitions["models_InfrastructureDiagnostic"].(document)["properties"].(document)
-	diagnostic["code"] = document{"enum": []models.InfrastructureDiagnosticCode{
-		models.InfrastructureError, models.CaptureFailed, models.CaptureFileCount,
-		models.CaptureEntryCount, models.CaptureFileBytes, models.CaptureTotalBytes,
-	}}
-	diagnostic["limit"] = document{"type": "integer", "minimum": 1, "maximum": models.MaxInfrastructureDiagnosticLimit}
 	policy := g.definitions["releasepolicy_Policy"].(document)["properties"].(document)
 	policy["collection_profile"] = document{"const": releasepolicy.NativeCollectionProfile}
 	policy["arms"] = document{"type": "object", "required": []string{"baseline", "candidate"},

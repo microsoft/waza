@@ -208,7 +208,9 @@ func TestNativeUserInputRecordsSurviveRegradeReaderAndAPI(t *testing.T) {
 	require.NotNil(t, parsedRecords[0].Choices, "explicit empty offered choices must stay distinct from absent")
 	require.Nil(t, parsedRecords[1].Choices)
 	detail := outcomeToDetail(parsed)
-	require.Equal(t, run.UserInputRequests, detail.Tasks[0].UserInputRequests)
+	expected := append([]models.UserInputRecord{}, (*run.UserInputRequests)...)
+	expected[1].Error = "A user input error occurred."
+	require.Equal(t, &expected, detail.Tasks[0].UserInputRequests)
 	metadata, err := json.Marshal(detail.Tasks[0])
 	require.NoError(t, err)
 	require.Contains(t, string(metadata), `"userInputRequests":[{"sequence":1,"session_id":"s-1","question":"Deploy where?","choices":[],"answer":"staging","was_freeform":true,"source":"script"}`)

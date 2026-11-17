@@ -10,9 +10,48 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAssuranceRowsUseReleaseV1Projection(t *testing.T) {
+	dir := t.TempDir()
+	raw, err := os.Create(filepath.Join(dir, "raw.ndjson"))
+	require.NoError(t, err)
+	stream, err := os.Create(filepath.Join(dir, "stream.ndjson"))
+	require.NoError(t, err)
+	collection := assuranceCollection{contract: &AssuranceContract{}, rawStream: raw, stream: stream,
+		rawSync: raw.Sync, sync: stream.Sync}
+	row := ActualRunRow{Run: models.RunResult{RunNumber: 1, Status: models.StatusError,
+		InfrastructureDiagnostic: &models.InfrastructureDiagnostic{Code: models.CaptureFileBytes, Limit: 10}}}
+	observation := AttemptObservation{Result: row, Output: &AssuranceOutput{Availability: "unavailable", Reason: "not available"}}
+	require.NoError(t, collection.append(observation))
+	require.NoError(t, collection.close())
+	rawJSON, err := os.ReadFile(filepath.Join(dir, "raw.ndjson"))
+	require.NoError(t, err)
+	require.NotContains(t, string(rawJSON), "infrastructure_diagnostic")
+	var saved any
+	require.NoError(t, json.Unmarshal(rawJSON, &saved))
+	digest, err := evidence.JSONDigest(saved)
+	require.NoError(t, err)
+	require.Equal(t, *digest, collection.rows[0].RowDigest)
+	resultsJSON, err := json.Marshal(Results{Version: Version, Rows: []ActualRunRow{row}})
+	require.NoError(t, err)
+	var results struct {
+		Rows []json.RawMessage `json:"rows"`
+	}
+	require.NoError(t, json.Unmarshal(resultsJSON, &results))
+	var exported any
+	require.NoError(t, json.Unmarshal(results.Rows[0], &exported))
+	exportDigest, err := evidence.JSONDigest(exported)
+	require.NoError(t, err)
+	require.Equal(t, digest, exportDigest)
+	require.NotNil(t, row.Run.InfrastructureDiagnostic)
+	ordinary, err := json.Marshal(row)
+	require.NoError(t, err)
+	require.Contains(t, string(ordinary), "infrastructure_diagnostic")
+}
 
 func assurancePolicyFixture(t *testing.T) (*Policy, *AssuranceContract, []byte) {
 	t.Helper()
