@@ -34,102 +34,106 @@ func nativeHTTPCollection(t *testing.T, directory string) webapi.ReleaseCollecti
 	return items[0]
 }
 
-// The payload cases are split across two top-level tests so the native CI
-// shard planner can place each half independently.
-func TestNativeCollectionPublicPayloads(t *testing.T) {
-	testNativeCollectionPublicPayloads(t, "carriage-return", "large-request")
+// Each payload case owns its fixture and collection so the native CI shard
+// planner can place its measured cost independently.
+func TestNativeCollectionPublicPayloadCarriageReturn(t *testing.T) {
+	testNativeCollectionPublicPayload(t, "carriage-return")
 }
 
-func TestNativeCollectionPublicPayloadsLargeOutput(t *testing.T) {
-	testNativeCollectionPublicPayloads(t, "large-output", "stream-overflow")
+func TestNativeCollectionPublicPayloadLargeRequest(t *testing.T) {
+	testNativeCollectionPublicPayload(t, "large-request")
 }
 
-func testNativeCollectionPublicPayloads(t *testing.T, names ...string) {
+func TestNativeCollectionPublicPayloadLargeOutput(t *testing.T) {
+	testNativeCollectionPublicPayload(t, "large-output")
+}
+
+func TestNativeCollectionPublicPayloadStreamOverflow(t *testing.T) {
+	testNativeCollectionPublicPayload(t, "stream-overflow")
+}
+
+func testNativeCollectionPublicPayload(t *testing.T, name string) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("native durable creation requires Linux or macOS")
 	}
-	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
-			source := nativeFixture(t, "fixed-model")
-			design := nativeDesign()
-			output := "hello\r=1+1"
-			prompt := "say hello"
-			if name == "large-output" {
-				output = "hello" + strings.Repeat("x", 400<<10)
-			}
-			if name == "large-request" {
-				prompt = "say hello\n" + strings.Repeat("xxxxxxxx\n", (1<<20)/8)
-				task := "id: task-0\nname: native\ngolden: true\ninputs:\n  prompt_file: prompt.txt\n"
-				require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(source.EvalPath), "task.yaml"), []byte(task), 0o600))
-				require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(source.EvalPath), "prompt.txt"), []byte(prompt), 0o600))
-			}
-			if name == "stream-overflow" {
-				output = "hello" + strings.Repeat("x", 768<<10)
-				raw, err := os.ReadFile(source.EvalPath)
-				require.NoError(t, err)
-				require.NoError(t, os.WriteFile(source.EvalPath, bytes.Replace(raw, []byte("trials_per_task: 1"), []byte("trials_per_task: 8"), 1), 0o600))
-				design.Clusters[0].Tasks[0].TrialOrdinals = []int{1, 2, 3, 4, 5, 6, 7, 8}
-			}
-			policy, err := controlledcomparison.PlanNative(t.Context(), source, source, design, nativeRequirements(), nil)
+	source := nativeFixture(t, "fixed-model")
+	design := nativeDesign()
+	output := "hello\r=1+1"
+	prompt := "say hello"
+	if name == "large-output" {
+		output = "hello" + strings.Repeat("x", 400<<10)
+	}
+	if name == "large-request" {
+		prompt = "say hello\n" + strings.Repeat("xxxxxxxx\n", (1<<20)/8)
+		task := "id: task-0\nname: native\ngolden: true\ninputs:\n  prompt_file: prompt.txt\n"
+		require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(source.EvalPath), "task.yaml"), []byte(task), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(source.EvalPath), "prompt.txt"), []byte(prompt), 0o600))
+	}
+	if name == "stream-overflow" {
+		output = "hello" + strings.Repeat("x", 768<<10)
+		raw, err := os.ReadFile(source.EvalPath)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(source.EvalPath, bytes.Replace(raw, []byte("trials_per_task: 1"), []byte("trials_per_task: 8"), 1), 0o600))
+		design.Clusters[0].Tasks[0].TrialOrdinals = []int{1, 2, 3, 4, 5, 6, 7, 8}
+	}
+	policy, err := controlledcomparison.PlanNative(t.Context(), source, source, design, nativeRequirements(), nil)
+	require.NoError(t, err)
+	policy = fixedNativePolicy(t, policy)
+	directory := filepath.Join(t.TempDir(), "native")
+	calls := 0
+	err = controlledcomparison.CollectNativeWithOptions(t.Context(), policy, source, source, directory,
+		controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls, func(_ int, client *nativeTestClient) {
+			client.session.output = output
+			client.session.expectedPrompt = prompt
+		})})
+	if name == "stream-overflow" {
+		require.ErrorContains(t, err, "stream exceeds")
+		require.Less(t, calls, 16, "capacity failure must prevent all subsequent runtime starts")
+		for _, file := range []string{"native-task-events.ndjson", "native-task-rows.ndjson"} {
+			info, err := os.Stat(filepath.Join(directory, "native", file))
 			require.NoError(t, err)
-			policy = fixedNativePolicy(t, policy)
-			directory := filepath.Join(t.TempDir(), "native")
-			calls := 0
-			err = controlledcomparison.CollectNativeWithOptions(t.Context(), policy, source, source, directory,
-				controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls, func(_ int, client *nativeTestClient) {
-					client.session.output = output
-					client.session.expectedPrompt = prompt
-				})})
-			if name == "stream-overflow" {
-				require.ErrorContains(t, err, "stream exceeds")
-				require.Less(t, calls, 16, "capacity failure must prevent all subsequent runtime starts")
-				for _, file := range []string{"native-task-events.ndjson", "native-task-rows.ndjson"} {
-					info, err := os.Stat(filepath.Join(directory, "native", file))
-					require.NoError(t, err)
-					require.LessOrEqual(t, info.Size(), int64(nativetask.CollectionStreamBytes))
-				}
-				decision, err := controlledcomparison.ReadSelectedDecision(t.Context(), directory, policy)
-				require.ErrorContains(t, err, "incomplete prefix")
-				require.False(t, decision.Accepted)
-				require.NotEqual(t, "invalid", decision.Compatibility.State)
-				require.Len(t, decision.Native.Attempts, calls)
-				last := decision.Native.Attempts[len(decision.Native.Attempts)-1]
-				require.Equal(t, "incomplete", last.Status)
-				require.Equal(t, "unavailable", last.OutputAvailability)
-				require.Nil(t, decision.Usage[last.Key.Arm][0].Value, "the unretained final session usage must remain unknown")
-				stop, err := os.ReadFile(filepath.Join(directory, "native-stop.json"))
-				require.NoError(t, err)
-				require.Contains(t, string(stop), "stream exceeds")
-				item := nativeHTTPCollection(t, directory)
-				require.False(t, item.Decision.Accepted)
-				require.Len(t, item.Decision.Native.Attempts, calls)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, 2, calls)
-			decision, err := controlledcomparison.ReadSelectedDecision(t.Context(), directory, policy)
-			require.NoError(t, err)
-			require.False(t, decision.Accepted)
-			require.Equal(t, "observed", decision.Operations.State)
-			require.Equal(t, "inconclusive", decision.Statistics.State)
-			item := nativeHTTPCollection(t, directory)
-			require.Empty(t, item.Error)
-			require.Len(t, item.Decision.Native.Attempts, 2)
-			for _, attempt := range item.Decision.Native.Attempts {
-				require.Equal(t, output, *attempt.Output)
-				require.Equal(t, "passed", attempt.Status)
-			}
-			if name == "carriage-return" {
-				assertNativeAPI(t, filepath.Dir(directory), "carriage-return")
-			}
-			if name == "large-output" {
-				rows, err := os.ReadFile(filepath.Join(directory, "native", "native-task-rows.ndjson"))
-				require.NoError(t, err)
-				require.Greater(t, len(rows), 1<<20, "exercise the actual previously rejected public stream size")
-				_, err = nativetask.InspectPrefix(t.Context(), nil, rows, nil)
-				require.ErrorContains(t, err, "1 MiB", "private prefix stream cap remains unchanged")
-			}
-		})
+			require.LessOrEqual(t, info.Size(), int64(nativetask.CollectionStreamBytes))
+		}
+		decision, err := controlledcomparison.ReadSelectedDecision(t.Context(), directory, policy)
+		require.ErrorContains(t, err, "incomplete prefix")
+		require.False(t, decision.Accepted)
+		require.NotEqual(t, "invalid", decision.Compatibility.State)
+		require.Len(t, decision.Native.Attempts, calls)
+		last := decision.Native.Attempts[len(decision.Native.Attempts)-1]
+		require.Equal(t, "incomplete", last.Status)
+		require.Equal(t, "unavailable", last.OutputAvailability)
+		require.Nil(t, decision.Usage[last.Key.Arm][0].Value, "the unretained final session usage must remain unknown")
+		stop, err := os.ReadFile(filepath.Join(directory, "native-stop.json"))
+		require.NoError(t, err)
+		require.Contains(t, string(stop), "stream exceeds")
+		item := nativeHTTPCollection(t, directory)
+		require.False(t, item.Decision.Accepted)
+		require.Len(t, item.Decision.Native.Attempts, calls)
+		return
+	}
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+	decision, err := controlledcomparison.ReadSelectedDecision(t.Context(), directory, policy)
+	require.NoError(t, err)
+	require.False(t, decision.Accepted)
+	require.Equal(t, "observed", decision.Operations.State)
+	require.Equal(t, "inconclusive", decision.Statistics.State)
+	item := nativeHTTPCollection(t, directory)
+	require.Empty(t, item.Error)
+	require.Len(t, item.Decision.Native.Attempts, 2)
+	for _, attempt := range item.Decision.Native.Attempts {
+		require.Equal(t, output, *attempt.Output)
+		require.Equal(t, "passed", attempt.Status)
+	}
+	if name == "carriage-return" {
+		assertNativeAPI(t, filepath.Dir(directory), "carriage-return")
+	}
+	if name == "large-output" {
+		rows, err := os.ReadFile(filepath.Join(directory, "native", "native-task-rows.ndjson"))
+		require.NoError(t, err)
+		require.Greater(t, len(rows), 1<<20, "exercise the actual previously rejected public stream size")
+		_, err = nativetask.InspectPrefix(t.Context(), nil, rows, nil)
+		require.ErrorContains(t, err, "1 MiB", "private prefix stream cap remains unchanged")
 	}
 }
 

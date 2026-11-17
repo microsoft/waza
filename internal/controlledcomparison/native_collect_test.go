@@ -386,106 +386,126 @@ func TestNativeCollectionAcceptedAndFrozenReader(t *testing.T) {
 	checkFrozen("stripped-core-only", native.Policy)
 }
 
-// The observed-failure cases are split across top-level tests so the native CI
-// shard planner can place independently measured groups.
-func TestNativeCollectionObservedFailures(t *testing.T) {
-	testNativeCollectionObservedFailures(t, "retry", "initialize", "execute")
+// Each observed-failure case owns its fixtures and collection so the native CI
+// shard planner can place its measured cost independently.
+func TestNativeCollectionObservedFailureRetry(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "retry")
 }
 
-func TestNativeCollectionObservedFailuresShutdown(t *testing.T) {
-	testNativeCollectionObservedFailures(t, "shutdown", "disconnect")
+func TestNativeCollectionObservedFailureInitialize(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "initialize")
 }
 
-func TestNativeCollectionObservedFailuresOutputAndBudget(t *testing.T) {
-	testNativeCollectionObservedFailures(t, "empty-output", "unknown-usage", "unknown-budget", "reached-budget")
+func TestNativeCollectionObservedFailureExecute(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "execute")
 }
 
-func testNativeCollectionObservedFailures(t *testing.T, names ...string) {
+func TestNativeCollectionObservedFailureShutdown(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "shutdown")
+}
+
+func TestNativeCollectionObservedFailureDisconnect(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "disconnect")
+}
+
+func TestNativeCollectionObservedFailureEmptyOutput(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "empty-output")
+}
+
+func TestNativeCollectionObservedFailureUnknownUsage(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "unknown-usage")
+}
+
+func TestNativeCollectionObservedFailureUnknownBudget(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "unknown-budget")
+}
+
+func TestNativeCollectionObservedFailureReachedBudget(t *testing.T) {
+	testNativeCollectionObservedFailure(t, "reached-budget")
+}
+
+func testNativeCollectionObservedFailure(t *testing.T, name string) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("native durable creation requires Linux or macOS")
 	}
 
-	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
-			baseline, candidate := nativeFixture(t, "fixed-model"), nativeFixture(t, "fixed-model")
-			for _, source := range []controlledcomparison.Source{baseline, candidate} {
-				raw, err := os.ReadFile(source.EvalPath)
-				require.NoError(t, err)
-				require.NoError(t, os.WriteFile(source.EvalPath,
-					[]byte(strings.Replace(string(raw), "timeout_seconds: 30", "timeout_seconds: 30\n  max_attempts: 2", 1)), 0o600))
-			}
-			required := nativeRequirements()
-			if name == "unknown-budget" || name == "reached-budget" {
-				required.Billing = []releasepolicy.BillingRequirement{{Axis: "input_tokens", Maximum: "7"}}
-			}
-			policy, err := controlledcomparison.PlanNative(t.Context(), baseline, candidate, nativeDesign(), required, nil)
-			require.NoError(t, err)
-			policy = fixedNativePolicy(t, policy)
-			directory := filepath.Join(t.TempDir(), "native")
-			calls := 0
-			setup := func(ordinal int, client *nativeTestClient) {
-				failure := errors.New("injected SDK failure")
-				switch name {
-				case "retry":
-					if ordinal%2 == 1 {
-						client.session.output = "incorrect"
-					}
-				case "initialize":
-					client.startErr = failure
-				case "execute":
-					client.session.sendErr = failure
-				case "shutdown":
-					client.stopErr = failure
-				case "disconnect":
-					client.session.disconnectErr = failure
-				case "empty-output":
-					client.session.output = ""
-				case "unknown-usage", "unknown-budget":
-					client.session.usageErr = failure
-				}
-			}
-			err = controlledcomparison.CollectNativeWithOptions(t.Context(), policy, baseline, candidate, directory,
-				controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls, setup)})
-			budgetStops := name == "unknown-budget" || name == "reached-budget"
-			if budgetStops {
-				require.Error(t, err)
-				require.Equal(t, 1, calls)
-			} else {
-				if name == "retry" {
-					require.NoError(t, err)
-				} else {
-					require.Error(t, err, "operational collection failures must propagate to command exit")
-				}
-				if name == "retry" {
-					require.Equal(t, 4, calls)
-				} else {
-					require.Equal(t, 2, calls, "operational failures must not authorize behavioral retry")
-				}
-			}
-			decision, readErr := controlledcomparison.ReadSelectedDecision(t.Context(), directory, policy)
-			if name != "retry" {
-				require.Error(t, readErr)
-			} else {
-				require.NoError(t, readErr)
-			}
-			require.False(t, decision.Accepted)
-			require.NotNil(t, decision.Native)
-			require.Len(t, decision.Native.Attempts, calls)
-			switch name {
-			case "retry":
-				require.Equal(t, "failed", decision.Golden.State, "recovery cannot erase a first-attempt golden failure")
-				for _, accounting := range decision.Accounting {
-					require.Equal(t, 2, accounting.Attempts)
-				}
-			case "initialize", "execute", "shutdown", "disconnect", "empty-output":
-				for _, attempt := range decision.Native.Attempts {
-					require.Equal(t, "operational", attempt.Category)
-					require.NotEmpty(t, attempt.Error)
-				}
-			}
-			assertNativeAPI(t, filepath.Dir(directory), name)
-		})
+	baseline, candidate := nativeFixture(t, "fixed-model"), nativeFixture(t, "fixed-model")
+	for _, source := range []controlledcomparison.Source{baseline, candidate} {
+		raw, err := os.ReadFile(source.EvalPath)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(source.EvalPath,
+			[]byte(strings.Replace(string(raw), "timeout_seconds: 30", "timeout_seconds: 30\n  max_attempts: 2", 1)), 0o600))
 	}
+	required := nativeRequirements()
+	if name == "unknown-budget" || name == "reached-budget" {
+		required.Billing = []releasepolicy.BillingRequirement{{Axis: "input_tokens", Maximum: "7"}}
+	}
+	policy, err := controlledcomparison.PlanNative(t.Context(), baseline, candidate, nativeDesign(), required, nil)
+	require.NoError(t, err)
+	policy = fixedNativePolicy(t, policy)
+	directory := filepath.Join(t.TempDir(), "native")
+	calls := 0
+	setup := func(ordinal int, client *nativeTestClient) {
+		failure := errors.New("injected SDK failure")
+		switch name {
+		case "retry":
+			if ordinal%2 == 1 {
+				client.session.output = "incorrect"
+			}
+		case "initialize":
+			client.startErr = failure
+		case "execute":
+			client.session.sendErr = failure
+		case "shutdown":
+			client.stopErr = failure
+		case "disconnect":
+			client.session.disconnectErr = failure
+		case "empty-output":
+			client.session.output = ""
+		case "unknown-usage", "unknown-budget":
+			client.session.usageErr = failure
+		}
+	}
+	err = controlledcomparison.CollectNativeWithOptions(t.Context(), policy, baseline, candidate, directory,
+		controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls, setup)})
+	budgetStops := name == "unknown-budget" || name == "reached-budget"
+	if budgetStops {
+		require.Error(t, err)
+		require.Equal(t, 1, calls)
+	} else {
+		if name == "retry" {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err, "operational collection failures must propagate to command exit")
+		}
+		if name == "retry" {
+			require.Equal(t, 4, calls)
+		} else {
+			require.Equal(t, 2, calls, "operational failures must not authorize behavioral retry")
+		}
+	}
+	decision, readErr := controlledcomparison.ReadSelectedDecision(t.Context(), directory, policy)
+	if name != "retry" {
+		require.Error(t, readErr)
+	} else {
+		require.NoError(t, readErr)
+	}
+	require.False(t, decision.Accepted)
+	require.NotNil(t, decision.Native)
+	require.Len(t, decision.Native.Attempts, calls)
+	switch name {
+	case "retry":
+		require.Equal(t, "failed", decision.Golden.State, "recovery cannot erase a first-attempt golden failure")
+		for _, accounting := range decision.Accounting {
+			require.Equal(t, 2, accounting.Attempts)
+		}
+	case "initialize", "execute", "shutdown", "disconnect", "empty-output":
+		for _, attempt := range decision.Native.Attempts {
+			require.Equal(t, "operational", attempt.Category)
+			require.NotEmpty(t, attempt.Error)
+		}
+	}
+	assertNativeAPI(t, filepath.Dir(directory), name)
 }
 
 // BenchmarkReadSelectedDecisionActualCollectionCapture exercises the complete
