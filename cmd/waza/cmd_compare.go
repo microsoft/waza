@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
@@ -58,15 +57,29 @@ This mode does not adopt historical result files or change default comparison.`,
 	return cmd
 }
 
+// Availability reasons explain why a per-file comparison value is null.
+const (
+	availabilityObserved          = "observed"
+	availabilityTaskMissing       = "task_missing"
+	availabilityStatsMissing      = "stats_missing"
+	availabilityToolEventsMissing = "tool_events_not_recorded"
+)
+
+// toolEventsSchemaVersion is the first result schema that records tool_events.
+const toolEventsSchemaVersion = "1.1"
+
 // taskComparison holds per-task delta information across result files.
+// Scores, pass rates and deltas are null when a value is unavailable;
+// Availability is populated only when at least one file lacks a value.
 type taskComparison struct {
-	TaskID      string          `json:"task_id"`
-	DisplayName string          `json:"display_name"`
-	Scores      []float64       `json:"scores"`
-	PassRates   []float64       `json:"pass_rates"`
-	Statuses    []models.Status `json:"statuses"`
-	ScoreDelta  float64         `json:"score_delta"`
-	PassDelta   float64         `json:"pass_rate_delta"`
+	TaskID       string          `json:"task_id"`
+	DisplayName  string          `json:"display_name"`
+	Scores       []*float64      `json:"scores"`
+	PassRates    []*float64      `json:"pass_rates"`
+	Statuses     []models.Status `json:"statuses"`
+	ScoreDelta   *float64        `json:"score_delta"`
+	PassDelta    *float64        `json:"pass_rate_delta"`
+	Availability []string        `json:"availability,omitempty"`
 }
 
 // comparisonReport is the full comparison output.
@@ -83,9 +96,11 @@ type comparisonReport struct {
 	DurationDeltaM int64            `json:"duration_delta_ms"`
 
 	// ToolMetrics summarizes per-file tool-use statistics. Added with
-	// schemaVersion 1.1 (issue #366). Files that don't include tool_events
-	// produce zero values, which is safe for delta math.
-	ToolMetrics []toolMetrics `json:"tool_metrics"`
+	// schemaVersion 1.1 (issue #366). Entries are null for results declaring
+	// an older schema, which cannot distinguish absent evidence from no calls.
+	ToolMetrics []*toolMetrics `json:"tool_metrics"`
+	// ToolMetricsAvailability is populated only when a tool_metrics entry is null.
+	ToolMetricsAvailability []string `json:"tool_metrics_availability,omitempty"`
 }
 
 // toolMetrics aggregates tool-use stats across all tasks in one outcome file.
@@ -136,7 +151,17 @@ func buildComparisonReport(files []string, outcomes []*models.EvaluationOutcome)
 		report.SuccessRates = append(report.SuccessRates, o.Digest.SuccessRate)
 		report.TotalTests = append(report.TotalTests, o.Digest.TotalTests)
 		report.DurationsMs = append(report.DurationsMs, o.Digest.DurationMs)
-		report.ToolMetrics = append(report.ToolMetrics, computeToolMetrics(o))
+		if recordsToolEvents(o) {
+			tm := computeToolMetrics(o)
+			report.ToolMetrics = append(report.ToolMetrics, &tm)
+			report.ToolMetricsAvailability = append(report.ToolMetricsAvailability, availabilityObserved)
+		} else {
+			report.ToolMetrics = append(report.ToolMetrics, nil)
+			report.ToolMetricsAvailability = append(report.ToolMetricsAvailability, availabilityToolEventsMissing)
+		}
+	}
+	if allObserved(report.ToolMetricsAvailability) {
+		report.ToolMetricsAvailability = nil
 	}
 
 	n := len(outcomes)
@@ -166,34 +191,90 @@ func buildComparisonReport(files []string, outcomes []*models.EvaluationOutcome)
 			DisplayName: tk.name,
 		}
 		for _, o := range outcomes {
-			found := false
+			var score, passRate *float64
+			status := models.StatusNA
+			availability := availabilityTaskMissing
 			for _, t := range o.TestOutcomes {
 				if t.TestID == tk.id {
-					found = true
-					score := 0.0
-					passRate := 0.0
+					status = t.Status
+					availability = availabilityStatsMissing
 					if t.Stats != nil {
-						score = t.Stats.AvgScore
-						passRate = t.Stats.PassRate
+						avg, rate := t.Stats.AvgScore, t.Stats.PassRate
+						score, passRate = &avg, &rate
+						availability = availabilityObserved
 					}
-					tc.Scores = append(tc.Scores, score)
-					tc.PassRates = append(tc.PassRates, passRate)
-					tc.Statuses = append(tc.Statuses, t.Status)
 					break
 				}
 			}
-			if !found {
-				tc.Scores = append(tc.Scores, math.NaN())
-				tc.PassRates = append(tc.PassRates, math.NaN())
-				tc.Statuses = append(tc.Statuses, models.StatusNA)
-			}
+			tc.Scores = append(tc.Scores, score)
+			tc.PassRates = append(tc.PassRates, passRate)
+			tc.Statuses = append(tc.Statuses, status)
+			tc.Availability = append(tc.Availability, availability)
 		}
-		tc.ScoreDelta = tc.Scores[n-1] - tc.Scores[0]
-		tc.PassDelta = tc.PassRates[n-1] - tc.PassRates[0]
+		tc.ScoreDelta = optionalDelta(tc.Scores[0], tc.Scores[n-1])
+		tc.PassDelta = optionalDelta(tc.PassRates[0], tc.PassRates[n-1])
+		if allObserved(tc.Availability) {
+			tc.Availability = nil
+		}
 		report.TaskDeltas = append(report.TaskDeltas, tc)
 	}
 
 	return report
+}
+
+// optionalDelta returns to-from, or nil when either operand is unavailable.
+func optionalDelta(from, to *float64) *float64 {
+	if from == nil || to == nil {
+		return nil
+	}
+	d := *to - *from
+	return &d
+}
+
+func allObserved(availability []string) bool {
+	for _, a := range availability {
+		if a != availabilityObserved {
+			return false
+		}
+	}
+	return true
+}
+
+// recordsToolEvents reports whether a result can distinguish observed zero
+// tool calls from absent evidence. Results declaring a schema older than 1.1
+// predate tool_events, so missing events there are unavailable, not zero.
+func recordsToolEvents(o *models.EvaluationOutcome) bool {
+	for _, t := range o.TestOutcomes {
+		for _, run := range t.Runs {
+			if len(run.ToolEvents) > 0 {
+				return true
+			}
+		}
+	}
+	return !schemaVersionBefore(o.SchemaVersion, toolEventsSchemaVersion)
+}
+
+// schemaVersionBefore reports whether MAJOR.MINOR version a precedes b.
+// Empty or unparsable versions are not treated as older.
+func schemaVersionBefore(a, b string) bool {
+	var aMajor, aMinor, bMajor, bMinor int
+	if _, err := fmt.Sscanf(a, "%d.%d", &aMajor, &aMinor); err != nil {
+		return false
+	}
+	if _, err := fmt.Sscanf(b, "%d.%d", &bMajor, &bMinor); err != nil {
+		return false
+	}
+	if aMajor != bMajor {
+		return aMajor < bMajor
+	}
+	return aMinor < bMinor
+}
+
+func formatOptional(v *float64, format string) string {
+	if v == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf(format, *v)
 }
 
 func printComparisonTable(r *comparisonReport) {
@@ -247,43 +328,15 @@ func printComparisonTable(r *comparisonReport) {
 		fmt.Println(" TOOL USE")
 		fmt.Println(strings.Repeat("-", 70))
 
-		fmt.Printf("  %-20s", "Total calls")
-		for _, tm := range r.ToolMetrics {
-			fmt.Printf("  %-9d", tm.TotalCalls)
-		}
-		fmt.Printf("  %+d\n", r.ToolMetrics[n-1].TotalCalls-r.ToolMetrics[0].TotalCalls)
-
-		fmt.Printf("  %-20s", "Tasks w/ tools")
-		for _, tm := range r.ToolMetrics {
-			fmt.Printf("  %-9d", tm.TasksWithTools)
-		}
-		fmt.Printf("  %+d\n", r.ToolMetrics[n-1].TasksWithTools-r.ToolMetrics[0].TasksWithTools)
-
-		fmt.Printf("  %-20s", "Avg calls/task")
-		for _, tm := range r.ToolMetrics {
-			fmt.Printf("  %-9.2f", tm.AvgCallsPerTask)
-		}
-		fmt.Printf("  %+.2f\n", r.ToolMetrics[n-1].AvgCallsPerTask-r.ToolMetrics[0].AvgCallsPerTask)
-
-		fmt.Printf("  %-20s", "Success rate")
-		for _, tm := range r.ToolMetrics {
-			fmt.Printf("  %-9.1f%%", tm.SuccessRate*100)
-		}
-		fmt.Printf("  %+.1f%%\n", (r.ToolMetrics[n-1].SuccessRate-r.ToolMetrics[0].SuccessRate)*100)
-
-		fmt.Printf("  %-20s", "Selection accuracy")
-		for _, tm := range r.ToolMetrics {
-			fmt.Printf("  %-9.1f%%", tm.SelectionAccuracy*100)
-		}
-		fmt.Printf("  %+.1f%%\n", (r.ToolMetrics[n-1].SelectionAccuracy-r.ToolMetrics[0].SelectionAccuracy)*100)
-
+		printToolRow("Total calls", r.ToolMetrics, func(tm *toolMetrics) float64 { return float64(tm.TotalCalls) }, "%-9.0f", "%+.0f")
+		printToolRow("Tasks w/ tools", r.ToolMetrics, func(tm *toolMetrics) float64 { return float64(tm.TasksWithTools) }, "%-9.0f", "%+.0f")
+		printToolRow("Avg calls/task", r.ToolMetrics, func(tm *toolMetrics) float64 { return tm.AvgCallsPerTask }, "%-9.2f", "%+.2f")
+		printToolRow("Success rate", r.ToolMetrics, func(tm *toolMetrics) float64 { return tm.SuccessRate * 100 }, "%-9.1f%%", "%+.1f%%")
+		printToolRow("Selection accuracy", r.ToolMetrics, func(tm *toolMetrics) float64 { return tm.SelectionAccuracy * 100 }, "%-9.1f%%", "%+.1f%%")
 		for _, bucket := range []string{"0", "1", "2", "3+"} {
-			fmt.Printf("  %-20s", "Tasks w/ "+bucket+" calls")
-			for _, tm := range r.ToolMetrics {
-				fmt.Printf("  %-9d", tm.CallCountHistogram[bucket])
-			}
-			fmt.Printf("  %+d\n",
-				r.ToolMetrics[n-1].CallCountHistogram[bucket]-r.ToolMetrics[0].CallCountHistogram[bucket])
+			printToolRow("Tasks w/ "+bucket+" calls", r.ToolMetrics, func(tm *toolMetrics) float64 {
+				return float64(tm.CallCountHistogram[bucket])
+			}, "%-9.0f", "%+.0f")
 		}
 		fmt.Println()
 	}
@@ -307,28 +360,43 @@ func printComparisonTable(r *comparisonReport) {
 		}
 		fmt.Printf("  %-25s", name)
 		for i := 0; i < n; i++ {
-			if math.IsNaN(tc.Scores[i]) {
-				fmt.Printf("  %-9s", "n/a")
-			} else {
-				fmt.Printf("  %-9.4f", tc.Scores[i])
-			}
+			fmt.Printf("  %-9s", formatOptional(tc.Scores[i], "%.4f"))
 		}
 		deltaIcon := " "
-		if tc.ScoreDelta > 0 {
+		if tc.ScoreDelta != nil && *tc.ScoreDelta > 0 {
 			deltaIcon = "↑"
-		} else if tc.ScoreDelta < 0 {
+		} else if tc.ScoreDelta != nil && *tc.ScoreDelta < 0 {
 			deltaIcon = "↓"
 		}
-		fmt.Printf("  %s%+.4f\n", deltaIcon, tc.ScoreDelta)
+		fmt.Printf("  %s%s\n", deltaIcon, formatOptional(tc.ScoreDelta, "%+.4f"))
 	}
 	fmt.Println()
 }
 
+// printToolRow prints one TOOL USE row, rendering unavailable files and
+// deltas with an unavailable operand as n/a.
+func printToolRow(label string, metrics []*toolMetrics, value func(*toolMetrics) float64, valueFormat, deltaFormat string) {
+	values := make([]*float64, len(metrics))
+	fmt.Printf("  %-20s", label)
+	for i, tm := range metrics {
+		if tm != nil {
+			v := value(tm)
+			values[i] = &v
+		}
+		if values[i] == nil {
+			fmt.Printf("  %-9s", "n/a")
+		} else {
+			fmt.Printf("  "+valueFormat, *values[i])
+		}
+	}
+	fmt.Printf("  %s\n", formatOptional(optionalDelta(values[0], values[len(values)-1]), deltaFormat))
+}
+
 // hasAnyToolData reports whether any file has at least one recorded tool call.
 // Suppresses the "TOOL USE" table for purely tool-free outcomes.
-func hasAnyToolData(metrics []toolMetrics) bool {
+func hasAnyToolData(metrics []*toolMetrics) bool {
 	for _, m := range metrics {
-		if m.TotalCalls > 0 {
+		if m != nil && m.TotalCalls > 0 {
 			return true
 		}
 	}

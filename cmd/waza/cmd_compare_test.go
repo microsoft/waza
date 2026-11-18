@@ -220,11 +220,12 @@ func TestCompareCommand_LegacyJSONPayloadAndProcessExits(t *testing.T) {
 			for i, id := range []string{"task-001", "task-002"} {
 				task := report.TaskDeltas[i]
 				require.Equal(t, id, task.TaskID)
-				require.Equal(t, []float64{tc.from, tc.to}, task.Scores)
-				require.Equal(t, []float64{tc.from, tc.to}, task.PassRates)
+				require.Equal(t, floatPtrs(tc.from, tc.to), task.Scores)
+				require.Equal(t, floatPtrs(tc.from, tc.to), task.PassRates)
 				require.Equal(t, []models.Status{models.StatusPassed, models.StatusPassed}, task.Statuses)
-				require.Equal(t, tc.to-tc.from, task.ScoreDelta)
-				require.Equal(t, tc.to-tc.from, task.PassDelta)
+				require.Equal(t, floatPtrs(tc.to - tc.from)[0], task.ScoreDelta)
+				require.Equal(t, floatPtrs(tc.to - tc.from)[0], task.PassDelta)
+				require.Nil(t, task.Availability)
 			}
 		})
 	}
@@ -270,7 +271,8 @@ func TestBuildComparisonReport_Deltas(t *testing.T) {
 	assert.InDelta(t, 0.15, report.AggScoreDelta, 0.001)
 	assert.InDelta(t, 0.20, report.SuccessRDelta, 0.001)
 	require.Len(t, report.TaskDeltas, 1)
-	assert.InDelta(t, 0.15, report.TaskDeltas[0].ScoreDelta, 0.001)
+	require.NotNil(t, report.TaskDeltas[0].ScoreDelta)
+	assert.InDelta(t, 0.15, *report.TaskDeltas[0].ScoreDelta, 0.001)
 }
 
 func TestBuildComparisonReport_MissingTask(t *testing.T) {
@@ -298,6 +300,146 @@ func TestBuildComparisonReport_MissingTask(t *testing.T) {
 	// The extra task should show as n/a for file 1
 	assert.Equal(t, "task-002", report.TaskDeltas[1].TaskID)
 	assert.Equal(t, models.StatusNA, report.TaskDeltas[1].Statuses[0])
+	assert.Nil(t, report.TaskDeltas[1].Scores[0])
+	assert.Nil(t, report.TaskDeltas[1].ScoreDelta)
+	assert.Equal(t, []string{availabilityTaskMissing, availabilityObserved}, report.TaskDeltas[1].Availability)
+	require.NotPanics(t, func() { printComparisonTable(report) })
+}
+
+func TestBuildComparisonReport_HistoricalToolEvidenceTable(t *testing.T) {
+	historical := sampleOutcome("old", 0.8, 1.0, 0.8)
+	historical.SchemaVersion = "1.0"
+	current := sampleOutcome("new", 0.8, 1.0, 0.8)
+	current.TestOutcomes[0].Runs = []models.RunResult{{ToolEvents: []models.ToolEvent{{ToolName: "bash", Success: true}}}}
+
+	report := buildComparisonReport([]string{"r1.json", "r2.json"}, []*models.EvaluationOutcome{historical, current})
+
+	require.Nil(t, report.ToolMetrics[0])
+	require.NotNil(t, report.ToolMetrics[1])
+	require.Equal(t, 1, report.ToolMetrics[1].TotalCalls)
+	require.NotPanics(t, func() { printComparisonTable(report) })
+}
+
+func floatPtrs(values ...float64) []*float64 {
+	ptrs := make([]*float64, len(values))
+	for i := range values {
+		ptrs[i] = &values[i]
+	}
+	return ptrs
+}
+
+func TestCompareCommand_JSONChangingTaskSets(t *testing.T) {
+	binary := buildOfflineComparisonCLI(t)
+	withTask := func(o *models.EvaluationOutcome, id string, stats *models.TestStats) *models.EvaluationOutcome {
+		o.TestOutcomes = append(o.TestOutcomes, models.TestOutcome{
+			TestID: id, DisplayName: id, Status: models.StatusFailed, Stats: stats,
+		})
+		return o
+	}
+	type taskJSON struct {
+		TaskID       string     `json:"task_id"`
+		Scores       []*float64 `json:"scores"`
+		PassRates    []*float64 `json:"pass_rates"`
+		ScoreDelta   *float64   `json:"score_delta"`
+		PassDelta    *float64   `json:"pass_rate_delta"`
+		Availability []string   `json:"availability"`
+	}
+	type reportJSON struct {
+		TaskDeltas              []taskJSON        `json:"task_deltas"`
+		ToolMetrics             []json.RawMessage `json:"tool_metrics"`
+		ToolMetricsAvailability []string          `json:"tool_metrics_availability"`
+	}
+	run := func(t *testing.T, baseline, current *models.EvaluationOutcome) (reportJSON, map[string]json.RawMessage) {
+		t.Helper()
+		dir := t.TempDir()
+		from := createResultFile(t, dir, "baseline.json", baseline)
+		to := createResultFile(t, dir, "current.json", current)
+		output, code := runOfflineComparisonCLI(t, binary, "compare", from, to, "--format", "json")
+		require.Equal(t, 0, code, "%s", output)
+		require.True(t, json.Valid(output), "%s", output)
+		var report reportJSON
+		require.NoError(t, json.Unmarshal(output, &report))
+		var raw map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(output, &raw))
+		return report, raw
+	}
+	byID := func(r reportJSON) map[string]taskJSON {
+		tasks := make(map[string]taskJSON, len(r.TaskDeltas))
+		for _, task := range r.TaskDeltas {
+			tasks[task.TaskID] = task
+		}
+		return tasks
+	}
+
+	t.Run("disjoint", func(t *testing.T) {
+		baseline := sampleOutcome("baseline", 0.8, 1.0, 0.8)
+		current := sampleOutcome("current", 0.5, 1.0, 0.5)
+		current.TestOutcomes[0].TestID = "task-B"
+		report, _ := run(t, baseline, current)
+		tasks := byID(report)
+		require.Len(t, tasks, 2)
+		a, b := tasks["task-001"], tasks["task-B"]
+		require.Equal(t, floatPtrs(0.8), a.Scores[:1])
+		require.Nil(t, a.Scores[1])
+		require.Nil(t, a.PassRates[1])
+		require.Nil(t, a.ScoreDelta)
+		require.Nil(t, a.PassDelta)
+		require.Equal(t, []string{availabilityObserved, availabilityTaskMissing}, a.Availability)
+		require.Nil(t, b.Scores[0])
+		require.Nil(t, b.ScoreDelta)
+		require.Equal(t, []string{availabilityTaskMissing, availabilityObserved}, b.Availability)
+	})
+
+	t.Run("overlapping with observed zero and missing stats", func(t *testing.T) {
+		baseline := withTask(sampleOutcome("baseline", 0.8, 1.0, 0.8), "zero", &models.TestStats{})
+		baseline = withTask(baseline, "no-stats", nil)
+		current := withTask(sampleOutcome("current", 0.9, 1.0, 0.9), "zero", &models.TestStats{AvgScore: 0.25, PassRate: 0.5})
+		current = withTask(current, "no-stats", &models.TestStats{AvgScore: 0.4, PassRate: 1})
+		current = withTask(current, "new-only", &models.TestStats{})
+		report, _ := run(t, baseline, current)
+		tasks := byID(report)
+		require.Len(t, tasks, 4)
+
+		shared := tasks["task-001"]
+		require.NotNil(t, shared.ScoreDelta)
+		require.InDelta(t, 0.1, *shared.ScoreDelta, 1e-9)
+		require.Nil(t, shared.Availability, "fully observed tasks keep the legacy shape")
+
+		zero := tasks["zero"]
+		require.Equal(t, floatPtrs(0, 0.25), zero.Scores)
+		require.Equal(t, floatPtrs(0, 0.5), zero.PassRates)
+		require.Equal(t, floatPtrs(0.25)[0], zero.ScoreDelta)
+		require.Equal(t, floatPtrs(0.5)[0], zero.PassDelta)
+		require.Nil(t, zero.Availability)
+
+		noStats := tasks["no-stats"]
+		require.Nil(t, noStats.Scores[0])
+		require.Nil(t, noStats.ScoreDelta)
+		require.Nil(t, noStats.PassDelta)
+		require.Equal(t, []string{availabilityStatsMissing, availabilityObserved}, noStats.Availability)
+
+		newOnly := tasks["new-only"]
+		require.Equal(t, floatPtrs(0)[0], newOnly.Scores[1], "observed zero is not null")
+		require.Nil(t, newOnly.ScoreDelta)
+		require.Equal(t, []string{availabilityTaskMissing, availabilityObserved}, newOnly.Availability)
+	})
+
+	t.Run("historical tool evidence", func(t *testing.T) {
+		baseline := sampleOutcome("baseline", 0.8, 1.0, 0.8)
+		baseline.SchemaVersion = "1.0"
+		current := sampleOutcome("current", 0.8, 1.0, 0.8)
+		report, _ := run(t, baseline, current)
+		require.Len(t, report.ToolMetrics, 2)
+		require.JSONEq(t, "null", string(report.ToolMetrics[0]))
+		var observed toolMetrics
+		require.NoError(t, json.Unmarshal(report.ToolMetrics[1], &observed))
+		require.Zero(t, observed.TotalCalls)
+		require.Equal(t, []string{availabilityToolEventsMissing, availabilityObserved}, report.ToolMetricsAvailability)
+
+		_, raw := run(t, sampleOutcome("baseline", 0.8, 1.0, 0.8), current)
+		_, present := raw["tool_metrics_availability"]
+		require.False(t, present, "current results keep the legacy shape")
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -431,8 +573,9 @@ func TestComputeToolMetrics_SelectionAccuracy(t *testing.T) {
 }
 
 func TestHasAnyToolData(t *testing.T) {
-	require.False(t, hasAnyToolData([]toolMetrics{{}, {}}))
-	require.True(t, hasAnyToolData([]toolMetrics{{}, {TotalCalls: 3}}))
+	require.False(t, hasAnyToolData([]*toolMetrics{{}, {}}))
+	require.False(t, hasAnyToolData([]*toolMetrics{nil, {}}))
+	require.True(t, hasAnyToolData([]*toolMetrics{nil, {TotalCalls: 3}}))
 }
 
 // TestComputeToolMetrics_HistogramPerTaskAcrossTrials verifies the histogram

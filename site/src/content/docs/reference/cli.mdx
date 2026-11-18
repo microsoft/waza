@@ -565,11 +565,16 @@ Linux/macOS only; Windows reader checks do not certify writing. Do not adopt
 historical outcomes as fresh evidence.
 See [controlled comparisons](/waza/guides/controlled-comparisons/).
 
-**Existing legacy JSON limitation:** when task sets differ, missing-task score
-and pass-rate entries use non-finite values internally, so `compare --format
-json` fails to encode the report. Table output still displays those entries as
-`n/a`. This predates controlled-policy selection; no missing-task JSON fix or
-change to legacy task-set semantics is included here.
+**Changing task sets:** `compare --format json` emits valid JSON when task sets
+differ. Unavailable values are `null`, never `0`: a task absent from a file has
+a `null` score and pass rate (status `n/a`), and a task present without
+statistics also has `null` values. `score_delta` and `pass_rate_delta` are
+computed only when both the first and last files have a value; otherwise they
+are `null`. Observed zero stays `0`. When any value in a task entry is
+unavailable, the additive `availability` array gives a per-file reason:
+`observed`, `task_missing` or `stats_missing`. Fully observed entries keep the
+previous shape and numeric values. Table output shows unavailable values and
+deltas as `n/a`.
 
 ### Examples
 
@@ -577,6 +582,19 @@ change to legacy task-set semantics is included here.
 waza compare gpt4.json sonnet.json
 waza compare gpt4.json sonnet.json opus.json
 waza compare results-*.json --format json
+```
+
+```json
+{
+  "task_id": "task-b",
+  "display_name": "Task B",
+  "scores": [null, 0.5],
+  "pass_rates": [null, 1],
+  "statuses": ["n/a", "passed"],
+  "score_delta": null,
+  "pass_rate_delta": null,
+  "availability": ["task_missing", "observed"]
+}
 ```
 
 ### Tool-use metrics (schema 1.1+)
@@ -593,6 +611,13 @@ When the input files include the `tool_events[]` array (`results.json` schema 1.
 | `call_count_histogram` | Distribution of per-task call counts in buckets `0`, `1`, `2`, `3+` |
 
 The section is suppressed when none of the compared files contain tool data, so legacy 1.0 results remain unchanged.
+
+Results that declare `schemaVersion` `1.0` predate `tool_events[]` and cannot
+distinguish absent tool evidence from zero calls. In JSON output, their
+`tool_metrics` entry is `null` and the additive `tool_metrics_availability`
+array reports `tool_events_not_recorded` for that file (`observed` for the
+others); the table shows `n/a`. The array is omitted when every file records
+tool events.
 
 ## waza compare-plan
 
