@@ -505,10 +505,13 @@ func (b *projectionBudget) inspect(value reflect.Value, depth int) error {
 		}
 	case reflect.Struct:
 		for i := 0; i < value.NumField(); i++ {
-			if value.Type().Field(i).IsExported() {
-				if err := b.inspect(value.Field(i), depth+1); err != nil {
-					return err
-				}
+			field := value.Type().Field(i)
+			fieldValue := value.Field(i)
+			if !field.IsExported() || shouldOmitJSONField(field, fieldValue) {
+				continue
+			}
+			if err := b.inspect(fieldValue, depth+1); err != nil {
+				return err
 			}
 		}
 	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
@@ -518,6 +521,36 @@ func (b *projectionBudget) inspect(value reflect.Value, depth int) error {
 		return errors.New("invalid_evidence")
 	}
 	return nil
+}
+
+func shouldOmitJSONField(field reflect.StructField, value reflect.Value) bool {
+	tag := field.Tag.Get("json")
+	if tag == "-" {
+		return true
+	}
+	options := strings.Split(tag, ",")[1:]
+	for _, option := range options {
+		switch option {
+		case "omitempty":
+			switch value.Kind() {
+			case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
+				if value.Len() == 0 {
+					return true
+				}
+			case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+				reflect.Uintptr, reflect.Float32, reflect.Float64, reflect.Interface, reflect.Pointer:
+				if value.IsZero() {
+					return true
+				}
+			}
+		case "omitzero":
+			if value.IsZero() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func seal(bundle *models.JudgeEvidence) error {
