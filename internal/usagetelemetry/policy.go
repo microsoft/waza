@@ -284,7 +284,7 @@ func projectDenial(workDir string) projectState {
 	if err != nil {
 		return projectInvalid
 	}
-	data, err := os.ReadFile(path) //nolint:gosec // path is the discovered project config
+	data, err := readRegularFile(path, maxProjectConfigBytes)
 	if err != nil {
 		return projectInvalid
 	}
