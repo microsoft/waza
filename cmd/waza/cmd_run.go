@@ -2362,11 +2362,18 @@ const (
 )
 
 // runOutputCacheExclusions lists the per-run outputs of --output,
-// --output-dir and --session-log so they never feed back into the cache key
-// when written beneath a skill directory. Only generated names are excluded.
+// --reporter junit, --output-dir and --session-log so they never feed back
+// into the cache key when written beneath a skill directory. Only generated
+// names are excluded.
 func runOutputCacheExclusions() []cache.ExcludeEntry {
 	var entries []cache.ExcludeEntry
-	for _, path := range plannedOutputFiles {
+	files := slices.Clone(plannedOutputFiles)
+	for _, r := range reporters {
+		if path, ok := strings.CutPrefix(r, "junit:"); ok && path != "" {
+			files = append(files, path)
+		}
+	}
+	for _, path := range files {
 		dir, name := filepath.Split(path)
 		entries = append(entries, cache.ExcludeEntry{Dir: cmp.Or(dir, "."), NamePattern: globLiteral(name)})
 	}

@@ -195,10 +195,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Result cache keys now include the bytes of consumed inputs: every file in
   the configured skill directories (following symlinks; skipping `.git`, the
   run's cache, transcript and snapshot locations, and the generated
-  `--output` variants, `--output-dir` run directories and session logs), the
-  selected skill or agent definition with its directory and absolute path,
-  instruction files, and
-  `inputs.context.fixture` contents. Editing a skill, instruction file or
+  `--output` files, JUnit reporter files, `--output-dir` run directories and
+  session logs), the selected skill or agent definition with its directory and
+  absolute path, instruction files, and `inputs.context.fixture` contents. Editing a skill, instruction file or
   context fixture without renaming it no longer returns a stale cached result,
   and an unreadable consumed input runs the task uncached. Existing cache
   entries miss once after upgrading, because earlier keys did not record
