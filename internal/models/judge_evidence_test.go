@@ -102,6 +102,41 @@ func TestEvidenceContextNativeAndSchemaAdmission(t *testing.T) {
 	}
 }
 
+func TestOutcomeSerializationWithholdsRetainedJudgeDeclarations(t *testing.T) {
+	const unused = "UNUSED_RETAINED_DECLARATION_CANARY"
+	selection := PromptEvidenceContext{Files: []string{"report.txt"},
+		EvaluatorOnly: []string{"private.txt"}, NonSecretLiterals: &[]string{unused}}
+	task := TestOutcome{TestID: "untouched", Runs: []RunResult{{PromptJudging: []PromptJudgeObservation{{
+		Grader: "judge", EvidenceContext: selection,
+	}}}}}
+	outcome := EvaluationOutcome{
+		TestOutcomes: []TestOutcome{task}, BaselineOutcome: &EvaluationOutcome{TestOutcomes: []TestOutcome{task}},
+	}
+	data, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), unused)
+	require.NotContains(t, string(data), "non_secret_literals")
+	var saved EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &saved))
+	for _, current := range []*EvaluationOutcome{&saved, saved.BaselineOutcome} {
+		require.NotNil(t, current)
+		require.Len(t, current.TestOutcomes, 1)
+		require.Len(t, current.TestOutcomes[0].Runs, 1)
+		observations := current.TestOutcomes[0].Runs[0].PromptJudging
+		require.Len(t, observations, 1)
+		require.Equal(t, selection.Files, observations[0].EvidenceContext.Files)
+		require.Equal(t, selection.EvaluatorOnly, observations[0].EvidenceContext.EvaluatorOnly)
+		require.Nil(t, observations[0].EvidenceContext.NonSecretLiterals)
+	}
+	for _, original := range []*EvaluationOutcome{&outcome, outcome.BaselineOutcome} {
+		require.Equal(t, &[]string{unused}, original.TestOutcomes[0].Runs[0].PromptJudging[0].EvidenceContext.NonSecretLiterals,
+			"serialization must not mutate caller-owned observations")
+	}
+	config, err := json.Marshal(PromptGraderParameters{EvidenceContext: &selection})
+	require.NoError(t, err)
+	require.Contains(t, string(config), unused, "source configuration and cache identity retain declarations")
+}
+
 func TestEvidenceContextRejectsCheckpointAndWrongExecutor(t *testing.T) {
 	task := "id: evidence\nname: Evidence task\ninputs: {prompt: report}\ncheckpoints:\n  - after_turn: 1\n    graders:\n      - type: prompt\n        name: judge\n        config: {prompt: Judge, evidence_context: {}}\n"
 	_, err := ParseTestCase([]byte(task), "task.yaml")

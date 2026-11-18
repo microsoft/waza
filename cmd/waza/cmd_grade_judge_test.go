@@ -285,23 +285,70 @@ func TestEvidenceSavedGradeVerboseWriteFailurePreservesJudgedRun(t *testing.T) {
 }
 
 func TestEvidenceSavedGradeOperationalFailuresSaveDiagnosticsBeforeReturningError(t *testing.T) {
-	for _, problem := range []string{"missing", "unbound", "cached", "new-file", "judge-failure", "ordinary-fail"} {
+	const unused = "UNUSED_SAVED_REGRADE_DECLARATION_CANARY"
+	const legacy = "UNUSED_LEGACY_OBSERVATION_DECLARATION_CANARY"
+	for _, problem := range []string{"missing", "redacted", "unbound", "cached", "new-file", "judge-failure", "ordinary-fail"} {
 		t.Run(problem, func(t *testing.T) {
 			spec, results, original := savedEvidenceFixture(t)
+			selection := models.PromptEvidenceContext{EvaluatorOnly: []string{"private.txt"}, NonSecretLiterals: &[]string{unused}}
+			if problem == "missing" || problem == "new-file" {
+				selection.Files = []string{"new.txt"}
+			}
+			config, err := json.Marshal(selection)
+			require.NoError(t, err)
+			source, err := os.ReadFile(spec)
+			require.NoError(t, err)
+			source = bytes.Replace(source, []byte("evidence_context: {}"), append([]byte("evidence_context: "), config...), 1)
+			require.NoError(t, os.WriteFile(spec, source, 0600))
+			parsed, err := models.LoadEvalSpec(spec)
+			require.NoError(t, err)
+			parameters, ok := parsed.Graders[0].Parameters.(models.PromptGraderParameters)
+			require.True(t, ok)
+			require.Equal(t, &selection, parameters.EvidenceContext, "the unused sentinel must actually be configured")
 			switch problem {
 			case "missing":
 				original.TestOutcomes[0].Runs[0].JudgeEvidence = nil
+			case "redacted":
+				run := &original.TestOutcomes[0].Runs[0]
+				run.JudgeEvidence = judgeevidence.Capture(judgeevidence.CaptureInput{
+					Origin: run.JudgeEvidence.Origin, Task: "Contact redacted@example.invalid",
+					Output: "Done", OutputPresent: true, Selection: selection, ExecutionMode: "mock",
+					Events: []copilot.SessionEvent{
+						{Data: &copilot.UserMessageData{Content: "Contact redacted@example.invalid"}},
+						{Data: &copilot.AssistantMessageData{Content: "Done"}},
+					},
+				})
+				require.Positive(t, run.JudgeEvidence.Redaction.MatchCount)
+				require.ErrorContains(t, judgeevidence.Verify(run.JudgeEvidence, run.JudgeEvidence.Origin), "redacted")
 			case "unbound":
 				original.RunID = "other"
 			case "cached":
 				original.TestOutcomes[0].Cached = true
-			case "new-file":
-				data, err := os.ReadFile(spec)
-				require.NoError(t, err)
-				require.NoError(t, os.WriteFile(spec, bytes.Replace(data, []byte("evidence_context: {}"), []byte("evidence_context: {files: [new.txt]}"), 1), 0600))
 			}
 			data, err := json.Marshal(original)
 			require.NoError(t, err)
+			// Model an older saved result that already leaked an unused declaration.
+			var sourceOutcome map[string]any
+			require.NoError(t, json.Unmarshal(data, &sourceOutcome))
+			sourceTasks, ok := sourceOutcome["tasks"].([]any)
+			require.True(t, ok)
+			require.Len(t, sourceTasks, 1)
+			sourceTask, ok := sourceTasks[0].(map[string]any)
+			require.True(t, ok)
+			sourceRuns, ok := sourceTask["runs"].([]any)
+			require.True(t, ok)
+			require.Len(t, sourceRuns, 1)
+			sourceRun, ok := sourceRuns[0].(map[string]any)
+			require.True(t, ok)
+			sourceRun["prompt_judging"] = []any{map[string]any{
+				"grader": "legacy", "context": "frozen_inline", "purpose": "run",
+				"state": "failed", "inspection": "not_observable",
+				"evidence_context": map[string]any{"files": []string{"legacy.txt"},
+					"evaluator_only": []string{"legacy-private.txt"}, "non_secret_literals": []string{legacy}},
+			}}
+			data, err = json.Marshal(sourceOutcome)
+			require.NoError(t, err)
+			require.Contains(t, string(data), legacy)
 			require.NoError(t, os.WriteFile(results, data, 0600))
 			output := filepath.Join(t.TempDir(), "failed.json")
 			calls := 0
@@ -320,7 +367,11 @@ func TestEvidenceSavedGradeOperationalFailuresSaveDiagnosticsBeforeReturningErro
 				return response, nil
 			})
 			var stdout bytes.Buffer
-			err = runGradeWithJudge(t.Context(), &stdout, io.Discard, spec, "task", results, "/NONEXISTENT_WORKSPACE_CANARY", "", output, false, "", judge)
+			var stderr bytes.Buffer
+			err = runGradeWithJudge(t.Context(), &stdout, &stderr, spec, "task", results, "/NONEXISTENT_WORKSPACE_CANARY", "", output, true, "", judge)
+			require.NotContains(t, fmt.Sprint(err), unused)
+			require.NotContains(t, stdout.String(), unused)
+			require.NotContains(t, stderr.String(), unused)
 			if problem == "ordinary-fail" {
 				require.NoError(t, err, "ordinary failed judgments retain grade's existing exit policy")
 				require.Contains(t, stdout.String(), `"status": "failed"`)
@@ -332,11 +383,24 @@ func TestEvidenceSavedGradeOperationalFailuresSaveDiagnosticsBeforeReturningErro
 			}
 			saved, err := os.ReadFile(output)
 			require.NoError(t, err)
+			require.NotContains(t, string(saved), unused)
+			require.NotContains(t, string(saved), legacy)
+			require.NotContains(t, string(saved), "non_secret_literals")
 			graded, err := models.ParseEvaluationOutcome(saved, output)
 			require.NoError(t, err)
 			require.Len(t, graded.TestOutcomes[0].Runs, 1)
 			run := graded.TestOutcomes[0].Runs[0]
-			require.NotEmpty(t, run.PromptJudging)
+			require.Len(t, run.PromptJudging, 2, "inspect the retained and new observations")
+			for index, observation := range run.PromptJudging {
+				if index == 0 {
+					require.Equal(t, []string{"legacy.txt"}, observation.EvidenceContext.Files)
+					require.Equal(t, []string{"legacy-private.txt"}, observation.EvidenceContext.EvaluatorOnly)
+				} else {
+					require.Equal(t, selection.Files, observation.EvidenceContext.Files)
+					require.Equal(t, selection.EvaluatorOnly, observation.EvidenceContext.EvaluatorOnly)
+				}
+				require.Nil(t, observation.EvidenceContext.NonSecretLiterals)
+			}
 			if strings.HasPrefix(problem, "judge-") || problem == "ordinary-fail" {
 				require.Equal(t, 1, calls)
 			} else {

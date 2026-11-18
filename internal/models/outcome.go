@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -121,6 +122,7 @@ type EvaluationSessionUsage struct {
 
 func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
 	type alias EvaluationOutcome
+	o = o.withoutPrivateJudgeDeclarations()
 	if o.SchemaVersion == "" {
 		o.SchemaVersion = CurrentResultSchemaVersion
 	}
@@ -132,6 +134,38 @@ func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
 		alias
 		Skill *string `json:"skill,omitempty"`
 	}{alias(o), skill})
+}
+
+func (o EvaluationOutcome) withoutPrivateJudgeDeclarations() EvaluationOutcome {
+	copied := false
+	for taskIndex, task := range o.TestOutcomes {
+		var runs []RunResult
+		for runIndex, run := range task.Runs {
+			if !slices.ContainsFunc(run.PromptJudging, func(observation PromptJudgeObservation) bool {
+				return observation.EvidenceContext.NonSecretLiterals != nil
+			}) {
+				continue
+			}
+			// Retained observations must not republish old declarations or mutate
+			// caller-owned results. Copy only collections that need sanitizing.
+			if runs == nil {
+				runs = slices.Clone(task.Runs)
+			}
+			observations := slices.Clone(run.PromptJudging)
+			for i := range observations {
+				observations[i].EvidenceContext.NonSecretLiterals = nil
+			}
+			runs[runIndex].PromptJudging = observations
+		}
+		if runs != nil {
+			if !copied {
+				o.TestOutcomes = slices.Clone(o.TestOutcomes)
+				copied = true
+			}
+			o.TestOutcomes[taskIndex].Runs = runs
+		}
+	}
+	return o
 }
 
 // HasSkillTested distinguishes a recorded blank string from unavailable legacy metadata.

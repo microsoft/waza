@@ -745,7 +745,8 @@ configuration is a trust boundary, not a way to certify data safe.
 Explicit declarations use independently versioned bundle **`1.1`**, recording
 only `fixture_literals.declared_count` and `preserved_matches` (skipped regex/key
 matches, not unique occurrences). Declaration lists and unused values are not
-copied into bundles, judge observations or diagnostics. Values actually present
+copied into bundles, judge observations or diagnostics, including failed runs
+and failed saved regrades written with `--output`. Values actually present
 in admitted evidence remain visible to the judge and in saved evidence.
 Global snapshot redaction is unchanged. Cache identities include declarations,
 although evidence-enabled execution continues to bypass cache reuse.

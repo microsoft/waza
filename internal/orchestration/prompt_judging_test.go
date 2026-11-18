@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,6 +117,85 @@ func TestEvidenceRunnerFixtureDeclarationsStayOutsideActorSession(t *testing.T) 
 			encoded, err := json.Marshal(run)
 			require.NoError(t, err)
 			require.NotContains(t, string(encoded), "EVALUATOR_ONLY_DECLARATION_CANARY")
+			require.NotContains(t, string(encoded), "non_secret_literals")
+		})
+	}
+}
+
+func TestEvidenceRunnerObservationsNeverPersistFixtureDeclarations(t *testing.T) {
+	const unused = "UNUSED_RUN_DECLARATION_CANARY"
+	for _, problem := range []string{"missing-message", "redacted", "judge-error", "failed-verdict", "passed"} {
+		t.Run(problem, func(t *testing.T) {
+			runner, client := evidenceRunner(t)
+			grader := evidenceConfig("judge")
+			params, ok := grader.Parameters.(models.PromptGraderParameters)
+			require.True(t, ok)
+			params.EvidenceContext.NonSecretLiterals = &[]string{unused}
+			params.EvidenceContext.EvaluatorOnly = []string{"private.txt"}
+			if problem == "missing-message" {
+				client.Send = func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+					return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "Done"}}}, nil
+				}
+			}
+			grader.Parameters = params
+			runner.cfg.Spec().Graders = []models.GraderConfig{grader}
+			configured, ok := runner.cfg.Spec().Graders[0].Parameters.(models.PromptGraderParameters)
+			require.True(t, ok)
+			require.Contains(t, *configured.EvidenceContext.NonSecretLiterals, unused)
+			message := "Inspect reports"
+			if problem == "redacted" {
+				message = "Contact redacted@example.invalid"
+			}
+			task := &models.TestCase{TestID: "task", DisplayName: "Task", Stimulus: models.TaskStimulus{Message: message}}
+			calls := 0
+			runner.evidenceExecutor = scriptedEvidenceJudge(func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				calls++
+				require.NotContains(t, req.Message, unused)
+				require.NotContains(t, req.Message, "non_secret_literals")
+				if problem == "judge-error" {
+					return nil, errors.New("synthetic judge failure")
+				}
+				index := 0
+				if problem == "failed-verdict" {
+					index = 1
+				}
+				_, err := req.Tools[index].Handler(copilot.ToolInvocation{ToolName: req.Tools[index].Name})
+				return &execution.ExecutionResponse{Success: true, SessionID: "judge"}, err
+			})
+			outcome, cached := runner.runTest(t.Context(), task, 1, 1)
+			require.False(t, cached)
+			require.Len(t, outcome.Runs, 1)
+			run := outcome.Runs[0]
+			require.Len(t, run.PromptJudging, 1)
+			observation := run.PromptJudging[0]
+			require.Equal(t, params.EvidenceContext.Files, observation.EvidenceContext.Files)
+			require.Equal(t, params.EvidenceContext.EvaluatorOnly, observation.EvidenceContext.EvaluatorOnly)
+			require.Nil(t, observation.EvidenceContext.NonSecretLiterals)
+			switch problem {
+			case "missing-message", "redacted", "judge-error":
+				require.Equal(t, models.StatusError, run.Status)
+				require.Equal(t, "failed", observation.State)
+			case "failed-verdict":
+				require.Equal(t, models.StatusFailed, run.Status)
+				require.Equal(t, "submitted", observation.State)
+			default:
+				require.Equal(t, models.StatusPassed, run.Status)
+				require.Equal(t, "submitted", observation.State)
+			}
+			if problem == "missing-message" || problem == "redacted" {
+				require.Zero(t, calls)
+			} else {
+				require.Equal(t, 1, calls)
+			}
+			if problem == "redacted" {
+				require.Positive(t, run.JudgeEvidence.Redaction.MatchCount)
+			}
+			if problem == "missing-message" {
+				require.Equal(t, "unavailable", run.JudgeEvidence.Messages.Availability)
+			}
+			encoded, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), unused)
 			require.NotContains(t, string(encoded), "non_secret_literals")
 		})
 	}
