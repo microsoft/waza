@@ -2159,7 +2159,7 @@ user_input_responses:
 
 Each entry has a required `answer` and an optional `question` regex. Questions that do not match the next entry, or arrive after the script is used up, return an error to the SDK instead of a default answer and fail the run; unused entries also fail it. Each request is recorded in order under `runs[].user_input_requests` (session ID, question, offered choices, answer, `was_freeform`, `source`, and `error` when rejected) and exposed to inline `code` graders as `user_input_requests`. This is separate from `mcp_mocks`, which can mock an MCP-provided `ask_user` tool. See [examples/scenarios/native-questions](examples/scenarios/native-questions).
 
-With an adaptive responder, any question the next scripted entry does not match is answered by the responder model from its instructions (recorded with `source: responder`). Responder stop, abstain, errors, or invalid answers fail the run. Without the flag, responders keep their existing between-turn behavior only. See the [schema reference](site/src/content/docs/reference/schema.mdx#adaptive-responder-answers).
+With an adaptive responder, any question the next scripted entry does not match is answered by the responder model from its instructions (recorded with `source: responder`). The responder can also dismiss a question, as a user who closes the prompt would: the agent gets an error saying the user dismissed it, the record's `error` says it was dismissed, and the run goes on. Responder stop, abstain, errors, or invalid answers fail the run. Without the flag, responders keep their existing between-turn behavior only. See the [schema reference](site/src/content/docs/reference/schema.mdx#adaptive-responder-answers).
 
 ### Adversarial Packs
 

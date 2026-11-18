@@ -187,6 +187,24 @@ func TestUserInputScriptFallbackAnswersUnscriptedQuestions(t *testing.T) {
 	require.NoError(t, script.Finish())
 }
 
+func TestUserInputScriptFallbackDismissalDoesNotFailRun(t *testing.T) {
+	script := newTestScript(t, nil)
+	script.SetFallback(func(context.Context, copilot.UserInputRequest) (string, error) {
+		return "", ErrUserInputDismissed
+	})
+	defer script.BindTurn(context.Background())()
+	resp, err := script.Handler()(copilot.UserInputRequest{Question: "Deploy now?", Choices: []string{"Deploy"}, AllowFreeform: boolPtr(false)},
+		copilot.UserInputInvocation{SessionID: "s"})
+	require.ErrorIs(t, err, ErrUserInputDismissed, "the agent sees the dismissal")
+	require.Equal(t, copilot.UserInputResponse{}, resp)
+	record := script.Records()[0]
+	require.Nil(t, record.Answer)
+	require.Equal(t, models.UserInputSourceResponder, record.Source)
+	require.Contains(t, record.Error, "dismissed")
+	require.Zero(t, script.rejectionCount())
+	require.NoError(t, script.Finish())
+}
+
 func TestUserInputScriptFallbackFailsClosed(t *testing.T) {
 	cases := []struct {
 		name     string

@@ -26,6 +26,9 @@ const (
 	DecisionStop
 	// DecisionAbstain means the responder could not answer from its brief.
 	DecisionAbstain
+	// DecisionDismiss means the responder closed a native question without
+	// answering. It is offered only for questions marked by WithNativeQuestion.
+	DecisionDismiss
 )
 
 // Decision is the outcome of classifying a single agent message.
@@ -39,7 +42,21 @@ const (
 	toolRespond = "responder_reply"
 	toolStop    = "responder_stop"
 	toolAbstain = "responder_abstain"
+	toolDismiss = "responder_dismiss"
 )
+
+type nativeQuestionKey struct{}
+
+// WithNativeQuestion marks ctx as classifying a native question the agent asked
+// mid-turn. Only then does the responder get responder_dismiss.
+func WithNativeQuestion(ctx context.Context) context.Context {
+	return context.WithValue(ctx, nativeQuestionKey{}, true)
+}
+
+func isNativeQuestion(ctx context.Context) bool {
+	marked, _ := ctx.Value(nativeQuestionKey{}).(bool)
+	return marked
+}
 
 // Executor is the narrow execution surface the responder needs. The concrete
 // AgentEngine satisfies it, and tests supply a fake.
@@ -66,8 +83,8 @@ type decisionRecorder struct {
 	err      error
 }
 
-func (d *decisionRecorder) tools() []copilot.Tool {
-	return []copilot.Tool{
+func (d *decisionRecorder) tools(nativeQuestion bool) []copilot.Tool {
+	tools := []copilot.Tool{
 		{
 			Name:        toolRespond,
 			Description: "Answer the agent's question as the user. Call this exactly once with your answer.",
@@ -135,6 +152,21 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 			},
 		},
 	}
+	if nativeQuestion {
+		tools = append(tools, copilot.Tool{
+			Name:        toolDismiss,
+			Description: "Close the agent's question without answering it, as a user who won't answer it would.",
+			IsTerminal:  true,
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+			Handler: func(copilot.ToolInvocation) (copilot.ToolResult, error) {
+				return copilot.ToolResult{}, d.record(toolDismiss, Decision{Kind: DecisionDismiss})
+			},
+		})
+	}
+	return tools
 }
 
 // record atomically stores the single decision, enforcing the "call exactly one
@@ -202,12 +234,13 @@ func NewWithReasoningEffort(exec Executor, cfg models.ResponderConfig, defaultMo
 // instructions; subsequent calls resume the same session.
 func (c *Classifier) Classify(ctx context.Context, agentMessage string) (Decision, error) {
 	rec := &decisionRecorder{}
+	nativeQuestion := isNativeQuestion(ctx)
 
 	req := &execution.ExecutionRequest{
 		ModelID:         c.model,
 		ReasoningEffort: c.reasoningEffort,
-		Message:         c.buildMessage(agentMessage),
-		Tools:           rec.tools(),
+		Message:         c.buildMessage(agentMessage, nativeQuestion),
+		Tools:           rec.tools(nativeQuestion),
 		MessageMode:     execution.MessageModeEnqueue,
 		Streaming:       true,
 		SessionID:       c.sessionID,
@@ -260,16 +293,24 @@ func (c *Classifier) Close(ctx context.Context) error {
 	return nil
 }
 
-func (c *Classifier) buildMessage(agentMessage string) string {
+func (c *Classifier) buildMessage(agentMessage string, nativeQuestion bool) string {
+	choices := fmt.Sprintf("%s to answer, %s if the agent is finished and needs nothing, or %s if you genuinely cannot answer from your configuration",
+		toolRespond, toolStop, toolAbstain)
+	names := fmt.Sprintf("%s, %s, or %s", toolRespond, toolStop, toolAbstain)
+	if nativeQuestion {
+		choices = fmt.Sprintf("%s to answer, %s to close the question without answering, %s if the agent is finished and needs nothing, or %s if you genuinely cannot answer from your configuration",
+			toolRespond, toolDismiss, toolStop, toolAbstain)
+		names = fmt.Sprintf("%s, %s, %s, or %s", toolRespond, toolDismiss, toolStop, toolAbstain)
+	}
 	if c.sessionID == "" {
 		return fmt.Sprintf(
 			"%s\n\nYou are role-playing as the user. The agent just said:\n\n%s\n\n"+
-				"Respond by calling exactly one tool: %s to answer, %s if the agent is finished and needs nothing, or %s if you genuinely cannot answer from your configuration.",
-			c.instructions, agentMessage, toolRespond, toolStop, toolAbstain,
+				"Respond by calling exactly one tool: %s.",
+			c.instructions, agentMessage, choices,
 		)
 	}
 	return fmt.Sprintf(
-		"The agent just said:\n\n%s\n\nRespond by calling exactly one tool (%s, %s, or %s).",
-		agentMessage, toolRespond, toolStop, toolAbstain,
+		"The agent just said:\n\n%s\n\nRespond by calling exactly one tool (%s).",
+		agentMessage, names,
 	)
 }

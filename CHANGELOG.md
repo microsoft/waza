@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Responder can dismiss native questions.** With `config.native_user_input`,
+  the adaptive responder can now close a native `ask_user` question without
+  answering, through a `responder_dismiss` decision offered only for in-turn
+  questions. The agent receives an error saying the user dismissed the question
+  and the run continues; the record keeps `source: responder` and an `error`
+  that says it was dismissed. Between-turn decisions are unchanged.
+
 - **Product usage telemetry client, inert (#1045).** Added an opt-out product
   usage telemetry client with a closed v1 event contract
   (`schemas/usage-telemetry-1.0.schema.json`, 4 KiB max) for

@@ -38,8 +38,14 @@ var UserInputDrainTimeout = 30 * time.Second
 
 // UserInputFallback answers a native user-input request that no scripted
 // entry handles. ctx belongs to the agent turn that asked, so the call ends
-// with that turn. Returning an error fails the request closed.
+// with that turn. Returning an error fails the request closed, except
+// ErrUserInputDismissed.
 type UserInputFallback func(ctx context.Context, request copilot.UserInputRequest) (string, error)
+
+// ErrUserInputDismissed is what a fallback returns when the simulated user
+// closes the question without answering. The agent gets this error, as when a
+// real user dismisses the prompt, but the run does not fail.
+var ErrUserInputDismissed = errors.New("the user dismissed the question without answering")
 
 // NewUserInputScript validates responses and returns a fresh script.
 func NewUserInputScript(responses []models.UserInputResponseConfig) (*UserInputScript, error) {
@@ -143,7 +149,8 @@ func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation co
 			// Drain already ended this request as an error.
 			return copilot.UserInputResponse{}, errors.New(failed)
 		}
-		if err != nil {
+		dismissed := errors.Is(err, ErrUserInputDismissed)
+		if err != nil && !dismissed {
 			return s.reject(index, fmt.Sprintf("responder could not answer: %v", err))
 		}
 		// The asking turn must still be active to accept the reply.
@@ -152,6 +159,12 @@ func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation co
 		}
 		if err := ctx.Err(); err != nil {
 			return s.reject(index, fmt.Sprintf("the asking agent turn ended before the responder answered: %v", err))
+		}
+		if dismissed {
+			// Recorded like a rejection so graders see no answer, but not
+			// counted as one, so the run goes on.
+			s.records[index].Error = fmt.Sprintf("native user input request %d dismissed: %v", index+1, ErrUserInputDismissed)
+			return copilot.UserInputResponse{}, ErrUserInputDismissed
 		}
 		answer = reply
 	case s.next < len(s.responses):
