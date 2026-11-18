@@ -584,3 +584,25 @@ func TestRunBenchmark_BaselineDisablesAllSkills(t *testing.T) {
 		})
 	}
 }
+
+func TestRunBenchmark_BaselineIgnoresUnselectedTaskSkills(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "plain.yaml"), []byte("id: plain\nname: Plain\ninputs:\n  prompt: hello\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "skilled.yaml"), []byte("id: skilled\nname: Skilled\ninputs:\n  prompt: hello\nskill_directories: [task-skills]\n"), 0o600))
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "baseline-eval"},
+		Baseline:     true,
+		Tasks:        []string{"plain.yaml", "skilled.yaml"},
+		Config:       models.Config{EngineType: "mock", ModelID: "mock", TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	engine := &captureCacheEngine{MockEngine: execution.NewMockEngine("mock")}
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine, WithTaskFilters("plain"))
+
+	outcome, err := runner.RunBenchmark(t.Context())
+	require.NoError(t, err)
+	require.False(t, outcome.IsBaseline, "skills on unselected tasks must not start a baseline comparison")
+	require.Len(t, engine.requests, 1)
+}

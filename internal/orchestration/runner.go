@@ -661,13 +661,13 @@ func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 	return r.mergeBaselineOutcomes(outcomesWithSkills, outcomesWithoutSkills)
 }
 
-// hasConfiguredSkills reports whether the eval or any of its tasks configures skills.
+// hasConfiguredSkills reports whether the eval or any selected task configures skills.
 func (r *EvalRunner) hasConfiguredSkills() bool {
 	spec := r.cfg.Spec()
 	if len(spec.Config.SkillPaths) > 0 || len(spec.Config.RequiredSkills) > 0 {
 		return true
 	}
-	testCases, err := r.loadTestCases()
+	testCases, err := r.admissionTestCases()
 	if err != nil {
 		return false
 	}
