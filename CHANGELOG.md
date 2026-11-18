@@ -188,6 +188,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   noncanonical escapes and unknown fields are rejected and canonical reports are
   verified instead of labeled unverified; reports with evidence the browser
   cannot re-encode stay unverified (#964).
+- Re-dispatching a release no longer moves an existing `release/vX.Y.Z`
+  registry-sync branch. The extension release job never pushes to an existing
+  branch: it reuses one whose tip is the same sync of the validated commit
+  (same parent and tree) and fails clearly, leaving it unchanged, when the
+  branch points elsewhere (#937).
 
 ## [0.41.0] - 2026-11-13
 
