@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,6 +37,7 @@ func New(dir string) *Cache {
 // - fixture file hashes
 // - the task's effective MCP mocks, with fixture contents resolved
 // - lifecycle hooks and eval inputs when hooks are configured
+// - consumed skill, agent, instruction and context bytes (CacheKeyWithInputs)
 // MCP fixtures use fixtureDir as their base; use CacheKeyWithSpecDir when the
 // eval and task resource directories differ.
 func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (string, error) {
@@ -45,6 +47,39 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 // CacheKeyWithSpecDir resolves MCP fixtures relative to the eval directory,
 // independently of the task resource directory.
 func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDir, specDir string) (string, error) {
+	return CacheKeyWithInputs(spec, task, fixtureDir, specDir, nil)
+}
+
+// ConsumedInputs are the bytes request construction reads beyond the
+// declarations hashed by CacheKeyWithSpecDir: context fixtures, instruction
+// files, the selected skill or agent definition, and skill directory trees.
+type ConsumedInputs struct {
+	// Files are fingerprinted in order, since order can change the request.
+	Files []ConsumedFile
+	// SkillDirs are hashed recursively, in precedence order.
+	SkillDirs []string
+}
+
+// ConsumedFile is one file's content as consumed by request construction.
+type ConsumedFile struct {
+	Role    string
+	Path    string
+	Content []byte
+}
+
+func (in *ConsumedInputs) empty() bool {
+	return in == nil || (len(in.Files) == 0 && len(in.SkillDirs) == 0)
+}
+
+// skippedSkillTreeDirs are not fingerprinted inside skill directories: they
+// hold VCS metadata or vendored packages that skills do not read as content.
+var skippedSkillTreeDirs = map[string]bool{".git": true, "node_modules": true}
+
+// CacheKeyWithInputs extends CacheKeyWithSpecDir with the content of consumed
+// inputs, so editing a skill, instruction file or context fixture in place
+// does not reuse an outcome produced from the previous bytes. Any unreadable
+// input returns an error, which callers treat as "do not cache".
+func CacheKeyWithInputs(spec *models.EvalSpec, task *models.TestCase, fixtureDir, specDir string, inputs *ConsumedInputs) (string, error) {
 	h := sha256.New()
 
 	// Include spec identity
@@ -190,7 +225,108 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 		}
 	}
 
+	// Salted only when inputs are consumed, so keys for tasks without them are
+	// unchanged while earlier keys that ignored these bytes are not reused.
+	if !inputs.empty() {
+		if err := hashConsumedInputs(h, inputs); err != nil {
+			return "", fmt.Errorf("hashing consumed inputs: %w", err)
+		}
+	}
+
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func hashConsumedInputs(h io.Writer, inputs *ConsumedInputs) error {
+	if err := writeString(h, "consumed-inputs-v1"); err != nil {
+		return err
+	}
+	for _, file := range inputs.Files {
+		sum := sha256.Sum256(file.Content)
+		for _, s := range []string{"file", file.Role, file.Path, hex.EncodeToString(sum[:])} {
+			if err := writeString(h, s); err != nil {
+				return err
+			}
+		}
+	}
+	for i, dir := range inputs.SkillDirs {
+		if err := writeString(h, "skill-dir"); err != nil {
+			return err
+		}
+		if err := writeInt(h, i); err != nil {
+			return err
+		}
+		if err := hashSkillTree(h, dir); err != nil {
+			return fmt.Errorf("skill directory %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// hashSkillTree writes each file's slash-separated relative path and content
+// digest in lexical walk order. Symlinked directories record their target
+// rather than being followed, which avoids cycles.
+func hashSkillTree(h io.Writer, root string) error {
+	info, err := os.Stat(root)
+	if os.IsNotExist(err) {
+		return writeString(h, "missing")
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		if err := writeString(h, "file"); err != nil {
+			return err
+		}
+		return hashFileDigest(h, root)
+	}
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if path != root && skippedSkillTreeDirs[entry.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if err := writeString(h, filepath.ToSlash(rel)); err != nil {
+			return err
+		}
+		switch {
+		case entry.Type()&fs.ModeSymlink != 0:
+			target, err := filepath.EvalSymlinks(path)
+			if os.IsNotExist(err) {
+				return writeString(h, "dangling-symlink")
+			}
+			if err != nil {
+				return err
+			}
+			targetInfo, err := os.Stat(target)
+			if err != nil {
+				return err
+			}
+			if targetInfo.IsDir() {
+				return writeString(h, "symlink-dir:"+target)
+			}
+			return hashFileDigest(h, target)
+		case entry.Type().IsRegular():
+			return hashFileDigest(h, path)
+		default:
+			return writeString(h, "irregular")
+		}
+	})
+}
+
+func hashFileDigest(h io.Writer, path string) error {
+	digest := sha256.New()
+	if err := hashFile(digest, path); err != nil {
+		return err
+	}
+	return writeString(h, hex.EncodeToString(digest.Sum(nil)))
 }
 
 // RecordedMCPMocksMatch reports whether a cached outcome is safe to reuse for

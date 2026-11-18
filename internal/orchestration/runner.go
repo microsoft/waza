@@ -1114,7 +1114,10 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		fmt.Fprintf(os.Stderr, "[WARN] Scenario caching disabled for test %q: external workflow dependencies are not fully fingerprinted\n", tc.DisplayName)
 	}
 	if r.cache != nil && spec.Scenario == "" && !models.UsesJudgeEvidence(spec.Graders, tc) {
-		cacheKey, err := cache.CacheKeyWithSpecDir(spec, tc, r.cfg.FixtureDir(), r.cfg.SpecDir())
+		cacheKey, err := r.taskCacheKey(spec, tc)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[WARN] Caching disabled for test %q: %v\n", tc.DisplayName, err)
+		}
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found && cache.RecordedMCPMocksMatch(cachedOutcome, models.EffectiveMCPMocks(spec, tc)) {
 				if cachedOutcome.Status == models.StatusError || OverallStatus(cachedOutcome.Runs) == models.StatusError {
