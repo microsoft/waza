@@ -107,3 +107,29 @@ func TestRunCacheHitsWhenRunOutputsLiveBeneathSkillRoot(t *testing.T) {
 		})
 	}
 }
+
+// An authored skill file sharing the --output stem is not a run output, so
+// editing it must still invalidate the cache.
+func TestRunCacheMissesWhenSameStemSkillFileChanges(t *testing.T) {
+	dir := t.TempDir()
+	specPath := writeSkillRootEval(t, dir, "test-skill")
+	reference := filepath.Join(dir, "results_schema.json")
+	require.NoError(t, os.WriteFile(reference, []byte(`{"v":1}`), 0o644))
+	cacheDir := filepath.Join(t.TempDir(), "cache")
+	run := func() {
+		resetRunGlobals()
+		cmd := newRunCommand()
+		cmd.SetArgs([]string{specPath, "--output", filepath.Join(dir, "results.json"), "--cache", "--cache-dir", cacheDir})
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		require.NoError(t, cmd.Execute())
+	}
+
+	run()
+	first := countCacheEntries(t, cacheDir)
+	require.Positive(t, first)
+	require.NoError(t, os.WriteFile(reference, []byte(`{"v":2}`), 0o644))
+	run()
+	require.Greater(t, countCacheEntries(t, cacheDir), first,
+		"editing a same-stem skill reference must store a new key")
+}

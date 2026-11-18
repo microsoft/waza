@@ -52,9 +52,9 @@ import (
 var (
 	contextDir string
 	outputPath string
-	// deferredOutputPath holds --output while a multi-skill run suspends
-	// per-runner output writing, so cache exclusions still cover it.
-	deferredOutputPath string
+	// plannedOutputFiles are the result files --output will produce for the
+	// selected skills and models, excluded from cache fingerprints.
+	plannedOutputFiles []string
 	outputDir          string
 	verbose            bool
 	transcriptDir      string
@@ -364,6 +364,7 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	if err != nil {
 		return err
 	}
+	plannedOutputFiles = plannedOutputPaths(outputPath, specPaths, modelOverrides)
 	isolatedSpecs := make([]string, 0, len(specPaths))
 	for _, sp := range specPaths {
 		isolatedSpecs = append(isolatedSpecs, sp.evalSpecPath)
@@ -439,7 +440,6 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	// Multi-skill run — run each eval sequentially
 	// Suppress per-skill output during the loop — we'll write it after
 	savedOutputPath := outputPath
-	deferredOutputPath = outputPath
 	outputPath = ""
 
 	var allSkillResults []skillRunResult
@@ -462,7 +462,6 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 
 	// Restore outputPath for per-skill output writing
 	outputPath = savedOutputPath
-	deferredOutputPath = ""
 
 	if len(allSkillResults) > 1 {
 		printSkillRunSummary(allSkillResults)
@@ -2367,13 +2366,9 @@ const (
 // when written beneath a skill directory. Only generated names are excluded.
 func runOutputCacheExclusions() []cache.ExcludeEntry {
 	var entries []cache.ExcludeEntry
-	if path := cmp.Or(outputPath, deferredOutputPath); path != "" {
-		// Per-model, per-skill and summary files derive from the --output stem.
+	for _, path := range plannedOutputFiles {
 		dir, name := filepath.Split(path)
-		ext := filepath.Ext(name)
-		entries = append(entries,
-			cache.ExcludeEntry{Dir: cmp.Or(dir, "."), NamePattern: globLiteral(name)},
-			cache.ExcludeEntry{Dir: cmp.Or(dir, "."), NamePattern: globLiteral(strings.TrimSuffix(name, ext)+"_") + "*" + globLiteral(ext)})
+		entries = append(entries, cache.ExcludeEntry{Dir: cmp.Or(dir, "."), NamePattern: globLiteral(name)})
 	}
 	if outputDir != "" {
 		entries = append(entries,
@@ -2388,6 +2383,42 @@ func runOutputCacheExclusions() []cache.ExcludeEntry {
 		entries = append(entries, cache.ExcludeEntry{Dir: logDir, NamePattern: session.LogFileGlob})
 	}
 	return entries
+}
+
+// plannedOutputPaths mirrors the --output files written for the selected
+// skills and models: the exact path, per-model files, or per-skill files and
+// the combined summary.
+func plannedOutputPaths(path string, specs []skillSpecPath, models []string) []string {
+	if path == "" {
+		return nil
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	multiModel := len(models) > 1
+	if len(specs) <= 1 {
+		if !multiModel {
+			return []string{path}
+		}
+		paths := make([]string, 0, len(models))
+		for _, model := range models {
+			paths = append(paths, buildOutputPath(base, ext, "", model, false, true))
+		}
+		return paths
+	}
+	var paths []string
+	if !noSummary {
+		paths = append(paths, fmt.Sprintf("%s_summary%s", base, ext))
+	}
+	for _, sp := range specs {
+		if !multiModel {
+			paths = append(paths, buildOutputPath(base, ext, sp.skillName, "", true, false))
+			continue
+		}
+		for _, model := range models {
+			paths = append(paths, buildOutputPath(base, ext, sp.skillName, model, true, true))
+		}
+	}
+	return paths
 }
 
 // globLiteral escapes filepath.Match metacharacters with character classes,
