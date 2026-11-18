@@ -9,18 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Product usage telemetry client, inert (#1045).** Added an opt-out product
-  usage telemetry client with a closed v1 event contract
+- **Product usage telemetry (#1045).** Added opt-out product
+  usage telemetry with a closed v1 event contract
   (`schemas/usage-telemetry-1.0.schema.json`, 4 KiB max) for
   `command_completed`, `execution_completed`, and `feature_used`, using only
   enums, buckets, booleans, and random UUIDv4s. Added `waza telemetry
   status|disable|enable|reset-id` (local-only), the global `--no-telemetry`
   flag, `WAZA_TELEMETRY_OPTOUT`, and project `telemetry.disabled` in
   `.waza.yaml`; `DO_NOT_TRACK` and azd's telemetry denial are honored, and any
-  opt-out wins. No collector endpoint is configured, so this build sends
-  nothing, creates no installation identifier, and writes no queue. Activation
-  awaits privacy/security approval, collector readiness, the collection default
-  and CI policy decision, and a live smoke test. See
+  opt-out wins. Collection is on by default on developer machines and never
+  runs in CI. Events go to a Microsoft-operated collector that does not log
+  request bodies, masks client IPs, and retains data for 30 days. See
   [docs/USAGE-TELEMETRY.md](docs/USAGE-TELEMETRY.md).
 
 - **Release qualification and attestations (#756).** The manual

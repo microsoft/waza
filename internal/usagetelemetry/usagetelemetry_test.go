@@ -80,11 +80,15 @@ func writeFile(t *testing.T, path, content string) {
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 }
 
-func TestShippedBuildIsInert(t *testing.T) {
-	assert.Empty(t, endpoint, "no collector endpoint may be compiled in by default")
-	assert.False(t, defaultCollectionOn)
-	assert.False(t, ciCollectionOn)
+func TestShippedPolicy(t *testing.T) {
+	assert.Equal(t, ApprovedEndpoint, shippedEndpoint)
+	assert.NotNil(t, approvedEndpoint(shippedEndpoint), "the shipped endpoint must be a credential-free https URL")
+	assert.True(t, shippedDefaultOn, "collection is on by default for developers")
+	assert.False(t, shippedCIOn, "CI is never collected")
+}
 
+func TestInertBuildSendsNothing(t *testing.T) {
+	activate(t, nil, false)
 	path := settingsPath(t)
 	p := Resolve(Inputs{Getenv: env(nil), SettingsPath: path, WorkDir: t.TempDir()})
 	assert.False(t, p.Enabled)

@@ -41,7 +41,7 @@ build: build-web
 # Run tests (requires web assets for embedded FS tests)
 test: build-web
 	@echo "Running tests..."
-	@go test -v -race -coverprofile=coverage.out $(GO_PACKAGES)
+	@WAZA_TELEMETRY_OPTOUT=1 go test -v -race -coverprofile=coverage.out $(GO_PACKAGES)
 	@go tool cover -func=coverage.out | tail -1
 
 # Run the offline corpus without building or installing frontend dependencies.

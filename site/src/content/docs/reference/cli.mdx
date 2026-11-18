@@ -2054,8 +2054,9 @@ The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit 
 ## waza telemetry
 
 Manage product usage telemetry. Every subcommand is local-only, sends nothing,
-and is never itself collected. This build has no approved collector endpoint,
-so no usage data is sent; see [Product Usage Telemetry](/waza/guides/usage-telemetry/).
+and is never itself collected. Released builds collect allowlisted, pseudonymous
+usage events on developer machines and never in CI; see
+[Product Usage Telemetry](/waza/guides/usage-telemetry/) to opt out.
 
 ```bash
 waza telemetry status    # Show whether collection is active and why

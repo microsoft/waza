@@ -2,11 +2,9 @@
 // (#1045). It is separate from the OpenTelemetry tracing in internal/telemetry
 // and never reads OpenTelemetry configuration, environment, or attributes.
 //
-// The client ships inert: no collector endpoint is compiled in, so Resolve
-// reports an inactive policy, Record* calls return immediately, and no network
-// request, installation identifier, or queue write ever happens. Activation
-// requires privacy/security approval, a ready collector, and an explicit
-// decision on the collection default and CI policy.
+// Released builds collect by default on developer machines and never collect
+// from CI. Every opt-out (flag, environment, persistent setting, project
+// config, or hosting tool denial) wins over the default.
 package usagetelemetry
 
 import (
@@ -31,14 +29,16 @@ const (
 	azdServerEnv    = "AZD_SERVER"
 )
 
-// endpoint is the approved collector URL. It is intentionally empty and can
-// only be set at build time (-ldflags -X) once activation is approved.
-var endpoint = ""
+// ApprovedEndpoint is the team collector gateway approved for #1045.
+const ApprovedEndpoint = "https://apim-waza-z6cdmnvatt43k.azure-api.net/v1/events"
 
-// Activation decisions that remain pending (see package docs). Collection is
-// off by default and CI never sends until these are explicitly changed.
+// endpoint can be overridden at build time (-ldflags -X); an empty value
+// produces an inert build.
+var endpoint = ApprovedEndpoint
+
+// Approved activation policy (#1045): on by default for developers, never in CI.
 var (
-	defaultCollectionOn = false
+	defaultCollectionOn = true
 	ciCollectionOn      = false
 )
 
@@ -55,7 +55,7 @@ const (
 	ReasonUserInvalid     = "the telemetry settings file is invalid or unreadable"
 	ReasonProjectDisabled = "the project .waza.yaml sets telemetry.disabled"
 	ReasonProjectInvalid  = "the project .waza.yaml telemetry section is invalid or unreadable"
-	ReasonCI              = "CI collection has not been approved"
+	ReasonCI              = "CI environments are never collected"
 	ReasonNotEnabled      = "collection is off by default and has not been enabled"
 )
 

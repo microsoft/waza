@@ -8,11 +8,18 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/executionisolation"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
 	executionisolation.ExitIfSubprocessProbe()
+	// Never reach the real usage collector from tests or the binaries they spawn.
+	usagetelemetry.OverrideActivationForTesting("", nil, false, false)
+	if err := os.Setenv(usagetelemetry.OptOutEnv, "1"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if mode := os.Getenv("WAZA_TEST_MCP_DIAGNOSTIC_CHILD"); mode != "" {
 		code, err := runMCPMockDiagnosticChild(mode)
 		if err != nil {
