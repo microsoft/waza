@@ -2,6 +2,8 @@ package orchestration
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/microsoft/waza/internal/config"
@@ -521,4 +523,64 @@ func TestMergeBaselineOutcomes_Success(t *testing.T) {
 	assert.InDelta(t, 1.0, task2.SkillImpact.PassRateWithSkills, 0.001)
 	assert.InDelta(t, 0.333, task2.SkillImpact.PassRateBaseline, 0.001)
 	assert.InDelta(t, 0.667, task2.SkillImpact.Delta, 0.001)
+}
+
+func TestRunBenchmark_BaselineDisablesAllSkills(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		evalPaths  []string
+		taskPaths  string
+		wantTreats func(dir string) []string
+	}{
+		{name: "eval-skills", evalPaths: []string{"eval-skills"}, wantTreats: func(dir string) []string {
+			return []string{filepath.Join(dir, "eval-skills")}
+		}},
+		{name: "task-only-skills", taskPaths: "skill_directories: [task-skills]\n", wantTreats: func(dir string) []string {
+			return []string{filepath.Join(dir, "task-skills")}
+		}},
+		{name: "task-override", evalPaths: []string{"eval-skills"}, taskPaths: "skill_directories: [task-skills]\n", wantTreats: func(dir string) []string {
+			return []string{filepath.Join(dir, "task-skills")}
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+			// An ambient agent definition in the working directory must not leak into the baseline.
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "ambient.agent.md"), []byte("---\nname: ambient\ntools: [view]\n---\nRead only.\n"), 0o600))
+			task := "id: task-001\nname: Task 1\ninputs:\n  prompt: hello\n" + tt.taskPaths
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(task), 0o600))
+
+			evalPaths := tt.evalPaths
+			spec := &models.EvalSpec{
+				SpecIdentity: models.SpecIdentity{Name: "baseline-eval"},
+				SkillName:    "ambient",
+				Baseline:     true,
+				Tasks:        []string{"task.yaml"},
+				Config: models.Config{
+					EngineType: "mock", ModelID: "mock", TrialsPerTask: 1, TimeoutSec: 30,
+					SkillPaths: evalPaths,
+				},
+			}
+			engine := &captureCacheEngine{MockEngine: execution.NewMockEngine("mock")}
+			require.NoError(t, engine.Initialize(t.Context()))
+			t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine)
+
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.NoError(t, err)
+			require.True(t, outcome.IsBaseline, "task-only skills must not skip the baseline comparison")
+			require.NotNil(t, outcome.BaselineOutcome)
+			require.Len(t, engine.requests, 2)
+
+			treatment, baseline := engine.requests[0], engine.requests[1]
+			require.False(t, treatment.NoSkills)
+			require.Equal(t, tt.wantTreats(dir), treatment.SkillPaths)
+			require.NotNil(t, treatment.ToolPolicy, "treatment keeps ambient agent discovery")
+
+			require.True(t, baseline.NoSkills, "baseline must explicitly disable skills")
+			require.Nil(t, baseline.ToolPolicy, "baseline must not resolve ambient agent definitions")
+
+			require.Equal(t, evalPaths, spec.Config.SkillPaths, "original skill configuration is restored")
+		})
+	}
 }

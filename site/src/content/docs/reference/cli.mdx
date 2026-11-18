@@ -121,7 +121,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 | `--format` | `-f` | string | `default` | Output format: `default`, `github-comment` |
 | `--reporter` | | string[] | | Output reporters: `json`, `junit:<path>` (repeatable) |
 | `--timeout` | | int | 300 | Task timeout in seconds |
-| `--baseline` | | bool | false | A/B testing mode — runs each task twice (without skill = baseline, with skill = normal) and computes improvement scores |
+| `--baseline` | | bool | false | A/B testing mode — runs each task twice (baseline with all skills explicitly disabled, including task-level `skill_directories` and ambient discovery; then with skills = normal) and computes improvement scores. Isolates skill loading only; model outputs can still vary between passes |
 | `--update-snapshots` | | bool | false | Update or create `diff` grader snapshot files to match current workspace output |
 | `--discover` | | string | | Auto skill discovery — walks directory tree for SKILL.md + eval.yaml (root/tests/evals) |
 | `--strict` | | bool | false | Fail if any SKILL.md lacks eval coverage (use with `--discover`) |
