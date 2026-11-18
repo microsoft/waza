@@ -14,6 +14,8 @@ const base = (() => {
 export default defineConfig({
 	site: process.env.ASTRO_SITE || 'https://microsoft.github.io/waza',
 	base,
+	// Preserve the site's existing CSS specificity while upgrading Starlight.
+	scopedStyleStrategy: 'where',
 	integrations: [
 		starlight({
 			title: 'waza',
