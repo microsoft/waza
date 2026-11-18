@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -49,37 +50,40 @@ import (
 )
 
 var (
-	contextDir      string
-	outputPath      string
-	outputDir       string
-	verbose         bool
-	transcriptDir   string
-	taskFilters     []string
-	tagFilters      []string
-	parallel        bool
-	workers         int
-	trials          int
-	interpret       bool
-	format          string
-	enableCache     bool
-	disableCache    bool
-	runCacheDir     string
-	modelOverrides  []string
-	recommendFlag   bool
-	baselineFlag    bool
-	suggestFlag     bool
-	sessionLog      bool
-	sessionDir      string
-	noSummary       bool
-	judgeModel      string
-	reporters       []string
-	discoverFlag    bool
-	strictFlag      bool
-	updateSnapshots bool
-	skipGradersFlag bool
-	noSkillsFlag    bool
-	keepWorkspace   bool
-	autoFileIssue   bool
+	contextDir string
+	outputPath string
+	// deferredOutputPath holds --output while a multi-skill run suspends
+	// per-runner output writing, so cache exclusions still cover it.
+	deferredOutputPath string
+	outputDir          string
+	verbose            bool
+	transcriptDir      string
+	taskFilters        []string
+	tagFilters         []string
+	parallel           bool
+	workers            int
+	trials             int
+	interpret          bool
+	format             string
+	enableCache        bool
+	disableCache       bool
+	runCacheDir        string
+	modelOverrides     []string
+	recommendFlag      bool
+	baselineFlag       bool
+	suggestFlag        bool
+	sessionLog         bool
+	sessionDir         string
+	noSummary          bool
+	judgeModel         string
+	reporters          []string
+	discoverFlag       bool
+	strictFlag         bool
+	updateSnapshots    bool
+	skipGradersFlag    bool
+	noSkillsFlag       bool
+	keepWorkspace      bool
+	autoFileIssue      bool
 
 	isolationRequestPath string
 	isolationHostPath    string
@@ -435,6 +439,7 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	// Multi-skill run — run each eval sequentially
 	// Suppress per-skill output during the loop — we'll write it after
 	savedOutputPath := outputPath
+	deferredOutputPath = outputPath
 	outputPath = ""
 
 	var allSkillResults []skillRunResult
@@ -457,6 +462,7 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 
 	// Restore outputPath for per-skill output writing
 	outputPath = savedOutputPath
+	deferredOutputPath = ""
 
 	if len(allSkillResults) > 1 {
 		printSkillRunSummary(allSkillResults)
@@ -948,8 +954,8 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		}))
 	}
 	if resultCache != nil {
+		resultCache.ExcludeRunOutputs(runOutputCacheExclusions()...)
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
-		runnerOpts = append(runnerOpts, orchestration.WithCacheOutputEntries(runOutputCacheExclusions()...))
 	}
 	if updateSnapshots {
 		runnerOpts = append(runnerOpts, orchestration.WithUpdateSnapshots(true))
@@ -2356,11 +2362,19 @@ const (
 	outputRunDirGlob   = "????-??-??T??????.???"
 )
 
-// runOutputCacheExclusions lists the per-run outputs of --output-dir and
-// --session-log so they never feed back into the cache key when written
-// beneath a skill directory. Only generated names are excluded.
+// runOutputCacheExclusions lists the per-run outputs of --output,
+// --output-dir and --session-log so they never feed back into the cache key
+// when written beneath a skill directory. Only generated names are excluded.
 func runOutputCacheExclusions() []cache.ExcludeEntry {
 	var entries []cache.ExcludeEntry
+	if path := cmp.Or(outputPath, deferredOutputPath); path != "" {
+		// Per-model, per-skill and summary files derive from the --output stem.
+		dir, name := filepath.Split(path)
+		ext := filepath.Ext(name)
+		entries = append(entries,
+			cache.ExcludeEntry{Dir: cmp.Or(dir, "."), NamePattern: globLiteral(name)},
+			cache.ExcludeEntry{Dir: cmp.Or(dir, "."), NamePattern: globLiteral(strings.TrimSuffix(name, ext)+"_") + "*" + globLiteral(ext)})
+	}
 	if outputDir != "" {
 		entries = append(entries,
 			cache.ExcludeEntry{Dir: outputDir, NamePattern: outputRunDirGlob},
@@ -2374,6 +2388,29 @@ func runOutputCacheExclusions() []cache.ExcludeEntry {
 		entries = append(entries, cache.ExcludeEntry{Dir: logDir, NamePattern: session.LogFileGlob})
 	}
 	return entries
+}
+
+// globLiteral escapes filepath.Match metacharacters with character classes,
+// which behave the same on every platform.
+func globLiteral(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '*', '?', '[':
+			b.WriteByte('[')
+			b.WriteRune(r)
+			b.WriteByte(']')
+		case '\\':
+			if runtime.GOOS == "windows" {
+				b.WriteRune(r)
+			} else {
+				b.WriteString(`[\\]`)
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // writeOutputDir writes results to a structured directory hierarchy.

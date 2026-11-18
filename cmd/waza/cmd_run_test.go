@@ -40,6 +40,7 @@ import (
 func resetRunGlobals() {
 	contextDir = ""
 	outputPath = ""
+	deferredOutputPath = ""
 	outputDir = ""
 	verbose = false
 	transcriptDir = ""

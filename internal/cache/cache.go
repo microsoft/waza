@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -22,11 +23,34 @@ import (
 type Cache struct {
 	dir string
 	mu  sync.Mutex
+	// runOutputs are per-run output names, written outside the runner, that
+	// must not enter the key when they sit beneath a skill directory.
+	runOutputs []ExcludeEntry
 }
 
 // New creates a new cache instance with the specified directory
 func New(dir string) *Cache {
 	return &Cache{dir: dir}
+}
+
+// ExcludeRunOutputs records generated output names, such as timestamped
+// result directories and session logs, to skip when fingerprinting skill
+// directories for this cache.
+func (c *Cache) ExcludeRunOutputs(entries ...ExcludeEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.runOutputs = append(c.runOutputs, entries...)
+}
+
+// RunOutputs returns the entries recorded by ExcludeRunOutputs; a nil cache
+// has none.
+func (c *Cache) RunOutputs() []ExcludeEntry {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.runOutputs)
 }
 
 // Dir returns the directory cache entries are written to.
@@ -393,26 +417,18 @@ func hashSkillDir(h io.Writer, dir, rel string, active map[string]bool, excluded
 		if info.IsDir() && skipSkillTreeDir(entry.Name()) {
 			continue
 		}
-		// An output directory may first appear after the initial run, so only
-		// its retained contents, not its own existence, enter the key.
-		outputDir := info.IsDir() && !active[target] && len(excluded.entries[target]) > 0
-		if !outputDir {
-			if err := writeString(h, entryRel); err != nil {
-				return err
-			}
-		}
-		switch {
-		case info.IsDir():
+		// Directories are not recorded on their own: run outputs may create
+		// them (and their ancestors) after the first run, while every
+		// retained file still enters the key under its relative path.
+		if info.IsDir() {
 			if active[target] {
+				if err := writeString(h, entryRel); err != nil {
+					return err
+				}
 				if err := writeString(h, "symlink-cycle"); err != nil {
 					return err
 				}
 				continue
-			}
-			if !outputDir {
-				if err := writeString(h, "dir"); err != nil {
-					return err
-				}
 			}
 			active[target] = true
 			err := hashSkillDir(h, target, entryRel, active, excluded)
@@ -420,6 +436,12 @@ func hashSkillDir(h io.Writer, dir, rel string, active map[string]bool, excluded
 			if err != nil {
 				return err
 			}
+			continue
+		}
+		if err := writeString(h, entryRel); err != nil {
+			return err
+		}
+		switch {
 		case info.Mode().IsRegular():
 			if err := hashFileDigest(h, target); err != nil {
 				return err

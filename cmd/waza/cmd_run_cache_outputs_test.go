@@ -10,21 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createSkillRootSpec writes a spec whose skill directory is the spec
-// directory itself, so run outputs written there sit beneath the skill root.
-func createSkillRootSpec(t *testing.T) (specPath, dir string) {
-	t.Helper()
-	dir = t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tasks", "task.yaml"), []byte(`id: test-task-001
+const cacheOutputTask = `id: test-task-001
 name: Test Task
 inputs:
   prompt: "Explain this code"
-`), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: test-skill\n---\nbody\n"), 0o644))
-	specPath = filepath.Join(dir, "eval.yaml")
+`
+
+// writeSkillRootEval writes a skill whose eval uses the skill directory itself
+// as its skill root, so run outputs written there sit beneath the fingerprint.
+func writeSkillRootEval(t *testing.T, dir, name string) string {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tasks", "task.yaml"), []byte(cacheOutputTask), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: \"A test skill description.\"\n---\n# Body\n"), 0o644))
+	specPath := filepath.Join(dir, "eval.yaml")
 	require.NoError(t, os.WriteFile(specPath, []byte(`name: test-eval
-skill: test-skill
+skill: `+name+`
 version: "1.0"
 config:
   trials_per_task: 1
@@ -37,7 +38,7 @@ config:
 tasks:
   - "tasks/*.yaml"
 `), 0o644))
-	return specPath, dir
+	return specPath
 }
 
 func countCacheEntries(t *testing.T, cacheDir string) int {
@@ -56,22 +57,42 @@ func countCacheEntries(t *testing.T, cacheDir string) int {
 }
 
 func TestRunCacheHitsWhenRunOutputsLiveBeneathSkillRoot(t *testing.T) {
-	cases := map[string]func(dir string) []string{
-		"output-dir": func(dir string) []string {
+	singleSkill := func(extra func(dir string) []string) func(t *testing.T) []string {
+		return func(t *testing.T) []string {
+			dir := t.TempDir()
+			return append([]string{writeSkillRootEval(t, dir, "test-skill")}, extra(dir)...)
+		}
+	}
+	cases := map[string]func(t *testing.T) []string{
+		"output-dir": singleSkill(func(dir string) []string {
 			return []string{"--output-dir", filepath.Join(dir, "results")}
-		},
-		"session-log": func(dir string) []string {
+		}),
+		"nested output-dir created by the run": singleSkill(func(dir string) []string {
+			return []string{"--output-dir", filepath.Join(dir, "artifacts", "results")}
+		}),
+		"session-log": singleSkill(func(dir string) []string {
 			return []string{"--session-log", "--session-dir", dir}
+		}),
+		"multi-model output": singleSkill(func(dir string) []string {
+			return []string{"--model", "model-a", "--model", "model-b", "--output", filepath.Join(dir, "results.json")}
+		}),
+		"multi-skill output": func(t *testing.T) []string {
+			root := t.TempDir()
+			skillOne := filepath.Join(root, "skills", "skill-one")
+			writeSkillRootEval(t, skillOne, "skill-one")
+			writeSkillRootEval(t, filepath.Join(root, "skills", "skill-two"), "skill-two")
+			t.Chdir(root)
+			return []string{"--output", filepath.Join(skillOne, "results.json")}
 		},
 	}
-	for name, extraArgs := range cases {
+	for name, setup := range cases {
 		t.Run(name, func(t *testing.T) {
-			specPath, dir := createSkillRootSpec(t)
+			args := setup(t)
 			cacheDir := filepath.Join(t.TempDir(), "cache")
 			run := func() {
 				resetRunGlobals()
 				cmd := newRunCommand()
-				cmd.SetArgs(append([]string{specPath, "--cache", "--cache-dir", cacheDir}, extraArgs(dir)...))
+				cmd.SetArgs(append(args, "--cache", "--cache-dir", cacheDir))
 				cmd.SetOut(io.Discard)
 				cmd.SetErr(io.Discard)
 				require.NoError(t, cmd.Execute())

@@ -78,8 +78,7 @@ type EvalRunner struct {
 	exactTestIDs map[string]struct{}
 
 	// Result caching
-	cache              *cache.Cache
-	cacheOutputEntries []cache.ExcludeEntry
+	cache *cache.Cache
 
 	// Snapshot updates for diff graders.
 	updateSnapshots bool

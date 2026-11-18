@@ -51,7 +51,7 @@ func (r *EvalRunner) consumedCacheInputs(tc *models.TestCase) (*cache.ConsumedIn
 	skillPaths := r.taskSkillPaths(tc)
 	inputs.SkillDirs = append([]string{}, skillPaths...)
 	inputs.ExcludePaths = r.runOutputPaths()
-	inputs.ExcludeEntries = r.cacheOutputEntries
+	inputs.ExcludeEntries = r.cache.RunOutputs()
 	// The engine also discovers the target skill or agent in the working
 	// directory, which is too broad to hash as a whole tree.
 	cwd, err := os.Getwd()
@@ -78,15 +78,6 @@ func (r *EvalRunner) consumedCacheInputs(tc *models.TestCase) (*cache.ConsumedIn
 		}
 	}
 	return inputs, nil
-}
-
-// WithCacheOutputEntries excludes per-run outputs written outside the runner,
-// such as timestamped result directories and session logs, from the skill
-// tree fingerprint so they do not invalidate the next lookup.
-func WithCacheOutputEntries(entries ...cache.ExcludeEntry) RunnerOption {
-	return func(r *EvalRunner) {
-		r.cacheOutputEntries = append(r.cacheOutputEntries, entries...)
-	}
 }
 
 // runOutputPaths lists locations this run writes that may sit beneath a skill
