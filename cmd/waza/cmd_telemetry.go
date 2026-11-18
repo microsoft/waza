@@ -31,7 +31,7 @@ or 'waza telemetry disable'. Any opt-out wins over every other setting.`,
 		Short: "Show whether product usage telemetry is active and why",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			policy := usagetelemetry.ResolveProcess(os.Args[1:], true)
+			policy := usagetelemetry.ResolveProcess(os.Args[1:], true, version)
 			settings, settingsErr := usagetelemetry.LoadSettings(usagetelemetry.DefaultSettingsPath())
 			out := cmd.OutOrStdout()
 			state := "inactive"

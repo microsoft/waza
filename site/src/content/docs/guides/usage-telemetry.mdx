@@ -129,5 +129,6 @@ diagnostic tracing.
 Known limitation: a CI system that Waza does not detect is treated as a
 developer machine. Set `WAZA_TELEMETRY_OPTOUT=1` in such environments.
 
-Source builds can produce an inert binary with
-`go build -ldflags "-X github.com/microsoft/waza/internal/usagetelemetry.endpoint="`.
+Source and development builds, including `go build` and `make build`
+output, never collect; only release builds stamped with a plain `X.Y.Z`
+version do.

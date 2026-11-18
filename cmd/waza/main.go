@@ -60,7 +60,7 @@ func main() {
 // only after the status and diagnostics are final, so it cannot change them.
 func runMain(diagnostics io.Writer, args []string) int {
 	started := time.Now()
-	policy := usagetelemetry.ResolveProcess(args, false)
+	policy := usagetelemetry.ResolveProcess(args, false, version)
 	usagetelemetry.Propagate(policy)
 	usagetelemetry.Start(policy, version)
 

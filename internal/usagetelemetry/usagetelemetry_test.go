@@ -85,6 +85,24 @@ func TestShippedPolicy(t *testing.T) {
 	assert.NotNil(t, approvedEndpoint(shippedEndpoint), "the shipped endpoint must be a credential-free https URL")
 	assert.True(t, shippedDefaultOn, "collection is on by default for developers")
 	assert.False(t, shippedCIOn, "CI is never collected")
+	assert.False(t, shippedDevOn, "development builds are never collected")
+}
+
+func TestOnlyReleaseBuildsCollect(t *testing.T) {
+	restore := OverrideActivationForTesting(newFakeCollector(t).server.URL, nil, true, false)
+	t.Cleanup(restore)
+	devBuildCollectionOn = false
+	for version, enabled := range map[string]bool{
+		"0.42.0": true, "1.2.3": true, "dev": false, "": false, "v0.42.0": false,
+		"0.41.0-449-g5ff2e64": false, "0.42.0+meta": false, "garbage": false,
+	} {
+		p := Resolve(Inputs{Getenv: env(nil), SettingsPath: settingsPath(t), WorkDir: t.TempDir(), Version: version})
+		assert.Equal(t, enabled, p.Enabled, "version %q: %v", version, p.Reasons)
+		if !enabled {
+			assert.Equal(t, []string{ReasonDevBuild}, p.Reasons, version)
+			assert.False(t, p.Denied, version)
+		}
+	}
 }
 
 func TestInertBuildSendsNothing(t *testing.T) {

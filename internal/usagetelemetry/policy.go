@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"gopkg.in/yaml.v3"
 )
@@ -40,6 +41,8 @@ var endpoint = ApprovedEndpoint
 var (
 	defaultCollectionOn = true
 	ciCollectionOn      = false
+	// devBuildCollectionOn is only changed by OverrideActivationForTesting.
+	devBuildCollectionOn = false
 )
 
 var ciEnvVars = []string{"CI", "GITHUB_ACTIONS", "TF_BUILD", "JENKINS_URL", "CODEBUILD_BUILD_ID",
@@ -56,6 +59,7 @@ const (
 	ReasonProjectDisabled = "the project .waza.yaml sets telemetry.disabled"
 	ReasonProjectInvalid  = "the project .waza.yaml telemetry section is invalid or unreadable"
 	ReasonCI              = "CI environments are never collected"
+	ReasonDevBuild        = "development builds are never collected"
 	ReasonNotEnabled      = "collection is off by default and has not been enabled"
 )
 
@@ -65,6 +69,9 @@ type Inputs struct {
 	Getenv       func(string) string
 	WorkDir      string
 	SettingsPath string
+	// Version is the Waza build version. Only release builds (plain X.Y.Z)
+	// collect, so source and test builds stay inert.
+	Version string
 	// Full reads persistent settings even when no endpoint is configured.
 	// Only `waza telemetry status` sets it.
 	Full bool
@@ -121,6 +128,11 @@ func Resolve(in Inputs) Policy {
 		if !in.Full {
 			return p
 		}
+	} else if !devBuildCollectionOn && !releaseBuild(in.Version) {
+		p.Reasons = append(p.Reasons, ReasonDevBuild)
+		if !in.Full {
+			return p
+		}
 	}
 	explicitEnable := false
 	if p.settingsPath == "" {
@@ -148,13 +160,19 @@ func Resolve(in Inputs) Policy {
 	return p
 }
 
-// ResolveProcess resolves policy for the current process.
-func ResolveProcess(args []string, full bool) Policy {
+// ResolveProcess resolves policy for the current process and build version.
+func ResolveProcess(args []string, full bool, version string) Policy {
 	wd, err := os.Getwd()
 	if err != nil {
 		wd = ""
 	}
-	return Resolve(Inputs{Args: args, WorkDir: wd, Full: full})
+	return Resolve(Inputs{Args: args, WorkDir: wd, Full: full, Version: version})
+}
+
+// releaseBuild reports whether version is a plain X.Y.Z release stamp.
+func releaseBuild(version string) bool {
+	v, err := semver.StrictNewVersion(version)
+	return err == nil && v.Prerelease() == "" && v.Metadata() == ""
 }
 
 // PolicyEnvKeys lists the variables that carry the telemetry policy to child

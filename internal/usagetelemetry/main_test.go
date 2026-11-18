@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-var shippedEndpoint, shippedDefaultOn, shippedCIOn = endpoint, defaultCollectionOn, ciCollectionOn
+var shippedEndpoint, shippedDefaultOn, shippedCIOn, shippedDevOn = endpoint, defaultCollectionOn, ciCollectionOn, devBuildCollectionOn
 
 // TestMain makes the package inert so no test can reach the real collector;
 // tests opt in to a local fake collector with activate.
