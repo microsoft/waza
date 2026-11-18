@@ -75,15 +75,11 @@ type ConsumedFile struct {
 	Content []byte
 }
 
-func (in *ConsumedInputs) empty() bool {
-	return in == nil || (len(in.Files) == 0 && len(in.SkillDirs) == 0)
-}
-
 // skipSkillTreeDir reports directories not fingerprinted inside skill trees.
-// Like skill discovery, hidden directories (VCS metadata, .waza-cache) and
-// vendored packages are not treated as skill content.
+// Only VCS metadata is skipped: it changes with ordinary git use and is not
+// skill content. Run outputs are excluded by path instead.
 func skipSkillTreeDir(name string) bool {
-	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor"
+	return name == ".git"
 }
 
 // CacheKeyWithInputs extends CacheKeyWithSpecDir with the content of consumed
@@ -236,12 +232,10 @@ func CacheKeyWithInputs(spec *models.EvalSpec, task *models.TestCase, fixtureDir
 		}
 	}
 
-	// Salted only when inputs are consumed, so keys for tasks without them are
-	// unchanged while earlier keys that ignored these bytes are not reused.
-	if !inputs.empty() {
-		if err := hashConsumedInputs(h, inputs); err != nil {
-			return "", fmt.Errorf("hashing consumed inputs: %w", err)
-		}
+	// Always salted: earlier keys ignored consumed inputs (including eval-level
+	// instruction files), so no earlier entry can be shown to match them.
+	if err := hashConsumedInputs(h, inputs); err != nil {
+		return "", fmt.Errorf("hashing consumed inputs: %w", err)
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
@@ -250,6 +244,9 @@ func CacheKeyWithInputs(spec *models.EvalSpec, task *models.TestCase, fixtureDir
 func hashConsumedInputs(h io.Writer, inputs *ConsumedInputs) error {
 	if err := writeString(h, "consumed-inputs-v1"); err != nil {
 		return err
+	}
+	if inputs == nil {
+		return nil
 	}
 	for _, file := range inputs.Files {
 		sum := sha256.Sum256(file.Content)

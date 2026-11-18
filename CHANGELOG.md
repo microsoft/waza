@@ -192,14 +192,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measured zero calls. Fully observed comparisons keep their previous shape
   (#1029).
 - Result cache keys now include the bytes of consumed inputs: every file in
-  the configured skill directories (following symlinks; skipping hidden
-  directories, `node_modules`, `vendor`, and the run's cache, transcript,
-  snapshot and output locations), the selected skill or agent definition with
+  the configured skill directories (following symlinks; skipping `.git` and
+  the run's cache, transcript, snapshot and output locations), the selected
+  skill or agent definition with
   its directory and absolute path, instruction files, and
   `inputs.context.fixture` contents. Editing a skill, instruction file or
   context fixture without renaming it no longer returns a stale cached result,
-  and an unreadable consumed input runs the task uncached. Keys for tasks
-  without these inputs are unchanged (#1025).
+  and an unreadable consumed input runs the task uncached. Existing cache
+  entries miss once after upgrading, because earlier keys did not record
+  consumed inputs such as eval-level instruction files (#1025).
 
 - The Lab checkpoint result reader re-encodes retained runner-unit reports in
   1.0 results like the native canonical writer, so reordered properties,

@@ -34,7 +34,7 @@ func TestCacheKeyWithInputs_ConsumedBytes(t *testing.T) {
 	require.NoError(t, err)
 	empty, err := CacheKeyWithInputs(spec, task, "", "", &ConsumedInputs{})
 	require.NoError(t, err)
-	require.Equal(t, plain, empty, "tasks without consumed inputs keep their key")
+	require.Equal(t, plain, empty, "no inputs and empty inputs share a key")
 	require.NotEqual(t, plain, base)
 
 	write("my-skill/SKILL.md", "v2")
@@ -49,8 +49,13 @@ func TestCacheKeyWithInputs_ConsumedBytes(t *testing.T) {
 	added := key()
 	require.NotEqual(t, nested, added, "adding a skill file must miss")
 
-	write("my-skill/node_modules/pkg/index.js", "ignored")
-	require.Equal(t, added, key(), "vendored packages are not fingerprinted")
+	write("my-skill/.git/index", "ignored")
+	require.Equal(t, added, key(), "VCS metadata is not fingerprinted")
+
+	write("my-skill/vendor/.config/settings.json", "{}")
+	vendored := key()
+	require.NotEqual(t, added, vendored, "hidden and vendored skill files are fingerprinted")
+	added = vendored
 
 	files[0].Content = []byte("be verbose")
 	require.NotEqual(t, added, key(), "editing consumed file bytes must miss")
@@ -110,7 +115,5 @@ func TestCacheKeyWithInputs_ExcludesRunOutputs(t *testing.T) {
 	require.NoError(t, os.MkdirAll(outputs, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(outputs, "t.json"), []byte("{}"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(skill, "results.json"), []byte("{}"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(skill, ".waza-cache"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(skill, ".waza-cache", "k.json"), []byte("{}"), 0o644))
 	require.Equal(t, base, key(), "run outputs beneath a skill directory must not change the key")
 }
