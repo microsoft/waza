@@ -8,66 +8,78 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/base64"
+	"errors"
 	"io"
 
 	"github.com/github/copilot-sdk/go/embeddedcli"
 	"github.com/klauspost/compress/zstd"
 )
 
-//go:embed zcopilot_1.0.105_darwin_arm64.zst
+//go:embed zcopilot_1.0.112_darwin_arm64.zst
 var localEmbeddedCopilotCLI []byte
 
-//go:embed zcopilot_1.0.105_darwin_arm64.license
+//go:embed zcopilot_1.0.112_darwin_arm64.license
 var localEmbeddedCopilotCLILicense []byte
 
-//go:embed zcopilotruntime_1.0.105_darwin-arm64.dylib.zst
+//go:embed zcopilotruntime_1.0.112_darwin-arm64.dylib.zst
 var localEmbeddedCopilotRuntimeLib []byte
 
-//go:embed zcopilotruntimewrapper_1.0.105_darwin-arm64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.112_darwin-arm64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutable []byte
 
-//go:embed zcopilotruntimeassets_1.0.105_darwin-arm64.tgz
+//go:embed zcopilotruntimeassets_1.0.112_darwin-arm64.tgz
 var localEmbeddedCopilotRuntimeAssets []byte
 
 func init() {
 	embeddedcli.Setup(embeddedcli.Config{
 		Cli:                   cliReader(),
 		License:               localEmbeddedCopilotCLILicense,
-		Version:               "1.0.105",
-		CliHash:               mustDecodeBase64("38Z8xs4JZXi0pczDoIFcsjgA4G+Y9eJis7dXQ9DVx/g="),
+		Version:               "1.0.112",
+		CliHash:               mustDecodeBase64("nWz8wH/ISSxS4JhNWQmqMfyJyTtfu5xbCdjm1jFs0r0="),
 		RuntimeLib:            runtimeLibReader(),
-		RuntimeLibHash:        mustDecodeBase64("QjunItH6VEujUv1ucC1bZ/eEGZlaAkdYAYWqAwvLwfs="),
+		RuntimeLibHash:        mustDecodeBase64("uKwSHoniX99U5c38xPoLaP2DUPEoGCNNzUF2L6flzcU="),
 		RuntimeNode:           runtimeLibReader(),
-		RuntimeNodeHash:       mustDecodeBase64("QjunItH6VEujUv1ucC1bZ/eEGZlaAkdYAYWqAwvLwfs="),
+		RuntimeNodeHash:       mustDecodeBase64("uKwSHoniX99U5c38xPoLaP2DUPEoGCNNzUF2L6flzcU="),
 		RuntimeExecutable:     runtimeExecutableReader(),
-		RuntimeExecutableHash: mustDecodeBase64("38Z8xs4JZXi0pczDoIFcsjgA4G+Y9eJis7dXQ9DVx/g="),
+		RuntimeExecutableHash: mustDecodeBase64("nWz8wH/ISSxS4JhNWQmqMfyJyTtfu5xbCdjm1jFs0r0="),
 		RuntimeAssets:         bytes.NewReader(localEmbeddedCopilotRuntimeAssets),
-		RuntimeAssetsHash:     mustDecodeBase64("7gGv22pcGL22kQ1aMFOJbJ14SvqzIeZanit6QNmD/rQ="),
+		RuntimeAssetsHash:     mustDecodeBase64("R4yYnl6MWh+DHi3VXTW1M/RpcqOI0K2PtgfIC3RZr4Y="),
 	})
 }
 
 func cliReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotCLI))
-	if err != nil {
-		panic("failed to create zstd reader: " + err.Error())
-	}
-	return r
+	return newZstdReader(localEmbeddedCopilotCLI)
 }
 
 func runtimeLibReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotRuntimeLib))
-	if err != nil {
-		panic("failed to create zstd reader: " + err.Error())
-	}
-	return r
+	return newZstdReader(localEmbeddedCopilotRuntimeLib)
 }
 
 func runtimeExecutableReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotRuntimeExecutable))
+	return newZstdReader(localEmbeddedCopilotRuntimeExecutable)
+}
+
+// zstdReader decompresses an embedded artifact. Seek(0, io.SeekStart) restarts
+// it, so an installation that fails part-way can be retried without keeping the
+// decompressed artifact in memory.
+type zstdReader struct {
+	*zstd.Decoder
+	compressed []byte
+}
+
+func newZstdReader(compressed []byte) io.Reader {
+	decoder, err := zstd.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		panic("failed to create zstd reader: " + err.Error())
 	}
-	return r
+	return &zstdReader{Decoder: decoder, compressed: compressed}
+}
+
+func (r *zstdReader) Seek(offset int64, whence int) (int64, error) {
+	if offset != 0 || whence != io.SeekStart {
+		return 0, errors.New("only Seek(0, io.SeekStart) is supported")
+	}
+	return 0, r.Decoder.Reset(bytes.NewReader(r.compressed))
 }
 
 func mustDecodeBase64(s string) []byte {
