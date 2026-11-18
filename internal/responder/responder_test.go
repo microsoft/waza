@@ -14,7 +14,7 @@ import (
 
 func TestDecisionToolsRecordReply(t *testing.T) {
 	d := &decisionRecorder{}
-	tools := d.tools()
+	tools := d.tools(false)
 	require.Len(t, tools, 3)
 
 	respond := findTool(t, tools, toolRespond)
@@ -29,7 +29,7 @@ func TestDecisionToolsRecordReply(t *testing.T) {
 
 func TestDecisionToolsRecordStop(t *testing.T) {
 	d := &decisionRecorder{}
-	stop := findTool(t, d.tools(), toolStop)
+	stop := findTool(t, d.tools(false), toolStop)
 	_, err := stop.Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.True(t, d.set)
@@ -38,7 +38,7 @@ func TestDecisionToolsRecordStop(t *testing.T) {
 
 func TestDecisionToolsRecordAbstain(t *testing.T) {
 	d := &decisionRecorder{}
-	abstain := findTool(t, d.tools(), toolAbstain)
+	abstain := findTool(t, d.tools(false), toolAbstain)
 	_, err := abstain.Handler(copilot.ToolInvocation{
 		Arguments: map[string]any{"reason": "brief too vague"},
 	})
@@ -46,6 +46,37 @@ func TestDecisionToolsRecordAbstain(t *testing.T) {
 	require.True(t, d.set)
 	require.Equal(t, DecisionAbstain, d.decision.Kind)
 	require.Equal(t, "brief too vague", d.decision.Reason)
+}
+
+func TestDecisionToolsOfferDismissOnlyForNativeQuestions(t *testing.T) {
+	for _, tool := range (&decisionRecorder{}).tools(false) {
+		require.NotEqual(t, toolDismiss, tool.Name, "between-turn replies keep their three decisions")
+	}
+	d := &decisionRecorder{}
+	tools := d.tools(true)
+	require.Len(t, tools, 4)
+	_, err := findTool(t, tools, toolDismiss).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.Equal(t, Decision{Kind: DecisionDismiss}, d.decision)
+}
+
+func TestClassifyOffersDismissForNativeQuestionContext(t *testing.T) {
+	var prompts []string
+	exec := &fakeExecutor{respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		prompts = append(prompts, req.Message)
+		_, err := findTool(t, req.Tools, toolDismiss).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+		require.NoError(t, err)
+		return &execution.ExecutionResponse{SessionID: "resp-1", Success: true}, nil
+	}}
+	c := New(exec, models.ResponderConfig{Instructions: "synthetic brief"}, "test-model")
+	for range 2 {
+		d, err := c.Classify(WithNativeQuestion(t.Context()), "Question: Deploy now?")
+		require.NoError(t, err)
+		require.Equal(t, Decision{Kind: DecisionDismiss}, d)
+	}
+	for _, prompt := range prompts {
+		require.Contains(t, prompt, toolDismiss)
+	}
 }
 
 type fakeExecutor struct {
@@ -352,7 +383,7 @@ func TestCloseWithoutDeleterIsNoop(t *testing.T) {
 
 func TestDecisionToolsRejectDuplicateCall(t *testing.T) {
 	d := &decisionRecorder{}
-	tools := d.tools()
+	tools := d.tools(false)
 	respond := findTool(t, tools, toolRespond)
 	stop := findTool(t, tools, toolStop)
 
@@ -376,7 +407,7 @@ func TestDecisionToolsConcurrentCallsRecordOne(t *testing.T) {
 	// emitting parallel decision calls in one turn must not race or end up with
 	// both decisions partially applied. Run under -race to catch regressions.
 	d := &decisionRecorder{}
-	tools := d.tools()
+	tools := d.tools(false)
 	respond := findTool(t, tools, toolRespond)
 	stop := findTool(t, tools, toolStop)
 	abstain := findTool(t, tools, toolAbstain)
@@ -404,7 +435,7 @@ func TestDecisionToolsConcurrentCallsRecordOne(t *testing.T) {
 
 func TestDecisionToolsRejectMalformedArgs(t *testing.T) {
 	d := &decisionRecorder{}
-	respond := findTool(t, d.tools(), toolRespond)
+	respond := findTool(t, d.tools(false), toolRespond)
 
 	// answer must be a string; passing a non-string triggers a decode error
 	// that the handler surfaces instead of recording an empty reply.
@@ -426,7 +457,7 @@ func TestDecisionToolsRejectEmptyReply(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &decisionRecorder{}
-			respond := findTool(t, d.tools(), toolRespond)
+			respond := findTool(t, d.tools(false), toolRespond)
 			_, err := respond.Handler(copilot.ToolInvocation{Arguments: tc.args})
 			require.Error(t, err)
 			require.Error(t, d.err)
@@ -445,7 +476,7 @@ func TestDecisionToolsRejectEmptyAbstainReason(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &decisionRecorder{}
-			abstain := findTool(t, d.tools(), toolAbstain)
+			abstain := findTool(t, d.tools(false), toolAbstain)
 			_, err := abstain.Handler(copilot.ToolInvocation{Arguments: tc.args})
 			require.Error(t, err)
 			require.Error(t, d.err)

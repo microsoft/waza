@@ -553,6 +553,59 @@ func TestProductionEngineAdaptiveResponderAnswersNativeQuestionMidTurn(t *testin
 	require.Contains(t, responderPrompts[1], "Hello Ada", "the between-turn call reuses the same responder session")
 }
 
+// TestProductionEngineResponderDismissesNativeQuestion: a dismissal reaches
+// the agent as an error, the agent carries on, and the run does not fail.
+func TestProductionEngineResponderDismissesNativeQuestion(t *testing.T) {
+	var agentErrors []error
+	var betweenTools []string
+	client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+		for _, tool := range config.Tools {
+			if tool.Name != "responder_reply" {
+				continue
+			}
+			name := "responder_stop"
+			if strings.Contains(options.Prompt, "Question: Deploy now?") {
+				name = "responder_dismiss"
+			} else {
+				for _, candidate := range config.Tools {
+					betweenTools = append(betweenTools, candidate.Name)
+				}
+			}
+			for _, candidate := range config.Tools {
+				if candidate.Name == name {
+					_, err := candidate.Handler(copilot.ToolInvocation{ToolName: name, Arguments: map[string]any{}})
+					require.NoError(t, err)
+					return nil, nil
+				}
+			}
+			t.Fatalf("%s tool missing", name)
+		}
+		_, err := config.OnUserInputRequest(copilot.UserInputRequest{Question: "Deploy now?", Choices: []string{"Deploy"}, AllowFreeform: new(bool)},
+			copilot.UserInputInvocation{SessionID: "agent"})
+		agentErrors = append(agentErrors, err)
+		return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "Okay, I won't deploy."}}}, nil
+	}}
+	engine := client.Engine()
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+	task := "id: a\nname: A\ninputs:\n  prompt: start\n  responder: {instructions: You never deploy., max_followups: 1}\n"
+	cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+	outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(t.Context())
+	require.NoError(t, err)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+	require.Len(t, agentErrors, 1)
+	require.ErrorContains(t, agentErrors[0], execution.ErrUserInputDismissed.Error())
+	records := models.UserInputRecordsOf(run.UserInputRequests)
+	require.Len(t, records, 1)
+	require.Nil(t, records[0].Answer)
+	require.Equal(t, "responder", records[0].Source)
+	require.Contains(t, records[0].Error, "dismissed")
+	require.Equal(t, models.ResponderOutcomeStopped, run.Responder.Outcome)
+	require.NotContains(t, betweenTools, "responder_dismiss", "between-turn replies cannot dismiss")
+}
+
 // deadlineClassifier records the deadline each Classify call receives.
 type deadlineClassifier struct {
 	recordingClassifier

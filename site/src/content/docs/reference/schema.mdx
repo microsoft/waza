@@ -996,7 +996,10 @@ When `native_user_input` is enabled and the task has an adaptive responder
 (`inputs.responder`), scripted entries are still tried first. A question that the next entry does not match goes to the
 responder model instead, and that entry waits for a later question. The responder
 uses the same session and instructions as its between-turn replies and receives the
-question and offered choices. Its answer follows the same choice-or-typed rule. A
+question and offered choices. Its answer follows the same choice-or-typed rule. The
+responder can also dismiss the question, as a user who closes the prompt would: the
+agent gets an error saying the user dismissed it, the record has `source: responder`
+and an `error` starting `native user input request N dismissed`, and the run goes on. A
 responder stop, abstain, or error fails the run. Answers given during a turn do not
 count toward `max_followups`. Each in-turn responder call may take up to the task timeout, and its time counts against the agent's turn.
 

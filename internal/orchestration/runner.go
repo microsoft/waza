@@ -2126,7 +2126,8 @@ func (r *EvalRunner) newAttemptUserInput(tc *models.TestCase) (*execution.UserIn
 }
 
 // responderUserInputFallback answers a native question with the adaptive
-// responder. Only an explicit reply is an answer; stop and abstain fail closed.
+// responder. Only an explicit reply is an answer; a dismissal reaches the agent
+// as an error without failing the run; stop and abstain fail closed.
 // ctx is the asking agent turn, so the call ends with that turn. Each call is
 // also bounded by the task timeout; without a deadline the SDK would apply
 // its own 60 second default to the responder turn.
@@ -2137,6 +2138,7 @@ func responderUserInputFallback(classifier responderClassifier, timeout time.Dur
 		// The responder runs inside the actor turn but is not an actor turn.
 		callCtx = execution.WithActorStartObserver(callCtx, nil)
 		callCtx = execution.WithActorDispatchObserver(callCtx, nil)
+		callCtx = responder.WithNativeQuestion(callCtx)
 		decision, err := classifier.Classify(callCtx, nativeQuestionMessage(request))
 		if err != nil {
 			return "", err
@@ -2144,6 +2146,8 @@ func responderUserInputFallback(classifier responderClassifier, timeout time.Dur
 		switch decision.Kind {
 		case responder.DecisionReply:
 			return decision.Answer, nil
+		case responder.DecisionDismiss:
+			return "", execution.ErrUserInputDismissed
 		case responder.DecisionAbstain:
 			return "", fmt.Errorf("responder abstained: %s", decision.Reason)
 		default:
@@ -2166,6 +2170,7 @@ func nativeQuestionMessage(request copilot.UserInputRequest) string {
 		b.WriteString("You must reply with exactly one of the offered choices.\n")
 	}
 	b.WriteString("\nTo answer, call responder_reply with its required `answer` argument set to your non-empty answer text. " +
+		"To close the question without answering, as a user who won't answer it would, call responder_dismiss. " +
 		"Call responder_abstain with a `reason` only if the answer cannot be inferred from your configuration.\n")
 	return b.String()
 }
