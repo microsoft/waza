@@ -1593,9 +1593,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		}
 		frozenJudgeEvidence = judgeevidence.Capture(judgeevidence.CaptureInput{
 			Origin: origin, Task: req.Message, Output: resp.FinalOutput,
-			OutputPresent: resp.Success && resp.ErrorMsg == "" && originErr == nil,
+			OutputPresent: candidateOutputPresent(resp, originErr),
 			Events:        sdkEvents, Files: resp.JudgeFiles, Selection: selection, ExecutionMode: mode,
 		})
+		vCtx.OutputPresent = candidateOutputPresent(resp, originErr)
 		vCtx.JudgeEvidence, vCtx.JudgeOrigin = frozenJudgeEvidence, origin
 		vCtx.EvidenceExecutor = r.evidenceExecutor
 		if vCtx.EvidenceExecutor == nil {
@@ -2881,6 +2882,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		TestCase:           tc,
 		Transcript:         transcriptEntries,
 		Output:             resp.FinalOutput,
+		OutputPresent:      candidateOutputPresent(resp, nil),
 		Outcome:            make(map[string]any),
 		DurationMS:         resp.DurationMs,
 		Metadata:           make(map[string]any),
@@ -2908,6 +2910,10 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 			}
 		},
 	}
+}
+
+func candidateOutputPresent(resp *execution.ExecutionResponse, originErr error) bool {
+	return resp.Success && resp.ErrorMsg == "" && originErr == nil
 }
 
 func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {

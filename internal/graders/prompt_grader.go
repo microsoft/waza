@@ -19,6 +19,7 @@ import (
 )
 
 const AllPromptsPassed = "All prompts passed"
+const noPromptVerdict = "Judge returned no verdict"
 const wazaPassToolName = "set_waza_grade_pass"
 const wazaFailToolName = "set_waza_grade_fail"
 
@@ -230,6 +231,8 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 
 		if len(wazaTools.Failures) > 0 {
 			feedback = strings.Join(wazaTools.Failures, ";")
+		} else if len(wazaTools.Passes) == 0 {
+			feedback = noPromptVerdict
 		}
 
 		return &models.GraderResults{
@@ -264,11 +267,9 @@ func (p *promptGrader) detailsWith(prompt, response string, passes, failures []s
 }
 
 // renderJudgePrompt returns the final prompt to send to the judge. When the
-// grader was configured with a rubric *and* the grading context carries a
-// candidate output (i.e. the judge will not be resuming the agent's session),
-// the rubric template is expanded with the candidate output so the judge has
-// something to evaluate. Otherwise the configured prompt is returned as-is to
-// preserve the existing inline-prompt behavior.
+// grading context carries a candidate output (i.e. the judge will not be
+// resuming the agent's session), the configured prompt is expanded with the
+// task input and candidate output so the judge has something to evaluate.
 //
 // With continue_session: true, the judge resumes the agent's live session and
 // reads the conversation directly — injecting Output here would be redundant
