@@ -169,7 +169,15 @@ func TestOwnerProcessInterruptIsAcknowledged(t *testing.T) {
 func TestKilledOwnerIsOrphanedAndRetryPreservesRecords(t *testing.T) {
 	directory := t.TempDir()
 	cmd, attempt := startLifecycleOwner(t, directory)
-	time.Sleep(100 * time.Millisecond)
+	// The owner reports dispatch before its recorder appends the first journal
+	// event; a kill before that append is correctly unobserved, not orphaned.
+	observed := time.Now().Add(30 * time.Second)
+	for readLineage(t, directory, attempt.Logical, time.Hour).Attempts[0].Lifecycle.Events == 0 {
+		if time.Now().After(observed) {
+			t.Fatal("owner did not journal its first lifecycle event")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if err := cmd.Process.Signal(syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
