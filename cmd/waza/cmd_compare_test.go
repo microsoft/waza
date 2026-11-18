@@ -328,7 +328,7 @@ func floatPtrs(values ...float64) []*float64 {
 	return ptrs
 }
 
-func TestCompareCommand_JSONChangingTaskSets(t *testing.T) {
+func TestCompareCommand_ChangingTaskSets(t *testing.T) {
 	binary := buildOfflineComparisonCLI(t)
 	withTask := func(o *models.EvaluationOutcome, id string, stats *models.TestStats) *models.EvaluationOutcome {
 		o.TestOutcomes = append(o.TestOutcomes, models.TestOutcome{
@@ -439,6 +439,32 @@ func TestCompareCommand_JSONChangingTaskSets(t *testing.T) {
 		_, raw := run(t, sampleOutcome("baseline", 0.8, 1.0, 0.8), current)
 		_, present := raw["tool_metrics_availability"]
 		require.False(t, present, "current results keep the legacy shape")
+	})
+
+	t.Run("table output marks unavailable values", func(t *testing.T) {
+		baseline := withTask(sampleOutcome("baseline", 0.8, 1.0, 0.8), "zero", &models.TestStats{})
+		baseline = withTask(baseline, "no-stats", nil)
+		baseline.SchemaVersion = "1.0"
+		current := withTask(sampleOutcome("current", 0.9, 1.0, 0.9), "zero", &models.TestStats{AvgScore: 0.25})
+		current = withTask(current, "no-stats", &models.TestStats{AvgScore: 0.4})
+		current = withTask(current, "new-only", &models.TestStats{})
+		current.TestOutcomes[0].Runs = []models.RunResult{{ToolEvents: []models.ToolEvent{{ToolName: "bash", Success: true}}}}
+		dir := t.TempDir()
+		from := createResultFile(t, dir, "baseline.json", baseline)
+		to := createResultFile(t, dir, "current.json", current)
+		output, code := runOfflineComparisonCLI(t, binary, "compare", from, to)
+		require.Equal(t, 0, code, "%s", output)
+		text := string(output)
+		for _, pattern := range []string{
+			`(?m)^\s+Total calls\s+n/a\s+1\s+n/a$`,
+			`(?m)^\s+Tasks w/ 0 calls\s+n/a\s+3\s+n/a$`,
+			`(?m)^\s+Sample Task\s+0\.8000\s+0\.9000\s+↑\+0\.1000$`,
+			`(?m)^\s+zero\s+0\.0000\s+0\.2500\s+↑\+0\.2500$`,
+			`(?m)^\s+no-stats\s+n/a\s+0\.4000\s+n/a$`,
+			`(?m)^\s+new-only\s+n/a\s+0\.0000\s+n/a$`,
+		} {
+			require.Regexp(t, pattern, text)
+		}
 	})
 }
 
