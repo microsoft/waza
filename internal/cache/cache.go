@@ -29,6 +29,11 @@ func New(dir string) *Cache {
 	return &Cache{dir: dir}
 }
 
+// Dir returns the directory cache entries are written to.
+func (c *Cache) Dir() string {
+	return c.dir
+}
+
 // CacheKey generates a unique cache key for a test case run
 // The key is based on:
 // - spec content (name, config, graders)
@@ -58,6 +63,9 @@ type ConsumedInputs struct {
 	Files []ConsumedFile
 	// SkillDirs are hashed recursively, in precedence order.
 	SkillDirs []string
+	// ExcludePaths are run outputs (cache, transcripts, snapshots) that may
+	// live beneath a skill directory and must not feed back into the key.
+	ExcludePaths []string
 }
 
 // ConsumedFile is one file's content as consumed by request construction.
@@ -71,9 +79,12 @@ func (in *ConsumedInputs) empty() bool {
 	return in == nil || (len(in.Files) == 0 && len(in.SkillDirs) == 0)
 }
 
-// skippedSkillTreeDirs are not fingerprinted inside skill directories: they
-// hold VCS metadata or vendored packages that skills do not read as content.
-var skippedSkillTreeDirs = map[string]bool{".git": true, "node_modules": true}
+// skipSkillTreeDir reports directories not fingerprinted inside skill trees.
+// Like skill discovery, hidden directories (VCS metadata, .waza-cache) and
+// vendored packages are not treated as skill content.
+func skipSkillTreeDir(name string) bool {
+	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor"
+}
 
 // CacheKeyWithInputs extends CacheKeyWithSpecDir with the content of consumed
 // inputs, so editing a skill, instruction file or context fixture in place
@@ -248,6 +259,12 @@ func hashConsumedInputs(h io.Writer, inputs *ConsumedInputs) error {
 			}
 		}
 	}
+	excluded := make(map[string]bool, len(inputs.ExcludePaths))
+	for _, path := range inputs.ExcludePaths {
+		if path != "" {
+			excluded[canonicalPath(path)] = true
+		}
+	}
 	for i, dir := range inputs.SkillDirs {
 		if err := writeString(h, "skill-dir"); err != nil {
 			return err
@@ -255,21 +272,39 @@ func hashConsumedInputs(h io.Writer, inputs *ConsumedInputs) error {
 		if err := writeInt(h, i); err != nil {
 			return err
 		}
-		if err := hashSkillTree(h, dir); err != nil {
+		if err := hashSkillTree(h, dir, excluded); err != nil {
 			return fmt.Errorf("skill directory %s: %w", dir, err)
 		}
 	}
 	return nil
 }
 
-// hashSkillTree writes each file's slash-separated relative path and content
-// digest in lexical walk order. Symlinked directories record their target
-// rather than being followed, which avoids cycles.
-func hashSkillTree(h io.Writer, root string) error {
-	info, err := os.Stat(root)
+// canonicalPath resolves symlinks when the path exists, so exclusions match
+// the resolved paths visited by hashSkillTree.
+func canonicalPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return filepath.Clean(abs)
+}
+
+// hashSkillTree writes each entry's slash-separated relative path and file
+// content digest in lexical order. Symlinks are followed, with directory
+// cycles recorded rather than revisited, so linked content is fingerprinted.
+func hashSkillTree(h io.Writer, root string, excluded map[string]bool) error {
+	resolved, err := filepath.EvalSymlinks(root)
 	if os.IsNotExist(err) {
 		return writeString(h, "missing")
 	}
+	if err != nil {
+		return err
+	}
+	resolved = canonicalPath(resolved)
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return err
 	}
@@ -277,48 +312,82 @@ func hashSkillTree(h io.Writer, root string) error {
 		if err := writeString(h, "file"); err != nil {
 			return err
 		}
-		return hashFileDigest(h, root)
+		return hashFileDigest(h, resolved)
 	}
-	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	return hashSkillDir(h, resolved, "", map[string]bool{resolved: true}, excluded)
+}
+
+func hashSkillDir(h io.Writer, dir, rel string, active, excluded map[string]bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		entryRel := entry.Name()
+		if rel != "" {
+			entryRel = rel + "/" + entry.Name()
 		}
-		if entry.IsDir() {
-			if path != root && skippedSkillTreeDirs[entry.Name()] {
-				return filepath.SkipDir
+		if excluded[path] {
+			continue
+		}
+		target := path
+		if entry.Type()&fs.ModeSymlink != 0 {
+			target, err = filepath.EvalSymlinks(path)
+			if os.IsNotExist(err) {
+				if err := writeString(h, entryRel); err != nil {
+					return err
+				}
+				if err := writeString(h, "dangling-symlink"); err != nil {
+					return err
+				}
+				continue
 			}
-			return nil
+			if err != nil {
+				return err
+			}
+			if excluded[target] {
+				continue
+			}
 		}
-		rel, err := filepath.Rel(root, path)
+		info, err := os.Stat(target)
 		if err != nil {
 			return err
 		}
-		if err := writeString(h, filepath.ToSlash(rel)); err != nil {
+		if info.IsDir() && skipSkillTreeDir(entry.Name()) {
+			continue
+		}
+		if err := writeString(h, entryRel); err != nil {
 			return err
 		}
 		switch {
-		case entry.Type()&fs.ModeSymlink != 0:
-			target, err := filepath.EvalSymlinks(path)
-			if os.IsNotExist(err) {
-				return writeString(h, "dangling-symlink")
+		case info.IsDir():
+			if active[target] {
+				if err := writeString(h, "symlink-cycle"); err != nil {
+					return err
+				}
+				continue
 			}
+			if err := writeString(h, "dir"); err != nil {
+				return err
+			}
+			active[target] = true
+			err := hashSkillDir(h, target, entryRel, active, excluded)
+			delete(active, target)
 			if err != nil {
 				return err
 			}
-			targetInfo, err := os.Stat(target)
-			if err != nil {
+		case info.Mode().IsRegular():
+			if err := hashFileDigest(h, target); err != nil {
 				return err
 			}
-			if targetInfo.IsDir() {
-				return writeString(h, "symlink-dir:"+target)
-			}
-			return hashFileDigest(h, target)
-		case entry.Type().IsRegular():
-			return hashFileDigest(h, path)
 		default:
-			return writeString(h, "irregular")
+			if err := writeString(h, "irregular"); err != nil {
+				return err
+			}
 		}
-	})
+	}
+	return nil
 }
 
 func hashFileDigest(h io.Writer, path string) error {
