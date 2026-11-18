@@ -113,3 +113,41 @@ func TestTaskCacheKey_FingerprintsSkillDiscoveredFromWorkingDirectory(t *testing
 	t.Chdir(second)
 	require.NotEqual(t, edited, key(), "an identical skill at a different injected directory must miss")
 }
+
+func TestRunBenchmark_BaselineCacheIsolatedFromSkillBytes(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	skillFile := filepath.Join(dir, "skills", "demo", "SKILL.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(skillFile), 0o755))
+	require.NoError(t, os.WriteFile(skillFile, []byte("---\nname: demo\ndescription: demo\n---\nv1"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: task-001\nname: Task 1\ninputs:\n  prompt: hello\n"), 0o600))
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "baseline-eval"},
+		SkillName:    "demo",
+		Baseline:     true,
+		Tasks:        []string{"task.yaml"},
+		Config: models.Config{
+			EngineType: "mock", ModelID: "mock", TrialsPerTask: 1, TimeoutSec: 30,
+			SkillPaths: []string{"skills"},
+		},
+	}
+	engine := &captureCacheEngine{MockEngine: execution.NewMockEngine("mock")}
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(t.Context())) })
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine, WithCache(cache.New(t.TempDir())))
+	run := func() {
+		outcome, err := runner.RunBenchmark(t.Context())
+		require.NoError(t, err)
+		require.True(t, outcome.IsBaseline)
+	}
+
+	run()
+	require.Len(t, engine.requests, 2, "treatment and baseline must not share a cache entry")
+	run()
+	require.Len(t, engine.requests, 2, "unchanged inputs hit for both passes")
+
+	require.NoError(t, os.WriteFile(skillFile, []byte("---\nname: demo\ndescription: demo\n---\nv2"), 0o644))
+	run()
+	require.Len(t, engine.requests, 3, "editing skill bytes misses only the treatment pass")
+	require.False(t, engine.requests[2].NoSkills)
+}
