@@ -277,6 +277,20 @@ promised stable across runs.
 - Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
 - Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
 
+### Frozen judge fixture declarations (#898)
+
+Requires a build containing fix #898; not in published v0.41.0.
+
+- Final eval/task prompt graders may author `evidence_context.non_secret_literals`:
+  bounded, unique exact fixture identifiers; absent and empty remain distinct,
+  null is invalid. No actor/tool-derived declarations or blanket exceptions.
+- Explicit declarations write independent judge bundle `1.1` with
+  `fixture_literals.declared_count` and `preserved_matches`, never declaration
+  lists. Legacy bundle `1.0` and absent-declaration output remain unchanged.
+- Required redacted/missing evidence still blocks judging. Regrading cannot
+  recover withheld content by adding declarations. See
+  [fixture privacy](/waza/guides/graders/#evaluator-controlled-non-secret-fixtures).
+
 ### 1.7 (new results only)
 
 - Recovery metadata and independent-judging fields are separate optional

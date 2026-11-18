@@ -69,6 +69,11 @@ requiring `--snapshot`. A separately requested snapshot `1.2` references its
 already frozen digest as `judgeEvidenceSHA256`; post-grader snapshot workspace
 observations are not replacements for the files actually supplied to a judge.
 Ordinary snapshots keep version `1.1`.
+Evaluator-authored `evidence_context.non_secret_literals` affects only frozen
+judge capture, not ordinary snapshot redaction or path admission. It permits
+exact fixture identifiers and synthetic contacts, never blanket SHA/email/key
+exceptions. Declared captures use judge bundle `1.1` with counts only; see the
+[fixture privacy contract](/waza/guides/graders/#evaluator-controlled-non-secret-fixtures).
 
 Evidence-only `waza grade` verifies that result bundle and makes new judge-model
 calls without the actor workspace. It does not follow snapshot paths or resume

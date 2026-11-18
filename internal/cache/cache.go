@@ -116,7 +116,8 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 		return "", err
 	}
 
-	// Include graders configuration
+	// Include graders configuration, including exact frozen-evidence fixture
+	// declarations. Task-level declarations are covered by taskJSON below.
 	gradersJSON, err := json.Marshal(spec.Graders)
 	if err != nil {
 		return "", fmt.Errorf("marshaling graders: %w", err)

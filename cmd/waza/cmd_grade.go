@@ -442,11 +442,11 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 					continue
 				}
 				observation := models.PromptJudgeObservation{Grader: config.Identifier, Context: "frozen_inline",
-					Purpose: "regrade", State: "failed", Inspection: "not_observable", EvidenceContext: *parameters.EvidenceContext,
+					Purpose: "regrade", State: "failed", Inspection: "not_observable",
+					EvidenceContext: models.PromptEvidenceContext{Files: slices.Clone(parameters.EvidenceContext.Files),
+						EvaluatorOnly: slices.Clone(parameters.EvidenceContext.EvaluatorOnly)},
 					Diagnostics: []models.EvidenceDiagnostic{{Category: "prompt_judging", Code: "invalid_evidence",
 						Message: "Required frozen evidence is missing or unusable for the requested grading configuration."}}}
-				observation.EvidenceContext.Files = slices.Clone(parameters.EvidenceContext.Files)
-				observation.EvidenceContext.EvaluatorOnly = slices.Clone(parameters.EvidenceContext.EvaluatorOnly)
 				if run.JudgeEvidence != nil {
 					observation.BundleSHA256 = run.JudgeEvidence.SHA256
 				}

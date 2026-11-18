@@ -45,6 +45,17 @@ func TestEvidenceContextNativeAndSchemaAdmission(t *testing.T) {
 		{"empty lists", "{prompt: Judge, evidence_context: {files: [], evaluator_only: []}}", true},
 		{"selected", "{prompt: Judge, evidence_context: {files: [output/report.json], evaluator_only: [references]}}", true},
 		{"unicode", "{prompt: Judge, evidence_context: {files: [résumé.txt]}}", true},
+		{"fixture literals", "{prompt: Judge, evidence_context: {non_secret_literals: ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', fixture@example.invalid, PROJ-1]}}", true},
+		{"empty literals", "{prompt: Judge, evidence_context: {non_secret_literals: []}}", true},
+		{"null literals", "{prompt: Judge, evidence_context: {non_secret_literals: null}}", false},
+		{"scalar literals", "{prompt: Judge, evidence_context: {non_secret_literals: PROJ-1}}", false},
+		{"number literal", "{prompt: Judge, evidence_context: {non_secret_literals: [123]}}", false},
+		{"empty literal", "{prompt: Judge, evidence_context: {non_secret_literals: ['']}}", false},
+		{"duplicate literal", "{prompt: Judge, evidence_context: {non_secret_literals: [PROJ-1, PROJ-1]}}", false},
+		{"wildcard literal", "{prompt: Judge, evidence_context: {non_secret_literals: ['PROJ-*']}}", false},
+		{"whitespace literal", "{prompt: Judge, evidence_context: {non_secret_literals: ['PROJ 1']}}", false},
+		{"long literal", "{prompt: Judge, evidence_context: {non_secret_literals: ['" + strings.Repeat("x", 129) + "']}}", false},
+		{"too many literals", "{prompt: Judge, evidence_context: {non_secret_literals: [" + strings.TrimSuffix(strings.Repeat("PROJ-1,", 65), ",") + "]}}", false},
 		{"null", "{prompt: Judge, evidence_context: null}", false},
 		{"scalar", "{prompt: Judge, evidence_context: false}", false},
 		{"array", "{prompt: Judge, evidence_context: []}", false},
@@ -89,6 +100,41 @@ func TestEvidenceContextNativeAndSchemaAdmission(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOutcomeSerializationWithholdsRetainedJudgeDeclarations(t *testing.T) {
+	const unused = "UNUSED_RETAINED_DECLARATION_CANARY"
+	selection := PromptEvidenceContext{Files: []string{"report.txt"},
+		EvaluatorOnly: []string{"private.txt"}, NonSecretLiterals: &[]string{unused}}
+	task := TestOutcome{TestID: "untouched", Runs: []RunResult{{PromptJudging: []PromptJudgeObservation{{
+		Grader: "judge", EvidenceContext: selection,
+	}}}}}
+	outcome := EvaluationOutcome{
+		TestOutcomes: []TestOutcome{task}, BaselineOutcome: &EvaluationOutcome{TestOutcomes: []TestOutcome{task}},
+	}
+	data, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), unused)
+	require.NotContains(t, string(data), "non_secret_literals")
+	var saved EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &saved))
+	for _, current := range []*EvaluationOutcome{&saved, saved.BaselineOutcome} {
+		require.NotNil(t, current)
+		require.Len(t, current.TestOutcomes, 1)
+		require.Len(t, current.TestOutcomes[0].Runs, 1)
+		observations := current.TestOutcomes[0].Runs[0].PromptJudging
+		require.Len(t, observations, 1)
+		require.Equal(t, selection.Files, observations[0].EvidenceContext.Files)
+		require.Equal(t, selection.EvaluatorOnly, observations[0].EvidenceContext.EvaluatorOnly)
+		require.Nil(t, observations[0].EvidenceContext.NonSecretLiterals)
+	}
+	for _, original := range []*EvaluationOutcome{&outcome, outcome.BaselineOutcome} {
+		require.Equal(t, &[]string{unused}, original.TestOutcomes[0].Runs[0].PromptJudging[0].EvidenceContext.NonSecretLiterals,
+			"serialization must not mutate caller-owned observations")
+	}
+	config, err := json.Marshal(PromptGraderParameters{EvidenceContext: &selection})
+	require.NoError(t, err)
+	require.Contains(t, string(config), unused, "source configuration and cache identity retain declarations")
 }
 
 func TestEvidenceContextRejectsCheckpointAndWrongExecutor(t *testing.T) {
