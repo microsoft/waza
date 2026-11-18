@@ -183,6 +183,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `waza compare --format json` no longer fails when the compared files have
+  different task sets. Unavailable task scores, pass rates and deltas are now
+  `null` instead of non-finite or fabricated zero values, deltas are computed
+  only when both operands exist, and the additive per-task `availability`
+  array reports `task_missing` or `stats_missing`. Results declaring schema
+  1.0 report `null` tool metrics with `tool_metrics_availability` rather than
+  measured zero calls. Fully observed comparisons keep their previous shape
+  (#1029).
+
 - The Lab checkpoint result reader re-encodes retained runner-unit reports in
   1.0 results like the native canonical writer, so reordered properties,
   noncanonical escapes and unknown fields are rejected and canonical reports are
