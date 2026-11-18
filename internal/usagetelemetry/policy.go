@@ -206,11 +206,11 @@ func approvedEndpoint(raw string) *url.URL {
 	return u
 }
 
+// flagDenies reports an explicit --no-telemetry anywhere on the command line.
+// It runs before Cobra parses flags, so it cannot tell a flag from a value or a
+// positional after "--"; any match denies, which errs toward the opt-out.
 func flagDenies(args []string) bool {
 	for _, arg := range args {
-		if arg == "--" {
-			return false
-		}
 		if arg == "--"+NoFlagName {
 			return true
 		}

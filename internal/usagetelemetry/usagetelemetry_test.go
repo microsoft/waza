@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -88,6 +89,19 @@ func TestShippedPolicy(t *testing.T) {
 	assert.False(t, shippedDevOn, "development builds are never collected")
 }
 
+func TestLocalBuildDefaultsAreNotReleases(t *testing.T) {
+	for file, pattern := range map[string]string{
+		"../../Makefile": `(?m)^VERSION\?=(\S+)$`,
+		"../../build.sh": `(?m)^VERSION="\$\{VERSION:-([^}]+)\}"$`,
+	} {
+		data, err := os.ReadFile(file)
+		require.NoError(t, err)
+		m := regexp.MustCompile(pattern).FindSubmatch(data)
+		require.NotNil(t, m, "%s must declare a default VERSION", file)
+		assert.False(t, releaseBuild(string(m[1])), "%s default %q would collect telemetry", file, m[1])
+	}
+}
+
 func TestOnlyReleaseBuildsCollect(t *testing.T) {
 	restore := OverrideActivationForTesting(newFakeCollector(t).server.URL, nil, true, false)
 	t.Cleanup(restore)
@@ -149,7 +163,8 @@ func TestPolicyResolution(t *testing.T) {
 		{name: "flag explicit true", args: []string{"--no-telemetry=true"}, denied: true},
 		{name: "flag false", args: []string{"--no-telemetry=false"}, enabled: true},
 		{name: "flag invalid value fails closed", args: []string{"--no-telemetry=maybe"}, denied: true},
-		{name: "flag after terminator ignored", args: []string{"run", "--", "--no-telemetry"}, enabled: true},
+		{name: "flag after terminator denies", args: []string{"run", "--", "--no-telemetry"}, denied: true},
+		{name: "flag after terminator consumed as value denies", args: []string{"run", "x.yaml", "--output", "--", "--no-telemetry"}, denied: true},
 		{name: "env 1", env: map[string]string{OptOutEnv: "1"}, denied: true},
 		{name: "env true", env: map[string]string{OptOutEnv: "TRUE"}, denied: true},
 		{name: "env 0", env: map[string]string{OptOutEnv: "0"}, enabled: true},

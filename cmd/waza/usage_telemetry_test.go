@@ -181,6 +181,10 @@ func TestUsageTelemetry_DenialSendsNothingAndPropagates(t *testing.T) {
 	invokeCLI(t, "--no-update-check", "--no-telemetry", "run", "missing.yaml")
 	assert.Equal(t, "1", os.Getenv(usagetelemetry.OptOutEnv), "denial must reach child processes")
 
+	t.Setenv(usagetelemetry.OptOutEnv, "")
+	invokeCLI(t, "--no-update-check", "run", "missing.yaml", "--output", "--", "--no-telemetry")
+	assert.Equal(t, "1", os.Getenv(usagetelemetry.OptOutEnv), "a flag pflag consumes as a value must still deny")
+
 	t.Setenv("DO_NOT_TRACK", "1")
 	invokeCLI(t, "--no-update-check", "run", "missing.yaml")
 	assert.Empty(t, collector.take())
