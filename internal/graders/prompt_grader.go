@@ -290,14 +290,18 @@ func (p *promptGrader) renderJudgePrompt(gradingContext *Context) string {
 	if p.args.ContinueSession {
 		return p.args.Prompt
 	}
-	if strings.TrimSpace(gradingContext.Output) == "" {
+	output := ""
+	if gradingContext.OutputPresent {
+		output = gradingContext.Output
+	}
+	if strings.TrimSpace(output) == "" {
 		return p.args.Prompt
 	}
 	taskInput := ""
 	if gradingContext.TestCase != nil {
 		taskInput = gradingContext.TestCase.Stimulus.Message
 	}
-	return p.rubric.RenderPrompt(taskInput, "", gradingContext.Output)
+	return p.rubric.RenderPrompt(taskInput, "", output)
 }
 
 func executePromptGrader(ctx context.Context, gradingContext *Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {

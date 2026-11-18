@@ -506,6 +506,48 @@ func TestBuildGraderContextMarksOutputPresentOnlyOnSuccessfulResponses(t *testin
 	}
 }
 
+func TestBuildGraderContextDoesNotInjectRubricOutputAfterExecutionFailure(t *testing.T) {
+	const candidateOutput = "candidate-output-from-failed-run"
+	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), nil)
+	for _, tc := range []struct {
+		name     string
+		response execution.ExecutionResponse
+	}{
+		{
+			name:     "unsuccessful",
+			response: execution.ExecutionResponse{Success: false, FinalOutput: candidateOutput},
+		},
+		{
+			name:     "error response",
+			response: execution.ExecutionResponse{Success: true, ErrorMsg: "execution failed", FinalOutput: candidateOutput},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			graderCtx := runner.buildGraderContext(&models.TestCase{}, &tc.response, nil)
+			require.False(t, graderCtx.OutputPresent)
+
+			var renderedPrompt string
+			graderCtx.Executor = promptExecutionFunc(func(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				renderedPrompt = req.Message
+				_, err := req.Tools[0].Handler(copilot.ToolInvocation{
+					Arguments: map[string]any{"description": "criteria", "reason": "met"},
+				})
+				if err != nil {
+					return nil, err
+				}
+				return &execution.ExecutionResponse{Success: true, FinalOutput: "grade submitted"}, nil
+			})
+			promptGrader, err := graders.NewPromptGrader("rubric", models.PromptGraderParameters{Rubric: "groundedness"})
+			require.NoError(t, err)
+			result, err := promptGrader.Grade(t.Context(), graderCtx)
+			require.NoError(t, err)
+			require.True(t, result.Passed)
+			require.NotContains(t, renderedPrompt, candidateOutput)
+			require.NotContains(t, renderedPrompt, "## Candidate output")
+		})
+	}
+}
+
 func TestCandidateOutputPresentRequiresNoOriginError(t *testing.T) {
 	resp := &execution.ExecutionResponse{Success: true}
 
