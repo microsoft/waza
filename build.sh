@@ -33,7 +33,7 @@ fi
 # Get Git commit hash and build date
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.0.0-dev}"
 
 # List of OS and architecture combinations
 if [ -n "${PLATFORM:-}" ]; then

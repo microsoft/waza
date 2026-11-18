@@ -21,12 +21,39 @@ const (
 )
 
 const (
-	maxSettingsBytes = 4096
-	settingsLockWait = 500 * time.Millisecond
-	staleLockAge     = 10 * time.Second
+	maxSettingsBytes      = 4096
+	maxProjectConfigBytes = 1 << 20
+	settingsLockWait      = 500 * time.Millisecond
+	staleLockAge          = 10 * time.Second
 )
 
 var errSettingsLocked = errors.New("telemetry settings are locked by another process")
+
+// readRegularFile reads at most limit bytes from a regular file. Policy files
+// are read before every command, so FIFOs, devices, and directories are
+// rejected before opening; opening them could block startup indefinitely.
+func readRegularFile(path string, limit int64) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	file, err := os.Open(path) //nolint:gosec // fixed policy file path
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close() //nolint:errcheck
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s is too large", path)
+	}
+	return data, nil
+}
 
 // withSettingsLock serializes read-modify-write updates across waza processes
 // so a concurrent installation-ID write cannot overwrite a disable.
@@ -87,20 +114,12 @@ func LoadSettings(path string) (Settings, error) {
 	if path == "" {
 		return Settings{}, errors.New("telemetry settings path is unavailable")
 	}
-	file, err := os.Open(path) //nolint:gosec // fixed per-user settings path
+	data, err := readRegularFile(path, maxSettingsBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return Settings{}, nil
 	}
 	if err != nil {
 		return Settings{}, err
-	}
-	defer file.Close() //nolint:errcheck
-	data, err := io.ReadAll(io.LimitReader(file, maxSettingsBytes+1))
-	if err != nil {
-		return Settings{}, err
-	}
-	if len(data) > maxSettingsBytes {
-		return Settings{}, errors.New("telemetry settings file is too large")
 	}
 	s, err := decodeSettings(data)
 	if err != nil {

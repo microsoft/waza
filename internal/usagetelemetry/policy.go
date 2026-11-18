@@ -2,11 +2,9 @@
 // (#1045). It is separate from the OpenTelemetry tracing in internal/telemetry
 // and never reads OpenTelemetry configuration, environment, or attributes.
 //
-// The client ships inert: no collector endpoint is compiled in, so Resolve
-// reports an inactive policy, Record* calls return immediately, and no network
-// request, installation identifier, or queue write ever happens. Activation
-// requires privacy/security approval, a ready collector, and an explicit
-// decision on the collection default and CI policy.
+// Released builds collect by default on developer machines and never collect
+// from CI. Every opt-out (flag, environment, persistent setting, project
+// config, or hosting tool denial) wins over the default.
 package usagetelemetry
 
 import (
@@ -15,6 +13,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"gopkg.in/yaml.v3"
 )
@@ -31,15 +30,19 @@ const (
 	azdServerEnv    = "AZD_SERVER"
 )
 
-// endpoint is the approved collector URL. It is intentionally empty and can
-// only be set at build time (-ldflags -X) once activation is approved.
-var endpoint = ""
+// ApprovedEndpoint is the team collector gateway approved for #1045.
+const ApprovedEndpoint = "https://apim-waza-z6cdmnvatt43k.azure-api.net/v1/events"
 
-// Activation decisions that remain pending (see package docs). Collection is
-// off by default and CI never sends until these are explicitly changed.
+// endpoint can be overridden at build time (-ldflags -X); an empty value
+// produces an inert build.
+var endpoint = ApprovedEndpoint
+
+// Approved activation policy (#1045): on by default for developers, never in CI.
 var (
-	defaultCollectionOn = false
+	defaultCollectionOn = true
 	ciCollectionOn      = false
+	// devBuildCollectionOn is only changed by OverrideActivationForTesting.
+	devBuildCollectionOn = false
 )
 
 var ciEnvVars = []string{"CI", "GITHUB_ACTIONS", "TF_BUILD", "JENKINS_URL", "CODEBUILD_BUILD_ID",
@@ -55,7 +58,8 @@ const (
 	ReasonUserInvalid     = "the telemetry settings file is invalid or unreadable"
 	ReasonProjectDisabled = "the project .waza.yaml sets telemetry.disabled"
 	ReasonProjectInvalid  = "the project .waza.yaml telemetry section is invalid or unreadable"
-	ReasonCI              = "CI collection has not been approved"
+	ReasonCI              = "CI environments are never collected"
+	ReasonDevBuild        = "development builds are never collected"
 	ReasonNotEnabled      = "collection is off by default and has not been enabled"
 )
 
@@ -65,6 +69,9 @@ type Inputs struct {
 	Getenv       func(string) string
 	WorkDir      string
 	SettingsPath string
+	// Version is the Waza build version. Only release builds (plain X.Y.Z)
+	// collect, so source and test builds stay inert.
+	Version string
 	// Full reads persistent settings even when no endpoint is configured.
 	// Only `waza telemetry status` sets it.
 	Full bool
@@ -121,6 +128,9 @@ func Resolve(in Inputs) Policy {
 		if !in.Full {
 			return p
 		}
+	} else if !devBuildCollectionOn && !releaseBuild(in.Version) {
+		// Keep resolving so settings and project denials still reach children.
+		p.Reasons = append(p.Reasons, ReasonDevBuild)
 	}
 	explicitEnable := false
 	if p.settingsPath == "" {
@@ -148,13 +158,19 @@ func Resolve(in Inputs) Policy {
 	return p
 }
 
-// ResolveProcess resolves policy for the current process.
-func ResolveProcess(args []string, full bool) Policy {
+// ResolveProcess resolves policy for the current process and build version.
+func ResolveProcess(args []string, full bool, version string) Policy {
 	wd, err := os.Getwd()
 	if err != nil {
 		wd = ""
 	}
-	return Resolve(Inputs{Args: args, WorkDir: wd, Full: full})
+	return Resolve(Inputs{Args: args, WorkDir: wd, Full: full, Version: version})
+}
+
+// releaseBuild reports whether version is a plain X.Y.Z release stamp.
+func releaseBuild(version string) bool {
+	v, err := semver.StrictNewVersion(version)
+	return err == nil && v.Prerelease() == "" && v.Metadata() == ""
 }
 
 // PolicyEnvKeys lists the variables that carry the telemetry policy to child
@@ -188,11 +204,11 @@ func approvedEndpoint(raw string) *url.URL {
 	return u
 }
 
+// flagDenies reports an explicit --no-telemetry anywhere on the command line.
+// It runs before Cobra parses flags, so it cannot tell a flag from a value or a
+// positional after "--"; any match denies, which errs toward the opt-out.
 func flagDenies(args []string) bool {
 	for _, arg := range args {
-		if arg == "--" {
-			return false
-		}
 		if arg == "--"+NoFlagName {
 			return true
 		}
@@ -268,7 +284,7 @@ func projectDenial(workDir string) projectState {
 	if err != nil {
 		return projectInvalid
 	}
-	data, err := os.ReadFile(path) //nolint:gosec // path is the discovered project config
+	data, err := readRegularFile(path, maxProjectConfigBytes)
 	if err != nil {
 		return projectInvalid
 	}

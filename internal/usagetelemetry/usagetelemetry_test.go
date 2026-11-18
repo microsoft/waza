@@ -1,6 +1,7 @@
 package usagetelemetry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -80,11 +82,52 @@ func writeFile(t *testing.T, path, content string) {
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 }
 
-func TestShippedBuildIsInert(t *testing.T) {
-	assert.Empty(t, endpoint, "no collector endpoint may be compiled in by default")
-	assert.False(t, defaultCollectionOn)
-	assert.False(t, ciCollectionOn)
+func TestShippedPolicy(t *testing.T) {
+	assert.Equal(t, ApprovedEndpoint, shippedEndpoint)
+	assert.NotNil(t, approvedEndpoint(shippedEndpoint), "the shipped endpoint must be a credential-free https URL")
+	assert.True(t, shippedDefaultOn, "collection is on by default for developers")
+	assert.False(t, shippedCIOn, "CI is never collected")
+	assert.False(t, shippedDevOn, "development builds are never collected")
+}
 
+func TestLocalBuildDefaultsAreNotReleases(t *testing.T) {
+	for file, pattern := range map[string]string{
+		"../../Makefile": `(?m)^VERSION\?=(\S+)$`,
+		"../../build.sh": `(?m)^VERSION="\$\{VERSION:-([^}]+)\}"$`,
+	} {
+		data, err := os.ReadFile(file)
+		require.NoError(t, err)
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+		m := regexp.MustCompile(pattern).FindSubmatch(data)
+		require.NotNil(t, m, "%s must declare a default VERSION", file)
+		assert.False(t, releaseBuild(string(m[1])), "%s default %q would collect telemetry", file, m[1])
+	}
+}
+
+func TestOnlyReleaseBuildsCollect(t *testing.T) {
+	restore := OverrideActivationForTesting(newFakeCollector(t).server.URL, nil, true, false)
+	t.Cleanup(restore)
+	devBuildCollectionOn = false
+	for version, enabled := range map[string]bool{
+		"0.42.0": true, "1.2.3": true, "dev": false, "": false, "v0.42.0": false,
+		"0.41.0-449-g5ff2e64": false, "0.42.0+meta": false, "garbage": false,
+	} {
+		p := Resolve(Inputs{Getenv: env(nil), SettingsPath: settingsPath(t), WorkDir: t.TempDir(), Version: version})
+		assert.Equal(t, enabled, p.Enabled, "version %q: %v", version, p.Reasons)
+		if !enabled {
+			assert.Equal(t, []string{ReasonDevBuild}, p.Reasons, version)
+			assert.False(t, p.Denied, version)
+		}
+	}
+	project := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".waza.yaml"), []byte("telemetry:\n  disabled: true\n"), 0o600))
+	p := Resolve(Inputs{Getenv: env(nil), SettingsPath: settingsPath(t), WorkDir: project, Version: "dev"})
+	assert.False(t, p.Enabled)
+	assert.True(t, p.Denied, "development builds must still resolve denials so they reach children")
+}
+
+func TestInertBuildSendsNothing(t *testing.T) {
+	activate(t, nil, false)
 	path := settingsPath(t)
 	p := Resolve(Inputs{Getenv: env(nil), SettingsPath: path, WorkDir: t.TempDir()})
 	assert.False(t, p.Enabled)
@@ -127,7 +170,8 @@ func TestPolicyResolution(t *testing.T) {
 		{name: "flag explicit true", args: []string{"--no-telemetry=true"}, denied: true},
 		{name: "flag false", args: []string{"--no-telemetry=false"}, enabled: true},
 		{name: "flag invalid value fails closed", args: []string{"--no-telemetry=maybe"}, denied: true},
-		{name: "flag after terminator ignored", args: []string{"run", "--", "--no-telemetry"}, enabled: true},
+		{name: "flag after terminator denies", args: []string{"run", "--", "--no-telemetry"}, denied: true},
+		{name: "flag after terminator consumed as value denies", args: []string{"run", "x.yaml", "--output", "--", "--no-telemetry"}, denied: true},
 		{name: "env 1", env: map[string]string{OptOutEnv: "1"}, denied: true},
 		{name: "env true", env: map[string]string{OptOutEnv: "TRUE"}, denied: true},
 		{name: "env 0", env: map[string]string{OptOutEnv: "0"}, enabled: true},

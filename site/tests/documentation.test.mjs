@@ -951,7 +951,7 @@ test('public image acceptance binds the literal digest to source, platform and v
 
 test('tagged source builds explicitly stamp the release rather than trusting stale metadata', () => {
   const makefile = read('Makefile');
-  assert.match(makefile, /^VERSION\?=0\.1\.0$/m);
+  assert.match(makefile, /^VERSION\?=0\.0\.0-dev$/m);
   assert.match(makefile, /^LDFLAGS=-ldflags "-X main\.version=\$\(VERSION\)"$/m);
   assert.match(makefile, /go build \$\(LDFLAGS\) -o \$\(BUILD_DIR\)\/\$\(BINARY_NAME\) \.\/cmd\/waza/);
   const release = read('.github/workflows/release-qualification.yml');
@@ -963,7 +963,7 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
     assert.match(text, /git clone --branch v0\.41\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
     assert.match(text, /make build VERSION=0\.41\.0/, path);
     assert.match(text, /`version\.txt` and `extension\.yaml`/, path);
-    assert.match(text, /defaults to `VERSION=0\.1\.0`/, path);
+    assert.match(text, /defaults to `VERSION=0\.0\.0-dev`/, path);
     assert.match(text, /`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`/, path);
   }
 });

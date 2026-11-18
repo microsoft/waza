@@ -115,7 +115,7 @@ make build VERSION=0.41.0
 The verified `v0.41.0` tag resolves to
 `d537bf00d4d442a1935ceba2fbc664b9ccb497b2`. Unlike the historical v0.40.1 tags, the
 tag's `version.txt` and `extension.yaml` already carry `0.41.0`.
-`make build` defaults to `VERSION=0.1.0`, so pass `VERSION=0.41.0` explicitly
+`make build` defaults to `VERSION=0.0.0-dev`, so pass `VERSION=0.41.0` explicitly
 when building this tag. Official release builds inject the version from the
 tag with linker flags. A locally stamped binary is not a verified release asset,
 and does not prove extension registry synchronization.
@@ -165,18 +165,25 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: waza update
 
 Run `waza update` to download and execute the official OS-specific installer after an explicit confirmation prompt. It uses the Bash installer on macOS/Linux and the PowerShell installer on native Windows. Use `waza update --yes` to skip the prompt in scripted environments. The check is non-blocking (never slows commands), cached for 24 hours, and can be disabled with `--no-update-check` or `WAZA_NO_UPDATE_CHECK=1`.
 
-## Product Usage Telemetry
+## Telemetry and privacy
 
-Waza includes an opt-out product usage telemetry client that is **inert in this
-build**: no collector endpoint is configured, so it makes no network requests,
-creates no installation identifier, and keeps no event queue. Activation awaits
-privacy and security approval, a ready collector, and an explicit decision on
-the collection default and CI policy. Opt out at any time with
-`WAZA_TELEMETRY_OPTOUT=1`, `--no-telemetry`, `waza telemetry disable`,
-`telemetry.disabled: true` in `.waza.yaml`, or `DO_NOT_TRACK=1`. Run
+Product usage telemetry is enabled by default in released Waza builds on
+developer machines and is never collected in CI. It records which commands and
+features are used, command and evaluation outcomes, bucketed durations and task
+counts, and basic version, OS, and architecture information. Events include a
+random, resettable installation identifier; it is pseudonymous, not anonymous.
+
+Telemetry never includes source code, prompts, model outputs, skill or file
+names, paths, repository names, arguments, or raw error messages. Evaluation
+results stay local and are not sent as product analytics. Events are retained
+for 30 days.
+
+To turn it off, use any one of: `WAZA_TELEMETRY_OPTOUT=1`, `DO_NOT_TRACK=1`,
+`--no-telemetry`, `waza telemetry disable`, or `telemetry.disabled: true` in
+`.waza.yaml`. Turning off telemetry does not change any other Waza behavior. Run
 `waza telemetry status` to see the current state. See
 [docs/USAGE-TELEMETRY.md](docs/USAGE-TELEMETRY.md) for the closed event
-contract, opt-out precedence, and the
+contract and the
 [Microsoft Privacy Statement](https://go.microsoft.com/fwlink/?LinkId=521839).
 
 ## Quick Start
