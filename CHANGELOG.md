@@ -202,6 +202,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   branch: it reuses one whose tip is the same sync of the validated commit
   (same parent and tree) and fails clearly, leaving it unchanged, when the
   branch points elsewhere (#937).
+- `waza run --baseline` now runs the baseline pass with skills explicitly
+  disabled (the existing `skill_directories: [none]` override), so task-level
+  `skill_directories`, ambient skill discovery and ambient agent definitions no
+  longer leak into the skills-disabled phase. Evals that configure skills only
+  at the task level now run the baseline comparison instead of skipping it. The
+  skills-enabled phase and the original configuration are unchanged (#1024).
 
 ## [0.41.0] - 2026-11-13
 

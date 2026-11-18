@@ -610,9 +610,9 @@ func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.EvaluationOutcome, error) {
 	spec := r.cfg.Spec()
 
-	// Validation: eval must have skills configured
-	if len(spec.Config.SkillPaths) == 0 && len(spec.Config.RequiredSkills) == 0 {
-		fmt.Println("[WARN] --baseline specified but eval has no skills configured (skill_directories, required_skills empty). Skipping baseline comparison.")
+	// Validation: eval or at least one task must have skills configured
+	if !r.hasConfiguredSkills() {
+		fmt.Println("[WARN] --baseline specified but eval has no skills configured (skill_directories, required_skills and task skill paths empty). Skipping baseline comparison.")
 		return r.runNormalBenchmark(ctx)
 	}
 
@@ -633,10 +633,12 @@ func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 		r.partialMu.Unlock()
 	}()
 
-	// PASS 2: Skills Disabled (baseline)
+	// PASS 2: Skills Disabled (baseline). The "none" sentinel is the existing
+	// disable-all override, so task-level skill paths and ambient discovery are
+	// suppressed too, and the baseline keeps a distinct cache identity.
 	savedSkillPaths := spec.Config.SkillPaths
 	savedRequiredSkills := spec.Config.RequiredSkills
-	spec.Config.SkillPaths = []string{}
+	spec.Config.SkillPaths = []string{"none"}
 	spec.Config.RequiredSkills = []string{}
 	defer func() {
 		spec.Config.SkillPaths = savedSkillPaths
@@ -657,6 +659,24 @@ func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 
 	// PASS 3: Compare and merge results
 	return r.mergeBaselineOutcomes(outcomesWithSkills, outcomesWithoutSkills)
+}
+
+// hasConfiguredSkills reports whether the eval or any selected task configures skills.
+func (r *EvalRunner) hasConfiguredSkills() bool {
+	spec := r.cfg.Spec()
+	if len(spec.Config.SkillPaths) > 0 || len(spec.Config.RequiredSkills) > 0 {
+		return true
+	}
+	testCases, err := r.admissionTestCases()
+	if err != nil {
+		return false
+	}
+	for _, tc := range testCases {
+		if len(tc.SkillPaths) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeBaselineOutcomes pairs task results and computes skill impact
