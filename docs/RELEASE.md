@@ -485,6 +485,13 @@ creation only, never force-update or deletion of an existing branch. A collision
 or permission failure leaves the competing ref unchanged and stops the job.
 The checked push receipt must confirm a new ref; an already-up-to-date identical
 competing branch is not accepted as an invocation-owned creation.
+The `release/vX.Y.Z` identity is immutable per version. Before pushing, the job
+looks up the remote branch: a lookup failure stops the job, and an existing
+branch is never pushed to. A re-dispatch reuses an existing branch only when its
+tip is the same registry sync (single parent at the validated release commit
+and an identical tree); it then creates the registry-sync PR if none exists, or
+reports the existing PR. Any other existing branch fails the job with the
+branch left unchanged; publish a new version or inspect it manually.
 Generated PRs preserve the repository template and Copilot commit trailer.
 PR-creation failure reports the created branch and fails rather than claiming
 the complete release succeeded.
