@@ -43,6 +43,22 @@ func TestValidateConfigInlineWithoutInterpreter(t *testing.T) {
 	require.Error(t, ValidateConfig("script", models.InlineScriptGraderParameters{}))
 }
 
+func TestValidateConfigFixtureLiteralsIsOfflineAndDoesNotMutate(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	for _, values := range [][]string{{}, {"fixture@example.invalid", "PROJ-1"}, {"invalid fixture"}, {"PROJ-1", "PROJ-1"}} {
+		before := append([]string{}, values...)
+		params := models.PromptGraderParameters{Prompt: "Judge.", EvidenceContext: &models.PromptEvidenceContext{NonSecretLiterals: &values}}
+		err := ValidateConfig("fixture", params)
+		if len(values) > 0 && (values[0] == "invalid fixture" || len(values) == 2 && values[0] == values[1]) {
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), values[0])
+		} else {
+			require.NoError(t, err)
+		}
+		require.Equal(t, before, values)
+	}
+}
+
 func TestValidateConfigRejectsDeferredInvalidChecks(t *testing.T) {
 	for _, params := range []models.GraderParameters{
 		models.TextGraderParameters{},

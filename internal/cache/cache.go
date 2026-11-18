@@ -71,6 +71,22 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 	if err := writeString(h, spec.Config.EngineType); err != nil {
 		return "", err
 	}
+	mode := spec.Config.WorkspaceCapture
+	switch mode {
+	case "", "full":
+		mode = "full"
+	case "none":
+	default:
+		return "", fmt.Errorf("invalid workspace capture mode %q", mode)
+	}
+	// Older keys did not distinguish capture modes and may contain no-capture
+	// results, so neither mode can safely reuse them.
+	if err := writeString(h, "workspace-capture-v1"); err != nil {
+		return "", err
+	}
+	if err := writeString(h, mode); err != nil {
+		return "", err
+	}
 	if err := writeInt(h, spec.Config.TimeoutSec); err != nil {
 		return "", err
 	}
@@ -100,7 +116,8 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 		return "", err
 	}
 
-	// Include graders configuration
+	// Include graders configuration, including exact frozen-evidence fixture
+	// declarations. Task-level declarations are covered by taskJSON below.
 	gradersJSON, err := json.Marshal(spec.Graders)
 	if err != nil {
 		return "", fmt.Errorf("marshaling graders: %w", err)

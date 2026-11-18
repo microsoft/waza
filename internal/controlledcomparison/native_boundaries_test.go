@@ -109,141 +109,185 @@ func TestNativeStaticRequirementsAndConfiguration(t *testing.T) {
 	}
 }
 
-func TestNativeSourceCurrentnessBeforeSideEffects(t *testing.T) {
+func TestNativeSourceCurrentnessBeforeSideEffectsEval(t *testing.T) {
+	testNativeSourceCurrentnessBeforeSideEffects(t, "eval")
+}
+
+func TestNativeSourceCurrentnessBeforeSideEffectsTask(t *testing.T) {
+	testNativeSourceCurrentnessBeforeSideEffects(t, "task")
+}
+
+func TestNativeSourceCurrentnessBeforeSideEffectsPrompt(t *testing.T) {
+	testNativeSourceCurrentnessBeforeSideEffects(t, "prompt")
+}
+
+func TestNativeSourceCurrentnessBeforeSideEffectsFixture(t *testing.T) {
+	testNativeSourceCurrentnessBeforeSideEffects(t, "fixture")
+}
+
+func TestNativeSourceCurrentnessBeforeSideEffectsInstruction(t *testing.T) {
+	testNativeSourceCurrentnessBeforeSideEffects(t, "instruction")
+}
+
+func testNativeSourceCurrentnessBeforeSideEffects(t *testing.T, name string) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("native source capture unsupported")
 	}
-	for _, name := range []string{"eval", "task", "prompt", "fixture", "instruction"} {
-		t.Run(name, func(t *testing.T) {
-			candidate := nativeFixture(t, "fixed-model")
-			base := filepath.Dir(candidate.EvalPath)
-			require.NoError(t, os.Mkdir(filepath.Join(base, "context"), 0o700))
-			require.NoError(t, os.WriteFile(filepath.Join(base, "prompt.txt"), []byte("say hello"), 0o600))
-			require.NoError(t, os.WriteFile(filepath.Join(base, "context", "fixture.txt"), []byte("fixture"), 0o600))
-			require.NoError(t, os.WriteFile(filepath.Join(base, "context", "instruction.md"), []byte("instruction"), 0o600))
-			taskPath := filepath.Join(base, "task.yaml")
-			require.NoError(t, os.WriteFile(taskPath, []byte(
-				"id: task-0\nname: native\ngolden: true\ninputs:\n  prompt_file: prompt.txt\n  files:\n    - path: fixture.txt\ninstruction_files: [instruction.md]\n"), 0o600))
-			candidate.ContextDir = filepath.Join(base, "context")
-			// Both arms need the same effective task/request identities.
-			policy, err := controlledcomparison.PlanNative(t.Context(), candidate, candidate, nativeDesign(), nativeRequirements(), nil)
-			require.NoError(t, err)
-			path := map[string]string{"eval": candidate.EvalPath, "task": taskPath, "prompt": filepath.Join(base, "prompt.txt"),
-				"fixture": filepath.Join(base, "context", "fixture.txt"), "instruction": filepath.Join(base, "context", "instruction.md")}[name]
-			file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
-			require.NoError(t, err)
-			_, err = file.WriteString("\n")
-			require.NoError(t, err)
-			require.NoError(t, file.Close())
-			directory := filepath.Join(t.TempDir(), "native")
-			calls := 0
-			err = controlledcomparison.CollectNativeWithOptions(t.Context(), policy, candidate, candidate, directory,
-				controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls)})
-			require.Error(t, err)
-			require.Zero(t, calls)
-			require.NoDirExists(t, directory)
-		})
-	}
+	candidate := nativeFixture(t, "fixed-model")
+	base := filepath.Dir(candidate.EvalPath)
+	require.NoError(t, os.Mkdir(filepath.Join(base, "context"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "prompt.txt"), []byte("say hello"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "context", "fixture.txt"), []byte("fixture"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "context", "instruction.md"), []byte("instruction"), 0o600))
+	taskPath := filepath.Join(base, "task.yaml")
+	require.NoError(t, os.WriteFile(taskPath, []byte(
+		"id: task-0\nname: native\ngolden: true\ninputs:\n  prompt_file: prompt.txt\n  files:\n    - path: fixture.txt\ninstruction_files: [instruction.md]\n"), 0o600))
+	candidate.ContextDir = filepath.Join(base, "context")
+	// Both arms need the same effective task/request identities.
+	policy, err := controlledcomparison.PlanNative(t.Context(), candidate, candidate, nativeDesign(), nativeRequirements(), nil)
+	require.NoError(t, err)
+	path := map[string]string{"eval": candidate.EvalPath, "task": taskPath, "prompt": filepath.Join(base, "prompt.txt"),
+		"fixture": filepath.Join(base, "context", "fixture.txt"), "instruction": filepath.Join(base, "context", "instruction.md")}[name]
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	_, err = file.WriteString("\n")
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	directory := filepath.Join(t.TempDir(), "native")
+	calls := 0
+	err = controlledcomparison.CollectNativeWithOptions(t.Context(), policy, candidate, candidate, directory,
+		controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls)})
+	require.Error(t, err)
+	require.Zero(t, calls)
+	require.NoDirExists(t, directory)
 }
 
-func TestNativeLateFailurePreservesEveryStartedAttempt(t *testing.T) {
+func TestNativeLateFailureBeforeStart(t *testing.T) {
+	testNativeLateFailurePreservesEveryStartedAttempt(t, "before-start")
+}
+
+func TestNativeLateFailureDuringExecution(t *testing.T) {
+	testNativeLateFailurePreservesEveryStartedAttempt(t, "during-execution")
+}
+
+func TestNativeLateFailureDuringShutdown(t *testing.T) {
+	testNativeLateFailurePreservesEveryStartedAttempt(t, "during-shutdown")
+}
+
+func TestNativeLateFailureBetweenAttempts(t *testing.T) {
+	testNativeLateFailurePreservesEveryStartedAttempt(t, "between-attempts")
+}
+
+func TestNativeLateFailureBeforePublication(t *testing.T) {
+	testNativeLateFailurePreservesEveryStartedAttempt(t, "before-publication")
+}
+
+func TestNativeLateFailurePublicationConflict(t *testing.T) {
+	testNativeLateFailurePreservesEveryStartedAttempt(t, "publication-conflict")
+}
+
+func TestNativeLateFailureOvershoot(t *testing.T) {
+	testNativeLateFailurePreservesEveryStartedAttempt(t, "overshoot")
+}
+
+func TestNativeLateFailureReusedSession(t *testing.T) {
+	testNativeLateFailurePreservesEveryStartedAttempt(t, "reused-session")
+}
+
+func testNativeLateFailurePreservesEveryStartedAttempt(t *testing.T, name string) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("native durable creation requires Linux or macOS")
 	}
-	for _, name := range []string{"before-start", "during-execution", "during-shutdown", "between-attempts", "before-publication", "publication-conflict", "overshoot", "reused-session"} {
-		t.Run(name, func(t *testing.T) {
-			baseline, candidate := nativeFixture(t, "fixed-model"), nativeFixture(t, "fixed-model")
-			required := nativeRequirements()
-			if name == "overshoot" {
-				required.Billing = []releasepolicy.BillingRequirement{{Axis: "input_tokens", Maximum: "7"}}
+	baseline, candidate := nativeFixture(t, "fixed-model"), nativeFixture(t, "fixed-model")
+	required := nativeRequirements()
+	if name == "overshoot" {
+		required.Billing = []releasepolicy.BillingRequirement{{Axis: "input_tokens", Maximum: "7"}}
+	}
+	policy, err := controlledcomparison.PlanNative(t.Context(), baseline, candidate, nativeDesign(), required, nil)
+	require.NoError(t, err)
+	directory := filepath.Join(t.TempDir(), "native")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	calls := 0
+	mutate := func() {
+		file, err := os.OpenFile(candidate.EvalPath, os.O_APPEND|os.O_WRONLY, 0)
+		require.NoError(t, err)
+		_, err = file.WriteString("\n")
+		require.NoError(t, err)
+		require.NoError(t, file.Close())
+	}
+	if name == "before-start" {
+		cancel()
+	}
+	setup := func(ordinal int, client *nativeTestClient) {
+		switch name {
+		case "during-execution":
+			client.session.afterSend = cancel
+		case "during-shutdown":
+			client.onStop = cancel
+		case "between-attempts":
+			client.onStop = mutate
+		case "before-publication":
+			if ordinal == 2 {
+				client.onStop = mutate
 			}
-			policy, err := controlledcomparison.PlanNative(t.Context(), baseline, candidate, nativeDesign(), required, nil)
-			require.NoError(t, err)
-			directory := filepath.Join(t.TempDir(), "native")
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			calls := 0
-			mutate := func() {
-				file, err := os.OpenFile(candidate.EvalPath, os.O_APPEND|os.O_WRONLY, 0)
-				require.NoError(t, err)
-				_, err = file.WriteString("\n")
-				require.NoError(t, err)
-				require.NoError(t, file.Close())
-			}
-			if name == "before-start" {
-				cancel()
-			}
-			setup := func(ordinal int, client *nativeTestClient) {
-				switch name {
-				case "during-execution":
-					client.session.afterSend = cancel
-				case "during-shutdown":
-					client.onStop = cancel
-				case "between-attempts":
-					client.onStop = mutate
-				case "before-publication":
-					if ordinal == 2 {
-						client.onStop = mutate
-					}
-				case "publication-conflict":
-					if ordinal == 2 {
-						client.onStop = func() {
-							require.NoError(t, os.WriteFile(filepath.Join(directory, "journal.json"), []byte("competing owner"), 0o600))
-						}
-					}
-				case "overshoot":
-					client.session.inputTokens = 9
-				case "reused-session":
-					client.session.id = "reused-observed-session"
+		case "publication-conflict":
+			if ordinal == 2 {
+				client.onStop = func() {
+					require.NoError(t, os.WriteFile(filepath.Join(directory, "journal.json"), []byte("competing owner"), 0o600))
 				}
 			}
-			err = controlledcomparison.CollectNativeWithOptions(ctx, policy, baseline, candidate, directory,
-				controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls, setup)})
-			require.Error(t, err)
-			if name == "before-start" {
-				require.ErrorIs(t, err, context.Canceled)
-				require.Zero(t, calls)
-				require.NoDirExists(t, directory)
-				return
-			}
-			decision, readErr := controlledcomparison.ReadSelectedDecision(t.Context(), directory, policy)
-			require.Error(t, readErr)
-			require.False(t, decision.Accepted)
-			require.NotNil(t, decision.Native)
-			require.Len(t, decision.Native.Attempts, calls)
-			require.FileExists(t, filepath.Join(directory, "native-stop.json"))
-			if name == "publication-conflict" {
-				raw, err := os.ReadFile(filepath.Join(directory, "journal.json"))
-				require.NoError(t, err)
-				require.Equal(t, "competing owner", string(raw))
-			}
-			if name == "during-execution" || name == "during-shutdown" {
-				require.Equal(t, 1, calls)
-				require.Equal(t, "operational", decision.Native.Attempts[0].Category)
-				require.True(t, errors.Is(err, context.Canceled))
-			}
-			if name == "overshoot" {
-				require.Equal(t, 1, calls)
-				require.Contains(t, err.Error(), "overshoot")
-				var found bool
-				for _, axes := range decision.Usage {
-					for _, axis := range axes {
-						if axis.Axis == "input_tokens" && axis.Value != nil && axis.Value.String() == "9" {
-							found = true
-						}
-					}
-				}
-				require.True(t, found, "final observed overshoot must remain visible, not clamped to the cap")
-			}
-			if name == "reused-session" {
-				require.Equal(t, 2, calls)
-				require.Contains(t, readErr.Error(), "reused")
-				for _, axes := range decision.Usage {
-					for _, axis := range axes {
-						require.Nil(t, axis.Value, "repeated sessions must not become authoritative totals in either arm")
-					}
+		case "overshoot":
+			client.session.inputTokens = 9
+		case "reused-session":
+			client.session.id = "reused-observed-session"
+		}
+	}
+	err = controlledcomparison.CollectNativeWithOptions(ctx, policy, baseline, candidate, directory,
+		controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls, setup)})
+	require.Error(t, err)
+	if name == "before-start" {
+		require.ErrorIs(t, err, context.Canceled)
+		require.Zero(t, calls)
+		require.NoDirExists(t, directory)
+		return
+	}
+	decision, readErr := controlledcomparison.ReadSelectedDecision(t.Context(), directory, policy)
+	require.Error(t, readErr)
+	require.False(t, decision.Accepted)
+	require.NotNil(t, decision.Native)
+	require.Len(t, decision.Native.Attempts, calls)
+	require.FileExists(t, filepath.Join(directory, "native-stop.json"))
+	if name == "publication-conflict" {
+		raw, err := os.ReadFile(filepath.Join(directory, "journal.json"))
+		require.NoError(t, err)
+		require.Equal(t, "competing owner", string(raw))
+	}
+	if name == "during-execution" || name == "during-shutdown" {
+		require.Equal(t, 1, calls)
+		require.Equal(t, "operational", decision.Native.Attempts[0].Category)
+		require.True(t, errors.Is(err, context.Canceled))
+	}
+	if name == "overshoot" {
+		require.Equal(t, 1, calls)
+		require.Contains(t, err.Error(), "overshoot")
+		var found bool
+		for _, axes := range decision.Usage {
+			for _, axis := range axes {
+				if axis.Axis == "input_tokens" && axis.Value != nil && axis.Value.String() == "9" {
+					found = true
 				}
 			}
-		})
+		}
+		require.True(t, found, "final observed overshoot must remain visible, not clamped to the cap")
+	}
+	if name == "reused-session" {
+		require.Equal(t, 2, calls)
+		require.Contains(t, readErr.Error(), "reused")
+		for _, axes := range decision.Usage {
+			for _, axis := range axes {
+				require.Nil(t, axis.Value, "repeated sessions must not become authoritative totals in either arm")
+			}
+		}
 	}
 }

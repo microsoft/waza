@@ -8,6 +8,8 @@ import promptJudging from "./fixtures/prompt-judging.json" with { type: "json" }
 import { RECORDED_RELIABILITY } from "./fixtures/reliability-data";
 import { CONVERSATION_DETAIL, CONVERSATION_SUMMARY } from "./fixtures/conversation-data";
 
+test.skip(process.env.WAZA_REFRESH_DOCS_MEDIA !== "1", "Run npm run refresh:docs-media to update documentation screenshots.");
+
 test.describe("Dashboard lab screenshots", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
 
@@ -96,7 +98,7 @@ test.describe("Dashboard lab screenshots", () => {
 /**
  * Screenshot capture for dashboard documentation.
  * Generates deterministic PNGs at 1280×720 using mock data.
- * Run: npx playwright test e2e/screenshots.spec.ts --project=chromium
+ * Run: npm run refresh:docs-media -- e2e/screenshots.spec.ts --grep dashboard-lab
  */
 test.describe("Screenshots", () => {
   test.use({ viewport: { width: 1280, height: 720 } });

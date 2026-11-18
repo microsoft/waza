@@ -5,6 +5,38 @@ import { fileURLToPath } from 'node:url';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const screenshotDir = fileURLToPath(new URL('../../docs/images/', import.meta.url));
+
+test('CI/CD guide renders readable symbols and preserves Next Steps navigation', async ({ page }) => {
+  await page.goto('/waza/guides/ci-cd/');
+  const main = page.locator('main');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('CI/CD Integration');
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute('content',
+    'Integrate waza into your CI/CD pipeline — GitHub Actions, Azure DevOps, GitLab CI, and more.');
+  await expect(main.getByRole('heading', { name: 'Quick Start — Scaffold with waza init', exact: true })).toBeVisible();
+  await expect(main.getByRole('heading', { name: 'Multi-Stage Pipeline: PR → Staging → Production', exact: true })).toBeVisible();
+  const resultsExample = main.locator('pre').filter({ hasText: '### Eval Results:' });
+  await expect(resultsExample).toHaveCount(1);
+  await expect(resultsExample).toContainText('✅ **Passed:** ${results.summary.succeeded}\\n❌ **Failed:** ${results.summary.failed}');
+  expect(await main.innerText()).not.toMatch(/ΓÇö|Γ£à|Γ¥î|ΓåÆ|\uFFFD/);
+
+  for (const [name, description, href, heading] of [
+    ['Writing Eval Specs', 'Configure your evaluations', '/waza/guides/eval-yaml/', 'Writing Eval Specs'],
+    ['CLI Reference', 'All flags and commands', '/waza/reference/cli/', 'CLI Commands'],
+    ['Graders Guide', 'Set up scoring rules', '/waza/guides/graders/', 'Graders'],
+    ['Examples', 'Real eval setups', 'https://github.com/microsoft/waza/tree/main/examples', null],
+  ] as const) {
+    await page.goto('/waza/guides/ci-cd/');
+    const link = main.getByRole('link', { name, exact: true });
+    await expect(link).toHaveJSProperty('href', new URL(href, page.url()).href);
+    await expect(link.locator('xpath=ancestor::li')).toHaveText(`${name} — ${description}`);
+    if (heading) {
+      await link.click();
+      await expect(page).toHaveURL(new RegExp(`${href}$`));
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading);
+    }
+  }
+});
+
 function htmlFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
@@ -50,16 +82,38 @@ test('all built internal page routes, fragments and image assets resolve under t
   expect(failures).toEqual([]);
 });
 
+test('published release navigation links the v0.41.0 article and downloads', async ({ page }) => {
+  await page.goto('/waza/reference/releases/');
+  const main = page.locator('main');
+  await expect(main).toContainText('Current published standalone release: v0.41.0');
+  const downloads = main.locator('a[href*="/releases/download/v0.41.0/waza-"]');
+  await expect(downloads).toHaveCount(6);
+  await main.getByRole('link', { name: 'Waza v0.41.0: recover durable work, keep the evidence', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0: recover durable work, keep the evidence');
+  const article = page.locator('main');
+  await expect(article).toContainText('Released November 13, 2026');
+  await expect(article).not.toContainText(/pending|Draft/i);
+  await expect(article).toContainText('d537bf00d4d442a1935ceba2fbc664b9ccb497b2');
+  await expect(article).toContainText('0.39.1 in version.txt and extension.yaml');
+  await expect(article.getByRole('link', { name: '#902 released-consumer validation', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/issues/902');
+  await page.locator('#starlight__sidebar').getByRole('link', { name: 'Waza v0.41.0', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
+  await article.getByRole('link', { name: 'release and download reference', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/reference\/releases\/$/);
+});
+
 test('beginner learning order and published release availability are visible', async ({ page }) => {
   await page.goto('/waza/');
-  await expect(page.locator('main')).toContainText('New in v0.40.1');
+  await expect(page.locator('main')).toContainText('New in v0.41.0');
   await expect(page.locator('main')).not.toContainText('building upcoming main');
   await page.goto('/waza/quick-start/');
   const navigation = page.getByRole('navigation', { name: 'Main' });
   for (const name of ['Concepts and Learning Path', 'Project Configuration', 'Statistical Fields']) {
     await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible();
   }
-  await expect(page.locator('main')).toContainText('Published standalone v0.40.1');
+  await expect(page.locator('main')).toContainText('Published standalone v0.41.0');
   await expect(page.locator('main')).toContainText('no source build is required');
   await expect(page.locator('main')).toContainText('If you prefer to build from source');
   await expect(page.locator('main')).toContainText('expect exit 1');
@@ -82,7 +136,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     const main = page.locator('main');
     await expect(main.locator('.starlight-aside')).toHaveCount(0);
     const announcement = main.getByRole('link', { name: 'Read the release article', exact: true });
-    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-40-1/');
+    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-41-0/');
     await expect(announcement).toBeInViewport();
     await expect(main.getByRole('heading', { name: 'What can waza do?', exact: true })).toBeInViewport();
     const paragraph = announcement.locator('..');
@@ -90,21 +144,21 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(main).toContainText('A mock pass proves harness wiring, not agent quality');
     await expect(main).toContainText('authentication, permissions and possible-cost prerequisites');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: join(screenshotDir, `site-v040-home-${viewport.width}.png`), fullPage: true });
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === '1') {
+      await page.screenshot({ path: join(screenshotDir, `site-v040-home-${viewport.width}.png`), fullPage: true });
+    }
 
     await announcement.click();
-    await expect(page).toHaveURL(/\/waza\/releases\/v0-40-1\/$/);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.40.1: make release workflows match their contracts');
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0: recover durable work, keep the evidence');
     for (const text of [
-      'Released November 6, 2026',
-      'zero tasks and Partial coverage',
-      'tokens check --strict',
-      'group_by: tags',
-      'top-level eval inputs',
-      'nanosecond-resolution run IDs',
-      'adversarial --artifacts-dir',
-      'without canceling the active request',
-      'file descriptor 0',
+      'Released November 13, 2026',
+      'waza runner submit',
+      'waza runner checkpoint availability',
+      'observation: "unobserved"',
+      'byte-identical, order-independent',
+      'waza optimize run',
+      'user_input_requests',
     ]) await expect(page.locator('main')).toContainText(text);
 
     await page.goto('/waza/releases/v0-40-0/');
@@ -204,7 +258,9 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       expect(await clippedOutcomes(), 'restored production outcomes fit after the negative control').toEqual([]);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: join(screenshotDir, `site-v040-article-${viewport.width}.png`), fullPage: true });
+    if (process.env.WAZA_REFRESH_DOCS_MEDIA === '1') {
+      await page.screenshot({ path: join(screenshotDir, `site-v040-article-${viewport.width}.png`), fullPage: true });
+    }
     await page.locator('main').getByRole('link', { name: 'runner contract', exact: true }).click();
     await expect(page).toHaveURL(/\/waza\/guides\/runner-contract\/$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Runner contract and capability negotiation');

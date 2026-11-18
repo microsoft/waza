@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/microsoft/waza/internal/artifactmanifest"
+	"github.com/microsoft/waza/internal/executionbudget"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
@@ -27,11 +29,26 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(newRunnerAdaptCommand())
+	cmd.AddCommand(newRunnerAdapterCommand())
+	cmd.AddCommand(newRunnerCheckpointCommand(service))
+	cmd.AddCommand(newRunnerSubmitCommand(service, artifactmanifest.OpenBackend))
+	cmd.AddCommand(newRunnerLineageCommand(artifactmanifest.OpenBackend))
+	cmd.AddCommand(newRunnerProvenanceCommand())
+	cmd.AddCommand(newRunnerTelemetryCommand())
+	cmd.AddCommand(newRunnerInventoryCommand())
+	cmd.AddCommand(newRunnerAssuranceCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use: "capabilities", Short: "Print supported runner versions and capabilities as JSON",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(runnercontract.Capabilities())
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use: "budgets", Short: "Print this host's execution budget enforcement and measurement matrix as JSON",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(executionbudget.HostCapabilities())
 		},
 	})
 	negotiate := &cobra.Command{
@@ -118,8 +135,15 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 // Supplied readers remain caller-owned. Inherited stdin needs a separate path
 // because it can be a blocking pipe without deadline support.
 func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultErr error) {
+	return readRunnerInputLimit(ctx, input, runnercontract.MaxRequestBytes)
+}
+
+func readRunnerInputLimit(ctx context.Context, input io.Reader, maxBytes int64) (data []byte, resultErr error) {
 	if input == os.Stdin {
-		return readInheritedRunnerInput(ctx)
+		if maxBytes == runnercontract.MaxRequestBytes {
+			return readInheritedRunnerInput(ctx)
+		}
+		return readInheritedRunnerInputLimit(ctx, maxBytes)
 	}
 	if file, ok := input.(*os.File); ok {
 		if err := file.SetReadDeadline(time.Time{}); err == nil {
@@ -146,7 +170,7 @@ func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultE
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("runner input interrupted: %w", err)
 	}
-	data, err := io.ReadAll(io.LimitReader(input, runnercontract.MaxRequestBytes+1))
+	data, err := io.ReadAll(io.LimitReader(input, maxBytes+1))
 	if cause := ctx.Err(); cause != nil {
 		return nil, fmt.Errorf("runner input interrupted: %w", cause)
 	}
@@ -164,7 +188,7 @@ func emitTerminal(cmd *cobra.Command, envelope runnerterminal.Envelope, binding 
 			return &ExitCodeError{Code: 2, Err: err}
 		}
 		if code != 0 {
-			return &ExitCodeError{Code: code, Err: fmt.Errorf("runner run: %s", envelope.Outcome)}
+			return &ExitCodeError{Code: code, Err: runnerOutcomeError{envelope.Outcome}}
 		}
 		return nil
 	}
@@ -173,7 +197,20 @@ func emitTerminal(cmd *cobra.Command, envelope runnerterminal.Envelope, binding 
 		return &ExitCodeError{Code: 2, Err: err}
 	}
 	if code != 0 {
-		return &ExitCodeError{Code: code, Err: fmt.Errorf("runner run: %s", envelope.Outcome)}
+		return &ExitCodeError{Code: code, Err: runnerOutcomeError{envelope.Outcome}}
+	}
+	return nil
+}
+
+// runnerOutcomeError reports a non-success runner terminal outcome. A
+// canceled outcome unwraps to context.Canceled for command classification.
+type runnerOutcomeError struct{ outcome runnerterminal.Outcome }
+
+func (e runnerOutcomeError) Error() string { return "runner run: " + string(e.outcome) }
+
+func (e runnerOutcomeError) Unwrap() error {
+	if e.outcome == runnerterminal.Canceled {
+		return context.Canceled
 	}
 	return nil
 }

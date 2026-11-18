@@ -68,7 +68,7 @@ func TestRunnerTextUsageFallbackTransport(t *testing.T) {
 					engine.provider = customProviderConfig{}
 					ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 					defer cancel()
-					t.Cleanup(engine.ForceStopRunnerText)
+					t.Cleanup(func() { engine.ForceStopRunnerText() })
 					require.NoError(t, engine.Initialize(ctx))
 					response, err := engine.Execute(ctx, &ExecutionRequest{
 						Message: "hello", NoSkills: true, WorkspaceDir: t.TempDir(),
@@ -257,7 +257,7 @@ func TestRunnerTextRuntimeAdmission(t *testing.T) {
 			err := engine.ValidateRunnerTextRuntime()
 			if control == "valid" {
 				require.NoError(t, err)
-				engine.ForceStopRunnerText()
+				require.True(t, engine.ForceStopRunnerText())
 				require.True(t, transport.interrupted)
 			} else {
 				require.Error(t, err)

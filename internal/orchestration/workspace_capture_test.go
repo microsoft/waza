@@ -97,6 +97,13 @@ func TestSkipGradersOmitsOnlyGraderWorkspaceCapturePaths(t *testing.T) {
 				if captureFailure {
 					wantTurns = 1
 					require.Contains(t, run.ErrorMsg, "workspace capture incomplete")
+					require.NotNil(t, run.InfrastructureDiagnostic)
+					if mode != "directory" {
+						require.Equal(t, models.CaptureFileBytes, run.InfrastructureDiagnostic.Code)
+						require.EqualValues(t, 16*1024*1024, run.InfrastructureDiagnostic.Limit)
+					}
+				} else {
+					require.Nil(t, run.InfrastructureDiagnostic)
 				}
 				require.Len(t, engine.requests, wantTurns)
 				require.Len(t, engine.responses, wantTurns)
@@ -249,6 +256,12 @@ func TestLaterTurnCaptureFailurePreservesCompletedObservations(t *testing.T) {
 				var saved models.RunResult
 				require.NoError(t, json.Unmarshal(raw, &saved))
 				require.Equal(t, models.StatusError, saved.Status)
+				if mode.noCaptureError {
+					require.Nil(t, saved.InfrastructureDiagnostic)
+				} else {
+					require.Equal(t, models.CaptureFailed, saved.InfrastructureDiagnostic.Code)
+					require.Equal(t, mode.goError, saved.InfrastructureDiagnostic.AdditionalFailure)
+				}
 				if mode.goError {
 					require.Contains(t, saved.ErrorMsg, engine.lastErr.Error())
 					prefix := "follow-up 1/2 failed: "

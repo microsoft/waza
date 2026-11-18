@@ -1,6 +1,5 @@
 import {
   Component,
-  lazy,
   Suspense,
   useState,
   useEffect,
@@ -9,14 +8,15 @@ import {
 } from "react";
 import Layout from "./components/Layout";
 import Dashboard from "./components/Dashboard";
+import { lazyRoute } from "./lib/lazyRoute";
 
-const RunDetail = lazy(() => import("./components/RunDetail"));
-const CompareView = lazy(() => import("./components/CompareView"));
-const TrendsPage = lazy(() => import("./components/TrendsPage"));
-const LiveView = lazy(() => import("./components/LiveView"));
-const AssurancePage = lazy(() => import("./components/AssurancePage"));
-const ReleaseView = lazy(() => import("./components/ReleaseView"));
-const DashboardLab = lazy(() => import("./lab/DashboardLab"));
+const RunDetail = lazyRoute(() => import("./components/RunDetail"));
+const CompareView = lazyRoute(() => import("./components/CompareView"));
+const TrendsPage = lazyRoute(() => import("./components/TrendsPage"));
+const LiveView = lazyRoute(() => import("./components/LiveView"));
+const AssurancePage = lazyRoute(() => import("./components/AssurancePage"));
+const ReleaseView = lazyRoute(() => import("./components/ReleaseView"));
+const DashboardLab = lazyRoute(() => import("./lab/DashboardLab"));
 
 type Route =
   | { page: "home" }
@@ -45,6 +45,19 @@ function parseHash(): Route {
   if (runMatch?.[1]) return { page: "run", id: runMatch[1] };
   return { page: "home" };
 }
+
+const routeComponents = {
+  lab: DashboardLab,
+  run: RunDetail,
+  compare: CompareView,
+  trends: TrendsPage,
+  live: LiveView,
+  assurance: AssurancePage,
+  release: ReleaseView,
+} as const;
+
+const initialPage = parseHash().page;
+if (initialPage !== "home") void routeComponents[initialPage].preload();
 
 function LoadingRoute({
   label,

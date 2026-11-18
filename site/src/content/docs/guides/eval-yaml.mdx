@@ -38,6 +38,16 @@ Add `files: [report.json]` and `evaluator_only: [references]` inside that object
 for reviewed explicit file selection. Use `executor: copilot-sdk`; do not use the
 option in `checkpoints`, with `mode: pairwise`, or with `continue_session: true`.
 Omission retains existing behavior; present null is not omission.
+**Requires fix #898 (not published v0.41.0):** for evaluator-controlled
+non-secret fixtures, the same object optionally accepts
+`non_secret_literals: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fixture@example.invalid, PROJ-1]`.
+Only exact whole tokens (or an entire structured sensitive-key string value)
+are preserved; at most 64 unique 3–128 byte identifiers across final graders.
+Use synthetic contacts, never real credentials, and never generate declarations
+from actor/tool output. Omission, an explicit empty list and null are distinct:
+omission retains legacy capture, an empty list preserves nothing, and null is
+invalid. See the [fixture privacy contract](/waza/guides/graders/#evaluator-controlled-non-secret-fixtures)
+for allowed characters, boundaries and operational-error handling.
 
 The [evidence-backed judging reference](/waza/guides/graders/#evidence-backed-independent-judging)
 contains the canonical runnable YAML, limits, explicit authentication and saved

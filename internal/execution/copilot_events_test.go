@@ -101,7 +101,8 @@ func TestCopilotExecuteSnapshotsActiveTerminalEvent(t *testing.T) {
 				var executeErr error
 				go func() {
 					defer close(executeDone)
-					resp, executeErr = engine.Execute(context.Background(), req)
+					ctx := WithActorStartObserver(context.Background(), func() {})
+					resp, executeErr = engine.Execute(ctx, req)
 				}()
 				select {
 				case <-entered:

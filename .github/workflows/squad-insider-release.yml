@@ -65,12 +65,20 @@ jobs:
       - name: Require successful complete validation
         env:
           VALIDATION_RESULT: ${{ needs.validation.result }}
-        run: test "$VALIDATION_RESULT" = success
+          VALIDATION_ARTIFACT_NAME: ${{ needs.validation.outputs.release_validation_artifact_name }}
+          VALIDATION_RUN_ATTEMPT: ${{ needs.validation.outputs.release_validation_run_attempt }}
+          VALIDATION_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          test "$VALIDATION_RESULT" = success
+          case "$VALIDATION_RUN_ATTEMPT" in
+            ''|*[!0-9]*) exit 1 ;;
+          esac
+          test "$VALIDATION_ARTIFACT_NAME" = "release-validation-$VALIDATION_SOURCE_SHA-$VALIDATION_RUN_ATTEMPT"
 
       - name: Download complete validation evidence
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-validation-${{ github.sha }}
+          name: ${{ needs.validation.outputs.release_validation_artifact_name }}
           path: .
 
       - name: Require exact validated source and tested binary

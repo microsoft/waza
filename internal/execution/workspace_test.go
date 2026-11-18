@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -157,24 +158,29 @@ func TestCaptureWorkspaceFiles_RejectsIncompleteCapture(t *testing.T) {
 		limits workspaceCaptureLimits
 		files  map[string]string
 		want   string
+		code   models.InfrastructureDiagnosticCode
+		limit  int64
 	}{
 		{
 			name:   "file count",
 			limits: workspaceCaptureLimits{maxFiles: 1, maxEntries: 10, maxFileBytes: 10, maxTotalBytes: 20},
 			files:  map[string]string{"a.txt": "a", "b.txt": "b"},
 			want:   "file count exceeds limit",
+			code:   models.CaptureFileCount, limit: 1,
 		},
 		{
 			name:   "per file",
 			limits: workspaceCaptureLimits{maxFiles: 2, maxEntries: 10, maxFileBytes: 3, maxTotalBytes: 20},
 			files:  map[string]string{"large.txt": "four"},
 			want:   "exceeds per-file limit",
+			code:   models.CaptureFileBytes, limit: 3,
 		},
 		{
 			name:   "total bytes",
 			limits: workspaceCaptureLimits{maxFiles: 2, maxEntries: 10, maxFileBytes: 10, maxTotalBytes: 5},
 			files:  map[string]string{"a.txt": "aaa", "b.txt": "bbb"},
 			want:   "would exceed total limit",
+			code:   models.CaptureTotalBytes, limit: 5,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -186,6 +192,7 @@ func TestCaptureWorkspaceFiles_RejectsIncompleteCapture(t *testing.T) {
 			files, err := captureWorkspaceFilesWithLimits(dir, nil, tc.limits)
 			require.ErrorContains(t, err, tc.want)
 			require.Nil(t, files, "partial captures must not reach graders")
+			require.Equal(t, &models.InfrastructureDiagnostic{Code: tc.code, Limit: tc.limit}, CaptureDiagnostic(err))
 		})
 	}
 }
@@ -201,6 +208,7 @@ func TestCaptureWorkspaceFiles_BoundsTraversalEntries(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "traversal entries exceed limit")
 	require.Nil(t, files)
+	require.Equal(t, &models.InfrastructureDiagnostic{Code: models.CaptureEntryCount, Limit: 3}, CaptureDiagnostic(err))
 }
 
 func TestCaptureWorkspaceFiles_PreservedSymlinkCannotEscapeWorkspace(t *testing.T) {

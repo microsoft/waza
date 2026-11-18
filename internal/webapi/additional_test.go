@@ -420,8 +420,8 @@ func TestOutcomeToDetailMapsResponder(t *testing.T) {
 	if responder.FollowupsSent != 2 {
 		t.Errorf("expected 2 followups sent, got %d", responder.FollowupsSent)
 	}
-	if responder.Reason != "too vague" {
-		t.Errorf("expected reason too vague, got %q", responder.Reason)
+	if responder.Reason != "" {
+		t.Errorf("expected responder reason to be withheld, got %q", responder.Reason)
 	}
 }
 

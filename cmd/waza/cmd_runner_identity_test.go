@@ -23,22 +23,16 @@ import (
 )
 
 func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
+	t.Parallel()
+
+	const promptRepetitions = 120_000
+
 	data, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
 	base, err := runnercontract.Parse(data)
 	require.NoError(t, err)
-	var factories atomic.Int32
-	service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
-		factories.Add(1)
-		require.Equal(t, "mock", cfg.EngineType)
-		return execution.NewMockEngine(cfg.ModelID), nil
-	})
-	mux := http.NewServeMux()
-	webapi.RegisterRunnerRoutesWithService(mux, service)
-	server := httptest.NewServer(mux)
-	defer server.Close()
 
-	encode := func(request runnercontract.Request) []byte {
+	encode := func(t *testing.T, request runnercontract.Request) []byte {
 		t.Helper()
 		var encoded bytes.Buffer
 		encoder := json.NewEncoder(&encoded)
@@ -47,23 +41,37 @@ func TestRunnerIdentityOriginalWireCLIHTTP(t *testing.T) {
 		return encoded.Bytes()
 	}
 	html := *base
-	html.Input.Task = strings.ReplaceAll(html.Input.Task, "hello", "hello "+strings.Repeat("<>&", 200_000))
-	htmlWire := encode(html)
+	html.Input.Task = strings.ReplaceAll(html.Input.Task, "hello", "hello "+strings.Repeat("<>&", promptRepetitions))
+	htmlWire := encode(t, html)
 	htmlIdentity, err := runneridentity.DeriveJSON(htmlWire)
 	require.NoError(t, err)
 	for _, control := range []string{"ordinary", "html", "less-than", "partially-escaped", "near-limit", "at-limit", "over-limit", "escaped-over-limit"} {
+		control := control
 		t.Run(control, func(t *testing.T) {
+			t.Parallel()
+
+			var factories atomic.Int32
+			service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+				factories.Add(1)
+				require.Equal(t, "mock", cfg.EngineType)
+				return execution.NewMockEngine(cfg.ModelID), nil
+			})
+			mux := http.NewServeMux()
+			webapi.RegisterRunnerRoutesWithService(mux, service)
+			server := httptest.NewServer(mux)
+			t.Cleanup(server.Close)
+
 			request := *base
-			prompt := strings.Repeat("<>&", 200_000)
+			prompt := strings.Repeat("<>&", promptRepetitions)
 			switch control {
 			case "ordinary":
-				prompt = strings.Repeat("abc", 200_000)
+				prompt = strings.Repeat("abc", promptRepetitions)
 			case "less-than":
-				prompt = strings.Repeat("<", 600_000)
+				prompt = strings.Repeat("<", 3*promptRepetitions)
 			}
 			request.Input.Task = strings.ReplaceAll(request.Input.Task, "hello", "hello "+prompt)
 			require.NotEqual(t, base.Input.Task, request.Input.Task)
-			body := encode(request)
+			body := encode(t, request)
 			require.Len(t, body, len(htmlWire), "HTML and ordinary controls must have identical original wire sizes")
 			escaped, err := json.Marshal(request)
 			require.NoError(t, err)

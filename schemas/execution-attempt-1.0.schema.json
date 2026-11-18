@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-attempt-1.0.schema.json",
+  "title": "Waza execution attempt and duplicate decision declarations 1.0",
+  "oneOf": [{"$ref": "#/$defs/attempt"}, {"$ref": "#/$defs/decision"}],
+  "$defs": {
+    "execution_id": {"type": "string", "minLength": 69, "maxLength": 69, "pattern": "^exec-[0-9a-f]{64}$"},
+    "logical": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run", "work"],
+      "properties": {
+        "run": {"type": "string", "minLength": 68, "maxLength": 68, "pattern": "^run-[0-9a-f]{64}$"},
+        "work": {"type": "string", "minLength": 70, "maxLength": 70, "pattern": "^trial-[0-9a-f]{64}$"}
+      }
+    },
+    "parent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["execution_id", "relationship"],
+      "properties": {
+        "execution_id": {"$ref": "#/$defs/execution_id"},
+        "relationship": {"enum": ["retry", "branch"]}
+      }
+    },
+    "source": {
+      "description": "An immutable source reference declaration, not verification of final publication or runtime execution.",
+      "type": "object", "additionalProperties": false,
+      "required": ["execution_id", "manifest_digest"],
+      "properties": {
+        "execution_id": {"$ref": "#/$defs/execution_id"},
+        "manifest_digest": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "attempt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "logical", "execution_id", "binding"],
+      "properties": {
+        "kind": {"const": "waza.execution-attempt"},
+        "schema_version": {"const": "1.0"},
+        "logical": {"$ref": "#/$defs/logical"},
+        "execution_id": {"$ref": "#/$defs/execution_id"},
+        "binding": {"$ref": "artifact-manifest-1.0.schema.json#/properties/binding"},
+        "parent": {"$ref": "#/$defs/parent"}
+      }
+    },
+    "decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "decision_id", "logical", "binding", "policy", "outcome"],
+      "properties": {
+        "kind": {"const": "waza.duplicate-decision"},
+        "schema_version": {"const": "1.0"},
+        "decision_id": {"type": "string", "minLength": 73, "maxLength": 73, "pattern": "^decision-[0-9a-f]{64}$"},
+        "logical": {"$ref": "#/$defs/logical"},
+        "binding": {"$ref": "artifact-manifest-1.0.schema.json#/properties/binding"},
+        "policy": {"enum": ["distinct", "reuse"]},
+        "outcome": {"enum": ["distinct", "reused", "unfinished", "conflict"]},
+        "execution_id": {"$ref": "#/$defs/execution_id"},
+        "source": {"$ref": "#/$defs/source"}
+      },
+      "oneOf": [
+        {
+          "properties": {"policy": {"const": "distinct"}, "outcome": {"const": "distinct"}},
+          "required": ["execution_id"],
+          "not": {"required": ["source"]}
+        },
+        {
+          "properties": {"policy": {"const": "reuse"}, "outcome": {"enum": ["reused", "unfinished", "conflict"]}},
+          "required": ["source"],
+          "not": {"required": ["execution_id"]}
+        }
+      ]
+    }
+  }
+}

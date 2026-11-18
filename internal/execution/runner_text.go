@@ -22,14 +22,17 @@ func (e *CopilotEngine) ValidateRunnerTextRuntime() error {
 	return nil
 }
 
-// ForceStopRunnerText interrupts only a previously admitted private transport.
-// The SDK implementation kills its subprocess before acquiring its state lock.
-func (e *CopilotEngine) ForceStopRunnerText() {
+// ForceStopRunnerText interrupts only a previously admitted private transport
+// and reports whether it did. The SDK implementation kills its subprocess
+// before acquiring its state lock.
+func (e *CopilotEngine) ForceStopRunnerText() bool {
 	client, ok := e.client.(*startupClient)
 	if !ok || !e.ownsClient {
-		return
+		return false
 	}
-	if force, ok := client.CopilotClient.(interface{ ForceStop() }); ok {
+	force, ok := client.CopilotClient.(interface{ ForceStop() })
+	if ok {
 		force.ForceStop()
 	}
+	return ok
 }

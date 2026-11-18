@@ -90,7 +90,8 @@ func (a *assuranceCollection) append(observation AttemptObservation) error {
 		observation.Result.Run.FinalOutput != *observation.Output.Value {
 		return fmt.Errorf("observed response output differs from preserved run output")
 	}
-	digest, err := evidence.JSONDigest(observation.Result)
+	actualRow := releaseV1Row(observation.Result)
+	digest, err := evidence.JSONDigest(actualRow)
 	if err != nil {
 		return err
 	}
@@ -102,7 +103,7 @@ func (a *assuranceCollection) append(observation AttemptObservation) error {
 		return err
 	}
 	data = append(data, '\n')
-	actual, err := json.Marshal(observation.Result)
+	actual, err := json.Marshal(actualRow)
 	if err != nil {
 		return err
 	}

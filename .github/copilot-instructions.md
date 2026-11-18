@@ -34,6 +34,8 @@ this file is the execution checklist, not a second specification.
 - Run the applicable checks in `AGENTS.md` and record exact commands/results
   against the tested head/platform. Missing tools, skipped jobs/test families,
   cross-compilation, and helper-only smoke tests are not execution evidence.
+  Use the [guarded offline Go setup](../AGENTS.md#offline-go-checks) before Go
+  tests; direct Go commands also require current embedded dashboard assets.
   Instruction-only prose does not require Go/frontend builds.
 - Read review bodies and conversation comments as well as inline threads,
   including **Previously missed** and suppressed findings. Do not equate

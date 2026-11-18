@@ -940,9 +940,22 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	// session.shutdown events later during client.Stop(). The usage handler is
 	// stored in e.collectors so we can read final usage after shutdown.
 	var eventsMu sync.Mutex
+	activity := ActivityObserverFrom(ctx)
+	actorStart := actorStartObserverFrom(ctx)
 	collectEvent := func(event copilot.SessionEvent) {
+		if activity != nil {
+			switch event.Type() {
+			case copilot.SessionEventTypeAssistantTurnStart:
+				activity.ModelTurnStarted()
+			case copilot.SessionEventTypeToolExecutionStart:
+				activity.ToolCallStarted()
+			}
+		}
 		eventsMu.Lock()
 		defer eventsMu.Unlock()
+		if actorStart != nil && event.Type() == copilot.SessionEventTypeAssistantTurnStart {
+			actorStart()
+		}
 		eventsCollector.On(event)
 	}
 	var sendDiagnostic atomic.Bool
@@ -1056,6 +1069,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	userInputCtx, cancelUserInput := context.WithCancel(sendCtx)
 	releaseUserInput := req.UserInput.BindTurn(userInputCtx)
 	var retireClient bool
+	NotifyActorDispatch(ctx)
 	_, sessionAbandoned, retireClient, err = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 
@@ -92,9 +93,20 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
-	var v transcriptEventJSON
+	return te.unmarshalJSON(data, false)
+}
 
-	if err := json.Unmarshal(data, &v); err != nil {
+func (te *TranscriptEvent) unmarshalJSON(data []byte, exact bool) error {
+	var v transcriptEventJSON
+	var err error
+	if exact {
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.UseNumber()
+		err = decoder.Decode(&v)
+	} else {
+		err = json.Unmarshal(data, &v)
+	}
+	if err != nil {
 		return err
 	}
 

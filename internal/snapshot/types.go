@@ -193,6 +193,9 @@ type SnapshotRedaction struct {
 	// RedactionCount is the total number of replacements made across the
 	// captured payload.
 	RedactionCount int `json:"redactionCount,omitempty"`
+	// PreservedLiterals is capture-local accounting for frozen judge fixtures,
+	// not part of the ordinary snapshot wire contract.
+	PreservedLiterals int `json:"-"`
 }
 
 // SnapshotResult mirrors the relevant subset of models.RunResult so a

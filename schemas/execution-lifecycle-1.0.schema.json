@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-lifecycle-1.0.schema.json",
+  "title": "Waza execution lifecycle 1.0",
+  "description": "Owner-recorded lifecycle events for one dispatched execution attempt, and the read-only lifecycle state derived from those events and the attempt's immutable ledger records. Derivation never writes, repairs or replaces evidence; retry eligibility is advisory and owns no retry policy.",
+  "$ref": "#/$defs/event",
+  "$defs": {
+    "timestamp": {"type": "string", "format": "date-time", "maxLength": 40},
+    "event": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "event", "at"],
+      "properties": {
+        "kind": {"const": "waza.execution-lifecycle-event"},
+        "schema_version": {"const": "1.0"},
+        "event": {"enum": ["started", "heartbeat", "cancel_requested", "cancel_acknowledged", "forced", "finished"]},
+        "at": {"$ref": "#/$defs/timestamp"},
+        "deadline_at": {"$ref": "#/$defs/timestamp"},
+        "heartbeat_interval_ms": {"type": "integer", "minimum": 1},
+        "reason": {"enum": ["caller", "deadline"]},
+        "outcome": {"$ref": "runner-terminal-1.0.schema.json#/properties/outcome"}
+      },
+      "allOf": [
+        {"if": {"properties": {"event": {"const": "started"}}},
+         "then": {"required": ["deadline_at", "heartbeat_interval_ms"], "not": {"anyOf": [{"required": ["reason"]}, {"required": ["outcome"]}]}},
+         "else": {"not": {"anyOf": [{"required": ["deadline_at"]}, {"required": ["heartbeat_interval_ms"]}]}}},
+        {"if": {"properties": {"event": {"const": "cancel_requested"}}},
+         "then": {"required": ["reason"]}, "else": {"not": {"required": ["reason"]}}},
+        {"if": {"properties": {"event": {"const": "finished"}}},
+         "then": {"required": ["outcome"]}, "else": {"not": {"required": ["outcome"]}}}
+      ]
+    },
+    "lifecycle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "observation", "cancellation", "deadline_exceeded", "partial", "retry", "allowed_actions"],
+      "properties": {
+        "state": {"enum": [
+          "reserved", "unobserved", "running", "cancelling", "orphaned", "publication_incomplete",
+          "succeeded", "evaluation_failed", "failed", "cancelled", "timed_out", "rejected", "unverified"
+        ]},
+        "observation": {"enum": ["recorded", "unobserved", "invalid"], "description": "Whether owner lifecycle events were read for this attempt. Unobserved and invalid journals never imply liveness or absence."},
+        "events": {"type": "integer", "minimum": 0, "maximum": 4096},
+        "started_at": {"$ref": "#/$defs/timestamp"},
+        "last_event_at": {"$ref": "#/$defs/timestamp"},
+        "deadline_at": {"$ref": "#/$defs/timestamp"},
+        "heartbeat_interval_ms": {"type": "integer", "minimum": 1},
+        "stale_after_ms": {"type": "integer", "minimum": 1},
+        "cancellation": {"enum": ["none", "requested", "acknowledged", "forced"]},
+        "cancellation_reason": {"enum": ["caller", "deadline"]},
+        "deadline_exceeded": {"type": "boolean"},
+        "partial": {"type": "boolean", "description": "Work began (engine calls or dispatched lifecycle) but no graded result was recorded."},
+        "retry": {
+          "type": "object", "additionalProperties": false,
+          "required": ["eligible", "reason"],
+          "properties": {
+            "eligible": {"type": "boolean"},
+            "reason": {"enum": [
+              "not_dispatched", "in_progress", "liveness_unobserved", "orphaned", "publication_incomplete",
+              "succeeded", "graded_result", "input_rejected", "cancelled", "timed_out", "infrastructure_failure",
+              "evidence_unverified"
+            ]}
+          }
+        },
+        "allowed_actions": {
+          "type": "array", "maxItems": 8, "uniqueItems": true,
+          "items": {"enum": ["inspect", "wait", "cancel_owner", "retry_with_parent", "reuse", "fix_input"]}
+        }
+      }
+    }
+  }
+}

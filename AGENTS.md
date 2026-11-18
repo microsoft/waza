@@ -2,7 +2,12 @@
 
 ## Overview
 
-This repository contains `waza`, a CLI tool for evaluating Agent Skills. **Go is the only implementation**, and it lives in the repository root. (An early Python implementation was removed in February 2026.)
+This repository contains `waza`, a CLI for testing and evaluating agent workflows,
+custom agents, and skills with repeatable scenarios, graders, evidence, and CI
+integration. The CLI and backend are implemented in Go at the repository root;
+`web/` contains the React dashboard and `site/` contains the documentation site.
+Runner contracts, artifact publication, and execution telemetry are part of the
+current product surface.
 
 When making changes, follow these guidelines to maintain consistency and quality.
 
@@ -18,7 +23,9 @@ in `.squad/config.json`, with code-review and fallback rules in
 ## Project Tracking
 
 **Keep issues and tracking up to date:**
-- **Tracking Issue:** [#66 - Waza Platform Roadmap](https://github.com/microsoft/waza/issues/66)
+- **Active feature tracker:** [#657 - Trustworthy regression testing](https://github.com/microsoft/waza/issues/657)
+- **Delivery tracker:** [#866 - Roadmap delivery tracker](https://github.com/microsoft/waza/issues/866)
+- **Historical platform roadmap:** [#8](https://github.com/microsoft/waza/issues/8) (closed)
 - **PRD:** [docs/PRD.md](docs/PRD.md)
 - When completing work, update the relevant GitHub issue
 - Reference issue numbers in commit messages (e.g., `feat: Add tokens command #47`)
@@ -27,7 +34,9 @@ in `.squad/config.json`, with code-review and fallback rules in
 
 ```
 cmd/waza/                  # CLI entrypoint
-└── main.go                # Command parsing and execution
+├── main.go                # Process entrypoint and exit handling
+├── root.go                # Root command and subcommand registration
+└── cmd_*.go               # Command constructors and handlers
 internal/
 ├── config/                # Configuration with functional options
 ├── execution/             # AgentEngine interface and implementations
@@ -264,7 +273,7 @@ Sources: [production-lifecycle regex benchmark](https://github.com/microsoft/waz
 
 ## Building and Testing
 
-> **Requires Go 1.26 or later.** The module targets `go 1.26` (`go.mod`), which means Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
+> **Requires Go 1.26.4 or later**, matching `go.mod`. Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
 
 The ordinary `cmd/waza` tests and `go test ./...` also require **Node.js 22.18+
 or 24+** on `PATH`. The interoperability conformance test executes the retained
@@ -272,22 +281,8 @@ upstream TypeScript assertion oracle using Node's type stripping; it needs no
 npm packages or inference. Missing Node is a test failure, not a skipped oracle.
 
 ```bash
-# Build
+# From the repository root, using Bash (Git Bash on Windows)
 make build
-# or: go build -o waza ./cmd/waza
-
-# Run tests
-make test
-# or: go test -v ./...
-
-# Force a clean dashboard dependency reinstall if node_modules is stale or corrupt
-make web-deps-force
-
-# Lint
-golangci-lint run
-
-# Run evaluation
-./waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 ```
 
 `make build`, `make test`, `make install`, and `bash build.sh` install the locked
@@ -296,14 +291,53 @@ dashboard dependencies on a clean checkout. Later local runs reuse
 Use `make web-deps-force` to recover from a stale or corrupt dependency tree.
 CI and release workflows continue to run `npm ci` explicitly on clean checkouts.
 
+Direct `go build`, `go vet`, and `go test` commands do not build embedded dashboard
+assets: run `make build-web` first when those assets are missing or stale. Use
+genuine dashboard builds for asset tests and delivery, not compilation stubs.
+
+### Offline Go checks
+
+Before Go tests, reuse the same rejecting Copilot runtime guard as CI. This
+subshell disables live-test opt-ins without changing the parent shell, proves
+the guard can launch, and fails if a test attempts to use the runtime:
+
+```bash
+(
+  set -euo pipefail
+  offline_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$offline_dir"' EXIT
+  runner_os=""
+  if [ "$(go env GOHOSTOS)" = windows ]; then
+    runner_os=Windows
+  fi
+  offline_env="$(RUNNER_TEMP="$offline_dir" RUNNER_OS="$runner_os" bash .github/scripts/go_offline_env.sh)"
+  while IFS= read -r setting; do
+    export "$setting"
+  done <<< "$offline_env"
+
+  make test
+  if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
+    echo "Offline tests attempted to launch the Copilot runtime." >&2
+    exit 1
+  fi
+)
+```
+
+`make test` builds the dashboard before running Go tests. For focused tests or
+other Go checks from the matrix below, prepare assets with `make build-web` and
+replace `make test` inside this guarded block with the applicable commands.
+The compatibility corpus also requires Git and a working `python3` or `python`.
+Intentional live evaluations are separate, explicitly authorized work, not an
+offline validation step.
+
 ### Testing Requirements
 
 **Every PR must leave tests in a passing state.** This is non-negotiable:
 
-- **All existing tests must pass** — run `go test ./...` before pushing code. If your change breaks an existing test, fix it. Instruction-only prose changes use the documentation-only check below.
+- **All existing tests must pass** — run the full Go suite using the [offline setup](#offline-go-checks) before pushing code. If your change breaks an existing test, fix it. Instruction-only prose changes use the documentation-only check below.
 - **New features require new tests** — every new command, flag, grader, or internal function needs test coverage. No shipping untested code.
 - **Bug fixes require regression tests** — if you fix a bug, add a test that would have caught it.
-- **Playwright e2e tests** — if you change the dashboard (`web/`), run `cd web && npx playwright test --project=chromium` and fix any failures.
+- **Playwright e2e tests** — if you change the dashboard (`web/`), run the dashboard checks in the matrix below and fix any failures.
 - **CI is the gate** — required current-head checks must pass. Read the active repository rulesets rather than relying on copied job names.
 
 ### Regression evidence and required checks
@@ -340,6 +374,8 @@ tests while iterating, then the applicable completion gates:
 | Existing workflow, loader, grader, result, or billing behavior | `NO_COLOR=1 make test-compat` in addition to the Go checks; see [the compatibility contract](docs/COMPATIBILITY.md). |
 | Dashboard | From `web/`: `npm run lint`, `npm run build`, `npx --no-install playwright test --project=chromium --retries=0`. |
 | Published site | From `site/`: `npm run build`, `npm run test:e2e -- --project=chromium --retries=0`. |
+| Site chat checks | From `site/`: `npm run test:chat-types`, `npm run test:chat-metadata`, `npm run test:chat-contract`, `npm run test:private-chat`, `npm run test:chat -- --project=chromium --retries=0`, and `npm run test:chat-unavailable -- --project=chromium --retries=0`. These also run for published-site changes in CI. |
+| Documentation examples | Build the current CLI with `make build`, then run `npm --prefix site run test:examples` with `WAZA_BIN` set to the absolute built executable path; follow the offline example job in [site CI](.github/workflows/site-ci.yml). |
 | CI/workflow | Exercise changed filters, environment, failure branches, and test discovery; verify new specs actually run rather than trusting a green skipped job. Declare explicit workflow `permissions` and per-job `timeout-minutes` when adding/changing workflows. |
 | Dependencies/releases | Run affected Go/site/dashboard gates and verify generated assets and version/changelog metadata agree with the actual diff. |
 
@@ -349,8 +385,8 @@ not lint evidence. CI additionally validates the pinned release schema via
 `bash .github/scripts/lint.sh` before linting; preserve that validation when
 changing lint tooling. Offline gates must explicitly disable live-test opt-ins
 and prove that the chosen runtimes work. `ENABLE_COPILOT_TESTS=false` alone does
-not prevent ordinary SDK execution; retain the rejecting runtime guard described
-below. Never claim native Windows coverage from cross-compilation or Unix tests.
+not prevent ordinary SDK execution; use the [offline Go setup](#offline-go-checks).
+Never claim native Windows coverage from cross-compilation or Unix tests.
 
 ## CI/CD
 
@@ -363,23 +399,47 @@ and lint. It covers PRs to every base and pushes to `main`, `develop`, `dev`, an
 `insider`; do not reintroduce a duplicate Squad PR validation workflow.
 Superseded PR runs are cancelled per workflow/event/ref, not release publication.
 
+PR applicability is computed from the tested merge and both parents by
+[the completeness plan](.github/workflows/pr-completeness-plan.yml), which
+selects the applicable validation families. [Completeness admission](.github/workflows/pr-completeness-admission.yml)
+requires source-bound receipts from the same workflow run and attempt.
+Preserve this wiring when changing CI: an unrelated green job, a stale receipt,
+or a skipped applicable family is not evidence that the current PR is complete.
+
 Linux executes `internal/controlledcomparison` in four deterministic shards
 through `.github/workflows/go-native-shards.yml`, balanced longest-first using
 observed top-level durations in `.github/scripts/go_test_shard_durations.tsv`.
 Python 3 computes placement only; discovery remains authoritative and new tests
-use the median historical duration. All remaining packages run in
-the main Linux build job. Discovery uses the same race/atomic build and includes
-tests, examples, and fuzz seed targets without changing their fixtures or
-internal skip behavior. Each shard retains the 30-minute Go test deadline.
-Windows continues to execute the complete suite in one job.
+use the median historical duration. The remaining packages run in four
+deterministic package-level shards through
+`.github/workflows/go-remaining-shards.yml`, balanced from
+`.github/scripts/go_remaining_package_durations.tsv`; an unmeasured package
+uses the median measured package duration. Package assignment keeps every test
+in a package together, including all of `cmd/waza`. Each worker discovers the
+same complete remaining-package and test inventories, executes only its
+assigned packages with `-p=4`, race detection, atomic coverage, and a
+30-minute test deadline, then retains its selection and execution receipt plus
+a shard-bound timing observation. Workers also retain the locked npm package's
+Go source files; the merger restores those same-run sources on every event
+before validating the combined coverage profile.
+Refresh package costs after material package, test, or runner-topology changes
+from complete successful Linux remaining-test executions; retain the run,
+attempt, and source commit, and never time from canceled or incomplete
+executions.
+The collector requires all four successful receipts, identical inventories,
+exactly-once package and test selection, and valid atomic coverage before
+merging the four remaining profiles into the single main profile. Windows
+continues to execute the complete suite in one job.
 
-The required `ubuntu-latest` gate explicitly fails if any build or native shard
-fails, is cancelled, or is skipped. It also requires all five atomic coverage
-profiles, identical native test inventories, and exactly-once selection across
-the four shards before uploading coverage. Do not replace it with a skipped
+The required `ubuntu-latest` gate explicitly fails if the build, any native or
+remaining-package shard, or the coverage merger fails, is cancelled, or is
+skipped. It requires the four native profiles and the merged remaining profile
+(five atomic profiles total), identical native inventories, and exactly-once
+native selection before uploading coverage. Do not replace it with a skipped
 dependent job or remove a package without providing exhaustive required shards.
-Exercise discovery and all failure branches with
-`bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
+Exercise native and remaining-shard discovery, selection, failure handling, and
+coverage merging with `bash .github/scripts/go_test_shard_test.sh` and
+`bash .github/scripts/go_remaining_shard_test.sh`.
 
 Squad Release and Squad Insider Release reuse the same four native shards and
 30-minute race/atomic package deadline, running remaining validation in parallel.
@@ -454,7 +514,8 @@ goroutines. An empty-stderr exit or a test's total duration does not establish a
 protocol failure. Retain fresh production-CLI execution and existing deadlines
 while diagnosing startup delays; a diagnostic-only pass is not a root-cause fix.
 Compiled adapter admission controls record the same setup, process-start, wait,
-and context phases without changing their existing deadline or exit assertions.
+and context phases while retaining their 15-second invocation deadline and
+existing exit assertions.
 
 ## Documentation Requirements
 
@@ -479,7 +540,7 @@ When adding or updating any feature:
 - [ ] Update the root `README.md` usage section if CLI changes
 - [ ] Build the docs site to verify: `cd site && npm run build`
 - [ ] Add example in appropriate docs
-- [ ] Update tracking issue #66 if related to roadmap
+- [ ] Update the relevant feature or delivery tracker if related to the roadmap
 
 When adding a new CLI command or flag:
 - [ ] Add to `site/src/content/docs/reference/cli.mdx`
@@ -488,7 +549,7 @@ When adding a new CLI command or flag:
 
 When completing a feature:
 - [ ] Close related GitHub issue with comment
-- [ ] Update tracking issue #66 checkbox
+- [ ] Update the relevant feature or delivery tracker
 - [ ] Verify GitHub Pages site reflects the change (pages deploy on merge to main)
 
 ## Documentation Maintenance
@@ -511,9 +572,13 @@ Documentation must be updated in real-time as features change. This is enforced 
 
 When dashboard UI changes, regenerate screenshots:
 ```bash
-cd web && npx playwright test e2e/screenshots.spec.ts --project=chromium
+cd web && npm run refresh:docs-media
+cd ../site && npm run refresh:docs-media
 ```
-Screenshots are saved to `docs/images/` and referenced throughout documentation.
+These explicit media-refresh commands save screenshots to `docs/images/` and
+`site/public/images/`. Routine browser discovery excludes screenshot-only specs,
+rather than emitting skipped results that fail strict execution receipts. Mixed
+specs retain their assertions without updating tracked media.
 
 Verify every referenced screenshot destination, including its `site/public/`
 copy where used, against the current UI and fixture. Keep the tracked dashboard
@@ -537,10 +602,11 @@ Sources: [invalid copied YAML](https://github.com/microsoft/waza/pull/672#discus
 
 ### Adding a CLI Command
 
-1. Add command handling in `cmd/waza/main.go`
-2. Implement logic in appropriate `internal/` package
-3. Add tests in `*_test.go` files
-4. Update the root `README.md`
+1. Add a command constructor and handler in `cmd/waza/cmd_<command>.go`, following neighboring commands.
+2. Register the command in `newRootCommand()` in `cmd/waza/root.go`; keep `main.go` focused on process entry and exit handling.
+3. Implement logic in the appropriate `internal/` package.
+4. Add tests in `*_test.go` files, including command registration and public behavior.
+5. Update the root `README.md` and the CLI reference in `site/`.
 
 ### Adding a Grader
 
@@ -627,13 +693,12 @@ These are generated/temporary and should not be committed:
 ### Build and run
 ```bash
 make build
-./waza run examples/code-explainer/eval.yaml -v
+./waza --help
 ```
 
 ### Run tests
-```bash
-make test
-```
+Use the [guarded offline Go checks](#offline-go-checks); `make test` alone does not
+install the rejecting runtime guard.
 
 ### Key CLI flags
 - `-v, --verbose` - Verbose output
@@ -642,14 +707,7 @@ make test
 
 ## Epics and Priorities
 
-See [Tracking Issue #66](https://github.com/microsoft/waza/issues/66) for the full roadmap.
-
-| Epic | Priority | Description |
-|------|----------|-------------|
-| E1: Go CLI Foundation | P0 | Core CLI commands |
-| E2: Sensei Engine | P0 | Compliance scoring |
-| E3: Evaluation Framework | P0 | Cross-model testing |
-| E4: Token Management | P1 | Budget tracking |
-| E5: Waza Skill | P1 | Conversational interface |
-| E6: CI/CD Integration | P1 | GitHub Actions |
-| E7: AZD Extension | P2 | azd packaging |
+See the active [feature tracker #657](https://github.com/microsoft/waza/issues/657)
+and [delivery tracker #866](https://github.com/microsoft/waza/issues/866) for current
+scope, priorities, and status; do not maintain a second priority list here. The
+[platform roadmap #8](https://github.com/microsoft/waza/issues/8) is historical.

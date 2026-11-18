@@ -24,6 +24,7 @@ type objectBackend interface {
 	createObject(context.Context, string, []byte) (bool, error)
 	readObject(context.Context, string, int64) ([]byte, error)
 	listObjects(context.Context, string) ([]string, bool, error)
+	listAllObjects(context.Context, string, int) ([]string, bool, error)
 }
 
 // Namespace stores opaque append-only records for cooperating API writers.
@@ -126,6 +127,26 @@ func (n *Namespace) ListUnverified(ctx context.Context) ([]string, bool, error) 
 	if err != nil {
 		return nil, false, err
 	}
+	return logicalKeys(physical, truncated)
+}
+
+// ListAllUnverified follows provider pagination and returns at most limit
+// sorted logical keys. Truncation still cannot be treated as complete.
+func (n *Namespace) ListAllUnverified(ctx context.Context, limit int) ([]string, bool, error) {
+	if n == nil || n.backend == nil {
+		return nil, false, ErrUnsupportedBackend
+	}
+	if limit < 1 {
+		return nil, false, ErrInvalid
+	}
+	physical, truncated, err := n.backend.listAllObjects(ctx, namespacePrefix, limit)
+	if err != nil {
+		return nil, false, err
+	}
+	return logicalKeys(physical, truncated)
+}
+
+func logicalKeys(physical []string, truncated bool) ([]string, bool, error) {
 	keys := make([]string, 0, len(physical))
 	for _, key := range physical {
 		rest, found := strings.CutPrefix(key, namespacePrefix)

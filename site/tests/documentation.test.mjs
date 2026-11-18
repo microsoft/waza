@@ -12,6 +12,11 @@ const catalogInputs = {
   schema: 'schemas/eval.schema.json',
   catalogs: ['README.md', 'site/src/content/docs/guides/graders.mdx'],
 };
+const dashboardMediaInputs = [
+  'web/package.json', 'web/playwright.config.ts',
+  'web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',
+  'web/e2e/runner-negotiation.spec.ts', '.github/workflows/web-ci.yml',
+];
 const embeddedTargets = ['darwin_amd64', 'darwin_arm64', 'linux_amd64', 'linux_arm64', 'windows_amd64', 'windows_arm64'];
 const embeddedFiles = embeddedTargets.flatMap((target) => [
   `internal/embedded/zcopilot_${target}.go`,
@@ -27,8 +32,30 @@ const releaseInputs = [
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
-test('local container conformance is selected by its production build inputs', () => {
-  const workflow = read('.github/workflows/docker-ci.yml');
+test('CI/CD guide preserves readable punctuation and copyable result labels', () => {
+  const guide = read('site/src/content/docs/guides/ci-cd.mdx');
+  assert.doesNotMatch(guide, /ΓÇö|Γ£à|Γ¥î|ΓåÆ|\uFFFD/);
+  assert.match(guide, /^description: Integrate waza into your CI\/CD pipeline — GitHub Actions, Azure DevOps, GitLab CI, and more\.$/m);
+  assert.match(guide, /^### Quick Start — Scaffold with waza init$/m);
+  assert.match(guide, /^### Multi-Stage Pipeline: PR → Staging → Production$/m);
+  assert.ok(guide.includes('✅ **Passed:** ${results.summary.succeeded}\\n❌ **Failed:** ${results.summary.failed}'));
+  const nextSteps = guide.split('\n## Next Steps\n')[1];
+  assert.equal(nextSteps?.trim(), [
+    '- **[Writing Eval Specs](../eval-yaml/)** — Configure your evaluations',
+    '- **[CLI Reference](../../reference/cli/)** — All flags and commands',
+    '- **[Graders Guide](../graders/)** — Set up scoring rules',
+    '- **[Examples](https://github.com/microsoft/waza/tree/main/examples)** — Real eval setups',
+  ].join('\n'));
+});
+
+const runnerCommands = [
+  'node --test examples/runner/container/test.mjs',
+  'node --test examples/runner/container/native-test.mjs examples/runner/container/native-lifecycle.test.mjs',
+  'node --test examples/runner/container/native-bundle-test.mjs',
+];
+
+function assertRunnerContainerWorkflow(workflow) {
+  workflow = workflow.replace(/\r\n/g, '\n');
   for (const path of ['examples/runner/unit.json', 'examples/runner/copilot-unit.json', 'examples/runner/container/**',
     '.github/scripts/testdata/runner-runtime/**', '.github/scripts/testdata/native-bundle-probe/**',
     'cmd/**', 'internal/**', 'web/**', 'schemas/**',
@@ -36,36 +63,75 @@ test('local container conformance is selected by its production build inputs', (
     '.github/workflows/docker-ci.yml']) {
     assert.ok(workflow.includes(`'${path}'`), `${path} must trigger container verification`);
   }
-  assert.match(workflow, /paths: &docker-paths/);
-  assert.match(workflow, /paths: \*docker-paths/);
+  assert.doesNotMatch(workflow, /^  pull_request:/m, 'pull requests reach Docker only through the go-ci container caller');
   assert.match(workflow, /^permissions:\n  contents: read/m);
-  const job = workflow.split('\n  runner-reference:\n')[1];
-  assert.ok(job, 'real container job exists');
+  const lines = workflow.split('\n');
+  const start = lines.indexOf('  runner-reference:');
+  assert.notEqual(start, -1, 'real container job exists');
+  const end = lines.findIndex((line, index) => index > start && /^  [\w-]+:\s*(?:#.*)?$/.test(line));
+  const job = lines.slice(start + 1, end === -1 ? undefined : end).join('\n');
   assert.match(job, /timeout-minutes: 30/);
   assert.match(job, /lfs: true/);
-  assert.match(job, /run: node --test examples\/runner\/container\/test\.mjs/);
-  assert.match(job, /run: node --test examples\/runner\/container\/native-test\.mjs/);
-  assert.doesNotMatch(job, /continue-on-error|if:/);
+  for (const command of runnerCommands) {
+    assert.ok(job.split('\n').includes(`        run: ${command}`), `${command} must execute in the ordinary runner job`);
+  }
+  assert.doesNotMatch(job, /continue-on-error/);
+  for (const [line] of job.matchAll(/^\s+if:.*$/gm)) {
+    assert.match(line, /pr_completeness_plan != ''|steps\.receipt\.outcome == 'success'/, 'only completeness receipt steps may be conditional');
+  }
+}
+
+test('local container conformance is selected by its production build inputs', () => {
+  assertRunnerContainerWorkflow(read('.github/workflows/docker-ci.yml'));
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-container.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
 });
 
-test('manual runner publication and public acceptance remain independent fail-closed gates', () => {
+test('ordinary runner guard admits CRLF and unrelated neighboring jobs', () => {
+  const workflow = read('.github/workflows/docker-ci.yml').replace(/\r\n/g, '\n');
+  assertRunnerContainerWorkflow(workflow.replace(/\r?\n/g, '\r\n'));
+  assertRunnerContainerWorkflow(`${workflow}\n  unrelated-job:\n    if: false\n    continue-on-error: true\n    steps:\n      - run: ignored\n`);
+});
+
+test('ordinary runner guard rejects tolerated, conditional or neighboring required proof', () => {
+  const workflow = read('.github/workflows/docker-ci.yml').replace(/\r\n/g, '\n');
+  const changed = (from, to) => {
+    const mutation = workflow.replace(from, to);
+    assert.notEqual(mutation, workflow, 'negative control must change the actual workflow');
+    assert.throws(() => assertRunnerContainerWorkflow(mutation));
+  };
+  changed('  runner-reference:\n', "  runner-reference:\n    if: github.event.action != 'edited'\n");
+  changed('  workflow_call:\n', '  pull_request:\n    branches: [main]\n  workflow_call:\n');
+  changed('  runner-reference:\n', '  runner-reference:\n    continue-on-error: true\n');
+  for (const command of runnerCommands) {
+    changed(`        run: ${command}`, `        if: success()\n        run: ${command}`);
+    changed(`        run: ${command}`, `        continue-on-error: true\n        run: ${command}`);
+    changed(`        run: ${command}`, `        run: missing-proof\n\n  neighboring-job:\n    steps:\n      - name: Borrowed proof\n        run: ${command}`);
+  }
+});
+
+test('release-only runner publication and public acceptance remain independent fail-closed gates', () => {
   const workflow = read('.github/workflows/publish-runner-reference.yml');
-  assert.match(workflow, /^on:\n  workflow_dispatch:/m);
+  assert.match(workflow, /^on:\n  workflow_call:/m);
+  assert.doesNotMatch(workflow, /workflow_dispatch/);
   assert.doesNotMatch(workflow, /^  (push|pull_request|pull_request_target):/m);
   assert.match(workflow, /packages: write/);
   assert.match(workflow, /linux\/amd64/);
-  assert.match(workflow, /org\.opencontainers\.image\.revision/);
+  assert.match(workflow, /skopeo copy --preserve-digests/);
+  assert.match(workflow, /runner-image\.oci\.tar/);
+  assert.doesNotMatch(workflow, /docker\/build-push-action/);
+  const qualification = read('.github/workflows/release-qualification.yml');
+  assert.match(qualification, /org\.opencontainers\.image\.revision/);
+  assert.match(qualification, /subject-digest: \$\{\{ steps\.image\.outputs\.digest \}\}/);
   const maintainers = read('examples/runner/container/MAINTAINERS.md');
-  assert.match(maintainers, /manual-only GHCR publisher/);
+  assert.match(maintainers, /release-tag-only GHCR publisher/);
   assert.match(maintainers, /Publication and\s+public-image acceptance are separate gates/);
   assert.match(maintainers, /anonymous-pull\/provenance\/production-caller acceptance passed on Linux AMD64/);
   assert.match(maintainers, /review was waived for this one publication, not performed/);
   assert.match(maintainers, /permissions are declarations,\s+not proof/);
   assert.match(maintainers, /A successful push\/attestation is not public-image acceptance/);
   assert.match(maintainers, /failed, cancelled or incomplete publisher is not accepted/);
-  assert.match(maintainers, /signed\s+GitHub provenance\s+attestation binds the published image digest/);
+  assert.match(maintainers, /creates signed\s+GitHub provenance and CycloneDX SBOM attestations for the manifest digest/);
   assert.doesNotMatch(maintainers, /spboyer-native-container-integration/);
   assert.match(maintainers, /empty Docker configuration/);
   assert.match(maintainers, /manual-only `\.github\/workflows\/verify-runner-reference\.yml` workflow/);
@@ -93,6 +159,7 @@ test('runner identity fixtures trigger consumer validation and publication witho
   const site = read('.github/workflows/site-ci.yml');
   const deploy = read('.github/workflows/pages.yml');
   for (const path of [
+    '.github/workflows/release-qualification.yml',
     '.github/workflows/publish-runner-reference.yml',
     '.github/workflows/verify-runner-reference.yml',
   ]) {
@@ -109,6 +176,31 @@ test('runner identity fixtures trigger consumer validation and publication witho
   }
   assert.match(web, /playwright test --project=chromium --retries=0/);
   assert.match(site, /npm run test:e2e -- --project=chromium --retries=0/);
+  const webUpload = web.match(/- name: Upload dashboard test evidence\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  const siteUpload = site.match(/- name: Upload site test evidence\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  assert.ok(webUpload && siteUpload, 'expected browser evidence upload steps');
+  assert.match(webUpload, /path: \|\n {12}web\/test-results\/\n {10}include-hidden-files: true\n {10}if-no-files-found: error\n/);
+  assert.doesNotMatch(webUpload, /docs\/images|site\/public\/images|web\/dist/);
+  assert.match(siteUpload, /path: site\/test-results\//);
+  assert.doesNotMatch(siteUpload, /docs\/images|site\/public\/images|site\/dist/);
+  assert.equal(JSON.parse(read('web/package.json')).scripts['refresh:docs-media'],
+    'WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0');
+  assert.equal(JSON.parse(read('site/package.json')).scripts['refresh:docs-media'],
+    'WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0');
+  assert.equal(JSON.parse(read('web/package.json')).scripts['prerefresh:docs-media'], 'npm run build');
+  assert.equal(JSON.parse(read('site/package.json')).scripts['prerefresh:docs-media'], 'npm run build');
+  for (const path of ['web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',
+    'site/e2e/screenshots.spec.ts']) {
+    assert.match(read(path), /test\.skip\(process\.env\.WAZA_REFRESH_DOCS_MEDIA !== ['"]1['"]/);
+  }
+  assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'),
+    /npm run refresh:docs-media -- e2e\/screenshots\.spec\.ts --grep dashboard-lab/);
+  const releaseLinks = read('site/e2e/documentation-links.spec.ts');
+  assert.equal((releaseLinks.match(/if \(process\.env\.WAZA_REFRESH_DOCS_MEDIA === '1'\) \{\s+await page\.screenshot/g) ?? []).length, 2,
+    'mixed release navigation assertions must not write documentation media in routine tests');
+  assert.match(read('web/e2e/runner-negotiation.spec.ts'),
+    /if \(outcome === "evaluation_failure" && process\.env\.WAZA_REFRESH_DOCS_MEDIA === "1"\)/,
+    'mixed terminal export assertions must not write documentation media in routine tests');
   assert.match(read('web/playwright.config.ts'), /testDir: "\.\/e2e"/);
   assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
   assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));
@@ -116,6 +208,23 @@ test('runner identity fixtures trigger consumer validation and publication witho
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-identities.spec.ts')));
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-terminal.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
+
+function assertMediaSelection(web, site) {
+  assert.match(web, /testIgnore: \[\s*\.\.\.\(process\.env\.WAZA_REFRESH_DOCS_MEDIA === "1"\s*\? \[\]\s*: \["\*\*\/screenshots\.spec\.ts", "\*\*\/release-screenshots\.spec\.ts"\]\),\s*\.\.\.\(process\.env\.WAZA_RELEASE_MEDIA_DIR \? \[\] : \["\*\*\/release-media\.spec\.ts"\]\),\s*\]/);
+  assert.match(site, /testIgnore: \[\s*'chat\.spec\.ts', 'chat-unavailable\.spec\.ts',\s*\.\.\.\(process\.env\.WAZA_REFRESH_DOCS_MEDIA === '1' \? \[\] : \['\*\*\/screenshots\.spec\.ts'\]\),\s*\]/);
+}
+
+test('routine browser discovery excludes only media-only specs and refresh restores them', () => {
+  const web = read('web/playwright.config.ts');
+  const site = read('site/playwright.config.ts');
+  assertMediaSelection(web, site);
+  for (const file of ['screenshots.spec.ts', 'release-screenshots.spec.ts', 'release-media.spec.ts']) {
+    assert.throws(() => assertMediaSelection(web.replace(`"**/${file}"`, '"**/*.spec.ts"'), site));
+  }
+  assert.throws(() => assertMediaSelection(web, site.replace("'**/screenshots.spec.ts'", "'**/*.spec.ts'")));
+  assert.throws(() => assertMediaSelection(web.replace('=== "1"', '!== "1"'), site));
+  assert.throws(() => assertMediaSelection(web, site.replace("=== '1'", "!== '1'")));
 });
 
 function anchors(text) {
@@ -179,13 +288,11 @@ test('catalogs enumerate exactly the native enum and schema kinds', () => {
 });
 
 function assertSiteDiscovery(workflow, inputs) {
-  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
-  const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  workflow_call:)/m)?.[1];
   const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
-  assert.ok(push && pullRequest && site, 'expected workflow event/filter blocks must exist');
+  assert.ok(push && site, 'expected workflow event/filter blocks must exist');
   assert.match(push, /branches: \[main\]/);
-  assert.match(pullRequest, /branches: \[main\]/);
-  assert.doesNotMatch(pullRequest, /^\s+paths(?:-ignore)?:/m, 'required PR status must not be path-gated');
+  assert.doesNotMatch(workflow, /^  pull_request:/m, 'PR site checks run only through the Go completeness caller');
   const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
   const matches = (pattern, path) => pattern.endsWith('/**')
     ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
@@ -203,9 +310,29 @@ function assertSiteDiscovery(workflow, inputs) {
   assert.equal(scripts['test:docs'], 'node --test tests/documentation.test.mjs');
 }
 
-test('every catalog, release and Docker workflow input enables PR site checks and the main push workflow', () => {
+test('every catalog, release, Docker and dashboard media input enables PR site checks and the main push workflow', () => {
   assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
-    [...Object.values(catalogInputs).flat(), ...releaseInputs, '.github/workflows/docker-ci.yml', serveCommandInput]);
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, ...dashboardMediaInputs,
+      '.github/workflows/docker-ci.yml', serveCommandInput]);
+});
+
+test('dashboard media guard discovery rejects removal from either production selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assertSiteDiscovery(workflow, dashboardMediaInputs);
+  const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
+  assert.ok(site, 'PR site filter must exist');
+  assert.doesNotMatch(site, /'web\/\*\*'/, 'unrelated dashboard changes must not select Site guards');
+  for (const input of dashboardMediaInputs) {
+    for (const [selector, line, diagnostic] of [
+      ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+      ['main push', input.startsWith('web/') ? "      - 'web/**'\n" : `      - '${input}'\n`,
+        /main push gate excludes documentation input/],
+    ]) {
+      const mutated = workflow.replace(line, '');
+      assert.notEqual(mutated, workflow, `${input}: ${selector} mutation must remove the actual selector`);
+      assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, `${input}: ${selector}`);
+    }
+  }
 });
 
 test('serve flag source selects site checks and selector omissions fail closed', () => {
@@ -243,14 +370,14 @@ test('Docker guard discovery rejects removal from either production site selecto
 });
 
 function assertInteropExampleDiscovery(workflow) {
-  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  workflow_call:)/m)?.[1];
   const examples = workflow.match(/^            examples:\n([\s\S]*?)(?=^      - name:)/m)?.[1];
   for (const [name, block] of [['main push gate', push], ['PR examples filter', examples]]) {
     assert.ok(block, `${name} must exist`);
     const patterns = [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
     assert.ok(patterns.includes('examples/interop/**'), `${name} must select script-only interop changes`);
   }
-  assert.match(workflow, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(workflow, /examples: \$\{\{ steps\.scope\.outputs\.examples \|\| steps\.filter\.outputs\.examples \}\}/);
   assert.match(workflow, /if: needs\.changes\.outputs\.examples == 'true' \|\| github\.event_name == 'push'/);
 }
 
@@ -260,10 +387,14 @@ function assertSiteParallelChecks(workflow) {
   assert.ok(jobs.changes, 'short change detection prerequisite must exist');
   assert.match(jobs.changes, /timeout-minutes: 5/);
   assert.doesNotMatch(jobs.changes, /^\s+needs:/m, 'change detection must run independently');
-  assert.match(jobs.changes, /site: \$\{\{ steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
-  assert.match(jobs.changes, /examples: \$\{\{ steps\.filter\.outputs\.examples \}\}/);
+  assert.match(jobs.changes, /site: \$\{\{ steps\.scope\.outputs\.site \|\| steps\.filter\.outputs\.site \}\}/, 'site output must bind to actual filter');
+  assert.match(jobs.changes, /examples: \$\{\{ steps\.scope\.outputs\.examples \|\| steps\.filter\.outputs\.examples \}\}/);
   assert.match(jobs.changes, /uses: dorny\/paths-filter@/);
-  assert.doesNotMatch(jobs.changes, /npm|playwright/, 'change detection must not wait for browser or example work');
+  const scope = '      - name: Use completeness plan scope\n        id: scope\n        if: inputs.pr_completeness_plan != \'\'\n' +
+    '        env:\n          SITE_SELECTED: ${{ inputs.site }}\n          EXAMPLES_SELECTED: ${{ inputs.examples }}\n' +
+    '        run: printf \'site=%s\\nexamples=%s\\n\' "$SITE_SELECTED" "$EXAMPLES_SELECTED" >> "$GITHUB_OUTPUT"\n';
+  assert.ok(jobs.changes.includes(scope), 'completeness scope must only forward caller-selected applicability');
+  assert.doesNotMatch(jobs.changes.replace(scope, ''), /^\s+(?:-\s+)?run:/m, 'change detection must not execute browser or example work');
   for (const [id, name] of [['build', 'Build site'], ['examples', 'Offline documentation examples']]) {
     assert.ok(jobs[id], `${id} job must exist`);
     assert.match(jobs[id], /^\s+needs: \[changes\]$/m, `${id} must depend only on successful change detection`);
@@ -287,7 +418,10 @@ test('site browser checks and offline examples wait only for short change detect
     ['    needs: [changes]\n    if: ${{ !cancelled() }}',
       '    needs: [changes, examples]\n    if: ${{ !cancelled() }}', /build must depend only/],
     ['    timeout-minutes: 5', '    timeout-minutes: 15', /timeout-minutes: 5/],
-    ['site: ${{ steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
+    ['      - name: Detect site changes\n',
+      '      - run: npm --prefix site run build\n\n      - name: Detect site changes\n',
+      /change detection must not execute/],
+    ['site: ${{ steps.scope.outputs.site || steps.filter.outputs.site }}', "site: 'true'", /site output must bind/],
     ["if: needs.changes.outputs.examples == 'true' || github.event_name == 'push'",
       "if: needs.build.outputs.examples == 'true' || github.event_name == 'push'", /examples condition must consume/],
     ['run: test "$CHANGES_RESULT" = success', 'run: echo ignored', /required site check must reject/],
@@ -434,12 +568,12 @@ test('concepts distinguish repeated trials from discarded retry outputs', () => 
 });
 
 test('release articles are linked from Releases and retain their existing screenshot assets', () => {
-  for (const slug of ['v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
+  for (const slug of ['v0-41-0', 'v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
     const article = read(`site/src/content/docs/releases/${slug}.mdx`);
     assert.ok(read('site/astro.config.mjs').includes(`slug: 'releases/${slug}'`));
     assert.ok(read('site/src/content/docs/reference/releases.mdx').includes(`](../../releases/${slug}/)`));
     const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
-    assert.equal(screenshots.length, slug.startsWith('v0-40-') ? 0 : 3, slug);
+    assert.equal(screenshots.length, /^v0-(?:40|41)-/.test(slug) ? 0 : 3, slug);
     for (const [, source] of screenshots) {
       assert.match(source, /^\/images\/.+\.png$/);
       assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);
@@ -452,12 +586,61 @@ test('release articles are linked from Releases and retain their existing screen
   assert.match(article, /Fixture-backed native-profile view/);
 });
 
-test('v0.40.1 article owns hotfix detail while the homepage leads with the product', () => {
+test('v0.41.0 article is a published release record with its limits', () => {
+  const article = read('site/src/content/docs/releases/v0-41-0.mdx');
+  const text = article.replace(/\s+/g, ' ');
+  assert.match(article, /^title: "Waza v0\.41\.0: recover durable work, keep the evidence"$/m);
+  assert.match(article, /\*\*Released November 13, 2026\*\*/);
+  assert.match(read('CHANGELOG.md'), /^## \[0\.41\.0\] - 2026-11-13$/m);
+  assert.doesNotMatch(article, /pending|Draft|preview|gates remain open|Release media|After publication/i);
+  const record = article.split('## Publication record')[1]?.split('\n## ')[0];
+  assert.ok(record, 'publication record must be present');
+  for (const fact of [
+    'd537bf00d4d442a1935ceba2fbc664b9ccb497b2',
+    'https://github.com/microsoft/waza/releases/tag/v0.41.0',
+    'https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0',
+    'https://github.com/microsoft/waza/pull/987',
+    'https://github.com/microsoft/waza/actions/runs/43417374149',
+    '#902 released-consumer validation',
+    'actions/runs/43422782810', 'actions/runs/43422781752',
+  ]) assert.ok(record.includes(fact), fact);
+  for (const pr of ['#929', '#942', '#944', '#945', '#958', '#959', '#960', '#961', '#962',
+    '#966', '#968', '#969', '#970', '#971', '#972', '#973', '#975', '#976', '#977', '#978', '#979', '#980', '#982', '#921', '#983']) {
+    assert.ok(article.includes(pr), `${pr} must be included in the release inventory`);
+  }
+  const limits = article.split("## Upgrade with the release's limits in view")[1];
+  assert.ok(limits, 'limits must be present');
+  assert.match(limits, /\[#965\]/);
+  for (const issue of ['#825', '#835', '#974', '#981']) assert.ok(limits.includes(issue), `${issue} must be listed as moved to v0.42.0`);
+  assert.match(text, /0\.39\.1` in `version\.txt` and `extension\.yaml`/);
+  assert.match(text, /not a new verification of binary provenance/);
+  assert.match(text, /applies prospectively to v0\.41\.0/);
+  assert.match(article, /reference\/releases\/#capabilities-introduced-in-v0390/);
+  const changelog = read('CHANGELOG.md');
+  assert.match(changelog, /historical v0\.40\.1 tags retain `0\.39\.1`/);
+  assert.match(changelog.split('## [0.41.0]')[1]?.split('## [0.40.1]')[0] ?? '', /### Moved to v0\.42\.0[\s\S]*#825[\s\S]*#835[\s\S]*#974[\s\S]*#981/);
+  assert.doesNotMatch(read('site/astro.config.mjs'), /\(pending\)/);
+});
+
+test('v0.41 features are labeled as released in v0.41.0', () => {
+  const paths = ['README.md', 'docs/EXECUTION_ATTEMPTS.md', 'docs/EXECUTION_CHECKPOINTS.md',
+    'docs/EXECUTION_LIFECYCLE.md', 'docs/MANIFEST_AGGREGATION.md', 'docs/GUIDE.md', 'docs/PRD.md',
+    'docs/DEMO-GUIDE.md', 'docs/COMPATIBILITY.md',
+    ...markdownFiles(resolve(root, 'site/src/content/docs/guides')),
+    ...markdownFiles(resolve(root, 'site/src/content/docs/reference')),
+    'site/src/content/docs/concepts.mdx'];
+  for (const path of paths) {
+    assert.doesNotMatch(read(path),
+      /unreleased v0\.41|source preview|embedding preview|unreleased (?:source|checkpoint|execution-lineage)|source-only attempt|\bsource Lab\b|not (?:in|available in) installed v0\.40\.1/i, path);
+  }
+});
+
+test('v0.40.1 article owns hotfix detail while the homepage leads with the current release', () => {
   const homepage = read('site/src/content/docs/index.mdx');
   const intro = homepage.split('## What can waza do?')[0];
   assert.doesNotMatch(intro, /<Aside\b/);
-  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-40-1\/\)/g) ?? []).length, 1);
-  assert.match(intro, /\*\*New in v0\.40\.1:\*\*/);
+  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-41-0\/\)/g) ?? []).length, 1);
+  assert.match(intro, /\*\*New in v0\.41\.0:\*\*/);
   assert.match(homepage, /A mock pass proves harness wiring, not agent quality/);
   assert.match(homepage, /authentication, permissions and possible-cost prerequisites/);
   assert.match(read('README.md'), /https:\/\/microsoft\.github\.io\/waza\/releases\/v0-40-1\//);
@@ -524,14 +707,14 @@ test('Dashboard Lab article distinguishes saved results, synthetic examples, and
 
 test('release overview identifies the published version and retains the former availability anchor', () => {
   const overview = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(overview, /## Current published standalone release: v0\.40\.1/);
+  assert.match(overview, /## Current published standalone release: v0\.41\.0/);
   assert.match(overview, /id="upcoming-main-only-capabilities"/);
-  const downloads = [...overview.matchAll(/releases\/download\/v0\.40\.1\/(waza-[^)\s]+)/g)].map((match) => match[1]);
+  const downloads = [...overview.matchAll(/releases\/download\/v0\.41\.0\/(waza-[^)\s]+)/g)].map((match) => match[1]);
   assert.deepEqual(downloads.toSorted(), [
     'waza-darwin-amd64', 'waza-darwin-arm64', 'waza-linux-amd64',
     'waza-linux-arm64', 'waza-windows-amd64.exe', 'waza-windows-arm64.exe',
   ]);
-  assert.match(overview, /releases\/download\/v0\.40\.1\/checksums\.txt/);
+  assert.match(overview, /releases\/download\/v0\.41\.0\/checksums\.txt/);
   assert.match(overview, /publication does not\s+by itself establish execution on every platform/);
   assert.doesNotMatch(overview, /releases\/(?:download|tag)\/v0\.38\.10/);
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
@@ -552,20 +735,19 @@ test('extension installation guidance identifies the current registry version', 
   assert.match(section, /azd waza --version/);
   assert.match(section, /azd waza <command> --help/);
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
-  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.40\.1/);
-  assert.match(section, /registry and version metadata are synchronized\s+to `0\.40\.1`/);
-  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.40\.1/);
+  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.41\.0/);
+  assert.match(section, /registry and version metadata are synchronized\s+to `0\.41\.0`/);
+  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.41\.0/);
   const release = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(release, /commit `dc26e098d29243972b4e00ff420ca857a9b6da4f`/);
+  assert.match(release, /commit `c385f6d12d393e9c23c54b2cc19478936604cd86`/);
   assert.match(release, /exactly six platform URLs, entrypoints and SHA-256 values matching the\s+published archives/);
-  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.40\.1/);
-  assert.match(release, /repository registry lists through `0\.40\.1`/);
+  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.41\.0/);
+  assert.match(release, /repository registry lists through `0\.41\.0`/);
   assert.doesNotMatch(section + release, /not yet merged to main|merge to main\s+remains pending|registry still lists through `0\.39\.1`/);
   for (const text of [read('README.md'), section, release]) {
-    assert.match(text, /source (?:URL above|below) follows `main`, not this branch/);
-    assert.match(text, /release-sync PR #908/);
-    assert.match(text, /still serves `0\.40\.0`; after the merge it includes `0\.40\.1`/);
-    assert.match(text, /installation before the merge cannot select `0\.40\.1` from that source/);
+    assert.match(text, /source (?:URL above|below) follows `main`/);
+    assert.match(text, /release-sync PR #987/);
+    assert.doesNotMatch(text, /before (?:the\s+)?(?:\[release-sync PR #987\][^\n]*|merge)|after the merge it includes/i);
   }
 });
 
@@ -654,7 +836,7 @@ test('released feature guides retain scope and separate publication gates', () =
   assert.match(overview ?? '', /guides describe standalone v0\.40\.0/);
   assert.match(overview ?? '', /mock\/text and explicitly opted-in\s+Copilot\/text profiles, with tools and skills disabled/);
   assert.match(overview ?? '', /General native file\/tool\/skill workflows and full external task\/suite interoperability remain incomplete/);
-  assert.match(overview ?? '', /manual-only GHCR publisher and separate verifier have independent gates/);
+  assert.match(overview ?? '', /For the historical v0\.40\.0 publication, the GHCR publisher and separate\s+verifier had independent gates/);
   assert.match(overview ?? '', /\[selected AgentV assertion adapter\]\(\.\.\/\.\.\/guides\/external-interoperability\/\)/);
   assert.match(overview ?? '', /`waza interop import\/export`/);
   assert.match(overview ?? '', /#789\]\(https:\/\/github\.com\/microsoft\/waza\/issues\/789\)\s+remains open/);
@@ -708,7 +890,7 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
   assert.doesNotMatch(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(hotfix ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(hotfix ?? '', /pull\/882/);
-  assert.match(changelog, /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.40\.1\.\.\.HEAD$/m);
+  assert.match(changelog, /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.41\.0\.\.\.HEAD$/m);
   const published = changelog.split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
   assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);
@@ -763,7 +945,8 @@ test('public image acceptance binds the literal digest to source, platform and v
   assert.match(record, /review was \*\*waived for\s+this one publication, not performed\*\*/);
   assert.match(record, /not an ARM64 or Windows claim/);
   assert.match(record, /not.*live-provider, billing or inference-quality evidence/);
-  assert.match(record, /Dockerfile does not inject `main\.version`; the source default is\s+`dev`/);
+  assert.match(record, /historical image predates release-version stamping and reports the source\s+default `dev`/);
+  assert.match(record, /passes `WAZA_VERSION` to the\s+Docker build and verifies that the resulting image reports the candidate\s+version/);
 });
 
 test('tagged source builds explicitly stamp the release rather than trusting stale metadata', () => {
@@ -771,17 +954,69 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
   assert.match(makefile, /^VERSION\?=0\.1\.0$/m);
   assert.match(makefile, /^LDFLAGS=-ldflags "-X main\.version=\$\(VERSION\)"$/m);
   assert.match(makefile, /go build \$\(LDFLAGS\) -o \$\(BUILD_DIR\)\/\$\(BINARY_NAME\) \.\/cmd\/waza/);
-  const release = read('.github/workflows/release.yml');
-  assert.match(release, /VERSION="\$\{GITHUB_REF_NAME#v\}"/);
+  const release = read('.github/workflows/release-qualification.yml');
+  assert.match(release, /version="\$\{EVENT_REF#refs\/tags\/v\}"/);
+  assert.match(release, /test "\$VERSION_INPUT" = "\$version"/);
   assert.match(release, /-ldflags "-X main\.version=\$\{VERSION\}"/);
   for (const path of ['README.md', 'site/src/content/docs/reference/releases.mdx']) {
     const text = read(path);
-    assert.match(text, /git clone --branch v0\.40\.1 https:\/\/github\.com\/microsoft\/waza\.git/, path);
-    assert.match(text, /make build VERSION=0\.40\.1/, path);
+    assert.match(text, /git clone --branch v0\.41\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
+    assert.match(text, /make build VERSION=0\.41\.0/, path);
     assert.match(text, /`version\.txt` and `extension\.yaml`/, path);
     assert.match(text, /defaults to `VERSION=0\.1\.0`/, path);
-    assert.match(text, /`e0c251df896bee4e0f9b38a693a6105bf7eadd19`/, path);
+    assert.match(text, /`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`/, path);
   }
+});
+
+function taggedBuildVersions(text) {
+  const versions = [];
+  for (const [, block] of text.matchAll(/^```(?:bash|sh)\s*\n([\s\S]*?)^```/gm)) {
+    const tag = block.match(/git clone --branch v(\d+\.\d+\.\d+)\b/)?.[1];
+    if (!tag) continue;
+    const stamp = block.match(/make build VERSION=(\d+\.\d+\.\d+)\b/)?.[1];
+    assert.equal(stamp, tag, `source tag v${tag} must match its build VERSION`);
+    versions.push(tag);
+  }
+  return versions;
+}
+
+test('current onboarding uses matching published source tags and build stamps', () => {
+  const published = read('CHANGELOG.md').match(/^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$/m)?.[1];
+  assert.ok(published);
+  for (const path of ['README.md', 'docs/GUIDE.md', 'site/src/content/docs/quick-start.mdx',
+    'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/reference/releases.mdx']) {
+    assert.ok(taggedBuildVersions(read(path)).includes(published), `${path} must show the published release`);
+  }
+  const gettingStarted = read('site/src/content/docs/getting-started.mdx');
+  assert.equal(gettingStarted.match(/standalone stable is `v([^`]+)`/)?.[1], published);
+  const cliReference = read('site/src/content/docs/reference/cli.mdx');
+  assert.equal(cliReference.match(/published standalone `v([^`]+)`/)?.[1], published);
+  for (const path of ['site/src/content/docs/index.mdx', 'site/src/content/docs/concepts.mdx']) {
+    assert.match(read(path), new RegExp(`install(?:ing)? v${published.replaceAll('.', '\\.')}`), path);
+  }
+
+  const historical = '```bash\ngit clone --branch v0.40.0 https://github.com/microsoft/waza.git\nmake build VERSION=0.40.0\n```';
+  assert.deepEqual(taggedBuildVersions(historical), ['0.40.0']);
+  assert.throws(() => taggedBuildVersions(historical.replace('VERSION=0.40.0', 'VERSION=0.41.0')));
+  assert.throws(() => taggedBuildVersions(historical.replace(' VERSION=0.40.0', '')));
+});
+
+function assertSchemaAttribution(text, sourceWriter) {
+  assert.match(text, /This table describes current source\./);
+  assert.match(text, /Published standalone `v0\.41\.0` writes\s+results `1\.9`/);
+  assert.match(text, /`v0\.40\.0` and `v0\.40\.1` write `1\.8`/);
+  assert.match(text, /`v0\.39\.1`\s+writes `1\.7`/);
+  const writer = text.match(/^\| Newly generated `results\.json` \| `schemaVersion` \| `([^`]+)` \|$/m)?.[1];
+  assert.equal(writer, sourceWriter);
+}
+
+test('schema reference distinguishes current and published result writers', () => {
+  const writer = read('internal/models/schema_version.go').match(/CurrentResultSchemaVersion = "([^"]+)"/)?.[1];
+  assert.ok(writer);
+  const reference = read('site/src/content/docs/reference/schema-changes.md');
+  assertSchemaAttribution(reference, writer);
+  assert.throws(() => assertSchemaAttribution(reference.replace('This table describes current source.', 'This table describes standalone v0.40.0.'), writer));
+  assert.throws(() => assertSchemaAttribution(reference.replace('results `1.9`', 'results `1.8`'), writer));
 });
 
 test('published workflow guides do not require unreleased main for v0.39.0 features', () => {
@@ -838,4 +1073,94 @@ test('waza serve reference lists only flags the serve command registers', () => 
     /waza serve --stdio\b/,
     'dashboard guide must not reintroduce waza serve --stdio',
   );
+});
+
+test('optimizer schemas are published at their canonical $id', () => {
+  const endpoint = read('site/src/pages/schemas/[schema].json.ts');
+  const optimizerSchemas = readdirSync(resolve(root, 'schemas')).filter((name) => /^optimizer-.*\.schema\.json$/.test(name));
+  assert.ok(optimizerSchemas.length >= 4);
+  for (const name of optimizerSchemas) {
+    const id = JSON.parse(read(`schemas/${name}`)).$id;
+    assert.equal(id, `https://microsoft.github.io/waza/schemas/${name}`);
+    const route = name.replace(/\.json$/, '');
+    assert.match(endpoint, new RegExp(`schema: '${route.replaceAll('.', '\\.')}'`), `${name} is not served by the schema endpoint`);
+  }
+});
+
+test('durable execution guide connects every v0.41 contract in order with resolvable anchors', () => {
+  const path = 'site/src/content/docs/guides/durable-execution.mdx';
+  const guide = read(path);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/durable-execution'/);
+  assert.match(read('site/src/content/docs/concepts.mdx'), /\]\(\.\.\/guides\/durable-execution\/\)/);
+  const headings = [...withoutCode(guide).matchAll(/^## (.+)$/gm)].map((match) => match[1]);
+  assert.deepEqual(headings.slice(0, 7), [
+    '1. Submit a distinct attempt', '2. Publish and inspect immutable artifacts',
+    '3. Create checkpoints at safe boundaries', '4. Watch lineage and lifecycle',
+    '5. Retry or resume', '6. Aggregate completed manifests', '7. Review evidence states',
+  ]);
+  const failures = [];
+  const targets = new Set();
+  for (const [, target] of withoutCode(guide).matchAll(/\]\((\.\.\/[^)\s]+)\)/g)) {
+    const [page, fragment] = target.replace(/^\.\.\//, '').split('#');
+    const destination = resolve(root, 'site/src/content/docs/guides', `${page.replace(/\/$/, '')}.mdx`);
+    targets.add(page);
+    if (!existsSync(destination)) failures.push(`missing ${target}`);
+    else if (fragment && !anchors(readFileSync(destination, 'utf8')).has(fragment)) failures.push(`missing anchor ${target}`);
+  }
+  assert.deepEqual(failures, []);
+  for (const page of ['immutable-artifacts/', 'runner-identities/', 'runner-terminal/', 'manifest-aggregation/',
+    'evidence-review/', 'dashboard-lab/']) {
+    assert.ok(targets.has(page), `${path} must link ${page}`);
+  }
+});
+
+test('execution isolation guide, CLI reference and schema route stay wired', () => {
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-isolation'/);
+  assert.match(read('site/src/pages/schemas/[schema].json.ts'), /schema: 'execution-isolation-1\.0\.schema'/);
+  assert.equal(JSON.parse(read('schemas/execution-isolation-1.0.schema.json')).$id,
+    'https://microsoft.github.io/waza/schemas/execution-isolation-1.0.schema.json');
+  const cli = read('site/src/content/docs/reference/cli.mdx');
+  for (const flag of ['## waza isolation preflight', '`--isolation-request`', '`--isolation-host`', '`--isolation-report`']) {
+    assert.ok(cli.includes(flag), `${flag} missing from CLI reference`);
+  }
+  const guide = read('site/src/content/docs/guides/execution-isolation.mdx');
+  for (const term of ['no_provider', 'probe_violated', 'probe_inconclusive', 'copilot-native-sandbox', '#544']) {
+    assert.ok(guide.includes(term), `${term} missing from isolation guide`);
+  }
+  assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /\*\*Inspect execution isolation\*\*/);
+});
+
+test('production integration assurance package, site navigation and schema route stay wired', () => {
+  const packageData = JSON.parse(read('docs/PRODUCTION_INTEGRATION_ASSURANCE-1.0.json'));
+  const page = read('site/src/content/docs/guides/production-integration-assurance.mdx');
+  const sidebar = read('site/astro.config.mjs');
+  const schemaRoute = read('site/src/pages/schemas/[schema].json.ts');
+  const schema = JSON.parse(read('schemas/production-integration-assurance-1.0.schema.json'));
+
+  assert.equal(packageData.kind, 'waza.production-integration-assurance');
+  assert.equal(packageData.schema_version, '1.0');
+  assert.equal(schema.$id, 'https://microsoft.github.io/waza/schemas/production-integration-assurance-1.0.schema.json');
+  assert.match(schemaRoute, /schema: 'production-integration-assurance-1\.0\.schema'/);
+  assert.match(sidebar, /label: 'Production Integration'[\s\S]*slug: 'guides\/production-integration-assurance'/);
+  for (const section of ['Operator conformance matrix', 'Threat model',
+    'Production-readiness checklist', 'Verification limits', 'Migration and reassessment',
+    'Existing Lab evidence']) {
+    assert.ok(page.includes(`## ${section}`), `${section} must be published`);
+  }
+  for (const issue of [769, 770, 771, 772, 773, 774]) {
+    assert.ok(packageData.lab_evidence.some((item) => item.issue === issue), `missing Lab evidence for #${issue}`);
+    assert.ok(page.includes(`#${issue}`), `missing rendered evidence link for #${issue}`);
+  }
+  assert.match(page, /no new Lab dashboard view/i);
+  assert.match(page, /Waza execution-provenance CLI has no Sigstore keyless or managed-KMS signer/i);
+  assert.match(page, /Candidate qualification retains inventory and attestation evidence in workflow-run artifacts only/i);
+  assert.match(page, /Registry publication and inventory attestation occur only in the qualified tag-release path/i);
+  assert.match(page, /no live execution-path telemetry emission/i);
+  assert.match(page, /no scheduler is included/i);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-provenance'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/component-inventory'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-telemetry'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-budgets'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/execution-isolation'/);
+  assert.match(read('site/astro.config.mjs'), /slug: 'guides\/runner-adapters'/);
 });

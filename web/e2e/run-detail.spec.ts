@@ -131,11 +131,16 @@ test.describe("Run Detail", () => {
 
   test("invalid run ID shows error state", async ({ page }) => {
     await mockAllAPIs(page);
+    await page.clock.install();
     await page.goto("/#/runs/nonexistent-run");
 
-    // The API mock returns 404 for unknown IDs → fetchJSON throws → react-query catches it
-    // react-query retries 3x by default, so we need a longer timeout
-    await expect(page.getByText(/Failed to load run|API error/)).toBeVisible({ timeout: 15_000 });
+    // The API mock returns 404 for unknown IDs → fetchJSON throws → react-query catches it.
+    // Its three retries back off for about 7 seconds, so advance the page clock between attempts.
+    const error = page.getByText(/Failed to load run|API error/);
+    await expect(async () => {
+      await page.clock.fastForward(1_000);
+      await expect(error).toBeVisible({ timeout: 100 });
+    }).toPass({ intervals: [100], timeout: 15_000 });
     await expect(page.getByText("Retry")).toBeVisible();
   });
 });

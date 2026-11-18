@@ -81,6 +81,10 @@ var (
 	keepWorkspace   bool
 	autoFileIssue   bool
 
+	isolationRequestPath string
+	isolationHostPath    string
+	isolationReportPath  string
+
 	otelExporter        string
 	otelEndpoint        string
 	otelHeaders         string
@@ -192,6 +196,9 @@ config.executor: mock checks only the harness, not agent quality.`,
 	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
 	cmd.Flags().BoolVar(&autoFileIssue, "auto-file-issue", false, "Auto-file or update a GitHub issue for failing runs (requires gh and GITHUB_REPOSITORY)")
 	cmd.Flags().Bool("runner-compat", false, "Route one explicit inline mock/text suite through runner 1.0; reject unsupported mappings")
+	cmd.Flags().StringVar(&isolationRequestPath, "isolation-request", "", "Isolation request JSON; requested boundaries that no provider can prove are rejected before execution")
+	cmd.Flags().StringVar(&isolationHostPath, "isolation-host", "", "Host isolation declaration JSON whose claims are probed before execution")
+	cmd.Flags().StringVar(&isolationReportPath, "isolation-report", "", "Write the isolation preflight report to this file")
 
 	// OpenTelemetry trace export (off by default).
 	cmd.Flags().StringVar(&otelExporter, "otel-exporter", "", "Export OpenTelemetry traces using exporter: otlp|stdout|file (default: disabled)")
@@ -212,11 +219,19 @@ config.executor: mock checks only the harness, not agent quality.`,
 }
 
 func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
+	// Runner compatibility rejects isolation flags through its allowlist, so it
+	// runs before the gate and never publishes an isolation report.
 	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
 		return err
 	} else if enabled {
 		return runLocalCompatibility(cmd, args, runnerunit.NewService(nil))
 	}
+	if err := runIsolationGate(cmd.Context(), isolationRequestPath, isolationHostPath, isolationReportPath, cmd.ErrOrStderr(), append(slices.Clone(args), outputPath, telemetryFilePath())...); err != nil {
+		return err
+	}
+	defer func() {
+		retErr = withIsolationEvidence(retErr)
+	}()
 	if len(snapshotFiles) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-file requires --snapshot")
 	}
@@ -343,6 +358,13 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	// Resolve spec path: explicit arg or workspace detection
 	specPaths, err := resolveSpecPaths(args)
 	if err != nil {
+		return err
+	}
+	isolatedSpecs := make([]string, 0, len(specPaths))
+	for _, sp := range specPaths {
+		isolatedSpecs = append(isolatedSpecs, sp.evalSpecPath)
+	}
+	if err := admitIsolationSpecs(isolatedSpecs); err != nil {
 		return err
 	}
 
@@ -620,6 +642,9 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	if err != nil {
 		return nil, fmt.Errorf("failed to load spec: %w", err)
 	}
+	if err := checkSpecIsolation(spec); err != nil {
+		return nil, err
+	}
 	resolver, err := registry.NewResolver()
 	if err != nil {
 		return nil, err
@@ -738,21 +763,17 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 		}
 	}
 
-	if lastErr != nil {
-		return allResults, lastErr
-	}
-
 	// Write reporter outputs for the last model result
 	if len(allResults) > 0 {
 		last := allResults[len(allResults)-1]
 		if last.outcome != nil {
 			if err := writeReporters(last.outcome); err != nil {
-				return allResults, err
+				return allResults, errors.Join(lastErr, err)
 			}
 		}
 	}
 
-	return allResults, nil
+	return allResults, lastErr
 }
 
 func shutdownSharedClientAfterRun(parent context.Context) error {
@@ -872,6 +893,9 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		triggerErr = fmt.Errorf("loading trigger tests: %w", triggerErr)
 	}
 	usesEvalMCP := triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType)
+	if spec.Config.WorkspaceCapture == "none" && len(snapshotFiles) > 0 {
+		return nil, fmt.Errorf("workspace_capture none cannot be used with --snapshot-file")
+	}
 	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, usesEvalMCP)
 	if err := errors.Join(triggerErr, admissionErr); err != nil {
 		return nil, err
@@ -2416,9 +2440,14 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 	}
 
 	var skillDirs []string
+	var evalPaths []string
 
 	for _, ds := range withEval {
 		skillDirs = append(skillDirs, ds.Dir)
+		evalPaths = append(evalPaths, ds.EvalPath)
+	}
+	if err := admitIsolationSpecs(evalPaths); err != nil {
+		return err
 	}
 
 	// Run evaluations

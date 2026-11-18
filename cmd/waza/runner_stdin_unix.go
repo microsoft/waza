@@ -29,9 +29,13 @@ type runnerOutputResult struct {
 // Inherited descriptors may share their open file description with a parent or
 // peer. Keep their flags untouched; the CLI exits after either result wins.
 func readInheritedRunnerInput(ctx context.Context) ([]byte, error) {
+	return readInheritedRunnerInputLimit(ctx, runnercontract.MaxRequestBytes)
+}
+
+func readInheritedRunnerInputLimit(ctx context.Context, maxBytes int64) ([]byte, error) {
 	result := make(chan runnerInputResult, 1)
 	go func() {
-		data, err := readInheritedRunnerRequest()
+		data, err := readInheritedRunnerRequest(maxBytes)
 		result <- runnerInputResult{data: data, err: err}
 	}()
 	select {
@@ -51,10 +55,10 @@ func readInheritedRunnerInput(ctx context.Context) ([]byte, error) {
 // Signals can interrupt a blocking Unix read before signal.NotifyContext has
 // scheduled its cancellation. Retrying EINTR lets that cancellation win instead
 // of converting SIGINT/SIGTERM into an infrastructure failure.
-func readInheritedRunnerRequest() ([]byte, error) {
+func readInheritedRunnerRequest(maxBytes int64) ([]byte, error) {
 	var data bytes.Buffer
 	buffer := make([]byte, 32<<10)
-	limit := int64(runnercontract.MaxRequestBytes + 1)
+	limit := maxBytes + 1
 	for int64(data.Len()) < limit {
 		remaining := limit - int64(data.Len())
 		readBuffer := buffer

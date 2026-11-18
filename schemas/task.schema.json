@@ -1437,7 +1437,12 @@
       "description": "Required frozen actor evidence for a fresh isolated final prompt judge. Not supported in checkpoints.",
       "properties": {
         "files": {"$ref": "#/$defs/judgeEvidencePaths"},
-        "evaluator_only": {"$ref": "#/$defs/judgeEvidencePaths"}
+        "evaluator_only": {"$ref": "#/$defs/judgeEvidencePaths"},
+        "non_secret_literals": {
+          "type": "array", "maxItems": 64, "uniqueItems": true,
+          "description": "Evaluator-authored non-secret fixture identifiers only. Exact whole-token preservation; never derive from actor/tool output or list real credentials.",
+          "items": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._%+@-]{1,126}[A-Za-z0-9]$"}
+        }
       }
     },
     "judgeEvidencePaths": {

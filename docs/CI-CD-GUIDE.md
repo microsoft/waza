@@ -16,12 +16,20 @@ Running waza evaluations in CI/CD allows you to:
 
 Waza's single `go-ci.yml` workflow runs on pull requests targeting any base
 branch, including feature branches used by stacked PRs. It retains the
-`opened`, `synchronize`, and `reopened` default activity types without PR branch
-or path filters. Push triggers cover `main`, `develop`, `dev`, and `insider`.
+`opened`, `synchronize`, and `reopened` activity types plus `edited`, without PR
+branch or path filters. Push triggers cover `main`, `develop`, `dev`, and `insider`.
 The former `squad-ci.yml` duplicated the same validation and has been removed.
 Superseded PR runs are cancelled within the same workflow/event/ref. Push
 validations use independent run-ID groups, so they neither serialize nor replace
 pending push runs. Release publication is not cancelled by that PR policy.
+
+An `edited` event that changes the base (`github.event.changes.base`) is a full
+validation run in the PR group, so retargeting a PR reruns the gate and cancels
+the superseded run. A body- or title-only edit uses its own run-ID group and
+cannot cancel validation. Every validation job is skipped on that run, and the
+required jobs (`Lint`, `ubuntu-latest`, `windows-latest`) are renamed
+`PR metadata (<check> not selected)`. The skipped run therefore never publishes
+a context with a required name, so the results from the last push stand.
 
 This is an ordinary `pull_request` workflow with `contents: read`, not
 `pull_request_target` or release/dispatch workflows. The existing `Lint`,
@@ -37,19 +45,100 @@ native Linux/Windows results and independent approvals before merging.
 The lint job runs the trigger regression test. Run it locally with
 `go test -count=1 -v ./.github/scripts`; it checks default and feature-base
 selection, excluded activity types, the union of prior push branches, and mutations of the
-actual workflow sources. Shard and lint failure-handling checks remain
-`bash .github/scripts/go_test_shard_test.sh` and
+actual workflow sources. Shard and lint failure-handling checks use
+`bash .github/scripts/go_test_shard_test.sh`,
+`bash .github/scripts/go_remaining_shard_test.sh`, and
 `bash .github/scripts/lint_test.sh`.
 
 The four native Linux shards use deterministic longest-first duration balancing.
 `.github/scripts/go_test_shard_durations.tsv` records observed top-level
-race/atomic durations and their source run. Update it from top-level test results,
-not overlapping subtest times. Timing history affects placement only: discovery
-still determines the complete inventory, new tests receive the median historical
-duration, and removed tests are never resurrected. Python 3 (provided by the
+race/atomic durations and their source runs. Record run, attempt, and checkout
+SHA for every sample; document any aggregation and apply it consistently rather
+than cherry-picking runs. When independent cases are promoted from a parent,
+use each case's disjoint child PASS span, never both parent and child durations.
+The current table averages two successful main-push samples and retains prior
+estimates for tests skipped in both.
+Timing history affects placement only: discovery still determines the complete
+inventory, new tests receive the median historical duration, and removed tests
+are never resurrected. Python 3 (provided by the
 Ubuntu runner) computes the plan. Every shard still retains its 30-minute test
 deadline, atomic coverage, full discovery inventory, and selected test names;
 the aggregate gate verifies identical inventories and exactly-once selection.
+Planner estimates and replayed assignments are diagnostics only; acceptance
+depends on measured workflow runs.
+The planner places whole top-level tests, so a single long test bounds every
+shard. Keep each native top-level test well under a quarter of the total; split
+long table-driven tests into independently measured top-level groups of complete
+cases (as the frozen 15c parity, observed-failure, and public-payload tests are)
+rather than relying on subtests. Preserve every case once when regrouping.
+Native source-currentness, late-failure, observed-failure, and public-payload
+cases are now separate serial top-level tests; each retains its own fixture,
+planning, collection, and assertions. Their cost rows average disjoint child
+PASS spans from main-push runs 44123339679 attempt 1
+(`719c9326a7e72ad7237ff1f986476e3e80ab28de`) and 44137275613 attempt 1
+(`fc993836f6ea06ac95fa970e5cc5cda103a3e45b`), before promotion. The first
+sample's counterfactual was about 24:50; including the second sample gives
+conservative projected spans of about 25:17 and 22:12 across the two observed
+profiles. Both real runs missed #825's measured thresholds; projections are
+placement diagnostics only, not acceptance evidence.
+Independent subtests may also run with `t.Parallel()` when each owns isolated
+files and process state, but the planner still treats their parent as one item.
+Ordinary Go CI also runs the complete remaining package inventory in four
+deterministic package-level shards. The planner uses race/atomic package elapsed
+times recorded in `.github/scripts/go_remaining_package_durations.tsv`; an
+unmeasured package receives the median measured package cost. A package stays
+whole, so all `cmd/waza` tests execute in the same test binary rather than being
+split across workers. Each worker independently discovers the full remaining
+package and test inventories, executes its assigned packages with `-p=4`,
+`-race`, `-covermode=atomic`, and the 30-minute deadline, and retains its
+coverage, execution receipt, and shard-bound timing observation. The collector
+accepts a skipped package only when it has no selected tests; skipped packages
+with selected tests fail verification. Workers also retain the locked npm
+package's Go sources. The merger downloads attempt-isolated artifacts and
+selects the newest complete receipt with `execution_exit` equal to zero for
+each shard. This allows a failed-job rerun to reuse successful shard evidence
+from earlier attempts within the same workflow run and tested source. It
+restores the source artifact for selected shard 0 before validating the
+combined profile. Missing or failed workers, different inventories,
+duplicate/missing package or test selections, invalid profiles, or mismatched
+run/source identities fail closed; the merger combines the four remaining
+profiles into the one main profile, preserving four native profiles plus one
+remaining-suite profile for the final gate. The cost table is placement data,
+not acceptance evidence. Downstream timing history validates all four worker
+observations and their shard identities before admitting a successful sample.
+Refresh package costs after material package, test,
+or runner-topology changes using complete successful Linux remaining-test
+executions; retain their run, attempt, and source commit, and do not use
+canceled or incomplete test executions. The Windows job continues to run the
+full suite. The Linux support job builds the real dashboard and explicitly
+runs the embedded-bundle checks without allowing them to skip; remaining-test
+workers use a minimal `web/dist` stub because their package tests run
+independently.
+
+Selected shards may come from different attempts only when their run ID and
+tested source match. The collector verifies identical inventories,
+exactly-once assignments, and valid coverage across all four selected
+receipts. The merged coverage artifact is replaceable on retry so rerunning
+its producer does not fail on an existing artifact name.
+
+PR completeness receipts are also retained per workflow attempt, and admission
+downloads receipts from all attempts of the same run. For each unit, the
+newest receipt is authoritative; a failed newer receipt cannot fall back to an
+older passing one.
+
+For issue #825, acceptance remains three distinct successful main-push runs
+after merge, each with native shard max/min `<= 1.25` and total Go CI
+critical-path span `< 25 minutes`; a balanced plan or cost table cannot satisfy
+either measurement.
+
+The remaining-package tests include long, independent CLI tests. Mark expensive
+top-level tests parallel only when they use isolated fixtures and do not mutate
+process-wide environment, working directory, or shared state; keep tests that do
+so sequential. Validate concurrency changes with the race-enabled CI suite.
+Squad Release and Squad Insider Release retain their existing single remaining
+package capture; the four-worker package assignment applies to ordinary Go CI.
+No tests, package inventory, per-package test parallelism, or native shard
+selection are dropped to meet timing targets.
 
 Squad Release and Squad Insider Release run remaining-package validation in
 parallel with these shards. Publication waits for both branches to succeed,
@@ -68,13 +157,112 @@ captured request imported by Lab selection validation. Keep its explicit
 in sync. `go test -count=1 ./.github/scripts` checks these build inputs; an
 actual Docker build is still required to verify container packaging.
 
+### Container Go caches
+
+The `Dockerfile` reuses Go module and build caches through BuildKit cache mounts
+(`waza-go-mod`, `waza-go-build`, #835). The mounts persist on the same builder,
+not in exported layers, so the Docker build verifies that `/go/pkg/mod`,
+`/root/.cache/go-build` and `/build` are absent from the runtime image.
+`TestDockerRunnerBuildInputs`, `TestDockerGoCacheContract` and
+`TestDockerRuntimeCacheProbe` check these inputs. The one-off #836 cache measurement harness was removed once #836
+merged; its evidence stays on that PR (run 43475352771).
+
 ## Proposed PR completeness gate
 
 Issue #900 adds an **additive gate, not a replacement for native Go checks**.
-The applicability and receipt controls are under implementation; the reusable
-workflow routing and current-head adoption evidence are not yet active. Do not
-require `PR completeness` in a ruleset until the migration below is reviewed and
-its actual workflow executions are verified.
+`go-ci.yml` now publishes a `completeness / PR completeness` check on ordinary
+pull requests. It is **not yet a required context**: do not require
+`PR completeness` in a ruleset until the migration below is reviewed and its
+actual workflow executions are verified.
+
+### Reusable plan/admission boundary
+
+`pr-completeness-plan.yml` and `pr-completeness-admission.yml` expose the
+same-run transport boundary without adding another runnable PR workflow. They
+have only `workflow_call` triggers; `go-ci.yml` is their only ordinary-PR caller.
+
+The plan job checks out the tested merge with both parents, invokes the existing
+source/path interpreter, uploads only `plan.json`, and exports the attempt-bound
+artifact name and small applicability flags. The admission job consumes that
+artifact plus the caller's full `toJSON(needs)` dependency inventory. It downloads
+individual same-run, same-attempt receipt artifacts without merging their
+directories. The adapter rejects wrong filenames, extra files, ambiguous JSON,
+artifact-name disagreements and non-regular leaves; the existing interpreter
+rejects missing receipts and unsuccessful dependencies/required commands.
+These are checks of the downloaded workflow evidence, not a race-resistant
+filesystem confinement or independent attestation guarantee.
+
+Only after assembling local evidence does admission read the current PR using
+the job's read-only GitHub token. `contents: read` permits checkout; admission
+also declares `pull-requests: read` for this fresh snapshot. Other permissions
+are none, existing workflow defaults are unchanged, and reusable calls cannot
+raise the caller's permission ceiling. Tokens are never written to plans,
+dependency inputs, receipts, results or summaries. A missing token or an API
+permission denial fails admission rather than falling back to ambient credentials.
+Both reusable checkouts explicitly disable credential persistence: subsequent
+Git operations only read the local tested merge and its parents.
+The production interpreter then independently
+revalidates event/run/attempt identity, the tested merge and its full path list.
+A completed evaluation writes `result.json` and a family-by-family summary,
+including visible `not_applicable` scopes. A rejected evaluation retains its
+diagnostics and exits nonzero. API, decoding or source-admission failure exits
+nonzero without inventing a passing result; a result artifact may be unavailable.
+
+The concrete caller controls execute the `run` commands extracted from these
+production workflows against real local merge commits and downloaded-artifact
+layouts, with a rejecting/offline PR API executable fixture. Authored successful
+receipts in these controls prove the admission interface, **not** that any hosted
+suite, native platform or browser actually ran.
+
+Dashboard (`web-ci.yml`), site/examples (`site-ci.yml`) and Docker
+(`docker-ci.yml`) now expose the same optional `pr_completeness_plan` receipt
+interface as assurance, tools and runtime. It is inactive unless a caller passes
+a plan; with a plan the dashboard bypasses its path filter, and site/examples use
+the caller's plan-selected `site`/`examples` inputs instead of path filters.
+Receipt capture still re-verifies applicability and fails closed for an
+unselected family. Contract step ids reuse the existing workflow ids (`tests`,
+`chat-tests`, `ci_tests`, `native_tests`) so evidence and receipts share one
+execution. Plan-mode runs use a separate `-completeness` concurrency group so a
+caller cannot cancel or be cancelled by a standalone run.
+
+### Go caller wiring
+
+On `pull_request` events `go-ci.yml` runs `pr-scope` (the plan workflow), then:
+
+- Every native Go job (`Lint`, Linux, Windows, the four native shards and the
+  coverage `linux-gate`) records its tested checkout and captures a `go` receipt
+  for its contract unit in an `always()` final step. Each job regenerates the
+  deterministic plan locally, so the required native jobs keep their existing
+  needs and run on every validation event; `go-native-shards.yml` captures receipts only
+  when its caller passes `pr_completeness: true`.
+- The `dashboard`, `documentation`, `assurance`, `container`, `tools` and
+  `runtime` jobs call the auxiliary reusable workflows with the plan artifact
+  only when the plan selects them; unselected families remain visible as
+  `not_applicable`.
+- `completeness` calls `pr-completeness-admission.yml` with `always()` and
+  `toJSON(needs)` over every job above, so a failed, cancelled or missing
+  producer fails the check.
+
+`TestGoCompletenessReceiptWiring` rejects removed step ids, unguarded or
+non-`always()` receipts, dropped dependencies and unwired callers.
+
+The dashboard, site/examples, assurance, tools and runtime workflows no longer
+have standalone `pull_request` triggers. Pull requests reach them only through
+these plan-selected `go-ci.yml` callers, so each suite runs once per PR attempt
+and now covers stacked PRs on any base. Their `push`, `workflow_dispatch` and
+`workflow_call` entrypoints are unchanged. `docker-ci.yml` follows the same
+rule: pull requests run container validation once, through the `container`
+caller. Its path-filtered `push` trigger on `main` is unchanged.
+
+Receipt capture stays fail-closed. If GitHub builds the merge commit after
+`main` advanced, the payload `base.sha` is stale and source binding rejects it
+("Merge parents do not match event base and head"). Each `Capture PR
+completeness receipt` step is `continue-on-error: true`, so that race does not
+fail `Lint`, `ubuntu-latest`, `windows-latest` or a native shard. The upload
+step only runs on `steps.receipt.outcome == 'success'`, so admission still fails
+`PR completeness` on the missing receipt and the PR must be updated. Test
+failures inside the job still fail it; `TestGoCompletenessReceiptWiring` rejects
+removing `continue-on-error` from a receipt.
 
 The proposed ordinary-PR entrypoint is the existing Go workflow, with local
 reusable calls to the existing auxiliary validators. This avoids cross-run
@@ -85,8 +273,8 @@ full-diff review:
 | Validation | Changed inputs |
 |---|---|
 | Go, lint, native Linux shards and Windows | Every ordinary PR, preserving the existing native gates. |
-| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, and runner examples. |
-| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config and lockfile content read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
+| Dashboard Chromium | Dashboard files, backend `cmd/`, `internal/`, schemas, root Go inputs, module versions, runner examples, and `.github/scripts/ci-evidence*` collectors. |
+| Site and chat Chromium | Site/docs, documented metadata, schemas, model/embedded-runtime inputs and frozen-reader fixtures; `Makefile`, web Playwright config, `package.json`, lockfile and screenshot specs read by documentation checks; registered serve flags in `cmd/waza/cmd_serve.go`; exact checked web/compatibility/interop and linked repository files; and `examples/` directory-existence dependencies. |
 | Offline documentation examples | Site/docs/examples, backend/schema/module inputs, dashboard inputs, `Makefile`, and `examples/runner/unit.json` consumed by the production-CLI release example. |
 | Offline Grader Assurance | Backend/schema/module inputs, assurance viewer and reader scripts, immutable `testdata/frozen-assurance-readers` custody inputs and their `.gitattributes` checkout-byte rules, grader docs and examples. |
 | Docker image and native runner contracts | Container/context files, `.gitattributes` LFS checkout rules for embedded assets, backend/schema/module/root Go inputs, dashboard, runner examples and admitted native probe fixtures. |
@@ -194,7 +382,7 @@ capture retains required outcomes and case results, not unrelated action outputs
 or browser logs. This is workflow-execution evidence, not independent attestation
 or a performance/model-quality claim.
 
-Site's single compound `chat` step runs private-chat controls, chat Chromium and
+Site's single compound `chat-tests` step runs private-chat controls, chat Chromium and
 unavailable-service Chromium in an `&&` chain. Its outcome covers that entire
 chain, not independently observed outcomes for each subcommand. The two browser
 reports remain required, but the receipt must not invent a separate
@@ -218,9 +406,7 @@ Body/title-only PR edits must use **distinct check names and concurrency** and
 must not publish ordinary completeness success or cancel active validation.
 Base-retarget edits require new head/base/tested-merge validation. Pushes and
 manual cold/performance observations must not create a skipped or successful
-ordinary `PR completeness` context. Docker's separately admitted edited-body
-benchmark is not a completeness prerequisite or a substitute for normal image
-and native-runner proof.
+ordinary `PR completeness` context.
 
 The retarget classifier follows the [pinned Octokit edited-event contract](https://github.com/octokit/webhooks/blob/aa80c24a3f55354465b8b1438d33dd5602956d0d/payload-schemas/api.github.com/pull_request/edited.schema.json):
 both old base `ref.from` and `sha.from` are required. The current base ref must
@@ -270,7 +456,6 @@ Windows; only its literal newline filename uses a portable alternative there.
 No native Windows execution is claimed from local Unix controls.
 These checks do not by themselves prove GitHub routing, native platforms, browser
 execution or ruleset adoption.
-
 ## Prerequisites
 
 - waza binary in your PATH (install with the script below)

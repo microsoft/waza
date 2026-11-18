@@ -2,7 +2,9 @@ import Ajv2020 from "ajv/dist/2020";
 import responseSchema from "../../../schemas/runner-negotiation-response-1.0.schema.json";
 import unitSchema from "../../../schemas/runner-unit-1.0.schema.json";
 import terminalSchema from "../../../schemas/runner-terminal-1.0.schema.json";
+import { lazyValidator } from "../lib/lazyValidator";
 import { parseStrictJSON } from "../lib/strictJson";
+import { requestBudgetProblem, terminalBudgetProblem, type BudgetReport } from "./budgets";
 
 export interface RunnerNegotiation {
   kind: "waza.runner-negotiation";
@@ -20,7 +22,7 @@ export interface RunnerNegotiation {
   diagnostics: { code: string; message: string }[];
 }
 
-const validate = new Ajv2020({ strict: false }).compile<RunnerNegotiation>(responseSchema);
+const validate = lazyValidator(() => new Ajv2020({ strict: false }).compile<RunnerNegotiation>(responseSchema));
 
 export interface WorkSelection {
   shard: string;
@@ -73,13 +75,18 @@ export interface RunnerTerminal {
     validations: { identifier: string; passed: boolean }[];
     error_msg?: string;
   };
+  budget?: BudgetReport;
   diagnostics: { code: string; message: string }[];
 }
 
-const validateTerminal = new Ajv2020({ strict: false }).compile<RunnerTerminal>(terminalSchema);
+const validateTerminal = lazyValidator(() => new Ajv2020({ strict: false }).compile<RunnerTerminal>(terminalSchema));
 
-function sameSelection(a: WorkSelection | undefined, b: WorkSelection | undefined): boolean {
+export function sameSelection(a: WorkSelection | undefined, b: WorkSelection | undefined): boolean {
   return !!a && !!b && a.shard === b.shard && a.task === b.task && a.trial === b.trial && a.attempt === b.attempt;
+}
+
+export function sameRunnerIdentity(a: RunnerIdentity | undefined, b: RunnerIdentity | undefined): boolean {
+  return !!a && !!b && (Object.keys(a) as (keyof RunnerIdentity)[]).every((key) => a[key] === b[key]);
 }
 
 // Server admission is authoritative for grader bindings. The browser checks the
@@ -113,8 +120,8 @@ export async function runRunnerUnit(request: string, signal: AbortSignal): Promi
     throw new Error("Runner API terminal exit header contradicts its body.");
   }
   if (value.identity) {
-    if (admitted.status !== "ready" || !sameSelection(value.selection, admitted.resolved) || !admitted.identity ||
-        (Object.keys(admitted.identity) as (keyof RunnerIdentity)[]).some((key) => admitted.identity?.[key] !== value.identity?.[key])) {
+    if (admitted.status !== "ready" || !sameSelection(value.selection, admitted.resolved) ||
+        !sameRunnerIdentity(admitted.identity, value.identity)) {
       throw new Error("Terminal identity or selection does not match admitted input.");
     }
   } else if (value.selection || value.observation || value.engine_calls !== 0) {
@@ -130,12 +137,14 @@ export async function runRunnerUnit(request: string, signal: AbortSignal): Promi
       throw new Error("Terminal observation contradicts its admitted binding.");
     }
   }
+  const budgetProblem = terminalBudgetProblem(value) ?? requestBudgetProblem(request, value);
+  if (budgetProblem) throw new Error(`Runner API returned an inconsistent budget report: ${budgetProblem}`);
   return value;
 }
 
-const validateUnit = new Ajv2020({ strict: false })
+const validateUnit = lazyValidator(() => new Ajv2020({ strict: false })
   .addSchema(responseSchema)
-  .compile<RunnerSelectionReport>(unitSchema);
+  .compile<RunnerSelectionReport>(unitSchema));
 
 export async function validateRunnerSelection(request: string, signal?: AbortSignal): Promise<RunnerSelectionReport> {
   const response = await fetch("/api/v1/runner/validate", {

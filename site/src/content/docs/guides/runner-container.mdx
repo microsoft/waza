@@ -14,11 +14,13 @@ external network is used by that test. This is native execution evidence, not
 inference-quality or provider assurance.
 The [#762 publication and acceptance evidence](#published-image-and-acceptance-evidence)
 is recorded below. Publication and public-image acceptance are separate gates.
-The manual-only GHCR publisher
-may leave a pushed candidate even if finalization fails; a tag or publisher run
-alone does not establish public visibility or caller acceptance. The separate
-manual verifier must anonymously pull the exact digest, verify its source,
-platform and signed provenance, and pass mock and bundled-native
+The historical v0.40.0 GHCR publisher was manually invoked and could leave a
+pushed image if finalization failed; its tag or publisher run alone did not
+establish public visibility or caller acceptance. The v0.42.0 candidate
+qualification path does not publish to GHCR. Future versioned reference images
+are published only by the tag-release workflow after qualification succeeds.
+The separate verifier must anonymously pull the exact digest, verify its
+source, platform and signed provenance, and pass mock and bundled-native
 production-caller controls before each image is accepted. Local image IDs and
 mutable tags are not substitutes for the accepted registry digest.
 No Lab dashboard change is required: this adds no new evidence or status surface.
@@ -51,10 +53,11 @@ production controls. Independent infrastructure-owner review was **waived for
 this one publication, not performed**; automated acceptance is not independent
 review. The supported platform is not an ARM64 or Windows claim.
 Do not treat this record as live-provider, billing or inference-quality evidence.
-The image Dockerfile does not inject `main.version`; the source default is
-`dev`, unlike the standalone release build's explicit `0.40.0` linker stamp.
-Identify this image by its immutable digest, source labels and verified
-provenance, not by assuming its `--version` output is `0.40.0`.
+This historical image predates release-version stamping and reports the source
+default `dev`; the v0.42.0 qualification build passes `WAZA_VERSION` to the
+Docker build and verifies that the resulting image reports the candidate
+version. Identify this historical image by its immutable digest, source labels
+and verified provenance, not by assuming its `--version` output is `0.40.0`.
 
 ## Host and build requirements
 
@@ -162,6 +165,26 @@ Waza verdicts. Redirection is neither exclusive creation nor atomic/durable
 publication: use a fresh work directory, never overwrite valuable outputs, and
 retain partial bytes on failure for diagnosis. A successful write is not proof
 that another process received the result.
+
+### External scheduler adapter entrypoint (unreleased, v0.42.0)
+
+The same `reference` image is the thin entrypoint for an external scheduler.
+Supply one work descriptor on stdin and an existing writable store:
+
+```bash
+docker run --rm -i --network=none --read-only \
+  --mount type=bind,source="$PWD/store",target=/store \
+  "$IMAGE" runner adapter dispatch --store /store \
+  < examples/runner/adapter/submit.json > adapter-result.json
+```
+
+The container makes exactly one public `runner submit` call (or checkpoint or
+lineage call, depending on the descriptor) and prints one
+`waza.adapter-result`. It does not queue, place or retry anything. A descriptor
+that carries scheduler fields is rejected with exit 6 before any call. The
+production-boundary controls below run `translate`, `dispatch` and that
+rejection against the built image. See
+[portable external execution adapters](../runner-adapters/).
 
 ## Smoke and production-boundary controls
 

@@ -42,6 +42,16 @@ func (l *Local) ListManifests(ctx context.Context) ([]string, bool, error) {
 }
 
 func (l *Local) listObjects(ctx context.Context, prefix string) ([]string, bool, error) {
+	return l.scanObjects(ctx, prefix, 10000, MaxCatalogEntries)
+}
+
+// listAllObjects scans every directory entry and returns at most limit matching
+// keys; truncated reports that another matching key exists.
+func (l *Local) listAllObjects(ctx context.Context, prefix string, limit int) ([]string, bool, error) {
+	return l.scanObjects(ctx, prefix, 0, limit)
+}
+
+func (l *Local) scanObjects(ctx context.Context, prefix string, maxScanned, limit int) ([]string, bool, error) {
 	directory, err := l.root.Open(".")
 	if err != nil {
 		return nil, false, err
@@ -57,11 +67,15 @@ func (l *Local) listObjects(ctx context.Context, prefix string) ([]string, bool,
 		entries, err := directory.ReadDir(128)
 		for _, entry := range entries {
 			scanned++
-			if scanned > 10000 || len(keys) == MaxCatalogEntries {
+			if maxScanned > 0 && (scanned > maxScanned || len(keys) == limit) {
 				truncated = true
 				break
 			}
 			if strings.HasPrefix(entry.Name(), prefix) {
+				if len(keys) == limit {
+					truncated = true
+					break
+				}
 				keys = append(keys, entry.Name())
 			}
 		}

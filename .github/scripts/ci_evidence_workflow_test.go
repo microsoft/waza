@@ -24,6 +24,9 @@ func checkColdInput(declaration yaml.Node) error {
 		return err
 	}
 	cold, exists := input.Inputs["cold_observation"]
+	// Completeness callers may also pass their plan; it does not affect cold state.
+	delete(input.Inputs, "pr_completeness_plan")
+	delete(input.Inputs, "pr_completeness")
 	if declaration.Kind != yaml.MappingNode || len(declaration.Content) != 2 ||
 		!exists || len(input.Inputs) != 1 || cold.Description == "" || cold.Type != "boolean" ||
 		cold.Default.Tag != "!!bool" || cold.Default.Value != "false" ||
@@ -53,7 +56,7 @@ func checkColdWorkflow(source []byte, file string) error {
 		cache, nodeCache, prepareIf, scope = "${{ !inputs.cold_observation }}", "", "inputs.cold_observation", "go"
 	case "web-ci.yml":
 		events, jobID, requested = []string{"workflow_dispatch", "workflow_call"}, "build", "${{ inputs.cold_observation == true }}"
-		prepareIf += " && (steps.filter.outputs.web == 'true' || github.event_name != 'pull_request')"
+		prepareIf += " && (steps.filter.outputs.web == 'true' || github.event_name != 'pull_request' || inputs.pr_completeness_plan != '')"
 	case "go-ci.yml":
 		if workflow.Jobs["native-test-shards"].With["cold_observation"] != requested ||
 			workflow.Jobs["build-and-test-windows"].Env["CI_EVIDENCE_COLD_REQUESTED"] != "" {
@@ -116,7 +119,9 @@ func checkColdWorkflow(source []byte, file string) error {
 		return fmt.Errorf("both toolchains must be ready before observing isolated stores")
 	}
 	for _, step := range job.Steps[:prepare] {
-		if step.Run != "" {
+		// Completeness receipt bookkeeping runs only for PR completeness callers, never cold dispatches.
+		if step.Run != "" && !map[string]bool{"inputs.pr_completeness_plan != ''": true,
+			"github.event_name == 'pull_request'": true, "inputs.pr_completeness": true}[step.If] {
 			return fmt.Errorf("initial empty observation must precede dependencies, offline guard, discovery and tests")
 		}
 	}
@@ -190,8 +195,8 @@ func TestCIEvidenceLintVisibilityContract(t *testing.T) {
 			return err
 		}
 		job := workflow.Jobs["lint"]
-		if job.Name != "Lint" || job.If != "" {
-			return fmt.Errorf("existing lint job must remain unconditional")
+		if job.Name != goRequiredName("Lint", "'Lint'") || job.If != goValidationIf {
+			return fmt.Errorf("existing lint job must run for every validation event")
 		}
 		selected := 0
 		for _, step := range job.Steps {
@@ -219,7 +224,7 @@ func TestCIEvidenceLintVisibilityContract(t *testing.T) {
 		{command, "go test -count=1 -v ./.github/scripts"},
 		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        if: false\n"},
 		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        continue-on-error: true\n"},
-		{"    name: Lint\n", "    name: Lint\n    if: false\n"},
+		{"'Lint' }}\n    if: " + goValidationIf + "\n", "'Lint' }}\n    if: false\n"},
 		{"      - name: Test Go workflow trigger selection\n", "      # " + command + "\n      - name: Unselected contract decoy\n"},
 		{"      - name: Test Go workflow trigger selection\n", "      - name: Test Go workflow trigger selection\n        run: " + command + "\n      - name: Test Go workflow trigger selection\n"},
 	} {
@@ -325,7 +330,7 @@ func checkBrowserEvidence(source []byte) error {
 	}
 	job := workflow.Jobs["build"]
 	steps := releaseSteps(job)
-	condition := "steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'"
+	condition := "steps.filter.outputs.web == 'true' || github.event_name != 'pull_request' || inputs.pr_completeness_plan != ''"
 	discover, execute := steps["Discover dashboard tests without execution"], steps["Test dashboard"]
 	sanitize, upload := steps["Sanitize dashboard execution evidence"], steps["Retain sanitized dashboard execution evidence"]
 	if workflow.Permissions["contents"] != "read" || workflow.Permissions["pull-requests"] != "read" || len(workflow.Permissions) != 2 || job.TimeoutMinutes != 15 {
@@ -349,12 +354,17 @@ func checkBrowserEvidence(source []byte) error {
 	}
 	ordinaryUpload := steps["Upload dashboard test evidence"]
 	if ordinaryUpload.If != "always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''" ||
-		ordinaryUpload.With["path"] != "web/test-results/\nweb/dist/\ndocs/images/\nsite/public/images/explore/\n" {
-		return fmt.Errorf("ordinary browser artifacts must not include new raw reporter inputs")
+		ordinaryUpload.With["path"] != "web/test-results/\n" ||
+		ordinaryUpload.With["include-hidden-files"] != "true" || ordinaryUpload.With["if-no-files-found"] != "error" {
+		return fmt.Errorf("ordinary browser artifacts must retain only current-run Playwright outputs, fail closed, and exclude raw reporter inputs")
 	}
 	producerTest := steps["Test current browser reporter evidence contract"]
 	if producerTest.If != condition || producerTest.Run != "node --test .github/scripts/ci-evidence-playwright.test.cjs" {
 		return fmt.Errorf("current Playwright producer contract must execute after install")
+	}
+	budget := steps["Check dashboard wall-time budget"]
+	if budget.If != "steps.tests.outcome == 'success'" || budget.Run != "node .github/scripts/ci-evidence-dashboard-budget.cjs web/.ci-evidence-report.json" {
+		return fmt.Errorf("successful dashboard runs must enforce the wall-time budget from the actual report")
 	}
 	var commands string
 	for _, step := range job.Steps {
@@ -383,7 +393,14 @@ func checkOrdinaryEvidence(source []byte, name string) error {
 	}
 	jobs := []string{"validate"}
 	if name == "go-ci.yml" {
-		jobs = []string{"build-and-test", "build-and-test-windows"}
+		jobs = []string{"build-and-test-windows"}
+		linuxSteps := releaseSteps(workflow.Jobs["build-and-test"])
+		linuxExecute := linuxSteps["Execute Tests"]
+		linuxUpload := linuxSteps["Retain sanitized Go execution evidence"]
+		if linuxExecute.If != "matrix.os == 'windows-latest'" ||
+			linuxUpload.If != "matrix.os == 'windows-latest' && always() && steps.ci_tests.outcome != 'skipped' && steps.ci_tests.outcome != ''" {
+			return fmt.Errorf("Linux build job must leave test execution and its evidence to the dedicated Linux shards")
+		}
 	} else if isRelease {
 		jobs = []string{"build-test", "windows-test"}
 	}
@@ -394,7 +411,14 @@ func checkOrdinaryEvidence(source []byte, name string) error {
 		if isRelease && id == "windows-test" {
 			execute = steps["Execute complete Windows tests"]
 		}
+		executeIf := ""
+		uploadIf := "always() && steps.ci_tests.outcome != 'skipped' && steps.ci_tests.outcome != ''"
+		if name == "go-ci.yml" {
+			executeIf = "matrix.os == 'windows-latest'"
+			uploadIf = "matrix.os == 'windows-latest' && " + uploadIf
+		}
 		if job.TimeoutMinutes != 60 || execute.ID != "ci_tests" ||
+			execute.If != executeIf ||
 			execute.Env["GO_CACHE_HIT"] != "${{ steps.go.outputs.cache-hit }}" ||
 			execute.Env["NODE_CACHE_HIT"] != "${{ steps.node.outputs.cache-hit }}" {
 			return fmt.Errorf("%s: capture must bind actual execution and observed caches", id)
@@ -411,13 +435,62 @@ func checkOrdinaryEvidence(source []byte, name string) error {
 		if !goSetup || !nodeSetup {
 			return fmt.Errorf("%s: observed cache outputs must refer to setup steps", id)
 		}
-		if upload.If != "always() && steps.ci_tests.outcome != 'skipped' && steps.ci_tests.outcome != ''" ||
+		if upload.If != uploadIf ||
 			!strings.HasPrefix(upload.Uses, "actions/upload-artifact@") ||
 			upload.With["name"] != "ci-evidence-go-run-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" ||
 			upload.With["path"] != "coverage.txt.evidence.json" || upload.With["retention-days"] != "14" ||
 			upload.ContinueOnError {
 			return fmt.Errorf("%s: retain sanitized attempt/job evidence after failures", id)
 		}
+	}
+	return nil
+}
+
+func checkRemainingShardEvidence(source []byte) error {
+	var workflow releaseWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	steps := releaseSteps(workflow.Jobs["remaining"])
+	execute := steps["Execute exhaustive remaining-package test shard"]
+	upload := steps["Retain remaining-shard coverage and selection evidence"]
+	sources := steps["Retain Go coverage sources for merger"]
+	observation := steps["Retain sanitized remaining-shard timing observation"]
+	requiredPaths := []string{
+		"coverage-remaining-${{ matrix.shard }}.txt",
+		"coverage-remaining-${{ matrix.shard }}.txt.all",
+		"coverage-remaining-${{ matrix.shard }}.txt.selected",
+		"coverage-remaining-${{ matrix.shard }}.txt.packages.all",
+		"coverage-remaining-${{ matrix.shard }}.txt.packages.selected",
+		"coverage-remaining-${{ matrix.shard }}.txt.evidence.json",
+	}
+	if execute.ID != "remaining_tests" || !strings.Contains(execute.Run, "go_remaining_test_shard.sh") ||
+		upload.If != "always() && steps.remaining_tests.outcome != 'skipped' && steps.remaining_tests.outcome != ''" ||
+		!strings.HasPrefix(upload.Uses, "actions/upload-artifact@") ||
+		upload.With["name"] != "go-remaining-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}" ||
+		upload.With["retention-days"] != "14" || upload.With["if-no-files-found"] != "error" {
+		return fmt.Errorf("Linux remaining shards must retain complete attempt-scoped test evidence after failures")
+	}
+	for _, path := range requiredPaths {
+		if !strings.Contains(upload.With["path"], path) {
+			return fmt.Errorf("Linux remaining-shard artifact is missing %s", path)
+		}
+	}
+	if sources.ID != "coverage_sources" ||
+		sources.If != "always() && steps.web_dependencies.outcome == 'success'" ||
+		!strings.HasPrefix(sources.Uses, "actions/upload-artifact@") ||
+		sources.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}" ||
+		sources.With["path"] != "web/node_modules/flatted/golang/pkg/flatted/**/*.go" ||
+		sources.With["retention-days"] != "14" || sources.With["if-no-files-found"] != "error" {
+		return fmt.Errorf("every remaining shard must retain its run-bound Go coverage sources")
+	}
+	if observation.ID != "observation" ||
+		observation.If != "always() && steps.remaining_tests.outcome != 'skipped' && steps.remaining_tests.outcome != ''" ||
+		!strings.HasPrefix(observation.Uses, "actions/upload-artifact@") ||
+		observation.With["name"] != "ci-evidence-go-remaining-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}" ||
+		observation.With["path"] != "coverage-remaining-${{ matrix.shard }}.txt.evidence.json" ||
+		observation.With["retention-days"] != "14" || observation.With["if-no-files-found"] != "error" {
+		return fmt.Errorf("every remaining shard must retain its source-bound timing observation")
 	}
 	return nil
 }
@@ -453,8 +526,8 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 			{"        id: ci_tests\n", ""},
 			{"        id: node\n", ""},
 			{"GO_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}", "GO_CACHE_HIT: false"},
-			{"if: always() && steps.ci_tests.outcome", "if: success() && steps.ci_tests.outcome"},
-			{"${{ github.run_attempt }}", "1"},
+			{"steps.ci_tests.outcome != 'skipped'", "steps.ci_tests.outcome == 'skipped'"},
+			{"${{ github.run_attempt }}-${{ github.job }}", "1-${{ github.job }}"},
 			{"${{ github.job }}", "fixed-job"},
 			{"path: coverage.txt.evidence.json", "path: coverage.txt*"},
 			{"retention-days: 14", "retention-days: 90"},
@@ -481,6 +554,26 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 					t.Fatalf("Windows release evidence mutation admitted: %s", mutation[0])
 				}
 			}
+		}
+	}
+	remaining, err := os.ReadFile(filepath.Join("..", "workflows", "go-remaining-shards.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRemainingShardEvidence(remaining); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range [][2]string{
+		{"if: always() && steps.remaining_tests.outcome", "if: success() && steps.remaining_tests.outcome"},
+		{"coverage-remaining-${{ matrix.shard }}.txt.evidence.json", "coverage-remaining-${{ matrix.shard }}.txt"},
+		{"retention-days: 14", "retention-days: 90"},
+		{"if-no-files-found: error", "if-no-files-found: warn"},
+		{"go-remaining-coverage-source-${{ github.run_id }}", "go-remaining-coverage-${{ github.run_id }}"},
+		{"ci-evidence-go-remaining-${{ github.run_id }}", "ci-evidence-go-shard-${{ github.run_id }}"},
+	} {
+		changed := strings.Replace(string(remaining), mutation[0], mutation[1], 1)
+		if changed == string(remaining) || checkRemainingShardEvidence([]byte(changed)) == nil {
+			t.Fatalf("remaining-shard evidence mutation admitted: %s", mutation[0])
 		}
 	}
 	for _, mutation := range [][2]string{
@@ -520,7 +613,12 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 		{"PLAYWRIGHT_JSON_OUTPUT_NAME: .ci-evidence-report.json", "PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json"},
 		{"            web/test-results/\n", "            web/\n"},
 		{"            web/test-results/\n", "            web/test-results/\n            web/.ci-evidence-report.json\n"},
+		{"            web/test-results/\n", "            web/test-results/\n            web/dist/\n"},
+		{"          include-hidden-files: true\n", ""},
+		{"include-hidden-files: true\n          if-no-files-found: error", "include-hidden-files: true\n          if-no-files-found: warn"},
 		{"retention-days: 14", "retention-days: 90"},
+		{"if: steps.tests.outcome == 'success'", "if: false"},
+		{"ci-evidence-dashboard-budget.cjs web/.ci-evidence-report.json", "ci-evidence-dashboard-budget.cjs /dev/null"},
 	} {
 		changed := strings.Replace(string(browser), mutation[0], mutation[1], 1)
 		if changed == string(browser) || checkBrowserEvidence([]byte(changed)) == nil {
@@ -530,7 +628,7 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 }
 
 func TestCIEvidenceCollectorProductionContracts(t *testing.T) {
-	cmd := exec.CommandContext(t.Context(), "node", "--test", "ci-evidence.test.cjs")
+	cmd := exec.CommandContext(t.Context(), "node", "--test", "ci-evidence.test.cjs", "ci-evidence-dashboard-budget.test.cjs")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("structured evidence production contracts: %v\n%s", err, output)

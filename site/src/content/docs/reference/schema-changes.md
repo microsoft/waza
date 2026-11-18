@@ -16,8 +16,18 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 ## Versioned artifacts
 
-This table describes standalone v0.40.0. Published standalone
-`v0.39.1` writes results `1.7`; see [release availability](/waza/reference/releases/).
+The standalone aggregate profile (released in v0.41.0) independently uses
+`kind: waza.manifest-aggregate`, exact `schema_version: "1.0"`. Canonical
+reference/profile/diagnostic ordering and three explicitly named populations
+preserve repeated executions and compatible views without synthesizing legacy
+ownership, missing evidence or billing. Failed/cancelled terminal outcomes are
+not aggregate admission failures. Historical mutable results are not converted;
+unsupported supplied source profiles remain explicit.
+See [aggregate compatibility and worked examples](../../guides/manifest-aggregation/).
+
+This table describes current source. Published standalone `v0.41.0` writes
+results `1.9`; standalone `v0.40.0` and `v0.40.1` write `1.8`, and `v0.39.1`
+writes `1.7`. See [release availability](/waza/reference/releases/).
 
 | Artifact | Field | Current version |
 |---|---|---|
@@ -33,6 +43,20 @@ This table describes standalone v0.40.0. Published standalone
 | `waza.preflight` report | `schemaVersion` | `1.0` (independent artifact) |
 | `waza.grader-reference` labels / `waza.grader-review` declaration | `schema_version` | Exact `1.0` (independent profiles) |
 | `waza.grader-assurance` report | `schema_version` | Separately selected `1.0`, `1.1`, or `1.2` |
+
+Result trials may optionally include `infrastructure_diagnostic` with an
+allowlisted `code`, a positive `limit` no greater than 1,099,511,627,776, and
+an optional `additional_failure` boolean. The limit is present only for
+workspace-capture limit codes. Missing and unknown diagnostics remain generic
+in the dashboard; legacy artifacts remain readable. The raw `error_msg` and
+responder reason and user-input errors remain in artifacts and may contain sensitive data. The
+published 1.0 release exports omit `infrastructure_diagnostic` to remain
+compatible with the closed release-artifacts 1.0 schema; normal run artifacts
+retain it.
+The 1.0 assurance ledger binds those projected rows; it does not bind a
+diagnostic sidecar. A separate sidecar would require an independently versioned
+contract and explicit verification before it could be treated as assurance
+evidence.
 
 Optional task `requirements` introduced by #660 are descriptive v1-compatible
 metadata, without a global schema bump or new runtime/exit semantics. Old readers
@@ -85,6 +109,24 @@ For a supported scenario eval `2.0`, it validates the file and leaves its bytes
 unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
+
+### Execution evidence 1.0 and aggregate lineage (v0.41.0, #768)
+
+- Evidence sidecars (`kind: waza.execution-evidence`, `schema_version: "1.0"`)
+  record exactly six categories (conversation, tool, grader, reliability, usage,
+  provenance), each `present`, `unavailable`, `incomplete`, `redacted` or
+  `conflicting`. No category defaults to present.
+- Missing data stays missing: consumers treat every non-`present` state as
+  unknown, never zero or passing. `present` with `observed_count: 0` means
+  recorded empty.
+- Aggregate 1.0 members gain two optional fields: `parent` (verified execution
+  parent, `retry` or `branch`) and `lineage` (declared source manifests, `retry`,
+  `resume`, `cache` or `aggregation`). Both are omitted when absent, so earlier
+  aggregate files still parse. Readers reject unknown relationships, self links
+  and unsorted lineage.
+- No migration: existing manifests without sidecars stay metadata-only, and no
+  tool synthesizes lineage for older retries. See
+  [reviewing evidence states](../../guides/evidence-review/).
 
 ### Task-level MCP mocks (task YAML)
 
@@ -234,6 +276,20 @@ promised stable across runs.
 - Target-free scenarios without effective explicit skill directories disable native SDK skill discovery; disabling the last eval directory preserves that isolation. Explicit task directories still opt in, empty task directories disable discovery, and `--no-skills` overrides opt-ins.
 - Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
 - Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
+
+### Frozen judge fixture declarations (#898)
+
+Requires a build containing fix #898; not in published v0.41.0.
+
+- Final eval/task prompt graders may author `evidence_context.non_secret_literals`:
+  bounded, unique exact fixture identifiers; absent and empty remain distinct,
+  null is invalid. No actor/tool-derived declarations or blanket exceptions.
+- Explicit declarations write independent judge bundle `1.1` with
+  `fixture_literals.declared_count` and `preserved_matches`, never declaration
+  lists. Legacy bundle `1.0` and absent-declaration output remain unchanged.
+- Required redacted/missing evidence still blocks judging. Regrading cannot
+  recover withheld content by adding declarations. See
+  [fixture privacy](/waza/guides/graders/#evaluator-controlled-non-secret-fixtures).
 
 ### 1.7 (new results only)
 

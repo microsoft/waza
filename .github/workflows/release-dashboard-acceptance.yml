@@ -1,0 +1,168 @@
+name: Nonpublishing dashboard handoff acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-dashboard-acceptance
+  cancel-in-progress: false
+
+env:
+  ACCEPTED_SOURCE_SHA: 76fe63e71fcf488ce55ef1d8cbe5077a187c197f
+  CONTROL_WORKFLOW_SHA: ${{ github.workflow_sha }}
+  CONTROL_EVENT_SHA: ${{ github.sha }}
+
+jobs:
+  producer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      manifest-sha256: ${{ steps.dashboard.outputs.manifest_sha256 }}
+    steps:
+      - name: Checkout accepted source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 76fe63e71fcf488ce55ef1d8cbe5077a187c197f
+          persist-credentials: false
+
+      - name: Record control and admit accepted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          observed_source="$(git rev-parse HEAD)"
+          test "$observed_source" = "$ACCEPTED_SOURCE_SHA"
+          printf 'control_workflow_sha=%s\ncontrol_event_sha=%s\naccepted_source_sha=%s\nrepository=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$CONTROL_WORKFLOW_SHA" "$CONTROL_EVENT_SHA" "$observed_source" \
+            "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Only this source-admission subprocess receives the accepted source identity.
+          GITHUB_SHA="$ACCEPTED_SOURCE_SHA" bash .github/scripts/release_source_check.sh
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Prepare offline checker dependencies
+        run: go mod download golang.org/x/net golang.org/x/sys
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build genuine dashboard
+        working-directory: web
+        run: npm ci && npm run build
+
+      - name: Pack accepted-source dashboard
+        id: dashboard
+        env:
+          RELEASE_DASHBOARD_ARTIFACT: ${{ runner.temp }}/release-dashboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Scoped compatibility input, not a rewrite of event/control provenance.
+          GITHUB_SHA="$ACCEPTED_SOURCE_SHA" bash .github/scripts/release_dashboard_handoff.sh pack >> "$GITHUB_OUTPUT"
+
+      - name: Upload same-run dashboard
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dashboard-acceptance-76fe63e71fcf488ce55ef1d8cbe5077a187c197f-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-dashboard
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Record observed producer evidence
+        env:
+          MANIFEST_SHA256: ${{ steps.dashboard.outputs.manifest_sha256 }}
+          TRANSPORT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MANIFEST_SHA256"
+          test -n "$TRANSPORT_DIGEST"
+          test -n "$ARTIFACT_ID"
+          cd "$RUNNER_TEMP/release-dashboard"
+          printf 'manifest_sha256=%s\ntransport_digest=%s\nartifact_id=%s\n' \
+            "$MANIFEST_SHA256" "$TRANSPORT_DIGEST" "$ARTIFACT_ID" | tee -a "$GITHUB_STEP_SUMMARY"
+          find . -type f -print0 | sort -z | xargs -0 sha256sum | tee -a "$GITHUB_STEP_SUMMARY"
+          find . -type f -print0 | xargs -0 wc -c | tee -a "$GITHUB_STEP_SUMMARY"
+          # The upload action log reports observed archive bytes separately.
+
+  consumer-bootstrap:
+    needs: [producer]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout accepted source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 76fe63e71fcf488ce55ef1d8cbe5077a187c197f
+          persist-credentials: false
+
+      - name: Record control and admit accepted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          observed_source="$(git rev-parse HEAD)"
+          test "$observed_source" = "$ACCEPTED_SOURCE_SHA"
+          printf 'control_workflow_sha=%s\ncontrol_event_sha=%s\naccepted_source_sha=%s\nrepository=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$CONTROL_WORKFLOW_SHA" "$CONTROL_EVENT_SHA" "$observed_source" \
+            "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Only this source-admission subprocess receives the accepted source identity.
+          GITHUB_SHA="$ACCEPTED_SOURCE_SHA" bash .github/scripts/release_source_check.sh
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Prepare offline checker dependencies
+        run: go mod download golang.org/x/net golang.org/x/sys
+
+      - name: Download same-run dashboard
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-dashboard-acceptance-76fe63e71fcf488ce55ef1d8cbe5077a187c197f-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-dashboard
+
+      - name: Install and verify actual hosted handoff
+        env:
+          RELEASE_DASHBOARD_ARTIFACT: ${{ runner.temp }}/release-dashboard
+          RELEASE_DASHBOARD_MANIFEST_SHA256: ${{ needs.producer.outputs.manifest-sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITHUB_SHA="$ACCEPTED_SOURCE_SHA" bash .github/scripts/release_dashboard_handoff.sh install
+          GITHUB_SHA="$ACCEPTED_SOURCE_SHA" bash .github/scripts/release_dashboard_handoff.sh verify-installed
+          GOOS= GOARCH= GOPROXY=off GOSUMDB=off go run ./.github/scripts/release-dashboard-check
+          GITHUB_SHA="$ACCEPTED_SOURCE_SHA" bash .github/scripts/release_source_check.sh
+          printf 'Observed hosted upload/download/install; bootstrap not yet established.\nmanifest_sha256=%s\n' \
+            "$RELEASE_DASHBOARD_MANIFEST_SHA256" | tee -a "$GITHUB_STEP_SUMMARY"
+          find web/dist -type f -print0 | sort -z | xargs -0 sha256sum | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup original Azure Developer CLI
+        uses: Azure/setup-azd@0b7e3a35ab00f2eee7080c845eb39c3f0ebfa553 # v2.4.0
+
+      - name: Exercise original configured Kit bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          azd version
+          azd config set alpha.extensions on
+          azd extension source list
+          azd extension install microsoft.azd.extensions --source azd
+          kit_info="$(azd x version)"
+          printf '%s\n' "$kit_info"
+          kit_version="$(printf '%s\n' "$kit_info" | sed -n 's/^Version: //p')"
+          test "$kit_version" = 0.14.0
+          printf 'Observed original configured bootstrap; selected Kit=%s\n' "$kit_version" >> "$GITHUB_STEP_SUMMARY"

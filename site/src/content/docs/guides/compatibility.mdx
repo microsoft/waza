@@ -12,6 +12,11 @@ adds explicit `run --runner-compat` routing and offline `runner adapt` for the
 documented mock/text subset. It does not convert or deprecate other local
 commands; unsupported mappings fail with migration guidance.
 
+The source-build [`waza optimize`](../optimizer-adapters/) command evaluates
+candidates through the same runner and graders. It writes only to its own
+output directory, and does not change `waza run`, `waza grade`, result
+schemas or fixtures.
+
 ## Three recorded examples
 
 The [compatibility examples](https://github.com/microsoft/waza/tree/main/examples/compatibility)

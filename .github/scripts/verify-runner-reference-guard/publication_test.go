@@ -13,10 +13,12 @@ func TestRunPublication(t *testing.T) {
 	const invocation = "https://github.com/microsoft/waza/actions/runs/42/attempts/2"
 	const endpoint = "repos/microsoft/waza/actions/runs/42/attempts/2"
 	for _, name := range []string{
-		"valid", "failed finalization", "canceled run", "incomplete run", "later successful attempt",
+		"valid", "valid release tag", "valid release retry", "skipped release provenance",
+		"skipped copy without digest admission", "failed finalization", "canceled run",
+		"publisher complete while downstream jobs run", "later failed unrelated job", "later successful attempt",
 		"wrong source", "wrong repository", "wrong workflow", "wrong branch", "wrong event",
 		"missing publisher job", "skipped publisher job", "missing final guard", "failed final guard",
-		"skipped attestation", "skipped summary", "duplicate publisher job",
+		"skipped attestation", "skipped summary", "skipped inventory", "duplicate publisher job",
 		"wrong digest", "wrong subject", "wrong predicate", "missing invocation", "foreign invocation",
 		"invalid JSON", "no attestations", "API failure", "invalid run JSON", "invalid jobs JSON",
 	} {
@@ -32,6 +34,7 @@ func TestRunPublication(t *testing.T) {
 				{"jobs": [{"name": "Publish reviewed Linux AMD64 image", "status": "completed", "conclusion": "success",
 					"steps": [
 						{"name": "Attest published image digest", "status": "completed", "conclusion": "success"},
+						{"name": "Attest runner image component inventory", "status": "completed", "conclusion": "success"},
 						{"name": "Revalidate protected main after push and attestation", "status": "completed", "conclusion": "success"},
 						{"name": "Record pushed candidate digest", "status": "completed", "conclusion": "success"}
 					]}]}
@@ -48,12 +51,68 @@ func TestRunPublication(t *testing.T) {
 				Digest: map[string]string{"sha256": strings.TrimPrefix(candidate.ImageDigest, "sha256:")},
 			})
 			switch name {
+			case "valid release tag", "valid release retry", "skipped release provenance", "skipped copy without digest admission":
+				run.HeadBranch = "v0.42.0"
+				run.Path = releaseWorkflowPath
+				run.Event = "push"
+				jobsJSON = `[
+					{"jobs": [{"name": "Validate exact release tag", "status": "completed", "conclusion": "success"}]},
+					{"jobs": [{"name": "Publish Linux AMD64 release image", "status": "completed", "conclusion": "success",
+						"steps": [
+							{"name": "Admit existing release image only at the qualified digest", "status": "completed", "conclusion": "success"},
+							{"name": "Publish the exact qualified OCI image digest", "status": "completed", "conclusion": "success"},
+							{"name": "Attest published runner image provenance", "status": "completed", "conclusion": "success"},
+							{"name": "Verify published runner image provenance offline", "status": "completed", "conclusion": "success"},
+							{"name": "Attest published runner image inventory", "status": "completed", "conclusion": "success"},
+							{"name": "Verify published image inventory attestation offline", "status": "completed", "conclusion": "success"},
+							{"name": "Revalidate release tag after publication", "status": "completed", "conclusion": "success"},
+							{"name": "Record published release digest", "status": "completed", "conclusion": "success"}
+						]}]}
+				]`
+				if name == "skipped release provenance" || name == "valid release retry" || name == "skipped copy without digest admission" {
+					var pages []publicationJobs
+					if err := json.Unmarshal([]byte(jobsJSON), &pages); err != nil {
+						t.Fatal(err)
+					}
+					for i := range pages[1].Jobs[0].Steps {
+						switch pages[1].Jobs[0].Steps[i].Name {
+						case "Publish the exact qualified OCI image digest":
+							if name == "valid release retry" || name == "skipped copy without digest admission" {
+								pages[1].Jobs[0].Steps[i].Conclusion = "skipped"
+							}
+						case "Admit existing release image only at the qualified digest":
+							if name == "skipped copy without digest admission" {
+								pages[1].Jobs[0].Steps[i].Conclusion = "failure"
+							}
+						case "Attest published runner image provenance":
+							if name == "skipped release provenance" {
+								pages[1].Jobs[0].Steps[i].Conclusion = "failure"
+							}
+						}
+					}
+					encoded, err := json.Marshal(pages)
+					if err != nil {
+						t.Fatal(err)
+					}
+					jobsJSON = string(encoded)
+				}
 			case "failed finalization":
-				run.Conclusion = "failure"
+				var pages []publicationJobs
+				if err := json.Unmarshal([]byte(jobsJSON), &pages); err != nil {
+					t.Fatal(err)
+				}
+				pages[1].Jobs[0].Steps[0].Conclusion = "failure"
+				encoded, err := json.Marshal(pages)
+				if err != nil {
+					t.Fatal(err)
+				}
+				jobsJSON = string(encoded)
 			case "canceled run":
 				run.Conclusion = "cancelled" //nolint:misspell // GitHub's exact run conclusion.
-			case "incomplete run":
+			case "publisher complete while downstream jobs run":
 				run.Status = "in_progress"
+			case "later failed unrelated job":
+				run.Conclusion = "failure"
 			case "later successful attempt":
 				run.RunAttempt = "3"
 			case "wrong source":
@@ -72,12 +131,12 @@ func TestRunPublication(t *testing.T) {
 				jobsJSON = strings.ReplaceAll(jobsJSON, `"conclusion": "success"`, `"conclusion": "skipped"`)
 			case "missing final guard":
 				jobsJSON = strings.ReplaceAll(jobsJSON, "Revalidate protected main after push and attestation", "other step")
-			case "failed final guard", "skipped attestation", "skipped summary":
+			case "failed final guard", "skipped attestation", "skipped summary", "skipped inventory":
 				var pages []publicationJobs
 				if err := json.Unmarshal([]byte(jobsJSON), &pages); err != nil {
 					t.Fatal(err)
 				}
-				index := map[string]int{"failed final guard": 1, "skipped attestation": 0, "skipped summary": 2}[name]
+				index := map[string]int{"failed final guard": 2, "skipped attestation": 0, "skipped inventory": 1, "skipped summary": 3}[name]
 				pages[1].Jobs[0].Steps[index].Conclusion = "failure"
 				encoded, err := json.Marshal(pages)
 				if err != nil {
@@ -142,14 +201,15 @@ func TestRunPublication(t *testing.T) {
 					return nil, nil
 				}
 			})
-			if name == "valid" {
+			if name == "valid" || name == "valid release tag" || name == "valid release retry" || name == "canceled run" ||
+				name == "publisher complete while downstream jobs run" || name == "later failed unrelated job" {
 				if err != nil || len(calls) != 2 {
 					t.Fatalf("valid finalized run rejected: %v; API calls: %v", err, calls)
 				}
 			} else if err == nil {
 				t.Fatal("invalid publication accepted")
 			}
-			if name == "failed finalization" && !strings.Contains(err.Error(), "did not successfully complete") {
+			if name == "failed finalization" && !strings.Contains(err.Error(), "publisher finalization step") {
 				t.Fatalf("signed digest must be rejected specifically for failed publisher finalization: %v", err)
 			}
 		})

@@ -1,0 +1,200 @@
+{
+  "kind": "waza.provenance-verification",
+  "schema_version": "1.0",
+  "status": "verified",
+  "exit_code": 0,
+  "signer": {
+    "mode": "local-ed25519",
+    "key_id": "sha256:273c376463d2cd23fb4dcfda0c10bbb8925592c4da80b74955ff8f831fc12d88",
+    "trusted": true
+  },
+  "statement": {
+    "path": "statement.dsse.json",
+    "envelope_sha256": "ab077988cfba7f9afb08ebdb85e7690a395e512cef73cb4d345b5fce0a8092ce",
+    "payload_sha256": "1f1353549866d713aaf78a7d5de51af6dd285e10c3773341e8bc160673d2f735",
+    "predicate_type": "https://microsoft.github.io/waza/provenance/execution/v1"
+  },
+  "predicate": {
+    "profile": "waza.execution-provenance/1.0",
+    "waza": {
+      "version": "0.42.0"
+    },
+    "runner": {
+      "api_version": "1.0",
+      "request_schema_version": "1.0",
+      "image": {
+        "reference": "ghcr.io/microsoft/waza-runner:0.42.0",
+        "digest": "sha256:4f2b8c9e1d0a7b6c5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d"
+      }
+    },
+    "inputs": {
+      "request": {
+        "path": "inputs/request.json",
+        "sha256": "ea5ee4acd8f3dba6189707600956e40dbec3eaf86cf4b0ef1734d1c1280a7aef",
+        "media_type": "application/json"
+      },
+      "identity": {
+        "version": "sha256-waza-c14n-v1",
+        "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+        "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+        "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+        "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+        "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+        "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+      }
+    },
+    "policy": {
+      "path": "policy/release-policy.json",
+      "sha256": "6f1853fb97c73775991025f2ace1d430c41d4b61ee731faa0bd1476cd99f7027",
+      "media_type": "application/json"
+    },
+    "runtime": {
+      "execution_mode": "mock",
+      "executor": "mock",
+      "model": "mock-model"
+    },
+    "artifacts": {
+      "manifest": {
+        "path": "artifacts/manifest.json",
+        "sha256": "6f0ea21647fabc57fa6818e2ab1cdb7194ecabfd77662929ac908d048aad48f4",
+        "media_type": "application/json"
+      },
+      "objects": [
+        {
+          "path": "artifacts/objects/terminal.json",
+          "sha256": "74b7f86fc2b9dbfee64dbaab6379e399a0761bf06f0d56536c1e245ba8eabc39",
+          "media_type": "application/json"
+        }
+      ]
+    },
+    "outcome": {
+      "artifact": {
+        "path": "artifacts/objects/terminal.json",
+        "sha256": "74b7f86fc2b9dbfee64dbaab6379e399a0761bf06f0d56536c1e245ba8eabc39",
+        "media_type": "application/json"
+      },
+      "outcome": "success",
+      "exit_code": 0,
+      "failure_boundary": "none"
+    },
+    "bindings": []
+  },
+  "members": [
+    {
+      "path": "artifacts/manifest.json",
+      "role": "manifest",
+      "sha256": "6f0ea21647fabc57fa6818e2ab1cdb7194ecabfd77662929ac908d048aad48f4",
+      "status": "verified"
+    },
+    {
+      "path": "artifacts/objects/terminal.json",
+      "role": "terminal",
+      "sha256": "74b7f86fc2b9dbfee64dbaab6379e399a0761bf06f0d56536c1e245ba8eabc39",
+      "status": "verified"
+    },
+    {
+      "path": "bundle.json",
+      "role": "index",
+      "sha256": "80cd6319ef81edc6c74748e93aa91d85810b79325037ea3ecb93da46b023bbfa",
+      "status": "present"
+    },
+    {
+      "path": "inputs/request.json",
+      "role": "input",
+      "sha256": "ea5ee4acd8f3dba6189707600956e40dbec3eaf86cf4b0ef1734d1c1280a7aef",
+      "status": "verified"
+    },
+    {
+      "path": "policy/release-policy.json",
+      "role": "policy",
+      "sha256": "6f1853fb97c73775991025f2ace1d430c41d4b61ee731faa0bd1476cd99f7027",
+      "status": "verified"
+    },
+    {
+      "path": "statement.dsse.json",
+      "role": "envelope",
+      "sha256": "ab077988cfba7f9afb08ebdb85e7690a395e512cef73cb4d345b5fce0a8092ce",
+      "status": "present"
+    }
+  ],
+  "checks": [
+    {
+      "id": "bundle",
+      "status": "passed",
+      "code": "ok",
+      "message": "bundle index waza.provenance-bundle 1.0 locates statement.dsse.json"
+    },
+    {
+      "id": "signature",
+      "status": "passed",
+      "code": "ok",
+      "message": "DSSE signature verified with trusted key sha256:273c376463d2cd23fb4dcfda0c10bbb8925592c4da80b74955ff8f831fc12d88"
+    },
+    {
+      "id": "statement",
+      "status": "passed",
+      "code": "ok",
+      "message": "https://microsoft.github.io/waza/provenance/execution/v1 statement with profile waza.execution-provenance/1.0"
+    },
+    {
+      "id": "inputs",
+      "status": "passed",
+      "code": "ok",
+      "message": "canonical digest 46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5 recomputed from the request"
+    },
+    {
+      "id": "runner",
+      "status": "passed",
+      "code": "ok",
+      "message": "runner API 1.0 negotiated from request schema 1.0"
+    },
+    {
+      "id": "runtime",
+      "status": "passed",
+      "code": "ok",
+      "message": "executor mock, model mock-model, execution mode mock"
+    },
+    {
+      "id": "policy",
+      "status": "passed",
+      "code": "declared",
+      "message": "policy policy/release-policy.json sha256 6f1853fb97c73775991025f2ace1d430c41d4b61ee731faa0bd1476cd99f7027"
+    },
+    {
+      "id": "image",
+      "status": "passed",
+      "code": "pinned",
+      "message": "ghcr.io/microsoft/waza-runner:0.42.0@sha256:4f2b8c9e1d0a7b6c5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d"
+    },
+    {
+      "id": "waza_version",
+      "status": "passed",
+      "code": "declared",
+      "message": "Waza 0.42.0"
+    },
+    {
+      "id": "artifacts",
+      "status": "passed",
+      "code": "ok",
+      "message": "manifest 6f0ea21647fabc57fa6818e2ab1cdb7194ecabfd77662929ac908d048aad48f4 and 1 objects verified"
+    },
+    {
+      "id": "outcome",
+      "status": "passed",
+      "code": "ok",
+      "message": "success (exit 0, boundary none)"
+    },
+    {
+      "id": "bindings",
+      "status": "passed",
+      "code": "none",
+      "message": "no additional bindings"
+    },
+    {
+      "id": "members",
+      "status": "passed",
+      "code": "ok",
+      "message": "every bundle member is bound by the signed statement"
+    }
+  ]
+}

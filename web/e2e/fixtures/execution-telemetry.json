@@ -1,0 +1,218 @@
+{
+  "kind": "waza.execution-telemetry",
+  "schema_version": "1.0",
+  "payload_policy": "exclude",
+  "resource": {
+    "service.name": "waza",
+    "service.version": "test",
+    "waza.run.id": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+    "waza.scheduler.work_id": "queue/job-42",
+    "waza.telemetry.schema_version": "1.0",
+    "waza.work.id": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51"
+  },
+  "correlation": {
+    "trace_id": "220d9ee3a52c35677c238d0d6a51f28c",
+    "root_span_id": "341f8e0603edef0d",
+    "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+    "work": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+    "scheduler_work_id": "queue/job-42",
+    "identity_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+    "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+    "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+    "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+    "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70",
+    "task_span_id": "03a7c37a86dbeb47",
+    "attempts": [
+      {
+        "span_id": "7cef78007302bd07",
+        "execution_id": "exec-1e32b7c700dc97e50bdf68c136254696d3277b3d3011d8dee4a6e5c54085577e",
+        "native_attempt": 2,
+        "status": "completed",
+        "outcome": "success",
+        "manifest_sha256": "0c053c32e4f5b64edb19006b82fea41a13f46630c0011ef62b2895d6c9b56981",
+        "selected": false
+      },
+      {
+        "span_id": "88b725a1f967fa93",
+        "execution_id": "exec-93faa2aec7b8d457c820a7a70855ba2770e6272d8ad90c82a88ff97e88291c8f",
+        "parent_execution_id": "exec-1e32b7c700dc97e50bdf68c136254696d3277b3d3011d8dee4a6e5c54085577e",
+        "relationship": "retry",
+        "native_attempt": 2,
+        "status": "completed",
+        "outcome": "success",
+        "manifest_sha256": "09ee3d339311c82761c99c1adac6ab4a217f0223abb0dd2735de7f20a45868ab",
+        "selected": true
+      }
+    ],
+    "artifacts": [
+      {
+        "span_id": "16a758b00923c44a",
+        "name": "execution-attempt.json",
+        "sha256": "762aac2327b2d175db367e9080a007da836fd7c5183d9fdf7398bd1504283c2c",
+        "size_bytes": 1109,
+        "terminal": false
+      },
+      {
+        "span_id": "90b9331989e1d2ae",
+        "name": "execution-evidence-capture.json",
+        "sha256": "d9a97d74ad346f28a1983077b3b34c228d68b6e524a4b8125a3ac12d788be776",
+        "size_bytes": 1619,
+        "terminal": false
+      },
+      {
+        "span_id": "283c8e79c9cc70b7",
+        "name": "execution-evidence-grader.json",
+        "sha256": "32f467f4411218cf714c63ae37c81c2dc09f01c4278e18bfc07c3d00398269bf",
+        "size_bytes": 157,
+        "terminal": false
+      },
+      {
+        "span_id": "ba79eba1d0d39463",
+        "name": "execution-evidence-usage.json",
+        "sha256": "9a9cc0880739e0334d63e014d341894b3a0ff2c00123a1e21380e97c858e9d07",
+        "size_bytes": 306,
+        "terminal": false
+      },
+      {
+        "span_id": "d35c1d22ae58be6a",
+        "name": "terminal.json",
+        "sha256": "74b7f86fc2b9dbfee64dbaab6379e399a0761bf06f0d56536c1e245ba8eabc39",
+        "size_bytes": 1015,
+        "terminal": true
+      }
+    ],
+    "aggregation": {
+      "span_id": "0c0073794c932100",
+      "sha256": "75a7ab0d6514541ea92b5113a030d8615f1ea24fa7614cb64af20f11dc149d4f",
+      "state": "complete",
+      "members": [
+        {
+          "manifest_sha256": "09ee3d339311c82761c99c1adac6ab4a217f0223abb0dd2735de7f20a45868ab",
+          "state": "admitted",
+          "trace_id": "220d9ee3a52c35677c238d0d6a51f28c",
+          "span_id": "341f8e0603edef0d",
+          "execution_id": "exec-93faa2aec7b8d457c820a7a70855ba2770e6272d8ad90c82a88ff97e88291c8f"
+        },
+        {
+          "manifest_sha256": "0c053c32e4f5b64edb19006b82fea41a13f46630c0011ef62b2895d6c9b56981",
+          "state": "admitted",
+          "trace_id": "220d9ee3a52c35677c238d0d6a51f28c",
+          "span_id": "341f8e0603edef0d",
+          "execution_id": "exec-1e32b7c700dc97e50bdf68c136254696d3277b3d3011d8dee4a6e5c54085577e"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "source": "terminal",
+      "state": "present"
+    },
+    {
+      "source": "manifest",
+      "state": "present"
+    },
+    {
+      "source": "attempt",
+      "state": "present"
+    },
+    {
+      "source": "lineage",
+      "state": "present"
+    },
+    {
+      "source": "report",
+      "state": "present"
+    },
+    {
+      "source": "aggregate",
+      "state": "present"
+    }
+  ],
+  "signals": {
+    "traces": {
+      "emitted": 13,
+      "dropped": 4,
+      "names": {
+        "waza.aggregation": 1,
+        "waza.artifact": 5,
+        "waza.attempt": 2,
+        "waza.model": 1,
+        "waza.task_attempt": 1,
+        "waza.tool": 2,
+        "waza.work": 1
+      }
+    },
+    "metrics": {
+      "emitted": 11,
+      "dropped": 0,
+      "names": {
+        "gen_ai.client.token.usage": 4,
+        "waza.aggregation.members": 1,
+        "waza.execution.artifact.size": 1,
+        "waza.execution.artifacts": 1,
+        "waza.execution.attempts": 1,
+        "waza.telemetry.dropped": 1,
+        "waza.tool.calls": 2
+      }
+    },
+    "logs": {
+      "emitted": 4,
+      "dropped": 0,
+      "names": {
+        "waza.attempt.terminal": 2,
+        "waza.diagnostic": 1,
+        "waza.telemetry.dropped": 1
+      }
+    }
+  },
+  "dropped": [
+    {
+      "signal": "traces",
+      "reason": "payload_excluded",
+      "count": 4
+    }
+  ],
+  "exports": [
+    {
+      "signal": "traces",
+      "destination": "file",
+      "target": "traces.otlp.json",
+      "state": "exported"
+    },
+    {
+      "signal": "traces",
+      "destination": "otlp_http",
+      "target": "http://collector.example:4318/v1/traces",
+      "state": "exported",
+      "http_status": 200
+    },
+    {
+      "signal": "metrics",
+      "destination": "file",
+      "target": "metrics.otlp.json",
+      "state": "exported"
+    },
+    {
+      "signal": "metrics",
+      "destination": "otlp_http",
+      "target": "http://collector.example:4318/v1/metrics",
+      "state": "exported",
+      "http_status": 200
+    },
+    {
+      "signal": "logs",
+      "destination": "file",
+      "target": "logs.otlp.json",
+      "state": "exported"
+    },
+    {
+      "signal": "logs",
+      "destination": "otlp_http",
+      "target": "http://collector.example:4318/v1/logs",
+      "state": "failed",
+      "http_status": 503,
+      "error_code": "http_status"
+    }
+  ]
+}

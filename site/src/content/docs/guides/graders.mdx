@@ -688,6 +688,76 @@ its own selected files, not another grader's files or exclusions.
 | `mode: pairwise` / `continue_session: true` | Rejected |
 | Controlled execution / `--evidence-snapshot` | Rejected |
 
+#### Evaluator-controlled non-secret fixtures
+
+**Availability (#898):** this option requires a build containing the fix;
+published v0.41.0 does not support it.
+
+The default policy conservatively redacts credential-shaped hex tokens, email
+addresses and values under sensitive key names (including names containing
+`Key`). A Git SHA's shape alone cannot distinguish it from a credential.
+For **reviewed, evaluator-authored fixtures only**, declare exact public,
+non-secret literals in the final eval/task grader configuration:
+
+```yaml
+- type: prompt
+  name: fixture_judge
+  config:
+    prompt: Judge the recorded fixture task. Call exactly one grade tool.
+    evidence_context:
+      non_secret_literals:
+        - "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        - fixture@example.invalid
+        - PROJ-1
+```
+
+Declarations are case-sensitive, unique identifiers of **3–128 ASCII bytes**,
+using letters, digits, dot, underscore, percent, plus, at or hyphen, beginning
+and ending with a letter/digit. Quote all-numeric identifiers and SHAs in YAML.
+At most **64 literals** are permitted across the final eval/task grader union.
+Omission retains the original policy and bundle `1.0`; an explicit empty list
+preserves nothing but records the declaration's presence. Null, patterns,
+wildcards, whitespace, aliases/merges and malformed declarations are rejected
+offline without invoking a model, tool or external schema.
+
+Only exact whole-token regex matches are preserved. Token boundaries are
+whitespace or comma, semicolon, colon, quotes, parentheses, brackets, braces
+or angle brackets; punctuation such as dot, slash, equals or hyphen is **not**
+a boundary. A declaration does not exempt a substring of a longer token,
+ignore case, exempt an entire field, or exempt a broader credential expression
+such as `Bearer <declared-SHA>`.
+For structured tool arguments and selected JSON files, a sensitive key's value
+is preserved only when the **entire string value** is declared; for example,
+`projectKey: PROJ-1` and `issueIdOrKey: PROJ-1`. Containers and other values still
+redact. Textual JSON inside a tool-result string is treated as text, not as a
+trusted tool schema.
+
+This capture-only policy covers frozen task, visible messages, tool data, output
+and selected-file content, never origin identifiers or file-path admission.
+Declarations from all final graders apply to their shared capture; each judge
+still receives only its own files. Do not derive declarations from actor output,
+tool responses, discovered customer data or ambient configuration. Do not list
+real credentials or real private contacts. Use synthetic fixture contacts such
+as `fixture@example.invalid`; there is no blanket email or Git SHA exemption.
+An evaluator who wrongly declares a credential can expose that exact value:
+configuration is a trust boundary, not a way to certify data safe.
+
+Explicit declarations use independently versioned bundle **`1.1`**, recording
+only `fixture_literals.declared_count` and `preserved_matches` (skipped regex/key
+matches, not unique occurrences). Declaration lists and unused values are not
+copied into bundles, judge observations or diagnostics, including failed runs
+and failed saved regrades written with `--output`. Values actually present
+in admitted evidence remain visible to the judge and in saved evidence.
+Global snapshot redaction is unchanged. Cache identities include declarations,
+although evidence-enabled execution continues to bypass cache reuse.
+
+Any undeclared credential/contact, longer-token match, or missing required
+evidence still fails closed **before judge startup**. Review diagnostic codes
+and redaction rule names without logging source content. Correct fixture
+declarations and record a new run: adding a declaration during `waza grade`
+cannot restore evidence already withheld or redacted in a saved bundle.
+Saved regrading preserves the recorded capture and its policy-use counts.
+
 #### Required evidence and limits
 
 Every requested section and file is required. Explicit empty output, empty files,
@@ -1171,6 +1241,12 @@ with the run's grading context. Published `v0.39.1` does not provide it.
 | `command` | `string`    | _(required)_ | Program to execute              |
 | `args`    | `list[str]` | `[]`         | Arguments passed to the program |
 | `timeout` | `int`       | `30`         | Max execution time in seconds   |
+
+When the program times out, is canceled or cannot be started, the result
+still fails with score `0.0`, and `details.operational_error` is set to
+`timeout`, `canceled` or `launch_failed`. A program that ran and exited
+non-zero does not set it. `waza optimize` treats operational errors as
+incomplete evaluations rather than failed assertions.
 
 ### Grading context file
 

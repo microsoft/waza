@@ -1,39 +1,74 @@
-# Observed Linux race/atomic top-level durations (seconds), 2026-11-04.
-# https://github.com/microsoft/waza/actions/runs/41877103009
-# Head: 4af01e378c56b1e29a77e0e053dcab8a88b5cd09
-# Update from top-level PASS records only; subtest durations overlap parents.
-TestAssuredCollectionRealOfflineVerifierAndRegrade	106.09
-TestAssuredCurrentReviewRevocationAndArmSwap	66.78
-TestAssuredCurrentSourceChangesRejectBeforeCollection	54.46
-TestAssuredFullRowsAndRegradeCannotAdoptPass	35.23
-TestAssuredRechecksAfterActualVerifier	24.98
-TestAssuredUnreviewedRemainsNonpass	41.43
-TestNativeArtifactPublicWireBoundBeforeOpen	0.0
-TestNativeArtifactRejectsFIFOReplacementBeforeOpen	0.0
-TestNativeArtifactsAreRequiredAndConfined	163.77
-TestNativeCollectionAcceptedAndFrozenReader	155.48
-TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime	48.49
-TestNativeCollectionDiscoveryOrder	103.38
-TestNativeCollectionObservedFailures	840.1
-TestNativeCollectionProductionLifecycle	117.94
-TestNativeCollectionPublicPayloads	378.76
-TestNativeFrozenResourcesReachFreshSDKWorkspace	43.99
-TestNativeInnerProfileRejectsFrozenPolicyMemberOracle	0.0
-TestNativeLateFailurePreservesEveryStartedAttempt	514.57
-TestNativeReadSelectedDecisionCaptureVerification	248.68
-TestNativeReaderFrozen15cDecisionParity	991.7
-TestNativeReaderPreservesPrePolicyCoreFailures	113.32
-TestNativeReaderSuppliedDecisionProcess	6.95
-TestNativeSourceCurrentnessBeforeSideEffects	150.92
-TestNativeStaticRequirementsAndConfiguration	8.55
-TestNativeTerminalPolicyAndLateStop	207.71
-TestOriginalMockGuardAndLockErrorParity	2.61
-TestOriginalMockPolicyGoldenUnionParity	4.37
-TestOriginalMockSourceProjectionParity	14.1
-TestPlanningInputRequiresExplicitFields	0.0
-TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment	202.24
-TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection	88.76
-TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection	8.19
-TestSourceBoundCollection	5.47
-TestSourceDriftBeforeBegin	1.4
-TestSourcePlanBoundaries	8.53
+# Linux race/atomic test duration estimates (seconds), refreshed 2026-11-17.
+# Costs for tests with PASS observations average spans from two distinct
+# successful main-push Go Build and Test runs: 44123339679 attempt 1
+# (719c9326a7e72ad7237ff1f986476e3e80ab28de) and 44137275613 attempt 1
+# (fc993836f6ea06ac95fa970e5cc5cda103a3e45b).
+# Ordinary tests use each run's top-level PASS span. The 26 promoted cases use
+# disjoint child PASS spans from each run, never the enclosing parent duration.
+# Two tests skipped in both runs retain their prior zero estimates. The observed
+# runs missed #825: 1.2813 / 27:40 and 1.456 / 25:27. Mean-cost reassignment
+# projects test-work ratios 1.043 / 1.049 on those samples; conservative span
+# estimates are 25:17 / 22:12. These costs/projections are not acceptance
+# evidence. The unverified #1058 refresh/projection is not used.
+# https://github.com/microsoft/waza/actions/runs/44123339679
+# https://github.com/microsoft/waza/actions/runs/44137275613
+TestAssuredBuiltCLIWorkflow	0.00
+TestAssuredCollectionRealOfflineVerifierAndRegrade	107.78
+TestAssuredCurrentReviewRevocationAndArmSwap	62.47
+TestAssuredCurrentSourceChangesRejectBeforeCollection	66.50
+TestAssuredFullRowsAndRegradeCannotAdoptPass	36.52
+TestAssuredRechecksAfterActualVerifier	25.27
+TestAssuredUnreviewedRemainsNonpass	42.22
+TestNativeArtifactPublicWireBoundBeforeOpen	0.00
+TestNativeArtifactRejectsFIFOReplacementBeforeOpen	0.00
+TestNativeArtifactsAreRequiredAndConfined	163.01
+TestNativeCollectionAcceptedAndFrozenReader	145.59
+TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime	70.34
+TestNativeCollectionDiscoveryOrder	103.14
+TestNativeCollectionObservedFailureDisconnect	77.52
+TestNativeCollectionObservedFailureEmptyOutput	77.66
+TestNativeCollectionObservedFailureExecute	65.83
+TestNativeCollectionObservedFailureInitialize	66.18
+TestNativeCollectionObservedFailureReachedBudget	74.44
+TestNativeCollectionObservedFailureRetry	70.25
+TestNativeCollectionObservedFailureShutdown	78.00
+TestNativeCollectionObservedFailureUnknownBudget	74.84
+TestNativeCollectionObservedFailureUnknownUsage	78.19
+TestNativeCollectionProductionLifecycle	110.79
+TestNativeCollectionPublicPayloadCarriageReturn	113.98
+TestNativeCollectionPublicPayloadLargeOutput	87.91
+TestNativeCollectionPublicPayloadLargeRequest	203.69
+TestNativeCollectionPublicPayloadStreamOverflow	119.73
+TestNativeFrozenResourcesReachFreshSDKWorkspace	36.98
+TestNativeInnerProfileRejectsFrozenPolicyMemberOracle	0.00
+TestNativeLateFailureBeforePublication	58.83
+TestNativeLateFailureBeforeStart	16.51
+TestNativeLateFailureBetweenAttempts	54.91
+TestNativeLateFailureDuringExecution	52.67
+TestNativeLateFailureDuringShutdown	53.03
+TestNativeLateFailureOvershoot	56.58
+TestNativeLateFailurePublicationConflict	58.93
+TestNativeLateFailureReusedSession	56.34
+TestNativeReadSelectedDecisionCaptureVerification	361.33
+TestNativeReaderFrozen15cDecisionParity	505.12
+TestNativeReaderFrozen15cDecisionParityAdditionalInputs	769.02
+TestNativeReaderPreservesPrePolicyCoreFailures	81.86
+TestNativeReaderSuppliedDecisionProcess	12.50
+TestNativeSourceCurrentnessBeforeSideEffectsEval	29.77
+TestNativeSourceCurrentnessBeforeSideEffectsFixture	29.82
+TestNativeSourceCurrentnessBeforeSideEffectsInstruction	30.76
+TestNativeSourceCurrentnessBeforeSideEffectsPrompt	29.81
+TestNativeSourceCurrentnessBeforeSideEffectsTask	30.69
+TestNativeStaticRequirementsAndConfiguration	9.89
+TestNativeTerminalPolicyAndLateStop	195.06
+TestNativeUnsupportedPlatformBeforeEffects	0.00
+TestOriginalMockGuardAndLockErrorParity	2.96
+TestOriginalMockPolicyGoldenUnionParity	5.36
+TestOriginalMockSourceProjectionParity	14.26
+TestPlanningInputRequiresExplicitFields	0.00
+TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment	308.43
+TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection	72.09
+TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection	6.61
+TestSourceBoundCollection	5.11
+TestSourceDriftBeforeBegin	1.81
+TestSourcePlanBoundaries	10.67

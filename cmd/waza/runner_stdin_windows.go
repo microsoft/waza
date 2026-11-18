@@ -13,6 +13,10 @@ import (
 )
 
 func readInheritedRunnerInput(ctx context.Context) (data []byte, resultErr error) {
+	return readInheritedRunnerInputLimit(ctx, runnercontract.MaxRequestBytes)
+}
+
+func readInheritedRunnerInputLimit(ctx context.Context, maxBytes int64) (data []byte, resultErr error) {
 	if err := os.Stdin.SetReadDeadline(time.Time{}); err == nil {
 		finished := make(chan struct{})
 		var interruptErr error
@@ -50,7 +54,7 @@ func readInheritedRunnerInput(ctx context.Context) (data []byte, resultErr error
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("runner input interrupted: %w", err)
 	}
-	data, err := io.ReadAll(io.LimitReader(os.Stdin, runnercontract.MaxRequestBytes+1))
+	data, err := io.ReadAll(io.LimitReader(os.Stdin, maxBytes+1))
 	if cause := ctx.Err(); cause != nil {
 		return nil, fmt.Errorf("runner input interrupted: %w", cause)
 	}

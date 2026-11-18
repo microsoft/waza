@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # Dockerfile for waza - AI agent skill evaluation CLI
 # This provides a containerized environment for running waza in CI/CD pipelines
 
@@ -23,7 +25,9 @@ WORKDIR /build
 COPY go.mod go.sum ./
 
 # Download dependencies
-RUN go mod download
+# Cache mounts persist on the same BuildKit builder, not in exported image layers.
+RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY . .
@@ -32,10 +36,22 @@ COPY . .
 COPY --from=web-builder /build/web/dist/ web/dist/
 
 # Build the binary with static linking
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-s -w' -o waza ./cmd/waza
+RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=waza-go-build,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags '-s -w' -o waza ./cmd/waza
 
 # Verify the binary works
-RUN ./waza --version
+RUN test "$(od -An -tx1 -N4 ./waza | tr -d ' \n')" = 7f454c46 && \
+    ldd /bin/sh && ./waza --version && \
+    if ldd ./waza >/tmp/waza-ldd.txt 2>&1; then \
+        cat /tmp/waza-ldd.txt; \
+        echo "Expected a statically linked waza binary" >&2; \
+        exit 1; \
+    else \
+        cat /tmp/waza-ldd.txt && \
+        grep -Fq './waza: Not a valid dynamic program' /tmp/waza-ldd.txt && \
+        rm /tmp/waza-ldd.txt; \
+    fi
 
 # Runtime stage - minimal alpine image
 FROM alpine:3.19
@@ -49,7 +65,13 @@ WORKDIR /workspace
 COPY --from=builder /build/waza /usr/local/bin/waza
 
 # Verify installation
-RUN waza --version
+RUN waza --version && \
+    for path in /go/pkg/mod /root/.cache/go-build /build; do \
+        if [ -e "$path" ] || [ -L "$path" ]; then \
+            echo "Build cache or source leaked into runtime image: $path" >&2; \
+            exit 1; \
+        fi; \
+    done
 
 # Default command shows help
 ENTRYPOINT ["waza"]

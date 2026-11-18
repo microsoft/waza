@@ -24,6 +24,7 @@ import (
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
 )
@@ -290,6 +291,8 @@ func TestRunnerTerminalCancellationJoinsInputAndPreservesHandle(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, 3, exit.Code)
 			require.EqualError(t, exit.Err, "runner run: "+string(runnerterminal.Canceled))
+			require.Equal(t, usagetelemetry.CommandCancelled, commandOutcome(exit, exit.Code, true),
+				"a canceled runner terminal is classified as cancellation, not a runtime error")
 			envelope, err := runnerterminal.Validate(output.Bytes(), nil)
 			require.NoError(t, err)
 			require.Equal(t, runnerterminal.Canceled, envelope.Outcome)

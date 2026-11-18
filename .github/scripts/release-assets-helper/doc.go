@@ -61,7 +61,9 @@
 // Content hashes establish integrity against caller-supplied source/run/digest
 // identity, not trust in the workflow, reproducibility or genuine build
 // execution. Layout checks reject common stub/incomplete payloads; they do not
-// attest that Vite ran. Index checks cover quoted src/href references only;
-// arbitrary JavaScript closure and browser route correctness require separately
-// exercised production browser/embedded-server evidence.
+// attest that Vite ran. Index admission shares the release checker's HTML/URL
+// semantics, resolving references against the document root and ignoring inert
+// content without rewriting artifact bytes. Arbitrary JavaScript closure and
+// browser route correctness require separately exercised production
+// browser/embedded-server evidence.
 package main

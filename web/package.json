@@ -10,10 +10,14 @@
     "lint": "eslint .",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "prerefresh:docs-media": "npm run build",
+    "refresh:docs-media": "WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0",
+    "prerelease:media": "npm run build",
+    "release:media": "playwright test e2e/release-media.spec.ts --project=chromium --retries=0 --workers=1"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.105.3",
+    "@tanstack/react-query": "^5.107.1",
     "@tanstack/react-table": "^9.3.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
@@ -23,8 +27,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.64.1",
-    "@tailwindcss/vite": "^4.3.3",
+    "@playwright/test": "^1.65.0",
+    "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
@@ -32,9 +36,9 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",
-    "tailwindcss": "^4.3.2",
+    "tailwindcss": "^4.3.5",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.1",
+    "typescript-eslint": "^8.72.2",
     "vite": "^8.3.5"
   }
 }

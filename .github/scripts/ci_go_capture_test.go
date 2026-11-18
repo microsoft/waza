@@ -170,6 +170,7 @@ printf '%s\n' "$@" >> "$CALLS"
 echo --end-- >> "$CALLS"
 if [ "$1" != test ]; then exit 88; fi
 shift
+if [[ "$1" = -p=* ]]; then shift; fi
 if [ "$1" = -race ]; then
   phase=discovery
   shift 5
@@ -236,7 +237,13 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 				if scope == "all" {
 					selector = []string{"./..."}
 				}
-				discovery := append([]string{"test", "-race", "-covermode=atomic", "-json", "-list", "."}, selector...)
+				testParallelism := []string{}
+				if scope == "remaining" {
+					testParallelism = []string{"-p=4"}
+				}
+				discovery := append([]string{"test"}, testParallelism...)
+				discovery = append(discovery, "-race", "-covermode=atomic", "-json", "-list", ".")
+				discovery = append(discovery, selector...)
 				if !reflect.DeepEqual(strings.Fields(commands[0]), discovery) {
 					t.Fatalf("discovery=%v want=%v", strings.Fields(commands[0]), discovery)
 				}
@@ -248,7 +255,10 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 					t.Fatalf("go invocations=%d want=%d", len(commands), count)
 				}
 				if count == 2 {
-					execution := append([]string{"test", "-count=1", "-json", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}, selector...)
+					execution := append([]string{"test"}, testParallelism...)
+					execution = append(execution, "-count=1", "-json", "-v", "-race", "-timeout=30m",
+						"-coverprofile=coverage.txt", "-covermode=atomic")
+					execution = append(execution, selector...)
 					if !reflect.DeepEqual(strings.Fields(commands[1]), execution) {
 						t.Fatalf("execution=%v want=%v", strings.Fields(commands[1]), execution)
 					}

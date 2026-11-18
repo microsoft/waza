@@ -1,0 +1,43 @@
+{
+  "kind": "waza.inventory-verification",
+  "schema_version": "1.0",
+  "status": "failed",
+  "exit_code": 1,
+  "expected": {
+    "kind": "image",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "name": "ghcr.io/microsoft/waza-runner-reference"
+  },
+  "checks": [
+    {
+      "id": "inventory",
+      "status": "failed",
+      "code": "inventory_missing",
+      "message": "no component inventory was supplied; the image cannot be verified"
+    },
+    {
+      "id": "profile",
+      "status": "skipped",
+      "code": "not_reached",
+      "message": "an earlier check failed"
+    },
+    {
+      "id": "subject",
+      "status": "skipped",
+      "code": "not_reached",
+      "message": "an earlier check failed"
+    },
+    {
+      "id": "binding",
+      "status": "skipped",
+      "code": "not_reached",
+      "message": "an earlier check failed"
+    },
+    {
+      "id": "components",
+      "status": "skipped",
+      "code": "not_reached",
+      "message": "an earlier check failed"
+    }
+  ]
+}

@@ -32,6 +32,7 @@ import (
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/telemetry"
 	"github.com/microsoft/waza/internal/transcript"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/microsoft/waza/internal/utils"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -72,6 +73,9 @@ type EvalRunner struct {
 
 	// Tag filtering for tasks
 	tagFilters []string
+
+	// exactTestIDs, when non-nil, keeps only tasks whose TestID is in the set.
+	exactTestIDs map[string]struct{}
 
 	// Result caching
 	cache *cache.Cache
@@ -183,6 +187,31 @@ func WithTagFilters(patterns ...string) RunnerOption {
 	return func(r *EvalRunner) {
 		r.tagFilters = patterns
 	}
+}
+
+// WithExactTestIDs keeps only tasks whose TestID equals one of ids. Unlike
+// [WithTaskFilters], IDs are compared literally and display names never match.
+// It composes with task and tag filters as an intersection.
+func WithExactTestIDs(ids ...string) RunnerOption {
+	return func(r *EvalRunner) {
+		r.exactTestIDs = make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			r.exactTestIDs[id] = struct{}{}
+		}
+	}
+}
+
+func (r *EvalRunner) filterExactTestIDs(testCases []*models.TestCase) []*models.TestCase {
+	if r.exactTestIDs == nil {
+		return testCases
+	}
+	kept := make([]*models.TestCase, 0, len(testCases))
+	for _, tc := range testCases {
+		if _, ok := r.exactTestIDs[tc.TestID]; ok {
+			kept = append(kept, tc)
+		}
+	}
+	return kept
 }
 
 // WithClock sets the clock used for run identity allocation.
@@ -357,9 +386,30 @@ func (r *EvalRunner) takeSetup(ctx context.Context) (*RunSetup, error) {
 	return StartRunSetup(ctx, r.cfg, r.verbose)
 }
 
-// RunBenchmark executes the entire benchmark
-// If Baseline is enabled, runs twice: skills-enabled and skills-disabled
+// RunBenchmark executes the entire benchmark.
+// If Baseline is enabled, it runs twice: skills-enabled and skills-disabled.
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+	if !usagetelemetry.Active() {
+		return r.runBenchmark(ctx)
+	}
+	started := time.Now()
+	var executed taskExecutionCounter
+	ctx = context.WithValue(ctx, taskExecutionCounterKey{}, &executed)
+	outcome, err := r.runBenchmark(ctx)
+	failed, errored := 0, 0
+	if outcome != nil {
+		failed, errored = outcome.Digest.Failed, outcome.Digest.Errors
+	}
+	lower, upper := executed.bounds()
+	if usagetelemetry.CountBucket(lower) == usagetelemetry.CountBucket(upper) {
+		usagetelemetry.RecordExecution(usagetelemetry.SurfaceBenchmark,
+			usagetelemetry.ExecutionMode(r.cfg.Spec().Config.EngineType),
+			usagetelemetry.ExecutionOutcome(ctx, err, failed, errored), lower, time.Since(started))
+	}
+	return outcome, err
+}
+
+func (r *EvalRunner) runBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
 	// before_run may generate task inputs, so it runs before tasks are loaded
 	// for MCP admission and before the engine starts. The first benchmark pass
 	// consumes this setup; an earlier failure still runs after_run once.
@@ -470,9 +520,13 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		}
 		fmt.Println()
 	}
+	testCases = r.filterExactTestIDs(testCases)
 
 	if len(testCases) == 0 {
 		return nil, fmt.Errorf("no test cases found")
+	}
+	if err := models.ValidateWorkspaceCapture(spec, testCases); err != nil {
+		return nil, err
 	}
 	r.partialMu.Lock()
 	r.partialOutcomes = make([]models.TestOutcome, len(testCases))
@@ -777,7 +831,10 @@ func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 	if err := mcpmock.ValidateMCPMocksForPhases(r.cfg.Spec(), testCases, r.cfg.SpecDir(), usesEvalMCP); err != nil {
 		return errors.Join(selectionErr, fmt.Errorf("MCP mock admission: %w", err))
 	}
-	return selectionErr
+	if r.cfg.Spec().Config.WorkspaceCapture == "none" && len(r.snapshotWorkspacePaths) > 0 {
+		return errors.Join(selectionErr, fmt.Errorf("workspace_capture none cannot be used with workspace snapshot files"))
+	}
+	return errors.Join(selectionErr, models.ValidateWorkspaceCapture(r.cfg.Spec(), testCases))
 }
 
 // admissionTestCases selects the active tasks a run would execute, after task
@@ -793,7 +850,7 @@ func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
 			return nil, fmt.Errorf("task/tag filter error: %w", err)
 		}
 	}
-	return testCases, nil
+	return r.filterExactTestIDs(testCases), nil
 }
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
 	return LoadSelectedTestCasesWithJobID(r.cfg.Spec(), r.cfg.SpecDir(), r.currentTime(), r.evalRunID)
@@ -1085,6 +1142,11 @@ func (r *EvalRunner) writeTaskTranscript(tc *models.TestCase, outcome models.Tes
 }
 
 func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, testNum, totalTests int) models.TestOutcome {
+	if counter, ok := ctx.Value(taskExecutionCounterKey{}).(*taskExecutionCounter); ok {
+		marker := &taskExecutionMarker{counter: counter}
+		defer marker.finish()
+		ctx = context.WithValue(ctx, taskExecutionMarkerKey{}, marker)
+	}
 	spec := r.cfg.Spec()
 	runsPerTest := spec.Config.TrialsPerTask
 	maxAttempts := spec.Config.MaxAttempts
@@ -1214,9 +1276,11 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var frozenJudgeEvidence *models.JudgeEvidence
 	var promptJudging []models.PromptJudgeObservation
 	var mockAttempt *copilotconfig.MCPMockAttempt
+	additionalInfrastructureFailure := false
 	diagnosticCategory := "setup"
 	returnWithArtifacts := func(run models.RunResult, cause error) attemptResult {
 		if closeErr := mockAttempt.Close(); closeErr != nil {
+			additionalInfrastructureFailure = true
 			run.Status = models.StatusError
 			cleanupErr := fmt.Errorf("clean up MCP mock attempt state: %w", closeErr)
 			cause = errors.Join(cause, cleanupErr)
@@ -1236,6 +1300,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			run.Attempts = attempt
 		}
 		if resp != nil {
+			if resp.WorkspaceCaptureError != "" {
+				run.InfrastructureDiagnostic = execution.CaptureDiagnostic(resp.CaptureFailure())
+				run.InfrastructureDiagnostic.AdditionalFailure = additionalInfrastructureFailure || resp.AdditionalInfrastructureFailure
+			}
 			if run.ToolEvents == nil {
 				run.ToolEvents = buildToolEvents(copilotevents.ToSDK(resp.Events))
 			}
@@ -1270,12 +1338,24 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 
 	// Prepare execution request
+	if err := models.ValidateWorkspaceCapture(r.cfg.Spec(), []*models.TestCase{tc}); err != nil {
+		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError, ErrorMsg: err.Error()}, err)
+	}
+	if r.cfg.Spec().Config.WorkspaceCapture == "none" && len(r.snapshotWorkspacePaths) > 0 {
+		err := fmt.Errorf("workspace_capture none cannot be used with workspace snapshot files")
+		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError, ErrorMsg: err.Error()}, err)
+	}
 	if controlled && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
 		err := fmt.Errorf("evidence_context is not supported by controlled execution")
 		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError,
 			ErrorMsg: err.Error()}, err)
 	}
 	req = prepared
+	if req != nil && (req.SkipWorkspaceCapture != (r.cfg.Spec().Config.WorkspaceCapture == "none") ||
+		(req.SkipWorkspaceCapture && (len(req.WorkspaceCapturePaths) != 0 || req.CaptureJudgeFiles != nil))) {
+		err := fmt.Errorf("prepared request workspace capture does not match validated configuration")
+		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError, ErrorMsg: err.Error()}, err)
+	}
 	if req == nil {
 		req, mockAttempt, err = r.buildAttemptExecutionRequest(tc)
 	}
@@ -1346,7 +1426,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
-	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
+	resp, err = r.executeActorRecorded(execCtx, req)
+	if resp != nil && captureHasExecutionFailure(resp, err) {
+		additionalInfrastructureFailure = true
+	}
 	execErr := execCtx.Err()
 	if controlled && err == nil && execErr != nil {
 		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execErr)
@@ -1359,6 +1442,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	cancelExec()
 	if err != nil {
+		additionalInfrastructureFailure = true
 		cause := err
 		if controlled && execErr != nil && !errors.Is(err, execErr) {
 			// Preserve the observed engine error text and both typed causes;
@@ -1422,6 +1506,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	if userInput != nil {
 		finishErr := userInput.Finish()
 		resp.UserInputRequests = userInput.Records()
+		if finishErr != nil {
+			additionalInfrastructureFailure = true
+		}
 		if finishErr != nil && resp.ErrorMsg == "" {
 			resp.Success = false
 			resp.ErrorMsg = finishErr.Error()
@@ -1431,6 +1518,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	if finalizer, ok := r.engine.(execution.CommandMockFinalizer); ok {
 		commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
 		if err != nil {
+			additionalInfrastructureFailure = true
 			resp.Success = false
 			if resp.WorkspaceCaptureError != "" && resp.ErrorMsg != "" {
 				resp.ErrorMsg = fmt.Sprintf("%s; command mock finalization: %v", resp.ErrorMsg, err)
@@ -1888,6 +1976,9 @@ func warnStderr(format string, args ...any) {
 }
 
 func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMCP func(*models.EvalSpec) (map[string]copilot.MCPServerConfig, error)) (*execution.ExecutionRequest, error) {
+	if err := models.ValidateWorkspaceCapture(r.cfg.Spec(), []*models.TestCase{tc}); err != nil {
+		return nil, err
+	}
 	// Load resource files
 	r.setRequestInputRole("context_fixture")
 	resources, err := r.loadContextFixtureResources(tc)
@@ -1956,6 +2047,7 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 		ReasoningEffort:       spec.Config.ReasoningEffort,
 		CaptureJudgeFiles:     captureJudgeFiles,
 		WorkspaceCapturePaths: capturePaths,
+		SkipWorkspaceCapture:  spec.Config.WorkspaceCapture == "none",
 	}, nil
 }
 
@@ -2042,6 +2134,9 @@ func responderUserInputFallback(classifier responderClassifier, timeout time.Dur
 	return func(ctx context.Context, request copilot.UserInputRequest) (string, error) {
 		callCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
+		// The responder runs inside the actor turn but is not an actor turn.
+		callCtx = execution.WithActorStartObserver(callCtx, nil)
+		callCtx = execution.WithActorDispatchObserver(callCtx, nil)
 		decision, err := classifier.Classify(callCtx, nativeQuestionMessage(request))
 		if err != nil {
 			return "", err
@@ -2248,7 +2343,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			Prompt:       prompt,
 		})
 		followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
-		followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
+		followResp, err := r.executeActorRecorded(followCtx, followReq)
 		cancelFollow()
 		if mergeLaterTurnResponse(resp, followResp, err) {
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -2395,7 +2490,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	})
 	defer turnSpan.End()
 	followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
-	followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
+	followResp, err := r.executeActorRecorded(followCtx, followReq)
 	cancelFollow()
 	if mergeLaterTurnResponse(resp, followResp, err) {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -2421,6 +2516,9 @@ func mergeLaterTurnResponse(resp, turn *execution.ExecutionResponse, executionEr
 	if executionErr != nil && (turn == nil || turn.WorkspaceCaptureError == "") {
 		return false
 	}
+	if turn.WorkspaceCaptureError != "" {
+		resp.AdditionalInfrastructureFailure = resp.AdditionalInfrastructureFailure || captureHasExecutionFailure(turn, executionErr)
+	}
 	resp.CommandInvocations = turn.CommandInvocations
 	resp.UserInputRequests = turn.UserInputRequests
 	markToolPolicyViolation(turn)
@@ -2429,6 +2527,22 @@ func mergeLaterTurnResponse(resp, turn *execution.ExecutionResponse, executionEr
 		mergeCompletedTurnResponse(resp, turn)
 	}
 	return true
+}
+
+func captureHasExecutionFailure(resp *execution.ExecutionResponse, executionErr error) bool {
+	if resp.WorkspaceCaptureError == "" {
+		return false
+	}
+	if executionErr != nil || resp.AdditionalInfrastructureFailure {
+		return true
+	}
+	// Typed native capture responses record execution success independently.
+	if resp.WorkspaceCaptureCause != nil {
+		return !resp.ExecutionSucceeded
+	}
+	// Custom engines may not set ExecutionSucceeded; only a distinct error
+	// string is evidence of another failure, never a source of public text.
+	return resp.ErrorMsg != "" && resp.ErrorMsg != resp.WorkspaceCaptureError
 }
 
 func mergeCompletedTurnResponse(resp, turn *execution.ExecutionResponse) {

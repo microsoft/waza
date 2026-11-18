@@ -2,6 +2,8 @@ import { test, expect } from "@playwright/test";
 import { RELEASE_COLLECTIONS } from "./fixtures/release-data";
 import { nativeReleaseCollections } from "./fixtures/native-release-data";
 
+test.skip(process.env.WAZA_REFRESH_DOCS_MEDIA !== "1", "Run npm run refresh:docs-media to update documentation screenshots.");
+
 test("release-policies screenshot", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.route(/\/api\/release-collections$/, (route) => route.fulfill({ json: RELEASE_COLLECTIONS }));

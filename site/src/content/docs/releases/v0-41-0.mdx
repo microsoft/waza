@@ -1,0 +1,307 @@
+---
+title: "Waza v0.41.0: recover durable work, keep the evidence"
+description: Execution attempts and lineage, checkpoints, lifecycle semantics, evidence states, standalone aggregation, the optimizer adapter contract, native question callbacks, and dashboard, capture, build and CI improvements.
+---
+
+Waza v0.41.0 makes externally scheduled evaluation work durable. Logical work
+is separated from execution attempts, compatible units can be checkpointed and
+resumed, every attempt has an explicit lifecycle and evidence state, and
+completed manifests can be aggregated without re-running anything. The release
+also adds the optimizer adapter contract and native question callbacks.
+
+**Released November 13, 2026**, this version includes the v0.40.1 hotfixes plus
+the work described below. Install the
+[standalone v0.41.0 release](https://github.com/microsoft/waza/releases/tag/v0.41.0)
+or run `waza update`. The azd extension is versioned and published separately as
+[`azd-ext-microsoft-azd-waza_0.41.0`](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0);
+see the [release and download reference](../../reference/releases/).
+
+## Durable execution, recovery, and aggregation
+
+The v0.41.0 roadmap [#755](https://github.com/microsoft/waza/issues/755) is
+closed. The [durable execution operations guide](../../guides/durable-execution/)
+walks the connected path below
+([#982](https://github.com/microsoft/waza/pull/982)).
+
+- **Separate logical work from execution attempts**
+  ([#764](https://github.com/microsoft/waza/issues/764)) - The attempt core
+  ([#942](https://github.com/microsoft/waza/pull/942)) gains public
+  `waza runner submit` / `POST /api/v1/submissions` and read-only
+  `waza runner lineage` / `GET /api/v1/lineage`
+  ([#970](https://github.com/microsoft/waza/pull/970)), plus a Lab lineage view
+  ([#973](https://github.com/microsoft/waza/pull/973)). Distinct submissions
+  always reserve a new execution ID; reuse makes zero engine calls. Historical
+  results gain no synthesized attempts.
+- **Compatible resumability and checkpoints**
+  ([#765](https://github.com/microsoft/waza/issues/765)) - Captured checkpoints
+  and protected Lab recovery ([#959](https://github.com/microsoft/waza/pull/959),
+  [#961](https://github.com/microsoft/waza/pull/961)) are joined by read-only
+  `waza runner checkpoint availability`, its protected API and a Lab action
+  that report whether a checkpoint can resume and why not, without executing
+  or reserving work ([#976](https://github.com/microsoft/waza/pull/976)).
+- **Execution lifecycle semantics**
+  ([#767](https://github.com/microsoft/waza/issues/767)) - A bounded, chained
+  lifecycle journal derives each attempt's state, cancellation, deadline,
+  partial completion, advisory retry eligibility and allowed actions; stale
+  dispatched attempts report `orphaned`. Earlier attempts report
+  `observation: "unobserved"` and no records are rewritten
+  ([#979](https://github.com/microsoft/waza/pull/979)).
+- **Complete execution evidence states**
+  ([#768](https://github.com/microsoft/waza/issues/768)) - Protected evidence
+  capture libraries ([#958](https://github.com/microsoft/waza/pull/958)) and
+  aggregate members that show verified retry/branch parents and declared
+  evidence lineage, with a Lab legend for all five evidence states
+  ([#972](https://github.com/microsoft/waza/pull/972)). Originals and retries
+  stay separate; no winner is chosen. See the
+  [evidence review guide](../../guides/evidence-review/).
+- **Aggregate completed manifests independently**
+  ([#766](https://github.com/microsoft/waza/issues/766)) - The execution-aware
+  standalone aggregation core ([#960](https://github.com/microsoft/waza/pull/960))
+  and an end-to-end CLI/API state matrix proving byte-identical, order-independent
+  reports with usage withheld when incomplete
+  ([#969](https://github.com/microsoft/waza/pull/969)).
+- **Optimizer adapter contract**
+  ([#790](https://github.com/microsoft/waza/issues/790)) - `waza optimize
+  capabilities` and `waza optimize run` evaluate adapter-proposed candidates
+  with the existing runner and graders against a pinned suite with held-out
+  qualification. Spend is `measured` or `unavailable`; no hard cap is claimed
+  ([#975](https://github.com/microsoft/waza/pull/975)). See
+  [optimizer adapters](../../guides/optimizer-adapters/).
+
+Opt-in immutable artifact manifests provide the foundation: content-addressed
+publication, conditional Local/Azure finalization, verified completed-byte reads,
+CLI/API inspection and a production-backed Lab view
+([#930](https://github.com/microsoft/waza/pull/930)). Content verification is
+not execution attestation, and unknown publication state is not completion.
+See [immutable artifacts](../../guides/immutable-artifacts/).
+
+## Answer native questions without inventing user intent
+
+Opt-in `config.native_user_input: true` gives scenario agents the SDK
+`ask_user` tool. Task `user_input_responses` supply ordered answers with optional
+question matching, then the adaptive responder can answer. Unexpected questions
+fail rather than receiving a default answer
+([#818](https://github.com/microsoft/waza/pull/818)).
+Result writers use schema **1.9**, recording actual
+`runs[].user_input_requests`; absent observations are not reconstructed.
+This capability is separate from the bounded exact-unit runner profile.
+See [native questions](../../guides/eval-yaml/#answer-native-agent-questions).
+
+## Preserve recovery and distinguish operational failure
+
+Completed results and partial recovery snapshots are preserved after trial
+timeout with bounded cleanup and shared-client replacement
+([#870](https://github.com/microsoft/waza/pull/870)).
+Force-stop callbacks that finish during cleanup are joined within the existing
+grace ([#883](https://github.com/microsoft/waza/pull/883)).
+Operational grader failures remain distinct from ordinary false assertions
+([#925](https://github.com/microsoft/waza/pull/925)), and reporter output is
+written after grading failures ([#941](https://github.com/microsoft/waza/pull/941)).
+Workspace capture is bounded and retains explicit diagnostics rather than
+inventing complete file evidence
+([#845](https://github.com/microsoft/waza/pull/845), issue
+[#830](https://github.com/microsoft/waza/issues/830)).
+Release-fixture cleanup fails explicitly if termination fails while still
+restoring fixture assets ([#955](https://github.com/microsoft/waza/pull/955)).
+
+## Prepare dashboard views once per snapshot
+
+Local run-list and summary projections are cached for each successfully loaded
+snapshot, with defensive copies for callers and transactional refresh behavior
+([#858](https://github.com/microsoft/waza/pull/858)).
+Run summaries and details use native JSON encoding while keeping absent skill
+metadata distinct from an explicitly recorded empty skill
+([#857](https://github.com/microsoft/waza/pull/857)).
+Unchanged dashboard results are cached
+([#841](https://github.com/microsoft/waza/pull/841)), trend charts scale to
+large histories ([#856](https://github.com/microsoft/waza/pull/856)), intent
+suppression is retained across partial results
+([#954](https://github.com/microsoft/waza/pull/954)), and routes load lazily
+([#827](https://github.com/microsoft/waza/pull/827)).
+These changes do not invent missing observations, change historical results, or
+turn a cached view into new execution evidence. See the
+[dashboard guide](../../guides/dashboard/).
+
+## Avoid repeated capture and dependency work
+
+Native capture readers reduce repeated source-buffer conversions and
+reconstruction work while retaining bounded validation and owned-buffer
+handling ([#833](https://github.com/microsoft/waza/pull/833)).
+Workspace staging reuses prepared resource directories, and model-attribution
+event handling reduces repeated allocations
+([#861](https://github.com/microsoft/waza/pull/861),
+[#863](https://github.com/microsoft/waza/pull/863)). Case-local assurance
+evidence resolution ([#855](https://github.com/microsoft/waza/pull/855)),
+metadata-only skill parsing without token initialization
+([#831](https://github.com/microsoft/waza/issues/831)) and grader-owned compiled
+tool regexes ([#848](https://github.com/microsoft/waza/issues/848)) also remove
+repeated work. No measured release-wide speedup or allocation target is
+asserted; root-staging follow-up remains in
+[#950](https://github.com/microsoft/waza/issues/950).
+
+Local dashboard builds reuse locked dependencies when the package manifests
+are unchanged. `make web-deps-force` is the explicit recovery path for stale or
+corrupt installed dependencies
+([#837](https://github.com/microsoft/waza/pull/837)).
+
+## Keep CI outcomes tied to real work
+
+- **Exact-source publishers** - Every production publisher is gated on
+  exact-source validation
+  ([#899](https://github.com/microsoft/waza/issues/899)), building on
+  exact-source release validation and rooted asset handoff
+  ([#910](https://github.com/microsoft/waza/pull/910),
+  [#933](https://github.com/microsoft/waza/pull/933),
+  [#934](https://github.com/microsoft/waza/pull/934)). Native Windows Go CI
+  runs the Windows-specific release dashboard checker tests uncached with race
+  detection ([#966](https://github.com/microsoft/waza/pull/966)).
+- **One dashboard build per release source** - The shared exact-source
+  dashboard producer and the manual nonpublishing acceptance control
+  ([#944](https://github.com/microsoft/waza/pull/944),
+  [#962](https://github.com/microsoft/waza/pull/962)) complete
+  [#904](https://github.com/microsoft/waza/issues/904). Its cold/warm
+  measurements are recorded on that issue, not restated here.
+- **Fail-closed PR completeness** - Attempt-aware CI evidence
+  ([#929](https://github.com/microsoft/waza/pull/929)), docs-media separation
+  ([#839](https://github.com/microsoft/waza/pull/839)), auxiliary receipts
+  ([#935](https://github.com/microsoft/waza/pull/935),
+  [#977](https://github.com/microsoft/waza/pull/977)) and PR plan/admission
+  boundaries ([#945](https://github.com/microsoft/waza/pull/945)) are wired into
+  a required `completeness / PR completeness` check
+  ([#978](https://github.com/microsoft/waza/pull/978)); auxiliary suites run
+  through that caller ([#980](https://github.com/microsoft/waza/pull/980)).
+  This completes [#900](https://github.com/microsoft/waza/issues/900).
+- **Non-blocking CI budgets** - CI trends publish a versioned latency and
+  runner-consumption budget policy that never changes the exit code
+  ([#971](https://github.com/microsoft/waza/pull/971), completing
+  [#903](https://github.com/microsoft/waza/issues/903)). Native Go shards are
+  distributed deterministically with complete inventories
+  ([#889](https://github.com/microsoft/waza/pull/889)) and placement timings are
+  refreshed ([#968](https://github.com/microsoft/waza/pull/968)). Offline
+  runtime guards and superseded-run cancellation are hardened
+  ([#901](https://github.com/microsoft/waza/issues/901),
+  [#834](https://github.com/microsoft/waza/pull/834),
+  [#829](https://github.com/microsoft/waza/pull/829)). Dashboard Playwright
+  runs with exactly two workers in CI
+  ([#822](https://github.com/microsoft/waza/issues/822)).
+- **Reusable evaluation workflows** - The workflows install the pinned
+  standalone Go CLI instead of invoking the removed Python implementation, and
+  validate complete saved results before accepting evaluation outcomes
+  ([#909](https://github.com/microsoft/waza/pull/909)). See the
+  [CI/CD guide](../../guides/ci-cd/).
+
+## Other changes
+
+- Three demonstrated v0.40.1 contracts are restored on the release line: strict
+  token-budget process exits, lifecycle-hook input rendering and cache identity,
+  and relative adversarial artifact directories
+  ([#953](https://github.com/microsoft/waza/pull/953)).
+- Transport admission actions run in parallel
+  ([#844](https://github.com/microsoft/waza/pull/844)); gated provider-only
+  diagnostic storage is added ([#957](https://github.com/microsoft/waza/pull/957));
+  and native Windows stdout timing is diagnosed
+  ([#936](https://github.com/microsoft/waza/pull/936)).
+- A reproducible release-media capture spec runs with `npm run release:media`
+  in `web/` ([#983](https://github.com/microsoft/waza/pull/983)).
+- Dependencies: dashboard ESLint `10.14.0`, React Query `5.105.3`, Lucide
+  `1.68.0` and Vite React plugin `6.2.1`; site Starlight `0.42.8`; Azure SDK and
+  Tailwind CSS updates; provenance publication retains the v4 contract
+  ([#922](https://github.com/microsoft/waza/pull/922),
+  [#916](https://github.com/microsoft/waza/pull/916),
+  [#923](https://github.com/microsoft/waza/pull/923),
+  [#920](https://github.com/microsoft/waza/pull/920),
+  [#918](https://github.com/microsoft/waza/pull/918),
+  [#917](https://github.com/microsoft/waza/pull/917),
+  [#919](https://github.com/microsoft/waza/pull/919),
+  [#921](https://github.com/microsoft/waza/pull/921),
+  [#912](https://github.com/microsoft/waza/pull/912)).
+- Documentation and registry maintenance: the CI/CD guide's encoding is
+  repaired and unsupported `serve --stdio` guidance is removed
+  ([#967](https://github.com/microsoft/waza/pull/967),
+  [#888](https://github.com/microsoft/waza/pull/888),
+  [#908](https://github.com/microsoft/waza/pull/908),
+  [#907](https://github.com/microsoft/waza/pull/907),
+  [#932](https://github.com/microsoft/waza/pull/932)).
+
+## Publication record
+
+- The `v0.41.0` tag resolves to
+  [`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`](https://github.com/microsoft/waza/commit/d537bf00d4d442a1935ceba2fbc664b9ccb497b2).
+  Unlike the historical v0.40.1 tags, it carries `0.41.0` in `version.txt` and
+  `extension.yaml`.
+- [Release run 43417374149](https://github.com/microsoft/waza/actions/runs/43417374149)
+  passed exact-source validation, including native Windows, and published the
+  [standalone release](https://github.com/microsoft/waza/releases/tag/v0.41.0)
+  (six platform binaries and `checksums.txt`) and the
+  [azd extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0).
+  Its automated release-PR step failed; the registry and version
+  synchronization landed separately in
+  [#987](https://github.com/microsoft/waza/pull/987) as
+  `7ff840205c653d76584f9f8d95439d65c411497b`.
+- [#902 released-consumer validation](https://github.com/microsoft/waza/issues/902)
+  is complete and closed. Real automatic `push` runs in a separate consumer
+  repository used the published v0.41.0 artifacts:
+  [run 43422782810](https://github.com/spboyer/waza-v0.41.0-consumer-check/actions/runs/43422782810)
+  called `waza.yaml@v0.41.0` and `waza-eval.yml@v0.41.0` as reusable workflows,
+  and [run 43422781752](https://github.com/spboyer/waza-v0.41.0-consumer-check/actions/runs/43422781752)
+  ran a verbatim copy of `skills-ci-example.yml`. Both reported
+  `waza version 0.41.0`, 4 tasks, 12 runs and 48 passing final graders. These are
+  mock-executor consumer runs, not agent-quality evidence.
+
+## Source scope and the v0.40.1 baseline
+
+The release inventory compares the published v0.40.1 source
+`e0c251df896bee4e0f9b38a693a6105bf7eadd19` with the v0.41.0 tag. The
+published baseline is **not an ancestor** of `main`, so the
+[source comparison](https://github.com/microsoft/waza/compare/e0c251df896bee4e0f9b38a693a6105bf7eadd19..d537bf00d4d442a1935ceba2fbc664b9ccb497b2)
+is a tree comparison, not a linear history.
+Both the standalone `v0.40.1` and extension
+`azd-ext-microsoft-azd-waza_0.40.1` tags retain **`0.39.1` in `version.txt` and
+`extension.yaml`**. The
+[historical release-source explanation](../../reference/releases/#capabilities-introduced-in-v0390)
+documents tag-injected linker version `0.40.1` for the published binaries.
+Those immutable tags remain valid source-comparison anchors, not a new
+verification of binary provenance. The exact-matching metadata contract applies
+prospectively to v0.41.0; it does not rewrite historical tags.
+
+The [v0.40.1 article](../v0-40-1/) already covers selected-task coverage, strict
+token-budget exits, grouping, hooks, saved-run identities, artifact paths,
+first-event startup, and JavaScript grader input; they are not new v0.41.0
+changes. The JavaScript grader fix has a patch-equivalent main commit
+([#882](https://github.com/microsoft/waza/pull/882)), and the three demonstrated
+contract regressions were restored in #953 with production-caller regressions
+and native Linux/Windows validation. This article does not claim blanket parity
+for every other historical hotfix surface.
+
+## Upgrade with the release's limits in view
+
+Existing results are not rewritten: historical runs gain no synthesized attempts,
+lifecycle records or evidence states. Result writers emit schema **1.9**, whose
+`runs[].user_input_requests` records only observed native questions. Attempt,
+checkpoint, lifecycle, evidence and aggregation features are opt-in, and
+checkpoint resume is limited to compatible whole units.
+
+- Recurring native Windows process-start timeouts remain under investigation in
+  [#965](https://github.com/microsoft/waza/issues/965); the #936 timing
+  instrumentation is diagnostic only.
+- The optimizer reports `measured` or `unavailable` spend and claims no hard
+  cost cap. Lab does not display optimizer reports.
+- Performance changes carry no release-wide speedup target.
+
+These open items moved to v0.42.0:
+
+- Rebalance native Go CI shards by measured test cost
+  ([#825](https://github.com/microsoft/waza/issues/825)); #968 only refreshes
+  placement timings.
+- Reuse Go caches in container builds
+  ([#835](https://github.com/microsoft/waza/issues/835)); its PR
+  [#836](https://github.com/microsoft/waza/pull/836) is unmerged.
+- Restore the dashboard Playwright wall-time budget
+  ([#974](https://github.com/microsoft/waza/issues/974)).
+- PR completeness gate follow-ups, including removal of Docker's standalone PR
+  trigger ([#981](https://github.com/microsoft/waza/issues/981)).
+
+Read [Waza v0.40.1](../v0-40-1/) for the preceding hotfix release. See the
+[v0.40.1..v0.41.0 tree comparison](https://github.com/microsoft/waza/compare/v0.40.1..v0.41.0)
+and the [v0.41.0 changelog entry](https://github.com/microsoft/waza/blob/main/CHANGELOG.md#0410---2026-11-13)
+for the code-level changes.
