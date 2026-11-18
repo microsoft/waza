@@ -1,6 +1,7 @@
 package usagetelemetry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -96,6 +97,7 @@ func TestLocalBuildDefaultsAreNotReleases(t *testing.T) {
 	} {
 		data, err := os.ReadFile(file)
 		require.NoError(t, err)
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 		m := regexp.MustCompile(pattern).FindSubmatch(data)
 		require.NotNil(t, m, "%s must declare a default VERSION", file)
 		assert.False(t, releaseBuild(string(m[1])), "%s default %q would collect telemetry", file, m[1])
@@ -117,6 +119,11 @@ func TestOnlyReleaseBuildsCollect(t *testing.T) {
 			assert.False(t, p.Denied, version)
 		}
 	}
+	project := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".waza.yaml"), []byte("telemetry:\n  disabled: true\n"), 0o600))
+	p := Resolve(Inputs{Getenv: env(nil), SettingsPath: settingsPath(t), WorkDir: project, Version: "dev"})
+	assert.False(t, p.Enabled)
+	assert.True(t, p.Denied, "development builds must still resolve denials so they reach children")
 }
 
 func TestInertBuildSendsNothing(t *testing.T) {

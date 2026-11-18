@@ -115,7 +115,7 @@ make build VERSION=0.41.0
 The verified `v0.41.0` tag resolves to
 `d537bf00d4d442a1935ceba2fbc664b9ccb497b2`. Unlike the historical v0.40.1 tags, the
 tag's `version.txt` and `extension.yaml` already carry `0.41.0`.
-`make build` defaults to `VERSION=0.1.0`, so pass `VERSION=0.41.0` explicitly
+`make build` defaults to `VERSION=0.0.0-dev`, so pass `VERSION=0.41.0` explicitly
 when building this tag. Official release builds inject the version from the
 tag with linker flags. A locally stamped binary is not a verified release asset,
 and does not prove extension registry synchronization.

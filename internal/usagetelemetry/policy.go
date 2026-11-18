@@ -129,10 +129,8 @@ func Resolve(in Inputs) Policy {
 			return p
 		}
 	} else if !devBuildCollectionOn && !releaseBuild(in.Version) {
+		// Keep resolving so settings and project denials still reach children.
 		p.Reasons = append(p.Reasons, ReasonDevBuild)
-		if !in.Full {
-			return p
-		}
 	}
 	explicitEnable := false
 	if p.settingsPath == "" {
