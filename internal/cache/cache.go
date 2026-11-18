@@ -590,11 +590,36 @@ func (c *Cache) cachePath(key string) string {
 // Non-deterministic graders include: behavior and prompt
 func HasNonDeterministicGraders(spec *models.EvalSpec) bool {
 	for _, g := range spec.Graders {
-		if g.Kind == models.GraderKindBehavior || g.Kind == models.GraderKindPrompt {
+		if isNonDeterministicGrader(g.Kind) {
 			return true
 		}
 	}
 	return false
+}
+
+// HasNonDeterministicTaskGraders checks task and checkpoint graders that must
+// be run each time instead of reusing a cached outcome.
+func HasNonDeterministicTaskGraders(task *models.TestCase) bool {
+	if task == nil {
+		return false
+	}
+	for _, grader := range task.Validators {
+		if isNonDeterministicGrader(grader.Kind) {
+			return true
+		}
+	}
+	for _, checkpoint := range task.Checkpoints {
+		for _, grader := range checkpoint.Graders {
+			if isNonDeterministicGrader(grader.Kind) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isNonDeterministicGrader(kind models.GraderKind) bool {
+	return kind == models.GraderKindBehavior || kind == models.GraderKindPrompt
 }
 
 // Helper functions

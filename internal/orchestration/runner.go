@@ -1113,7 +1113,8 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 	if r.cache != nil && spec.Scenario != "" {
 		fmt.Fprintf(os.Stderr, "[WARN] Scenario caching disabled for test %q: external workflow dependencies are not fully fingerprinted\n", tc.DisplayName)
 	}
-	if r.cache != nil && spec.Scenario == "" && !models.UsesJudgeEvidence(spec.Graders, tc) {
+	if r.cache != nil && spec.Scenario == "" && !cache.HasNonDeterministicGraders(spec) &&
+		!cache.HasNonDeterministicTaskGraders(tc) && !models.UsesJudgeEvidence(spec.Graders, tc) {
 		cacheKey, err := r.taskCacheKey(spec, tc)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[WARN] Caching disabled for test %q: %v\n", tc.DisplayName, err)

@@ -513,6 +513,56 @@ func TestCandidateOutputPresentRequiresNoOriginError(t *testing.T) {
 	assert.False(t, candidateOutputPresent(resp, fmt.Errorf("origin unavailable")))
 }
 
+func TestRunTestBypassesStaleCacheForTaskLevelPromptGrader(t *testing.T) {
+	dir := t.TempDir()
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "task-prompt-cache"},
+		Config: models.Config{
+			EngineType: "mock", ModelID: "mock-model", TimeoutSec: 30, TrialsPerTask: 1,
+		},
+	}
+	task := &models.TestCase{
+		TestID:      "task-prompt",
+		DisplayName: "Task prompt",
+		Stimulus:    models.TaskStimulus{Message: "Produce a response."},
+		Validators: []models.ValidatorInline{{
+			Identifier: "inline", Kind: models.GraderKindPrompt,
+			Parameters: models.PromptGraderParameters{Prompt: "Judge the response."},
+		}},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(dir), config.WithFixtureDir(dir))
+	resultCache := cache.New(t.TempDir())
+	key, err := cache.CacheKeyWithSpecDir(spec, task, dir, dir)
+	require.NoError(t, err)
+	require.NoError(t, resultCache.Put(key, &models.TestOutcome{
+		TestID: "stale-pre-fix",
+		Status: models.StatusFailed,
+		Runs: []models.RunResult{{
+			RunNumber: 1,
+			Status:    models.StatusFailed,
+			Validations: map[string]models.GraderResults{
+				"inline": {Passed: false, Score: 0, Feedback: "All prompts passed"},
+			},
+		}},
+	}))
+
+	engine := execution.NewMockEngine("mock-model")
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(t.Context())) })
+	runner := NewEvalRunner(cfg, engine, WithCache(resultCache))
+	outcome, wasCached := runner.runTest(t.Context(), task, 1, 1)
+
+	require.False(t, wasCached)
+	require.Equal(t, task.TestID, outcome.TestID)
+	require.NotEqual(t, "stale-pre-fix", outcome.TestID)
+	require.Len(t, outcome.Runs, 1)
+	require.Contains(t, outcome.Runs[0].FinalOutput, "Mock response for:")
+	require.Equal(t, "Judge returned no verdict", outcome.Runs[0].Validations["inline"].Feedback)
+	cachedOutcome, found := resultCache.Get(key)
+	require.True(t, found)
+	require.Equal(t, "stale-pre-fix", cachedOutcome.TestID)
+}
+
 func TestComputeTestStats_FlakinessPercent(t *testing.T) {
 	runs := []models.RunResult{
 		{
