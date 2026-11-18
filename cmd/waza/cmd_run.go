@@ -2498,6 +2498,8 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		root = args[0]
 	}
+	// Each discovered skill runs as a single spec writing the same --output.
+	plannedOutputFiles = plannedOutputPaths(outputPath, nil, modelOverrides)
 
 	skills, err := discovery.Discover(root)
 	if err != nil {

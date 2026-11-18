@@ -76,6 +76,12 @@ func TestRunCacheHitsWhenRunOutputsLiveBeneathSkillRoot(t *testing.T) {
 		"multi-model output": singleSkill(func(dir string) []string {
 			return []string{"--model", "model-a", "--model", "model-b", "--output", filepath.Join(dir, "results.json")}
 		}),
+		"discover multi-model output": func(t *testing.T) []string {
+			root := t.TempDir()
+			skillDir := filepath.Join(root, "test-skill")
+			writeSkillRootEval(t, skillDir, "test-skill")
+			return []string{"--discover", root, "--model", "model-a", "--model", "model-b", "--output", filepath.Join(skillDir, "results.json")}
+		},
 		"multi-skill output": func(t *testing.T) []string {
 			root := t.TempDir()
 			skillOne := filepath.Join(root, "skills", "skill-one")
