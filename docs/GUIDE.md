@@ -1311,9 +1311,10 @@ waza grade eval.yaml --results results.json --workspace ./preserved-agent-worksp
 
 Replay checks the stored event sequence in place, reporting out-of-order,
 duplicate, and missing sequence numbers without normalizing the event list.
-Strict mode (default) checks grader score/pass consistency and reports a passed
-result when an explicitly recorded final validation failed or a checkpoint
-recorded a failed/error status. Missing `passed`/`score` fields and omitted
+Strict mode (default) checks grader score/pass consistency and reports a
+`status_inconsistency` divergence when an explicitly recorded final validation
+failed or a checkpoint has failed/error status, contradicting a recorded pass.
+Missing `passed`/`score` fields and omitted
 checkpoint records are not treated as failures; skipped/error result statuses
 are not reinterpreted. Replay does not contact an agent, re-run graders, reconstruct
 files, or verify external state. Fixture and instruction hashes identify bytes

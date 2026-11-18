@@ -298,8 +298,9 @@ waza replay ./reviewed-snapshot.json --bisect ./other-reviewed-snapshot.json --j
 Replay checks the stored tool-event array in place and reports out-of-order,
 duplicate, and missing sequence numbers without normalizing the events. With
 `--strict` (default), it also checks grader score/pass consistency and reports a
-passed result when an explicitly recorded final validation failed or a
-checkpoint recorded a failed/error status. Missing `passed`/`score` fields and
+`status_inconsistency` divergence when an explicitly recorded final validation
+failed or a checkpoint has failed/error status, contradicting a recorded pass.
+Missing `passed`/`score` fields and
 omitted checkpoint records are not treated as failures; skipped/error result
 statuses are not reinterpreted. Replay does not rerun graders.
 Exit codes: `0` consistent, `1` divergent, `2` snapshot load/parse/I/O,
