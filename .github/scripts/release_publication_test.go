@@ -229,7 +229,7 @@ func TestReleaseRegistryBranchExclusive(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, state := range []string{"valid", "existing", "existing-same", "existing-same-pr", "existing-diverged",
-		"lookup-error", "concurrent", "concurrent-same", "push-output-error", "pr-error"} {
+		"existing-wrong-parent", "existing-merge", "lookup-error", "concurrent", "concurrent-same", "push-output-error", "pr-error"} {
 		t.Run(state, func(t *testing.T) {
 			dir, remote, source, current := publicationRepository(t)
 			ref := "refs/heads/release/v1.2.3"
@@ -250,6 +250,18 @@ func TestReleaseRegistryBranchExclusive(t *testing.T) {
 				publicationGit(t, dir, "push", "-q", "origin", "HEAD:"+ref)
 				publicationGit(t, dir, "checkout", "-q", "main")
 				publicationGit(t, dir, "branch", "-q", "-D", "prior-dispatch")
+			case "existing-wrong-parent", "existing-merge":
+				// Identical sync tree, but not a single-parent child of the validated source.
+				writeReleaseFile(t, filepath.Join(dir, "registry.json"), []byte("{\"published\":true}\n"))
+				publicationGit(t, dir, "add", "registry.json")
+				tree := publicationGit(t, dir, "write-tree")
+				publicationGit(t, dir, "reset", "-q")
+				parents := []string{"-p", source}
+				if state == "existing-merge" {
+					parents = []string{"-p", current, "-p", source}
+				}
+				prior = publicationGit(t, dir, append([]string{"commit-tree", tree, "-m", "prior dispatch"}, parents...)...)
+				publicationGit(t, dir, "push", "-q", "origin", prior+":"+ref)
 			}
 			if err := os.Mkdir(filepath.Join(dir, ".github"), 0o700); err != nil {
 				t.Fatal(err)
@@ -314,7 +326,8 @@ func TestReleaseRegistryBranchExclusive(t *testing.T) {
 			if wantPush && pushErr != nil || !wantPush && !os.IsNotExist(pushErr) {
 				t.Fatalf("push attempted incorrectly for existing release branch %s: %v", state, pushErr)
 			}
-			if state == "existing-diverged" && !strings.Contains(string(output), "was not replaced") {
+			if (state == "existing-diverged" || state == "existing-wrong-parent" || state == "existing-merge") &&
+				!strings.Contains(string(output), "was not replaced") {
 				t.Fatalf("divergent release branch must fail with a clear message:\n%s", output)
 			}
 			head := publicationGit(t, dir, "rev-parse", "HEAD")
