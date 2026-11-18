@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -49,37 +50,40 @@ import (
 )
 
 var (
-	contextDir      string
-	outputPath      string
-	outputDir       string
-	verbose         bool
-	transcriptDir   string
-	taskFilters     []string
-	tagFilters      []string
-	parallel        bool
-	workers         int
-	trials          int
-	interpret       bool
-	format          string
-	enableCache     bool
-	disableCache    bool
-	runCacheDir     string
-	modelOverrides  []string
-	recommendFlag   bool
-	baselineFlag    bool
-	suggestFlag     bool
-	sessionLog      bool
-	sessionDir      string
-	noSummary       bool
-	judgeModel      string
-	reporters       []string
-	discoverFlag    bool
-	strictFlag      bool
-	updateSnapshots bool
-	skipGradersFlag bool
-	noSkillsFlag    bool
-	keepWorkspace   bool
-	autoFileIssue   bool
+	contextDir string
+	outputPath string
+	// plannedOutputFiles are the result files --output will produce for the
+	// selected skills and models, excluded from cache fingerprints.
+	plannedOutputFiles []string
+	outputDir          string
+	verbose            bool
+	transcriptDir      string
+	taskFilters        []string
+	tagFilters         []string
+	parallel           bool
+	workers            int
+	trials             int
+	interpret          bool
+	format             string
+	enableCache        bool
+	disableCache       bool
+	runCacheDir        string
+	modelOverrides     []string
+	recommendFlag      bool
+	baselineFlag       bool
+	suggestFlag        bool
+	sessionLog         bool
+	sessionDir         string
+	noSummary          bool
+	judgeModel         string
+	reporters          []string
+	discoverFlag       bool
+	strictFlag         bool
+	updateSnapshots    bool
+	skipGradersFlag    bool
+	noSkillsFlag       bool
+	keepWorkspace      bool
+	autoFileIssue      bool
 
 	isolationRequestPath string
 	isolationHostPath    string
@@ -360,6 +364,7 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	if err != nil {
 		return err
 	}
+	plannedOutputFiles = plannedOutputPaths(outputPath, specPaths, modelOverrides)
 	isolatedSpecs := make([]string, 0, len(specPaths))
 	for _, sp := range specPaths {
 		isolatedSpecs = append(isolatedSpecs, sp.evalSpecPath)
@@ -948,6 +953,7 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		}))
 	}
 	if resultCache != nil {
+		resultCache.ExcludeRunOutputs(runOutputCacheExclusions()...)
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
 	}
 	if updateSnapshots {
@@ -2348,6 +2354,103 @@ func saveSummary(summary *models.MultiSkillSummary, path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// outputRunDirLayout names each --output-dir run directory; outputRunDirGlob
+// matches every name it produces.
+const (
+	outputRunDirLayout = "2006-01-02T150405.000"
+	outputRunDirGlob   = "????-??-??T??????.???"
+)
+
+// runOutputCacheExclusions lists the per-run outputs of --output,
+// --reporter junit, --output-dir and --session-log so they never feed back
+// into the cache key when written beneath a skill directory. Only generated
+// names are excluded.
+func runOutputCacheExclusions() []cache.ExcludeEntry {
+	var entries []cache.ExcludeEntry
+	files := slices.Clone(plannedOutputFiles)
+	for _, r := range reporters {
+		if path, ok := strings.CutPrefix(r, "junit:"); ok && path != "" {
+			files = append(files, path)
+		}
+	}
+	for _, path := range files {
+		dir, name := filepath.Split(path)
+		entries = append(entries, cache.ExcludeEntry{Dir: cmp.Or(dir, "."), NamePattern: globLiteral(name)})
+	}
+	if outputDir != "" {
+		entries = append(entries,
+			cache.ExcludeEntry{Dir: outputDir, NamePattern: outputRunDirGlob},
+			cache.ExcludeEntry{Dir: outputDir, NamePattern: ".partial"})
+	}
+	if sessionLog {
+		logDir := sessionDir
+		if logDir == "" {
+			logDir = "."
+		}
+		entries = append(entries, cache.ExcludeEntry{Dir: logDir, NamePattern: session.LogFileGlob})
+	}
+	return entries
+}
+
+// plannedOutputPaths mirrors the --output files written for the selected
+// skills and models: the exact path, per-model files, or per-skill files and
+// the combined summary.
+func plannedOutputPaths(path string, specs []skillSpecPath, models []string) []string {
+	if path == "" {
+		return nil
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	multiModel := len(models) > 1
+	if len(specs) <= 1 {
+		if !multiModel {
+			return []string{path}
+		}
+		paths := make([]string, 0, len(models))
+		for _, model := range models {
+			paths = append(paths, buildOutputPath(base, ext, "", model, false, true))
+		}
+		return paths
+	}
+	var paths []string
+	if !noSummary {
+		paths = append(paths, fmt.Sprintf("%s_summary%s", base, ext))
+	}
+	for _, sp := range specs {
+		if !multiModel {
+			paths = append(paths, buildOutputPath(base, ext, sp.skillName, "", true, false))
+			continue
+		}
+		for _, model := range models {
+			paths = append(paths, buildOutputPath(base, ext, sp.skillName, model, true, true))
+		}
+	}
+	return paths
+}
+
+// globLiteral escapes filepath.Match metacharacters with character classes,
+// which behave the same on every platform.
+func globLiteral(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '*', '?', '[':
+			b.WriteByte('[')
+			b.WriteRune(r)
+			b.WriteByte(']')
+		case '\\':
+			if runtime.GOOS == "windows" {
+				b.WriteRune(r)
+			} else {
+				b.WriteString(`[\\]`)
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // writeOutputDir writes results to a structured directory hierarchy.
 // Each run creates a timestamped subdirectory to avoid overwriting previous results.
 // For multi-skill runs: {outputDir}/{timestamp}/{skillName}/{modelName}.json
@@ -2358,7 +2461,7 @@ func writeOutputDir(dir string, results []skillRunResult) error {
 
 // writeOutputDirAt is the testable core of writeOutputDir, accepting a timestamp.
 func writeOutputDirAt(dir string, results []skillRunResult, now time.Time) error {
-	runDir := filepath.Join(dir, now.UTC().Format("2006-01-02T150405.000"))
+	runDir := filepath.Join(dir, now.UTC().Format(outputRunDirLayout))
 	if err := os.MkdirAll(runDir, 0755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
@@ -2402,6 +2505,8 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		root = args[0]
 	}
+	// Each discovered skill runs as a single spec writing the same --output.
+	plannedOutputFiles = plannedOutputPaths(outputPath, nil, modelOverrides)
 
 	skills, err := discovery.Discover(root)
 	if err != nil {

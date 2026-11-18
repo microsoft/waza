@@ -1328,7 +1328,7 @@ waza cache clear [--cache-dir=.waza-cache]
 
 Clear all cached evaluation results.
 
-The cache stores test outcomes to speed up repeated evaluations with the same inputs. Cached results are keyed by spec configuration, task definition, model, and fixture file contents.
+The cache stores test outcomes to speed up repeated evaluations with the same inputs. Cached results are keyed by spec configuration, task definition, model, fixture file contents, and the bytes of consumed inputs: every file under the configured skill directories, by relative path and content (following symlinks; skipping `.git`, the run's cache, transcript and snapshot locations, the `--output` file and its per-model, per-skill and summary variants, JUnit reporter files, the timestamped run directories and `.partial` files of `--output-dir`, and session log files), the selected skill or agent definition and its directory, instruction files, and `inputs.context.fixture` contents. Editing any of them in place causes a cache miss; if one cannot be read, the task runs uncached.
 
 ```bash
 waza cache clear
