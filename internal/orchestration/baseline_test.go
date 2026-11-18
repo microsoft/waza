@@ -2,10 +2,14 @@ package orchestration
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -605,4 +609,188 @@ func TestRunBenchmark_BaselineIgnoresUnselectedTaskSkills(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, outcome.IsBaseline, "skills on unselected tasks must not start a baseline comparison")
 	require.Len(t, engine.requests, 1)
+}
+
+type pairwiseCaptureEngine struct {
+	*execution.MockEngine
+
+	mu               sync.Mutex
+	initializeCalls  int
+	baselineOutputs  []string
+	treatmentOutputs []string
+	judgePrompts     []string
+	actorNoSkills    []bool
+	failBaseline     bool
+}
+
+func (e *pairwiseCaptureEngine) Initialize(ctx context.Context) error {
+	e.initializeCalls++
+	return e.MockEngine.Initialize(ctx)
+}
+
+func (e *pairwiseCaptureEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if req.EphemeralSession {
+		e.judgePrompts = append(e.judgePrompts, req.Message)
+		winner := "B"
+		if len(e.judgePrompts)%2 == 0 {
+			winner = "A"
+		}
+		for _, tool := range req.Tools {
+			if tool.Name == "set_pairwise_winner" {
+				if _, err := tool.Handler(copilot.ToolInvocation{Arguments: map[string]any{
+					"winner": winner, "magnitude": "much-better", "reasoning": "selected candidate",
+				}}); err != nil {
+					return nil, err
+				}
+			}
+		}
+		return &execution.ExecutionResponse{Success: true, ModelID: "mock", SessionID: "judge"}, nil
+	}
+
+	e.actorNoSkills = append(e.actorNoSkills, req.NoSkills)
+	if req.NoSkills {
+		e.baselineOutputs = append(e.baselineOutputs, "")
+		if e.failBaseline {
+			return &execution.ExecutionResponse{Success: false, ErrorMsg: "baseline unavailable"}, nil
+		}
+		switch len(e.baselineOutputs) {
+		case 1:
+			e.baselineOutputs[len(e.baselineOutputs)-1] = "baseline-stale"
+		case 2:
+			e.baselineOutputs[len(e.baselineOutputs)-1] = "baseline-1-final"
+		default:
+			e.baselineOutputs[len(e.baselineOutputs)-1] = "baseline-2-final"
+		}
+		return &execution.ExecutionResponse{
+			Success: true, ExecutionSucceeded: true, ModelID: "mock",
+			SessionID: "baseline", FinalOutput: e.baselineOutputs[len(e.baselineOutputs)-1],
+		}, nil
+	}
+
+	e.treatmentOutputs = append(e.treatmentOutputs, fmt.Sprintf("candidate-%d-final", len(e.treatmentOutputs)+1))
+	return &execution.ExecutionResponse{
+		Success: true, ExecutionSucceeded: true, ModelID: "mock",
+		SessionID: "treatment", FinalOutput: e.treatmentOutputs[len(e.treatmentOutputs)-1],
+	}, nil
+}
+
+func pairwiseTestSpec(baseline bool) *models.EvalSpec {
+	return &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "pairwise-eval"},
+		Tasks:        []string{"task.yaml"},
+		Baseline:     baseline,
+		Graders: []models.GraderConfig{
+			{
+				Kind:       models.GraderKindPrompt,
+				Identifier: "quality",
+				Parameters: models.PromptGraderParameters{
+					Prompt: "Choose the better output.",
+					Mode:   models.PromptGraderModePairwise,
+				},
+			},
+			{
+				Kind:       models.GraderKindText,
+				Identifier: "final-output",
+				Parameters: models.TextGraderParameters{Contains: []string{"final"}},
+			},
+		},
+		Config: models.Config{
+			EngineType: "mock", ModelID: "mock", JudgeModel: "mock",
+			TrialsPerTask: 2, MaxAttempts: 2, TimeoutSec: 30,
+			SkillPaths: []string{"skills"},
+		},
+	}
+}
+
+func writePairwiseTask(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`
+id: task-001
+name: Pairwise task
+inputs:
+  prompt: compare these outputs
+`), 0o600))
+}
+
+func TestRunBenchmark_PairwiseUsesFinalMatchedBaselineTrials(t *testing.T) {
+	dir := t.TempDir()
+	writePairwiseTask(t, dir)
+	spec := pairwiseTestSpec(true)
+	engine := &pairwiseCaptureEngine{MockEngine: execution.NewMockEngine("mock")}
+	var partials []*models.EvaluationOutcome
+	runner := NewEvalRunner(
+		config.NewEvalConfig(spec, config.WithSpecDir(dir)),
+		engine,
+		WithPartialOutcomeWriter(func(outcome *models.EvaluationOutcome) error {
+			partials = append(partials, outcome)
+			return nil
+		}),
+	)
+
+	outcome, err := runner.RunBenchmark(t.Context())
+	require.NoError(t, err)
+	require.True(t, outcome.IsBaseline)
+	require.NotNil(t, outcome.BaselineOutcome)
+	require.Equal(t, []bool{true, true, true, false, false}, engine.actorNoSkills)
+	require.Equal(t, []string{"baseline-stale", "baseline-1-final", "baseline-2-final"}, engine.baselineOutputs)
+	require.Equal(t, []string{"candidate-1-final", "candidate-2-final"}, engine.treatmentOutputs)
+	require.Len(t, engine.judgePrompts, 4)
+	require.NotContains(t, strings.Join(engine.judgePrompts, "\n"), "baseline-stale")
+	for _, prompt := range engine.judgePrompts[:2] {
+		require.Contains(t, prompt, "baseline-1-final")
+		require.Contains(t, prompt, "candidate-1-final")
+	}
+	for _, prompt := range engine.judgePrompts[2:] {
+		require.Contains(t, prompt, "baseline-2-final")
+		require.Contains(t, prompt, "candidate-2-final")
+	}
+
+	require.Len(t, outcome.TestOutcomes[0].Runs, 2)
+	for _, run := range outcome.TestOutcomes[0].Runs {
+		require.Contains(t, run.Validations, "quality")
+		require.Contains(t, run.Validations["quality"].Details, "pairwise")
+	}
+	require.Len(t, outcome.BaselineOutcome.TestOutcomes[0].Runs, 2)
+	for _, run := range outcome.BaselineOutcome.TestOutcomes[0].Runs {
+		require.NotContains(t, run.Validations, "quality")
+	}
+	require.Len(t, partials, 4)
+	for _, partial := range partials[:2] {
+		require.True(t, partial.IsBaseline)
+	}
+	for _, partial := range partials[2:] {
+		require.True(t, partial.IsBaseline)
+		require.NotNil(t, partial.BaselineOutcome)
+	}
+	require.Equal(t, []string{"skills"}, spec.Config.SkillPaths)
+}
+
+func TestRunBenchmark_PairwiseRequiresBaselineBeforeEngineInitialization(t *testing.T) {
+	dir := t.TempDir()
+	writePairwiseTask(t, dir)
+	spec := pairwiseTestSpec(false)
+	engine := &pairwiseCaptureEngine{MockEngine: execution.NewMockEngine("mock")}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine)
+
+	_, err := runner.RunBenchmark(t.Context())
+	require.ErrorContains(t, err, "requires --baseline")
+	require.Zero(t, engine.initializeCalls)
+	require.Empty(t, engine.actorNoSkills)
+}
+
+func TestRunBenchmark_PairwiseRejectsMissingBaselineOutputBeforeTreatment(t *testing.T) {
+	dir := t.TempDir()
+	writePairwiseTask(t, dir)
+	spec := pairwiseTestSpec(true)
+	engine := &pairwiseCaptureEngine{MockEngine: execution.NewMockEngine("mock"), failBaseline: true}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine)
+
+	_, err := runner.RunBenchmark(t.Context())
+	require.ErrorContains(t, err, "final baseline attempt")
+	require.Len(t, engine.actorNoSkills, 2)
+	require.Empty(t, engine.treatmentOutputs)
+	require.Empty(t, engine.judgePrompts)
 }

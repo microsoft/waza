@@ -1253,6 +1253,9 @@ has neither the actor session nor its live workspace. Omission preserves legacy
 behavior; checkpoint, pairwise, continuation and `--evidence-snapshot` combinations
 are rejected. This requires the current implementation, not an older CLI that
 does not implement evidence context.
+Pairwise prompt grading runs the skills-disabled baseline first and compares the
+final attempt for each matching task/trial. Saved-result `waza grade` does not
+support pairwise comparisons; rerun with `waza run --baseline`.
 
 ```bash
 waza preflight examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures

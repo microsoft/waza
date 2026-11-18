@@ -1626,6 +1626,8 @@ task/conversation/tool/output evidence in a fresh isolated session, without acto
 continuation or live workspace access. Add `files: [report.json]` inside that
 object for explicit selected-file evidence. Required evidence fails closed;
 checkpoint, pairwise, and continued-session evidence judging are unsupported.
+Pairwise prompt graders require an in-process `waza run --baseline` comparison;
+saved-result `waza grade` rejects them rather than substituting independent grading.
 With fix #898 (not in published v0.41.0),
 `evidence_context.non_secret_literals` can preserve declared exact whole-token
 Git SHAs, synthetic contacts and tracker identifiers in evaluator-controlled

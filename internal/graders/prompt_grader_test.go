@@ -375,26 +375,86 @@ func TestPairwiseMode_Validation(t *testing.T) {
 	require.ErrorContains(t, err, "required field 'prompt' is missing")
 }
 
-func TestPairwiseMode_FallsBackToIndependent(t *testing.T) {
-	// When mode is pairwise but no baseline output is available, falls back to independent
-	skipIfCopilotNotEnabled(t)
-
+func TestPairwiseMode_RequiresBaselineObservation(t *testing.T) {
+	executor := &fakePromptExecutor{execute: func(*execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		t.Fatal("pairwise grader must not call the judge without a baseline observation")
+		return nil, nil
+	}}
 	grader, err := NewPromptGrader("pairwise-grader", models.PromptGraderParameters{
-		Prompt: "Check that the output mentions 'hello'. If it does, call set_waza_grade_pass. Otherwise call set_waza_grade_fail.",
-		Model:  basicModel,
+		Prompt: "Compare the outputs.",
 		Mode:   "pairwise",
 	})
 	require.NoError(t, err)
 
-	results, err := grader.Grade(context.Background(), &Context{
-		Output:         "hello world",
-		BaselineOutput: "", // empty => falls back to independent
-		Executor:       newLivePromptGraderContext(t).Executor,
+	_, err = grader.Grade(context.Background(), &Context{
+		Output:        "candidate",
+		OutputPresent: true,
+		Executor:      executor,
+	})
+	require.ErrorContains(t, err, "observed baseline output")
+	require.Zero(t, executor.calls)
+}
+
+func TestPairwiseMode_ObservedEmptyBaselineIsCompared(t *testing.T) {
+	var prompts []string
+	var executor *fakePromptExecutor
+	executor = &fakePromptExecutor{execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		prompts = append(prompts, req.Message)
+		winner := "B"
+		if executor.calls%2 == 0 {
+			winner = "A"
+		}
+		for _, tool := range req.Tools {
+			if tool.Name == "set_pairwise_winner" {
+				_, err := tool.Handler(copilot.ToolInvocation{Arguments: map[string]any{
+					"winner": winner, "magnitude": "much-better", "reasoning": "selected candidate",
+				}})
+				require.NoError(t, err)
+			}
+		}
+		return &execution.ExecutionResponse{Success: true, SessionID: "judge"}, nil
+	}}
+	grader, err := NewPromptGrader("pairwise-grader", models.PromptGraderParameters{
+		Prompt: "Compare the outputs.",
+		Mode:   models.PromptGraderModePairwise,
 	})
 	require.NoError(t, err)
-	require.NotNil(t, results)
-	// Should grade independently since no baseline output
-	require.Equal(t, models.GraderKindPrompt, results.Type)
+
+	result, err := grader.Grade(context.Background(), &Context{
+		Output:                "candidate",
+		OutputPresent:         true,
+		BaselineOutput:        "",
+		BaselineOutputPresent: true,
+		Executor:              executor,
+	})
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Equal(t, 2, executor.calls)
+	require.Len(t, prompts, 2)
+	require.Contains(t, prompts[0], "Output B\n```\ncandidate")
+	require.Contains(t, prompts[1], "Output A\n```\ncandidate")
+}
+
+func TestPairwiseMode_RequiresCandidateObservation(t *testing.T) {
+	executor := &fakePromptExecutor{execute: func(*execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		t.Fatal("pairwise grader must not call the judge without a candidate observation")
+		return nil, nil
+	}}
+	grader, err := NewPromptGrader("pairwise-grader", models.PromptGraderParameters{
+		Prompt: "Compare the outputs.",
+		Mode:   models.PromptGraderModePairwise,
+	})
+	require.NoError(t, err)
+
+	_, err = grader.Grade(context.Background(), &Context{
+		Output:                "",
+		OutputPresent:         false,
+		BaselineOutput:        "baseline",
+		BaselineOutputPresent: true,
+		Executor:              executor,
+	})
+	require.ErrorContains(t, err, "observed candidate output")
+	require.Zero(t, executor.calls)
 }
 
 func TestPairwiseBuildPrompt(t *testing.T) {
@@ -438,9 +498,11 @@ func TestPairwiseMode_UsesExecutorTool(t *testing.T) {
 	require.NoError(t, err)
 
 	results, err := grader.Grade(context.Background(), &Context{
-		Output:         "better output",
-		BaselineOutput: "worse output",
-		Executor:       executor,
+		Output:                "better output",
+		OutputPresent:         true,
+		BaselineOutput:        "worse output",
+		BaselineOutputPresent: true,
+		Executor:              executor,
 	})
 	require.NoError(t, err)
 	require.True(t, results.Passed)
@@ -484,9 +546,11 @@ func TestPairwiseMode_Live(t *testing.T) {
 	require.NoError(t, err)
 
 	results, err := grader.Grade(context.Background(), &Context{
-		Output:         "A goroutine is a lightweight thread of execution managed by the Go runtime. They are multiplexed onto OS threads and are very cheap to create (a few KB of stack).",
-		BaselineOutput: "goroutine is a thing in Go",
-		Executor:       newLivePromptGraderContext(t).Executor,
+		Output:                "A goroutine is a lightweight thread of execution managed by the Go runtime. They are multiplexed onto OS threads and are very cheap to create (a few KB of stack).",
+		OutputPresent:         true,
+		BaselineOutput:        "goroutine is a thing in Go",
+		BaselineOutputPresent: true,
+		Executor:              newLivePromptGraderContext(t).Executor,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, results)

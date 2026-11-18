@@ -128,7 +128,16 @@ func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*mod
 	if p.args.EvidenceContext != nil {
 		return p.gradeEvidence(ctx, gradingContext)
 	}
-	if p.args.Mode == models.PromptGraderModePairwise && gradingContext.BaselineOutput != "" {
+	if p.args.Mode == models.PromptGraderModePairwise {
+		if gradingContext == nil {
+			return nil, errors.New("pairwise prompt grading requires grading context")
+		}
+		if !gradingContext.OutputPresent {
+			return nil, errors.New("pairwise prompt grading requires an observed candidate output")
+		}
+		if !gradingContext.BaselineOutputPresent {
+			return nil, errors.New("pairwise prompt grading requires an observed baseline output")
+		}
 		return p.gradePairwise(ctx, gradingContext)
 	}
 	return p.gradeIndependent(ctx, gradingContext)

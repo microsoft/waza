@@ -23,6 +23,54 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 	return runAll(ctx, specGraders, tc, gCtx, judgeModel, judgeReasoningEffort, updateSnapshots, Create)
 }
 
+// IsPairwisePromptGrader reports whether a grader config selects pairwise prompt grading.
+func IsPairwisePromptGrader(kind models.GraderKind, parameters models.GraderParameters) bool {
+	if kind != models.GraderKindPrompt {
+		return false
+	}
+	prompt, ok := parameters.(models.PromptGraderParameters)
+	return ok && prompt.Mode == models.PromptGraderModePairwise
+}
+
+// HasPairwisePromptGraders reports whether the spec or task configures pairwise prompt grading.
+func HasPairwisePromptGraders(specGraders []models.GraderConfig, tc *models.TestCase) bool {
+	for _, cfg := range specGraders {
+		if IsPairwisePromptGrader(cfg.Kind, cfg.Parameters) {
+			return true
+		}
+	}
+	if tc != nil {
+		for _, cfg := range tc.Validators {
+			if IsPairwisePromptGrader(cfg.Kind, cfg.Parameters) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// WithoutPairwisePromptGraders returns spec graders other than pairwise prompt graders.
+func WithoutPairwisePromptGraders(configs []models.GraderConfig) []models.GraderConfig {
+	filtered := make([]models.GraderConfig, 0, len(configs))
+	for _, cfg := range configs {
+		if !IsPairwisePromptGrader(cfg.Kind, cfg.Parameters) {
+			filtered = append(filtered, cfg)
+		}
+	}
+	return filtered
+}
+
+// WithoutPairwisePromptValidators returns task validators other than pairwise prompt graders.
+func WithoutPairwisePromptValidators(configs []models.ValidatorInline) []models.ValidatorInline {
+	filtered := make([]models.ValidatorInline, 0, len(configs))
+	for _, cfg := range configs {
+		if !IsPairwisePromptGrader(cfg.Kind, cfg.Parameters) {
+			filtered = append(filtered, cfg)
+		}
+	}
+	return filtered
+}
+
 func runAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel, judgeReasoningEffort string, updateSnapshots bool, create func(string, models.GraderParameters) (Grader, error)) (map[string]models.GraderResults, error) {
 	results := make(map[string]models.GraderResults)
 
