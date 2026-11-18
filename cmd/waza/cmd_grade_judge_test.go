@@ -366,6 +366,23 @@ func TestEvidenceSavedGradeOperationalFailuresSaveDiagnosticsBeforeReturningErro
 				}
 				return response, nil
 			})
+			if problem != "judge-failure" && problem != "ordinary-fail" {
+				tasks, err := loadGradeTasks(parsed, spec, "task")
+				require.NoError(t, err)
+				require.Len(t, tasks, 1)
+				_, gradedRuns, err := gradeTaskRunsWithJudge(t.Context(), parsed, tasks[0],
+					original.TestOutcomes[0].Runs, "/NONEXISTENT_WORKSPACE_CANARY", "", io.Discard, false,
+					evidenceGradeSource{EvalID: original.RunID, Cached: original.TestOutcomes[0].Cached, Executor: judge})
+				require.Error(t, err)
+				require.Len(t, gradedRuns, 1)
+				require.Len(t, gradedRuns[0].PromptJudging, 1)
+				observation := gradedRuns[0].PromptJudging[0]
+				require.Equal(t, "failed", observation.State)
+				require.Equal(t, selection.Files, observation.EvidenceContext.Files)
+				require.Equal(t, selection.EvaluatorOnly, observation.EvidenceContext.EvaluatorOnly)
+				require.Nil(t, observation.EvidenceContext.NonSecretLiterals, "failed observations must omit declarations before serialization")
+				require.Zero(t, calls)
+			}
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			err = runGradeWithJudge(t.Context(), &stdout, &stderr, spec, "task", results, "/NONEXISTENT_WORKSPACE_CANARY", "", output, true, "", judge)
