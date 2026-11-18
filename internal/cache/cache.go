@@ -66,6 +66,50 @@ type ConsumedInputs struct {
 	// ExcludePaths are run outputs (cache, transcripts, snapshots) that may
 	// live beneath a skill directory and must not feed back into the key.
 	ExcludePaths []string
+	// ExcludeEntries are run outputs whose names are generated per run (such
+	// as timestamped results), matched by name only within one directory.
+	ExcludeEntries []ExcludeEntry
+}
+
+// ExcludeEntry skips entries directly inside Dir whose base name matches the
+// filepath.Match pattern NamePattern, leaving other content in Dir hashed.
+type ExcludeEntry struct {
+	Dir         string
+	NamePattern string
+}
+
+// treeExclusions are the resolved run outputs skipped while hashing skill trees.
+type treeExclusions struct {
+	paths   map[string]bool
+	entries map[string][]string
+}
+
+func newTreeExclusions(inputs *ConsumedInputs) *treeExclusions {
+	ex := &treeExclusions{paths: map[string]bool{}, entries: map[string][]string{}}
+	for _, path := range inputs.ExcludePaths {
+		if path != "" {
+			ex.paths[canonicalPath(path)] = true
+		}
+	}
+	for _, entry := range inputs.ExcludeEntries {
+		if entry.Dir != "" && entry.NamePattern != "" {
+			dir := canonicalPath(entry.Dir)
+			ex.entries[dir] = append(ex.entries[dir], entry.NamePattern)
+		}
+	}
+	return ex
+}
+
+func (ex *treeExclusions) skip(dir, name string) bool {
+	if ex.paths[filepath.Join(dir, name)] {
+		return true
+	}
+	for _, pattern := range ex.entries[dir] {
+		if ok, err := filepath.Match(pattern, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
 }
 
 // ConsumedFile is one file's content as consumed by request construction.
@@ -256,12 +300,7 @@ func hashConsumedInputs(h io.Writer, inputs *ConsumedInputs) error {
 			}
 		}
 	}
-	excluded := make(map[string]bool, len(inputs.ExcludePaths))
-	for _, path := range inputs.ExcludePaths {
-		if path != "" {
-			excluded[canonicalPath(path)] = true
-		}
-	}
+	excluded := newTreeExclusions(inputs)
 	for i, dir := range inputs.SkillDirs {
 		if err := writeString(h, "skill-dir"); err != nil {
 			return err
@@ -292,7 +331,7 @@ func canonicalPath(path string) string {
 // hashSkillTree writes each entry's slash-separated relative path and file
 // content digest in lexical order. Symlinks are followed, with directory
 // cycles recorded rather than revisited, so linked content is fingerprinted.
-func hashSkillTree(h io.Writer, root string, excluded map[string]bool) error {
+func hashSkillTree(h io.Writer, root string, excluded *treeExclusions) error {
 	resolved, err := filepath.EvalSymlinks(root)
 	if os.IsNotExist(err) {
 		return writeString(h, "missing")
@@ -314,7 +353,7 @@ func hashSkillTree(h io.Writer, root string, excluded map[string]bool) error {
 	return hashSkillDir(h, resolved, "", map[string]bool{resolved: true}, excluded)
 }
 
-func hashSkillDir(h io.Writer, dir, rel string, active, excluded map[string]bool) error {
+func hashSkillDir(h io.Writer, dir, rel string, active map[string]bool, excluded *treeExclusions) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -325,7 +364,7 @@ func hashSkillDir(h io.Writer, dir, rel string, active, excluded map[string]bool
 		if rel != "" {
 			entryRel = rel + "/" + entry.Name()
 		}
-		if excluded[path] {
+		if excluded.skip(dir, entry.Name()) {
 			continue
 		}
 		target := path
@@ -343,7 +382,7 @@ func hashSkillDir(h io.Writer, dir, rel string, active, excluded map[string]bool
 			if err != nil {
 				return err
 			}
-			if excluded[target] {
+			if excluded.skip(filepath.Dir(target), filepath.Base(target)) {
 				continue
 			}
 		}
@@ -354,8 +393,13 @@ func hashSkillDir(h io.Writer, dir, rel string, active, excluded map[string]bool
 		if info.IsDir() && skipSkillTreeDir(entry.Name()) {
 			continue
 		}
-		if err := writeString(h, entryRel); err != nil {
-			return err
+		// An output directory may first appear after the initial run, so only
+		// its retained contents, not its own existence, enter the key.
+		outputDir := info.IsDir() && !active[target] && len(excluded.entries[target]) > 0
+		if !outputDir {
+			if err := writeString(h, entryRel); err != nil {
+				return err
+			}
 		}
 		switch {
 		case info.IsDir():
@@ -365,8 +409,10 @@ func hashSkillDir(h io.Writer, dir, rel string, active, excluded map[string]bool
 				}
 				continue
 			}
-			if err := writeString(h, "dir"); err != nil {
-				return err
+			if !outputDir {
+				if err := writeString(h, "dir"); err != nil {
+					return err
+				}
 			}
 			active[target] = true
 			err := hashSkillDir(h, target, entryRel, active, excluded)

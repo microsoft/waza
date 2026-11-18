@@ -949,6 +949,7 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	}
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
+		runnerOpts = append(runnerOpts, orchestration.WithCacheOutputEntries(runOutputCacheExclusions()...))
 	}
 	if updateSnapshots {
 		runnerOpts = append(runnerOpts, orchestration.WithUpdateSnapshots(true))
@@ -2348,6 +2349,33 @@ func saveSummary(summary *models.MultiSkillSummary, path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// outputRunDirLayout names each --output-dir run directory; outputRunDirGlob
+// matches every name it produces.
+const (
+	outputRunDirLayout = "2006-01-02T150405.000"
+	outputRunDirGlob   = "????-??-??T??????.???"
+)
+
+// runOutputCacheExclusions lists the per-run outputs of --output-dir and
+// --session-log so they never feed back into the cache key when written
+// beneath a skill directory. Only generated names are excluded.
+func runOutputCacheExclusions() []cache.ExcludeEntry {
+	var entries []cache.ExcludeEntry
+	if outputDir != "" {
+		entries = append(entries,
+			cache.ExcludeEntry{Dir: outputDir, NamePattern: outputRunDirGlob},
+			cache.ExcludeEntry{Dir: outputDir, NamePattern: ".partial"})
+	}
+	if sessionLog {
+		logDir := sessionDir
+		if logDir == "" {
+			logDir = "."
+		}
+		entries = append(entries, cache.ExcludeEntry{Dir: logDir, NamePattern: session.LogFileGlob})
+	}
+	return entries
+}
+
 // writeOutputDir writes results to a structured directory hierarchy.
 // Each run creates a timestamped subdirectory to avoid overwriting previous results.
 // For multi-skill runs: {outputDir}/{timestamp}/{skillName}/{modelName}.json
@@ -2358,7 +2386,7 @@ func writeOutputDir(dir string, results []skillRunResult) error {
 
 // writeOutputDirAt is the testable core of writeOutputDir, accepting a timestamp.
 func writeOutputDirAt(dir string, results []skillRunResult, now time.Time) error {
-	runDir := filepath.Join(dir, now.UTC().Format("2006-01-02T150405.000"))
+	runDir := filepath.Join(dir, now.UTC().Format(outputRunDirLayout))
 	if err := os.MkdirAll(runDir, 0755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
