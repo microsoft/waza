@@ -43,6 +43,41 @@ func TestPromptGraderOutputPresent(t *testing.T) {
 	}
 }
 
+func TestPromptGraderFeedbackDistinguishesNoVerdictFromAllPass(t *testing.T) {
+	t.Run("no verdict", func(t *testing.T) {
+		p, err := NewPromptGrader("test", models.PromptGraderParameters{Prompt: "criteria"})
+		require.NoError(t, err)
+		promptGraderExecutor := &fakePromptExecutor{execute: func(*execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			return &execution.ExecutionResponse{Success: true, FinalOutput: "I need a response to evaluate."}, nil
+		}}
+		result, err := p.Grade(t.Context(), &Context{Executor: promptGraderExecutor})
+		require.NoError(t, err)
+		require.Zero(t, result.Score)
+		require.False(t, result.Passed)
+		require.Equal(t, "Judge returned no verdict", result.Feedback)
+		require.NotEqual(t, AllPromptsPassed, result.Feedback)
+		require.Empty(t, result.Details["passes"])
+		require.Empty(t, result.Details["failures"])
+	})
+
+	t.Run("genuine all-pass", func(t *testing.T) {
+		p, err := NewPromptGrader("test", models.PromptGraderParameters{Prompt: "criteria"})
+		require.NoError(t, err)
+		promptGraderExecutor := &fakePromptExecutor{execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			_, err := req.Tools[0].Handler(copilot.ToolInvocation{
+				Arguments: map[string]any{"description": "criteria", "reason": "met"},
+			})
+			require.NoError(t, err)
+			return &execution.ExecutionResponse{Success: true, FinalOutput: "grade submitted"}, nil
+		}}
+		result, err := p.Grade(t.Context(), &Context{Executor: promptGraderExecutor})
+		require.NoError(t, err)
+		require.Equal(t, 1.0, result.Score)
+		require.True(t, result.Passed)
+		require.Equal(t, AllPromptsPassed, result.Feedback)
+	})
+}
+
 func TestPromptGraderExactOutputKeepsPostGradeBehaviorWithSanitizedDiagnostic(t *testing.T) {
 	var log bytes.Buffer
 	old := slog.Default()

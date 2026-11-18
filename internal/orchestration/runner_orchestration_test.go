@@ -450,6 +450,161 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 	assert.Equal(t, copilot.SessionEventTypeUserMessage, transcript[0].Type())
 }
 
+type promptExecutionFunc func(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error)
+
+func (f promptExecutionFunc) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	return f(ctx, req)
+}
+
+func TestBuildGraderContextProvidesTaskAndOutputToInlinePrompt(t *testing.T) {
+	const taskInput = "Explain the generated change."
+	const candidateOutput = "The generated change adds input validation."
+
+	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), nil)
+	testCase := &models.TestCase{}
+	testCase.Stimulus.Message = taskInput
+	resp := &execution.ExecutionResponse{Success: true, FinalOutput: candidateOutput}
+	graderCtx := runner.buildGraderContext(testCase, resp, nil)
+	require.True(t, graderCtx.OutputPresent)
+
+	var renderedPrompt string
+	graderCtx.Executor = promptExecutionFunc(func(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		renderedPrompt = req.Message
+		_, err := req.Tools[0].Handler(copilot.ToolInvocation{
+			Arguments: map[string]any{"description": "criteria", "reason": "met"},
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &execution.ExecutionResponse{Success: true, FinalOutput: "grade submitted"}, nil
+	})
+	promptGrader, err := graders.NewPromptGrader("inline", models.PromptGraderParameters{Prompt: "Check the response."})
+	require.NoError(t, err)
+	result, err := promptGrader.Grade(t.Context(), graderCtx)
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Contains(t, renderedPrompt, "## Task input\n"+taskInput)
+	require.Contains(t, renderedPrompt, "## Candidate output\n"+candidateOutput)
+	require.Equal(t, renderedPrompt, result.Details["prompt"])
+}
+
+func TestBuildGraderContextMarksOutputPresentOnlyOnSuccessfulResponses(t *testing.T) {
+	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), nil)
+	for _, tc := range []struct {
+		name     string
+		response execution.ExecutionResponse
+		want     bool
+	}{
+		{name: "successful", response: execution.ExecutionResponse{Success: true}, want: true},
+		{name: "unsuccessful", response: execution.ExecutionResponse{Success: false}, want: false},
+		{name: "error message", response: execution.ExecutionResponse{Success: true, ErrorMsg: "execution failed"}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			graderCtx := runner.buildGraderContext(&models.TestCase{}, &tc.response, nil)
+			assert.Equal(t, tc.want, graderCtx.OutputPresent)
+		})
+	}
+}
+
+func TestBuildGraderContextDoesNotInjectRubricOutputAfterExecutionFailure(t *testing.T) {
+	const candidateOutput = "candidate-output-from-failed-run"
+	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), nil)
+	for _, tc := range []struct {
+		name     string
+		response execution.ExecutionResponse
+	}{
+		{
+			name:     "unsuccessful",
+			response: execution.ExecutionResponse{Success: false, FinalOutput: candidateOutput},
+		},
+		{
+			name:     "error response",
+			response: execution.ExecutionResponse{Success: true, ErrorMsg: "execution failed", FinalOutput: candidateOutput},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			graderCtx := runner.buildGraderContext(&models.TestCase{}, &tc.response, nil)
+			require.False(t, graderCtx.OutputPresent)
+
+			var renderedPrompt string
+			graderCtx.Executor = promptExecutionFunc(func(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				renderedPrompt = req.Message
+				_, err := req.Tools[0].Handler(copilot.ToolInvocation{
+					Arguments: map[string]any{"description": "criteria", "reason": "met"},
+				})
+				if err != nil {
+					return nil, err
+				}
+				return &execution.ExecutionResponse{Success: true, FinalOutput: "grade submitted"}, nil
+			})
+			promptGrader, err := graders.NewPromptGrader("rubric", models.PromptGraderParameters{Rubric: "groundedness"})
+			require.NoError(t, err)
+			result, err := promptGrader.Grade(t.Context(), graderCtx)
+			require.NoError(t, err)
+			require.True(t, result.Passed)
+			require.NotContains(t, renderedPrompt, candidateOutput)
+			require.NotContains(t, renderedPrompt, "## Candidate output")
+		})
+	}
+}
+
+func TestCandidateOutputPresentRequiresNoOriginError(t *testing.T) {
+	resp := &execution.ExecutionResponse{Success: true}
+
+	assert.True(t, candidateOutputPresent(resp, nil))
+	assert.False(t, candidateOutputPresent(resp, fmt.Errorf("origin unavailable")))
+}
+
+func TestRunTestBypassesStaleCacheForTaskLevelPromptGrader(t *testing.T) {
+	dir := t.TempDir()
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "task-prompt-cache"},
+		Config: models.Config{
+			EngineType: "mock", ModelID: "mock-model", TimeoutSec: 30, TrialsPerTask: 1,
+		},
+	}
+	task := &models.TestCase{
+		TestID:      "task-prompt",
+		DisplayName: "Task prompt",
+		Stimulus:    models.TaskStimulus{Message: "Produce a response."},
+		Validators: []models.ValidatorInline{{
+			Identifier: "inline", Kind: models.GraderKindPrompt,
+			Parameters: models.PromptGraderParameters{Prompt: "Judge the response."},
+		}},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(dir), config.WithFixtureDir(dir))
+	resultCache := cache.New(t.TempDir())
+	key, err := cache.CacheKeyWithSpecDir(spec, task, dir, dir)
+	require.NoError(t, err)
+	require.NoError(t, resultCache.Put(key, &models.TestOutcome{
+		TestID: "stale-pre-fix",
+		Status: models.StatusFailed,
+		Runs: []models.RunResult{{
+			RunNumber: 1,
+			Status:    models.StatusFailed,
+			Validations: map[string]models.GraderResults{
+				"inline": {Passed: false, Score: 0, Feedback: "All prompts passed"},
+			},
+		}},
+	}))
+
+	engine := execution.NewMockEngine("mock-model")
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(t.Context())) })
+	runner := NewEvalRunner(cfg, engine, WithCache(resultCache))
+	outcome, wasCached := runner.runTest(t.Context(), task, 1, 1)
+
+	require.False(t, wasCached)
+	require.Equal(t, task.TestID, outcome.TestID)
+	require.NotEqual(t, "stale-pre-fix", outcome.TestID)
+	require.Len(t, outcome.Runs, 1)
+	require.Contains(t, outcome.Runs[0].FinalOutput, "Mock response for:")
+	require.Equal(t, "Judge returned no verdict", outcome.Runs[0].Validations["inline"].Feedback)
+	cachedOutcome, found := resultCache.Get(key)
+	require.True(t, found)
+	require.Equal(t, "stale-pre-fix", cachedOutcome.TestID)
+}
+
 func TestComputeTestStats_FlakinessPercent(t *testing.T) {
 	runs := []models.RunResult{
 		{

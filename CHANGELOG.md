@@ -219,6 +219,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer leak into the skills-disabled phase. Evals that configure skills only
   at the task level now run the baseline comparison instead of skipping it. The
   skills-enabled phase and the original configuration are unchanged (#1024).
+- Independent inline prompt graders now receive task input and candidate output
+  after a successful eval run. Judges that return no pass/fail verdict report
+  that state instead of claiming all prompts passed. Task-level prompt
+  graders bypass cached outcomes so stale pre-fix results cannot hide a rerun
+  (#1071).
 
 ## [0.41.0] - 2026-11-13
 

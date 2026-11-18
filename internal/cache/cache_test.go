@@ -510,6 +510,37 @@ func TestHasNonDeterministicGraders(t *testing.T) {
 	}
 }
 
+func TestHasNonDeterministicTaskGraders(t *testing.T) {
+	tests := []struct {
+		name     string
+		task     *models.TestCase
+		expected bool
+	}{
+		{name: "nil task", expected: false},
+		{name: "no task graders", task: &models.TestCase{}, expected: false},
+		{
+			name: "deterministic task grader",
+			task: &models.TestCase{Validators: []models.ValidatorInline{{Kind: models.GraderKindText}}},
+		},
+		{
+			name:     "prompt task grader",
+			task:     &models.TestCase{Validators: []models.ValidatorInline{{Kind: models.GraderKindPrompt}}},
+			expected: true,
+		},
+		{
+			name:     "behavior checkpoint grader",
+			task:     &models.TestCase{Checkpoints: []models.Checkpoint{{Graders: []models.ValidatorInline{{Kind: models.GraderKindBehavior}}}}},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, HasNonDeterministicTaskGraders(tt.task))
+		})
+	}
+}
+
 func TestCacheKey_FixtureOrdering(t *testing.T) {
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
