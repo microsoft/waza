@@ -295,8 +295,13 @@ waza replay ./reviewed-snapshot.json --json
 waza replay ./reviewed-snapshot.json --bisect ./other-reviewed-snapshot.json --json
 ```
 
-Replay checks that tool-event sequence is `1..N` and, with `--strict` (default),
-that recorded grader score/pass values are consistent. It does not rerun graders.
+Replay checks the stored tool-event array in place and reports out-of-order,
+duplicate, and missing sequence numbers without normalizing the events. With
+`--strict` (default), it also checks grader score/pass consistency and reports a
+passed result when an explicitly recorded final validation failed or a
+checkpoint recorded a failed/error status. Missing `passed`/`score` fields and
+omitted checkpoint records are not treated as failures; skipped/error result
+statuses are not reinterpreted. Replay does not rerun graders.
 Exit codes: `0` consistent, `1` divergent, `2` snapshot load/parse/I/O,
 JSON output, unsupported live mode, or unknown mode error.
 Bisect compares ordered tool-name/argument fingerprints, ignoring durations and

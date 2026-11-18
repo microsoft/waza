@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/spf13/cobra"
 )
@@ -40,7 +41,8 @@ Exit codes:
   0  snapshots match / replay succeeded
   1  divergence detected (kind/value rendered to stderr or --json output)
   2  load / parse / snapshot IO / JSON output / unsupported or unknown mode error`,
-		Args: cobra.ExactArgs(1),
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			snapPath := args[0]
 			snap, err := snapshot.LoadSnapshotFile(snapPath)
@@ -159,33 +161,24 @@ func buildModelReplayReport(snap *snapshot.Snapshot, strict bool) ModelReplayRep
 		Pass:       true,
 	}
 
-	// Internal consistency: sequence numbers should be 1..N, strictly
-	// monotonic. Anything else indicates the tape was edited or corrupted.
-	if len(snap.ToolEvents) > 0 {
-		// Sort a copy by Sequence to detect duplicates / gaps without
-		// mutating the snapshot in memory.
-		seqs := make([]int, len(snap.ToolEvents))
-		for i, ev := range snap.ToolEvents {
-			seqs[i] = ev.Sequence
-		}
-		sort.Ints(seqs)
-		for i, s := range seqs {
-			if s != i+1 {
-				r.Pass = false
-				r.Issues = append(r.Issues, ModelReplayIssue{
-					Kind:    "sequence_gap",
-					Message: fmt.Sprintf("tool_events.sequence is not 1..N (saw %d at position %d)", s, i+1),
-				})
-				break
-			}
-		}
+	for _, issue := range modelReplaySequenceIssues(snap.ToolEvents) {
+		r.Pass = false
+		r.Issues = append(r.Issues, issue)
 	}
 
-	// Strict mode: every grader entry must agree with itself — passed=true
-	// with score 0 (and non-zero weight) is a clear inconsistency.
+	// Use only explicitly recorded final-validation fields. Do not infer
+	// missing outcomes or compare operationally incomplete statuses.
 	if strict {
-		for name, g := range snap.Result.Validations {
-			if g.Passed && g.Weight > 0 && g.Score == 0 {
+		names := make([]string, 0, len(snap.Result.Validations))
+		for name := range snap.Result.Validations {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			g := snap.Result.Validations[name]
+			recordedPassed, hasRecordedPass := snap.RecordedValidationPass(name)
+			recordedScore, hasRecordedScore := snap.RecordedValidationScore(name)
+			if recordedPassed && hasRecordedPass && hasRecordedScore && g.Weight > 0 && recordedScore == 0 {
 				r.Pass = false
 				r.Issues = append(r.Issues, ModelReplayIssue{
 					Kind:    "validation_inconsistency",
@@ -193,10 +186,74 @@ func buildModelReplayReport(snap *snapshot.Snapshot, strict bool) ModelReplayRep
 					Message: "grader claims passed=true but score is 0",
 				})
 			}
+			if snap.Result.Status == models.StatusPassed && hasRecordedPass && !recordedPassed {
+				r.Pass = false
+				r.Issues = append(r.Issues, ModelReplayIssue{
+					Kind:    "status_inconsistency",
+					Grader:  name,
+					Message: "result status is passed but the recorded final validation failed",
+				})
+			}
+		}
+		if snap.Result.Status == models.StatusPassed {
+			for _, checkpoint := range snap.Checkpoints {
+				if checkpoint.Status != models.StatusFailed && checkpoint.Status != models.StatusError {
+					continue
+				}
+				r.Pass = false
+				r.Issues = append(r.Issues, ModelReplayIssue{
+					Kind:    "status_inconsistency",
+					Message: fmt.Sprintf("result status is passed but checkpoint after turn %d has status %q", checkpoint.AfterTurn, checkpoint.Status),
+				})
+			}
 		}
 	}
 
 	return r
+}
+
+func modelReplaySequenceIssues(events []models.ToolEvent) []ModelReplayIssue {
+	seen := make(map[int]int, len(events))
+	issues := make([]ModelReplayIssue, 0)
+	firstOutOfOrder := true
+	previous := 0
+	for i, event := range events {
+		position := i + 1
+		if firstPosition, ok := seen[event.Sequence]; ok {
+			issues = append(issues, ModelReplayIssue{
+				Kind:    "sequence_duplicate",
+				Message: fmt.Sprintf("tool_events.sequence %d repeats at positions %d and %d", event.Sequence, firstPosition, position),
+			})
+		} else {
+			seen[event.Sequence] = position
+		}
+		if i > 0 && event.Sequence < previous && firstOutOfOrder {
+			issues = append(issues, ModelReplayIssue{
+				Kind:    "sequence_order",
+				Message: fmt.Sprintf("tool_events.sequence decreases at position %d (saw %d after %d)", position, event.Sequence, previous),
+			})
+			firstOutOfOrder = false
+		}
+		previous = event.Sequence
+	}
+
+	missing := 0
+	firstMissing := 0
+	for sequence := 1; sequence <= len(events); sequence++ {
+		if _, ok := seen[sequence]; !ok {
+			missing++
+			if firstMissing == 0 {
+				firstMissing = sequence
+			}
+		}
+	}
+	if missing > 0 {
+		issues = append(issues, ModelReplayIssue{
+			Kind:    "sequence_gap",
+			Message: fmt.Sprintf("tool_events.sequence is missing %d expected value(s), starting with %d", missing, firstMissing),
+		})
+	}
+	return issues
 }
 
 func renderModelReplayHuman(r ModelReplayReport) string {

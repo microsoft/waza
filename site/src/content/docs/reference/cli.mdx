@@ -734,11 +734,11 @@ waza replay <snapshot.json> [flags]
 | `--mode` | string | `model-replay` | Offline consistency check. `live` is unsupported and returns exit code `2`. |
 | `--bisect` | string | | Path to a second snapshot to compare against the primary. Reports the first divergent turn. |
 | `--json` | bool | false | Emit machine-readable JSON to stdout instead of a human summary. |
-| `--strict` | bool | true | In `model-replay` mode, also re-check final status and grader outcome consistency. |
+| `--strict` | bool | true | In `model-replay` mode, also re-check final status against explicitly recorded grader and checkpoint outcomes. |
 
 ### Modes
 
-- **`model-replay`** — Re-checks the snapshot's grader outcomes and tool-event tape for internal consistency (monotonic sequence, validation/score agreement). Fast, fully offline, ideal for CI.
+- **`model-replay`** — Checks the stored tool-event array in its existing order for out-of-order, duplicate, and missing sequence numbers, plus validation/score agreement. In strict mode, a passed status also diverges when an explicitly recorded final validation failed or a checkpoint has failed/error status. Missing `passed`/`score` fields and omitted checkpoint records are not treated as failures; skipped/error result statuses are not reinterpreted. Fast, fully offline, ideal for CI.
 - **`live`** — Unsupported; returns exit code `2`. No live replay behavior or delivery date is promised.
 
 ### Exit codes

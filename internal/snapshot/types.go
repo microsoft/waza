@@ -111,6 +111,8 @@ type Snapshot struct {
 	WorkspaceFiles            []WorkspaceFile            `json:"workspaceFiles,omitempty"`
 	rawWorkspaceFiles         []json.RawMessage
 	workspaceCaptureRequested bool
+	recordedValidationPasses  map[string]bool
+	recordedValidationScores  map[string]float64
 }
 
 // SnapshotTask carries identifying task metadata.
@@ -237,7 +239,50 @@ func (s *Snapshot) UnmarshalJSON(data []byte) error {
 		}
 	}
 	*s = Snapshot(decoded)
+	var validationEvidence struct {
+		Result struct {
+			Validations map[string]struct {
+				Passed *bool    `json:"passed"`
+				Score  *float64 `json:"score"`
+			} `json:"validations"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &validationEvidence); err != nil {
+		return err
+	}
+	if len(validationEvidence.Result.Validations) > 0 {
+		s.recordedValidationPasses = make(map[string]bool, len(validationEvidence.Result.Validations))
+		s.recordedValidationScores = make(map[string]float64, len(validationEvidence.Result.Validations))
+		for name, validation := range validationEvidence.Result.Validations {
+			if validation.Passed != nil {
+				s.recordedValidationPasses[name] = *validation.Passed
+			}
+			if validation.Score != nil {
+				s.recordedValidationScores[name] = *validation.Score
+			}
+		}
+	}
 	return nil
+}
+
+// RecordedValidationPass returns the pass verdict only when the snapshot
+// explicitly recorded a non-null "passed" field for the named validation.
+func (s *Snapshot) RecordedValidationPass(name string) (bool, bool) {
+	if s == nil {
+		return false, false
+	}
+	passed, ok := s.recordedValidationPasses[name]
+	return passed, ok
+}
+
+// RecordedValidationScore returns the score only when the snapshot explicitly
+// recorded a non-null "score" field for the named validation.
+func (s *Snapshot) RecordedValidationScore(name string) (float64, bool) {
+	if s == nil {
+		return 0, false
+	}
+	score, ok := s.recordedValidationScores[name]
+	return score, ok
 }
 
 // ParseSnapshot decodes a snapshot from bytes and validates its schema
