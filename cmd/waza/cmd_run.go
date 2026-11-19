@@ -1083,16 +1083,35 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 
 	outcome, err := runner.RunBenchmark(ctx)
 	if err != nil {
-		if outcome != nil && spec.Baseline && outputPath != "" {
-			resultPath := outputPath
-			if len(modelOverrides) > 1 {
-				ext := filepath.Ext(outputPath)
-				resultPath = buildOutputPath(strings.TrimSuffix(outputPath, ext), ext, "", spec.Config.ModelID, false, true)
+		if outcome != nil && spec.Baseline {
+			shutdownErr := shutdownEngine()
+			execution.UpdateOutcomeUsage(outcome, engine)
+			benchmarkErr := fmt.Errorf("benchmark failed: %w", err)
+			if shutdownErr != nil {
+				benchmarkErr = errors.Join(benchmarkErr, fmt.Errorf("shutting down engine: %w", shutdownErr))
 			}
-			if saveErr := saveOutcome(outcome, resultPath); saveErr != nil {
-				return outcome, errors.Join(fmt.Errorf("benchmark failed: %w", err), fmt.Errorf("failed to save output: %w", saveErr))
+
+			if outputPath != "" {
+				resultPath := outputPath
+				if len(modelOverrides) > 1 {
+					ext := filepath.Ext(outputPath)
+					resultPath = buildOutputPath(strings.TrimSuffix(outputPath, ext), ext, "", spec.Config.ModelID, false, true)
+				}
+				if saveErr := saveOutcome(outcome, resultPath); saveErr != nil {
+					return outcome, errors.Join(benchmarkErr, fmt.Errorf("failed to save output: %w", saveErr))
+				}
+				fmt.Printf("\nResults saved to: %s\n", resultPath)
 			}
-			fmt.Printf("\nResults saved to: %s\n", resultPath)
+
+			_, completedBaseline := errors.AsType[*orchestration.BaselineExecutionError](err)
+			if completedBaseline && ctx.Err() == nil && shutdownErr == nil {
+				return outcome, &BenchmarkError{
+					Message: fmt.Sprintf("baseline benchmark completed: %d failed and %d error(s)",
+						outcome.Digest.Failed, outcome.Digest.Errors),
+					Cause: err,
+				}
+			}
+			return outcome, benchmarkErr
 		}
 		return outcome, fmt.Errorf("benchmark failed: %w", err)
 	}

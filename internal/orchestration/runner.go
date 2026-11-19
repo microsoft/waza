@@ -728,6 +728,9 @@ func (r *EvalRunner) runPairwiseBaselineComparison(ctx context.Context, spec *mo
 	}
 	if err := r.validatePairwiseBaselineOutputs(); err != nil {
 		markIncompleteBaselineOutcome(withoutSkills)
+		if withoutSkills != nil && withoutSkills.Digest.Errors > 0 && ctx.Err() == nil {
+			return withoutSkills, &BaselineExecutionError{Err: err}
+		}
 		return withoutSkills, err
 	}
 
@@ -784,7 +787,11 @@ func (r *EvalRunner) preparePairwiseTasksFor(testCases []*models.TestCase) error
 		if !graders.HasPairwisePromptGraders(spec.Graders, tc) {
 			continue
 		}
-		if err := graders.ValidatePairwiseGraderNames(spec.Graders, tc); err != nil {
+		effectiveGraders, err := r.effectiveGraders(tc)
+		if err != nil {
+			return fmt.Errorf("task %q: %w", tc.TestID, err)
+		}
+		if err := graders.ValidatePairwiseGraderNames(effectiveGraders, tc); err != nil {
 			return fmt.Errorf("task %q: %w", tc.TestID, err)
 		}
 		if !spec.Baseline {
@@ -796,6 +803,9 @@ func (r *EvalRunner) preparePairwiseTasksFor(testCases []*models.TestCase) error
 		return errors.New("pairwise prompt grading requires a baseline comparison with configured skills")
 	}
 	if len(pairwiseTasks) > 0 {
+		if spec.Config.StopOnError {
+			return errors.New("pairwise prompt grading is not supported with fail_fast because all selected tasks must run for comparison")
+		}
 		selectedIDs := make(map[string]struct{}, len(testCases))
 		for _, tc := range testCases {
 			if _, duplicate := selectedIDs[tc.TestID]; duplicate {
@@ -817,6 +827,18 @@ func markIncompleteBaselineOutcome(outcome *models.EvaluationOutcome) {
 		outcome.Metadata = make(map[string]any)
 	}
 	outcome.Metadata["incomplete"] = true
+}
+
+type BaselineExecutionError struct {
+	Err error
+}
+
+func (e *BaselineExecutionError) Error() string {
+	return fmt.Sprintf("baseline execution completed with errors: %v", e.Err)
+}
+
+func (e *BaselineExecutionError) Unwrap() error {
+	return e.Err
 }
 
 func (r *EvalRunner) recordPairwiseBaselineOutput(testID string, runNum, attempt int, output string, present bool) {
@@ -3238,19 +3260,9 @@ func candidateOutputPresent(resp *execution.ExecutionResponse, originErr error) 
 
 func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
 	spec := r.cfg.Spec()
-	agentPath, fm, err := r.resolveTaskAgent(tc)
+	effective, err := r.effectiveGraders(tc)
 	if err != nil {
 		return nil, err
-	}
-	effective := spec.Graders
-	hasTaskConstraint := false
-	for _, v := range tc.Validators {
-		if v.Kind == models.GraderKindToolConstraint {
-			hasTaskConstraint = true
-		}
-	}
-	if !hasTaskConstraint {
-		effective = augmentGradersFromAgent(append([]models.GraderConfig(nil), effective...), agentPath, fm)
 	}
 	if r.capturePairwiseBaseline {
 		effective = graders.WithoutPairwisePromptGraders(effective)
@@ -3259,6 +3271,24 @@ func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 		tc = &taskCopy
 	}
 	return graders.RunAll(ctx, effective, tc, gradersContext, spec.Config.JudgeModel, spec.Config.JudgeReasoningEffort, r.updateSnapshots)
+}
+
+func (r *EvalRunner) effectiveGraders(tc *models.TestCase) ([]models.GraderConfig, error) {
+	spec := r.cfg.Spec()
+	agentPath, fm, err := r.resolveTaskAgent(tc)
+	if err != nil {
+		return nil, err
+	}
+	hasTaskConstraint := false
+	for _, v := range tc.Validators {
+		if v.Kind == models.GraderKindToolConstraint {
+			hasTaskConstraint = true
+		}
+	}
+	if !hasTaskConstraint {
+		return augmentGradersFromAgent(append([]models.GraderConfig(nil), spec.Graders...), agentPath, fm), nil
+	}
+	return spec.Graders, nil
 }
 
 // mergeToolPolicyResult folds a follow-up/responder turn's tool-policy
