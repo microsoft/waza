@@ -448,7 +448,12 @@ func projectEvents(events []copilot.SessionEvent) ([]models.JudgeEvidenceMessage
 				return nil, nil, errors.New("missing_tool_result")
 			}
 			completed[result.ToolCallID] = true
-			tools[index].Result, tools[index].Success = result.Result, result.Success
+			if result.Result != nil {
+				projectedResult := *result.Result
+				projectedResult.MCPResultMeta = nil
+				tools[index].Result = &projectedResult
+			}
+			tools[index].Success = result.Success
 			tools[index].Error = failure
 		}
 	}

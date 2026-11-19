@@ -146,6 +146,43 @@ func evidenceGradingContext(t *testing.T) *Context {
 		TestCase: &models.TestCase{Stimulus: models.TaskStimulus{Message: "MUTATED_TASK_CANARY"}}}
 }
 
+func TestEvidencePromptExcludesMCPResultMetaFromJudgeRequest(t *testing.T) {
+	const metadataCanary = "UI_ONLY_MCP_RESULT_META_CANARY"
+	grading := evidenceGradingContext(t)
+	grading.JudgeEvidence = judgeevidence.Capture(judgeevidence.CaptureInput{
+		Origin: grading.JudgeOrigin, Task: "Inspect the tool result.", Output: "Done.", OutputPresent: true, ExecutionMode: "mock",
+		Events: []copilot.SessionEvent{
+			{Data: &copilot.UserMessageData{Content: "Inspect the tool result."}},
+			{Data: &copilot.ToolExecutionStartData{ToolCallID: "call", ToolName: "lookup"}},
+			{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "call", Success: true,
+				Result: &copilot.ToolExecutionCompleteResult{
+					Content: "Public tool result.", MCPResultMeta: map[string]any{"ui": metadataCanary},
+				}}},
+			{Data: &copilot.AssistantMessageData{Content: "Done."}},
+		},
+	})
+	require.NoError(t, judgeevidence.Verify(grading.JudgeEvidence, grading.JudgeOrigin))
+	toolResult, ok := (*grading.JudgeEvidence.ToolEvents.Items)[0].Result.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Public tool result.", toolResult["content"])
+	require.NotContains(t, toolResult, "mcpResultMeta")
+
+	grading.EvidenceExecutor = &fakePromptExecutor{execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		require.Contains(t, req.Message, "Public tool result.")
+		require.NotContains(t, req.Message, metadataCanary)
+		_, err := req.Tools[0].Handler(copilot.ToolInvocation{ToolName: wazaPassToolName})
+		require.NoError(t, err)
+		return &execution.ExecutionResponse{Success: true}, nil
+	}}
+	g, err := NewPromptGrader("judge", models.PromptGraderParameters{
+		Prompt: "Judge the recorded execution.", EvidenceContext: &models.PromptEvidenceContext{},
+	})
+	require.NoError(t, err)
+	result, err := g.Grade(t.Context(), grading)
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+}
+
 func TestEvidencePromptUsesFrozenDataFreshExecutorAndNoGenericDetails(t *testing.T) {
 	grading := evidenceGradingContext(t)
 	actor := &fakePromptExecutor{execute: func(_ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
