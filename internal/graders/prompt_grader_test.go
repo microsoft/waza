@@ -531,9 +531,12 @@ func TestPairwiseMode_RequiresValidVerdictOnEachPass(t *testing.T) {
 					return &execution.ExecutionResponse{Success: true}, nil
 				}
 				winner := "B"
-				if pass == tt.invalidPass {
+				switch pass {
+				case tt.missingPass:
+					return &execution.ExecutionResponse{Success: true}, nil
+				case tt.invalidPass:
 					winner = "C"
-				} else if pass == 2 {
+				case 2:
 					winner = "A"
 				}
 				_, err := req.Tools[0].Handler(copilot.ToolInvocation{Arguments: map[string]any{

@@ -97,6 +97,22 @@ func ValidatePairwiseGraderNames(specGraders []models.GraderConfig, tc *models.T
 				return err
 			}
 		}
+		expectations := []struct {
+			name  string
+			count int
+		}{
+			{name: "_output_contains", count: len(tc.Expectation.MustInclude)},
+			{name: "_output_not_contains", count: len(tc.Expectation.MustExclude)},
+			{name: "_output_contains_any", count: len(tc.Expectation.MayInclude)},
+		}
+		for _, expectation := range expectations {
+			if expectation.count == 0 {
+				continue
+			}
+			if err := add(expectation.name, false, "expectation-level"); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

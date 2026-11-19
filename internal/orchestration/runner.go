@@ -723,10 +723,12 @@ func (r *EvalRunner) runPairwiseBaselineComparison(ctx context.Context, spec *mo
 	fmt.Println("════════════════════════════════════════════════════════════════")
 	withoutSkills, err := r.runNormalBenchmark(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("baseline run (skills disabled) failed: %w", err)
+		markIncompleteBaselineOutcome(withoutSkills)
+		return withoutSkills, fmt.Errorf("baseline run (skills disabled) failed: %w", err)
 	}
 	if err := r.validatePairwiseBaselineOutputs(); err != nil {
-		return nil, err
+		markIncompleteBaselineOutcome(withoutSkills)
+		return withoutSkills, err
 	}
 
 	restoreSkills()
@@ -752,10 +754,17 @@ func (r *EvalRunner) preparePairwiseTasks() error {
 	if r.skipGraders {
 		return nil
 	}
-
 	testCases, err := r.admissionTestCases()
 	if err != nil {
 		return err
+	}
+	return r.preparePairwiseTasksFor(testCases)
+}
+
+func (r *EvalRunner) preparePairwiseTasksFor(testCases []*models.TestCase) error {
+	r.pairwiseTaskIDs = nil
+	if r.skipGraders {
+		return nil
 	}
 	spec := r.cfg.Spec()
 	var hasSkills bool
@@ -774,6 +783,9 @@ func (r *EvalRunner) preparePairwiseTasks() error {
 		}
 		if !graders.HasPairwisePromptGraders(spec.Graders, tc) {
 			continue
+		}
+		if err := graders.ValidatePairwiseGraderNames(spec.Graders, tc); err != nil {
+			return fmt.Errorf("task %q: %w", tc.TestID, err)
 		}
 		if !spec.Baseline {
 			return fmt.Errorf("pairwise prompt grading requires --baseline for task %q", tc.TestID)
@@ -794,6 +806,17 @@ func (r *EvalRunner) preparePairwiseTasks() error {
 		r.pairwiseTaskIDs = pairwiseTasks
 	}
 	return nil
+}
+
+func markIncompleteBaselineOutcome(outcome *models.EvaluationOutcome) {
+	if outcome == nil {
+		return
+	}
+	outcome.IsBaseline = true
+	if outcome.Metadata == nil {
+		outcome.Metadata = make(map[string]any)
+	}
+	outcome.Metadata["incomplete"] = true
 }
 
 func (r *EvalRunner) recordPairwiseBaselineOutput(testID string, runNum, attempt int, output string, present bool) {
@@ -1107,17 +1130,7 @@ func (r *EvalRunner) admitEvalMCPMocks() error {
 
 func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 	testCases, selectionErr := r.admissionTestCases()
-	var pairwiseErr error
-	if !r.skipGraders {
-		for _, tc := range testCases {
-			if !graders.HasPairwisePromptGraders(r.cfg.Spec().Graders, tc) {
-				continue
-			}
-			if err := graders.ValidatePairwiseGraderNames(r.cfg.Spec().Graders, tc); err != nil {
-				pairwiseErr = errors.Join(pairwiseErr, fmt.Errorf("task %q: %w", tc.TestID, err))
-			}
-		}
-	}
+	pairwiseErr := r.preparePairwiseTasksFor(testCases)
 	// Failed selection cannot establish task overrides, but must not hide
 	// independent eval mock errors or allow engine initialization.
 	if err := mcpmock.ValidateMCPMocksForPhases(r.cfg.Spec(), testCases, r.cfg.SpecDir(), usesEvalMCP); err != nil {

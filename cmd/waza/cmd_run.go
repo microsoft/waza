@@ -1083,6 +1083,17 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 
 	outcome, err := runner.RunBenchmark(ctx)
 	if err != nil {
+		if outcome != nil && spec.Baseline && outputPath != "" {
+			resultPath := outputPath
+			if len(modelOverrides) > 1 {
+				ext := filepath.Ext(outputPath)
+				resultPath = buildOutputPath(strings.TrimSuffix(outputPath, ext), ext, "", spec.Config.ModelID, false, true)
+			}
+			if saveErr := saveOutcome(outcome, resultPath); saveErr != nil {
+				return outcome, errors.Join(fmt.Errorf("benchmark failed: %w", err), fmt.Errorf("failed to save output: %w", saveErr))
+			}
+			fmt.Printf("\nResults saved to: %s\n", resultPath)
+		}
 		return outcome, fmt.Errorf("benchmark failed: %w", err)
 	}
 

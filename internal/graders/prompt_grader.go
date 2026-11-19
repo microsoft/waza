@@ -471,10 +471,14 @@ func (p *promptGrader) gradePairwise(ctx context.Context, gradingContext *Contex
 
 		details := map[string]any{
 			"pairwise": pairwise,
-			"pass1":    resultAB,
-			"pass2":    resultBA,
-			"prompt":   p.args.Prompt,
-			"mode":     "pairwise",
+			"pass1": pairwiseJudgmentDetails{
+				Winner: resultAB.winner, Magnitude: resultAB.magnitude, Reasoning: resultAB.reasoning,
+			},
+			"pass2": pairwiseJudgmentDetails{
+				Winner: resultBA.winner, Magnitude: resultBA.magnitude, Reasoning: resultBA.reasoning,
+			},
+			"prompt": p.args.Prompt,
+			"mode":   "pairwise",
 		}
 		if p.rubric != nil {
 			details["rubric"] = map[string]any{
@@ -502,6 +506,12 @@ type pairwiseJudgment struct {
 	magnitude string
 	reasoning string
 	set       bool
+}
+
+type pairwiseJudgmentDetails struct {
+	Winner    string `json:"winner"`
+	Magnitude string `json:"magnitude"`
+	Reasoning string `json:"reasoning"`
 }
 
 const pairwisePickToolName = "set_pairwise_winner"

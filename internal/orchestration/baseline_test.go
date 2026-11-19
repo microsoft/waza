@@ -793,8 +793,13 @@ func TestRunBenchmark_PairwiseRejectsMissingBaselineOutputBeforeTreatment(t *tes
 	engine := &pairwiseCaptureEngine{MockEngine: execution.NewMockEngine("mock"), failBaseline: true}
 	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine)
 
-	_, err := runner.RunBenchmark(t.Context())
+	outcome, err := runner.RunBenchmark(t.Context())
 	require.ErrorContains(t, err, "final baseline attempt")
+	require.NotNil(t, outcome)
+	require.True(t, outcome.IsBaseline)
+	require.Equal(t, true, outcome.Metadata["incomplete"])
+	require.Greater(t, outcome.Digest.Errors, 0)
+	require.Equal(t, models.StatusError, outcome.TestOutcomes[0].Status)
 	require.Len(t, engine.actorNoSkills, 2)
 	require.Empty(t, engine.treatmentOutputs)
 	require.Empty(t, engine.judgePrompts)
