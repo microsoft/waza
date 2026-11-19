@@ -228,6 +228,85 @@ func TestReplayStrictValidationDoesNotInferMissingScore(t *testing.T) {
 	require.Empty(t, report.Issues)
 }
 
+func TestReplayStrictConsistencyCLIUsesOnlyRecordedEvidence(t *testing.T) {
+	tests := []struct {
+		name      string
+		snapshot  string
+		wantIssue string
+	}{
+		{
+			name:     "missing passed",
+			snapshot: `{"schemaVersion":"1.1","kind":"task-snapshot","result":{"status":"passed","validations":{"quality":{"score":0,"weight":1}}}}`,
+		},
+		{
+			name:     "missing score",
+			snapshot: `{"schemaVersion":"1.1","kind":"task-snapshot","result":{"status":"passed","validations":{"quality":{"passed":true,"weight":1}}}}`,
+		},
+		{
+			name:     "null passed",
+			snapshot: `{"schemaVersion":"1.1","kind":"task-snapshot","result":{"status":"passed","validations":{"quality":{"passed":null,"score":0,"weight":1}}}}`,
+		},
+		{
+			name:     "null score",
+			snapshot: `{"schemaVersion":"1.1","kind":"task-snapshot","result":{"status":"passed","validations":{"quality":{"passed":true,"score":null,"weight":1}}}}`,
+		},
+		{
+			name:      "explicit zero score",
+			snapshot:  `{"schemaVersion":"1.1","kind":"task-snapshot","result":{"status":"passed","validations":{"quality":{"passed":true,"score":0,"weight":1}}}}`,
+			wantIssue: "validation_inconsistency",
+		},
+		{
+			name:      "out-of-order events",
+			snapshot:  `{"schemaVersion":"1.1","kind":"task-snapshot","toolEvents":[{"sequence":2},{"sequence":1}],"result":{"status":"passed"}}`,
+			wantIssue: "sequence_order",
+		},
+		{
+			name:      "failed checkpoint",
+			snapshot:  `{"schemaVersion":"1.1","kind":"task-snapshot","checkpoints":[{"after_turn":2,"status":"failed"}],"result":{"status":"passed"}}`,
+			wantIssue: "status_inconsistency",
+		},
+		{
+			name:      "error checkpoint",
+			snapshot:  `{"schemaVersion":"1.1","kind":"task-snapshot","checkpoints":[{"after_turn":2,"status":"error"}],"result":{"status":"passed"}}`,
+			wantIssue: "status_inconsistency",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "snapshot.json")
+			require.NoError(t, os.WriteFile(path, []byte(tt.snapshot), 0o600))
+
+			cmd := newReplayCommand()
+			var out bytes.Buffer
+			var stderr bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&stderr)
+			cmd.SetArgs([]string{"--json", path})
+
+			err := cmd.Execute()
+			if tt.wantIssue == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				var exit *ExitCodeError
+				require.True(t, errors.As(err, &exit))
+				require.Equal(t, 1, exit.Code)
+			}
+
+			var report ModelReplayReport
+			require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+			require.Equal(t, tt.wantIssue == "", report.Pass)
+			if tt.wantIssue != "" {
+				require.Len(t, report.Issues, 1)
+				require.Equal(t, tt.wantIssue, report.Issues[0].Kind)
+			} else {
+				require.Empty(t, report.Issues)
+			}
+		})
+	}
+}
+
 func TestReplayStrictStatusInconsistencyReturnsDivergence(t *testing.T) {
 	dir := t.TempDir()
 	snap := makeSnap(models.StatusPassed, false)
