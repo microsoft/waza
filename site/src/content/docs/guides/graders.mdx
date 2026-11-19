@@ -610,6 +610,12 @@ Pairwise comparisons require unique IDs across all selected tasks. Only the fina
 baseline attempt supplies each task/trial's output; if that attempt fails execution,
 earlier output is not reused and the skills-enabled pass does not start.
 
+Because the baseline pass cannot apply relative graders, pairwise judgments decide
+baseline impact and the exit code: each judged task contributes its preference
+`(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and
+the run exits `1` unless the mean is positive. Each task records the counts in
+`skill_impact.pairwise_summary`.
+
 Reasoning-effort overrides work on eval, task, and checkpoint prompt graders, including
 `continue_session` and pairwise judging. These are judge settings, not per-task agent
 settings. Pin the agent effort once per eval to compare the same suite consistently:

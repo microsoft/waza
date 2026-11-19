@@ -1259,6 +1259,11 @@ be unique when pairwise grading is enabled. A final baseline attempt that fails
 execution makes its observation unavailable, even if an earlier attempt produced
 output. Saved-result `waza grade` does not
 support pairwise comparisons; rerun with `waza run --baseline`.
+Because the baseline pass cannot apply relative graders, pairwise judgments decide
+baseline impact and the exit code: each judged task contributes its preference
+`(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and
+the run exits `1` unless the mean is positive. Each task records the counts in
+`skill_impact.pairwise_summary`.
 
 ```bash
 waza preflight examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures

@@ -1218,8 +1218,19 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	}
 
 	// Return test failure as error so caller can decide how to handle it
-	// In baseline mode, exit code is based on skill impact (0=improvement, 1=regression/neutral)
+	// In baseline mode, exit code is based on skill impact (0=improvement, 1=regression/neutral).
+	// Pairwise judgments decide impact because the baseline pass cannot apply relative graders.
 	if outcome.IsBaseline {
+		impact := models.BaselineImpact(outcome, outcome.BaselineOutcome)
+		if impact.Pairwise {
+			if impact.Score <= 0 {
+				return outcome, &TestFailureError{
+					Message: fmt.Sprintf("baseline comparison: pairwise judgments show negative/neutral impact (%d skill wins, %d ties, %d baseline wins)",
+						impact.SkillWins, impact.Ties, impact.BaselineWins),
+				}
+			}
+			return outcome, nil
+		}
 		withPassRate := outcome.Digest.SuccessRate
 		withoutPassRate := outcome.BaselineOutcome.Digest.SuccessRate
 

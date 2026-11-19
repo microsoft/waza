@@ -867,6 +867,9 @@ func (r *EvalRunner) mergeBaselineOutcomes(
 		}
 
 		withTo.SkillImpact = computeSkillImpact(withTo, withoutTo)
+		if _, pairwise := r.pairwiseTaskIDs[testID]; pairwise {
+			withTo.SkillImpact.PairwiseSummary = summarizePairwiseJudgments(withTo)
+		}
 	}
 
 	// Check for extra tasks in baseline
@@ -904,6 +907,49 @@ func computeSkillImpact(withSkills, without *models.TestOutcome) *models.SkillIm
 	}
 }
 
+// summarizePairwiseJudgments counts the pairwise prompt grader verdicts
+// recorded on the skills-enabled runs. It returns nil when no run carries a
+// judgment, so missing evidence is never reported as a tie.
+func summarizePairwiseJudgments(outcome *models.TestOutcome) *models.PairwiseSummary {
+	summary := &models.PairwiseSummary{}
+	for i := range outcome.Runs {
+		for _, result := range outcome.Runs[i].Validations {
+			switch pairwiseWinner(result.Details["pairwise"]) {
+			case "skill":
+				summary.SkillWins++
+			case "tie":
+				summary.Ties++
+			case "baseline":
+				summary.BaselineWins++
+			default:
+				continue
+			}
+			summary.Judgments++
+		}
+	}
+	if summary.Judgments == 0 {
+		return nil
+	}
+	summary.Preference = float64(summary.SkillWins-summary.BaselineWins) / float64(summary.Judgments)
+	return summary
+}
+
+func pairwiseWinner(detail any) string {
+	switch v := detail.(type) {
+	case *models.PairwiseResult:
+		if v != nil {
+			return v.Winner
+		}
+	case models.PairwiseResult:
+		return v.Winner
+	case map[string]any:
+		if winner, ok := v["winner"].(string); ok {
+			return winner
+		}
+	}
+	return ""
+}
+
 func computePassRate(outcome *models.TestOutcome) float64 {
 	if outcome.Stats != nil {
 		return outcome.Stats.PassRate
@@ -930,6 +976,7 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	withPassRate := withSkills.Digest.SuccessRate
 	withoutPassRate := withoutSkills.Digest.SuccessRate
 	delta := withPassRate - withoutPassRate
+	verdict := models.BaselineImpact(withSkills, withoutSkills)
 
 	fmt.Printf("Overall Performance Delta:\n")
 	fmt.Printf("  With Skills:    %.1f%% (%d/%d tasks passed)\n",
@@ -944,6 +991,10 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	} else {
 		fmt.Printf("  Impact:         no change\n\n")
 	}
+	if verdict.Pairwise {
+		fmt.Printf("Pairwise Judgments (decide impact; baseline pass omits relative graders):\n")
+		fmt.Printf("  Skill wins: %d  Ties: %d  Baseline wins: %d\n\n", verdict.SkillWins, verdict.Ties, verdict.BaselineWins)
+	}
 
 	fmt.Println("Per-Task Breakdown:")
 	improved := 0
@@ -957,17 +1008,26 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 		}
 
 		impact := to.SkillImpact
+		signal := impact.Delta
+		if p := impact.PairwiseSummary; p != nil {
+			signal = p.Preference
+		}
 		status := "[NEUTRAL]"
-		if impact.Delta > 0 {
+		if signal > 0 {
 			status = "[IMPROVED]"
 			improved++
-		} else if impact.Delta < 0 {
+		} else if signal < 0 {
 			status = "[REGRESSED]"
 			regressed++
 		} else {
 			neutral++
 		}
 
+		if p := impact.PairwiseSummary; p != nil {
+			fmt.Printf("  • %-30s %s  pairwise: %d win / %d tie / %d loss\n",
+				to.DisplayName, status, p.SkillWins, p.Ties, p.BaselineWins)
+			continue
+		}
 		fmt.Printf("  • %-30s %s  %.0f%% → %.0f%% (%+.0fpp)\n",
 			to.DisplayName,
 			status,
@@ -978,9 +1038,9 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	}
 
 	fmt.Println()
-	if delta > 0 {
+	if verdict.Score > 0 {
 		fmt.Printf("Verdict: Skills have POSITIVE IMPACT (improved %d/%d tasks)\n", improved, len(withSkills.TestOutcomes))
-	} else if delta < 0 {
+	} else if verdict.Score < 0 {
 		fmt.Printf("Verdict: Skills have NEGATIVE IMPACT (regressed %d/%d tasks)\n", regressed, len(withSkills.TestOutcomes))
 	} else {
 		fmt.Printf("Verdict: Skills have NEUTRAL IMPACT (no net change)\n")
