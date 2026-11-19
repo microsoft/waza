@@ -1,0 +1,9 @@
+{
+  "kind": "waza.provenance-bundle",
+  "schema_version": "1.0",
+  "envelope": "statement.dsse.json",
+  "signer": {
+    "mode": "local-ed25519",
+    "key_id": "sha256:273c376463d2cd23fb4dcfda0c10bbb8925592c4da80b74955ff8f831fc12d88"
+  }
+}

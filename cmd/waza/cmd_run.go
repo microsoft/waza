@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -49,37 +50,44 @@ import (
 )
 
 var (
-	contextDir      string
-	outputPath      string
-	outputDir       string
-	verbose         bool
-	transcriptDir   string
-	taskFilters     []string
-	tagFilters      []string
-	parallel        bool
-	workers         int
-	trials          int
-	interpret       bool
-	format          string
-	enableCache     bool
-	disableCache    bool
-	runCacheDir     string
-	modelOverrides  []string
-	recommendFlag   bool
-	baselineFlag    bool
-	suggestFlag     bool
-	sessionLog      bool
-	sessionDir      string
-	noSummary       bool
-	judgeModel      string
-	reporters       []string
-	discoverFlag    bool
-	strictFlag      bool
-	updateSnapshots bool
-	skipGradersFlag bool
-	noSkillsFlag    bool
-	keepWorkspace   bool
-	autoFileIssue   bool
+	contextDir string
+	outputPath string
+	// plannedOutputFiles are the result files --output will produce for the
+	// selected skills and models, excluded from cache fingerprints.
+	plannedOutputFiles []string
+	outputDir          string
+	verbose            bool
+	transcriptDir      string
+	taskFilters        []string
+	tagFilters         []string
+	parallel           bool
+	workers            int
+	trials             int
+	interpret          bool
+	format             string
+	enableCache        bool
+	disableCache       bool
+	runCacheDir        string
+	modelOverrides     []string
+	recommendFlag      bool
+	baselineFlag       bool
+	suggestFlag        bool
+	sessionLog         bool
+	sessionDir         string
+	noSummary          bool
+	judgeModel         string
+	reporters          []string
+	discoverFlag       bool
+	strictFlag         bool
+	updateSnapshots    bool
+	skipGradersFlag    bool
+	noSkillsFlag       bool
+	keepWorkspace      bool
+	autoFileIssue      bool
+
+	isolationRequestPath string
+	isolationHostPath    string
+	isolationReportPath  string
 
 	otelExporter        string
 	otelEndpoint        string
@@ -192,6 +200,9 @@ config.executor: mock checks only the harness, not agent quality.`,
 	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
 	cmd.Flags().BoolVar(&autoFileIssue, "auto-file-issue", false, "Auto-file or update a GitHub issue for failing runs (requires gh and GITHUB_REPOSITORY)")
 	cmd.Flags().Bool("runner-compat", false, "Route one explicit inline mock/text suite through runner 1.0; reject unsupported mappings")
+	cmd.Flags().StringVar(&isolationRequestPath, "isolation-request", "", "Isolation request JSON; requested boundaries that no provider can prove are rejected before execution")
+	cmd.Flags().StringVar(&isolationHostPath, "isolation-host", "", "Host isolation declaration JSON whose claims are probed before execution")
+	cmd.Flags().StringVar(&isolationReportPath, "isolation-report", "", "Write the isolation preflight report to this file")
 
 	// OpenTelemetry trace export (off by default).
 	cmd.Flags().StringVar(&otelExporter, "otel-exporter", "", "Export OpenTelemetry traces using exporter: otlp|stdout|file (default: disabled)")
@@ -212,11 +223,19 @@ config.executor: mock checks only the harness, not agent quality.`,
 }
 
 func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
+	// Runner compatibility rejects isolation flags through its allowlist, so it
+	// runs before the gate and never publishes an isolation report.
 	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
 		return err
 	} else if enabled {
 		return runLocalCompatibility(cmd, args, runnerunit.NewService(nil))
 	}
+	if err := runIsolationGate(cmd.Context(), isolationRequestPath, isolationHostPath, isolationReportPath, cmd.ErrOrStderr(), append(slices.Clone(args), outputPath, telemetryFilePath())...); err != nil {
+		return err
+	}
+	defer func() {
+		retErr = withIsolationEvidence(retErr)
+	}()
 	if len(snapshotFiles) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-file requires --snapshot")
 	}
@@ -345,6 +364,14 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 	if err != nil {
 		return err
 	}
+	plannedOutputFiles = plannedOutputPaths(outputPath, specPaths, modelOverrides)
+	isolatedSpecs := make([]string, 0, len(specPaths))
+	for _, sp := range specPaths {
+		isolatedSpecs = append(isolatedSpecs, sp.evalSpecPath)
+	}
+	if err := admitIsolationSpecs(isolatedSpecs); err != nil {
+		return err
+	}
 
 	var skillFolders []string
 
@@ -382,10 +409,10 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 		results, err := runCommandForSpec(cmd, specPaths[0], skillFolders)
 
 		// Only write outputs when the run produced meaningful results:
-		// either success (err == nil) or test failures (outcomes are still valid).
+		// either success or completed benchmarks (including operational errors).
 		// For other errors (spec load/parse failures), skip writing and return early.
 		if err != nil {
-			if _, ok := errors.AsType[*TestFailureError](err); !ok {
+			if !completedBenchmarkError(err) {
 				return err
 			}
 		}
@@ -423,10 +450,9 @@ func runCommandE(cmd *cobra.Command, args []string) (retErr error) {
 		outcomes, err := runCommandForSpec(cmd, sp, skillFolders)
 		result.outcomes = outcomes
 		if err != nil {
-			var testErr *TestFailureError
-			if errors.As(err, &testErr) {
+			if completedBenchmarkError(err) {
 				result.err = err
-				lastErr = err
+				lastErr = errors.Join(lastErr, err)
 			} else {
 				return err
 			}
@@ -621,6 +647,9 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	if err != nil {
 		return nil, fmt.Errorf("failed to load spec: %w", err)
 	}
+	if err := checkSpecIsolation(spec); err != nil {
+		return nil, err
+	}
 	resolver, err := registry.NewResolver()
 	if err != nil {
 		return nil, err
@@ -692,11 +721,10 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 
 		outcome, err := runSingleModelWithPartialPath(cmd, spec, specPath, defaultSkills, partialPath)
 		if err != nil {
-			var testErr *TestFailureError
-			if errors.As(err, &testErr) {
-				// Test failures are recorded but don't stop a multi-model run
+			if completedBenchmarkError(err) {
+				// Completed failures retain artifacts and don't stop other models.
 				allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome, partialPath: partialPath})
-				lastErr = err
+				lastErr = errors.Join(lastErr, err)
 				continue
 			}
 			return nil, err
@@ -740,21 +768,17 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 		}
 	}
 
-	if lastErr != nil {
-		return allResults, lastErr
-	}
-
 	// Write reporter outputs for the last model result
 	if len(allResults) > 0 {
 		last := allResults[len(allResults)-1]
 		if last.outcome != nil {
 			if err := writeReporters(last.outcome); err != nil {
-				return allResults, err
+				return allResults, errors.Join(lastErr, err)
 			}
 		}
 	}
 
-	return allResults, nil
+	return allResults, lastErr
 }
 
 func shutdownSharedClientAfterRun(parent context.Context) error {
@@ -874,6 +898,9 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		triggerErr = fmt.Errorf("loading trigger tests: %w", triggerErr)
 	}
 	usesEvalMCP := triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType)
+	if spec.Config.WorkspaceCapture == "none" && len(snapshotFiles) > 0 {
+		return nil, fmt.Errorf("workspace_capture none cannot be used with --snapshot-file")
+	}
 	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, usesEvalMCP)
 	if err := errors.Join(triggerErr, admissionErr); err != nil {
 		return nil, err
@@ -926,6 +953,7 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		}))
 	}
 	if resultCache != nil {
+		resultCache.ExcludeRunOutputs(runOutputCacheExclusions()...)
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
 	}
 	if updateSnapshots {
@@ -1175,6 +1203,18 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 			return nil, fmt.Errorf("failed to save output: %w", err)
 		}
 		fmt.Printf("\nResults saved to: %s\n", outputPath)
+	}
+
+	// Operational errors take precedence over validation and baseline impact.
+	if outcome.Digest.Errors > 0 {
+		return outcome, &BenchmarkError{
+			Message: fmt.Sprintf("benchmark completed: %d failed and %d error(s)", outcome.Digest.Failed, outcome.Digest.Errors),
+		}
+	}
+	if outcome.IsBaseline && outcome.BaselineOutcome.Digest.Errors > 0 {
+		return outcome, &BenchmarkError{
+			Message: fmt.Sprintf("baseline benchmark completed: %d failed and %d error(s)", outcome.BaselineOutcome.Digest.Failed, outcome.BaselineOutcome.Digest.Errors),
+		}
 	}
 
 	// Return test failure as error so caller can decide how to handle it
@@ -2314,6 +2354,103 @@ func saveSummary(summary *models.MultiSkillSummary, path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// outputRunDirLayout names each --output-dir run directory; outputRunDirGlob
+// matches every name it produces.
+const (
+	outputRunDirLayout = "2006-01-02T150405.000"
+	outputRunDirGlob   = "????-??-??T??????.???"
+)
+
+// runOutputCacheExclusions lists the per-run outputs of --output,
+// --reporter junit, --output-dir and --session-log so they never feed back
+// into the cache key when written beneath a skill directory. Only generated
+// names are excluded.
+func runOutputCacheExclusions() []cache.ExcludeEntry {
+	var entries []cache.ExcludeEntry
+	files := slices.Clone(plannedOutputFiles)
+	for _, r := range reporters {
+		if path, ok := strings.CutPrefix(r, "junit:"); ok && path != "" {
+			files = append(files, path)
+		}
+	}
+	for _, path := range files {
+		dir, name := filepath.Split(path)
+		entries = append(entries, cache.ExcludeEntry{Dir: cmp.Or(dir, "."), NamePattern: globLiteral(name)})
+	}
+	if outputDir != "" {
+		entries = append(entries,
+			cache.ExcludeEntry{Dir: outputDir, NamePattern: outputRunDirGlob},
+			cache.ExcludeEntry{Dir: outputDir, NamePattern: ".partial"})
+	}
+	if sessionLog {
+		logDir := sessionDir
+		if logDir == "" {
+			logDir = "."
+		}
+		entries = append(entries, cache.ExcludeEntry{Dir: logDir, NamePattern: session.LogFileGlob})
+	}
+	return entries
+}
+
+// plannedOutputPaths mirrors the --output files written for the selected
+// skills and models: the exact path, per-model files, or per-skill files and
+// the combined summary.
+func plannedOutputPaths(path string, specs []skillSpecPath, models []string) []string {
+	if path == "" {
+		return nil
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	multiModel := len(models) > 1
+	if len(specs) <= 1 {
+		if !multiModel {
+			return []string{path}
+		}
+		paths := make([]string, 0, len(models))
+		for _, model := range models {
+			paths = append(paths, buildOutputPath(base, ext, "", model, false, true))
+		}
+		return paths
+	}
+	var paths []string
+	if !noSummary {
+		paths = append(paths, fmt.Sprintf("%s_summary%s", base, ext))
+	}
+	for _, sp := range specs {
+		if !multiModel {
+			paths = append(paths, buildOutputPath(base, ext, sp.skillName, "", true, false))
+			continue
+		}
+		for _, model := range models {
+			paths = append(paths, buildOutputPath(base, ext, sp.skillName, model, true, true))
+		}
+	}
+	return paths
+}
+
+// globLiteral escapes filepath.Match metacharacters with character classes,
+// which behave the same on every platform.
+func globLiteral(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '*', '?', '[':
+			b.WriteByte('[')
+			b.WriteRune(r)
+			b.WriteByte(']')
+		case '\\':
+			if runtime.GOOS == "windows" {
+				b.WriteRune(r)
+			} else {
+				b.WriteString(`[\\]`)
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // writeOutputDir writes results to a structured directory hierarchy.
 // Each run creates a timestamped subdirectory to avoid overwriting previous results.
 // For multi-skill runs: {outputDir}/{timestamp}/{skillName}/{modelName}.json
@@ -2324,7 +2461,7 @@ func writeOutputDir(dir string, results []skillRunResult) error {
 
 // writeOutputDirAt is the testable core of writeOutputDir, accepting a timestamp.
 func writeOutputDirAt(dir string, results []skillRunResult, now time.Time) error {
-	runDir := filepath.Join(dir, now.UTC().Format("2006-01-02T150405.000"))
+	runDir := filepath.Join(dir, now.UTC().Format(outputRunDirLayout))
 	if err := os.MkdirAll(runDir, 0755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
@@ -2368,6 +2505,8 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		root = args[0]
 	}
+	// Each discovered skill runs as a single spec writing the same --output.
+	plannedOutputFiles = plannedOutputPaths(outputPath, nil, modelOverrides)
 
 	skills, err := discovery.Discover(root)
 	if err != nil {
@@ -2406,9 +2545,14 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 	}
 
 	var skillDirs []string
+	var evalPaths []string
 
 	for _, ds := range withEval {
 		skillDirs = append(skillDirs, ds.Dir)
+		evalPaths = append(evalPaths, ds.EvalPath)
+	}
+	if err := admitIsolationSpecs(evalPaths); err != nil {
+		return err
 	}
 
 	// Run evaluations
@@ -2426,10 +2570,9 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 		outcomes, runErr := runCommandForSpec(cmd, sp, skillDirs)
 		result.outcomes = outcomes
 		if runErr != nil {
-			var testErr *TestFailureError
-			if errors.As(runErr, &testErr) {
+			if completedBenchmarkError(runErr) {
 				result.err = runErr
-				lastErr = runErr
+				lastErr = errors.Join(lastErr, runErr)
 			} else {
 				return runErr
 			}

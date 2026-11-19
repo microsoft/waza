@@ -162,6 +162,22 @@ storage:
   enabled: true
 ```
 
+### telemetry
+
+Project-level denial of product usage telemetry. See
+[Product Usage Telemetry](../../guides/usage-telemetry/).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `disabled` | bool | `false` | Disable product usage telemetry for commands run in this project |
+
+Any other key or a non-boolean value is invalid and also disables collection.
+
+```yaml
+telemetry:
+  disabled: true
+```
+
 ## Complete Example
 
 ```yaml

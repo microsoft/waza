@@ -1,0 +1,16 @@
+{
+  "proposals": [
+    {
+      "rationale": "Ask for breaking-change and security sections.",
+      "files": {
+        "style-guide.md": "# Release notes style guide\n\nWrite release notes.\n\n- Flag every breaking change and give migration steps.\n- Label security fixes and tell users to upgrade.\n"
+      }
+    },
+    {
+      "rationale": "Add a usage example for new commands.",
+      "files": {
+        "style-guide.md": "# Release notes style guide\n\nWrite release notes.\n\n- Flag every breaking change and give migration steps.\n- Label security fixes and tell users to upgrade.\n- Show one usage example for each new command.\n"
+      }
+    }
+  ]
+}

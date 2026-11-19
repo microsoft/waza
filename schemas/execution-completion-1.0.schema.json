@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-completion-1.0.schema.json",
+  "title": "Waza execution completion reference declaration 1.0",
+  "description": "Reference to original reservation bytes and an immutable source manifest. Not proof of ownership, final publication, runtime execution, or billing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "execution_id", "reservation_digest", "manifest_digest"],
+  "properties": {
+    "kind": {"const": "waza.execution-completion"},
+    "schema_version": {"const": "1.0"},
+    "execution_id": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"},
+    "reservation_digest": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source/properties/manifest_digest"},
+    "manifest_digest": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source/properties/manifest_digest"}
+  }
+}

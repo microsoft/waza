@@ -16,14 +16,24 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 ## Versioned artifacts
 
-This table describes standalone v0.40.0. Published standalone
-`v0.39.1` writes results `1.7`; see [release availability](/waza/reference/releases/).
+The standalone aggregate profile (released in v0.41.0) independently uses
+`kind: waza.manifest-aggregate`, exact `schema_version: "1.0"`. Canonical
+reference/profile/diagnostic ordering and three explicitly named populations
+preserve repeated executions and compatible views without synthesizing legacy
+ownership, missing evidence or billing. Failed/cancelled terminal outcomes are
+not aggregate admission failures. Historical mutable results are not converted;
+unsupported supplied source profiles remain explicit.
+See [aggregate compatibility and worked examples](../../guides/manifest-aggregation/).
+
+This table describes current source. Published standalone `v0.41.0` writes
+results `1.9`; standalone `v0.40.0` and `v0.40.1` write `1.8`, and `v0.39.1`
+writes `1.7`. See [release availability](/waza/reference/releases/).
 
 | Artifact | Field | Current version |
 |---|---|---|
 | Legacy `eval.yaml` | `schemaVersion` | `1.4` |
 | Scenario `eval.yaml` | `schemaVersion` | Exact `2.0`, explicit opt-in |
-| Newly generated `results.json` | `schemaVersion` | `1.8` |
+| Newly generated `results.json` | `schemaVersion` | `1.9` |
 | Historical `results.json` | `schemaVersion` | Declared `1.x`; missing version defaults to `1.4` |
 | Task YAML | No independent version field | Existing legacy format, unchanged |
 | `snapshot.json` | `schemaVersion` | `1.1` (independent artifact) |
@@ -33,6 +43,20 @@ This table describes standalone v0.40.0. Published standalone
 | `waza.preflight` report | `schemaVersion` | `1.0` (independent artifact) |
 | `waza.grader-reference` labels / `waza.grader-review` declaration | `schema_version` | Exact `1.0` (independent profiles) |
 | `waza.grader-assurance` report | `schema_version` | Separately selected `1.0`, `1.1`, or `1.2` |
+
+Result trials may optionally include `infrastructure_diagnostic` with an
+allowlisted `code`, a positive `limit` no greater than 1,099,511,627,776, and
+an optional `additional_failure` boolean. The limit is present only for
+workspace-capture limit codes. Missing and unknown diagnostics remain generic
+in the dashboard; legacy artifacts remain readable. The raw `error_msg` and
+responder reason and user-input errors remain in artifacts and may contain sensitive data. The
+published 1.0 release exports omit `infrastructure_diagnostic` to remain
+compatible with the closed release-artifacts 1.0 schema; normal run artifacts
+retain it.
+The 1.0 assurance ledger binds those projected rows; it does not bind a
+diagnostic sidecar. A separate sidecar would require an independently versioned
+contract and explicit verification before it could be treated as assurance
+evidence.
 
 Optional task `requirements` introduced by #660 are descriptive v1-compatible
 metadata, without a global schema bump or new runtime/exit semantics. Old readers
@@ -56,7 +80,7 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.
 - **MAJOR** changes are breaking. Legacy readers refuse artifacts from a different major version and point to `waza migrate <file>`; scenario-aware readers additionally accept explicitly selected scenario eval `2.0`.
 - Missing `schemaVersion` in legacy eval/result inputs continues to default to `1.4`. Declared same-major versions remain accepted and unchanged on read/re-save; unknown fields are warned about. Scenario-bearing evals must explicitly select `2.0` and cannot omit the version. Task YAML has no independent version field.
-- Current source evaluations and regrades write results `1.8`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
+- Current source evaluations and regrades write results `1.9`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
 
 Legacy results and snapshots without consumed evidence retain ordinary JSON
 decoding for opaque tool arguments, grader details and unknown fields, including
@@ -86,6 +110,24 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
 
+### Execution evidence 1.0 and aggregate lineage (v0.41.0, #768)
+
+- Evidence sidecars (`kind: waza.execution-evidence`, `schema_version: "1.0"`)
+  record exactly six categories (conversation, tool, grader, reliability, usage,
+  provenance), each `present`, `unavailable`, `incomplete`, `redacted` or
+  `conflicting`. No category defaults to present.
+- Missing data stays missing: consumers treat every non-`present` state as
+  unknown, never zero or passing. `present` with `observed_count: 0` means
+  recorded empty.
+- Aggregate 1.0 members gain two optional fields: `parent` (verified execution
+  parent, `retry` or `branch`) and `lineage` (declared source manifests, `retry`,
+  `resume`, `cache` or `aggregation`). Both are omitted when absent, so earlier
+  aggregate files still parse. Readers reject unknown relationships, self links
+  and unsorted lineage.
+- No migration: existing manifests without sidecars stay metadata-only, and no
+  tool synthesizes lineage for older retries. See
+  [reviewing evidence states](../../guides/evidence-review/).
+
 ### Task-level MCP mocks (task YAML)
 
 - Added optional `mcp_mocks` to task YAML. Each entry replaces the eval-level
@@ -103,6 +145,32 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
   server that the task no longer mocks is re-run. Outcomes cached before
   results 1.7 record no dependency modes and cannot be checked; clear the
   cache after removing MCP mocks from such an eval.
+
+### 1.9 (new results only)
+
+- Adds optional eval `config.native_user_input` (scenario `2.0` and `copilot-sdk`
+  only), which registers the Copilot SDK native user-input callback
+  (`OnUserInputRequest`, the `ask_user` tool) on the initial and every resumed
+  session of a run. Older executables reject the unknown config field instead of
+  silently ignoring scripted answers.
+- Adds optional task-level `user_input_responses`, which require the flag. Each entry has a required `answer`
+  and an optional `question` regex; entries are used in order, and an answer equal to
+  an offered choice selects it. A non-matching or unscripted question returns an
+  error to the SDK (never a default answer) and fails the run, as do unused entries.
+- With the flag, an adaptive responder (`inputs.responder`) answers native
+  questions that no pending scripted entry matches,
+  using its existing session and instructions. Scripted entries are tried first;
+  responder stop, abstain, errors, or invalid answers fail the run. Without the
+  flag, responders are unchanged.
+- Adds optional `tasks[].runs[].user_input_requests` (`[]` when the flag is on
+  and no question was asked; absent when it is off): one record per observed
+  request in arrival order with `sequence`, `session_id`, `question`, offered
+  `choices` (`null` when none were sent, `[]` when an empty list was sent),
+  `answer`, `was_freeform`, `source` (`script` or `responder`), and `error` when
+  the request was rejected. Inline `code` graders receive these
+  records as `user_input_requests`, including during offline regrading. They are
+  not copied into `snapshot.json` (still `1.1`). Structured elicitation forms
+  (`AskUserVariantElicitation`) are not supported.
 
 ### Host lifecycle evidence in results 1.8
 
@@ -146,7 +214,7 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 - Added optional per-run `evidence` and scoped `requirement_explanations` to
   results without changing task semantics or historical result versions.
   This feature originally shipped with writer `1.7`; current source writes
-  results `1.8`. The dashboard exposes every trial via
+  results `1.9`. The dashboard exposes every trial via
   `evidenceRuns` when any task run has evidence or requirement explanations.
   When all runs lack both, the API omits that field to preserve the legacy
   response shape; the dashboard fallback reports unassessed.
@@ -209,6 +277,20 @@ promised stable across runs.
 - Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
 - Scenario evals accept the existing optional `config.sandbox` policy with the same `copilot-sdk` requirement and behavior as legacy `1.3`+ evals.
 - Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
+
+### Frozen judge fixture declarations (#898)
+
+Requires a build containing fix #898; not in published v0.41.0.
+
+- Final eval/task prompt graders may author `evidence_context.non_secret_literals`:
+  bounded, unique exact fixture identifiers; absent and empty remain distinct,
+  null is invalid. No actor/tool-derived declarations or blanket exceptions.
+- Explicit declarations write independent judge bundle `1.1` with
+  `fixture_literals.declared_count` and `preserved_matches`, never declaration
+  lists. Legacy bundle `1.0` and absent-declaration output remain unchanged.
+- Required redacted/missing evidence still blocks judging. Regrading cannot
+  recover withheld content by adding declarations. See
+  [fixture privacy](/waza/guides/graders/#evaluator-controlled-non-secret-fixtures).
 
 ### 1.7 (new results only)
 

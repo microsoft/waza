@@ -98,6 +98,22 @@ check is optional and is not a second routine blocking review. A host without
 per-task model control must report that limitation rather than claim these
 preferences were enforced. Do not invent runtime task-model overrides.
 
+### Reproducible dashboard capture
+
+`web/e2e/release-media.spec.ts` records the dashboard Lab drafts in Chromium:
+landscape screenshots plus 540x960 (9:16) WebM clips with burned-in captions,
+WebVTT sidecars, and plain-text transcripts. It runs only when
+`WAZA_RELEASE_MEDIA_DIR` names an output directory outside the repository, so
+routine and docs-refresh runs never execute it:
+
+```bash
+cd web
+WAZA_RELEASE_MEDIA_DIR=/absolute/path/release-media/vX.Y.Z npm run release:media
+```
+
+API responses come from committed or generated test fixtures, so captions must
+say so. Update the journeys and captions to match each release's verified scope.
+
 ## Evidence, privacy, and rights checks
 
 - Show only behavior observed in the verified source and supported by its

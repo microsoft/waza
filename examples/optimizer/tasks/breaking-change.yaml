@@ -1,0 +1,12 @@
+id: breaking-change
+name: Removed flag notes
+tags: [optimization]
+inputs:
+  prompt: "Write release notes for a removed CLI flag."
+  files:
+    - path: style-guide.md
+graders:
+  - name: breaking-change-style
+    type: text
+    config:
+      contains: ["breaking change", "migration"]

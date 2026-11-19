@@ -47,36 +47,51 @@ pin, and do not infer publication from historical issue comments.
 
 ## Update and publication acceptance policy
 
-A manual-only GHCR publisher is provided in
+A release-tag-only GHCR publisher is provided in
 `.github/workflows/publish-runner-reference.yml`.
-There is no push, pull-request, or scheduled publication trigger. Do not publish
-an image or Waza release without separate authorization. Publication and
-public-image acceptance are separate gates. The
+It can only be called by the tagged release workflow after qualification; it
+has no manual candidate-publish path and no pull-request or scheduled trigger.
+Do not publish an image or Waza release without separate authorization.
+Publication and public-image acceptance are separate gates. The
 [published image record](../../../site/src/content/docs/guides/runner-container.mdx#published-image-and-acceptance-evidence)
 contains the immutable digest, source, declared platform and publisher/verifier
-links. Publisher attempt 1 succeeded and GHCR reports the package public;
+links for the existing publication. Its legacy manual publisher attempt 1
+succeeded and GHCR reports the package public;
 anonymous-pull/provenance/production-caller acceptance passed on Linux AMD64
 in verifier run `41826111839` (1/1 test, 0 skipped). Independent infrastructure-owner
 review was waived for this one publication, not performed. This record is not
 live-provider, billing or inference-quality evidence.
 
-The workflow accepts a full candidate SHA and fails unless the dispatch is from
-`microsoft/waza` on protected `main`, the input matches the workflow event and
-checked-out commit, and the commit is still the exact current `main` tip. It
-requires a clean checkout, rechecks `main` immediately before pushing and again
-after push/attestation, and
+The release workflow passes the exact tag's full source SHA, version and
+`released` stage. The publisher rejects any other repository, event, stage,
+tag/version mismatch, event SHA, checked-out commit or peeled tag commit. It
+requires a clean checkout, revalidates the tag after publication, and
 uses `packages: write` only in the publishing job. The protected-main ruleset is
-the gate for required reviews and status checks; operators must additionally
-confirm the native Linux AMD64 container check and the independent infrastructure
-review are complete before dispatching, or record an explicitly authorized
-one-publication review waiver without presenting it as completed review.
-The workflow builds only `linux/amd64`
-from the clean, LFS-hydrated checkout at the validated candidate SHA, sets source
-and revision labels, and attaches BuildKit provenance and an SBOM. A signed
-GitHub provenance attestation binds the published image digest to the workflow
-source revision; the candidate guard requires that revision to equal the
-requested SHA and current `main`. Its per-run tag is only a convenience;
+the gate for required reviews and status checks; the release workflow runs
+qualification before publication.
+Qualification builds only `linux/amd64` from the clean, LFS-hydrated checkout
+at the validated source SHA, exports an OCI archive, and records the image
+manifest and config digests. It inventories that exact image, creates signed
+GitHub provenance and CycloneDX SBOM attestations for the manifest digest, and
+verifies both offline. The tag-release publisher consumes that same archive and
+requires Skopeo to preserve the digest when copying it to GHCR. Its versioned tag
+is only a convenience;
 consumers must pin the immutable `@sha256:` digest instead.
+
+Artifact Metadata Storage Records are explicitly disabled to preserve the
+publisher's existing permission boundary when upgrading the provenance action.
+Signed provenance is still pushed to the registry; no `artifact-metadata: write`
+permission is granted.
+
+Qualification copies `/waza`, `/var/lib/dpkg/status` and `/etc/os-release` out
+of the locally loaded copy of the exact OCI archive, runs `waza runner inventory
+generate` and `verify` against that archive's manifest digest, and retains the
+CycloneDX inventory and its signed SBOM attestation. The release publisher
+revalidates the inventory, preserves the OCI digest while copying to GHCR,
+attaches the same inventory to that digest with `actions/attest`, and verifies
+the registry-attached attestation offline. Update the inventory step when the
+`native-reference` stage moves its binary, package manager or OS. See
+[component inventories](../../../docs/COMPONENT_INVENTORY.md).
 
 The `GITHUB_TOKEN` package-write and attestation permissions are declarations,
 not proof that repository, organization or package policy allows publication.
@@ -87,7 +102,7 @@ attestation or final-main check can leave a pushed candidate behind. The
 publisher summary marks such a digest unaccepted, makes no rollback claim, and
 must not be treated as permission to use it.
 
-After an authorized push, an operator with package-admin authority must verify
+After an authorized tag release, an operator with package-admin authority must verify
 the package's actual visibility and make it public if required. Then run the
 manual-only `.github/workflows/verify-runner-reference.yml` workflow with the
 source revision and immutable digest from the publisher summary. Its verifier

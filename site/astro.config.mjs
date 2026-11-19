@@ -14,6 +14,8 @@ const base = (() => {
 export default defineConfig({
 	site: process.env.ASTRO_SITE || 'https://microsoft.github.io/waza',
 	base,
+	// Preserve the site's existing CSS specificity while upgrading Starlight.
+	scopedStyleStrategy: 'where',
 	integrations: [
 		starlight({
 			title: 'waza',
@@ -42,6 +44,18 @@ export default defineConfig({
 					slug: 'getting-started',
 				},
 				{
+					label: 'Production Integration',
+					items: [
+						{ label: 'Assurance Package', slug: 'guides/production-integration-assurance' },
+						{ label: 'Execution Provenance', slug: 'guides/execution-provenance' },
+						{ label: 'Component Inventories', slug: 'guides/component-inventory' },
+						{ label: 'Execution Telemetry', slug: 'guides/execution-telemetry' },
+						{ label: 'Execution Budgets', slug: 'guides/execution-budgets' },
+						{ label: 'Execution Isolation', slug: 'guides/execution-isolation' },
+						{ label: 'External Execution Adapters', slug: 'guides/runner-adapters' },
+					],
+				},
+				{
 					label: 'Guides',
 					items: [
 						{ label: 'Writing Eval Specs', slug: 'guides/eval-yaml' },
@@ -51,11 +65,21 @@ export default defineConfig({
 						{ label: 'Controlled comparisons', slug: 'guides/controlled-comparisons' },
 						{ label: 'Preserving Existing Workflows', slug: 'guides/compatibility' },
 						{ label: 'External Assertion Interoperability', slug: 'guides/external-interoperability' },
+						{ label: 'Optimizer Adapters', slug: 'guides/optimizer-adapters' },
 						{ label: 'Runner Contract & API', slug: 'guides/runner-contract' },
 						{ label: 'Runner Logical Identities', slug: 'guides/runner-identities' },
 						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },
+						{ label: 'Execution Budgets', slug: 'guides/execution-budgets' },
+						{ label: 'Durable Execution Operations', slug: 'guides/durable-execution' },
+						{ label: 'Immutable Artifacts', slug: 'guides/immutable-artifacts' },
+						{ label: 'Execution Provenance', slug: 'guides/execution-provenance' },
+						{ label: 'Execution Isolation', slug: 'guides/execution-isolation' },
+						{ label: 'Component Inventories', slug: 'guides/component-inventory' },
+						{ label: 'Aggregate Completed Manifests', slug: 'guides/manifest-aggregation' },
+						{ label: 'Reviewing Evidence States', slug: 'guides/evidence-review' },
 						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },
 						{ label: 'Local Runner Container', slug: 'guides/runner-container' },
+						{ label: 'External Execution Adapters', slug: 'guides/runner-adapters' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },
 						{ label: 'Validators & Graders', slug: 'guides/graders' },
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },
@@ -65,6 +89,8 @@ export default defineConfig({
 						{ label: 'Explore the Dashboard', slug: 'guides/dashboard-explore' },
 						{ label: 'CI/CD Integration', slug: 'guides/ci-cd' },
 						{ label: 'OpenTelemetry Tracing', slug: 'guides/otel' },
+						{ label: 'Product Usage Telemetry', slug: 'guides/usage-telemetry' },
+						{ label: 'Execution Telemetry Correlation', slug: 'guides/execution-telemetry' },
 						{ label: 'Adversarial Harness', slug: 'guides/adversarial' },
 						{ label: 'Snapshot & Replay', slug: 'guides/snapshot-replay' },
 						{ label: 'Azure Storage', slug: 'guides/azure-storage' },
@@ -83,6 +109,8 @@ export default defineConfig({
 							label: 'Releases',
 							items: [
 								{ label: 'Overview & downloads', slug: 'reference/releases' },
+								{ label: 'Waza v0.41.0', slug: 'releases/v0-41-0' },
+								{ label: 'Waza v0.40.1', slug: 'releases/v0-40-1' },
 								{ label: 'Waza v0.40.0', slug: 'releases/v0-40-0' },
 								{ label: 'Waza v0.39.0', slug: 'releases/v0-39-0' },
 								{ label: 'Introducing Dashboard Lab', slug: 'releases/dashboard-lab' },

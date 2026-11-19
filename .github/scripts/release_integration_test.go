@@ -198,7 +198,9 @@ exit "$status"
 					"--verbose", "--output", filepath.Join(dir, "direct-invalid.json"))
 				cmd.Dir, cmd.Env = dir, env
 				directWant := 1
-				if strings.HasPrefix(mode, "hook-") {
+				if mode == "task-error" {
+					directWant = 2
+				} else if strings.HasPrefix(mode, "hook-") {
 					directWant = 0
 				}
 				directOutput, directErr := cmd.CombinedOutput()
@@ -217,6 +219,9 @@ exit "$status"
 			wantGate, wantCLI := 0, "0"
 			if mode != "passed" && mode != "retry-exception" && mode != "retry-unused" && !strings.HasPrefix(mode, "hook-") {
 				wantCLI = "1"
+			}
+			if mode == "task-error" {
+				wantCLI = "2"
 			}
 			if mode == "task-error" || mode == "grader-exception" || mode == "invalid-regex" ||
 				strings.HasPrefix(mode, "checkpoint-") || strings.HasPrefix(mode, "hook-") ||
@@ -238,7 +243,8 @@ exit "$status"
 					Errors     int `json:"errors"`
 				} `json:"summary"`
 				Tasks []struct {
-					Runs []struct {
+					Status string `json:"status"`
+					Runs   []struct {
 						Status   string `json:"status"`
 						ErrorMsg string `json:"error_msg"`
 					} `json:"runs"`
@@ -340,12 +346,21 @@ exit "$status"
 					t.Fatalf("regex control not exercised: %v\n%s\n%s", err, output, outcome)
 				}
 			}
-			runs, errors := 0, 0
+			runs, errors, erroredTasks, failedTasks := 0, 0, 0, 0
 			for _, task := range observed.Tasks {
+				switch task.Status {
+				case "error":
+					erroredTasks++
+				case "failed":
+					failedTasks++
+				}
 				for _, run := range task.Runs {
 					runs++
 					if run.Status == "error" {
 						errors++
+						if task.Status != "error" {
+							t.Fatalf("errored production run has task status %q", task.Status)
+						}
 						if !strings.Contains(run.ErrorMsg, "missing-release-instruction.md") {
 							t.Fatalf("wrong production error: %q", run.ErrorMsg)
 						}
@@ -353,15 +368,18 @@ exit "$status"
 				}
 			}
 			wantErrors := 0
+			wantErroredTasks := 0
 			if mode == "task-error" {
 				wantErrors = 3
+				wantErroredTasks = 1
 			}
-			if len(observed.Tasks) != 4 || runs != 12 || errors != wantErrors {
-				t.Fatalf("production control not exercised: tasks=%d runs=%d errors=%d\n%s", len(observed.Tasks), runs, errors, outcome)
+			if len(observed.Tasks) != 4 || runs != 12 || errors != wantErrors || erroredTasks != wantErroredTasks ||
+				(mode == "task-error" && failedTasks != 0) {
+				t.Fatalf("production control not exercised: tasks=%d runs=%d errors=%d erroredTasks=%d failedTasks=%d\n%s",
+					len(observed.Tasks), runs, errors, erroredTasks, failedTasks, outcome)
 			}
-			// Production currently aggregates run errors as failed tasks, with
-			// summary.errors still zero. The gate must inspect the runs too.
-			if observed.Summary.TotalTests != 4 || observed.Summary.Errors != 0 ||
+			if observed.Summary.TotalTests != 4 || observed.Summary.Errors != wantErroredTasks ||
+				observed.Summary.Failed != failedTasks ||
 				(observed.Summary.Failed > 0) != (wantCLI == "1") {
 				t.Fatalf("unexpected production summary: %+v", observed.Summary)
 			}

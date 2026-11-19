@@ -323,6 +323,18 @@ func reconstructProjection(ctx context.Context, input detachedProjectionInput) (
 	if err != nil {
 		return nil, err
 	}
+	return reconstructValidatedProjection(ctx, validated)
+}
+
+func reconstructOwnedProjection(ctx context.Context, input detachedProjectionInput) (map[releasepolicy.Arm]controlledprojection.SourceProjection, error) {
+	validated, err := validateOwnedProjectionInput(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return reconstructValidatedProjection(ctx, validated)
+}
+
+func reconstructValidatedProjection(ctx context.Context, validated detachedProjectionInput) (map[releasepolicy.Arm]controlledprojection.SourceProjection, error) {
 	associated, err := decodeAssociations(ctx, validated.associations.canonical)
 	if err != nil {
 		return nil, err

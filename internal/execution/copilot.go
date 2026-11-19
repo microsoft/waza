@@ -736,6 +736,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	if preToolUseHook != nil {
 		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
+	userInputRejectionMark := req.UserInput.rejectionCount()
 	var enableAmbientDiscovery *bool
 	var skipAmbientRetrieval *bool
 	var memory *copilot.MemoryConfiguration
@@ -753,6 +754,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			OnUserInputRequest:  req.UserInput.Handler(),
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
@@ -787,6 +789,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			OnUserInputRequest:  req.UserInput.Handler(),
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
@@ -860,6 +863,9 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		defer cancelSkillCtx()
 		defer cancelSendCtx(nil)
 		defer func() {
+			if resp != nil && cleanupBaseCtx.Err() != nil {
+				resp.ExecutionSucceeded = false
+			}
 			if resp != nil && resp.Success && cleanupBaseCtx.Err() != nil {
 				resp.Success = false
 				resp.ErrorMsg = fmt.Sprintf("trial canceled during cleanup: %v", cleanupBaseCtx.Err())
@@ -990,9 +996,22 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	// session.shutdown events later during client.Stop(). The usage handler is
 	// stored in e.collectors so we can read final usage after shutdown.
 	var eventsMu sync.Mutex
+	activity := ActivityObserverFrom(ctx)
+	actorStart := actorStartObserverFrom(ctx)
 	collectEvent := func(event copilot.SessionEvent) {
+		if activity != nil {
+			switch event.Type() {
+			case copilot.SessionEventTypeAssistantTurnStart:
+				activity.ModelTurnStarted()
+			case copilot.SessionEventTypeToolExecutionStart:
+				activity.ToolCallStarted()
+			}
+		}
 		eventsMu.Lock()
 		defer eventsMu.Unlock()
+		if actorStart != nil && event.Type() == copilot.SessionEventTypeAssistantTurnStart {
+			actorStart()
+		}
 		eventsCollector.On(event)
 	}
 	var sendDiagnostic atomic.Bool
@@ -1103,13 +1122,18 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	}
 
 	// Send prompt with updated API
+	userInputCtx, cancelUserInput := context.WithCancel(sendCtx)
+	releaseUserInput := req.UserInput.BindTurn(userInputCtx)
 	var retireClient bool
+	NotifyActorDispatch(ctx)
 	_, sessionAbandoned, retireClient, err = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
 	}, func() {
 		e.forceStopClient(client)
 	})
+	cancelUserInput()
+	releaseUserInput()
 	if retireClient {
 		e.retireClient(client)
 	}
@@ -1157,8 +1181,18 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	// The deferred session.Disconnect() may modify or restore workspace files,
 	// so we snapshot them now to guarantee graders see the agent's changes.
 	var workspaceFiles map[string][]byte
+	var workspaceCaptureErr error
+	var workspaceCaptureError string
 	if !req.SkipWorkspaceCapture {
-		workspaceFiles = captureWorkspaceFiles(workspaceDir)
+		workspaceFiles, workspaceCaptureErr = captureWorkspaceFiles(workspaceDir, req.WorkspaceCapturePaths)
+		if workspaceCaptureErr != nil {
+			workspaceCaptureError = workspaceCaptureErr.Error()
+			if errMsg == "" {
+				errMsg = workspaceCaptureError
+			} else {
+				errMsg += "; " + workspaceCaptureError
+			}
+		}
 	}
 	var judgeFiles *models.JudgeFileCapture
 	if req.CaptureJudgeFiles != nil {
@@ -1191,28 +1225,41 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		toolCalls = eventsCollector.ToolCalls()
 	}()
 	resp = &ExecutionResponse{
-		FinalOutput:        finalOutput,
-		Events:             copilotevents.FromSDK(collectedEvents),
-		ModelID:            modelID,
-		SkillInvocations:   skillInvocations,
-		DurationMs:         duration.Milliseconds(),
-		ToolCalls:          toolCalls,
-		ErrorMsg:           errMsg,
-		Success:            err == nil,
-		WorkspaceDir:       workspaceDir,
-		WorkspaceFiles:     workspaceFiles,
-		JudgeFiles:         judgeFiles,
-		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
-		SessionID:          sessionID,
-		Usage:              usage,
-		UsageIsCumulative:  true,
-		UsageRevision:      usageRevision,
+		FinalOutput:           finalOutput,
+		Events:                copilotevents.FromSDK(collectedEvents),
+		ModelID:               modelID,
+		SkillInvocations:      skillInvocations,
+		DurationMs:            duration.Milliseconds(),
+		ToolCalls:             toolCalls,
+		ErrorMsg:              errMsg,
+		Success:               err == nil && workspaceCaptureErr == nil,
+		ExecutionSucceeded:    err == nil,
+		WorkspaceDir:          workspaceDir,
+		WorkspaceFiles:        workspaceFiles,
+		WorkspaceCaptureError: workspaceCaptureError,
+		WorkspaceCaptureCause: workspaceCaptureErr,
+		JudgeFiles:            judgeFiles,
+		CommandInvocations:    commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
+		UserInputRequests:     req.UserInput.Records(),
+		SessionID:             sessionID,
+		Usage:                 usage,
+		UsageIsCumulative:     true,
+		UsageRevision:         usageRevision,
+	}
+
+	if rejected := req.UserInput.rejectionsSince(userInputRejectionMark); rejected != nil {
+		resp.ExecutionSucceeded = false
+		if resp.Success {
+			resp.Success = false
+			resp.ErrorMsg = rejected.Error()
+		}
 	}
 
 	if req.ToolPolicy != nil {
 		resp.ToolPolicyMode = string(req.ToolPolicy.Mode)
 	}
 	if denials := policyRecorder.snapshot(); len(denials) > 0 {
+		resp.ExecutionSucceeded = false
 		resp.ToolPolicyDenials = denials
 		for _, d := range denials {
 			if e.diagnostics != nil {
@@ -1707,45 +1754,6 @@ func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []Resource
 	return workspaceDir, nil
 }
 
-// captureWorkspaceFiles reads all files from the workspace directory into memory,
-// preserving the post-execution state. This is called before session.Disconnect()
-// to ensure graders see the agent's modifications even if the SDK restores the
-// workspace to its pre-execution state during disconnect.
-// Keys are forward-slash-separated paths relative to dir for cross-platform consistency.
-func captureWorkspaceFiles(dir string) map[string][]byte {
-	if dir == "" {
-		return nil
-	}
-
-	files := make(map[string][]byte)
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return files
-	}
-	defer func() {
-		if err := root.Close(); err != nil {
-			slog.Warn("closing captured workspace", "path", dir, "error", err)
-		}
-	}()
-	_ = fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		info, statErr := root.Lstat(path)
-		if statErr != nil || !info.Mode().IsRegular() {
-			return nil
-		}
-		content, readErr := root.ReadFile(path)
-		if readErr != nil {
-			return nil
-		}
-		// Normalize to forward slashes so map keys match eval YAML paths on all platforms.
-		files[filepath.ToSlash(path)] = content
-		return nil
-	})
-	return files
-}
-
 func joinStrings(parts []string) string {
 	var builder strings.Builder
 	for _, p := range parts {
@@ -2056,6 +2064,16 @@ func ResolveAgentDefinition(skillDirs []string, skillName string) (string, *skil
 		return "", nil, fmt.Errorf("parsing agent %q: %w", sd.Path, err)
 	}
 	return sd.Path, fm, nil
+}
+
+// ResolveSkillDefinitionPath returns the SKILL.md or agent file selected for
+// skillName with the same discovery used for system-message injection.
+func ResolveSkillDefinitionPath(skillDirs []string, skillName string) (string, error) {
+	sd, err := findSkillDefinitionWithLogging(skillDirs, skillName, false)
+	if err != nil || sd == nil {
+		return "", err
+	}
+	return sd.Path, nil
 }
 
 // IsSkillAvailable reports whether the target skill can be discovered from the

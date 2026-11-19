@@ -22,6 +22,7 @@ import (
 
 func adapterProcess(t *testing.T, binary, directory string, input []byte, code int, args ...string) ([]byte, string) {
 	t.Helper()
+	started := time.Now()
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, args...)
@@ -30,8 +31,19 @@ func adapterProcess(t *testing.T, binary, directory string, input []byte, code i
 	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	require.NoError(t, ctx.Err(), "bounded CLI helper did not return: %v; stderr: %s", err, stderr.String())
+	runStarted := time.Now()
+	err := cmd.Start()
+	processStartElapsed, postStartContextErr := time.Since(runStarted), ctx.Err()
+	var waitElapsed time.Duration
+	if err == nil {
+		waitStarted := time.Now()
+		err = cmd.Wait()
+		waitElapsed = time.Since(waitStarted)
+	}
+	contextErr := ctx.Err()
+	t.Logf("adapter CLI args=%q setup_elapsed=%s process_start_elapsed=%s post_start_ctx_err=%v wait_elapsed=%s ctx_err=%v process_state=%v",
+		args, runStarted.Sub(started), processStartElapsed, postStartContextErr, waitElapsed, contextErr, cmd.ProcessState)
+	require.NoError(t, contextErr, "bounded CLI helper did not return: %v; stdout: %s; stderr: %s", err, stdout.String(), stderr.String())
 	if code == 0 {
 		require.NoError(t, err, "%s", stderr.String())
 	} else {
@@ -144,6 +156,7 @@ func TestRunnerAdapterCompleteTaskPathCompiledProcess(t *testing.T) {
 	}
 }
 
+// Keep this CLI-build and subprocess integration test serial under -race.
 func TestRunnerAdapterAdmissionCompiledProcess(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	t.Run("absolute task cannot select an external file", func(t *testing.T) {
@@ -246,7 +259,7 @@ func TestRunnerAdapterAdmissionCompiledProcess(t *testing.T) {
 		}
 	})
 	t.Run("emitted byte boundaries round trip", func(t *testing.T) {
-		evalPath, taskPath, _, task := adapterCommandInputs(t)
+		evalPath, taskPath, _, _ := adapterCommandInputs(t)
 		directory := filepath.Dir(evalPath)
 		initial, _ := adapterProcess(t, binary, directory, nil, 0,
 			append([]string{"runner", "adapt"}, adapterCommandArgs(evalPath, taskPath)...)...)
@@ -255,34 +268,40 @@ func TestRunnerAdapterAdmissionCompiledProcess(t *testing.T) {
 		compact, err := json.Marshal(request)
 		require.NoError(t, err)
 		for _, delta := range []int{-2, -1, 0, 1} {
-			target := runnercontract.MaxRequestBytes + delta
-			// A YAML comment grows the encoded request by exactly its ASCII length.
-			padding := target - len(compact) - 1
-			require.Positive(t, padding)
-			padded := append(bytes.Clone(task), []byte("#"+strings.Repeat("x", padding))...)
-			request.Input.Task = string(padded)
-			wire, err := json.Marshal(request)
-			require.NoError(t, err)
-			require.Len(t, wire, target, "setup must exercise the encoded JSON limit")
-			require.NoError(t, os.WriteFile(taskPath, padded, 0o600))
-			code := 0
-			if delta > 0 {
-				code = 2
-			}
-			output, diagnostic := adapterProcess(t, binary, directory, nil, code,
-				append([]string{"runner", "adapt"}, adapterCommandArgs(evalPath, taskPath)...)...)
-			if code != 0 {
-				require.Empty(t, output)
-				require.Contains(t, diagnostic, "exceeds")
-				continue
-			}
-			want := target + 1
-			if target == runnercontract.MaxRequestBytes {
-				want = target
-			}
-			require.Len(t, output, want)
-			require.LessOrEqual(t, len(output), runnercontract.MaxRequestBytes)
-			assertAdaptedAdmission(t, binary, directory, output)
+			delta := delta
+			t.Run(strconv.Itoa(delta), func(t *testing.T) {
+				evalPath, taskPath, _, task := adapterCommandInputs(t)
+				directory := filepath.Dir(evalPath)
+				target := runnercontract.MaxRequestBytes + delta
+				// A YAML comment grows the encoded request by exactly its ASCII length.
+				padding := target - len(compact) - 1
+				require.Positive(t, padding)
+				padded := append(bytes.Clone(task), []byte("#"+strings.Repeat("x", padding))...)
+				boundaryRequest := request
+				boundaryRequest.Input.Task = string(padded)
+				wire, err := json.Marshal(boundaryRequest)
+				require.NoError(t, err)
+				require.Len(t, wire, target, "setup must exercise the encoded JSON limit")
+				require.NoError(t, os.WriteFile(taskPath, padded, 0o600))
+				code := 0
+				if delta > 0 {
+					code = 2
+				}
+				output, diagnostic := adapterProcess(t, binary, directory, nil, code,
+					append([]string{"runner", "adapt"}, adapterCommandArgs(evalPath, taskPath)...)...)
+				if code != 0 {
+					require.Empty(t, output)
+					require.Contains(t, diagnostic, "exceeds")
+					return
+				}
+				want := target + 1
+				if target == runnercontract.MaxRequestBytes {
+					want = target
+				}
+				require.Len(t, output, want)
+				require.LessOrEqual(t, len(output), runnercontract.MaxRequestBytes)
+				assertAdaptedAdmission(t, binary, directory, output)
+			})
 		}
 		oversize := append(bytes.Clone(compact), bytes.Repeat([]byte(" "), runnercontract.MaxRequestBytes-len(compact)+1)...)
 		output, _ := adapterProcess(t, binary, directory, oversize, 6, "runner", "validate")

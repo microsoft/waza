@@ -128,6 +128,11 @@ type StorageConfig struct {
 	Enabled       bool   `yaml:"enabled,omitempty"`       // true when remote storage is configured
 }
 
+// TelemetryConfig holds the project's product usage telemetry denial.
+type TelemetryConfig struct {
+	Disabled bool `yaml:"disabled,omitempty"`
+}
+
 // ProjectConfig is the top-level configuration loaded from .waza.yaml.
 type ProjectConfig struct {
 	// Dir is the directory of the .waza.yaml file. If this ProjectConfig was not
@@ -149,6 +154,10 @@ type ProjectConfig struct {
 	Tokens   TokensConfig   `yaml:"tokens,omitempty"`
 	Graders  GradersConfig  `yaml:"graders,omitempty"`
 	Storage  StorageConfig  `yaml:"storage,omitempty"`
+
+	// Telemetry is read independently by the usage telemetry policy before
+	// any command runs; it is declared here so strict loading accepts it.
+	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
 
 	Registries []wazaconfig.RegistrySource `yaml:"registries,omitempty"`
 }
@@ -371,6 +380,7 @@ func mergeConfig(dst, src *ProjectConfig) {
 		dst.Storage.ContainerName = src.Storage.ContainerName
 	}
 	dst.Storage.Enabled = src.Storage.Enabled
+	dst.Telemetry.Disabled = src.Telemetry.Disabled
 
 	if len(src.Registries) > 0 {
 		dst.Registries = src.Registries

@@ -14,6 +14,10 @@ class ShardPlanTests(unittest.TestCase):
         history = "TestA 100\nTestB 90\nTestC 80\nTestD 70\nTestE 60\nTestF 50\nTestG 40\nTestH 30\n"
         names = [f"Test{letter}" for letter in "ABCDEFGH"]
         plans = self.plans("\n".join(names), history)
+        self.assertEqual(
+            plans,
+            [["TestA", "TestH"], ["TestB", "TestG"], ["TestC", "TestF"], ["TestD", "TestE"]],
+        )
         durations = dict(line.split() for line in history.splitlines())
         loads = [sum(float(durations[name]) for name in plan) for plan in plans]
         self.assertEqual(loads, [130, 130, 130, 130])
@@ -31,6 +35,14 @@ class ShardPlanTests(unittest.TestCase):
     def test_without_history(self):
         plans = self.plans("TestA\nTestB\nTestC\nTestD\nTestE\n", "# no history\n")
         self.assertEqual(plans, [["TestA", "TestE"], ["TestB"], ["TestC"], ["TestD"]])
+
+    def test_equal_loads_use_test_count_then_shard_index(self):
+        names = "\n".join(f"Test{letter}" for letter in "ABCDEFGH")
+        history = "TestA 4\nTestB 3\nTestC 2\nTestD 1\nTestE 1\nTestF 1\nTestG 1\nTestH 0\n"
+        self.assertEqual(
+            self.plans(names, history),
+            [["TestA"], ["TestB", "TestH"], ["TestC", "TestF"], ["TestD", "TestE", "TestG"]],
+        )
 
     def test_rejects_bad_inputs(self):
         for history in ("TestA nan\n", "TestA inf\n", "TestA -1\n", "TestA 1\nTestA 2\n", "broken\n"):

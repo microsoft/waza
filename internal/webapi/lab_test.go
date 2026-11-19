@@ -130,7 +130,8 @@ func TestLabOutcomeMetadata(t *testing.T) {
 			TestOutcomes: []models.TestOutcome{{TestID: "stable-id", DisplayName: "Display name", Stats: &models.TestStats{AvgWeightedScore: score}}},
 		}
 		detail := outcomeToDetail(&outcome)
-		require.Equal(t, "custom-skill", detail.Skill)
+		require.NotNil(t, detail.Skill)
+		require.Equal(t, "custom-skill", *detail.Skill)
 		require.Equal(t, 3, detail.Repetitions)
 		require.Equal(t, score, *detail.WeightedScore)
 		require.Equal(t, "stable-id", detail.Tasks[0].ID)

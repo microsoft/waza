@@ -27,3 +27,20 @@ internal/testutil/readeroracle/testdata/15c/*.original -text
 internal/interop/testdata/agentv/suite.yaml -text
 internal/interop/testdata/agentv/assertions.ts -text
 internal/interop/testdata/agentv/LICENSE -text
+# Immutable manifest vectors are exact-byte hash and serialization oracles.
+internal/artifactmanifest/testdata/** -text
+# Attempt and completion fixtures are exact-byte canonical writer oracles.
+internal/executionattempt/testdata/** -text
+internal/executionledger/testdata/** -text
+# Checkpoint fixtures are exact-byte compatibility and digest oracles.
+internal/executioncheckpoint/testdata/** -text
+# Evidence fixtures are exact-byte canonical writer and digest oracles.
+internal/evidencestate/testdata/** -text
+# Adapter descriptor examples are exact-byte inputs to the Lab fixture.
+examples/runner/adapter/*.json text eol=lf
+# Provenance bundle fixtures are exact-byte digest oracles.
+web/e2e/fixtures/provenance/** -text
+# Component inventory fixtures are exact-byte generator and digest oracles.
+web/e2e/fixtures/inventory/** -text
+# Inventory generator inputs feed exact-byte Lab fixtures.
+internal/inventory/testdata/** -text

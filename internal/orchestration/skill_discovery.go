@@ -80,7 +80,7 @@ func parseSkillName(path string) (string, error) {
 	}
 
 	var s skill.Skill
-	if err := s.UnmarshalText(data); err != nil {
+	if err := s.UnmarshalTextWithoutTokenCount(data); err != nil {
 		return "", fmt.Errorf("parsing SKILL.md: %w", err)
 	}
 

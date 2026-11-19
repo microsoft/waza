@@ -37,6 +37,12 @@ func (run *RunResult) UnmarshalJSONExact(data []byte) error {
 	return run.unmarshalJSON(data, true)
 }
 
+type exactTranscriptEvent TranscriptEvent
+
+func (event *exactTranscriptEvent) UnmarshalJSON(data []byte) error {
+	return (*TranscriptEvent)(event).unmarshalJSON(data, true)
+}
+
 func (run *RunResult) unmarshalJSON(data []byte, exact bool) error {
 	validate := ValidateNativeJSONAdmission
 	if exact {
@@ -50,8 +56,20 @@ func (run *RunResult) unmarshalJSON(data []byte, exact bool) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if exact {
 		decoder.UseNumber()
-	}
-	if err := decoder.Decode(&decoded); err != nil {
+		wire := struct {
+			*alias
+			Transcript []exactTranscriptEvent `json:"transcript"`
+		}{alias: &decoded}
+		if err := decoder.Decode(&wire); err != nil {
+			return err
+		}
+		if wire.Transcript != nil {
+			decoded.Transcript = make([]TranscriptEvent, len(wire.Transcript))
+			for i, event := range wire.Transcript {
+				decoded.Transcript[i] = TranscriptEvent(event)
+			}
+		}
+	} else if err := decoder.Decode(&decoded); err != nil {
 		return err
 	}
 	if decoded.Evidence != nil {

@@ -40,6 +40,12 @@ func TestRunHook(t *testing.T) {
 			errSubstr: "empty command",
 		},
 		{
+			name:      "rendered empty command returns error",
+			hook:      HookConfig{Command: "{{.Vars.command}}"},
+			wantErr:   true,
+			errSubstr: "rendered command is empty",
+		},
+		{
 			name:    "non-zero exit with error_on_fail true returns error",
 			hook:    HookConfig{Command: falseCmd, ErrorOnFail: true},
 			wantErr: true,
@@ -58,7 +64,7 @@ func TestRunHook(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &Runner{Verbose: false}
+			r := &Runner{Verbose: false, Vars: map[string]string{"command": ""}}
 			err := r.runHook(context.Background(), "test", 0, tc.hook)
 
 			if tc.wantErr && err == nil {

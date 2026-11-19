@@ -161,6 +161,51 @@ func TestSessionEventsCollectorPreservesLegacyPartialResultFixture(t *testing.T)
 	require.Equal(t, "legacy-call-123", toolCallID)
 }
 
+func TestSessionEventsCollectorKeepsIntentFilterAcrossPartialResults(t *testing.T) {
+	for _, withPartial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("partial=%t", withPartial), func(t *testing.T) {
+			coll := NewSessionEventsCollector()
+			coll.On(copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{
+				ToolCallID: "intent-call",
+				ToolName:   "report_intent",
+			}})
+			chunks := []string{
+				`{"type":"tool.execution_progress","data":{"toolCallId":"%s","progressMessage":"progress"}}`,
+				`{"type":"tool.shell_output","data":{"toolCallId":"%s","text":"shell output"}}`,
+				`{"type":"tool.user_requested","data":{"toolCallId":"%s"}}`,
+			}
+			if withPartial {
+				partial := `{"type":"tool.execution_partial_result","data":{"toolCallId":"%s","partialOutput":"chunk"}}`
+				chunks = append([]string{partial, partial}, chunks...)
+			}
+			var expected []copilot.SessionEvent
+			for _, wire := range chunks {
+				var ordinary, intent copilot.SessionEvent
+				require.NoError(t, json.Unmarshal([]byte(fmt.Sprintf(wire, "ordinary-call")), &ordinary))
+				require.NoError(t, json.Unmarshal([]byte(fmt.Sprintf(wire, "intent-call")), &intent))
+				coll.On(ordinary)
+				expected = append(expected, ordinary)
+				coll.On(intent)
+				require.Equal(t, expected, coll.SessionEvents(),
+					"intent chatter must stay hidden without dropping another call's events")
+				require.True(t, coll.intentToolIDs["intent-call"],
+					"only terminal completion may clear the intent filter")
+			}
+			coll.On(copilot.SessionEvent{Data: &copilot.ToolExecutionCompleteData{
+				ToolCallID: "intent-call",
+			}})
+			require.Equal(t, expected, coll.SessionEvents(), "intent completion stays hidden")
+			require.NotContains(t, coll.intentToolIDs, "intent-call")
+
+			var reused copilot.SessionEvent
+			require.NoError(t, json.Unmarshal([]byte(`{"type":"tool.execution_partial_result","data":{"toolCallId":"intent-call","partialOutput":"after completion"}}`), &reused))
+			coll.On(reused)
+			expected = append(expected, reused)
+			require.Equal(t, expected, coll.SessionEvents(), "completed IDs must no longer suppress output")
+		})
+	}
+}
+
 func TestSessionEventsCollector_OnSkillInvokedCallback(t *testing.T) {
 	skillName := "test-skill"
 	skillPath := "/skills/test-skill/SKILL.md"

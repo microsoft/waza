@@ -16,6 +16,7 @@
     "selection": {"$ref": "#/$defs/selection"},
     "identity": {"$ref": "#/$defs/identity"},
     "observation": {"$ref": "#/$defs/observation"},
+    "budget": {"$ref": "#/$defs/budget"},
     "diagnostics": {
       "type": "array", "maxItems": 16,
       "items": {
@@ -151,6 +152,225 @@
     }
   ],
   "$defs": {
+    "budget": {
+      "description": "Configured limits, host enforcement and measurement capability, measured usage and any runner-enforced termination for one selected attempt. Correlate with the enclosing terminal identity and selection.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "platform",
+        "unsupported",
+        "state",
+        "resources"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.0"
+        },
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "os",
+            "arch"
+          ],
+          "properties": {
+            "os": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "arch": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            }
+          }
+        },
+        "unsupported": {
+          "enum": [
+            "reject",
+            "report"
+          ]
+        },
+        "state": {
+          "enum": [
+            "rejected_unsupported",
+            "not_started",
+            "within_budget",
+            "exceeded",
+            "terminated"
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "resource",
+              "enforcement",
+              "measurement",
+              "detail"
+            ],
+            "properties": {
+              "resource": {
+                "enum": [
+                  "wall_time_ms",
+                  "model_turns",
+                  "tool_calls",
+                  "cpu_time_ms",
+                  "memory_bytes",
+                  "disk_bytes",
+                  "process_count"
+                ]
+              },
+              "enforcement": {
+                "enum": [
+                  "enforced",
+                  "unsupported"
+                ]
+              },
+              "measurement": {
+                "enum": [
+                  "measured",
+                  "unsupported"
+                ]
+              },
+              "scope": {
+                "enum": [
+                  "attempt",
+                  "runner_process"
+                ]
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "used": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "remaining": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "exceeded": {
+                "type": "boolean"
+              }
+            },
+            "dependentRequired": {
+              "remaining": [
+                "limit",
+                "used"
+              ],
+              "exceeded": [
+                "limit",
+                "used"
+              ]
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "measurement": {
+                      "const": "unsupported"
+                    }
+                  }
+                },
+                "then": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "used"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "scope"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "measurement": {
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "scope"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "termination": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resource",
+            "limit",
+            "observed"
+          ],
+          "properties": {
+            "resource": {
+              "enum": [
+                "wall_time_ms",
+                "model_turns",
+                "tool_calls"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "observed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "state": {
+            "const": "terminated"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "termination"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "termination"
+          ]
+        }
+      }
+    },
     "selection": {
       "type": "object", "additionalProperties": false, "required": ["shard", "task", "trial", "attempt"],
       "properties": {

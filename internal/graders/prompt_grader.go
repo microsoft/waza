@@ -15,9 +15,11 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 )
 
 const AllPromptsPassed = "All prompts passed"
+const noPromptVerdict = "Judge returned no verdict"
 const wazaPassToolName = "set_waza_grade_pass"
 const wazaFailToolName = "set_waza_grade_fail"
 
@@ -122,6 +124,7 @@ func validatePromptSeed(name string, args models.PromptGraderParameters) error {
 
 // Grade implements [Grader].
 func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
+	usagetelemetry.RecordFeature(usagetelemetry.FeatureLLMJudge)
 	if p.args.EvidenceContext != nil {
 		return p.gradeEvidence(ctx, gradingContext)
 	}
@@ -229,6 +232,8 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 
 		if len(wazaTools.Failures) > 0 {
 			feedback = strings.Join(wazaTools.Failures, ";")
+		} else if len(wazaTools.Passes) == 0 {
+			feedback = noPromptVerdict
 		}
 
 		return &models.GraderResults{
@@ -263,11 +268,9 @@ func (p *promptGrader) detailsWith(prompt, response string, passes, failures []s
 }
 
 // renderJudgePrompt returns the final prompt to send to the judge. When the
-// grader was configured with a rubric *and* the grading context carries a
-// candidate output (i.e. the judge will not be resuming the agent's session),
-// the rubric template is expanded with the candidate output so the judge has
-// something to evaluate. Otherwise the configured prompt is returned as-is to
-// preserve the existing inline-prompt behavior.
+// grading context carries a candidate output (i.e. the judge will not be
+// resuming the agent's session), the configured prompt is expanded with the
+// task input and candidate output so the judge has something to evaluate.
 //
 // With continue_session: true, the judge resumes the agent's live session and
 // reads the conversation directly — injecting Output here would be redundant
@@ -288,14 +291,18 @@ func (p *promptGrader) renderJudgePrompt(gradingContext *Context) string {
 	if p.args.ContinueSession {
 		return p.args.Prompt
 	}
-	if strings.TrimSpace(gradingContext.Output) == "" {
+	output := ""
+	if gradingContext.OutputPresent {
+		output = gradingContext.Output
+	}
+	if strings.TrimSpace(output) == "" {
 		return p.args.Prompt
 	}
 	taskInput := ""
 	if gradingContext.TestCase != nil {
 		taskInput = gradingContext.TestCase.Stimulus.Message
 	}
-	return p.rubric.RenderPrompt(taskInput, "", gradingContext.Output)
+	return p.rubric.RenderPrompt(taskInput, "", output)
 }
 
 func executePromptGrader(ctx context.Context, gradingContext *Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {

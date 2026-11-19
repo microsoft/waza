@@ -4,12 +4,17 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,7 +25,136 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const runnerTransportActionEnv = "WAZA_RUNNER_TRANSPORT_ACTION"
+
 func TestRunnerProductionTransportAdmission(t *testing.T) {
+	if action := os.Getenv(runnerTransportActionEnv); action != "" {
+		t.Run(action, func(t *testing.T) {
+			runRunnerProductionTransportAdmission(t, action)
+		})
+		return
+	}
+
+	coverDir := flag.Lookup("test.gocoverdir").Value.String()
+	runFilter, err := runnerTransportRunFilter(flag.Lookup("test.run").Value.String())
+	require.NoError(t, err)
+	skipFilter := flag.Lookup("test.skip").Value.String()
+	for _, action := range []string{"negotiate", "validate", "run"} {
+		t.Run(action, func(t *testing.T) {
+			t.Parallel()
+			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run="+runFilter, "-test.skip="+skipFilter, "-test.v")
+			// GOCOVERDIR alone does not make test binaries emit into the parent's coverage directory.
+			actionCoverDir := ""
+			if coverDir != "" {
+				actionCoverDir = t.TempDir()
+				command.Args = append(command.Args, "-test.gocoverdir="+actionCoverDir)
+			}
+			command.Env = append(os.Environ(), runnerTransportActionEnv+"="+action)
+			output, err := command.CombinedOutput()
+			t.Logf("%s", output)
+			require.NoError(t, err, "%s", output)
+			if coverDir != "" {
+				require.NoError(t, mergeRunnerTransportCoverageCounters(actionCoverDir, coverDir, command.Process.Pid))
+				counters, err := filepath.Glob(filepath.Join(coverDir, fmt.Sprintf("covcounters.*.%d.*", command.Process.Pid)))
+				require.NoError(t, err)
+				require.Len(t, counters, 1, "each action must contribute counters to the parent's coverage directory")
+			}
+		})
+	}
+}
+
+func mergeRunnerTransportCoverageCounters(sourceDir, targetDir string, pid int) error {
+	counters, err := filepath.Glob(filepath.Join(sourceDir, fmt.Sprintf("covcounters.*.%d.*", pid)))
+	if err != nil {
+		return fmt.Errorf("finding child coverage counters: %w", err)
+	}
+	if len(counters) != 1 {
+		return fmt.Errorf("expected one child coverage counter file for pid %d, got %d", pid, len(counters))
+	}
+
+	data, err := os.ReadFile(counters[0])
+	if err != nil {
+		return fmt.Errorf("reading child coverage counters: %w", err)
+	}
+
+	temporary, err := os.CreateTemp(targetDir, "tmp.runner-transport-counters.")
+	if err != nil {
+		return fmt.Errorf("creating temporary parent coverage counters: %w", err)
+	}
+	temporaryName := temporary.Name()
+
+	if _, err := temporary.Write(data); err != nil {
+		return errors.Join(fmt.Errorf("copying child coverage counters: %w", err), temporary.Close(), os.Remove(temporaryName))
+	}
+	if err := temporary.Close(); err != nil {
+		return errors.Join(fmt.Errorf("closing temporary parent coverage counters: %w", err), os.Remove(temporaryName))
+	}
+	target := filepath.Join(targetDir, filepath.Base(counters[0]))
+	if err := os.Rename(temporaryName, target); err != nil {
+		return errors.Join(fmt.Errorf("publishing parent coverage counters: %w", err), os.Remove(temporaryName))
+	}
+	return nil
+}
+
+func runnerTransportRunFilter(filter string) (string, error) {
+	const testName = "TestRunnerProductionTransportAdmission"
+	var selected []string
+	start, slash, brackets, parentheses := 0, -1, 0, 0
+	add := func(end int) error {
+		first, suffix := filter[start:end], ""
+		if slash >= 0 {
+			first, suffix = filter[start:slash], filter[slash:end]
+		}
+		matches, err := regexp.MatchString(first, testName)
+		if err != nil {
+			return fmt.Errorf("matching transport test filter: %w", err)
+		}
+		if matches {
+			selected = append(selected, "^"+testName+"$"+suffix)
+		}
+		return nil
+	}
+	// Go separates filter paths and alternatives only outside brackets and parentheses.
+	for i := 0; i < len(filter); i++ {
+		switch filter[i] {
+		case '\\':
+			i++
+		case '[':
+			brackets++
+		case ']':
+			brackets = max(0, brackets-1)
+		case '(':
+			if brackets == 0 {
+				parentheses++
+			}
+		case ')':
+			if brackets == 0 {
+				parentheses--
+			}
+		case '/':
+			if brackets == 0 && parentheses == 0 && slash < 0 {
+				slash = i
+			}
+		case '|':
+			if brackets == 0 && parentheses == 0 {
+				if err := add(i); err != nil {
+					return "", err
+				}
+				start, slash = i+1, -1
+			}
+		}
+	}
+	if err := add(len(filter)); err != nil {
+		return "", err
+	}
+	if len(selected) == 0 {
+		return "^$", nil
+	}
+	return strings.Join(selected, "|"), nil
+}
+
+func runRunnerProductionTransportAdmission(t *testing.T, action string) {
+	require.Contains(t, []string{"negotiate", "validate", "run"}, action)
 	unit, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
 	directory := t.TempDir()
@@ -44,149 +178,145 @@ func TestRunnerProductionTransportAdmission(t *testing.T) {
 		require.ErrorIs(t, <-done, http.ErrServerClosed)
 	})
 
-	for _, action := range []string{"negotiate", "validate", "run"} {
-		t.Run(action, func(t *testing.T) {
-			valid := string(unit)
-			if action == "negotiate" {
-				valid = `{"schema_version":"1.0","versions":["1.0"],"required_capabilities":[],"optional_capabilities":[]}`
+	valid := string(unit)
+	if action == "negotiate" {
+		valid = `{"schema_version":"1.0","versions":["1.0"],"required_capabilities":[],"optional_capabilities":[]}`
+	}
+	for _, tc := range []struct {
+		name, media, body string
+		partial           bool
+		status            int
+	}{
+		{"missing-partial", "", "{", true, http.StatusUnsupportedMediaType},
+		{"wrong-partial", "text/plain", "{", true, http.StatusUnsupportedMediaType},
+		{"malformed-partial", "application/json; charset", "{", true, http.StatusUnsupportedMediaType},
+		{"json-partial", "application/json", "{", true, http.StatusBadRequest},
+		{"missing-complete", "", valid, false, http.StatusUnsupportedMediaType},
+		{"wrong-complete", "text/plain", valid, false, http.StatusUnsupportedMediaType},
+		{"json-complete", "application/json", valid, false, http.StatusOK},
+		{"charset-complete", "application/json; charset=utf-8", valid, false, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status := tc.status
+			if action == "run" && tc.name == "json-partial" {
+				status = http.StatusRequestTimeout
 			}
-			for _, tc := range []struct {
-				name, media, body string
-				partial           bool
-				status            int
-			}{
-				{"missing-partial", "", "{", true, http.StatusUnsupportedMediaType},
-				{"wrong-partial", "text/plain", "{", true, http.StatusUnsupportedMediaType},
-				{"malformed-partial", "application/json; charset", "{", true, http.StatusUnsupportedMediaType},
-				{"json-partial", "application/json", "{", true, http.StatusBadRequest},
-				{"missing-complete", "", valid, false, http.StatusUnsupportedMediaType},
-				{"wrong-complete", "text/plain", valid, false, http.StatusUnsupportedMediaType},
-				{"json-complete", "application/json", valid, false, http.StatusOK},
-				{"charset-complete", "application/json; charset=utf-8", valid, false, http.StatusOK},
-			} {
-				t.Run(tc.name, func(t *testing.T) {
-					status := tc.status
-					if action == "run" && tc.name == "json-partial" {
-						status = http.StatusRequestTimeout
-					}
-					conn, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
-					require.NoError(t, err)
-					defer conn.Close() //nolint:errcheck
-					require.NoError(t, conn.SetDeadline(time.Now().Add(7*time.Second)))
-					length := len(tc.body)
-					if tc.partial {
-						length = 100
-					}
-					media := ""
-					if tc.media != "" {
-						media = "Content-Type: " + tc.media + "\r\n"
-					}
-					// Deliberately keep the connection and request body open: Connection: close
-					// would bypass net/http's unread-body drain on an early rejection.
-					_, err = fmt.Fprintf(conn, "POST /api/v1/runner/%s HTTP/1.1\r\nHost: localhost\r\n%sContent-Length: %d\r\n\r\n%s", action, media, length, tc.body)
-					require.NoError(t, err)
-					reader := bufio.NewReader(conn)
-					response, err := http.ReadResponse(reader, nil)
-					require.NoError(t, err, "partial upload must finish without the client sending EOF")
-					require.Equal(t, status, response.StatusCode)
-					if action == "run" {
-						raw, err := io.ReadAll(response.Body)
-						require.NoError(t, err)
-						var binding *runnerterminal.Binding
-						if status == http.StatusOK {
-							admitted := runnerunit.Validate(unit)
-							require.Equal(t, "ready", admitted.Status)
-							binding = &runnerterminal.Binding{Selection: *admitted.Resolved, Identity: admitted.Identity,
-								GraderIDs: []string{"_output_contains"}}
-						}
-						envelope, err := runnerterminal.Validate(raw, binding)
-						require.NoError(t, err, "%s", raw)
-						require.Equal(t, fmt.Sprint(envelope.ExitCode), response.Header.Get("X-Waza-Exit-Code"))
-						require.Equal(t, 1, bytes.Count(raw, []byte{'\n'}))
-						if status == http.StatusOK {
-							require.Equal(t, runnerterminal.Success, envelope.Outcome)
-							require.Equal(t, "valid", envelope.Validation)
-							require.Empty(t, envelope.Diagnostics)
-							require.Equal(t, binding.Identity, envelope.Identity)
-							require.Equal(t, binding.Selection, *envelope.Selection)
-							require.Equal(t, 1, envelope.EngineCalls)
-							require.NotNil(t, envelope.Observation)
-							require.Equal(t, binding.Selection, envelope.Observation.Selection)
-							require.Equal(t, binding.Selection.Trial, envelope.Observation.RunNumber)
-							require.Equal(t, binding.Selection.Attempt, envelope.Observation.Attempts)
-							require.Equal(t, "passed", envelope.Observation.Status)
-							require.Equal(t, []runnerterminal.Verdict{{Identifier: "_output_contains", Passed: true}},
-								envelope.Observation.Validations)
-						} else {
-							require.Zero(t, envelope.EngineCalls)
-							require.Nil(t, envelope.Identity)
-							require.Nil(t, envelope.Selection)
-							require.Nil(t, envelope.Observation)
-							require.Len(t, envelope.Diagnostics, 1)
-							if status == http.StatusUnsupportedMediaType {
-								require.Equal(t, runnerterminal.InvalidInput, envelope.Outcome)
-								require.Equal(t, 6, envelope.ExitCode)
-								require.Contains(t, envelope.Diagnostics[0].Message, "Content-Type")
-							} else {
-								require.Equal(t, runnerterminal.Timeout, envelope.Outcome)
-								require.Equal(t, 4, envelope.ExitCode)
-								require.Contains(t, envelope.Diagnostics[0].Message, "timeout")
-							}
-						}
-					} else if action == "negotiate" {
-						var body runnercontract.Response
-						require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
-						if tc.status == http.StatusOK {
-							require.Equal(t, "compatible", body.Status)
-						} else {
-							require.Equal(t, "invalid_request", body.Status)
-							require.Empty(t, body.Negotiation.Selected)
-							require.Len(t, body.Diagnostics, 1)
-							if tc.status == http.StatusUnsupportedMediaType {
-								require.Contains(t, body.Diagnostics[0].Message, "Content-Type")
-							} else {
-								require.Contains(t, body.Diagnostics[0].Message, "timeout")
-							}
-						}
-					} else if tc.status == http.StatusOK {
-						var body runnerunit.Report
-						require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
-						require.Equal(t, "valid", body.Validation)
-						require.False(t, body.AdjacentWork)
-						require.NotNil(t, body.Resolved)
-						require.Empty(t, body.Diagnostics)
-						require.Equal(t, "ready", body.Status)
-						require.Zero(t, body.Calls)
-						require.Nil(t, body.Observation)
+			conn, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+			require.NoError(t, err)
+			defer conn.Close() //nolint:errcheck
+			require.NoError(t, conn.SetDeadline(time.Now().Add(7*time.Second)))
+			length := len(tc.body)
+			if tc.partial {
+				length = 100
+			}
+			media := ""
+			if tc.media != "" {
+				media = "Content-Type: " + tc.media + "\r\n"
+			}
+			// Deliberately keep the connection and request body open: Connection: close
+			// would bypass net/http's unread-body drain on an early rejection.
+			_, err = fmt.Fprintf(conn, "POST /api/v1/runner/%s HTTP/1.1\r\nHost: localhost\r\n%sContent-Length: %d\r\n\r\n%s", action, media, length, tc.body)
+			require.NoError(t, err)
+			reader := bufio.NewReader(conn)
+			response, err := http.ReadResponse(reader, nil)
+			require.NoError(t, err, "partial upload must finish without the client sending EOF")
+			require.Equal(t, status, response.StatusCode)
+			if action == "run" {
+				raw, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				var binding *runnerterminal.Binding
+				if status == http.StatusOK {
+					admitted := runnerunit.Validate(unit)
+					require.Equal(t, "ready", admitted.Status)
+					binding = &runnerterminal.Binding{Selection: *admitted.Resolved, Identity: admitted.Identity,
+						GraderIDs: []string{"_output_contains"}}
+				}
+				envelope, err := runnerterminal.Validate(raw, binding)
+				require.NoError(t, err, "%s", raw)
+				require.Equal(t, fmt.Sprint(envelope.ExitCode), response.Header.Get("X-Waza-Exit-Code"))
+				require.Equal(t, 1, bytes.Count(raw, []byte{'\n'}))
+				if status == http.StatusOK {
+					require.Equal(t, runnerterminal.Success, envelope.Outcome)
+					require.Equal(t, "valid", envelope.Validation)
+					require.Empty(t, envelope.Diagnostics)
+					require.Equal(t, binding.Identity, envelope.Identity)
+					require.Equal(t, binding.Selection, *envelope.Selection)
+					require.Equal(t, 1, envelope.EngineCalls)
+					require.NotNil(t, envelope.Observation)
+					require.Equal(t, binding.Selection, envelope.Observation.Selection)
+					require.Equal(t, binding.Selection.Trial, envelope.Observation.RunNumber)
+					require.Equal(t, binding.Selection.Attempt, envelope.Observation.Attempts)
+					require.Equal(t, "passed", envelope.Observation.Status)
+					require.Equal(t, []runnerterminal.Verdict{{Identifier: "_output_contains", Passed: true}},
+						envelope.Observation.Validations)
+				} else {
+					require.Zero(t, envelope.EngineCalls)
+					require.Nil(t, envelope.Identity)
+					require.Nil(t, envelope.Selection)
+					require.Nil(t, envelope.Observation)
+					require.Len(t, envelope.Diagnostics, 1)
+					if status == http.StatusUnsupportedMediaType {
+						require.Equal(t, runnerterminal.InvalidInput, envelope.Outcome)
+						require.Equal(t, 6, envelope.ExitCode)
+						require.Contains(t, envelope.Diagnostics[0].Message, "Content-Type")
 					} else {
-						var body struct {
-							Error string `json:"error"`
-						}
-						require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
-						if tc.status == http.StatusUnsupportedMediaType {
-							require.Equal(t, "runner requires Content-Type: application/json", body.Error)
-						} else {
-							require.Contains(t, body.Error, "reading runner request:")
-							require.Contains(t, body.Error, "timeout")
-						}
+						require.Equal(t, runnerterminal.Timeout, envelope.Outcome)
+						require.Equal(t, 4, envelope.ExitCode)
+						require.Contains(t, envelope.Diagnostics[0].Message, "timeout")
 					}
-					require.NoError(t, response.Body.Close())
-					if tc.partial || action == "run" && status == http.StatusUnsupportedMediaType {
-						require.True(t, response.Close, "unadmitted run bodies and incomplete uploads require a fresh connection")
-						return
+				}
+			} else if action == "negotiate" {
+				var body runnercontract.Response
+				require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
+				if tc.status == http.StatusOK {
+					require.Equal(t, "compatible", body.Status)
+				} else {
+					require.Equal(t, "invalid_request", body.Status)
+					require.Empty(t, body.Negotiation.Selected)
+					require.Len(t, body.Diagnostics, 1)
+					if tc.status == http.StatusUnsupportedMediaType {
+						require.Contains(t, body.Diagnostics[0].Message, "Content-Type")
+					} else {
+						require.Contains(t, body.Diagnostics[0].Message, "timeout")
 					}
-					require.False(t, response.Close, "ordinary admission must preserve keep-alive")
-					_, err = fmt.Fprint(conn, "GET /api/v1/runner/capabilities HTTP/1.1\r\nHost: localhost\r\n\r\n")
-					require.NoError(t, err)
-					response, err = http.ReadResponse(reader, nil)
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, response.StatusCode)
-					var advertisement runnercontract.Advertisement
-					require.NoError(t, json.NewDecoder(response.Body).Decode(&advertisement))
-					require.NoError(t, response.Body.Close())
-					require.Equal(t, runnercontract.Capabilities(), advertisement)
-				})
+				}
+			} else if tc.status == http.StatusOK {
+				var body runnerunit.Report
+				require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
+				require.Equal(t, "valid", body.Validation)
+				require.False(t, body.AdjacentWork)
+				require.NotNil(t, body.Resolved)
+				require.Empty(t, body.Diagnostics)
+				require.Equal(t, "ready", body.Status)
+				require.Zero(t, body.Calls)
+				require.Nil(t, body.Observation)
+			} else {
+				var body struct {
+					Error string `json:"error"`
+				}
+				require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
+				if tc.status == http.StatusUnsupportedMediaType {
+					require.Equal(t, "runner requires Content-Type: application/json", body.Error)
+				} else {
+					require.Contains(t, body.Error, "reading runner request:")
+					require.Contains(t, body.Error, "timeout")
+				}
 			}
+			require.NoError(t, response.Body.Close())
+			if tc.partial || action == "run" && status == http.StatusUnsupportedMediaType {
+				require.True(t, response.Close, "unadmitted run bodies and incomplete uploads require a fresh connection")
+				return
+			}
+			require.False(t, response.Close, "ordinary admission must preserve keep-alive")
+			_, err = fmt.Fprint(conn, "GET /api/v1/runner/capabilities HTTP/1.1\r\nHost: localhost\r\n\r\n")
+			require.NoError(t, err)
+			response, err = http.ReadResponse(reader, nil)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, response.StatusCode)
+			var advertisement runnercontract.Advertisement
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&advertisement))
+			require.NoError(t, response.Body.Close())
+			require.Equal(t, runnercontract.Capabilities(), advertisement)
 		})
 	}
 	require.FileExists(t, filepath.Join(directory, ".waza.yaml"))

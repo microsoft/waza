@@ -1,0 +1,63 @@
+name: PR completeness plan
+
+on:
+  workflow_call:
+    outputs:
+      plan_artifact:
+        value: ${{ jobs.plan.outputs.plan_artifact }}
+      go:
+        value: ${{ jobs.plan.outputs.go }}
+      dashboard:
+        value: ${{ jobs.plan.outputs.dashboard }}
+      site:
+        value: ${{ jobs.plan.outputs.site }}
+      examples:
+        value: ${{ jobs.plan.outputs.examples }}
+      assurance:
+        value: ${{ jobs.plan.outputs.assurance }}
+      container:
+        value: ${{ jobs.plan.outputs.container }}
+      tools:
+        value: ${{ jobs.plan.outputs.tools }}
+      runtime:
+        value: ${{ jobs.plan.outputs.runtime }}
+
+permissions:
+  # Checkout and same-run artifact transport need no write permissions.
+  contents: read
+
+jobs:
+  plan:
+    name: Determine source-bound PR applicability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      plan_artifact: ${{ steps.plan.outputs.plan_artifact }}
+      go: ${{ steps.plan.outputs.go }}
+      dashboard: ${{ steps.plan.outputs.dashboard }}
+      site: ${{ steps.plan.outputs.site }}
+      examples: ${{ steps.plan.outputs.examples }}
+      assurance: ${{ steps.plan.outputs.assurance }}
+      container: ${{ steps.plan.outputs.container }}
+      tools: ${{ steps.plan.outputs.tools }}
+      runtime: ${{ steps.plan.outputs.runtime }}
+    steps:
+      - name: Checkout tested merge and both parents
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Discover complete tested-merge applicability
+        id: plan
+        shell: bash
+        run: node .github/scripts/pr-completeness-admission.cjs plan "$RUNNER_TEMP/pr-completeness-plan"
+      - name: Upload source-bound plan
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.plan.outputs.plan_artifact }}
+          path: ${{ runner.temp }}/pr-completeness-plan/plan.json
+          if-no-files-found: error

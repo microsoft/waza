@@ -23,7 +23,7 @@ type RunSetup struct {
 // StartRunSetup runs the eval's before_run hooks. If they fail, it runs the
 // after_run hooks, as a failed benchmark always has, and returns the error.
 func StartRunSetup(ctx context.Context, cfg *config.EvalConfig, verbose bool) (*RunSetup, error) {
-	setup := &RunSetup{cfg: cfg, hooks: &hooks.Runner{Verbose: verbose}}
+	setup := &RunSetup{cfg: cfg, hooks: &hooks.Runner{Verbose: verbose, Vars: cfg.Spec().Inputs}}
 	if before := cfg.Spec().Hooks.BeforeRun; len(before) > 0 {
 		if err := setup.hooks.Execute(ctx, "before_run", before); err != nil {
 			setup.Teardown(ctx)

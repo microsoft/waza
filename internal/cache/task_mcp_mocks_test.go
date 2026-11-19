@@ -15,9 +15,9 @@ func answerMock(name, answer string) models.MCPMockConfig {
 	}}
 }
 
-// frozenNoMCPKey is CacheKey for frozenNoMCP* computed on main c8aad785, before
-// MCP mocks entered the key. Tasks with no effective MCP mocks must keep it.
-const frozenNoMCPKey = "f2eec41f13098ea3f110279e0d5c62f57d456f888a8d3875347d1dbe78fb433b"
+// The workspace capture and consumed-input key versions intentionally
+// invalidate the historical key even for tasks without MCP mocks.
+const frozenNoMCPKey = "bb85327597538c3e8a58f220dc11f4b573cdda35a356c19476cf26249b4b72a5"
 
 func TestCacheKey_NoMCPMocksKeepFrozenKey(t *testing.T) {
 	spec := &models.EvalSpec{SchemaVersion: "1.1", SpecIdentity: models.SpecIdentity{Name: "frozen"},

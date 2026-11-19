@@ -71,6 +71,9 @@ func (NopLogger) Log(Event) error { return nil }
 // Close is a no-op.
 func (NopLogger) Close() error { return nil }
 
+// LogFileGlob matches every file name DefaultLogPath produces.
+const LogFileGlob = "????????T??????Z-session.jsonl"
+
 // DefaultLogPath returns a timestamped session log path inside dir.
 func DefaultLogPath(dir string) string {
 	ts := time.Now().UTC().Format("20060102T150405Z")

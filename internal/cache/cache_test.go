@@ -1,16 +1,54 @@
 package cache
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCacheKeyIncludesFrozenFixtureDeclarationsAtBothScopes(t *testing.T) {
+	for _, taskScope := range []bool{false, true} {
+		t.Run(fmt.Sprintf("task=%t", taskScope), func(t *testing.T) {
+			spec, task := &models.EvalSpec{}, &models.TestCase{}
+			var params models.PromptGraderParameters
+			require.NoError(t, json.Unmarshal([]byte(`{"prompt":"Judge.","evidence_context":{}}`), &params))
+			config := models.GraderConfig{Identifier: "judge", Kind: models.GraderKindPrompt, Parameters: params}
+			set := func() {
+				config.Parameters = params
+				if taskScope {
+					task.Validators = []models.ValidatorInline{{Identifier: config.Identifier, Kind: config.Kind, Parameters: params}}
+				} else {
+					spec.Graders = []models.GraderConfig{config}
+				}
+			}
+			set()
+			baseline, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			values := []string{}
+			params.EvidenceContext.NonSecretLiterals = &values
+			set()
+			empty, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			require.NotEqual(t, baseline, empty, "explicit empty declaration retains its presence")
+			values = []string{"PROJ-1"}
+			declared, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			require.NotEqual(t, empty, declared)
+			values[0] = "PROJ-2"
+			changed, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			require.NotEqual(t, declared, changed)
+		})
+	}
+}
 
 func TestCacheKeyMCPEffectiveFixtures(t *testing.T) {
 	dir := t.TempDir()
@@ -132,6 +170,26 @@ func TestCacheKey(t *testing.T) {
 	key2, err := CacheKey(spec, task, tempDir)
 	require.NoError(t, err)
 	assert.Equal(t, key1, key2)
+}
+
+func TestCacheKey_HookInputsChangeKey(t *testing.T) {
+	task := &models.TestCase{TestID: "hook-task", Stimulus: models.TaskStimulus{Message: "go"}}
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "hook-eval"},
+		Config:       models.Config{ModelID: "mock"},
+		Inputs:       map[string]string{"marker": "first"},
+		Hooks: hooks.HooksConfig{
+			BeforeTask: []hooks.HookConfig{{Command: "select {{.Vars.marker}}"}},
+		},
+	}
+
+	first, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+	spec.Inputs["marker"] = "second"
+	second, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+
+	require.NotEqual(t, first, second)
 }
 
 func TestCacheKey_DifferentModelChangesKey(t *testing.T) {
@@ -310,6 +368,35 @@ func TestCacheKey_TriggerSkillRoutingChangesKey(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEqual(t, withoutRouting, withRouting)
+}
+
+func TestCacheKey_UserInputResponsesChangeKey(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test"},
+		Config:       models.Config{ModelID: "gpt-4", EngineType: "copilot-sdk", TimeoutSec: 300},
+	}
+	answer, other := "staging", "prod"
+	variants := []*[]models.UserInputResponseConfig{
+		nil,
+		{},
+		{{Answer: &answer}},
+		{{Question: "Deploy where.*", Answer: &answer}},
+		{{Question: "Deploy where.*", Answer: &other}},
+		{{Question: "Deploy", Answer: &answer}},
+	}
+	seen := make(map[string]int, len(variants))
+	for i, responses := range variants {
+		task := &models.TestCase{TestID: "test-1", Stimulus: models.TaskStimulus{Message: "Test"}, UserInputResponses: responses}
+		key, err := CacheKey(spec, task, "")
+		require.NoError(t, err)
+		repeat, err := CacheKey(spec, task, "")
+		require.NoError(t, err)
+		require.Equal(t, key, repeat)
+		if previous, ok := seen[key]; ok {
+			t.Fatalf("user_input_responses variant %d reused the cache key of variant %d", i, previous)
+		}
+		seen[key] = i
+	}
 }
 
 func TestCacheKey_DifferentFixturesChangesKey(t *testing.T) {
@@ -493,6 +580,37 @@ func TestHasNonDeterministicGraders(t *testing.T) {
 			}
 			result := HasNonDeterministicGraders(spec)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestHasNonDeterministicTaskGraders(t *testing.T) {
+	tests := []struct {
+		name     string
+		task     *models.TestCase
+		expected bool
+	}{
+		{name: "nil task", expected: false},
+		{name: "no task graders", task: &models.TestCase{}, expected: false},
+		{
+			name: "deterministic task grader",
+			task: &models.TestCase{Validators: []models.ValidatorInline{{Kind: models.GraderKindText}}},
+		},
+		{
+			name:     "prompt task grader",
+			task:     &models.TestCase{Validators: []models.ValidatorInline{{Kind: models.GraderKindPrompt}}},
+			expected: true,
+		},
+		{
+			name:     "behavior checkpoint grader",
+			task:     &models.TestCase{Checkpoints: []models.Checkpoint{{Graders: []models.ValidatorInline{{Kind: models.GraderKindBehavior}}}}},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, HasNonDeterministicTaskGraders(tt.task))
 		})
 	}
 }

@@ -113,9 +113,9 @@ func TestCompatibilityCLIProcessExits(t *testing.T) {
 			require.NoError(t, err)
 			wireBytes, err := os.ReadFile(resultPath)
 			require.NoError(t, err)
-			expected, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.8.json"))
+			expected, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.9.json"))
 			require.NoError(t, err)
-			require.Equal(t, "1.8", outcome.SchemaVersion)
+			require.Equal(t, "1.9", outcome.SchemaVersion)
 			normalized, err := json.Marshal(normalizeCompatibilityRunWire(t, wireBytes))
 			require.NoError(t, err)
 			require.JSONEq(t, string(expected), string(normalized), "independent baseline wire oracle must match on every iteration")
@@ -295,35 +295,42 @@ func TestCompatibilityRunOracleRejectsDeterministicDrift(t *testing.T) {
 func TestCompatibilityResultWriterOracleDiffersOnlyByVersion(t *testing.T) {
 	legacyBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.4.json"))
 	require.NoError(t, err)
-	currentBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.8.json"))
+	currentBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.9.json"))
 	require.NoError(t, err)
 	var legacy, current map[string]any
 	require.NoError(t, json.Unmarshal(legacyBytes, &legacy))
 	require.NoError(t, json.Unmarshal(currentBytes, &current))
 	require.Equal(t, "1.4", legacy["schemaVersion"])
-	require.Equal(t, "1.8", current["schemaVersion"])
+	require.Equal(t, "1.9", current["schemaVersion"])
 	require.Equal(t, models.CurrentResultSchemaVersion, current["schemaVersion"])
-	legacy["schemaVersion"] = "1.8"
+	legacy["schemaVersion"] = "1.9"
 	require.Equal(t, legacy, current, "only the explicitly changed writer version may differ from the frozen legacy oracle")
 	priorBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.5.json"))
 	require.NoError(t, err)
 	var prior map[string]any
 	require.NoError(t, json.Unmarshal(priorBytes, &prior))
 	require.Equal(t, "1.5", prior["schemaVersion"])
-	prior["schemaVersion"] = "1.8"
+	prior["schemaVersion"] = "1.9"
 	require.Equal(t, prior, current, "the frozen prior-writer oracle must remain unchanged apart from version negotiation")
 	evidenceBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.6.json"))
 	require.NoError(t, err)
 	var previousEvidence map[string]any
 	require.NoError(t, json.Unmarshal(evidenceBytes, &previousEvidence))
 	require.Equal(t, "1.6", previousEvidence["schemaVersion"])
-	previousEvidence["schemaVersion"] = "1.8"
+	previousEvidence["schemaVersion"] = "1.9"
 	require.Equal(t, previousEvidence, current, "omitting evidence_context must not change the frozen 1.6 contract")
 	dependencyBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.7.json"))
 	require.NoError(t, err)
 	var previousDependency map[string]any
 	require.NoError(t, json.Unmarshal(dependencyBytes, &previousDependency))
 	require.Equal(t, "1.7", previousDependency["schemaVersion"])
-	previousDependency["schemaVersion"] = "1.8"
+	previousDependency["schemaVersion"] = "1.9"
 	require.Equal(t, previousDependency, current, "runs without native session events must not gain host_lifecycle")
+	lifecycleBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.8.json"))
+	require.NoError(t, err)
+	var previousLifecycle map[string]any
+	require.NoError(t, json.Unmarshal(lifecycleBytes, &previousLifecycle))
+	require.Equal(t, "1.8", previousLifecycle["schemaVersion"])
+	previousLifecycle["schemaVersion"] = "1.9"
+	require.Equal(t, previousLifecycle, current, "runs without native question callbacks must not gain user_input_requests")
 }

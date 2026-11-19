@@ -32,6 +32,7 @@ type usageExecutor interface {
 // ExecuteRecorded preserves the executor's response/error contract, including
 // responses returned with errors. Without a scope it simply executes.
 func ExecuteRecorded(ctx context.Context, executor usageExecutor, req *ExecutionRequest) (*ExecutionResponse, error) {
+	defer preemptOnDeadline(ctx)()
 	scope, _ := ctx.Value(usageScopeKey{}).(*UsageScope)
 	if scope == nil {
 		return executor.Execute(ctx, req)

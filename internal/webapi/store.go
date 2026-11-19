@@ -32,20 +32,33 @@ type RunStore interface {
 type FileStore struct {
 	dir string
 
-	mu      sync.RWMutex
-	runs    map[string]*models.EvaluationOutcome
-	files   map[string]struct{}
-	loaded  bool
-	loadErr error
+	mu        sync.RWMutex
+	runs      map[string]*models.EvaluationOutcome
+	summaries map[string]RunSummary
+	summary   SummaryResponse
+	files     map[string]struct{}
+	loaded    bool
+	loadErr   error
+
+	dashboardCache *storage.DashboardResultCache
 }
 
 // NewFileStore creates a FileStore that reads results from dir.
 func NewFileStore(dir string) *FileStore {
 	return &FileStore{
-		dir:   dir,
-		runs:  make(map[string]*models.EvaluationOutcome),
-		files: make(map[string]struct{}),
+		dir:       dir,
+		runs:      make(map[string]*models.EvaluationOutcome),
+		summaries: make(map[string]RunSummary),
+		files:     make(map[string]struct{}),
 	}
+}
+
+// NewDashboardFileStore creates a FileStore with content-based parse reuse for
+// the dashboard's polling refresh path.
+func NewDashboardFileStore(dir string) *FileStore {
+	store := NewFileStore(dir)
+	store.dashboardCache = storage.NewDashboardResultCache()
+	return store
 }
 
 // load reads all result JSON files from the configured directory.
@@ -53,13 +66,25 @@ func (fs *FileStore) load() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	replacement, files, err := storage.ReadLocalResults(fs.dir, fs.files)
+	var (
+		replacement map[string]*models.EvaluationOutcome
+		files       map[string]struct{}
+		err         error
+	)
+	if fs.dashboardCache != nil {
+		replacement, files, err = storage.ReadLocalResultsForDashboard(fs.dir, fs.files, fs.dashboardCache)
+	} else {
+		replacement, files, err = storage.ReadLocalResults(fs.dir, fs.files)
+	}
 	if err != nil {
 		fs.loadErr = err
 		return err
 	}
+	summaries, summary := projectRunSnapshot(replacement)
 
 	fs.runs = replacement
+	fs.summaries = summaries
+	fs.summary = summary
 	fs.files = files
 	fs.loaded = true
 	fs.loadErr = nil
@@ -146,7 +171,6 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	}
 
 	return RunSummary{
-		skillRecorded:   o.SkillTested == "" && o.HasSkillTested(),
 		ID:              o.RunID,
 		Spec:            o.BenchName,
 		Model:           o.Setup.ModelID,
@@ -163,10 +187,18 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 		Duration:        float64(o.Digest.DurationMs) / 1000.0,
 		Timestamp:       o.Timestamp,
 		Source:          "local",
-		Skill:           o.SkillTested,
+		Skill:           recordedSkill(o),
 		Repetitions:     o.Setup.RunsPerTest,
 		WeightedScore:   weightedScore,
 	}
+}
+
+func recordedSkill(o *models.EvaluationOutcome) *string {
+	if !o.HasSkillTested() {
+		return nil
+	}
+	skill := o.SkillTested
+	return &skill
 }
 
 // aiCreditAccumulator averages authoritative AI-credit totals across the runs
@@ -248,7 +280,17 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 		}
 		hasEvidenceMetadata := false
 		hasPromptJudging := false
+		hasInfrastructureError := false
 		for _, run := range to.Runs {
+			infrastructure := InfrastructureRunResponse{RunNumber: run.RunNumber, Attempts: run.Attempts}
+			if run.InfrastructureDiagnostic != nil {
+				safe := run.InfrastructureDiagnostic.Safe()
+				infrastructure.Diagnostic = &safe
+			} else if run.Status == models.StatusError {
+				infrastructure.Diagnostic = &models.InfrastructureDiagnostic{Code: models.InfrastructureError}
+			}
+			hasInfrastructureError = hasInfrastructureError || infrastructure.Diagnostic != nil
+			tr.InfrastructureRuns = append(tr.InfrastructureRuns, infrastructure)
 			hasPromptJudging = hasPromptJudging || run.JudgeEvidence != nil || len(run.PromptJudging) > 0
 			tr.PromptJudgingRuns = append(tr.PromptJudgingRuns, judgeevidence.ProjectRun(o.RunID, to.TestID, to.Cached, run))
 			hasEvidenceMetadata = hasEvidenceMetadata || run.Evidence != nil || len(run.RequirementExplanations) > 0
@@ -283,6 +325,9 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			}
 			tr.EvidenceRuns = append(tr.EvidenceRuns, row)
 		}
+		if !hasInfrastructureError {
+			tr.InfrastructureRuns = nil
+		}
 		if !hasEvidenceMetadata {
 			tr.EvidenceRuns = nil
 		}
@@ -312,6 +357,15 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			tr.Prompt = promptFromRun(run)
 			tr.DependencyModes = append([]models.DependencyMode(nil), run.DependencyModes...)
 			tr.CommandInvocations = append([]models.CommandInvocation(nil), run.CommandInvocations...)
+			if run.UserInputRequests != nil {
+				records := append([]models.UserInputRecord{}, *run.UserInputRequests...)
+				for i := range records {
+					if records[i].Error != "" {
+						records[i].Error = "A user input error occurred."
+					}
+				}
+				tr.UserInputRequests = &records
+			}
 			if tr.Duration == 0 {
 				tr.Duration = float64(run.DurationMs) / 1000.0
 			}
@@ -328,10 +382,15 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			tr.Transcript = mapTranscriptEvents(run.Transcript)
 			tr.SessionDigest = mapSessionDigest(&run.SessionDigest)
 			if run.Responder != nil {
+				outcome := run.Responder.Outcome
+				switch outcome {
+				case models.ResponderOutcomeStopped, models.ResponderOutcomeAbstained, models.ResponderOutcomeCapExhausted, models.ResponderOutcomeError:
+				default:
+					outcome = "unknown"
+				}
 				tr.Responder = &ResponderInfoResponse{
 					FollowupsSent: run.Responder.FollowupsSent,
-					Outcome:       run.Responder.Outcome,
-					Reason:        run.Responder.Reason,
+					Outcome:       outcome,
 				}
 			}
 		}
@@ -380,9 +439,9 @@ func (fs *FileStore) ListRuns(sortField, order string) ([]RunSummary, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	runs := make([]RunSummary, 0, len(fs.runs))
-	for _, o := range fs.runs {
-		runs = append(runs, outcomeToSummary(o))
+	runs := make([]RunSummary, 0, len(fs.summaries))
+	for _, summary := range fs.summaries {
+		runs = append(runs, cloneRunSummary(summary))
 	}
 
 	sortRuns(runs, sortField, order)
@@ -415,11 +474,14 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	resp := &SummaryResponse{}
-	if len(fs.runs) == 0 {
-		return resp, nil
-	}
+	resp := fs.summary
+	resp.AvgAICredits = cloneFloat64(resp.AvgAICredits)
+	return &resp, nil
+}
 
+func projectRunSnapshot(runs map[string]*models.EvaluationOutcome) (map[string]RunSummary, SummaryResponse) {
+	summaries := make(map[string]RunSummary, len(runs))
+	resp := SummaryResponse{}
 	totalTokens := 0
 	totalPremium := 0.0
 	credits := aiCreditAccumulator{}
@@ -427,14 +489,15 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	totalDuration := 0.0
 	totalPassed := 0
 	totalTasks := 0
-	costSources := make([]string, 0, len(fs.runs))
+	costSources := make([]string, 0, len(runs))
 
-	for _, o := range fs.runs {
+	for id, o := range runs {
 		resp.TotalRuns++
 		totalTasks += o.Digest.TotalTests
 		totalPassed += o.Digest.Succeeded
 
 		s := outcomeToSummary(o)
+		summaries[id] = s
 		totalTokens += s.Tokens
 		totalPremium += s.PremiumRequests
 		credits.add(s.AICredits)
@@ -456,7 +519,31 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	}
 	resp.CostSource = pricing.CombineSources(costSources)
 
-	return resp, nil
+	return summaries, resp
+}
+
+func cloneRunSummary(summary RunSummary) RunSummary {
+	if summary.Skill != nil {
+		skill := *summary.Skill
+		summary.Skill = &skill
+	}
+	summary.AICredits = cloneFloat64(summary.AICredits)
+	summary.WeightedScore = cloneFloat64(summary.WeightedScore)
+	if summary.ModelUsage != nil {
+		summary.ModelUsage = append([]ModelUsageResponse(nil), summary.ModelUsage...)
+		for i := range summary.ModelUsage {
+			summary.ModelUsage[i].AICredits = cloneFloat64(summary.ModelUsage[i].AICredits)
+		}
+	}
+	return summary
+}
+
+func cloneFloat64(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventResponse {
@@ -467,6 +554,11 @@ func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventRespo
 	for _, e := range events {
 		r := TranscriptEventResponse{
 			Type: string(e.Type()),
+		}
+		if e.Type() == copilot.SessionEventTypeSessionError {
+			r.Message = "A session error occurred."
+			resp = append(resp, r)
+			continue
 		}
 		if content, ok := copilotevents.Content(e.SessionEvent); ok {
 			r.Content = content
@@ -501,9 +593,11 @@ func mapSessionDigest(d *models.SessionDigest) *SessionDigestResponse {
 	if toolsUsed == nil {
 		toolsUsed = []string{}
 	}
-	errs := d.Errors
-	if errs == nil {
-		errs = []string{}
+	errs := make([]string, len(d.Errors))
+	for i, message := range d.Errors {
+		if message != "" {
+			errs[i] = "A session error occurred."
+		}
 	}
 	res := &SessionDigestResponse{
 		ToolPolicyMode:    d.ToolPolicyMode,

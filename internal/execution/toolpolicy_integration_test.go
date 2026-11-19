@@ -58,6 +58,7 @@ func TestCopilotResumeToolPolicy(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, string(policy.Mode), resp.ToolPolicyMode)
 			require.Equal(t, !policy.Active(), resp.Success)
+			require.Equal(t, !policy.Active(), resp.ExecutionSucceeded)
 			if policy.Active() {
 				require.Len(t, resp.ToolPolicyDenials, 2)
 				require.Contains(t, resp.ErrorMsg, "tool policy violation")
@@ -117,6 +118,7 @@ func TestCopilotNewSessionDenyAllWithoutCallbacks(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, response.Success)
+	require.False(t, response.ExecutionSucceeded)
 	require.Equal(t, string(ToolPolicyDenyAll), response.ToolPolicyMode)
 	require.Len(t, response.ToolPolicyDenials, 6)
 	require.Contains(t, response.ErrorMsg, "tool policy violation")

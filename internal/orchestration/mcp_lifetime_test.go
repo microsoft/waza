@@ -214,7 +214,7 @@ func TestExecuteRunMCPMockCleanupPreservesReplacementAndFailsRun(t *testing.T) {
 			if executionFails {
 				require.Contains(t, run.ErrorMsg, "original execution failure")
 			}
-			require.Equal(t, models.StatusFailed, overallStatus([]models.RunResult{run}))
+			require.Equal(t, models.StatusError, OverallStatus([]models.RunResult{run}))
 			data, err := json.Marshal(run)
 			require.NoError(t, err)
 			var saved models.RunResult
@@ -322,7 +322,7 @@ func TestRunTestMCPMockParentReplacementFailsOutcome(t *testing.T) {
 			require.Equal(t, "preserve parent replacement", string(replacement))
 			require.NoFileExists(t, originalConfig)
 			require.False(t, engine.response.Success)
-			require.Equal(t, models.StatusFailed, outcome.Status)
+			require.Equal(t, models.StatusError, outcome.Status)
 			require.Len(t, outcome.Runs, 1)
 			run := outcome.Runs[0]
 			require.Equal(t, models.StatusError, run.Status)
@@ -336,7 +336,7 @@ func TestRunTestMCPMockParentReplacementFailsOutcome(t *testing.T) {
 			require.NoError(t, err)
 			var saved models.TestOutcome
 			require.NoError(t, json.Unmarshal(body, &saved))
-			require.Equal(t, models.StatusFailed, saved.Status)
+			require.Equal(t, models.StatusError, saved.Status)
 			require.Equal(t, models.StatusError, saved.Runs[0].Status)
 			require.Equal(t, run.ErrorMsg, saved.Runs[0].ErrorMsg)
 		})
@@ -378,6 +378,13 @@ func TestRunTestMCPMockCacheInvalidatesPriorAttemptBehavior(t *testing.T) {
 			case "invalid-version":
 				spec.SchemaVersion = "1.4"
 			}
+			var plainEngine *captureCacheEngine
+			if withoutMocks {
+				plainEngine = &captureCacheEngine{MockEngine: execution.NewMockEngine("mock")}
+				require.NoError(t, plainEngine.Initialize(t.Context()))
+				t.Cleanup(func() { require.NoError(t, plainEngine.Shutdown(context.Background())) })
+				runner.engine = plainEngine
+			}
 			runner.cache = cache.New(t.TempDir())
 			legacy := &models.TestOutcome{TestID: task.TestID, Status: models.StatusPassed,
 				Runs: []models.RunResult{{RunNumber: 1, Status: models.StatusPassed, FinalOutput: `{"ordinal":1}`}}}
@@ -387,16 +394,19 @@ func TestRunTestMCPMockCacheInvalidatesPriorAttemptBehavior(t *testing.T) {
 
 			outcome, cached := runner.runTest(context.Background(), task, 1, 1)
 			if withoutMocks {
-				require.True(t, cached, "unaffected legacy cache entries must retain their original keys")
-				require.Empty(t, engine.results)
-				require.Equal(t, legacy.Runs[0].FinalOutput, outcome.Runs[0].FinalOutput)
+				require.False(t, cached, "legacy entries may contain no-capture results")
+				require.Len(t, plainEngine.requests, 3)
+				same, cached := runner.runTest(context.Background(), task, 1, 1)
+				require.True(t, cached)
+				require.Equal(t, outcome.Runs[0].FinalOutput, same.Runs[0].FinalOutput)
+				require.Len(t, plainEngine.requests, 3)
 				return
 			}
 			require.False(t, cached, "pre-attempt-lifetime results must not bypass execution after upgrade")
 			require.Len(t, outcome.Runs, 1)
 			if source == "invalid-version" {
 				require.Empty(t, engine.results)
-				require.Equal(t, models.StatusFailed, outcome.Status)
+				require.Equal(t, models.StatusError, outcome.Status)
 				require.Equal(t, models.StatusError, outcome.Runs[0].Status)
 				require.Contains(t, outcome.Runs[0].ErrorMsg, "requires explicit enclosing scenario schemaVersion")
 				return

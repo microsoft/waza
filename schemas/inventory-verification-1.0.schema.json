@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/inventory-verification-1.0.schema.json",
+  "title": "Waza component inventory verification report 1.0",
+  "description": "Offline result of binding one component inventory to the image or plugin digest the verifier consumed. Status is verified only when every check passed; a missing, malformed, unbound, mismatched or altered inventory fails closed. The report is evidence, not a vulnerability or admission policy decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "status", "exit_code", "expected", "checks"],
+  "properties": {
+    "kind": {"const": "waza.inventory-verification"},
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["verified", "failed"]},
+    "exit_code": {"enum": [0, 1]},
+    "inventory_sha256": {"$ref": "#/$defs/sha256"},
+    "expected": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "digest"],
+      "properties": {
+        "kind": {"enum": ["image", "plugin"]},
+        "digest": {"type": "string", "maxLength": 128},
+        "name": {"type": "string", "maxLength": 512}
+      }
+    },
+    "subject": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "name", "digest"],
+      "properties": {
+        "kind": {"type": "string", "maxLength": 64},
+        "name": {"type": "string", "maxLength": 512},
+        "digest": {"type": "string", "maxLength": 128},
+        "purl": {"type": "string", "maxLength": 2048}
+      }
+    },
+    "summary": {
+      "type": "object", "additionalProperties": false, "required": ["total", "by_type", "by_ecosystem"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_type": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "by_ecosystem": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+      }
+    },
+    "checks": {
+      "description": "Exactly one entry per check ID.",
+      "type": "array", "minItems": 5, "maxItems": 5,
+      "allOf": [
+        {"contains": {"properties": {"id": {"const": "inventory"}}}},
+        {"contains": {"properties": {"id": {"const": "profile"}}}},
+        {"contains": {"properties": {"id": {"const": "subject"}}}},
+        {"contains": {"properties": {"id": {"const": "binding"}}}},
+        {"contains": {"properties": {"id": {"const": "components"}}}}
+      ],
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "status", "code", "message"],
+        "properties": {
+          "id": {"enum": ["inventory", "profile", "subject", "binding", "components"]},
+          "status": {"enum": ["passed", "failed", "skipped"]},
+          "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 64},
+          "message": {"type": "string", "maxLength": 1024}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "verified"}}},
+      "then": {
+        "required": ["subject", "summary", "inventory_sha256"],
+        "properties": {
+          "exit_code": {"const": 0},
+          "checks": {"items": {"properties": {"status": {"const": "passed"}}}}
+        }
+      },
+      "else": {
+        "properties": {
+          "exit_code": {"const": 1},
+          "checks": {"contains": {"properties": {"status": {"const": "failed"}}}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

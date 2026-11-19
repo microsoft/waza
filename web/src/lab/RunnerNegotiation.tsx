@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { negotiateRunner, type RunnerNegotiation as Negotiation } from "../api/runner";
 import RunnerSelection from "./RunnerSelection";
+import ManifestPublication from "./ManifestPublication";
+import ManifestAggregate from "./ManifestAggregate";
+import CheckpointOperations from "./CheckpointOperations";
+import ExecutionLineage from "./ExecutionLineage";
+import AdapterWorkflow from "./AdapterWorkflow";
+import ProvenanceVerification from "./ProvenanceVerification";
+import IsolationPreflight from "./IsolationPreflight";
+import ExecutionTelemetry from "./ExecutionTelemetry";
+import ComponentInventory from "./ComponentInventory";
+import ExecutionBudgets from "./ExecutionBudgets";
 
 const example = JSON.stringify({
   schema_version: "1.0",
@@ -79,6 +89,16 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
       )}
     </section>
     <RunnerSelection demo={demo} />
+    <ManifestPublication demo={demo} />
+    <ManifestAggregate demo={demo} />
+    <CheckpointOperations demo={demo} />
+    <ExecutionLineage demo={demo} />
+    <AdapterWorkflow demo={demo} />
+    <ProvenanceVerification demo={demo} />
+    <IsolationPreflight />
+    <ExecutionTelemetry />
+    <ComponentInventory demo={demo} />
+    <ExecutionBudgets demo={demo} />
     </>
   );
 }

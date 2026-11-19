@@ -1,0 +1,31 @@
+id: choose-environment
+name: Ask for a deployment target and a release note
+inputs:
+  prompt: >-
+    Before writing anything, use the ask_user tool twice. First ask which
+    environment to deploy to, offering exactly the choices "staging" and
+    "production". Then ask for a one-line release note as a typed answer.
+    Finally write deploy.txt containing the selected environment on the first
+    line and the release note on the second line.
+user_input_responses:
+  - question: "(?is).*environment.*"
+    answer: staging
+  - answer: Fixes the login timeout.
+graders:
+  - name: answered-native-questions
+    type: code
+    config:
+      language: javascript
+      assertions:
+        - >-
+          user_input_requests.length === 2 &&
+          user_input_requests.every(r => !r.error) &&
+          user_input_requests[0].answer === 'staging' && user_input_requests[0].was_freeform === false &&
+          user_input_requests[1].answer === 'Fixes the login timeout.' && user_input_requests[1].was_freeform === true
+  - name: used-answers
+    type: file
+    config:
+      must_exist: [deploy.txt]
+      content_patterns:
+        - path: deploy.txt
+          must_match: ["(?m)^staging\\s*$", "Fixes the login timeout\\."]

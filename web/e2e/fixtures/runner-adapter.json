@@ -1,0 +1,183 @@
+{
+  "descriptor": "{\n  \"kind\": \"waza.adapter-work-descriptor\",\n  \"schema_version\": \"1.0\",\n  \"work_id\": \"example-queue/item-0001\",\n  \"operation\": \"submit\",\n  \"request\": {\n    \"schema_version\": \"1.0\",\n    \"versions\": [\"1.0\"],\n    \"required_capabilities\": [\"exact-unit\", \"inline.mock-text\"],\n    \"optional_capabilities\": [],\n    \"run_key\": \"single-unit-example\",\n    \"selection\": {\"shard\": \"shard-a\", \"task\": \"selected\", \"trial\": 2, \"attempt\": 2},\n    \"input\": {\n      \"shard\": \"shard-a\",\n      \"eval\": \"schemaVersion: \\\"2.0\\\"\\nscenario: runner-example\\nname: Runner example\\nconfig:\\n  executor: mock\\n  model: mock-model\\n  trials_per_task: 3\\n  max_attempts: 3\\n  timeout_seconds: 30\\ntasks:\\n  - adjacent-must-not-be-opened/*.yaml\\n\",\n      \"task\": \"id: selected\\nname: Selected task\\ninputs:\\n  prompt: hello\\nexpected:\\n  output_contains:\\n    - hello\\n\"\n    },\n    \"timeout_ms\": 60000,\n    \"allow_paid_execution\": false\n  }\n}\n",
+  "translation": {
+    "kind": "waza.adapter-translation",
+    "schema_version": "1.0",
+    "adapter": {
+      "name": "waza-reference-adapter",
+      "version": "1.0",
+      "runner_versions": [
+        "1.0"
+      ]
+    },
+    "status": "translated",
+    "descriptor_sha256": "b0220b564a50c634e2be801303684a323d364ce249d7a6251dc647808c105f4c",
+    "work_id": "example-queue/item-0001",
+    "operation": "submit",
+    "call": {
+      "command": [
+        "runner",
+        "submit"
+      ],
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/submissions"
+      },
+      "input": "{\"kind\":\"waza.execution-submission\",\"schema_version\":\"1.0\",\"request\":{\n    \"schema_version\": \"1.0\",\n    \"versions\": [\"1.0\"],\n    \"required_capabilities\": [\"exact-unit\", \"inline.mock-text\"],\n    \"optional_capabilities\": [],\n    \"run_key\": \"single-unit-example\",\n    \"selection\": {\"shard\": \"shard-a\", \"task\": \"selected\", \"trial\": 2, \"attempt\": 2},\n    \"input\": {\n      \"shard\": \"shard-a\",\n      \"eval\": \"schemaVersion: \\\"2.0\\\"\\nscenario: runner-example\\nname: Runner example\\nconfig:\\n  executor: mock\\n  model: mock-model\\n  trials_per_task: 3\\n  max_attempts: 3\\n  timeout_seconds: 30\\ntasks:\\n  - adjacent-must-not-be-opened/*.yaml\\n\",\n      \"task\": \"id: selected\\nname: Selected task\\ninputs:\\n  prompt: hello\\nexpected:\\n  output_contains:\\n    - hello\\n\"\n    },\n    \"timeout_ms\": 60000,\n    \"allow_paid_execution\": false\n  }}",
+      "input_sha256": "6028ed154c926eee0ee3c5f10d735f713a462e6c4e3fca6cc2c2a0dd63faea9a"
+    },
+    "summary": {
+      "run_key": "single-unit-example",
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "versions": [
+        "1.0"
+      ],
+      "required_capabilities": [
+        "exact-unit",
+        "inline.mock-text"
+      ],
+      "timeout_ms": 60000,
+      "allow_paid_execution": false,
+      "request_sha256": "5aa470a089e749dd14c47a90a07792aaefa7f6cced293c2498134ec910eb679d",
+      "policy": "omitted"
+    },
+    "diagnostics": []
+  },
+  "reply": {
+    "kind": "waza.execution-submission-result",
+    "schema_version": "1.0",
+    "status": "completed",
+    "exit_code": 0,
+    "engine_calls": 1,
+    "caller": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+      "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+      "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+      "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+      "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+      "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+    },
+    "decision": {
+      "kind": "waza.duplicate-decision",
+      "schema_version": "1.0",
+      "decision_id": "decision-417989004832e599802ac220376b54326c208e58c3e4cf6ef1502fb3cf28ab5c",
+      "logical": {
+        "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+        "work": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51"
+      },
+      "binding": {
+        "identity": {
+          "version": "sha256-waza-c14n-v1",
+          "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+          "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+          "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+          "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+          "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+          "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+        },
+        "selection": {
+          "shard": "shard-a",
+          "task": "selected",
+          "trial": 2,
+          "attempt": 2
+        },
+        "execution_mode": "mock",
+        "grader_ids": [
+          "_output_contains"
+        ]
+      },
+      "policy": "distinct",
+      "outcome": "distinct",
+      "execution_id": "exec-215eecb426c73babc15749e15ed80b017f05e64c62ee75a2a7b04ddfddb3e95a"
+    },
+    "reservation": {
+      "kind": "waza.execution-attempt",
+      "schema_version": "1.0",
+      "logical": {
+        "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+        "work": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51"
+      },
+      "execution_id": "exec-215eecb426c73babc15749e15ed80b017f05e64c62ee75a2a7b04ddfddb3e95a",
+      "binding": {
+        "identity": {
+          "version": "sha256-waza-c14n-v1",
+          "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+          "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+          "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+          "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+          "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+          "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+        },
+        "selection": {
+          "shard": "shard-a",
+          "task": "selected",
+          "trial": 2,
+          "attempt": 2
+        },
+        "execution_mode": "mock",
+        "grader_ids": [
+          "_output_contains"
+        ]
+      }
+    },
+    "completion": {
+      "kind": "waza.execution-completion",
+      "schema_version": "1.0",
+      "execution_id": "exec-215eecb426c73babc15749e15ed80b017f05e64c62ee75a2a7b04ddfddb3e95a",
+      "reservation_digest": "c65c1dd4310c742344a46ae062d71b52a3686cb93998e4b483f9360fb91a5c47",
+      "manifest_digest": "0dbb0fd05115e91d057a839d461b2084094c72099ebcf3febd3663c03b7246db"
+    },
+    "terminal": {
+      "kind": "waza.runner-terminal",
+      "schema_version": "1.0",
+      "outcome": "success",
+      "exit_code": 0,
+      "failure_boundary": "none",
+      "validation": "valid",
+      "engine_calls": 1,
+      "selection": {
+        "shard": "shard-a",
+        "task": "selected",
+        "trial": 2,
+        "attempt": 2
+      },
+      "identity": {
+        "version": "sha256-waza-c14n-v1",
+        "canonical_digest": "46c427b5aa8bfbb61ab297b8e7b780c31ea7ca831ddaa633099498ed749e8dc5",
+        "run": "run-a4fe0d7265abd37befd01c024046df1174de8b649ad8bc53a8cbc317e7fcca9f",
+        "shard": "shard-780d0dd8d03603a682b6228ec2916020839fbb21324dee1ce83bc8f81e81ab81",
+        "task": "task-fe113f725e5c244fb694124dcff3f073cc78f789891d82e79789a58497699657",
+        "trial": "trial-ccb6f415db4210a7e071f65c1bcf3dec32860c4fc53e23492070da597a7e8b51",
+        "attempt": "attempt-03e5dd35b35d71a351cbbd8661d188279b4c35f3fe73d8789abf02f3e0186c70"
+      },
+      "observation": {
+        "execution_mode": "mock",
+        "engine_calls": 1,
+        "selection": {
+          "shard": "shard-a",
+          "task": "selected",
+          "trial": 2,
+          "attempt": 2
+        },
+        "run_number": 2,
+        "attempts": 2,
+        "status": "passed",
+        "validations": [
+          {
+            "identifier": "_output_contains",
+            "passed": true
+          }
+        ]
+      },
+      "diagnostics": []
+    },
+    "diagnostics": []
+  },
+  "exit_code": 0
+}

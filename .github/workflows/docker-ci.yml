@@ -3,7 +3,7 @@ name: Docker Build and Verify
 on:
   push:
     branches: [main]
-    paths: &docker-paths
+    paths:
       - 'Dockerfile'
       - '.dockerignore'
       - 'go.mod'
@@ -15,15 +15,20 @@ on:
       - 'schemas/**'
       - 'examples/runner/unit.json'
       - 'examples/runner/copilot-unit.json'
+      - 'examples/runner/adapter/**'
       - 'examples/runner/container/**'
       - '.github/scripts/testdata/runner-runtime/**'
       - '.github/scripts/testdata/native-bundle-probe/**'
       - 'docs.go'
       - 'docs/graders/**'
+      - '.gitattributes'
       - '.github/workflows/docker-ci.yml'
-  pull_request:
-    branches: [main]
-    paths: *docker-paths
+  workflow_call:
+    inputs:
+      pr_completeness_plan:
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -39,11 +44,31 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+          fetch-depth: 2
+
+      - name: Download PR completeness plan
+        if: inputs.pr_completeness_plan != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.pr_completeness_plan }}
+          path: ${{ runner.temp }}/pr-completeness-plan
+
+      - name: Record receipt checkout
+        if: inputs.pr_completeness_plan != ''
+        id: checkout
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js for completeness receipts
+        if: inputs.pr_completeness_plan != ''
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build Docker image
+        id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -54,7 +79,44 @@ jobs:
           cache-to: type=gha,mode=min
 
       - name: Verify
-        run: docker run --rm waza:ci-${{ github.sha }} --version
+        id: version
+        run: |
+          docker run --rm waza:ci-${{ github.sha }} --version
+          docker run --rm --pull=never --network=none --read-only \
+            --entrypoint /bin/sh waza:ci-${{ github.sha }} \
+            -c 'for path in /go/pkg/mod /root/.cache/go-build /build; do
+              if [ -e "$path" ] || [ -L "$path" ]; then
+                echo "Build cache or source leaked into runtime image: $path" >&2
+                exit 1
+              fi
+            done
+            echo "Runtime cache and source paths absent"'
+
+      - name: Capture PR completeness receipt
+        if: always() && inputs.pr_completeness_plan != ''
+        id: receipt
+        env:
+          WAZA_COMPLETENESS_STEPS: ${{ toJSON(steps) }}
+        run: |
+          receipt_dir="$RUNNER_TEMP/pr-completeness-receipt"
+          mkdir -p "$receipt_dir"
+          printf '%s' "$WAZA_COMPLETENESS_STEPS" > "$receipt_dir/steps.json"
+          node .github/scripts/pr-completeness.cjs receipt \
+            "$RUNNER_TEMP/pr-completeness-plan/plan.json" container image \
+            "$receipt_dir/steps.json" > "$receipt_dir/receipt.json"
+          node - "$receipt_dir/receipt.json" >> "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.stdout.write(`artifact_name=${receipt.artifact_name}\n`);
+          NODE
+
+      - name: Upload PR completeness receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/pr-completeness-receipt/receipt.json
+          if-no-files-found: error
 
   runner-reference:
     name: Local runner container contract
@@ -65,6 +127,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+          fetch-depth: 2
+
+      - name: Download PR completeness plan
+        if: inputs.pr_completeness_plan != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.pr_completeness_plan }}
+          path: ${{ runner.temp }}/pr-completeness-plan
+
+      - name: Record receipt checkout
+        if: inputs.pr_completeness_plan != ''
+        id: checkout
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Set up Node.js
@@ -72,10 +148,39 @@ jobs:
         with:
           node-version: '24'
       - name: Build and execute production-boundary controls
+        id: controls
         run: node --test examples/runner/container/test.mjs
       - name: Execute offline synthetic subprocess and bundled-runtime controls
+        id: subprocess
         run: node --test examples/runner/container/native-test.mjs examples/runner/container/native-lifecycle.test.mjs
       - name: Execute native bundled-runtime container controls
+        id: native
         env:
           WAZA_REQUIRE_NATIVE_AMD64: '1'
         run: node --test examples/runner/container/native-bundle-test.mjs
+
+      - name: Capture PR completeness receipt
+        if: always() && inputs.pr_completeness_plan != ''
+        id: receipt
+        env:
+          WAZA_COMPLETENESS_STEPS: ${{ toJSON(steps) }}
+        run: |
+          receipt_dir="$RUNNER_TEMP/pr-completeness-receipt"
+          mkdir -p "$receipt_dir"
+          printf '%s' "$WAZA_COMPLETENESS_STEPS" > "$receipt_dir/steps.json"
+          node .github/scripts/pr-completeness.cjs receipt \
+            "$RUNNER_TEMP/pr-completeness-plan/plan.json" container reference \
+            "$receipt_dir/steps.json" > "$receipt_dir/receipt.json"
+          node - "$receipt_dir/receipt.json" >> "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.stdout.write(`artifact_name=${receipt.artifact_name}\n`);
+          NODE
+
+      - name: Upload PR completeness receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.receipt.outputs.artifact_name }}
+          path: ${{ runner.temp }}/pr-completeness-receipt/receipt.json
+          if-no-files-found: error

@@ -64,6 +64,8 @@ func TestControlledCLIWorkflow(t *testing.T) {
 }
 
 func TestControlledCLIRequiredBoundaries(t *testing.T) {
+	t.Parallel()
+
 	for _, cmd := range []*cobra.Command{newComparePlanCommand(), newCompareCollectCommand()} {
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)

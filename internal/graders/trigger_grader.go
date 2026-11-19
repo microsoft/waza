@@ -213,7 +213,7 @@ func loadTriggerHeuristicData(skillPath string) (map[string]struct{}, []string, 
 	}
 
 	var sk skill.Skill
-	if err := sk.UnmarshalText(data); err != nil {
+	if err := sk.UnmarshalTextWithoutTokenCount(data); err != nil {
 		return nil, nil, fmt.Errorf("parsing SKILL.md %s: %w", skillPath, err)
 	}
 

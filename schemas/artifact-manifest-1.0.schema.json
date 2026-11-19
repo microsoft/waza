@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/artifact-manifest-1.0.schema.json",
+  "title": "Waza immutable artifact manifest 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "binding", "terminal_artifact", "artifacts"],
+  "properties": {
+    "kind": {"const": "waza.artifact-manifest"},
+    "schema_version": {"const": "1.0"},
+    "binding": {
+      "description": "Declared publication context, not proof of admission or execution.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "selection", "execution_mode", "grader_ids"],
+      "properties": {
+        "identity": {"$ref": "runner-terminal-1.0.schema.json#/$defs/identity"},
+        "selection": {
+          "description": "Native validation additionally bounds shard and task to 256 UTF-8 bytes each.",
+          "$ref": "runner-terminal-1.0.schema.json#/$defs/selection"
+        },
+        "execution_mode": {"enum": ["mock", "copilot"]},
+        "grader_ids": {
+          "description": "Native validation additionally bounds each identifier to 256 UTF-8 bytes.",
+          "type": "array", "maxItems": 128, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      }
+    },
+    "terminal_artifact": {"$ref": "#/$defs/name"},
+    "artifacts": {
+      "type": "array", "minItems": 1, "maxItems": 128,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "sha256", "size_bytes", "media_type"],
+        "properties": {
+          "name": {"$ref": "#/$defs/name"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size_bytes": {"type": "integer", "minimum": 0, "maximum": 67108864},
+          "media_type": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"}
+  }
+}

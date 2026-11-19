@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/adapter-work-descriptor-1.0.schema.json",
+  "title": "Waza portable adapter work descriptor 1.0",
+  "description": "One external work item that translates exactly to one public runner contract call. Scheduler concerns such as queues, placement, priority, fleet state and retry policy are not representable and are rejected as unknown fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "work_id", "operation"],
+  "properties": {
+    "kind": {"const": "waza.adapter-work-descriptor"},
+    "schema_version": {"const": "1.0"},
+    "work_id": {
+      "description": "Opaque external correlation ID echoed into the adapter result. It never selects, derives or deduplicates work.",
+      "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$"
+    },
+    "operation": {
+      "description": "submit: runner submit; checkpoint: runner checkpoint create; resume: runner checkpoint resume; status: runner lineage.",
+      "enum": ["submit", "checkpoint", "resume", "status"]
+    },
+    "request": {"$ref": "runner-request-1.0.schema.json", "description": "Complete runner request, forwarded byte-for-byte."},
+    "policy": {"$ref": "execution-submission-1.0.schema.json#/properties/policy", "description": "Optional submission policy, forwarded byte-for-byte. Omission is preserved; no default is injected."},
+    "checkpoint_sha256": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$"},
+    "logical": {"$ref": "execution-attempt-1.0.schema.json#/$defs/logical"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"operation": {"enum": ["submit", "checkpoint", "resume"]}}},
+      "then": {"required": ["request"], "not": {"required": ["logical"]}}
+    },
+    {
+      "if": {"properties": {"operation": {"const": "status"}}},
+      "then": {
+        "required": ["logical"],
+        "not": {"anyOf": [{"required": ["request"]}, {"required": ["policy"]}, {"required": ["checkpoint_sha256"]}]}
+      }
+    },
+    {
+      "if": {"properties": {"operation": {"const": "resume"}}},
+      "then": {"required": ["checkpoint_sha256"]},
+      "else": {"not": {"required": ["checkpoint_sha256"]}}
+    }
+  ]
+}

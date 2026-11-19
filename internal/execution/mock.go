@@ -98,7 +98,16 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		return nil, err
 	}
 
+	if activity := ActivityObserverFrom(ctx); activity != nil {
+		activity.ModelTurnStarted()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+
 	// Simple mock response
+	NotifyActorDispatch(ctx)
+	NotifyActorStart(ctx)
 	output := fmt.Sprintf("Mock response for: %s", req.Message)
 
 	// Echo task metadata so output_contains expectations that reference
@@ -140,19 +149,27 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		sessionID = fmt.Sprintf("mock-session-%d", time.Now().UnixNano())
 	}
 
-	resp := &ExecutionResponse{
-		FinalOutput:    output,
-		Events:         []agentevent.Event{},
-		ModelID:        m.modelID,
-		DurationMs:     time.Since(start).Milliseconds(),
-		ToolCalls:      []models.ToolCall{},
-		Success:        true,
-		SessionID:      sessionID,
-		WorkspaceDir:   m.workspace,
-		WorkspaceFiles: captureWorkspaceFiles(m.workspace),
+	var workspaceFiles map[string][]byte
+	var workspaceCaptureErr error
+	if !req.SkipWorkspaceCapture {
+		workspaceFiles, workspaceCaptureErr = captureWorkspaceFiles(m.workspace, req.WorkspaceCapturePaths)
 	}
-	if req.SkipWorkspaceCapture {
-		resp.WorkspaceFiles = nil
+	resp := &ExecutionResponse{
+		FinalOutput:        output,
+		Events:             []agentevent.Event{},
+		ModelID:            m.modelID,
+		DurationMs:         time.Since(start).Milliseconds(),
+		ToolCalls:          []models.ToolCall{},
+		Success:            workspaceCaptureErr == nil,
+		ExecutionSucceeded: true,
+		SessionID:          sessionID,
+		WorkspaceDir:       m.workspace,
+		WorkspaceFiles:     workspaceFiles,
+	}
+	if workspaceCaptureErr != nil {
+		resp.ErrorMsg = workspaceCaptureErr.Error()
+		resp.WorkspaceCaptureError = workspaceCaptureErr.Error()
+		resp.WorkspaceCaptureCause = workspaceCaptureErr
 	}
 	if req.CaptureJudgeFiles != nil {
 		resp.JudgeFiles = req.CaptureJudgeFiles(m.workspace)

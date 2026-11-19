@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// These callers build and execute the CLI; keep them serial to avoid concurrent builds.
 func buildOfflineComparisonCLI(t *testing.T) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "waza")

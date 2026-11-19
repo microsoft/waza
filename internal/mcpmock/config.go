@@ -114,13 +114,36 @@ func InlineMockDeclarations(mock models.MCPMockConfig) (models.MCPMockConfig, bo
 // ValidateInlineMockDeclarations validates the inline tools of each mock
 // without reading fixture directories.
 func ValidateInlineMockDeclarations(mocks []models.MCPMockConfig, baseDir, version string) error {
+	return validateInlineMockDeclarations(mocks, baseDir, version, false)
+}
+
+// ValidateInlineMockDeclarationsOffline validates inline tools without reading
+// fixture directories or resolving external matcher schemas.
+func ValidateInlineMockDeclarationsOffline(mocks []models.MCPMockConfig, baseDir, version string) error {
+	return validateInlineMockDeclarations(mocks, baseDir, version, true)
+}
+
+func validateInlineMockDeclarations(mocks []models.MCPMockConfig, baseDir, version string, offline bool) error {
 	var errs []error
 	for _, mock := range mocks {
 		declared, ok := InlineMockDeclarations(mock)
 		if !ok {
 			continue
 		}
-		if err := validateMockAdmission(declared, baseDir, version); err != nil {
+		var err error
+		if offline {
+			var errs []error
+			for name, tool := range declared.Tools {
+				if inputErr := validateMockInputSchema(declared.Name, name, tool.InputSchema, baseDir); inputErr != nil {
+					errs = append(errs, inputErr)
+				}
+			}
+			_, configErr := FromEvalConfigOfflineWithVersion(declared, baseDir, version)
+			err = errors.Join(append(errs, configErr)...)
+		} else {
+			err = validateMockAdmission(declared, baseDir, version)
+		}
+		if err != nil {
 			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
 		}
 	}

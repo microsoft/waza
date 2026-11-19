@@ -1,0 +1,87 @@
+{
+  "kind": "waza.execution-isolation-preflight",
+  "schema_version": "1.0",
+  "checked_at": "2025-01-02T03:04:05Z",
+  "decision": "rejected",
+  "providers": [
+    {
+      "name": "copilot-native-sandbox",
+      "status": "absent",
+      "reason": "Copilot-native sandbox integration (#544) is not present in this build; it claims no boundary"
+    },
+    {
+      "name": "host-declaration",
+      "status": "available",
+      "enforced_by": "demo container"
+    }
+  ],
+  "dimensions": [
+    {
+      "dimension": "filesystem",
+      "requested": "restricted",
+      "available": false,
+      "effective": "unavailable",
+      "probes": [],
+      "diagnostic": {
+        "code": "no_provider",
+        "message": "no available provider claims to enforce the filesystem boundary"
+      }
+    },
+    {
+      "dimension": "environment",
+      "requested": "unrestricted",
+      "available": false,
+      "effective": "unrestricted",
+      "probes": [],
+      "diagnostic": {
+        "code": "no_provider",
+        "message": "no available provider claims to enforce the environment boundary"
+      }
+    },
+    {
+      "dimension": "network",
+      "requested": "restricted",
+      "available": false,
+      "effective": "unavailable",
+      "probes": [
+        {
+          "provider": "host-declaration",
+          "outcome": "inconclusive",
+          "detail": "connections to 127.0.0.1:9 failed, but non-loopback interfaces are up (eth0), so other destinations may be reachable"
+        }
+      ],
+      "diagnostic": {
+        "code": "probe_inconclusive",
+        "message": "conformance probe from host-declaration could not prove the network boundary"
+      }
+    },
+    {
+      "dimension": "subprocess",
+      "requested": "restricted",
+      "available": false,
+      "effective": "unavailable",
+      "probes": [
+        {
+          "provider": "host-declaration",
+          "outcome": "violated",
+          "detail": "started a child process: waza"
+        }
+      ],
+      "diagnostic": {
+        "code": "probe_violated",
+        "message": "conformance probe from host-declaration violated the subprocess boundary"
+      }
+    },
+    {
+      "dimension": "remote_tools",
+      "requested": "unrestricted",
+      "available": false,
+      "effective": "unrestricted",
+      "probes": [],
+      "diagnostic": {
+        "code": "no_provider",
+        "message": "no available provider claims to enforce the remote_tools boundary"
+      }
+    }
+  ]
+}

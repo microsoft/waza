@@ -282,7 +282,8 @@ func validateEvidenceJudgeRequest(req *ExecutionRequest) error {
 		req.SkillName != "" || len(req.SkillPaths) != 0 || req.SuppressSkillBody || req.TriggerSkillRouting ||
 		len(req.MCPServers) != 0 || len(req.CommandMocks) != 0 || req.CommandMocksBaseDir != "" ||
 		req.MessageMode != "" || req.Streaming || req.CancelOnSkillInvocation ||
-		req.TaskName != "" || req.TaskDescription != "" || req.FirstEventTimeout != 0 || req.CaptureJudgeFiles != nil {
+		req.TaskName != "" || req.TaskDescription != "" || req.FirstEventTimeout != 0 || req.CaptureJudgeFiles != nil ||
+		len(req.WorkspaceCapturePaths) != 0 {
 		return errors.New("evidence judge rejects actor state, discovery, tools, mocks, metadata, streaming, and resume")
 	}
 	if req.ToolPolicy == nil || req.ToolPolicy.Mode != ToolPolicyAllowList {

@@ -244,6 +244,18 @@
       },
       "additionalProperties": false
     },
+    "telemetry": {
+      "type": "object",
+      "description": "Product usage telemetry policy for this project. Setting disabled: true denies collection for every waza process started in this project; it cannot enable collection.",
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "description": "Deny product usage telemetry for this project.",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
     "registries": {
       "type": "array",
       "description": "Registry index sources used by 'waza registry search'.",

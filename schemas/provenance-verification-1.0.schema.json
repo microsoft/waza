@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/provenance-verification-1.0.schema.json",
+  "title": "Waza provenance verification report 1.0",
+  "description": "Offline verification result for one provenance bundle. Status is verified only when every check passed; any missing, altered, unbound or unverifiable member fails closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "status", "exit_code", "checks", "members"],
+  "properties": {
+    "kind": {"const": "waza.provenance-verification"},
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["verified", "failed"]},
+    "exit_code": {"enum": [0, 1]},
+    "signer": {
+      "type": "object", "additionalProperties": false, "required": ["mode", "key_id", "trusted"],
+      "properties": {
+        "mode": {"type": "string", "minLength": 1, "maxLength": 64},
+        "key_id": {"type": "string", "maxLength": 512},
+        "trusted": {"type": "boolean"}
+      }
+    },
+    "statement": {
+      "type": "object", "additionalProperties": false, "required": ["path", "envelope_sha256"],
+      "properties": {
+        "path": {"const": "statement.dsse.json"},
+        "envelope_sha256": {"$ref": "#/$defs/sha256"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"},
+        "predicate_type": {"type": "string"}
+      }
+    },
+    "predicate": {
+      "description": "Signed predicate, present only when the signature verified against a trusted key.",
+      "$ref": "provenance-statement-1.0.schema.json#/properties/predicate"
+    },
+    "members": {
+      "type": "array", "maxItems": 512,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["path", "role", "status"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 512},
+          "role": {"enum": ["index", "envelope", "input", "policy", "manifest", "artifact", "terminal", "binding", "unbound"]},
+          "sha256": {"$ref": "#/$defs/sha256"},
+          "status": {"enum": ["verified", "mismatch", "missing", "unreadable", "unbound", "irregular", "present"]}
+        }
+      }
+    },
+    "members_omitted": {
+      "description": "Unbound entries left out of members to keep the report within its bounds; the members check has already failed.",
+      "type": "integer", "minimum": 1
+    },
+    "checks": {
+      "description": "Exactly one entry per check ID.",
+      "type": "array", "minItems": 13, "maxItems": 13,
+      "allOf": [
+        {"contains": {"properties": {"id": {"const": "bundle"}}}},
+        {"contains": {"properties": {"id": {"const": "signature"}}}},
+        {"contains": {"properties": {"id": {"const": "statement"}}}},
+        {"contains": {"properties": {"id": {"const": "inputs"}}}},
+        {"contains": {"properties": {"id": {"const": "runner"}}}},
+        {"contains": {"properties": {"id": {"const": "runtime"}}}},
+        {"contains": {"properties": {"id": {"const": "policy"}}}},
+        {"contains": {"properties": {"id": {"const": "image"}}}},
+        {"contains": {"properties": {"id": {"const": "waza_version"}}}},
+        {"contains": {"properties": {"id": {"const": "artifacts"}}}},
+        {"contains": {"properties": {"id": {"const": "outcome"}}}},
+        {"contains": {"properties": {"id": {"const": "bindings"}}}},
+        {"contains": {"properties": {"id": {"const": "members"}}}}
+      ],
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "status", "code", "message"],
+        "properties": {
+          "id": {"enum": ["bundle", "signature", "statement", "inputs", "runner", "runtime", "policy", "image", "waza_version", "artifacts", "outcome", "bindings", "members"]},
+          "status": {"enum": ["passed", "failed", "skipped"]},
+          "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 64},
+          "message": {"type": "string", "minLength": 1, "maxLength": 4096}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "verified"}}},
+      "then": {
+        "required": ["signer", "statement", "predicate"],
+        "properties": {
+          "exit_code": {"const": 0},
+          "signer": {"properties": {"trusted": {"const": true}}},
+          "checks": {"items": {"properties": {"status": {"const": "passed"}}}}
+        }
+      },
+      "else": {
+        "properties": {
+          "exit_code": {"const": 1},
+          "checks": {"contains": {"properties": {"status": {"const": "failed"}}}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

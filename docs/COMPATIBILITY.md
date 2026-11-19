@@ -5,6 +5,22 @@ workflows. See [External evaluation interoperability](INTEROPERABILITY.md) for
 the assertion-only AgentV preview, exact version pin, oracle evidence, rejected
 lossy mappings and unsupported whole-suite semantics.
 
+The [logical execution-attempt embedding API](EXECUTION_ATTEMPTS.md), released
+in v0.41.0, is additive. Its attempt, completion, and submission sidecars have independent
+`1.0` versions; they do not change legacy result readers, runner request
+ordinals, manifest v1, or ordinary `runner run` retry behavior. No historical
+reservation, ownership, or billing evidence is synthesized.
+
+Explicit exact-evidence readers preserve nested transcript argument numbers.
+Ordinary `RunResult` JSON decoding intentionally retains legacy float64 values.
+Typed submission/checkpoint writers reject invalid original terminal UTF-8
+before JSON marshaling can normalize it.
+
+The [checkpoint embedding API](EXECUTION_CHECKPOINTS.md) uses independently
+versioned checkpoint sidecars. It admits only whole-unit boundaries, exact
+runner/configuration compatibility, and original-source recovery. An absent
+completion does not authorize rerunning an original recorded dispatch.
+
 This is the offline preservation gate for #658 and the additive work under
 #657. The contract is intended existing v1 behavior, not a new assurance
 feature. The baseline is commit `04e7b4c6d593555834e71221227326c63274a921`;
@@ -27,6 +43,29 @@ preservation suites, uncached. This intentionally reuses the tests and their
 SDK fakes rather than copying them into a second suite. It includes all CLI
 subpackages, every grader and the ownership areas below. Do not substitute
 only the new `Compatibility` selector for the release gate.
+
+Ordinary Linux, Windows, and preview validation run the broad Go suite with
+`-count=1` under the rejecting runtime policy. Linux and preview also execute
+`make test-compat-inventory`, which checks the corpus prerequisites and prints
+the exact package inventory subsumed by that broad run; it does not execute the
+same packages a second time.
+
+The isolated `internal/embedded` `TestPath` protocol smoke test is the explicit
+exception: it starts the actual bundled native CLI outside the rejecting guard
+and its invocation marker. It clears credentials, disables logged-in-user use,
+and checks a local test provider receives zero requests without sending an
+inference prompt, within bounded contexts. This is native protocol evidence,
+not zero-CLI-launch, live-inference, or general network-egress isolation evidence.
+
+Workflow regression controls execute the production test-selection shell with a
+recording Go substitute and compare its arguments with actual package discovery.
+They require the whole suite (excluding only the separately guarded native shard
+package on Linux), uncached race/atomic coverage, and no narrowing test selectors.
+They also execute each production runtime-marker check with an absent and a
+present marker, requiring success only when no forbidden launch was recorded.
+Required guard, inventory, test, marker, and integration steps cannot tolerate
+failure via `continue-on-error`; mutation controls check every Linux, Windows,
+and preview occurrence, allowing only omission or explicit `false`.
 
 Ordinary and `--runner-compat` benchmark summaries use the command's configured
 output writer and propagate write failures, including short writes, as output
@@ -124,7 +163,7 @@ known-field types/constraints. Do not infer a task major-version policy from
 the eval/result policy. Eval/result versionless inputs default to the current
 v1 reader version (`1.4`); explicit same-major versions load, cross-major versions
 require migration. New evaluations and regrades independently write result
-version `1.8`; reading/re-saving historical inputs keeps their declared version
+version `1.9`; reading/re-saving historical inputs keeps their declared version
 and never invents reliability fields. Snapshot versioning is independent of
 result versioning.
 
@@ -148,11 +187,11 @@ stripped from those assertions.
 The frozen `cmd/waza/testdata/compatibility-run-1.4.json` oracle was verified by executing
 the CLI built from an isolated `git archive` of baseline `04e7b4c6` against
 the fixed eval/task inputs. The current CLI process test compares each full raw
-JSON artifact against `compatibility-run-1.8.json`: a separate expected writer
+JSON artifact against `compatibility-run-1.9.json`: a separate expected writer
 artifact differing only in the explicitly advanced result version. A regression
 asserts that this is the only difference; neither schema versions nor reliability
 fields are added to the normalization allowlist. Historical corpus files and the
-original `1.4`, prior-writer `1.5`, `1.6` and `1.7` oracles are not rewritten. A separate two-run comparison still checks repeatability.
+original `1.4`, prior-writer `1.5`, `1.6`, `1.7` and `1.8` oracles are not rewritten. A separate two-run comparison still checks repeatability.
 Mutation tests prove prompt, checkpoint, configuration, billing, score, output
 and removed-field, null/empty, omitted/zero and cardinality drift cannot be
 normalized away. Its volatile allowlist is `eval_id`, `timestamp`,
@@ -178,6 +217,7 @@ regression test, not a new organizational assignment.
 | Text, file, code, program, JSON schema, prompt/rubric, behavior, action sequence, skill invocation, trigger, diff, tool constraint, tool calls | `internal/testdata/compatibility/v1/graders.yaml`; inventory equality fails when a kind is added without a fixture; prompt/quality execution uses existing fake engines, not a live judge |
 | CLI run/grade/compare/gate/check/replay and exit policies | `cmd/waza`: `TestCompatibilityCLIProcessExits` builds and invokes the actual binary; existing `cmd_run`, `cmd_grade`, `cmd_compare`, `cmd_gate`, `cmd_check`, `cmd_replay` suites retain flag/output/error coverage |
 | Skill discovery/injection, task overrides, disabled/required skills, custom-agent lifecycle | `internal/execution`: skill injection, engine shutdown and tool-policy suites; `internal/skill`: skill/agent parsing; `internal/orchestration`: skill discovery and agent grader suites; `cmd/waza`: new/check/workspace command suites |
+| Legacy streaming events and intent suppression | `internal/execution`: `TestSessionEventsCollectorKeepsIntentFilterAcrossPartialResults` retains `report_intent` suppression across nonterminal chunks until completion, without dropping another call's events; `TestSessionEventsCollectorPreservesLegacyPartialResultFixture` covers ordinary legacy output and transcript serialization |
 | Token budgets and quality checks | `cmd/waza/tokens`, `internal/checks`, `internal/scoring`, `internal/quality`, `cmd/waza/cmd_quality_test.go`: strict/warning policy, JSON shape, fractional scores, fake judge errors |
 | Static multi-turn/checkpoints and responder decisions | `internal/orchestration/runner_orchestration_test.go`: `TestExecuteRun_Checkpoints_*`; `responder_loop_test.go`: reply/stop, abstain/error, cap exhaustion; `internal/responder` decision parsing |
 | CLI mock inheritance, populated/empty task replacement | `internal/orchestration`: `TestCompatibilityMockRequestOverrides` checks the actual execution request and eval-relative fixture base |
@@ -194,11 +234,46 @@ regression test, not a new organizational assignment.
 
 ## Stable exit meanings
 
+### Operational trial errors
+
+New native runs and regraded tasks use the following status precedence. An
+operational error means a trial did not obtain a complete verdict; it is not
+a completed negative judgment.
+
+| Recorded final trial statuses | Task status |
+|---|---|
+| One or more `error`, with any combination of other statuses | `error` |
+| No errors, one or more `failed`, with passed/skipped trials allowed | `failed` |
+| Only `passed` and optional `skipped`, with at least one pass | `passed` |
+| Only `skipped`, or no recorded trials | `skipped` |
+
+Each task contributes to exactly one summary counter. Errors take precedence
+over failed judgments and successful trials, including repeated trials; skipped
+trials remain neutral. This deliberately corrects the historical error-to-failed
+aggregation (#925), not the existing all-completed-trials pass requirement.
+Partial/cancelled runs retain their incomplete metadata and cancellation errors.
+Retries still apply only to completed failed attempts, not operational errors;
+the final attempt determines its trial status and discarded-attempt usage is
+retained. Operational errors are not reusable cached results.
+
+Historical artifact readers preserve recorded task statuses and counters rather
+than retroactively claiming corrected evidence. Regrading replaces the selected
+task's status from its graded trials: preserved execution errors remain errors,
+while valid frozen output can obtain a new verdict without changing recorded
+execution billing. Failed evidence-judge setup remains fail-closed.
+
+`run` saves completed benchmark artifacts before returning runtime exit **2**
+when either the primary or baseline evaluation contains operational errors.
+This takes precedence over validation exit **1**, even across multiple models
+or skills. Completed false judgments still use exit **1**. The dashboard's
+run-level `outcome` remains its existing passed/failed rollup; task outcomes and
+summary error counters retain the operational classification, including exports.
+
 | Command | Existing contract |
 |---|---|
 | `run` | 0 success, 1 failed task validation, 2 configuration/runtime error |
 | `gate` | 0 pass, 1 regression/task-set policy, 2 golden failure, 3 configuration error |
-| `grade` | Emits JSON `passed: false` for a failed verdict but currently exits 0; consumers must inspect the verdict. This is reporting, not the CI gate. |
+| `grade` | Emits JSON `passed: false` for a completed failed verdict but exits 0; consumers must inspect the verdict. Operational grading or retained execution errors use exit 2. Frozen-evidence task-grading failures and retained execution errors emit `status: error` without `overall_score` and preserve requested regraded output. Other non-evidence grader errors can return before publishing JSON or regraded output. |
 | `replay` | 0 consistency pass, 1 inconsistency/divergence; configuration errors use the normal error exit |
 
 ## Explicit native release-policy addition

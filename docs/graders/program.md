@@ -49,9 +49,10 @@ Waza writes the same run evidence that inline [`code`](code.md) graders receive 
 | `tool_events` | list or `null` | Normalized per-call tool records |
 | `host_lifecycle` | object or `null` | Model turns and host shell calls/exits from native session events; `null` when unavailable |
 | `command_invocations` | list or `null` | Sanitized calls handled by `command_mocks`: `command`, `response_index`, and optional `args` and `exit_code` (absent when the attempt did not complete) |
+| `user_input_requests` | list or `null` | Native SDK user-input requests in arrival order: `sequence`, `session_id`, `question`, `choices`, `source`, and `answer`/`was_freeform` or `error` |
 | `duration_ms` | int | Run duration in milliseconds |
 
-`null` for `tool_events` or `command_invocations` means no evidence was recorded or preserved for this run (for example, no `command_mocks` were configured, or a results file omits the field). It is not proof that zero calls happened. An empty list means the evidence was present and contained no calls. `waza grade --results` builds the file offline from the saved run.
+`null` for `tool_events`, `command_invocations`, or `user_input_requests` means no evidence was recorded or preserved for this run (for example, no `command_mocks` were configured, or a results file omits the field). It is not proof that zero calls happened. An empty list means the evidence was present and contained no calls. `waza grade --results` builds the file offline from the saved run.
 
 **Example: Python grader checking mocked CLI calls**
 

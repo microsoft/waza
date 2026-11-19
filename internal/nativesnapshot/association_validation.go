@@ -254,6 +254,14 @@ func projectionInput(ctx context.Context, capture *projectionCapture) (detachedP
 }
 
 func validateProjectionInput(ctx context.Context, input detachedProjectionInput) (detachedProjectionInput, error) {
+	return validateProjectionInputOwnership(ctx, input, true)
+}
+
+func validateOwnedProjectionInput(ctx context.Context, input detachedProjectionInput) (detachedProjectionInput, error) {
+	return validateProjectionInputOwnership(ctx, input, false)
+}
+
+func validateProjectionInputOwnership(ctx context.Context, input detachedProjectionInput, detach bool) (detachedProjectionInput, error) {
 	fail := func(err error) (detachedProjectionInput, error) { return detachedProjectionInput{}, err }
 	if ctx == nil {
 		return fail(fmt.Errorf("native projection validation requires context"))
@@ -299,7 +307,12 @@ func validateProjectionInput(ctx context.Context, input detachedProjectionInput)
 			totalBytes += len(source.Bytes)
 		}
 	}
-	sources, err := detachedSources(ctx, input.canonical, input.sources)
+	var sources map[releasepolicy.Arm][]source
+	if detach {
+		sources, err = detachedSources(ctx, input.canonical, input.sources)
+	} else {
+		sources, err = ownedSources(ctx, input.canonical, input.sources)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -318,8 +331,12 @@ func validateProjectionInput(ctx context.Context, input detachedProjectionInput)
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	return detachedProjectionInput{canonical: bytes.Clone(input.canonical), snapshot: input.snapshot, sources: sources,
-		associations: retainedAssociations{bytes.Clone(input.associations.canonical), input.associations.seal}}, nil
+	if detach {
+		return detachedProjectionInput{canonical: bytes.Clone(input.canonical), snapshot: input.snapshot, sources: sources,
+			associations: retainedAssociations{bytes.Clone(input.associations.canonical), input.associations.seal}}, nil
+	}
+	return detachedProjectionInput{canonical: input.canonical, snapshot: input.snapshot, sources: sources,
+		associations: input.associations}, nil
 }
 
 func validateSnapshotLabels(snapshot armSnapshot) error {

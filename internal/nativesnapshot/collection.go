@@ -23,7 +23,6 @@ import (
 type CollectionCapture struct {
 	capture     *projectionCapture
 	projections []byte
-	sources     map[releasepolicy.Arm][]nativetask.CapturedSource
 	verified    map[releasepolicy.Arm]nativetask.VerifiedCollectionSources
 }
 
@@ -62,7 +61,7 @@ func (c *CollectionCapture) initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	projections, err := reconstructProjection(ctx, input)
+	projections, err := reconstructOwnedProjection(ctx, input)
 	if err != nil {
 		return err
 	}
@@ -70,19 +69,16 @@ func (c *CollectionCapture) initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	c.sources = map[releasepolicy.Arm][]nativetask.CapturedSource{}
 	c.verified = map[releasepolicy.Arm]nativetask.VerifiedCollectionSources{}
-	blobs := map[string]string{}
 	for arm, sources := range c.capture.prepared.sources {
+		owned := make([]nativetask.OwnedCapturedSource, 0, len(sources))
 		for _, entry := range sources {
-			content, exists := blobs[entry.Digest.SHA256]
-			if !exists {
-				content = string(entry.Bytes)
-				blobs[entry.Digest.SHA256] = content
-			}
-			c.sources[arm] = append(c.sources[arm], nativetask.CapturedSource{Path: entry.Path, Bytes: content, Digest: entry.Digest, Executable: slices.Contains(entry.Roles, "executable")})
+			owned = append(owned, nativetask.OwnedCapturedSource{
+				Path: entry.Path, Bytes: entry.Bytes, Digest: entry.Digest,
+				Executable: slices.Contains(entry.Roles, "executable"),
+			})
 		}
-		c.verified[arm], err = nativetask.VerifyCollectionSources(ctx, c.sources[arm])
+		c.verified[arm], err = nativetask.VerifyOwnedCollectionSources(ctx, owned)
 		if err != nil {
 			return err
 		}

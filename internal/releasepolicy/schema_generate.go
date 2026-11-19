@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/controlledcomparison"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/nativetask"
 	"github.com/microsoft/waza/internal/releasepolicy"
 	"github.com/microsoft/waza/internal/webapi"
@@ -86,6 +87,9 @@ func (g *generator) fields(typ reflect.Type) (document, []string) {
 	requiredNames := map[string]bool{}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+		if typ == reflect.TypeFor[models.RunResult]() && field.Name == "InfrastructureDiagnostic" {
+			continue
+		}
 		tag := field.Tag.Get("json")
 		if !field.IsExported() || tag == "-" {
 			continue

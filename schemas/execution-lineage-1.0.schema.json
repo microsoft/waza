@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-lineage-1.0.schema.json",
+  "title": "Waza execution lineage 1.0",
+  "description": "Read-only projection of one logical work's immutable attempt, decision and completion records. Order follows parent relationships, not wall-clock or global order.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "logical", "attempts", "decisions", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.execution-lineage"},
+    "schema_version": {"const": "1.0"},
+    "logical": {"$ref": "execution-attempt-1.0.schema.json#/$defs/logical"},
+    "attempts": {
+      "type": "array", "maxItems": 1024,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["order", "depth", "execution_id", "reservation_digest", "native_attempt", "status", "reused_by", "lifecycle"],
+        "properties": {
+          "order": {"type": "integer", "minimum": 1},
+          "depth": {"type": "integer", "minimum": 0},
+          "execution_id": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"},
+          "reservation_digest": {"$ref": "#/$defs/digest"},
+          "native_attempt": {"type": "integer", "minimum": 1},
+          "parent": {"$ref": "execution-attempt-1.0.schema.json#/$defs/parent"},
+          "status": {"enum": ["reserved", "dispatched", "completed", "completion_unverified"]},
+          "dispatch_decision": {"$ref": "#/$defs/decision_id"},
+          "manifest_digest": {"$ref": "#/$defs/digest"},
+          "terminal": {
+            "type": "object", "additionalProperties": false,
+            "required": ["outcome", "exit_code", "failure_boundary", "engine_calls"],
+            "properties": {
+              "outcome": {"$ref": "runner-terminal-1.0.schema.json#/properties/outcome"},
+              "exit_code": {"type": "integer", "minimum": 0, "maximum": 6},
+              "failure_boundary": {"$ref": "runner-terminal-1.0.schema.json#/properties/failure_boundary"},
+              "engine_calls": {"type": "integer", "minimum": 0, "maximum": 1}
+            },
+            "oneOf": [
+              {"properties": {"outcome": {"const": "success"}, "exit_code": {"const": 0}, "failure_boundary": {"const": "none"}, "engine_calls": {"const": 1}}},
+              {"properties": {"outcome": {"const": "evaluation_failure"}, "exit_code": {"const": 1}, "failure_boundary": {"const": "none"}, "engine_calls": {"const": 1}}},
+              {"properties": {"outcome": {"const": "infrastructure_failure"}, "exit_code": {"const": 2}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown", "output", "terminalization"]}}},
+              {"properties": {"outcome": {"const": "cancelled"}, "exit_code": {"const": 3}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown"]}}},
+              {"properties": {"outcome": {"const": "timeout"}, "exit_code": {"const": 4}, "failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup", "execution", "shutdown"]}}},
+              {"properties": {"outcome": {"const": "unsupported_capability"}, "exit_code": {"const": 5}, "failure_boundary": {"enum": ["negotiation", "validation"]}}},
+              {"properties": {"outcome": {"const": "invalid_input"}, "exit_code": {"const": 6}, "failure_boundary": {"enum": ["input", "validation"]}}}
+            ],
+            "if": {"properties": {"failure_boundary": {"enum": ["input", "negotiation", "validation", "identity", "startup"]}}},
+            "then": {"properties": {"engine_calls": {"const": 0}}}
+          },
+          "reused_by": {"type": "array", "items": {"$ref": "#/$defs/decision_id"}},
+          "lifecycle": {"$ref": "execution-lifecycle-1.0.schema.json#/$defs/lifecycle"}
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["decision_id", "policy", "outcome", "native_attempt"],
+        "properties": {
+          "decision_id": {"$ref": "#/$defs/decision_id"},
+          "policy": {"enum": ["distinct", "reuse"]},
+          "outcome": {"enum": ["distinct", "reused", "unfinished", "conflict"]},
+          "native_attempt": {"type": "integer", "minimum": 1},
+          "execution_id": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"},
+          "source": {"$ref": "execution-attempt-1.0.schema.json#/$defs/source"}
+        },
+        "oneOf": [
+          {"properties": {"policy": {"const": "distinct"}, "outcome": {"const": "distinct"}}, "required": ["execution_id"], "not": {"required": ["source"]}},
+          {"properties": {"policy": {"const": "reuse"}, "outcome": {"enum": ["reused", "unfinished", "conflict"]}}, "required": ["source"], "not": {"required": ["execution_id"]}}
+        ]
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "message", "execution_ids"],
+        "properties": {
+          "code": {"enum": [
+            "parent_unavailable", "decision_reservation_unavailable", "duplicate_dispatch_decision",
+            "reuse_source_unavailable", "completion_unverified", "completion_verification_interrupted",
+            "dispatched_without_completion", "concurrent_distinct_attempts", "sibling_attempts",
+            "lifecycle_journal_invalid", "orphaned_attempt"
+          ]},
+          "message": {"type": "string", "maxLength": 512},
+          "execution_ids": {"type": "array", "items": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"}}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decision_id": {"type": "string", "pattern": "^decision-[0-9a-f]{64}$"}
+  }
+}

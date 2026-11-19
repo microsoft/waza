@@ -12,7 +12,8 @@ or build current source as described in
 
 `waza serve --lab` opens the **experimental real-results dashboard** at `/#/lab`.
 The classic dashboard remains available at `/#/` on the same server. The Go
-evaluation engine is unchanged; the lab is a viewer, not an execution service.
+evaluation engine is unchanged. Saved-results workspaces are viewers; explicit
+runner actions use the separate exact-unit runner service.
 
 <ZoomImage src="../../images/dashboard-lab-overview.png" alt="Dashboard lab with linked quality charts, model performance, attention items, and run history." />
 
@@ -37,6 +38,129 @@ previous success. See [terminal interpretation](../runner-terminal/).
 This is separate from saved run evidence and is
 unavailable in the synthetic demo. See [Runner contract and API](../runner-contract/)
 and [logical identity normalization and migration](../runner-identities/).
+
+Since v0.41.0, Lab also offers **Create or resume an exact-unit
+checkpoint** in **Runner contract**. It uses protected POST operations, not raw
+checkpoint inspection. It shows compatibility, withheld source metadata, exact-unit
+progress, original failure/ordinal, retry parent or reuse source, and separate
+new/original engine calls. Unknown progress stays unavailable; recorded zero
+stays zero. **Download checkpoint result JSON** saves the exact protected response.
+**Check resume availability** reads a checkpoint digest without executing or
+reserving work and shows its boundary, creation time, compatibility, resume
+action and actionable diagnostics.
+Edits, new operations and reload errors clear prior results. Synthetic demo mode
+cannot dispatch checkpoint operations.
+Resume source declarations are checked against the requested checkpoint digest
+before display or download; this is declaration linkage, not storage authority.
+Compatible resumes also match native negotiation and paid-consent policy;
+reordering capability/version arrays is valid, but changing consent is not.
+The current decision must match the admitted attempt without retagging the
+original reservation or terminal.
+Completed resumes require a source; source-withheld failures remain available.
+This also applies when completed work has an outer publication error.
+Create responses cannot contain resume-only source or reuse state.
+Retained submissions must match the captured submission schema and requested
+distinct/reuse mode, explicit parent, and reuse source. Rejections before
+metadata admission remain visible. Distinct resumes require a retry parent
+even if the source is withheld; its identity cannot then be checked against
+that source.
+The checkpoint result reader discards pending validation results and errors
+after an edit or a newer parse, so only the current input can populate the reader.
+
+Creation and before-unit resume execute work and may incur charges when the
+captured Copilot request explicitly consents. Finalized restore reuses the
+original terminal without new engine calls. Stopping a browser request is not
+proof that its server worker stopped. Use the lineage view below for ordered attempt history; this is not a
+whole-evaluation resume workflow. See [checkpoint boundaries and recovery
+limits](../immutable-artifacts/#checkpoint-public-source-preview).
+
+<ZoomImage src="../../images/dashboard-lab-checkpoint.png" alt="Lab showing a recorded protected mock API response: failed original terminal reused with zero new calls and exact JSON download." />
+
+This checkpoint screenshot uses the producer-backed protected mock API fixture,
+not the synthetic demo or live inference.
+
+**Logical work and execution attempts** in **Runner contract** reads the
+ordered attempt lineage for one `run-<sha256>` / `trial-<sha256>` pair from
+`GET /api/v1/lineage`. It lists each attempt with its retry/branch parent,
+status (reserved, dispatched, completed or unverified), verified terminal and
+reuse decisions, plus concurrent-writer and missing-record diagnostics. An
+**Attempt lifecycle** table shows each attempt's derived state (for example
+running, cancelling, orphaned, cancelled or timed out), cancellation and reason,
+deadline, partial completion, advisory retry eligibility, allowed actions and
+journal freshness. Order
+follows recorded parents, not wall-clock time. The browser re-validates the
+schema, requested IDs and parent ordering before display; failures show no
+partial lineage. **Download lineage JSON** saves the exact response. The view is
+read-only and unavailable in the synthetic demo. See
+[logical attempts](../immutable-artifacts/#logical-attempts-embedding-preview).
+
+**External adapter dispatch** (unreleased, v0.42.0) in **Runner contract**
+translates a pasted work descriptor offline through
+`POST /api/v1/adapter/translate` and shows either the rejection diagnostics or
+the exact public call. **Dispatch through public contract** sends that call once
+to its public HTTP route and shows the adapter status and **Returned manifest**
+(public status, outcome, engine calls, execution ID, manifest digest, logical
+work and provenance hook state). **Download public result JSON** saves the verbatim public reply. The view never
+retries or schedules, and is unavailable in the synthetic demo. See
+[portable external execution adapters](../runner-adapters/).
+
+**Execution provenance** verifies a signed provenance bundle offline. Choose
+the bundle directory, paste the trusted Ed25519 public key (trust never comes
+from the bundle), optionally pin the consumed runner image digest, and select
+**Verify provenance**. The browser posts the members to
+`POST /api/v1/provenance/verify` and re-validates the report schema. The panel
+shows the verification state, signer and key ID, links to the signed statement
+and every bound member, the canonical input, image, manifest and outcome
+digests, and each failed check with its stable code and reason. Tampered,
+unbound or untrusted bundles show as failed, never partially verified. The view
+is unavailable in the synthetic demo. See
+[execution provenance](../execution-provenance/).
+
+**Inspect execution isolation** (unreleased; targeted for v0.42.0) in **Runner
+contract** reads a pasted `waza isolation preflight` or
+`waza run --isolation-report` JSON report. It shows the admitted or rejected
+decision, a table of requested, available and effective isolation per boundary
+with the enforcement source and probe evidence, the providers (the
+Copilot-native sandbox is shown as absent) and every unavailable-state
+diagnostic. The browser re-validates the schema with strict JSON parsing and
+rejects reports that show a boundary as enforced without a passing probe; no
+partial report is shown. The view runs no probe and calls no API. See
+[Execution isolation](../execution-isolation/).
+
+**Execution telemetry correlation** in **Runner contract** reads a pasted
+`waza runner telemetry` report. It shows the trace ID, work and task-attempt span
+IDs, scheduler work ID, attempt spans with retry parents and manifest links,
+artifact spans, aggregation member links, signal counts, safeguard drops and
+per-signal export diagnostics (destination, target, state, HTTP status and
+sanitized error code). The browser re-validates the schema and the report's own
+counts and identifiers before display. Reports never carry prompts, outputs,
+tool arguments, headers or credentials. See
+[execution telemetry correlation](../execution-telemetry/).
+
+**Component inventory** verifies a runner image or plugin component inventory
+offline. Choose the inventory file, select image or plugin, enter the consumed
+`sha256:` digest (and optionally the image repository or plugin name), and
+select **Verify inventory**. The browser posts the inventory to
+`POST /api/v1/inventory/verify` and re-validates the report schema. The panel
+shows the bound subject and digest, the verification state, a component
+summary by type and ecosystem, and each failed check with its stable code;
+**Download report JSON** saves the report. A missing, mismatched or internally
+inconsistent inventory shows as failed. The panel does not authenticate the
+inventory, so a consistently rewritten inventory can still verify: authenticate
+the delivering SBOM attestation or signed provenance bundle separately. The
+result is evidence, not a vulnerability or policy decision. The view is
+unavailable in the synthetic demo. See
+[component inventories](../component-inventory/).
+
+**Execution budgets** in **Runner contract** loads the host's per-resource
+matrix from `GET /api/v1/runner/budgets` (enforced, measured or unsupported for
+wall time, model turns, tool calls, CPU, memory, disk and process count) and
+reads the `budget` report from a pasted runner terminal envelope: configured
+limits, measured usage, remaining headroom, the enforced termination and any
+unsupported rows, alongside the terminal outcome and run/attempt identity.
+Runner terminal results launched from Lab show the same report. The matrix is
+unavailable in the synthetic demo. See
+[execution budgets](../execution-budgets/).
 
 For a dashboard built from this source tree:
 
@@ -80,6 +204,11 @@ reflected after a successful scan; unrelated malformed new files remain ignored.
 An uncreated empty results directory remains empty across refreshes. Inaccessible
 new unrelated paths are skipped; failures affecting the root or previously
 admitted artifacts retain explicit errors and the prior snapshot.
+Local refreshes reuse parsed results only when their SHA-256 content digest is
+unchanged. Each successful refresh detaches its snapshot from the retained parse,
+so caller mutations cannot contaminate later refreshes. This in-memory cache is
+limited to the dashboard store's lifetime; ordinary CLI and MCP readers remain
+uncached.
 
 For frontend-only exploration of the synthetic demo, no Go server is needed:
 
@@ -373,8 +502,12 @@ cd web
 npm run build
 npm run lint
 npx playwright test e2e/dashboard-lab.spec.ts e2e/dashboard-lab-real.spec.ts --project=chromium
-npx playwright test e2e/screenshots.spec.ts --project=chromium --grep dashboard-lab
+npm run refresh:docs-media -- e2e/screenshots.spec.ts --grep dashboard-lab
 ```
+
+Routine browser discovery excludes screenshot-only specs. The explicit refresh
+command includes them and enables media writes; mixed assertion specs run in
+both modes.
 
 Browser coverage exercises real summaries, arbitrary models, lazy evidence,
 precision, API errors/retries/refresh, stable and legacy IDs, duplicate identities,

@@ -284,6 +284,8 @@ func TestRequestFieldInventoryRequiresIdentityDecision(t *testing.T) {
 	require.Equal(t, []string{
 		"SchemaVersion", "Versions", "RequiredCapabilities", "OptionalCapabilities",
 		"RunKey", "Selection", "Input", "TimeoutMS", "AllowPaidExecution",
+		// Budgets are execution policy, deliberately excluded from identity.
+		"Budgets",
 	}, fields, "new request fields need an explicit identity stability decision")
 }
 

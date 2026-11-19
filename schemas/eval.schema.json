@@ -114,6 +114,27 @@
   "allOf": [
     {
       "if": {
+        "required": ["config"],
+        "properties": {
+          "config": {
+            "required": ["native_user_input"],
+            "properties": { "native_user_input": { "const": true } }
+          }
+        }
+      },
+      "then": {
+        "required": ["schemaVersion", "config"],
+        "properties": {
+          "schemaVersion": { "const": "2.0" },
+          "config": {
+            "required": ["executor"],
+            "properties": { "executor": { "const": "copilot-sdk" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
         "not": {
           "required": ["schemaVersion"],
           "properties": { "schemaVersion": { "const": "2.0" } }
@@ -315,6 +336,12 @@
           ],
           "description": "Execution engine to use. 'copilot-sdk' for real evaluations, 'mock' for testing."
         },
+        "workspace_capture": {
+          "type": "string",
+          "enum": ["full", "none"],
+          "default": "full",
+          "description": "Post-turn workspace capture. 'none' is allowed only for explicitly supported output/tool graders and does not restrict actor workspace access."
+        },
         "model": {
           "type": "string",
           "minLength": 1,
@@ -337,7 +364,8 @@
         },
         "group_by": {
           "type": "string",
-          "description": "Field name to group results by in the output."
+          "enum": ["", "model", "tags"],
+          "description": "Group results by model or by each task's complete ordered tag set."
         },
         "judge_model": {
           "type": "string",
@@ -371,6 +399,11 @@
           "type": "boolean",
           "default": false,
           "description": "When true with inject_skill_body=false, append an eval-only routing instruction that asks the agent to invoke the target skill when the task is in scope. This preserves ordinary eval behavior unless explicitly enabled."
+        },
+        "native_user_input": {
+          "type": "boolean",
+          "default": false,
+          "description": "Give the agent the Copilot SDK ask_user tool. Questions are answered by task user_input_responses first, then the task's adaptive responder; anything else fails the run. Requires a scenario eval (schemaVersion 2.0) and executor copilot-sdk."
         },
         "disabled_skills": {
           "type": "array",
@@ -1807,7 +1840,12 @@
       "description": "Required frozen actor evidence for a fresh isolated final prompt judge. Never resumes an actor or exposes its workspace.",
       "properties": {
         "files": {"$ref": "#/$defs/judgeEvidencePaths"},
-        "evaluator_only": {"$ref": "#/$defs/judgeEvidencePaths"}
+        "evaluator_only": {"$ref": "#/$defs/judgeEvidencePaths"},
+        "non_secret_literals": {
+          "type": "array", "maxItems": 64, "uniqueItems": true,
+          "description": "Evaluator-authored non-secret fixture identifiers only. Exact whole-token preservation; never derive from actor/tool output or list real credentials.",
+          "items": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._%+@-]{1,126}[A-Za-z0-9]$"}
+        }
       }
     },
     "judgeEvidencePaths": {

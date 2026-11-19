@@ -94,17 +94,22 @@ type Config struct {
 	// never started the agent's first turn). It is much shorter than
 	// TimeoutSec, which must cover the slowest legitimate full turn. 0 (the
 	// default) disables the check. Per-task overrides live on TestCase.
-	FirstEventTimeoutSec int            `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
-	Concurrent           bool           `yaml:"parallel" json:"concurrent"`
-	Workers              int            `yaml:"workers,omitempty" json:"workers,omitempty"`
-	StopOnError          bool           `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
-	EngineType           string         `yaml:"executor" json:"engine_type"`
-	ModelID              string         `yaml:"model" json:"model_id"`
-	ReasoningEffort      string         `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
-	SkillPaths           []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
-	InstructionFiles     []string       `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
-	InjectSkillBody      *bool          `yaml:"inject_skill_body,omitempty" json:"inject_skill_body,omitempty"`
-	TriggerSkillRouting  bool           `yaml:"trigger_skill_routing,omitempty" json:"trigger_skill_routing,omitempty"`
+	FirstEventTimeoutSec int      `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
+	Concurrent           bool     `yaml:"parallel" json:"concurrent"`
+	Workers              int      `yaml:"workers,omitempty" json:"workers,omitempty"`
+	StopOnError          bool     `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
+	EngineType           string   `yaml:"executor" json:"engine_type"`
+	WorkspaceCapture     string   `yaml:"workspace_capture,omitempty" json:"workspace_capture,omitempty"`
+	ModelID              string   `yaml:"model" json:"model_id"`
+	ReasoningEffort      string   `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+	SkillPaths           []string `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
+	InstructionFiles     []string `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
+	InjectSkillBody      *bool    `yaml:"inject_skill_body,omitempty" json:"inject_skill_body,omitempty"`
+	TriggerSkillRouting  bool     `yaml:"trigger_skill_routing,omitempty" json:"trigger_skill_routing,omitempty"`
+	// NativeUserInput gives the agent the SDK ask_user tool. Questions are
+	// answered by task user_input_responses first, then the task's adaptive
+	// responder. Scenario evals only, so older readers reject the field.
+	NativeUserInput      bool           `yaml:"native_user_input,omitempty" json:"native_user_input,omitempty"`
 	DisabledSkills       []string       `yaml:"disabled_skills,omitempty" json:"disabled_skills,omitempty"`
 	RequiredSkills       []string       `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
 	ServerConfigs        map[string]any `yaml:"mcp_servers,omitempty" json:"server_configs,omitempty"`
@@ -372,14 +377,15 @@ func (c *Config) ShouldTriggerSkillRouting() bool {
 
 // GraderConfig defines a validator/grader
 type GraderConfig struct {
-	Ref        string           `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Kind       GraderKind       `yaml:"type" json:"kind"`
-	Identifier string           `yaml:"name" json:"identifier"`
-	ScriptPath string           `yaml:"script,omitempty" json:"script_path,omitempty"`
-	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
-	ModelID    string           `yaml:"model,omitempty" json:"model_id,omitempty"`
-	Weight     float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
-	Parameters GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+	Ref                  string           `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Kind                 GraderKind       `yaml:"type" json:"kind"`
+	Identifier           string           `yaml:"name" json:"identifier"`
+	ScriptPath           string           `yaml:"script,omitempty" json:"script_path,omitempty"`
+	Rubric               string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
+	ModelID              string           `yaml:"model,omitempty" json:"model_id,omitempty"`
+	Weight               float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Parameters           GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+	captureUnknownFields bool
 }
 
 func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
@@ -425,6 +431,7 @@ func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 	g.ModelID = raw.ModelID
 	g.Weight = raw.Weight
 	g.Parameters = params
+	g.captureUnknownFields = captureGraderUnknownFields(bytesData, &raw, &raw.Parameters, params)
 
 	// Validate grader-type-specific required fields
 	if err := g.Validate(); err != nil {
@@ -678,6 +685,20 @@ func parseEvalSpec(data []byte, path string, offline bool, validate func(string,
 	if err != nil {
 		return nil, err
 	}
+	var captureHeader struct {
+		Config map[string]yaml.Node `yaml:"config"`
+	}
+	if err := yaml.Unmarshal(data, &captureHeader); err != nil {
+		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
+	}
+	if capture, ok := captureHeader.Config["workspace_capture"]; ok {
+		for capture.Kind == yaml.AliasNode && capture.Alias != nil {
+			capture = *capture.Alias
+		}
+		if capture.Kind != yaml.ScalarNode || capture.Tag != "!!str" || (capture.Value != "full" && capture.Value != "none") {
+			return nil, fmt.Errorf("workspace_capture must be full or none")
+		}
+	}
 
 	var sourceErr error
 	if err := validateDeclaredFaults(data, version, false); err != nil {
@@ -719,6 +740,9 @@ func parseEvalSpec(data []byte, path string, offline bool, validate func(string,
 
 // Validate checks that the spec is valid
 func (s *EvalSpec) Validate() error {
+	if s.Config.WorkspaceCapture != "" && s.Config.WorkspaceCapture != "full" && s.Config.WorkspaceCapture != "none" {
+		return fmt.Errorf("workspace_capture must be full or none, got %q", s.Config.WorkspaceCapture)
+	}
 	if s.Scenario != "" {
 		if strings.TrimSpace(s.Scenario) == "" {
 			return fmt.Errorf("scenario must be a non-empty workflow identity")
@@ -762,6 +786,9 @@ func (s *EvalSpec) Validate() error {
 		if err := ValidateCommandMocks(s.CommandMocks); err != nil {
 			return err
 		}
+	}
+	if err := s.Config.ValidateNativeUserInput(s.SchemaVersion); err != nil {
+		return err
 	}
 	if s.Adversarial != nil {
 		_, minor, err := parseSchemaVersion(s.SchemaVersion)

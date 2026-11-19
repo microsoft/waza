@@ -129,6 +129,28 @@ test('real image: public CLI, exact selection, local I/O and negative controls',
     native.allow_paid_execution = true;
     run(native, 5, 'unsupported_capability', 0);
     run('{', 6, 'invalid_input', 0);
+
+    // The same image is the external adapter entrypoint: one descriptor in, one result out.
+    const descriptor = readFileSync(join(root, 'examples/runner/adapter/submit.json'), 'utf8');
+    const translated = command([...base, 'runner', 'adapter', 'translate'], { input: descriptor });
+    assert.equal(translated.status, 0, translated.stdout);
+    const translation = JSON.parse(translated.stdout);
+    assert.equal(translation.status, 'translated');
+    assert.deepEqual(translation.call.command, ['runner', 'submit']);
+    const adapterRun = [...base.slice(0, -2), '--tmpfs', '/store:rw,noexec,nosuid,size=32m,mode=1777', '-i', image];
+    const dispatched = command([...adapterRun, 'runner', 'adapter', 'dispatch', '--store', '/store'], { input: descriptor });
+    assert.equal(dispatched.status, 0, `${dispatched.stdout}\n${dispatched.stderr}`);
+    const adapted = JSON.parse(dispatched.stdout);
+    assert.equal(adapted.kind, 'waza.adapter-result');
+    assert.equal(adapted.status, 'terminal');
+    assert.equal(adapted.dispatched, true);
+    assert.equal(adapted.work_id, 'example-queue/item-0001');
+    assert.match(adapted.manifest_digest, /^[a-f0-9]{64}$/);
+    const scheduled = JSON.parse(descriptor);
+    scheduled.priority = 1;
+    const refused = command([...adapterRun, 'runner', 'adapter', 'dispatch', '--store', '/store'], { input: JSON.stringify(scheduled) });
+    assert.equal(refused.status, 6, refused.stdout);
+    assert.equal(JSON.parse(refused.stdout).dispatched, false);
     assert.deepEqual(readdirSync(work).sort(), ['image.id', 'request.json', 'terminal.json']);
   } finally {
     rmSync(work, { recursive: true, force: true });

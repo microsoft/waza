@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-submission-result-1.0.schema.json",
+  "title": "Owned execution submission result 1.0",
+  "description": "Invocation result and original source declarations. Profile validation is not storage, runtime, billing, or disclosure authorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "status", "exit_code", "engine_calls", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.execution-submission-result"},
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["rejected", "submission_error", "completed", "reused"]},
+    "exit_code": {"type": "integer", "minimum": 0, "maximum": 6},
+    "engine_calls": {"type": "integer", "minimum": 0, "maximum": 1, "description": "New calls in this submission, excluding original reused source calls and billing."},
+    "caller": {"$ref": "runner-terminal-1.0.schema.json#/$defs/identity"},
+    "decision": {"$ref": "execution-attempt-1.0.schema.json#/$defs/decision"},
+    "reservation": {"$ref": "execution-attempt-1.0.schema.json#/$defs/attempt"},
+    "completion": {"$ref": "execution-completion-1.0.schema.json"},
+    "terminal": {"$ref": "runner-terminal-1.0.schema.json"},
+    "report": {"$ref": "runner-unit-1.0.schema.json", "description": "Historical optional rich report, not privacy-approved payload capture or new-operation billing."},
+    "diagnostics": {
+      "type": "array", "maxItems": 16,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"},
+          "message": {"type": "string", "minLength": 1, "maxLength": 4096}
+        }
+      }
+    }
+  },
+  "dependentRequired": {
+    "reservation": ["caller"],
+    "decision": ["caller", "reservation"],
+    "completion": ["caller", "decision", "reservation", "terminal"],
+    "report": ["caller", "reservation", "terminal"]
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["completed", "reused"]}}},
+      "then": {
+        "required": ["caller", "decision", "reservation", "completion", "terminal"],
+        "properties": {"exit_code": {"maximum": 4}, "diagnostics": {"maxItems": 0}}
+      },
+      "else": {"not": {"required": ["completion"]}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "completed"}}},
+      "then": {"properties": {"decision": {"properties": {"policy": {"const": "distinct"}, "outcome": {"const": "distinct"}}}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "reused"}}},
+      "then": {"properties": {"engine_calls": {"const": 0}, "decision": {"properties": {"policy": {"const": "reuse"}, "outcome": {"const": "reused"}}}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "submission_error"}}},
+      "then": {"properties": {"exit_code": {"const": 2}, "diagnostics": {"minItems": 1}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "rejected"}}},
+      "then": {
+        "properties": {"exit_code": {"minimum": 3}, "engine_calls": {"const": 0}},
+        "not": {"anyOf": [{"required": ["caller"]}, {"required": ["reservation"]}, {"required": ["decision"]}, {"required": ["report"]}]}
+      }
+    }
+  ]
+}

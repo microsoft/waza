@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outputDir = path.resolve(__dirname, '../../docs/images');
 
+test.skip(process.env.WAZA_REFRESH_DOCS_MEDIA !== '1', 'Run npm run refresh:docs-media to update documentation screenshots.');
+
 const pages = [
   { name: 'home', path: '/' },
   { name: 'getting-started', path: '/getting-started/' },

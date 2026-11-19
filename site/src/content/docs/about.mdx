@@ -15,23 +15,24 @@ these workflows; see [release availability and platform limits](../reference/rel
 
 ## The Problem
 
-Creating, testing, and evaluating AI agent skills lacks consistent tooling:
-
-- **Automated compliance validation** — No standardized scoring to ensure skill quality
-- **Trigger testing** — Manual verification of skill activation patterns
-- **Cross-model evaluation** — No framework for testing skills across GPT-4o, Claude, etc.
-- **Token budget enforcement** — Guidelines exist but aren't automatically checked
+Evaluating an agent workflow requires more than checking its final response:
+teams need repeatable tasks, meaningful graders, and evidence they can inspect
+across runs. Skills and custom agents can be part of that workflow, but are
+not required.
 
 ## The Solution
 
-Waza automates the skill development workflow:
+Waza supports a workflow from an offline harness check to agent-backed evaluation:
 
 | Phase | Capability |
 |-------|-----------|
-| **Scaffold** | Generate a compliant skill structure ready for evaluation |
-| **Develop** | Iterate with real-time compliance scoring |
-| **Test** | Run agentic test loops with real LLM execution |
-| **Evaluate** | Cross-model comparison with comprehensive metrics |
+| **Scaffold** | Create a suite for a repository, CLI, MCP, skill or custom-agent scenario |
+| **Preflight** | Check configuration and dependencies without running an agent |
+| **Test** | Run mock trials or explicitly configured agent-backed evaluations |
+| **Evaluate** | Grade results, inspect recorded evidence and compare runs |
+
+Mock results check harness wiring, not agent quality. Real agent runs require
+appropriate authentication, permissions and model access, and may incur costs.
 
 ## Architecture
 
@@ -42,26 +43,18 @@ Waza is built in **Go** for:
 
 ### Components
 
-```
-waza/
-├── cmd/waza/              # CLI entrypoint
-├── internal/
-│   ├── config/            # Configuration
-│   ├── execution/         # Agent engines
-│   ├── models/            # Data structures
-│   ├── orchestration/     # Test runner
-│   └── scoring/           # Validators
-├── web/                   # Dashboard (React + Tailwind)
-└── examples/              # Example evals
-```
+- `cmd/waza/`: CLI entrypoint and commands.
+- `internal/`: execution engines, models, orchestration, graders and other packages.
+- `web/`: dashboard (React and Tailwind).
+- `examples/`: example evaluations and scenarios.
 
 ### Design Principles
 
-1. **Fixture Isolation** — Each task gets a fresh temp workspace. Original fixtures never modified.
-2. **Pluggable Validators** — 13 native grader kinds
-3. **Cross-Model Support** — Test skills against multiple LLM providers
-4. **Local-First** — Mock executor for development, real API for CI/CD
-5. **Observability** — Full transcripts, detailed metrics, dashboard visualization
+1. **Fixture isolation** — Task workspaces protect original fixtures; isolation is not a security sandbox.
+2. **Pluggable graders** — 13 native grader kinds check different aspects of a run.
+3. **Cross-model evaluation** — Compare configured agent runs across supported models and providers.
+4. **Offline-first checks** — Use preflight and mock execution before opting into real runs.
+5. **Inspectable evidence** — Review recorded results and events in the CLI or dashboard; unavailable evidence remains explicit.
 
 ## Key Features
 
@@ -210,49 +203,10 @@ Have questions or ideas? Join the conversation:
 
 ## Roadmap
 
-### E1: Go CLI Foundation (✅ Complete)
-
-- ✅ waza run — Execute benchmarks
-- ✅ waza init — Scaffold projects
-- ✅ waza new skill — Create skills
-- ✅ waza compare — Cross-model comparison
-- ✅ 13 native grader kinds
-
-### E2: Sensei Engine (🟡 In Progress)
-
-- ✅ waza check — Compliance scoring
-- ✅ waza dev — Iterative improvement
-- 🟡 Token budget optimization
-- 🟡 Trigger accuracy testing
-
-### E3: Evaluation Framework (🟡 In Progress)
-
-- ✅ Multi-model testing
-- ✅ Comprehensive metrics
-- 🟡 Statistical analysis
-- 🟡 LLM-powered suggestions
-
-### E4: Token Management (⏳ Planned)
-
-- Token counting across models
-- Budget enforcement
-- Optimization recommendations
-
-### E5: Waza Skill (⏳ Planned)
-
-- Conversational skill interface
-- Interactive development
-
-### E6: CI/CD Integration (✅ Complete)
-
-- ✅ GitHub Actions workflow
-- ✅ Artifact handling
-- ✅ PR comments
-
-### E7: AZD Extension (✅ Complete)
-
-- ✅ Azure Developer CLI integration
-- ✅ Registry publishing
+See the [active feature tracker #657](https://github.com/microsoft/waza/issues/657)
+and [delivery tracker #866](https://github.com/microsoft/waza/issues/866).
+The original [platform roadmap #8](https://github.com/microsoft/waza/issues/8)
+is closed and retained for historical context.
 
 ## License
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -13,6 +14,121 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEvidencePromptFixtureLiteralsAdmissionAndIsolation(t *testing.T) {
+	const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const contact = "fixture@example.invalid"
+	for _, tc := range []struct {
+		name    string
+		task    string
+		args    map[string]any
+		result  string
+		declare bool
+		missing bool
+		pass    bool
+	}{
+		{name: "declared task SHA", task: "Inspect " + sha, declare: true, pass: true},
+		{name: "declared GitHub result and fixture contact", task: "Inspect fixtures", result: sha + " " + contact, declare: true, pass: true},
+		{name: "declared tracker identifiers", task: "Inspect fixtures", args: map[string]any{"projectKey": "PROJ-1", "issueIdOrKey": "PROJ-1"}, declare: true, pass: true},
+		{name: "absent declaration retains SHA rejection", task: "Inspect " + sha},
+		{name: "undeclared same-shaped credential", task: "Inspect " + strings.Repeat("b", 40), declare: true},
+		{name: "undeclared contact", task: "Inspect private@example.invalid", declare: true},
+		{name: "undeclared key credential", task: "Inspect fixtures", args: map[string]any{"projectKey": "UNDECLARED_CREDENTIAL_CANARY"}, declare: true},
+		{name: "declared substring in longer hex token", task: "Inspect " + sha + "aa", declare: true},
+		{name: "declared substring in longer identifier", task: "Inspect prefix-" + sha, declare: true},
+		{name: "declared contact substring", task: "Inspect prefix." + contact, declare: true},
+		{name: "earlier rule cannot manufacture boundary", task: "Inspect AKIAIOSFODNN7EXAMPLE" + contact, declare: true},
+		{name: "key value substring", task: "Inspect fixtures", args: map[string]any{"issueIdOrKey": "PROJ-1-extra"}, declare: true},
+		{name: "key container not exempt", task: "Inspect fixtures", args: map[string]any{"projectKey": []string{"PROJ-1"}}, declare: true},
+		{name: "actor cannot declare exemptions", task: "Inspect fixtures", args: map[string]any{"non_secret_literals": []string{strings.Repeat("b", 40)}, "projectKey": strings.Repeat("b", 40)}, declare: true},
+		{name: "missing required evidence", task: "Inspect " + sha, declare: true, missing: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := `{"prompt":"Judge.","evidence_context":{}}`
+			if tc.declare {
+				config = `{"prompt":"Judge.","evidence_context":{"non_secret_literals":["` + sha + `","` + contact + `","PROJ-1","UNUSED_DECLARATION_CANARY"]}}`
+			}
+			var params models.PromptGraderParameters
+			require.NoError(t, json.Unmarshal([]byte(config), &params))
+			require.NoError(t, ValidateConfig("judge", params))
+			selection, err := judgeevidence.Selection([]models.GraderConfig{{Parameters: params}}, nil)
+			require.NoError(t, err)
+			grading := evidenceGradingContext(t)
+			events := []copilot.SessionEvent{
+				{Data: &copilot.UserMessageData{Content: tc.task}},
+				{Data: &copilot.ToolExecutionStartData{ToolCallID: "call", ToolName: "github_query", Arguments: tc.args}},
+				{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "call", Success: true, Result: &copilot.ToolExecutionCompleteResult{Content: tc.result}}},
+				{Data: &copilot.AssistantMessageData{Content: "Fixtures inspected"}},
+			}
+			if tc.missing {
+				events = nil
+			}
+			grading.JudgeEvidence = judgeevidence.Capture(judgeevidence.CaptureInput{
+				Origin: grading.JudgeOrigin, Task: tc.task, Output: "Fixtures inspected",
+				OutputPresent: true, Events: events, Selection: selection, ExecutionMode: "mock",
+			})
+			encoded, err := json.Marshal(grading.JudgeEvidence)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "UNUSED_DECLARATION_CANARY")
+			require.NotContains(t, string(encoded), "non_secret_literals")
+			var restored models.JudgeEvidence
+			require.NoError(t, json.Unmarshal(encoded, &restored))
+			grading.JudgeEvidence = &restored
+			actor := &fakePromptExecutor{execute: func(*execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				t.Fatal("fixture declarations must never grant actor access")
+				return nil, nil
+			}}
+			grading.Executor = actor
+			judge := &fakePromptExecutor{execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				require.Empty(t, req.SessionID)
+				require.Empty(t, req.WorkspaceDir)
+				require.Empty(t, req.MCPServers)
+				require.Empty(t, req.Resources)
+				require.True(t, req.NoSkills)
+				require.True(t, req.EphemeralSession)
+				require.Len(t, req.Tools, 2)
+				for _, private := range []string{"ACTOR_SESSION_CANARY", "ACTOR_WORKSPACE_CANARY", "MUTATED_OUTPUT_CANARY", "UNUSED_DECLARATION_CANARY", "non_secret_literals"} {
+					require.NotContains(t, req.Message, private)
+				}
+				require.Contains(t, req.Message, tc.task)
+				require.Contains(t, req.Message, tc.result)
+				if len(tc.args) > 0 {
+					require.Contains(t, req.Message, `"projectKey":"PROJ-1"`)
+					require.Contains(t, req.Message, `"issueIdOrKey":"PROJ-1"`)
+				}
+				_, err := req.Tools[0].Handler(copilot.ToolInvocation{ToolName: req.Tools[0].Name})
+				return &execution.ExecutionResponse{Success: true}, err
+			}}
+			grading.EvidenceExecutor = judge
+			g, err := NewPromptGrader("judge", params)
+			require.NoError(t, err)
+			result, err := g.Grade(t.Context(), grading)
+			if tc.pass {
+				require.NoError(t, err)
+				require.True(t, result.Passed)
+				require.Equal(t, 1, judge.calls)
+				require.NotNil(t, restored.FixtureLiterals)
+				require.Positive(t, restored.FixtureLiterals.PreservedMatches)
+				require.Zero(t, restored.Redaction.MatchCount)
+			} else {
+				require.Error(t, err)
+				require.Nil(t, result)
+				require.Zero(t, judge.calls)
+				require.NotEmpty(t, restored.Diagnostics)
+				if !tc.missing {
+					require.Contains(t, string(encoded), "redacted_required")
+					if tc.args == nil {
+						require.NotContains(t, string(encoded), tc.task, "rejected required content must be withheld")
+					} else {
+						require.Equal(t, "unavailable", restored.ToolEvents.Availability)
+						require.Nil(t, restored.ToolEvents.Items)
+					}
+				}
+			}
+			require.Zero(t, actor.calls)
+		})
+	}
+}
 
 func evidenceGradingContext(t *testing.T) *Context {
 	t.Helper()

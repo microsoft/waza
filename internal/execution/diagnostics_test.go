@@ -49,6 +49,55 @@ func diagnosticRequest(t *testing.T) *ExecutionRequest {
 	return &ExecutionRequest{WorkspaceDir: t.TempDir(), NoSkills: true, EphemeralSession: true, SkipWorkspaceCapture: true}
 }
 
+func TestExecuteRecordedRetainsDiagnosticCaptureFailureResponse(t *testing.T) {
+	engine, client := diagnosticTestEngine(t, func(ExecutionDiagnostic) error { return nil })
+	session := NewMockCopilotSession(gomock.NewController(t))
+	client.EXPECT().Start(gomock.Any()).Return(nil)
+	client.EXPECT().GetAuthStatus(gomock.Any()).Return(&copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil)
+	client.EXPECT().Stop().Return(nil)
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	client.EXPECT().DeleteSession(gomock.Any(), "captured-error").Return(nil)
+	session.EXPECT().SessionID().Return("captured-error")
+	session.EXPECT().Disconnect().Return(nil)
+	session.EXPECT().UsageMetrics(gomock.Any()).Return(completeDiagnosticMetrics(), nil)
+	var handlers []copilot.SessionEventHandler
+	session.EXPECT().On(gomock.Any()).DoAndReturn(func(handler copilot.SessionEventHandler) func() {
+		handlers = append(handlers, handler)
+		return func() {}
+	}).AnyTimes()
+	req := diagnosticRequest(t)
+	req.SkipWorkspaceCapture = false
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+		file, err := os.Create(filepath.Join(req.WorkspaceDir, "oversized.txt"))
+		require.NoError(t, err)
+		require.NoError(t, file.Truncate(16*1024*1024+1))
+		require.NoError(t, file.Close())
+		for _, handler := range handlers {
+			handler(copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "observed partial output"}})
+		}
+		return nil, context.DeadlineExceeded
+	})
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	ctx, scope := NewUsageScope(t.Context())
+	resp, err := ExecuteRecorded(ctx, engine, req)
+	require.Error(t, err)
+	var diagnostic *DiagnosticError
+	require.ErrorAs(t, err, &diagnostic)
+	require.Equal(t, StageExecute, diagnostic.Diagnostic.Stage)
+	require.Equal(t, CodeSend, diagnostic.Diagnostic.Code)
+	require.NotNil(t, resp)
+	require.False(t, resp.Success)
+	require.False(t, resp.ExecutionSucceeded)
+	require.NotEmpty(t, resp.WorkspaceCaptureError)
+	require.Nil(t, resp.WorkspaceFiles)
+	require.Equal(t, err.Error(), resp.ErrorMsg)
+	require.Equal(t, "observed partial output", resp.FinalOutput)
+	require.NotEmpty(t, resp.Events)
+	require.NotNil(t, resp.Usage)
+	require.Len(t, scope.Snapshot().Sessions, 1)
+}
+
 func TestDiagnosticInitializePersistsAndSanitizes(t *testing.T) {
 	for _, failure := range []string{"provider", "start", "auth", "unauthenticated", "nil auth"} {
 		for _, observerFails := range []bool{false, true} {

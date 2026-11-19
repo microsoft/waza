@@ -5,10 +5,82 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCompileSchemaOnceDefersAndCachesCompilation(t *testing.T) {
+	var invalid func() any
+	require.NotPanics(t, func() {
+		compiled := compileSchemaOnce("{", "invalid.json")
+		invalid = func() any { return compiled() }
+	})
+	require.Panics(t, func() {
+		invalid()
+	})
+	require.Panics(t, func() {
+		invalid()
+	})
+
+	compiled := compileSchemaOnce(`{"type":"object"}`, "test.json")
+	require.Same(t, compiled(), compiled())
+}
+
+func TestLazySchemasIndependentConcurrentValidation(t *testing.T) {
+	originalEval, originalTask := evalSchema, taskSchema
+	t.Cleanup(func() { evalSchema, taskSchema = originalEval, originalTask })
+
+	for _, kind := range []string{"eval", "task"} {
+		t.Run(kind, func(t *testing.T) {
+			raw, valid, validate := schemas.EvalSchemaJSON, validEvalYAML, ValidateEvalBytes
+			if kind == "task" {
+				raw, valid, validate = schemas.TaskSchemaJSON, validTaskYAML, ValidateTaskBytes
+			}
+			compiled := compileSchemaOnce(raw, kind+".schema.json")
+			const callers = 16
+			seen := make(chan *jsonschema.Schema, callers)
+			get := func() *jsonschema.Schema {
+				schema := compiled()
+				seen <- schema
+				return schema
+			}
+			unused := compileSchemaOnce("{", "unused.schema.json")
+			evalSchema, taskSchema = get, unused
+			if kind == "task" {
+				evalSchema, taskSchema = unused, get
+			}
+
+			start := make(chan struct{})
+			results := make(chan []string, callers)
+			var workers sync.WaitGroup
+			for range callers {
+				workers.Go(func() {
+					<-start
+					results <- validate([]byte(valid))
+				})
+			}
+			close(start)
+			workers.Wait()
+			first := <-seen
+			require.NotNil(t, first)
+			for range callers {
+				require.Empty(t, <-results)
+			}
+			for range callers - 1 {
+				require.Same(t, first, <-seen)
+			}
+			require.Same(t, first, compiled())
+			require.Empty(t, validate([]byte(valid)))
+			require.Same(t, first, <-seen)
+			require.Equal(t, []string{"/: got null, want object"}, validate([]byte("null\n")))
+			require.Same(t, first, <-seen)
+		})
+	}
+}
 
 func TestTaskReasoningEffortSchemaAndExecutor(t *testing.T) {
 	for _, checkpoint := range []bool{false, true} {
@@ -91,6 +163,18 @@ description: This task is missing the required id field
 func TestValidateEvalBytes_Valid(t *testing.T) {
 	errs := ValidateEvalBytes([]byte(validEvalYAML))
 	require.Empty(t, errs, "valid eval should have no errors")
+}
+
+func TestValidateEvalBytes_GroupBy(t *testing.T) {
+	for _, value := range []string{"", "model", "tags"} {
+		t.Run(value, func(t *testing.T) {
+			data := strings.Replace(validEvalYAML, "  model: gpt-4o", fmt.Sprintf("  model: gpt-4o\n  group_by: %q", value), 1)
+			require.Empty(t, ValidateEvalBytes([]byte(data)))
+		})
+	}
+
+	data := strings.Replace(validEvalYAML, "  model: gpt-4o", "  model: gpt-4o\n  group_by: task_id", 1)
+	require.NotEmpty(t, ValidateEvalBytes([]byte(data)))
 }
 
 func TestValidateEvalBytes_EmptyCommandMocksRequireSupportedConfiguration(t *testing.T) {
@@ -640,4 +724,64 @@ metrics:
 tasks: ["tasks/*.yaml"]`
 	require.NotEmpty(t, ValidateEvalBytes([]byte(yaml)))
 	require.Empty(t, ValidateEvalBytes([]byte(strings.Replace(yaml, "executor: mock", "executor: copilot-sdk", 1))))
+}
+
+func TestValidateEvalFile_NativeUserInput(t *testing.T) {
+	legacy := "schemaVersion: \"1.4\"\nname: legacy\nskill: s\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 60\n  executor: copilot-sdk\n  model: m\nmetrics: [{name: m, weight: 1, threshold: 1}]\ntasks: [tasks/*.yaml]\n"
+	scenario := "schemaVersion: \"2.0\"\nname: native\nscenario: native-questions\nversion: \"1.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 60\n  executor: copilot-sdk\n  model: m\n  native_user_input: true\nmetrics: [{name: m, weight: 1, threshold: 1}]\ntasks: [tasks/*.yaml]\n"
+	scripted := "id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses:\n  - question: \"Deploy.*\"\n    answer: staging\n"
+	cases := []struct {
+		name, eval, task string
+		evalErr, taskErr string
+	}{
+		{"valid scenario opt-in", scenario, scripted, "", ""},
+		{"legacy scripted answers", legacy, scripted, "", "requires config.native_user_input: true"},
+		{"legacy empty script", legacy, "id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses: []\n", "", "requires config.native_user_input: true"},
+		{"legacy opt-in", strings.Replace(legacy, "  model: m\n", "  model: m\n  native_user_input: true\n", 1), "id: t\nname: T\ninputs:\n  prompt: go\n", "requires a scenario eval with schemaVersion 2.0", ""},
+		{"invalid question regex", scenario, "id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses:\n  - question: \"Deploy)|(?:Delete\"\n    answer: a\n", "", "question is not a valid regular expression"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			evalPath := filepath.Join(dir, "eval.yaml")
+			require.NoError(t, os.WriteFile(evalPath, []byte(tc.eval), 0o600))
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tasks", "t.yaml"), []byte(tc.task), 0o600))
+			evalErrs, taskErrs, err := ValidateEvalFile(evalPath)
+			require.NoError(t, err)
+			if tc.evalErr == "" {
+				require.Empty(t, evalErrs)
+			} else {
+				require.Contains(t, joinErrs(evalErrs), tc.evalErr)
+			}
+			if tc.taskErr == "" {
+				require.Empty(t, taskErrs)
+			} else {
+				require.Contains(t, joinErrs(taskErrs[filepath.Join("tasks", "t.yaml")]), tc.taskErr)
+			}
+		})
+	}
+}
+
+func TestValidateEvalBytes_NativeUserInputRequiresScenarioCopilot(t *testing.T) {
+	scenario := "schemaVersion: \"2.0\"\nname: native\nscenario: native-questions\nversion: \"1.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 60\n  executor: copilot-sdk\n  model: m\n  native_user_input: true\nmetrics: [{name: m, weight: 1, threshold: 1}]\ntasks: [tasks/*.yaml]\n"
+	require.Empty(t, ValidateEvalBytes([]byte(scenario)), "control: scenario copilot-sdk opt-in is valid")
+	for name, eval := range map[string]string{
+		"legacy version":   strings.Replace(strings.Replace(scenario, "schemaVersion: \"2.0\"", "schemaVersion: \"1.4\"", 1), "scenario: native-questions\n", "skill: s\n", 1),
+		"missing version":  strings.Replace(strings.Replace(scenario, "schemaVersion: \"2.0\"\n", "", 1), "scenario: native-questions\n", "skill: s\n", 1),
+		"mock executor":    strings.Replace(scenario, "executor: copilot-sdk", "executor: mock", 1),
+		"default executor": strings.Replace(scenario, "  executor: copilot-sdk\n", "", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotEmpty(t, ValidateEvalBytes([]byte(eval)))
+		})
+	}
+	for name, eval := range map[string]string{
+		"flag false in legacy eval": strings.Replace(strings.Replace(strings.Replace(scenario, "schemaVersion: \"2.0\"", "schemaVersion: \"1.4\"", 1), "scenario: native-questions\n", "skill: s\n", 1), "native_user_input: true", "native_user_input: false", 1),
+		"flag omitted with mock":    strings.Replace(strings.Replace(scenario, "executor: copilot-sdk", "executor: mock", 1), "  native_user_input: true\n", "", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Empty(t, ValidateEvalBytes([]byte(eval)))
+		})
+	}
 }

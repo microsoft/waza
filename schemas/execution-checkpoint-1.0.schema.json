@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/execution-checkpoint-1.0.schema.json",
+  "title": "Waza exact-unit checkpoint declaration 1.0",
+  "description": "A safe-boundary reference declaration. Not proof of reservation ownership, finalized artifacts, runtime execution or successful restore.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "boundary", "created_at", "execution_id", "reservation_digest", "compatibility"],
+  "properties": {
+    "kind": {"const": "waza.execution-checkpoint"},
+    "schema_version": {"const": "1.0"},
+    "boundary": {"enum": ["before-unit", "finalized-unit"]},
+    "created_at": {"type": "string", "minLength": 20, "maxLength": 30, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"},
+    "execution_id": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"},
+    "reservation_digest": {"$ref": "#/$defs/digest"},
+    "compatibility": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runner_revision", "request_version", "identity_version", "terminal_version", "manifest_version", "attempt_version", "completion_version", "work", "request_policy_digest"],
+      "properties": {
+        "runner_revision": {"type": "string", "minLength": 40, "maxLength": 40, "pattern": "^[0-9a-f]{40}$"},
+        "request_version": {"const": "1.0"},
+        "identity_version": {"const": "sha256-waza-c14n-v1"},
+        "terminal_version": {"const": "1.0"},
+        "manifest_version": {"const": "1.0"},
+        "attempt_version": {"const": "1.0"},
+        "completion_version": {"const": "1.0"},
+        "work": {"type": "string", "minLength": 70, "maxLength": 70, "pattern": "^trial-[0-9a-f]{64}$"},
+        "request_policy_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "completion_digest": {"$ref": "#/$defs/digest"},
+    "manifest_digest": {"$ref": "#/$defs/digest"}
+  },
+  "oneOf": [
+    {
+      "properties": {"boundary": {"const": "before-unit"}},
+      "not": {"anyOf": [{"required": ["completion_digest"]}, {"required": ["manifest_digest"]}]}
+    },
+    {
+      "properties": {"boundary": {"const": "finalized-unit"}},
+      "required": ["completion_digest", "manifest_digest"]
+    }
+  ],
+  "$defs": {
+    "digest": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"}
+  }
+}

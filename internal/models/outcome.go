@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -121,6 +122,7 @@ type EvaluationSessionUsage struct {
 
 func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
 	type alias EvaluationOutcome
+	o = o.withoutPrivateJudgeDeclarations()
 	if o.SchemaVersion == "" {
 		o.SchemaVersion = CurrentResultSchemaVersion
 	}
@@ -132,6 +134,38 @@ func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
 		alias
 		Skill *string `json:"skill,omitempty"`
 	}{alias(o), skill})
+}
+
+func (o EvaluationOutcome) withoutPrivateJudgeDeclarations() EvaluationOutcome {
+	copied := false
+	for taskIndex, task := range o.TestOutcomes {
+		var runs []RunResult
+		for runIndex, run := range task.Runs {
+			if !slices.ContainsFunc(run.PromptJudging, func(observation PromptJudgeObservation) bool {
+				return observation.EvidenceContext.NonSecretLiterals != nil
+			}) {
+				continue
+			}
+			// Retained observations must not republish old declarations or mutate
+			// caller-owned results. Copy only collections that need sanitizing.
+			if runs == nil {
+				runs = slices.Clone(task.Runs)
+			}
+			observations := slices.Clone(run.PromptJudging)
+			for i := range observations {
+				observations[i].EvidenceContext.NonSecretLiterals = nil
+			}
+			runs[runIndex].PromptJudging = observations
+		}
+		if runs != nil {
+			if !copied {
+				o.TestOutcomes = slices.Clone(o.TestOutcomes)
+				copied = true
+			}
+			o.TestOutcomes[taskIndex].Runs = runs
+		}
+	}
+	return o
 }
 
 // HasSkillTested distinguishes a recorded blank string from unavailable legacy metadata.
@@ -254,19 +288,20 @@ type RunResult struct {
 	// Status contains the overall status of the run.
 	// NOTE: if Status == [StatusError], then [ErrorMsg] will be set to the
 	// message from the error.
-	Status           Status                   `json:"status"`
-	DurationMs       int64                    `json:"duration_ms"`
-	Validations      map[string]GraderResults `json:"validations"`
-	SessionDigest    SessionDigest            `json:"session_digest"`
-	GraderSessions   []SessionDigest          `json:"grader_sessions,omitempty"`
-	Transcript       []TranscriptEvent        `json:"transcript,omitempty"`
-	FinalOutput      string                   `json:"final_output"`
-	ErrorMsg         string                   `json:"error_msg,omitempty"`
-	SkillInvocations []SkillInvocation        `json:"skill_invocations,omitempty"`
-	Usage            *UsageStats              `json:"usage,omitempty"`
-	WorkspaceDir     string                   `json:"workspace_dir,omitempty"`
-	FailureArtifacts *FailureArtifacts        `json:"failure_artifacts,omitempty"`
-	Responder        *ResponderInfo           `json:"responder,omitempty"`
+	Status                   Status                    `json:"status"`
+	DurationMs               int64                     `json:"duration_ms"`
+	Validations              map[string]GraderResults  `json:"validations"`
+	SessionDigest            SessionDigest             `json:"session_digest"`
+	GraderSessions           []SessionDigest           `json:"grader_sessions,omitempty"`
+	Transcript               []TranscriptEvent         `json:"transcript,omitempty"`
+	FinalOutput              string                    `json:"final_output"`
+	ErrorMsg                 string                    `json:"error_msg,omitempty"`
+	InfrastructureDiagnostic *InfrastructureDiagnostic `json:"infrastructure_diagnostic,omitempty"`
+	SkillInvocations         []SkillInvocation         `json:"skill_invocations,omitempty"`
+	Usage                    *UsageStats               `json:"usage,omitempty"`
+	WorkspaceDir             string                    `json:"workspace_dir,omitempty"`
+	FailureArtifacts         *FailureArtifacts         `json:"failure_artifacts,omitempty"`
+	Responder                *ResponderInfo            `json:"responder,omitempty"`
 	// Checkpoints captures per-turn checkpoint grader results, one entry per
 	// configured TestCase.Checkpoint that actually ran (i.e., turn index was
 	// reached). Empty / omitted when the task defines no checkpoints.
@@ -284,6 +319,11 @@ type RunResult struct {
 	// CommandInvocations records sanitized calls handled by declarative
 	// command_mocks. Response output is intentionally excluded.
 	CommandInvocations []CommandInvocation `json:"command_invocations,omitempty"`
+	// UserInputRequests records native SDK user-input requests handled by
+	// task-level user_input_responses, including fail-closed rejections.
+	// Absent (nil) means no native callback was registered; [] means it was
+	// registered and no question was asked.
+	UserInputRequests *[]UserInputRecord `json:"user_input_requests,omitempty"`
 	// DependencyModes records the configured mode for declared dependencies.
 	// It describes configuration, not proof that a dependency was invoked.
 	DependencyModes []DependencyMode `json:"dependency_modes,omitempty"`

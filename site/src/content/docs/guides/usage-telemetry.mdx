@@ -1,0 +1,134 @@
+---
+title: Product Usage Telemetry
+description: Waza's opt-out product usage telemetry client, what it collects, how it protects privacy, and how to opt out.
+---
+
+Waza includes an opt-out product usage telemetry client (#1045) so the Waza team
+can learn which commands and features are used, how often evaluations succeed,
+and which platforms to support. It is separate from:
+
+- [OpenTelemetry trace export](/waza/guides/otel/)
+  (`--otel-*`), which you control and send to your own backend;
+- [execution telemetry correlation](/waza/guides/execution-telemetry/) and evaluation
+  results, exports, artifacts, and storage uploads;
+- model provider calls made by the agent or LLM judges;
+- the [automatic update check](/waza/reference/cli/#automatic-update-check).
+
+None of these are product usage telemetry, and product usage telemetry never
+reads or forwards their data.
+
+## Telemetry and privacy
+
+Product usage telemetry is **enabled by default** in released Waza builds on
+developer machines. It is **never collected in CI**: when a CI environment is
+detected, Waza sends nothing and creates no installation identifier.
+
+Telemetry records which commands and features are used, command and
+evaluation outcomes, bucketed durations and task counts, and basic version,
+OS, architecture, and distribution information. Events from developer machines
+include a random, resettable installation identifier. This identifier is
+pseudonymous, not anonymous: it is not derived from your machine or account,
+but it links events from the same installation.
+
+Telemetry never includes source code, prompts, model outputs, skill or file
+names, paths, repository names, command arguments or flag values, raw error
+messages, environment values, URLs, hashes, or OpenTelemetry attributes.
+Evaluation results, transcripts, and artifacts stay local and are never sent as
+product usage telemetry.
+
+To turn it off, use any one of the controls in [Opting out](#opting-out), for
+example `WAZA_TELEMETRY_OPTOUT=1`, `DO_NOT_TRACK=1`, or `waza telemetry disable`.
+Turning off telemetry does not change any other Waza behavior.
+
+Events are sent over HTTPS to a Microsoft-operated Azure collector that accepts
+only the closed schema below, does not log request bodies, masks client IP
+addresses, and retains events for 30 days. See the
+[Microsoft Privacy Statement](https://go.microsoft.com/fwlink/?LinkId=521839).
+
+## Opting out
+
+Any opt-out wins over every other setting, including `waza telemetry enable`:
+
+| Control | Scope |
+|---------|-------|
+| `WAZA_TELEMETRY_OPTOUT=1` (or `true`) | Process and its children |
+| `--no-telemetry` | One invocation and its children |
+| `waza telemetry disable` | Persistent, per user |
+| `telemetry: { disabled: true }` in `.waza.yaml` | Project |
+| `DO_NOT_TRACK=1` | Host-wide convention |
+| `AZURE_DEV_COLLECT_TELEMETRY=no` | Inherited from `azd` |
+
+An invalid or unreadable telemetry settings file, or an invalid `telemetry`
+section in `.waza.yaml`, also disables collection. Policy is resolved before
+any command runs. A denial is exported to child processes, servers, and the
+dashboard through `WAZA_TELEMETRY_OPTOUT=1`.
+
+## Commands
+
+All `waza telemetry` subcommands are local-only, send nothing, and are never
+themselves collected.
+
+| Command | Effect |
+|---------|--------|
+| `waza telemetry status` | Show whether collection is active, why, the persistent setting, and whether an installation ID exists |
+| `waza telemetry disable` | Persistently disable collection, delete the installation ID, and discard pending events |
+| `waza telemetry enable` | Remove a persistent disable; other opt-outs still apply |
+| `waza telemetry reset-id` | Delete the installation ID |
+
+Settings are stored in `~/.waza/telemetry.json`. Updates are serialized across waza processes with a short-lived `telemetry.json.lock` file. Other running waza processes re-check these settings before every request, so a `disable` or `reset-id` also stops their pending events.
+
+## What is collected
+
+Every event follows the closed v1 contract
+[`schemas/usage-telemetry-1.0.schema.json`](/waza/schemas/usage-telemetry-1.0.schema.json).
+Events are at most 4 KiB, and Waza drops any event that fails validation.
+Every value is an approved enum, a bucket, a boolean, or a random UUIDv4.
+
+| Field | Values |
+|-------|--------|
+| `schema_version` | `1.0` |
+| `event_id` | Random UUIDv4, reused when a delivery is retried |
+| `event` | `command_completed`, `execution_completed`, `feature_used` |
+| `waza_version` | `X.Y.Z`, `dev`, or `other` |
+| `os` / `arch` | `windows`, `linux`, `darwin`, `other` / `amd64`, `arm64`, `other` |
+| `distribution` | `standalone`, `azd_extension`, `dev` |
+| `ci` | Whether a CI environment was detected |
+| `installation_id` | Random, resettable UUIDv4; never sent from CI |
+| `command` | Command path from the command tree, for example `run` or `runner submit`; otherwise `root` or `unknown` |
+| `outcome` | Commands: `success`, `test_failed`, `setup_error`, `runtime_error`, `canceled`. Executions: `passed`, `failed`, `error`, `canceled` |
+| `duration_bucket` | `lt_1s`, `1s_10s`, `10s_1m`, `1m_10m`, `10m_1h`, `ge_1h` |
+| `surface` | `benchmark`, `runner_unit` |
+| `execution_mode` | `live`, `mock` |
+| `task_count_bucket` | `0`, `1`, `2_5`, `6_20`, `21_100`, `gt_100` |
+| `feature` | `llm_judge`, `http_api`, `dashboard`, `mcp_server`, recorded at most once per process |
+
+Benchmark counts include each task at most once per pass across actor turns,
+trials, and retries; cache hits and tasks proven not to have reached an actor
+are excluded. Copilot observes the SDK's assistant-turn-start event, while mock
+execution signals a synthetic turn. Missing or late signals, and engines without
+a trusted observation contract, leave the task's start unknown. Responder and
+grader turns are not actor starts. Waza emits the
+benchmark execution event only when every possible task count fits the same
+bucket; otherwise it omits the whole event, including its outcome. This can bias
+observed outcomes and volume downward. Bucketed volumes are bounded estimates,
+not exact totals, and the highest bucket has no upper bound. Runner-unit events
+count admitted units, not observed actor starts. Waza never sends prompts,
+outputs, arguments, flag values, paths, file or skill names, raw errors,
+environment values, URLs, hashes, or OpenTelemetry attributes. The
+installation ID is pseudonymous: it is random, is not derived from your machine
+or account, and is deleted by `disable` or `reset-id`.
+
+## Delivery
+
+Events are kept in memory only, capped per process, and sent best-effort over
+HTTPS periodically while running and when the process exits. Delivery is bounded by a short shutdown deadline
+of about one second, with one retry. Slow, failing, or offline collectors drop
+events silently. Telemetry never changes results, output, exit status, or
+diagnostic tracing.
+
+Known limitation: a CI system that Waza does not detect is treated as a
+developer machine. Set `WAZA_TELEMETRY_OPTOUT=1` in such environments.
+
+Source and development builds, including `go build` and `make build`
+output, never collect; only release builds stamped with a plain `X.Y.Z`
+version do.

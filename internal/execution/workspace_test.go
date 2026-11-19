@@ -1,11 +1,13 @@
 package execution
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,6 +18,7 @@ func TestSetupWorkspaceResources_WritesFiles(t *testing.T) {
 	resources := []ResourceFile{
 		{Path: "root.txt", Content: []byte("root")},
 		{Path: "nested/child.txt", Content: []byte("child")},
+		{Path: "nested/sibling.txt", Content: []byte("sibling")},
 		{Path: "", Content: []byte("ignored")},
 	}
 
@@ -29,6 +32,10 @@ func TestSetupWorkspaceResources_WritesFiles(t *testing.T) {
 	childContent, err := os.ReadFile(filepath.Join(workspace, "nested", "child.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "child", string(childContent))
+
+	siblingContent, err := os.ReadFile(filepath.Join(workspace, "nested", "sibling.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "sibling", string(siblingContent))
 }
 
 func TestSetupWorkspaceResources_RejectsAbsolutePath(t *testing.T) {
@@ -53,25 +60,54 @@ func TestSetupWorkspaceResources_EmptyWorkspace(t *testing.T) {
 	assert.Contains(t, err.Error(), "escapes workspace")
 }
 
+func BenchmarkSetupWorkspaceResourcesSharedDirectories(b *testing.B) {
+	const fileCount = 2048
+	resources := make([]ResourceFile, fileCount)
+	for i := range resources {
+		resources[i] = ResourceFile{
+			Path:    filepath.Join("fixtures", fmt.Sprintf("group-%02d", i%16), fmt.Sprintf("file-%04d.txt", i)),
+			Content: []byte("benchmark fixture"),
+		}
+	}
+
+	root := b.TempDir()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		workspace := filepath.Join(root, fmt.Sprintf("run-%d", i))
+		if err := setupWorkspaceResources(workspace, resources); err != nil {
+			b.Fatal(err)
+		}
+		b.StopTimer()
+		if err := os.RemoveAll(workspace); err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+	}
+}
+
 func TestCaptureWorkspaceFiles_CapturesAllFiles(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "root.txt"), []byte("root content"), 0o644))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "nested.txt"), []byte("nested content"), 0o644))
 
-	files := captureWorkspaceFiles(dir)
+	files, err := captureWorkspaceFiles(dir, nil)
+	require.NoError(t, err)
 	require.Len(t, files, 2)
 	assert.Equal(t, "root content", string(files["root.txt"]))
 	assert.Equal(t, "nested content", string(files["sub/nested.txt"]))
 }
 
 func TestCaptureWorkspaceFiles_EmptyDir(t *testing.T) {
-	files := captureWorkspaceFiles(t.TempDir())
+	files, err := captureWorkspaceFiles(t.TempDir(), nil)
+	require.NoError(t, err)
 	assert.Empty(t, files)
 }
 
 func TestCaptureWorkspaceFiles_EmptyString(t *testing.T) {
-	files := captureWorkspaceFiles("")
+	files, err := captureWorkspaceFiles("", nil)
+	require.NoError(t, err)
 	assert.Nil(t, files)
 }
 
@@ -80,7 +116,8 @@ func TestCaptureWorkspaceFiles_UsesForwardSlashes(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a", "b"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a", "b", "c.txt"), []byte("deep"), 0o644))
 
-	files := captureWorkspaceFiles(dir)
+	files, err := captureWorkspaceFiles(dir, nil)
+	require.NoError(t, err)
 	_, ok := files["a/b/c.txt"]
 	assert.True(t, ok, "keys should use forward slashes regardless of OS")
 }
@@ -98,7 +135,144 @@ func TestCaptureWorkspaceFiles_RejectsSymlinks(t *testing.T) {
 	require.NoError(t, os.Symlink(filepath.Join(workspace, "file-link"), filepath.Join(workspace, "chained-link")))
 	require.NoError(t, os.Symlink(filepath.Join(outside, "missing.txt"), filepath.Join(workspace, "dangling-link")))
 
-	files := captureWorkspaceFiles(workspace)
+	files, err := captureWorkspaceFiles(workspace, nil)
+	require.NoError(t, err)
 
 	require.Equal(t, map[string][]byte{"regular.txt": []byte("safe")}, files)
+}
+
+func TestCaptureWorkspaceFiles_ExcludesMetadataAndDependencies(t *testing.T) {
+	dir := t.TempDir()
+	for path, content := range map[string]string{
+		"src/main.go":                  "package main",
+		".git/objects/large":           "repository metadata",
+		"node_modules/pkg/index.js":    "dependency",
+		"nested/node_modules/pkg/data": "nested dependency",
+	} {
+		name := filepath.Join(dir, filepath.FromSlash(path))
+		require.NoError(t, os.MkdirAll(filepath.Dir(name), 0o755))
+		require.NoError(t, os.WriteFile(name, []byte(content), 0o644))
+	}
+
+	files, err := captureWorkspaceFiles(dir, nil)
+	require.NoError(t, err)
+	require.Equal(t, map[string][]byte{"src/main.go": []byte("package main")}, files)
+}
+
+func TestCaptureWorkspaceFiles_PreservesGraderTargetInsideExcludedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "node_modules", "generated", "result.txt")
+	require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
+	require.NoError(t, os.WriteFile(target, []byte("graded output"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(target), "dependency.js"), []byte("ignored"), 0o644))
+
+	files, err := captureWorkspaceFiles(dir, []string{"node_modules/generated/result.txt"})
+	require.NoError(t, err)
+	require.Equal(t, map[string][]byte{"node_modules/generated/result.txt": []byte("graded output")}, files)
+}
+
+func TestCaptureWorkspaceFiles_RejectsIncompleteCapture(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		limits workspaceCaptureLimits
+		files  map[string]string
+		want   string
+		code   models.InfrastructureDiagnosticCode
+		limit  int64
+	}{
+		{
+			name:   "file count",
+			limits: workspaceCaptureLimits{maxFiles: 1, maxEntries: 10, maxFileBytes: 10, maxTotalBytes: 20},
+			files:  map[string]string{"a.txt": "a", "b.txt": "b"},
+			want:   "file count exceeds limit",
+			code:   models.CaptureFileCount, limit: 1,
+		},
+		{
+			name:   "per file",
+			limits: workspaceCaptureLimits{maxFiles: 2, maxEntries: 10, maxFileBytes: 3, maxTotalBytes: 20},
+			files:  map[string]string{"large.txt": "four"},
+			want:   "exceeds per-file limit",
+			code:   models.CaptureFileBytes, limit: 3,
+		},
+		{
+			name:   "total bytes",
+			limits: workspaceCaptureLimits{maxFiles: 2, maxEntries: 10, maxFileBytes: 10, maxTotalBytes: 5},
+			files:  map[string]string{"a.txt": "aaa", "b.txt": "bbb"},
+			want:   "would exceed total limit",
+			code:   models.CaptureTotalBytes, limit: 5,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for path, content := range tc.files {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, path), []byte(content), 0o644))
+			}
+
+			files, err := captureWorkspaceFilesWithLimits(dir, nil, tc.limits)
+			require.ErrorContains(t, err, tc.want)
+			require.Nil(t, files, "partial captures must not reach graders")
+			require.Equal(t, &models.InfrastructureDiagnostic{Code: tc.code, Limit: tc.limit}, CaptureDiagnostic(err))
+		})
+	}
+}
+
+func TestCaptureWorkspaceFiles_BoundsTraversalEntries(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 4 {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.txt", i)), nil, 0o644))
+	}
+
+	files, err := captureWorkspaceFilesWithLimits(dir, nil, workspaceCaptureLimits{
+		maxFiles: 10, maxEntries: 3, maxFileBytes: 10, maxTotalBytes: 10,
+	})
+	require.ErrorContains(t, err, "traversal entries exceed limit")
+	require.Nil(t, files)
+	require.Equal(t, &models.InfrastructureDiagnostic{Code: models.CaptureEntryCount, Limit: 3}, CaptureDiagnostic(err))
+}
+
+func TestCaptureWorkspaceFiles_PreservedSymlinkCannotEscapeWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation may require elevated privileges on Windows")
+	}
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	require.NoError(t, os.WriteFile(outside, []byte("outside"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Dir(outside), filepath.Join(dir, "output")))
+
+	files, err := captureWorkspaceFiles(dir, []string{"output/outside.txt"})
+	require.Error(t, err)
+	require.Nil(t, files)
+}
+
+func TestCaptureWorkspaceFiles_PreservesConfinedSymlinkTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation may require elevated privileges on Windows")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "target.txt"), []byte("ready"), 0o644))
+	require.NoError(t, os.Symlink("target.txt", filepath.Join(dir, "result.txt")))
+
+	files, err := captureWorkspaceFiles(dir, []string{"result.txt"})
+	require.NoError(t, err)
+	require.Equal(t, []byte("ready"), files["result.txt"])
+}
+
+func BenchmarkCaptureWorkspaceFilesDependencyTree(b *testing.B) {
+	dir := b.TempDir()
+	require.NoError(b, os.WriteFile(filepath.Join(dir, "source.go"), []byte("package sample\n"), 0o644))
+	dependencies := filepath.Join(dir, "node_modules", "package")
+	require.NoError(b, os.MkdirAll(dependencies, 0o755))
+	content := make([]byte, 4<<10)
+	for i := range 4096 {
+		require.NoError(b, os.WriteFile(filepath.Join(dependencies, fmt.Sprintf("file-%04d.js", i)), content, 0o644))
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		_, err := captureWorkspaceFiles(dir, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }

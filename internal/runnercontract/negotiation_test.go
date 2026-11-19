@@ -102,6 +102,7 @@ func TestCapturedRequestShapeRemainsCompatibleWithoutExecution(t *testing.T) {
 	require.False(t, request.AllowPaidExecution)
 	response := Negotiate(data)
 	require.Equal(t, "compatible", response.Status)
+	require.Equal(t, response, NegotiateValidatedRequest(request))
 	require.Empty(t, response.Diagnostics)
 	require.Contains(t, response.Negotiation.Selected, "terminal-result")
 	request.AllowPaidExecution = true
@@ -183,6 +184,18 @@ func TestNegotiationDiagnosticsStayBoundedWithoutDroppingRequirements(t *testing
 		data, err := json.Marshal(request)
 		require.NoError(t, err)
 		response := Negotiate(data)
+		validated, err := Parse(data)
+		require.NoError(t, err)
+		require.Equal(t, response, NegotiateValidatedRequest(validated))
+		after, err := json.Marshal(validated)
+		require.NoError(t, err)
+		require.JSONEq(t, string(data), string(after), "negotiation must not mutate the admitted request")
+		compact, err := json.Marshal(NegotiationRequest{
+			SchemaVersion: request.SchemaVersion, Versions: request.Versions,
+			RequiredCapabilities: request.RequiredCapabilities, OptionalCapabilities: request.OptionalCapabilities,
+		})
+		require.NoError(t, err)
+		require.Equal(t, "invalid_request", Negotiate(compact).Status, "negotiation-only offer limits must remain enforced")
 		require.NotEqual(t, "compatible", response.Status)
 		require.Len(t, response.Diagnostics, 65)
 		require.Contains(t, response.Diagnostics[64].Message, "136 additional")
@@ -193,6 +206,12 @@ func TestNegotiationDiagnosticsStayBoundedWithoutDroppingRequirements(t *testing
 	require.True(t, utf8.ValidString(response.Diagnostics[0].Message))
 	require.Contains(t, response.Diagnostics[0].Message, "diagnostic truncated")
 	require.Less(t, len([]rune(response.Diagnostics[0].Message)), 4200)
+}
+
+func TestNegotiateValidatedRequestRejectsNil(t *testing.T) {
+	response := NegotiateValidatedRequest(nil)
+	require.Equal(t, "invalid_request", response.Status)
+	require.Empty(t, response.Negotiation.Selected)
 }
 
 func TestNegotiationResponseSchemaRejectsContradictions(t *testing.T) {

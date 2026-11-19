@@ -33,6 +33,11 @@ type TestCase struct {
 	// nil inherits the eval-level value; 0 disables the check for this task.
 	FirstEventTimeoutSec *int                 `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
 	CommandMocks         *[]CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
+	// UserInputResponses scripts answers to native SDK user-input requests.
+	// The eval's config.native_user_input controls whether the callback is
+	// registered. nil or an empty list means no scripted answers; the task's
+	// adaptive responder, if configured, still answers questions.
+	UserInputResponses *[]UserInputResponseConfig `yaml:"user_input_responses,omitempty" json:"user_input_responses,omitempty"`
 	// MCPMocks replace same-named eval mcp_mocks for this task and add new
 	// names; other eval mocks still apply. See EffectiveMCPMocks.
 	MCPMocks   []MCPMockConfig   `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
@@ -273,12 +278,13 @@ type BehaviorRules struct {
 
 // ValidatorInline is a validator embedded in a test case
 type ValidatorInline struct {
-	Identifier string           `yaml:"name" json:"identifier"`
-	Kind       GraderKind       `yaml:"type,omitempty" json:"kind,omitempty"`
-	Checks     []string         `yaml:"assertions,omitempty" json:"checks,omitempty"`
-	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
-	Weight     float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
-	Parameters GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+	Identifier           string           `yaml:"name" json:"identifier"`
+	Kind                 GraderKind       `yaml:"type,omitempty" json:"kind,omitempty"`
+	Checks               []string         `yaml:"assertions,omitempty" json:"checks,omitempty"`
+	Rubric               string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
+	Weight               float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Parameters           GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+	captureUnknownFields bool
 }
 
 func (v *ValidatorInline) EffectiveWeight() float64 {
@@ -325,6 +331,7 @@ func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
 	v.Rubric = raw.Rubric
 	v.Weight = raw.Weight
 	v.Parameters = params
+	v.captureUnknownFields = captureGraderUnknownFields(bytesData, &raw, &raw.Parameters, params)
 
 	// Validate grader-type-specific required fields
 	if err := v.Validate(); err != nil {
@@ -433,6 +440,9 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 	if tc.CommandMocks != nil && executor != "copilot-sdk" {
 		return fmt.Errorf("test case %q: command_mocks requires executor copilot-sdk", tc.TestID)
 	}
+	if tc.UserInputResponses != nil && executor != "copilot-sdk" {
+		return fmt.Errorf("test case %q: user_input_responses requires executor copilot-sdk", tc.TestID)
+	}
 	if len(tc.MCPMocks) > 0 && executor != "copilot-sdk" {
 		return fmt.Errorf("test case %q: mcp_mocks requires executor copilot-sdk", tc.TestID)
 	}
@@ -455,6 +465,11 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 func (tc *TestCase) Validate() error {
 	if tc.CommandMocks != nil {
 		if err := ValidateCommandMocks(*tc.CommandMocks); err != nil {
+			return fmt.Errorf("test case %q: %w", tc.TestID, err)
+		}
+	}
+	if tc.UserInputResponses != nil {
+		if err := ValidateUserInputResponses(*tc.UserInputResponses); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
 		}
 	}
@@ -602,8 +617,11 @@ func ParseTestCaseOffline(data []byte, path string, validate func(string, Grader
 func parseTestCase(data []byte, path string, offline bool, readFile func(string) ([]byte, error), validate func(string, GraderParameters) error) (*TestCase, error) {
 	data = bytes.Clone(data)
 	var sourceErr error
+	if err := ValidateUserInputResponsesDocument(data); err != nil {
+		sourceErr = fmt.Errorf("task user input: %w", err)
+	}
 	if err := validateDeclaredFaults(data, "", true); err != nil {
-		sourceErr = fmt.Errorf("task fault sources: %w", err)
+		sourceErr = errors.Join(sourceErr, fmt.Errorf("task fault sources: %w", err))
 	}
 	if offline {
 		if err := guardOfflineModelSchemas(data, true, validate); err != nil {

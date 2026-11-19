@@ -1,18 +1,48 @@
 package nativesnapshot
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/releasepolicy"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCollectionCaptureReadsPreWorkspaceCapturePathsRequests(t *testing.T) {
+	_, locations := fixture(t)
+	captured, err := CaptureCollection(t.Context(), locations)
+	require.NoError(t, err)
+	// Historical requests had no capture-path member. Preserve all other
+	// request bytes, including member order, rather than re-encoding a map.
+	captured.capture.prepared.canonical = bytes.ReplaceAll(
+		captured.capture.prepared.canonical, []byte(`,"WorkspaceCapturePaths":null`), nil)
+	require.NotContains(t, string(captured.capture.prepared.canonical), `"WorkspaceCapturePaths"`)
+	digest, err := evidence.JSONDigest(json.RawMessage(captured.capture.prepared.canonical))
+	require.NoError(t, err)
+	captured.capture.prepared.seal = *digest
+	resealG2(t, captured.capture, func(associations *captureAssociations) {
+		associations.Snapshot = *digest
+	})
+	raw, err := captured.Marshal(t.Context())
+	require.NoError(t, err)
+	retained, err := ReadCollectionCapture(t.Context(), raw)
+	require.NoError(t, err, "pre-change collection captures must reconstruct unchanged native CLIENT bytes")
+	for _, arm := range []releasepolicy.Arm{releasepolicy.Baseline, releasepolicy.Candidate} {
+		request, err := retained.Request(t.Context(), arm, "task")
+		require.NoError(t, err)
+		require.Empty(t, request.WorkspaceCapturePaths)
+		require.Equal(t, []byte(arm), request.Resources[0].Content)
+	}
+}
 
 func TestCollectionCaptureRawWireAdmission(t *testing.T) {
 	for _, test := range []struct {
@@ -119,6 +149,7 @@ func BenchmarkReadCollectionCaptureActualExecutable(b *testing.B) {
 	require.NoError(b, err)
 	raw, err := captured.Marshal(b.Context())
 	require.NoError(b, err)
+	b.Logf("capture wire: %d bytes", len(raw))
 	b.SetBytes(int64(len(raw)))
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -126,6 +157,24 @@ func BenchmarkReadCollectionCaptureActualExecutable(b *testing.B) {
 		retained, err := ReadCollectionCapture(b.Context(), raw)
 		require.NoError(b, err)
 		require.NotNil(b, retained)
+	}
+}
+
+func TestOwnedProjectionValidationRetainsDetachedCaptureBuffers(t *testing.T) {
+	_, locations := fixture(t)
+	capture, err := prepareProjectionCapture(collectionContext(t.Context()), locations)
+	require.NoError(t, err)
+	input, err := projectionInput(t.Context(), capture)
+	require.NoError(t, err)
+	owned, err := validateOwnedProjectionInput(collectionContext(t.Context()), input)
+	require.NoError(t, err)
+	detached, err := validateProjectionInput(collectionContext(t.Context()), input)
+	require.NoError(t, err)
+
+	for _, arm := range []releasepolicy.Arm{releasepolicy.Baseline, releasepolicy.Candidate} {
+		require.NotEmpty(t, input.sources[arm])
+		require.Same(t, &input.sources[arm][0].Bytes[0], &owned.sources[arm][0].Bytes[0])
+		require.NotSame(t, &input.sources[arm][0].Bytes[0], &detached.sources[arm][0].Bytes[0])
 	}
 }
 

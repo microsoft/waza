@@ -86,7 +86,7 @@ func (p *Policy) redactJSONValueWithChanges(value any) (any, bool, error) {
 			if p.RedactString(key) != key {
 				return nil, false, errors.New("object key requires redaction; cannot preserve its identity safely")
 			}
-			if p.IsSensitiveKey(key) {
+			if p.IsSensitiveKey(key) && !p.preserveValue(item) {
 				text, ok := item.(string)
 				changed = changed || !ok || text != RedactionPlaceholder
 				value[key] = RedactionPlaceholder

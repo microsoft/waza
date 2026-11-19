@@ -54,11 +54,11 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range []string{"push", "pull_request"} {
-		if !slices.Contains(triggers[event]["paths"], "examples/runner/unit.json") {
+	for _, event := range []string{"push"} {
+		if !slices.Contains(triggers[event].Filters["paths"], "examples/runner/unit.json") {
 			t.Errorf("%s must select changes to the runner example", event)
 		}
-		if !slices.Contains(triggers[event]["paths"], "examples/runner/container/**") {
+		if !slices.Contains(triggers[event].Filters["paths"], "examples/runner/container/**") {
 			t.Errorf("%s must select changes to nested runner container inputs", event)
 		}
 		for _, path := range []string{
@@ -66,7 +66,7 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 			".github/scripts/testdata/runner-runtime/**",
 			".github/scripts/testdata/native-bundle-probe/**",
 		} {
-			if !slices.Contains(triggers[event]["paths"], path) {
+			if !slices.Contains(triggers[event].Filters["paths"], path) {
 				t.Errorf("%s must select native container input %s", event, path)
 			}
 		}
@@ -87,26 +87,13 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 			t.Fatal("removing main from Docker push discovery must fail")
 		}
 	})
-	t.Run("pull-request-main-removal", func(t *testing.T) {
-		mutated := strings.Replace(workflow,
-			"pull_request:\n    branches: [main]",
-			"pull_request:\n    branches: []", 1)
+	t.Run("standalone-pull-request-rejected", func(t *testing.T) {
+		mutated := strings.Replace(workflow, "  workflow_call:\n", "  pull_request:\n    branches: [main]\n  workflow_call:\n", 1)
 		if mutated == workflow {
-			t.Fatal("mutation did not remove main from the pull request selector")
+			t.Fatal("mutation did not add a standalone pull request trigger")
 		}
 		if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
-			t.Fatal("removing main from Docker pull request discovery must fail")
-		}
-	})
-	t.Run("temporary-parent-rejected", func(t *testing.T) {
-		mutated := strings.Replace(workflow,
-			"pull_request:\n    branches: [main]",
-			"pull_request:\n    branches: [main, spboyer-native-container-integration]", 1)
-		if mutated == workflow {
-			t.Fatal("mutation did not add the retired native image stacked-parent selector")
-		}
-		if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
-			t.Fatal("the retired native image stacked parent must fail Docker discovery validation")
+			t.Fatal("pull requests must reach Docker validation only through the go-ci container caller")
 		}
 	})
 	if !strings.Contains(workflow, "run: node --test examples/runner/container/native-test.mjs") {
@@ -119,13 +106,11 @@ func checkDockerRunnerBranches(source []byte) error {
 	if err != nil {
 		return err
 	}
-	if !slices.Equal(triggers["push"]["branches"], []string{"main"}) {
+	if !slices.Equal(triggers["push"].Filters["branches"], []string{"main"}) {
 		return fmt.Errorf("Docker pushes must remain limited to main")
 	}
-	if !slices.Equal(triggers["pull_request"]["branches"], []string{
-		"main",
-	}) {
-		return fmt.Errorf("Docker pull requests must select main only")
+	if _, ok := triggers["pull_request"]; ok {
+		return fmt.Errorf("Docker pull requests must run only through the go-ci container caller")
 	}
 	return nil
 }

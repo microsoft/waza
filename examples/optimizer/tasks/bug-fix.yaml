@@ -1,0 +1,12 @@
+id: bug-fix
+name: Crash fix notes
+tags: [qualification]
+inputs:
+  prompt: "Write release notes for a crash fix in report output."
+  files:
+    - path: style-guide.md
+graders:
+  - name: bug-fix-style
+    type: text
+    config:
+      contains: ["upgrade"]

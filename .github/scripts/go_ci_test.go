@@ -1,8 +1,10 @@
 package scripts
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -12,7 +14,292 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type workflowTriggers map[string]map[string][]string
+func TestGoLintExecutesReleaseAssetHelper(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(source []byte) error {
+		var workflow struct {
+			Env  map[string]yaml.Node `yaml:"env"`
+			Jobs map[string]struct {
+				Name  string               `yaml:"name"`
+				Env   map[string]yaml.Node `yaml:"env"`
+				Steps []struct {
+					ordinaryValidationStep `yaml:",inline"`
+					Env                    map[string]yaml.Node `yaml:"env"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(source, &workflow); err != nil {
+			return err
+		}
+		job := workflow.Jobs["lint"]
+		if job.Name != goRequiredName("Lint", "'Lint'") {
+			return fmt.Errorf("helper tests require the required Lint job")
+		}
+		for _, step := range job.Steps {
+			if step.Name != "Test Go workflow trigger selection" {
+				continue
+			}
+			if step.If != "" || (step.ContinueOnError.Kind != 0 &&
+				(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false")) {
+				return fmt.Errorf("helper test selection must run without conditional or tolerated failures")
+			}
+			var goflags *yaml.Node
+			for _, env := range []map[string]yaml.Node{workflow.Env, job.Env, step.Env} {
+				if value, present := env["GOFLAGS"]; present {
+					goflags = &value
+				}
+			}
+			if goflags != nil && (goflags.Kind != yaml.ScalarNode || goflags.Tag != "!!str" || goflags.Value != "") {
+				return fmt.Errorf("effective declared GOFLAGS must be omitted or a literal empty string")
+			}
+			literal := strings.Fields(step.Run)
+			if len(literal) < 4 || !slices.Equal(literal[:3], []string{"go", "test", "-count=1"}) {
+				return fmt.Errorf("expected literal uncached Go test command")
+			}
+			packages := literal[3:]
+			if len(packages) > 0 && packages[0] == "-v" {
+				packages = packages[1:]
+			}
+			for _, arg := range packages {
+				if !strings.HasPrefix(arg, "./") {
+					return fmt.Errorf("expected only literal package arguments after -count=1, got %q", arg)
+				}
+				for _, char := range arg {
+					if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-", char) {
+						return fmt.Errorf("nonliteral package argument %q", arg)
+					}
+				}
+			}
+			scratch := t.TempDir()
+			captured := filepath.Join(scratch, "arguments")
+			capturedEnv := filepath.Join(scratch, "environment")
+			probe := "#!/usr/bin/env bash\nset -euo pipefail\ntest ! -e \"$WAZA_HELPER_TEST_ARGUMENTS\"\nprintf '%s\\n' \"$@\" > \"$WAZA_HELPER_TEST_ARGUMENTS\"\nprintf 'GOFLAGS=%s\\n' \"$GOFLAGS\" > \"$WAZA_HELPER_TEST_ENVIRONMENT\"\n"
+			if err := os.WriteFile(filepath.Join(scratch, "go"), []byte(probe), 0o700); err != nil {
+				return err
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-e", "-o", "pipefail", "-c", step.Run)
+			cmd.Env = append(os.Environ(),
+				"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"WAZA_HELPER_TEST_ARGUMENTS="+captured,
+				"WAZA_HELPER_TEST_ENVIRONMENT="+capturedEnv,
+				"GOFLAGS=",
+			)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("execute actual Lint test-selection command: %w\n%s", err, output)
+			}
+			// This guards declarative workflow configuration, not ambient go env -w or runner tool state.
+			envData, err := os.ReadFile(capturedEnv)
+			if err != nil {
+				return fmt.Errorf("record effective GOFLAGS: %w", err)
+			}
+			if string(envData) != "GOFLAGS=\n" {
+				return fmt.Errorf("actual Go environment differs from the admitted empty GOFLAGS")
+			}
+			data, err := os.ReadFile(captured)
+			if err != nil {
+				return fmt.Errorf("Lint must invoke Go, not merely mention the package: %w", err)
+			}
+			args := strings.Split(strings.TrimSpace(string(data)), "\n")
+			if !slices.Equal(args, literal[1:]) {
+				return fmt.Errorf("actual Go arguments differ from literal unfiltered command: %q", args)
+			}
+			count := 0
+			for _, arg := range args {
+				if arg == "./.github/scripts/release-assets-helper" {
+					count++
+				}
+			}
+			if count != 1 {
+				return fmt.Errorf("actual Lint Go invocation selects helper %d times; want exactly once", count)
+			}
+			return nil
+		}
+		return fmt.Errorf("required Lint helper test-selection step is missing")
+	}
+	if err := check(source); err != nil {
+		t.Fatal(err)
+	}
+	if err := check([]byte(strings.Replace(string(source), "go test -count=1 -v", "go test -count=1", 1))); err != nil {
+		t.Fatalf("helper selection must also admit an unfiltered nonverbose command: %v", err)
+	}
+	for _, tc := range []struct{ name, before, after string }{
+		{"missing-package", " ./.github/scripts/release-assets-helper", ""},
+		{"echo-only", "run: go test -count=1 -v ./.github/scripts", "run: echo go test -count=1 -v ./.github/scripts"},
+		{"skipped-step", "- name: Test Go workflow trigger selection\n        id: workflow_controls\n        run:", "- name: Test Go workflow trigger selection\n        id: workflow_controls\n        if: false\n        run:"},
+		{"run-value", "-count=1 -v ./.github/scripts", "-count=1 -v -run '^$' ./.github/scripts"},
+		{"run-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -run=^$ ./.github/scripts"},
+		{"list-value", "-count=1 -v ./.github/scripts", "-count=1 -v -list '.' ./.github/scripts"},
+		{"list-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -list=. ./.github/scripts"},
+		{"skip-value", "-count=1 -v ./.github/scripts", "-count=1 -v -skip '.' ./.github/scripts"},
+		{"skip-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -skip=. ./.github/scripts"},
+		{"args-value", "-count=1 -v ./.github/scripts", "-count=1 -v -args -test.run '^$' ./.github/scripts"},
+		{"args-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -args=-test.run=^$ ./.github/scripts"},
+		{"exec-value", "-count=1 -v ./.github/scripts", "-count=1 -v -exec echo ./.github/scripts"},
+		{"exec-equals", "-count=1 -v ./.github/scripts", "-count=1 -v -exec=echo ./.github/scripts"},
+		{"late-run", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper -run=^$"},
+		{"count-override", "-count=1 -v ./.github/scripts", "-count=1 -v -count=0 ./.github/scripts"},
+		{"failure-mask", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper || true"},
+		{"pipeline-mask", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper | true"},
+		{"duplicate-helper", "./.github/scripts/release-assets-helper", "./.github/scripts/release-assets-helper ./.github/scripts/release-assets-helper"},
+		{"workflow-goflags", "jobs:\n", "env:\n  GOFLAGS: '-run=^$'\njobs:\n"},
+		{"job-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: '-list=.'\n"},
+		{"step-goflags", "- name: Test Go workflow trigger selection\n", "- name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: '-skip=.'\n"},
+		{"dynamic-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: '${{ vars.GOFLAGS }}'\n"},
+		{"null-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: null\n"},
+		{"boolean-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: false\n"},
+		{"numeric-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: 0\n"},
+		{"sequence-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: []\n"},
+		{"mapping-goflags", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: {}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := strings.Replace(string(source), tc.before, tc.after, 1)
+			if mutated == string(source) || check([]byte(mutated)) == nil {
+				t.Fatalf("actual helper selection mutation %q was not rejected", tc.name)
+			}
+		})
+	}
+	for _, tc := range []struct{ name, before, after string }{
+		{"package-order", "./.github/scripts ./.github/scripts/publish-runner-reference-guard", "./.github/scripts/publish-runner-reference-guard ./.github/scripts"},
+		{"additional-package", "-count=1 -v ./.github/scripts", "-count=1 -v ./internal/models ./.github/scripts"},
+		{"workflow-empty-goflags", "jobs:\n", "env:\n  GOFLAGS: ''\njobs:\n"},
+		{"job-empty-overrides-workflow", "  lint:\n", "  lint:\n    env:\n      GOFLAGS: ''\n"},
+		{"step-empty-overrides-job", "- name: Test Go workflow trigger selection\n", "- name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: ''\n"},
+		{"step-empty-overrides-workflow", "- name: Test Go workflow trigger selection\n", "- name: Test Go workflow trigger selection\n        env:\n          GOFLAGS: ''\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := strings.Replace(string(source), tc.before, tc.after, 1)
+			switch tc.name {
+			case "job-empty-overrides-workflow":
+				mutated = strings.Replace(mutated, "jobs:\n", "env:\n  GOFLAGS: '-run=^$'\njobs:\n", 1)
+			case "step-empty-overrides-job":
+				mutated = strings.Replace(mutated, "  lint:\n", "  lint:\n    env:\n      GOFLAGS: '-list=.'\n", 1)
+			case "step-empty-overrides-workflow":
+				mutated = strings.Replace(mutated, "jobs:\n", "env:\n  GOFLAGS: '${{ vars.GOFLAGS }}'\njobs:\n", 1)
+			}
+			if mutated == string(source) {
+				t.Fatal("alternative-valid command was not changed")
+			}
+			if err := check([]byte(mutated)); err != nil {
+				t.Fatalf("alternative-valid command rejected: %v", err)
+			}
+		})
+	}
+}
+
+type workflowTriggers map[string]workflowTrigger
+
+type workflowLiteral struct {
+	Present bool
+	Tag     string
+	Value   string
+}
+
+type workflowInput struct {
+	Type        string
+	Default     workflowLiteral
+	Required    workflowLiteral
+	Description string
+}
+
+type workflowTrigger struct {
+	Mapping bool
+	Filters map[string][]string
+	Inputs  map[string]workflowInput
+	Other   map[string]yaml.Node
+}
+
+func (trigger *workflowTrigger) UnmarshalYAML(node *yaml.Node) error {
+	if node.Tag == "!!null" {
+		return nil
+	}
+	trigger.Mapping = true
+	var fields map[string]yaml.Node
+	if err := node.Decode(&fields); err != nil {
+		return err
+	}
+	for key, value := range fields {
+		switch key {
+		case "inputs":
+			if value.Kind != yaml.MappingNode {
+				return fmt.Errorf("workflow inputs must be a mapping")
+			}
+			var definitions map[string]map[string]yaml.Node
+			if err := value.Decode(&definitions); err != nil {
+				return err
+			}
+			trigger.Inputs = make(map[string]workflowInput, len(definitions))
+			for name, definition := range definitions {
+				var input workflowInput
+				for field, raw := range definition {
+					if raw.Kind != yaml.ScalarNode {
+						return fmt.Errorf("input %s: %s must be scalar", name, field)
+					}
+					switch field {
+					case "type", "description":
+						if raw.Tag != "!!str" {
+							return fmt.Errorf("input %s: %s must be a string", name, field)
+						}
+						if field == "type" {
+							input.Type = raw.Value
+						} else {
+							input.Description = raw.Value
+						}
+					case "default":
+						input.Default = workflowLiteral{Present: true, Tag: raw.Tag, Value: raw.Value}
+					case "required":
+						if raw.Tag != "!!bool" {
+							return fmt.Errorf("input %s: required must be boolean", name)
+						}
+						input.Required = workflowLiteral{Present: true, Tag: raw.Tag, Value: strings.ToLower(raw.Value)}
+					default:
+						return fmt.Errorf("input %s: unsupported field %s", name, field)
+					}
+				}
+				defaultTag := map[string][]string{
+					"boolean": {"!!bool"}, "string": {"!!str"}, "number": {"!!int", "!!float"},
+				}[input.Type]
+				if defaultTag == nil || (input.Default.Present && !slices.Contains(defaultTag, input.Default.Tag)) {
+					return fmt.Errorf("input %s: invalid type or default", name)
+				}
+				if input.Default.Tag == "!!bool" {
+					input.Default.Value = strings.ToLower(input.Default.Value)
+				}
+				trigger.Inputs[name] = input
+			}
+		case "branches", "branches-ignore", "paths", "paths-ignore", "types":
+			var filter []string
+			var entries []yaml.Node
+			if err := value.Decode(&entries); err != nil {
+				return err
+			}
+			if entries != nil {
+				filter = make([]string, 0, len(entries))
+			}
+			for _, entry := range entries {
+				if entry.Kind == yaml.AliasNode && entry.Alias != nil {
+					entry = *entry.Alias
+				}
+				if entry.Kind != yaml.ScalarNode || entry.Tag != "!!str" {
+					return fmt.Errorf("workflow %s entries must be strings", key)
+				}
+				filter = append(filter, entry.Value)
+			}
+			if trigger.Filters == nil {
+				trigger.Filters = make(map[string][]string)
+			}
+			trigger.Filters[key] = filter
+		default:
+			if trigger.Other == nil {
+				trigger.Other = make(map[string]yaml.Node)
+			}
+			trigger.Other[key] = value
+		}
+	}
+	return nil
+}
 
 func checkOfflineAssertionOracleRuntime(source []byte) error {
 	var workflow struct {
@@ -75,6 +362,608 @@ func TestGoWorkflowsInstallOfflineAssertionOracleRuntimeOnEveryPlatform(t *testi
 	}
 }
 
+type ordinaryValidationStep struct {
+	Name            string    `yaml:"name"`
+	If              string    `yaml:"if"`
+	Run             string    `yaml:"run"`
+	ContinueOnError yaml.Node `yaml:"continue-on-error"`
+}
+
+type ordinaryExecutionStep struct {
+	ordinaryValidationStep `yaml:",inline"`
+	Shell                  yaml.Node `yaml:"shell"`
+}
+
+type ordinaryRunDefaults struct {
+	Run struct {
+		Shell yaml.Node `yaml:"shell"`
+	} `yaml:"run"`
+}
+
+func normalizeWorkflowLineEndings(source []byte) []byte {
+	return []byte(strings.ReplaceAll(string(source), "\r\n", "\n"))
+}
+
+func ordinaryShellArguments(platform string, declarations ...yaml.Node) ([]string, error) {
+	var effective yaml.Node
+	for _, declaration := range declarations {
+		if declaration.Kind != 0 {
+			effective = declaration
+		}
+	}
+	if effective.Kind == 0 {
+		if platform == "Windows" {
+			return nil, fmt.Errorf("Windows validation requires explicit Bash for this Bash-script contract; the implicit shell is PowerShell")
+		}
+		return []string{"-e"}, nil
+	}
+	if effective.Kind != yaml.ScalarNode || effective.Tag != "!!str" {
+		return nil, fmt.Errorf("effective validation shell must be a literal supported Bash string")
+	}
+	switch effective.Value {
+	case "bash", "bash --noprofile --norc -e -o pipefail {0}":
+		return []string{"--noprofile", "--norc", "-e", "-o", "pipefail"}, nil
+	case "bash -e {0}":
+		return []string{"-e"}, nil
+	case "bash -e -o pipefail {0}":
+		return []string{"-e", "-o", "pipefail"}, nil
+	default:
+		return nil, fmt.Errorf("unsupported validation shell %q: require a canonical failure-propagating Bash shell", effective.Value)
+	}
+}
+
+func ordinaryGoArguments(t *testing.T, command, platform string, packages, shellArguments []string) ([]string, error) {
+	args, _, err := ordinaryGoProbe(t, command, platform, packages, shellArguments)
+	return args, err
+}
+
+func ordinaryGoProbe(t *testing.T, command, platform string, packages, shellArguments []string, captureSource ...[]byte) ([]string, string, error) {
+	t.Helper()
+	scratch := t.TempDir()
+	inventory := filepath.Join(scratch, "packages")
+	arguments := filepath.Join(scratch, "arguments")
+	discovery := filepath.Join(scratch, "discovery")
+	listed := filepath.Join(scratch, "listed")
+	scripts := filepath.Join(scratch, ".github", "scripts")
+	copyCICaptureScripts(t, scripts)
+	if len(captureSource) > 0 {
+		if err := os.WriteFile(filepath.Join(scripts, "ci_go_test_capture.sh"), captureSource[0], 0o600); err != nil {
+			return nil, "", err
+		}
+	}
+	if err := os.WriteFile(inventory, []byte(strings.Join(packages, "\n")+"\n"), 0o600); err != nil {
+		return nil, "", err
+	}
+	// Execute the workflow shell, but record Go invocations instead of rerunning tests.
+	probe := `#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  version)
+    test "$#" -eq 1
+    echo 'go version go1.26.4 linux/amd64'
+    ;;
+  list)
+    test "$#" -eq 2
+    test "$2" = ./...
+    test ! -e "$WAZA_PACKAGE_LISTED"
+    : > "$WAZA_PACKAGE_LISTED"
+    cat "$WAZA_PACKAGE_INVENTORY"
+    ;;
+  test)
+    shift
+    phase=execution
+    for arg in "$@"; do
+      if [ "$arg" = -list ]; then phase=discovery; fi
+    done
+    captured="$WAZA_TEST_ARGUMENTS"
+    if [ "$phase" = discovery ]; then captured="$WAZA_DISCOVERY_ARGUMENTS"; fi
+    test ! -e "$captured"
+    printf '%s\n' "$@" > "$captured"
+    while [ "$#" -gt 0 ] && [[ "$1" = -* ]]; do
+      if [ "$1" = -list ]; then shift 2; else shift; fi
+    done
+    if [ "$*" = ./... ]; then
+      selected=()
+      while IFS= read -r package; do selected+=("$package"); done < "$WAZA_PACKAGE_INVENTORY"
+    else
+      selected=("$@")
+    fi
+    for package in "${selected[@]}"; do
+      printf '{"Action":"start","Package":"%s"}\n' "$package"
+      if [ "$phase" = discovery ]; then
+        printf '{"Action":"output","Package":"%s","Output":"TestObserved\\n"}\n' "$package"
+      else
+        printf '{"Action":"run","Package":"%s","Test":"TestObserved"}\n' "$package"
+        printf '{"Action":"pass","Package":"%s","Test":"TestObserved","Elapsed":1}\n' "$package"
+      fi
+      printf '{"Action":"pass","Package":"%s","Elapsed":2}\n' "$package"
+    done
+    ;;
+  *) exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(scratch, "go"), []byte(probe), 0o700); err != nil {
+		return nil, "", err
+	}
+	script := filepath.Join(scratch, "selection script.sh")
+	if err := os.WriteFile(script, []byte(command), 0o600); err != nil {
+		return nil, "", fmt.Errorf("write test-selection script: %w", err)
+	}
+	cmd := exec.CommandContext(t.Context(), "bash", append(slices.Clone(shellArguments), script)...)
+	cmd.Dir = scratch
+	cmd.Env = append(os.Environ(),
+		"PATH="+scratch+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"RUNNER_OS="+platform,
+		"CI_EVIDENCE_COLD_REQUESTED=false",
+		"WAZA_PACKAGE_INVENTORY="+inventory,
+		"WAZA_TEST_ARGUMENTS="+arguments,
+		"WAZA_DISCOVERY_ARGUMENTS="+discovery,
+		"WAZA_PACKAGE_LISTED="+listed,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, "", fmt.Errorf("%s: executing workflow test-selection probe: %w\n%s", platform, err, output)
+	}
+	captured, err := os.ReadFile(arguments)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: workflow must execute Go tests: %w", platform, err)
+	}
+	return strings.Split(strings.TrimSuffix(string(captured), "\n"), "\n"), scratch, nil
+}
+
+func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages []string, sharded bool, shellArguments []string, captureSource ...[]byte) error {
+	t.Helper()
+	args, scratch, err := ordinaryGoProbe(t, command, platform, packages, shellArguments, captureSource...)
+	if err != nil {
+		return err
+	}
+	requiredFlags := []string{"-count=1", "-json", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
+	if sharded {
+		requiredFlags = append(requiredFlags, "-p=4")
+	}
+	var flags, selected []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			flags = append(flags, arg)
+		} else if arg == "./..." {
+			selected = append(selected, packages...)
+		} else {
+			selected = append(selected, arg)
+		}
+	}
+	slices.Sort(flags)
+	slices.Sort(requiredFlags)
+	if !slices.Equal(flags, requiredFlags) {
+		return fmt.Errorf("%s: Go test flags = %q; want %q without narrowing selectors", platform, flags, requiredFlags)
+	}
+	expected := slices.Clone(packages)
+	if sharded {
+		expected = slices.DeleteFunc(expected, func(name string) bool {
+			return name == "github.com/microsoft/waza/internal/controlledcomparison"
+		})
+	}
+	slices.Sort(selected)
+	slices.Sort(expected)
+	if !slices.Equal(selected, expected) {
+		return fmt.Errorf("%s: Go test packages = %q; want exhaustive ordinary inventory %q", platform, selected, expected)
+	}
+	discovered, err := os.ReadFile(filepath.Join(scratch, "discovery"))
+	if err != nil {
+		return fmt.Errorf("%s: missing separate discovery invocation: %w", platform, err)
+	}
+	discoveryArgs := strings.Split(strings.TrimSuffix(string(discovered), "\n"), "\n")
+	prefix := []string{"-race", "-covermode=atomic", "-json", "-list", "."}
+	if sharded {
+		prefix = append([]string{"-p=4"}, prefix...)
+	}
+	if len(discoveryArgs) < len(prefix) || !slices.Equal(discoveryArgs[:len(prefix)], prefix) {
+		return fmt.Errorf("%s: discovery flags = %q; want nonexecuting %q", platform, discoveryArgs, prefix)
+	}
+	discoveryPackages := discoveryArgs[len(prefix):]
+	if slices.Equal(discoveryPackages, []string{"./..."}) {
+		discoveryPackages = slices.Clone(packages)
+	}
+	slices.Sort(discoveryPackages)
+	if !slices.Equal(discoveryPackages, expected) {
+		return fmt.Errorf("%s: discovery packages = %q; want %q", platform, discoveryPackages, expected)
+	}
+	_, listErr := os.Stat(filepath.Join(scratch, "listed"))
+	if sharded && listErr != nil {
+		return fmt.Errorf("%s: remaining selection must use authoritative go list ./...: %w", platform, listErr)
+	}
+	if !sharded && !os.IsNotExist(listErr) {
+		return fmt.Errorf("%s: full execution must preserve root ./... without separate package selection", platform)
+	}
+	reportData, err := os.ReadFile(filepath.Join(scratch, "coverage.txt.evidence.json"))
+	if err != nil {
+		return err
+	}
+	var report struct {
+		Complete      bool
+		DiscoveryExit *int `json:"discovery_exit"`
+		ExecutionExit *int `json:"execution_exit"`
+	}
+	if err := json.Unmarshal(reportData, &report); err != nil {
+		return err
+	}
+	if !report.Complete || report.DiscoveryExit == nil || *report.DiscoveryExit != 0 || report.ExecutionExit == nil || *report.ExecutionExit != 0 {
+		return fmt.Errorf("%s: workflow capture must finalize actual discovery and execution evidence", platform)
+	}
+	return nil
+}
+
+func checkOrdinaryRuntimeMarker(t *testing.T, command string, shellArguments []string) error {
+	t.Helper()
+	guard := filepath.Join(t.TempDir(), "offline runtime")
+	script := guard + ".sh"
+	if err := os.WriteFile(script, []byte(command), 0o600); err != nil {
+		return fmt.Errorf("write runtime-marker script: %w", err)
+	}
+	for _, present := range []bool{false, true} {
+		if present {
+			if err := os.WriteFile(guard+".invoked", nil, 0o600); err != nil {
+				return err
+			}
+		}
+		cmd := exec.CommandContext(t.Context(), "bash", append(slices.Clone(shellArguments), script)...)
+		cmd.Env = append(os.Environ(), "COPILOT_CLI_PATH="+filepath.ToSlash(guard))
+		output, err := cmd.CombinedOutput()
+		status := 0
+		if err != nil {
+			exit, ok := err.(*exec.ExitError)
+			if !ok {
+				return fmt.Errorf("execute runtime marker check: %w", err)
+			}
+			status = exit.ExitCode()
+		}
+		expected := 0
+		if present {
+			expected = 1
+		}
+		if status != expected {
+			return fmt.Errorf("runtime marker present=%t: exit %d; want %d\n%s", present, status, expected, output)
+		}
+	}
+	return nil
+}
+
+func checkOrdinaryOfflineValidation(t *testing.T, source []byte, workflowName string, packages []string) error {
+	t.Helper()
+	var workflow struct {
+		Defaults ordinaryRunDefaults `yaml:"defaults"`
+		Jobs     map[string]struct {
+			Defaults ordinaryRunDefaults     `yaml:"defaults"`
+			Steps    []ordinaryExecutionStep `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	jobs := []string{"validate"}
+	if workflowName == "go-ci.yml" {
+		jobs = []string{"build-and-test", "build-and-test-windows"}
+	}
+	for _, jobName := range jobs {
+		job := workflow.Jobs[jobName]
+		steps := job.Steps
+		platform := "Linux"
+		if jobName == "build-and-test-windows" {
+			platform = "Windows"
+		}
+		positions := make(map[string]int, len(steps))
+		commands := make(map[string]string, len(steps))
+		conditions := make(map[string]string, len(steps))
+		shells := make(map[string][]string, len(steps))
+		for i, step := range steps {
+			positions[step.Name] = i
+			commands[step.Name] = step.Run
+			conditions[step.Name] = step.If
+		}
+		required := []string{
+			"Install and prove rejecting runtime guard",
+			"Verify uncached compatibility inventory",
+			"Execute Tests",
+			"Reject tolerated runtime launches",
+			"Integration Test",
+		}
+		for _, name := range required {
+			if _, ok := positions[name]; !ok {
+				return fmt.Errorf("%s: missing %s", jobName, name)
+			}
+			continueOnError := steps[positions[name]].ContinueOnError
+			if continueOnError.Kind != 0 &&
+				(continueOnError.Tag != "!!bool" || !strings.EqualFold(continueOnError.Value, "false")) {
+				return fmt.Errorf("%s: %s must not tolerate failure", jobName, name)
+			}
+			expectedCondition := ""
+			if workflowName == "go-ci.yml" {
+				if name == required[1] {
+					expectedCondition = "matrix.os == 'ubuntu-latest'"
+				} else if name == "Execute Tests" {
+					expectedCondition = "matrix.os == 'windows-latest'"
+				}
+			}
+			if conditions[name] != expectedCondition {
+				return fmt.Errorf("%s: %s condition = %q; want %q", jobName, name, conditions[name], expectedCondition)
+			}
+			if platform == "Windows" && name == required[1] {
+				continue
+			}
+			shellArguments, err := ordinaryShellArguments(platform, workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, steps[positions[name]].Shell)
+			if err != nil {
+				return fmt.Errorf("%s: %s: %w", jobName, name, err)
+			}
+			shells[name] = shellArguments
+		}
+		for i := 1; i < len(required); i++ {
+			if positions[required[i-1]] >= positions[required[i]] {
+				return fmt.Errorf("%s: %s must precede %s", jobName, required[i-1], required[i])
+			}
+		}
+		if commands[required[0]] != `bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"` {
+			return fmt.Errorf("%s: rejecting runtime guard must use the proven installer", jobName)
+		}
+		if commands[required[1]] != "make test-compat-inventory" {
+			return fmt.Errorf("%s: compatibility inventory must use the canonical Make target", jobName)
+		}
+		testCommand := commands[required[2]]
+		if !strings.Contains(testCommand, "bash .github/scripts/ci_go_test_capture.sh ") {
+			return fmt.Errorf("%s: broad Go tests must use the verified uncached capture caller", jobName)
+		}
+		if !(workflowName == "go-ci.yml" && jobName == "build-and-test") {
+			if err := checkOrdinaryTestSelection(t, testCommand, platform, packages, false, shells[required[2]]); err != nil {
+				return fmt.Errorf("%s: %w", jobName, err)
+			}
+		}
+		if !strings.Contains(commands[required[3]], `"$COPILOT_CLI_PATH.invoked"`) {
+			return fmt.Errorf("%s: tolerated runtime launches must fail validation", jobName)
+		}
+		if err := checkOrdinaryRuntimeMarker(t, commands[required[3]], shells[required[3]]); err != nil {
+			return fmt.Errorf("%s: %w", jobName, err)
+		}
+		integration := commands[required[4]]
+		if !strings.Contains(integration, "bash .github/scripts/release_integration_test.sh") {
+			return fmt.Errorf("%s: integration must use the production artifact gate", jobName)
+		}
+		if conditions[required[4]] != "" {
+			return fmt.Errorf("%s: integration must execute on every job platform", jobName)
+		}
+		if workflowName == "go-ci.yml" {
+			if conditions[required[1]] != "matrix.os == 'ubuntu-latest'" {
+				return fmt.Errorf("%s: compatibility inventory should execute once without duplicating Windows", jobName)
+			}
+			if !strings.Contains(integration, `if [ "$RUNNER_OS" = Windows ]`) ||
+				!strings.Contains(integration, "BINARY_NAME=waza.exe") {
+				return fmt.Errorf("%s: Windows integration must invoke the native executable", jobName)
+			}
+		} else if conditions[required[1]] != "" {
+			return fmt.Errorf("%s: preview compatibility inventory must execute", jobName)
+		}
+	}
+	return nil
+}
+
+func TestOrdinaryWorkflowsUseFailClosedOfflineValidation(t *testing.T) {
+	list := exec.Command("go", "list", "./...")
+	list.Dir = filepath.Join("..", "..")
+	output, err := list.Output()
+	if err != nil {
+		t.Fatalf("discover ordinary package inventory: %v", err)
+	}
+	packages := strings.Fields(string(output))
+	if !slices.Contains(packages, "github.com/microsoft/waza/cmd/waza") ||
+		!slices.Contains(packages, "github.com/microsoft/waza/internal/controlledcomparison") {
+		t.Fatalf("package discovery omitted required CLI/native packages: %v", packages)
+	}
+	for _, name := range []string{"go-ci.yml", "squad-preview.yml"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkOrdinaryOfflineValidation(t, source, name, packages); err != nil {
+				t.Fatal(err)
+			}
+			for _, step := range []string{
+				"Install and prove rejecting runtime guard", "Verify uncached compatibility inventory",
+				"Execute Tests", "Reject tolerated runtime launches", "Integration Test",
+			} {
+				anchor := "      - name: " + step + "\n"
+				mutated := strings.Replace(string(source), anchor, anchor+"        shell: bash -c true {0}\n", 1)
+				if mutated == string(source) {
+					t.Fatalf("selected-step shell mutation did not change %s", step)
+				}
+				if err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages); err == nil {
+					t.Fatalf("%s shell bypass was admitted", step)
+				}
+			}
+			for _, step := range []string{
+				"Install and prove rejecting runtime guard",
+				"Verify uncached compatibility inventory",
+				"Execute Tests",
+				"Reject tolerated runtime launches",
+				"Integration Test",
+			} {
+				anchor := "      - name: " + step + "\n"
+				if !strings.Contains(string(source), anchor) {
+					t.Fatalf("required step mutation anchor missing: %s", step)
+				}
+				for offset := 0; ; {
+					position := strings.Index(string(source)[offset:], anchor)
+					if position < 0 {
+						break
+					}
+					offset += position + len(anchor)
+					for _, value := range []string{"false", "FALSE", "true", "null", "''", "\"false\"", "[]", "{}", "${{ always() }}"} { //nolint:misspell // GitHub expression.
+						mutated := string(source[:offset]) + "        continue-on-error: " + value + "\n" + string(source[offset:])
+						err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages)
+						if (err == nil) != strings.EqualFold(value, "false") {
+							t.Fatalf("%s at offset %d: continue-on-error=%s: validation error = %v", step, offset, value, err)
+						}
+					}
+				}
+			}
+			mutations := [][2]string{
+				{`bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"`, ":"},
+				{"make test-compat-inventory", ":"},
+				{"bash .github/scripts/ci_go_test_capture.sh", ":"},
+				{"      - name: Execute Tests\n", "      - name: Execute Tests\n        if: false\n"},
+				{`"$COPILOT_CLI_PATH.invoked"`, `"$COPILOT_CLI_PATH.unchecked"`},
+				{"bash .github/scripts/release_integration_test.sh", "./waza run"},
+			}
+			if name == "go-ci.yml" {
+				mutations = append(mutations,
+					[2]string{"ci_go_test_capture.sh all", "ci_go_test_capture.sh remaining"},
+					[2]string{"      - name: Integration Test\n        id: integration\n        run:", "      - name: Integration Test\n        id: integration\n        if: matrix.os == 'ubuntu-latest'\n        run:"},
+					[2]string{"BINARY_NAME=waza.exe", "BINARY_NAME=waza"},
+				)
+			}
+			mutations = append(mutations,
+				[2]string{"ci_go_test_capture.sh all coverage.txt", "ci_go_test_capture.sh all unexpected.txt"},
+				[2]string{`if [ -e "$COPILOT_CLI_PATH.invoked" ]; then`, "if true; then"},
+			)
+			message := "Preview Go tests attempted to launch the Copilot runtime."
+			if name == "go-ci.yml" {
+				message = "Ordinary Go tests attempted to launch the Copilot runtime."
+			}
+			mutations = append(mutations, [2]string{
+				`echo "` + message + "\" >&2\n            exit 1",
+				`echo "` + message + "\" >&2\n            :",
+			})
+			for _, mutation := range mutations {
+				mutated := strings.Replace(string(source), mutation[0], mutation[1], 1)
+				if mutated == string(source) {
+					t.Fatalf("mutation did not change workflow: %s", mutation[0])
+				}
+				if err := checkOrdinaryOfflineValidation(t, []byte(mutated), name, packages); err == nil {
+					t.Fatalf("mutation was accepted: %s", mutation[0])
+				}
+			}
+		})
+	}
+}
+
+func TestOrdinaryCICaptureRejectsWeakenedDiscoveryExecutionAndInventory(t *testing.T) {
+	packages := []string{
+		"github.com/microsoft/waza/cmd/waza",
+		"github.com/microsoft/waza/internal/controlledcomparison",
+		"github.com/microsoft/waza/internal/models",
+	}
+	source, err := os.ReadFile("ci_go_test_capture.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range [][2]string{
+		{"-count=1 -json", "-json"},
+		{"-count=1 -json", "-count=2 -json"},
+		{"-count=1 -json", "-count=1"},
+		{"-count=1 -json", "-count=1 -run '^$' -json"},
+		{"-count=1 -json", "-count=1 -skip '.' -json"},
+		{"-count=1 -json", "-count=1 -list '.' -json"},
+		{"-race -covermode=atomic -json -list .", "-json -list ."},
+		{"go list ./...", "go list ./internal/models"},
+		{"github.com/microsoft/waza/internal/controlledcomparison", "github.com/microsoft/waza/cmd/waza"},
+		{`"${selected[@]}"`, "./internal/models"},
+	} {
+		t.Run(mutation[0], func(t *testing.T) {
+			changed := strings.Replace(string(source), mutation[0], mutation[1], 1)
+			if changed == string(source) {
+				t.Fatalf("capture mutation did not change source: %s", mutation[0])
+			}
+			command := "bash .github/scripts/ci_go_test_capture.sh remaining coverage.txt"
+			if err := checkOrdinaryTestSelection(t, command, "Linux", packages, true, []string{"-e"}, []byte(changed)); err == nil {
+				t.Fatalf("weakened capture mutation admitted: %s", mutation[0])
+			}
+		})
+	}
+}
+
+func TestOrdinaryShellOverridesAndDisabledPaths(t *testing.T) {
+	packages := []string{"github.com/microsoft/waza/cmd/waza", "github.com/microsoft/waza/internal/controlledcomparison"}
+	for _, name := range []string{"go-ci.yml", "squad-preview.yml"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			source = normalizeWorkflowLineEndings(source)
+			rootUnsafe := strings.Replace(string(source), "permissions:\n",
+				"defaults:\n  run:\n    shell: bash -c true {0}\n\npermissions:\n", 1)
+			if rootUnsafe == string(source) {
+				t.Fatal("workflow-default mutation did not change actual source")
+			}
+			err = checkOrdinaryOfflineValidation(t, []byte(rootUnsafe), name, packages)
+			if (err == nil) != (name == "go-ci.yml") {
+				t.Fatalf("explicit Go job Bash must override root shell; implicit preview must not: %v", err)
+			}
+			var document map[string]yaml.Node
+			if err := yaml.Unmarshal(source, &document); err != nil {
+				t.Fatal(err)
+			}
+			var jobs map[string]yaml.Node
+			jobsNode := document["jobs"]
+			if err := jobsNode.Decode(&jobs); err != nil {
+				t.Fatal(err)
+			}
+			jobName := "validate"
+			if name == "go-ci.yml" {
+				jobName = "build-and-test-windows"
+			}
+			var job map[string]yaml.Node
+			jobNode := jobs[jobName]
+			if err := jobNode.Decode(&job); err != nil {
+				t.Fatal(err)
+			}
+			var steps []yaml.Node
+			stepNode := job["steps"]
+			if err := stepNode.Decode(&steps); err != nil {
+				t.Fatal(err)
+			}
+			selected := 0
+			for i := range steps {
+				var step ordinaryValidationStep
+				if err := steps[i].Decode(&step); err != nil {
+					t.Fatal(err)
+				}
+				if step.Name != "Verify uncached compatibility inventory" {
+					continue
+				}
+				selected++
+				steps[i].Content = append(steps[i].Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "shell"},
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "pwsh"})
+			}
+			if selected != 1 {
+				t.Fatalf("actual inventory-step count=%d; want one", selected)
+			}
+			sequence := yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+			for i := range steps {
+				sequence.Content = append(sequence.Content, &steps[i])
+			}
+			job["steps"] = sequence
+			if err := jobNode.Encode(job); err != nil {
+				t.Fatal(err)
+			}
+			jobs[jobName] = jobNode
+			jobsNode = document["jobs"]
+			if err := jobsNode.Encode(jobs); err != nil {
+				t.Fatal(err)
+			}
+			document["jobs"] = jobsNode
+			mutated, err := yaml.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(mutated) == string(source) {
+				t.Fatal("inventory shell control did not change actual source")
+			}
+			err = checkOrdinaryOfflineValidation(t, mutated, name, packages)
+			if (err == nil) != (name == "go-ci.yml") {
+				t.Fatalf("disabled Windows inventory must stay outside Bash policy; selected preview inventory must reject: %v", err)
+			}
+		})
+	}
+}
+
 func readTriggers(source []byte) (workflowTriggers, error) {
 	var workflow struct {
 		On workflowTriggers `yaml:"on"`
@@ -96,24 +985,116 @@ func checkTriggers(source []byte, want workflowTriggers) error {
 	return nil
 }
 
+// Evaluate only the literal expressions admitted by checkCanonicalGoWorkflow,
+// rather than approximating arbitrary GitHub Actions expression semantics.
+// goValidationIf is the only admitted condition for always-required Go
+// validation jobs: pushes, new commits, and base retargets validate, while
+// metadata-only PR edits skip.
+const goValidationIf = "(github.event.action != 'edited' || github.event.changes.base != null)"
+
+const goValidationScope = "${{ github.event_name == 'pull_request' && " + goValidationIf + " && github.ref || github.run_id }}"
+
+const goValidationCancel = "${{ github.event_name == 'pull_request' && " + goValidationIf + " }}"
+
+// goRequiredName renames a required check on metadata-only edits, so the
+// skipped job can never stand in for the required result of the last push.
+func goRequiredName(check, value string) string {
+	return "${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (" + check + " not selected)' || " + value + " }}"
+}
+
+func goConcurrencyGroup(group, workflow, event, ref, runID string, metadata bool) string {
+	scope := runID
+	if event == "pull_request" && !metadata {
+		scope = ref
+	}
+	return strings.NewReplacer(
+		"${{ github.workflow }}", workflow,
+		"${{ github.event_name }}", event,
+		goValidationScope, scope,
+	).Replace(group)
+}
+
+func TestGoWorkflowConcurrency(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCanonicalGoWorkflow(source); err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Name        string `yaml:"name"`
+		Concurrency struct {
+			Group  string `yaml:"group"`
+			Cancel string `yaml:"cancel-in-progress"`
+		} `yaml:"concurrency"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	if workflow.Name != "Go Build and Test" {
+		t.Fatalf("unexpected workflow identity %q", workflow.Name)
+	}
+	if workflow.Concurrency.Cancel != goValidationCancel {
+		t.Fatalf("cancel-in-progress = %q; only PR validation runs may cancel", workflow.Concurrency.Cancel)
+	}
+	runs := []struct {
+		name, workflow, event, ref, runID, wantGroup string
+		metadata                                     bool
+		supersedes                                   string
+	}{
+		{"PR old commit", workflow.Name, "pull_request", "refs/pull/829/merge", "100", "Go Build and Test-pull_request-refs/pull/829/merge", false, "829"},
+		{"PR new commit", workflow.Name, "pull_request", "refs/pull/829/merge", "101", "Go Build and Test-pull_request-refs/pull/829/merge", false, "829"},
+		{"different PR", workflow.Name, "pull_request", "refs/pull/830/merge", "102", "Go Build and Test-pull_request-refs/pull/830/merge", false, ""},
+		{"other PR workflow", "Web CI", "pull_request", "refs/pull/829/merge", "103", "Web CI-pull_request-refs/pull/829/merge", false, ""},
+		{"push old run", workflow.Name, "push", "refs/heads/main", "104", "Go Build and Test-push-104", false, ""},
+		{"push same commit again", workflow.Name, "push", "refs/heads/main", "105", "Go Build and Test-push-105", false, ""},
+		{"push same ref as PR", workflow.Name, "push", "refs/pull/829/merge", "106", "Go Build and Test-push-106", false, ""},
+		{"release publication", "Release", "push", "refs/heads/main", "107", "Release-push-107", false, ""},
+		{"manual publication", "Publish Runner Reference Image", "workflow_dispatch", "refs/heads/main", "108", "Publish Runner Reference Image-workflow_dispatch-108", false, ""},
+		{"PR base retarget", workflow.Name, "pull_request", "refs/pull/829/merge", "109", "Go Build and Test-pull_request-refs/pull/829/merge", false, "829"},
+		{"PR body edit", workflow.Name, "pull_request", "refs/pull/829/merge", "110", "Go Build and Test-pull_request-110", true, ""},
+		{"PR title edit", workflow.Name, "pull_request", "refs/pull/829/merge", "111", "Go Build and Test-pull_request-111", true, ""},
+	}
+	for i, older := range runs {
+		t.Run(older.name, func(t *testing.T) {
+			group := goConcurrencyGroup(workflow.Concurrency.Group, older.workflow, older.event, older.ref, older.runID, older.metadata)
+			if group != older.wantGroup {
+				t.Fatalf("group = %q; want %q", group, older.wantGroup)
+			}
+			for j, newer := range runs {
+				if i == j {
+					continue
+				}
+				incomingGroup := goConcurrencyGroup(workflow.Concurrency.Group, newer.workflow, newer.event, newer.ref, newer.runID, newer.metadata)
+				cancel := newer.event == "pull_request" && !newer.metadata
+				wantCancel := older.supersedes != "" && older.supersedes == newer.supersedes
+				if got := cancel && group == incomingGroup; got != wantCancel {
+					t.Errorf("%s supersedes %s = %v; want %v", newer.name, older.name, got, wantCancel)
+				}
+			}
+		})
+	}
+}
+
 // Selection is deliberately limited to the exact, literal branch/type filters
 // admitted by checkTriggers, not a general GitHub Actions glob interpreter.
 func selects(triggers workflowTriggers, event, branch, action string) bool {
-	filters, ok := triggers[event]
+	trigger, ok := triggers[event]
 	if !ok {
 		return false
 	}
-	if branches, ok := filters["branches"]; ok && !slices.Contains(branches, branch) {
+	if branches, ok := trigger.Filters["branches"]; ok && !slices.Contains(branches, branch) {
 		return false
 	}
 	if event == "pull_request" {
-		types, ok := filters["types"]
+		types, ok := trigger.Filters["types"]
 		if !ok {
 			types = []string{"opened", "synchronize", "reopened"}
 		}
 		return slices.Contains(types, action)
 	}
-	return event == "push"
+	return event == "push" || event == "workflow_dispatch"
 }
 
 func checkCanonicalGoWorkflow(source []byte) error {
@@ -129,29 +1110,101 @@ func checkCanonicalGoWorkflow(source []byte) error {
 			Needs []string `yaml:"needs"`
 			If    string   `yaml:"if"`
 			Steps []struct {
-				Run string `yaml:"run"`
+				ID   string            `yaml:"id"`
+				If   string            `yaml:"if"`
+				Run  string            `yaml:"run"`
+				Uses string            `yaml:"uses"`
+				With map[string]string `yaml:"with"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		return err
 	}
-	if workflow.Concurrency.Group != "${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}" ||
-		workflow.Concurrency.Cancel != "${{ github.event_name == 'pull_request' }}" {
+	if workflow.Concurrency.Group != "${{ github.workflow }}-${{ github.event_name }}-"+goValidationScope ||
+		workflow.Concurrency.Cancel != goValidationCancel {
 		return fmt.Errorf("cancel only superseded PR runs, scoped to workflow/event/ref; non-PR runs require independent groups")
 	}
 	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) {
 		return fmt.Errorf("validation must remain read-only")
 	}
-	if workflow.Jobs["lint"].Name != "Lint" ||
-		workflow.Jobs["build-and-test-windows"].Name != "${{ matrix.os }}" ||
-		workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" {
+	if workflow.Jobs["lint"].Name != goRequiredName("Lint", "'Lint'") ||
+		workflow.Jobs["build-and-test-windows"].Name != goRequiredName("windows-latest", "matrix.os") ||
+		workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" ||
+		workflow.Jobs["linux-remaining-shards"].Uses != "./.github/workflows/go-remaining-shards.yml" {
 		return fmt.Errorf("required native and lint jobs must be retained")
 	}
+	for _, job := range []string{"lint", "build-and-test", "build-and-test-windows",
+		"native-test-shards", "linux-remaining-shards"} {
+		if workflow.Jobs[job].If != goValidationIf {
+			return fmt.Errorf("%s must skip only metadata-only PR edits", job)
+		}
+	}
+	merge := workflow.Jobs["linux-coverage-merge"]
+	if merge.If != "${{ always() && "+goValidationIf+" }}" ||
+		!reflect.DeepEqual(merge.Needs, []string{"linux-remaining-shards"}) {
+		return fmt.Errorf("coverage merger must inspect remaining shards even after failure")
+	}
+	for _, stepID := range []string{"node"} {
+		found := false
+		for _, step := range merge.Steps {
+			if step.ID == stepID {
+				found = true
+				if step.If != "github.event_name == 'pull_request'" {
+					return fmt.Errorf("coverage merger %s setup must not extend main-push critical path", stepID)
+				}
+			}
+		}
+		if !found {
+			return fmt.Errorf("coverage merger is missing %s setup", stepID)
+		}
+	}
+	sourcesFound := false
+	downloadFound := false
+	mergeFound := false
+	coverSummaryFound := false
+	for _, step := range merge.Steps {
+		switch step.ID {
+		case "sources":
+			sourcesFound = true
+			if step.If != "" || !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
+				step.With["name"] != "go-remaining-coverage-source-${{ github.run_id }}-${{ steps.merge.outputs.shard0_attempt }}-0" ||
+				step.With["path"] != "web/node_modules/flatted/golang/pkg/flatted" {
+				return fmt.Errorf("coverage source artifact must match the verified shard 0 attempt")
+			}
+		case "download":
+			downloadFound = true
+			if !strings.HasPrefix(step.Uses, "actions/download-artifact@") ||
+				step.With["pattern"] != "go-remaining-shard-*-${{ github.run_id }}-*" ||
+				step.With["merge-multiple"] != "false" || step.With["path"] != "remaining-artifacts" {
+				return fmt.Errorf("coverage merger must keep remaining-shard attempts isolated")
+			}
+		case "merge":
+			mergeFound = true
+			if !strings.Contains(step.Run, "go_remaining_shard_verify.py") ||
+				!strings.Contains(step.Run, "remaining-artifacts") ||
+				!strings.Contains(step.Run, "go-remaining-verification.json") ||
+				!strings.Contains(step.Run, "shard0_attempt=") ||
+				!strings.Contains(step.Run, `["attempts"]["0"]`) ||
+				!strings.Contains(step.Run, "GITHUB_OUTPUT") {
+				return fmt.Errorf("coverage merger must expose the verified shard 0 attempt")
+			}
+		case "cover_summary":
+			coverSummaryFound = true
+			if !strings.Contains(step.Run, "go tool cover -func=coverage.txt") {
+				return fmt.Errorf("coverage merger must validate the merged profile source paths")
+			}
+		}
+	}
+	if !sourcesFound || !downloadFound || !mergeFound || !coverSummaryFound {
+		return fmt.Errorf("coverage merger is missing attempt-scoped sources, receipts, or verification")
+	}
 	gate := workflow.Jobs["linux-gate"]
-	if gate.Name != "ubuntu-latest" || gate.If != "${{ always() }}" ||
-		!reflect.DeepEqual(gate.Needs, []string{"build-and-test", "native-test-shards"}) {
-		return fmt.Errorf("required Linux gate must inspect both validation branches even after failure")
+	if gate.Name != goRequiredName("ubuntu-latest", "'ubuntu-latest'") || gate.If != "${{ always() && "+goValidationIf+" }}" ||
+		!reflect.DeepEqual(gate.Needs, []string{
+			"build-and-test", "native-test-shards", "linux-remaining-shards", "linux-coverage-merge",
+		}) {
+		return fmt.Errorf("required Linux gate must inspect every validation branch even after failure")
 	}
 	var commands string
 	for _, step := range gate.Steps {
@@ -160,6 +1213,8 @@ func checkCanonicalGoWorkflow(source []byte) error {
 	for _, required := range []string{
 		`test "$BUILD_RESULT" = success`,
 		`test "$NATIVE_RESULT" = success`,
+		`test "$REMAINING_RESULT" = success`,
+		`test "$MERGE_RESULT" = success`,
 		"bash .github/scripts/go_test_shard_verify.sh coverage-reports",
 	} {
 		if !strings.Contains(commands, required) {
@@ -178,17 +1233,28 @@ func TestCanonicalGoWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, mutation := range [][2]string{
-		{"${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
-		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.ref }}"},
-		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.run_id }}"},
-		{"${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "${{ github.event_name == 'pull_request' && github.ref || github.sha }}"},
-		{"cancel-in-progress: ${{ github.event_name == 'pull_request' }}", "cancel-in-progress: true"},
-		{"cancel-in-progress: ${{ github.event_name == 'pull_request' }}", "cancel-in-progress: false"},
-		{"name: Lint", "name: Lint renamed"},
-		{"name: ubuntu-latest", "name: Linux renamed"},
-		{"needs: [build-and-test, native-test-shards]", "needs: [build-and-test]"},
-		{"if: ${{ always() }}", "if: ${{ success() }}"},
+		{"${{ github.workflow }}-${{ github.event_name }}-" + goValidationScope, "${{ github.ref }}"},
+		{"${{ github.workflow }}-", ""},
+		{"${{ github.event_name }}-", ""},
+		{"${{ github.workflow }}-${{ github.event_name }}-" + goValidationScope, "go-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}"},
+		{goValidationScope, "${{ github.ref }}"},
+		{goValidationScope, "${{ github.run_id }}"},
+		{goValidationScope, "${{ github.event_name == 'pull_request' && github.ref || github.run_id }}"},
+		{goValidationScope, "${{ github.event_name == 'pull_request' && " + goValidationIf + " && github.ref || github.sha }}"},
+		{"cancel-in-progress: " + goValidationCancel, "cancel-in-progress: true"},
+		{"cancel-in-progress: " + goValidationCancel, "cancel-in-progress: false"},
+		{"cancel-in-progress: " + goValidationCancel, "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"},
+		{"'Lint' }}", "'Lint renamed' }}"},
+		{"'PR metadata (Lint not selected)' || 'Lint' }}", "'Lint' || 'Lint' }}"},
+		{"'ubuntu-latest' }}", "'Linux renamed' }}"},
+		{"'PR metadata (windows-latest not selected)' || matrix.os }}", "matrix.os || matrix.os }}"},
+		{"    name: Linux build and support checks\n    if: " + goValidationIf, "    name: Linux build and support checks\n    if: github.event_name != 'pull_request'"},
+		{"  native-test-shards:\n    if: " + goValidationIf, "  native-test-shards:\n    if: github.event.action != 'edited'"},
+		{"needs: [build-and-test, native-test-shards, linux-remaining-shards, linux-coverage-merge]", "needs: [build-and-test]"},
+		{"if: ${{ always() && " + goValidationIf + " }}", "if: ${{ always() }}"},
 		{`test "$NATIVE_RESULT" = success`, ":"},
+		{`test "$REMAINING_RESULT" = success`, ":"},
+		{`test "$MERGE_RESULT" = success`, ":"},
 		{"bash .github/scripts/go_test_shard_verify.sh coverage-reports", ":"},
 	} {
 		mutated := strings.Replace(string(source), mutation[0], mutation[1], 1)
@@ -223,13 +1289,388 @@ func TestCanonicalGoWorkflow(t *testing.T) {
 		t.Fatalf("obsolete Squad CI workflow must be removed: %v", err)
 	}
 }
+
+func TestGoRemainingShardWorkflowContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-remaining-shards.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Jobs        map[string]struct {
+			RunsOn         string `yaml:"runs-on"`
+			TimeoutMinutes int    `yaml:"timeout-minutes"`
+			Strategy       struct {
+				FailFast bool `yaml:"fail-fast"`
+				Matrix   struct {
+					Shard []int `yaml:"shard"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+			Steps []struct {
+				ID   string            `yaml:"id"`
+				If   string            `yaml:"if"`
+				Run  string            `yaml:"run"`
+				Uses string            `yaml:"uses"`
+				Env  map[string]string `yaml:"env"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	job := workflow.Jobs["remaining"]
+	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) ||
+		job.RunsOn != "ubuntu-latest" || job.TimeoutMinutes != 40 ||
+		job.Strategy.FailFast || !reflect.DeepEqual(job.Strategy.Matrix.Shard, []int{0, 1, 2, 3}) {
+		t.Fatalf("remaining-shard workflow changes its read-only four-shard contract: %+v", job)
+	}
+	steps := make(map[string]string, len(job.Steps))
+	shardIdentity, coldFixture := "", ""
+	for _, step := range job.Steps {
+		if step.ID != "" {
+			if _, duplicate := steps[step.ID]; duplicate {
+				t.Fatalf("duplicate remaining-shard step id %q", step.ID)
+			}
+			steps[step.ID] = strings.Join([]string{
+				step.If, step.Run, step.Uses, step.With["name"], step.With["path"],
+			}, " ")
+		}
+		if step.ID == "remaining_tests" {
+			shardIdentity = step.Env["WAZA_REMAINING_SHARD"]
+		}
+		if step.ID == "discovery_controls" {
+			coldFixture = step.Env["CI_EVIDENCE_COLD_REQUESTED"]
+		}
+	}
+	for id, command := range map[string]string{
+		"discovery_controls": "go_remaining_shard_test.sh",
+		"remaining_tests":    "go_remaining_test_shard.sh",
+		"coverage":           "go-remaining-shard-",
+		"coverage_sources":   "go-remaining-coverage-source-",
+		"observation":        "ci-evidence-go-remaining-",
+	} {
+		if !strings.Contains(steps[id], command) {
+			t.Errorf("remaining-shard step %q does not retain %q", id, command)
+		}
+	}
+	if shardIdentity != "${{ matrix.shard }}" || coldFixture != "false" {
+		t.Errorf("remaining-shard execution must bind its shard and disable cold observation only for synthetic controls: shard=%q cold=%q",
+			shardIdentity, coldFixture)
+	}
+	nodeCache := ""
+	for _, step := range job.Steps {
+		if step.ID == "node" {
+			nodeCache = step.With["cache"]
+		}
+	}
+	if nodeCache != "${{ !inputs.cold_observation && 'npm' || '' }}" {
+		t.Errorf("remaining-shard Node cache must select npm or be disabled: %q", nodeCache)
+	}
+	shardScript, err := os.ReadFile(filepath.Join("..", "scripts", "go_remaining_test_shard.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"go_remaining_package_durations.tsv",
+		"go_remaining_shard_plan.py",
+		"go test -p=4 -count=1 -json -v -race -timeout=30m",
+		"-covermode=atomic",
+		"CI_EVIDENCE_INVENTORY_SCOPE=qualified",
+	} {
+		if !strings.Contains(string(shardScript), required) {
+			t.Errorf("remaining test shard script missing %q", required)
+		}
+	}
+	if strings.Contains(string(shardScript), "-run ") {
+		t.Fatal("remaining shard must execute every test in each assigned package")
+	}
+}
+
+func TestGoCoverageMergeArtifactCanBeReplacedOnRetry(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				With struct {
+					Name      string `yaml:"name"`
+					Overwrite bool   `yaml:"overwrite"`
+				} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range workflow.Jobs["linux-coverage-merge"].Steps {
+		if step.Name == "Retain merged remaining-package coverage" {
+			if step.With.Name != "go-coverage-main" || !step.With.Overwrite {
+				t.Fatalf("coverage artifact must be replaceable on a same-run retry: %+v", step.With)
+			}
+			return
+		}
+	}
+	t.Fatal("Linux coverage merge does not retain its main coverage artifact")
+}
+
+func TestGoCIRequiresNativeWindowsReleaseDashboardChecker(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = normalizeWorkflowLineEndings(source)
+
+	const stepName = "Test native Windows release dashboard checker"
+	const command = `log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+go test -v -race -count=1 -timeout=5m ./.github/scripts/release-dashboard-check | sed 's/\r$//' | tee "$log"
+if grep -q -- '--- SKIP:' "$log"; then
+  echo "Native Windows release dashboard tests must not skip." >&2
+  exit 1
+fi
+for control in TestReadFileOpensOrdinaryWindowsFile TestReadFileRejectsWindowsLeafReparseReplacement TestReadFileRetainsOpenedWindowsParentDuringReplacement; do
+  grep -Fxq "=== RUN   $control" "$log"
+  grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"
+done
+`
+
+	check := func(input []byte) error {
+		var workflow struct {
+			Defaults ordinaryRunDefaults `yaml:"defaults"`
+			Jobs     map[string]struct {
+				If       string                  `yaml:"if"`
+				RunsOn   string                  `yaml:"runs-on"`
+				Defaults ordinaryRunDefaults     `yaml:"defaults"`
+				Steps    []ordinaryExecutionStep `yaml:"steps"`
+				Strategy struct {
+					Matrix struct {
+						OS []string `yaml:"os"`
+					} `yaml:"matrix"`
+				} `yaml:"strategy"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(input, &workflow); err != nil {
+			return err
+		}
+		job := workflow.Jobs["build-and-test-windows"]
+		if job.If != goValidationIf || job.RunsOn != "windows-latest" ||
+			!reflect.DeepEqual(job.Strategy.Matrix.OS, []string{"windows-latest"}) {
+			return fmt.Errorf("dashboard checker requires the native Windows job on every validation event")
+		}
+
+		positions := make(map[string]int, len(job.Steps))
+		selected := 0
+		for i, step := range job.Steps {
+			positions[step.Name] = i
+			if step.Name != stepName {
+				continue
+			}
+			selected++
+			if step.If != "matrix.os == 'windows-latest'" || step.Run != command {
+				return fmt.Errorf("dashboard checker must run the uncached native Windows tests and reject skips")
+			}
+			if step.ContinueOnError.Kind != 0 &&
+				(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false") {
+				return fmt.Errorf("dashboard checker must propagate failures")
+			}
+			arguments, err := ordinaryShellArguments("Windows", workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, step.Shell)
+			if err != nil {
+				return err
+			}
+			if len(arguments) < 2 || arguments[len(arguments)-2] != "-o" || arguments[len(arguments)-1] != "pipefail" {
+				return fmt.Errorf("dashboard checker output pipeline requires Bash pipefail")
+			}
+		}
+		if selected != 1 {
+			return fmt.Errorf("native Windows dashboard checker step count=%d; require one", selected)
+		}
+		for _, prerequisite := range []string{
+			"Install and prove rejecting runtime guard", "Execute Tests", "Test native Windows shell controls",
+		} {
+			position, present := positions[prerequisite]
+			if !present || position >= positions[stepName] {
+				return fmt.Errorf("dashboard checker must follow %s", prerequisite)
+			}
+		}
+		marker, present := positions["Reject tolerated runtime launches"]
+		if !present || marker <= positions[stepName] {
+			return fmt.Errorf("runtime marker must be checked after dashboard checker tests")
+		}
+		return nil
+	}
+	if err := check(source); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, mutation := range []struct{ old, replacement string }{
+		{
+			"      - name: Test native Windows release dashboard checker\n",
+			"      - name: Missing native Windows release dashboard checker\n",
+		},
+		{
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'",
+			"      - name: Test native Windows release dashboard checker\n        if: false",
+		},
+		{
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n",
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n        continue-on-error: true\n",
+		},
+		{
+			"          go test -v -race -count=1 -timeout=5m ./.github/scripts/release-dashboard-check",
+			"          go test -v -race -count=1 -timeout=5m -run '^$' ./.github/scripts/release-dashboard-check",
+		},
+		{
+			"          if grep -q -- '--- SKIP:' \"$log\"; then\n            echo \"Native Windows release dashboard tests must not skip.\" >&2",
+			"          if false; then\n            echo \"Native Windows release dashboard tests must not skip.\" >&2",
+		},
+		{
+			"          for control in TestReadFileOpensOrdinaryWindowsFile TestReadFileRejectsWindowsLeafReparseReplacement TestReadFileRetainsOpenedWindowsParentDuringReplacement; do\n            grep -Fxq",
+			"          for control in TestReadFileOpensOrdinaryWindowsFile; do\n            grep -Fxq",
+		},
+		{
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: ${{ false }}\n",
+		},
+		{
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n    runs-on: windows-latest",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n    runs-on: ubuntu-latest",
+		},
+		{
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [windows-latest]",
+			"  build-and-test-windows:\n    name: ${{ github.event.action == 'edited' && github.event.changes.base == null && 'PR metadata (windows-latest not selected)' || matrix.os }}\n    if: (github.event.action != 'edited' || github.event.changes.base != null)\n    runs-on: windows-latest\n    timeout-minutes: 60\n    strategy:\n      matrix:\n        os: [ubuntu-latest]",
+		},
+		{
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n",
+			"      - name: Test native Windows release dashboard checker\n        if: matrix.os == 'windows-latest'\n        shell: bash -e {0}\n",
+		},
+	} {
+		mutated := strings.Replace(string(source), mutation.old, mutation.replacement, 1)
+		if mutated == string(source) || check([]byte(mutated)) == nil {
+			t.Fatalf("dashboard checker workflow mutation admitted: %q", mutation.replacement)
+		}
+	}
+
+	sourceText := string(source)
+	stepStart := strings.Index(sourceText, "      - name: "+stepName+"\n")
+	if stepStart < 0 {
+		t.Fatal("dashboard checker step anchor missing")
+	}
+	marker := "      - name: Reject tolerated runtime launches\n"
+	markerOffset := strings.Index(sourceText[stepStart:], marker)
+	if markerOffset < 0 {
+		t.Fatal("runtime marker step anchor missing")
+	}
+	stepBlock := sourceText[stepStart : stepStart+markerOffset]
+	moveStepBefore := func(anchor string) string {
+		withoutStep := sourceText[:stepStart] + sourceText[stepStart+markerOffset:]
+		position := strings.Index(withoutStep, anchor)
+		if position < 0 {
+			t.Fatalf("step-order mutation anchor missing: %q", anchor)
+		}
+		return withoutStep[:position] + stepBlock + withoutStep[position:]
+	}
+	for _, mutation := range []struct {
+		name   string
+		before string
+	}{
+		{"prerequisite", "      - name: Test native Windows shell controls\n"},
+		{"runtime marker", "      - name: Retain sanitized Go execution evidence\n"},
+	} {
+		if mutated := moveStepBefore(mutation.before); check([]byte(mutated)) == nil {
+			t.Fatalf("dashboard checker step-order mutation admitted: %s", mutation.name)
+		}
+	}
+}
+
+func TestGoCIRequiresEmbeddedDashboardAssetTests(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = normalizeWorkflowLineEndings(source)
+
+	const stepName = "Verify embedded dashboard asset tests"
+	const command = `output=$(go test -count=1 -v -timeout=5m -run '^(TestEmbeddedAssetsDirectoryContainsBundles|TestIndexHTMLReferencesExistingAssets)$' ./internal/webserver 2>&1) || {
+  printf '%s\n' "$output"
+  exit 1
+}
+printf '%s\n' "$output"
+if grep -q '^--- SKIP:' <<<"$output"; then
+  echo "Embedded dashboard asset tests must not skip." >&2
+  exit 1
+fi
+for test in TestEmbeddedAssetsDirectoryContainsBundles TestIndexHTMLReferencesExistingAssets; do
+  grep -Fxq "=== RUN   $test" <<<"$output"
+  grep -Eq "^--- PASS: $test \([0-9.]+s\)$" <<<"$output"
+done
+`
+
+	var workflow struct {
+		Defaults ordinaryRunDefaults `yaml:"defaults"`
+		Jobs     map[string]struct {
+			If       string                  `yaml:"if"`
+			Steps    []ordinaryExecutionStep `yaml:"steps"`
+			Defaults ordinaryRunDefaults     `yaml:"defaults"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	job := workflow.Jobs["build-and-test"]
+	if job.If != goValidationIf {
+		t.Fatal("embedded asset tests require the Linux build job on every validation event")
+	}
+
+	positions := make(map[string]int, len(job.Steps))
+	selected := 0
+	for i, step := range job.Steps {
+		positions[step.Name] = i
+		if step.Name != stepName {
+			continue
+		}
+		selected++
+		if step.If != "matrix.os == 'ubuntu-latest'" || step.Run != command {
+			t.Fatal("embedded asset checker must run both tests and reject skips")
+		}
+		if step.ContinueOnError.Kind != 0 &&
+			(step.ContinueOnError.Tag != "!!bool" || step.ContinueOnError.Value != "false") {
+			t.Fatal("embedded asset checker must propagate failures")
+		}
+		if _, err := ordinaryShellArguments("Linux", workflow.Defaults.Run.Shell, job.Defaults.Run.Shell, step.Shell); err != nil {
+			t.Fatalf("embedded asset checker requires a valid Linux shell: %v", err)
+		}
+	}
+	if selected != 1 {
+		t.Fatalf("embedded asset checker step count=%d; require one", selected)
+	}
+	for _, prerequisite := range []string{"Build Web UI", "Verify Module Dependencies"} {
+		position, present := positions[prerequisite]
+		if !present || position >= positions[stepName] {
+			t.Fatalf("embedded asset checker must follow %s", prerequisite)
+		}
+	}
+	stub, present := positions["Ensure web/dist exists (stub for go:embed)"]
+	if !present || positions[stepName] >= stub {
+		t.Fatal("embedded asset checker must run before the stub fallback")
+	}
+	build, present := positions["Build Web UI"]
+	if !present || job.Steps[build].If != "matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''" ||
+		job.Steps[build].Run != "npm ci && npm run build" {
+		t.Fatal("embedded asset checker must follow the real Linux dashboard build")
+	}
+}
+
 func TestGoWorkflowTriggers(t *testing.T) {
 	for _, tc := range []struct {
 		file         string
 		pushBranches []string
 		prFilters    map[string][]string
 	}{
-		{"go-ci.yml", []string{"main", "develop", "dev", "insider"}, nil},
+		{"go-ci.yml", []string{"main", "develop", "dev", "insider"}, map[string][]string{"types": {"opened", "synchronize", "reopened", "edited"}}},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			source, err := os.ReadFile(filepath.Join("..", "workflows", tc.file))
@@ -237,8 +1678,15 @@ func TestGoWorkflowTriggers(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := workflowTriggers{
-				"push":         {"branches": tc.pushBranches},
-				"pull_request": tc.prFilters,
+				"push":         {Mapping: true, Filters: map[string][]string{"branches": tc.pushBranches}},
+				"pull_request": {Mapping: true, Filters: tc.prFilters},
+				"workflow_dispatch": {Mapping: true, Inputs: map[string]workflowInput{
+					"cold_observation": {
+						Type: "boolean", Description: "Observe initially empty isolated Linux dependency stores",
+						Default:  workflowLiteral{Present: true, Tag: "!!bool", Value: "false"},
+						Required: workflowLiteral{Present: true, Tag: "!!bool", Value: "false"},
+					},
+				}},
 			}
 			if err := checkTriggers(source, want); err != nil {
 				t.Fatal(err)
@@ -253,7 +1701,7 @@ func TestGoWorkflowTriggers(t *testing.T) {
 				"release/0.40.0", "main-near-miss",
 			} {
 				for _, action := range []string{"opened", "synchronize", "reopened", "closed", "edited", "labeled", "ready_for_review"} {
-					want := slices.Contains([]string{"opened", "synchronize", "reopened"}, action)
+					want := slices.Contains([]string{"opened", "synchronize", "reopened", "edited"}, action)
 					if got := selects(triggers, "pull_request", branch, action); got != want {
 						t.Errorf("pull_request base=%q action=%q selected=%v; want %v", branch, action, got, want)
 					}
@@ -262,7 +1710,10 @@ func TestGoWorkflowTriggers(t *testing.T) {
 					t.Errorf("push branch=%q selected=%v; want %v", branch, got, want)
 				}
 			}
-			for _, event := range []string{"pull_request_target", "workflow_dispatch", "release"} {
+			if !selects(triggers, "workflow_dispatch", "feature/frozen-source", "") {
+				t.Fatal("declared feature-only opt-in dispatch missing; default-branch activation is a separate prerequisite")
+			}
+			for _, event := range []string{"pull_request_target", "release"} {
 				if selects(triggers, event, "main", "opened") {
 					t.Errorf("unexpected event selected: %s", event)
 				}
@@ -281,7 +1732,7 @@ func TestGoWorkflowTriggers(t *testing.T) {
 						t.Fatal("mutation did not change workflow source")
 					}
 					if name == "event widening" {
-						mutated = strings.Replace(mutated, "    types: [opened, synchronize, reopened]\n", "", 1)
+						mutated = strings.Replace(mutated, "    types: [opened, synchronize, reopened, edited]\n", "", 1)
 					}
 					if _, err := readTriggers([]byte(mutated)); err != nil {
 						t.Fatalf("mutation must remain valid YAML: %v", err)

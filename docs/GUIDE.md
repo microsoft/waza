@@ -9,12 +9,17 @@ then the [offline Quick Start](../site/src/content/docs/quick-start.mdx).
 Mock trials prove harness wiring, not agent quality. Read the
 [authentication and usage prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution)
 before model-backed runs. Scenario/preflight/evidence features were introduced in
-`v0.39.0` and remain in published `v0.40.0` (November 4, 2026); install the
+`v0.39.0` and remain in published `v0.41.0` (November 13, 2026); install the
 current release or run `waza update`.
 Explicit opt-in and platform limits still apply; see
 [availability](../site/src/content/docs/reference/releases.mdx).
 
 ## What is Waza?
+
+For opt-in standalone aggregation (released in v0.41.0) over completed
+public manifests, see [commands, populations and migration](MANIFEST_AGGREGATION.md).
+It does not start agents or recover worker ownership; admission completeness,
+terminal outcomes and recorded historical usage remain separate.
 
 Waza helps you:
 
@@ -118,11 +123,19 @@ Requires **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended)
 locked dashboard dependencies and generates embedded assets before Go compilation:
 
 ```bash
-git clone --branch v0.40.0 https://github.com/microsoft/waza.git
+git clone --branch v0.41.0 https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-make build VERSION=0.40.0
+make build VERSION=0.41.0
+```
+
+In the pinned v0.41.0 checkout above, later builds reuse locked dependencies while
+`web/package.json` and `web/package-lock.json` are unchanged. If
+`web/node_modules` becomes stale or corrupt, restore it with:
+
+```bash
+make web-deps-force
 ```
 
 Verify installation:
@@ -343,6 +356,12 @@ def greet(name):
 
 ### Step 4: Run the Evaluation
 
+Eval-level `inputs` also supply lifecycle hook arguments via `{{.Vars.key}}`.
+Arguments preserve whitespace and explicit empty values; missing variables or
+an empty rendered executable fail the hook. Hook configuration and eval inputs
+participate in result cache identity when hooks are configured. See the
+[hook contract and examples](../site/src/content/docs/guides/eval-yaml.mdx#hooks).
+
 Execute the benchmark:
 
 ```bash
@@ -498,6 +517,13 @@ override eval settings. Historical local `waza run` exit/artifact behavior is
 unchanged. See [outcomes, exits and migration](../site/src/content/docs/guides/runner-terminal.mdx), the
 [identity guide](../site/src/content/docs/guides/runner-identities.mdx) and
 [canonical contract and migration guide](../site/src/content/docs/guides/runner-contract.mdx).
+
+The checkpoint commands (released in v0.41.0) accept a captured submission wrapper:
+`waza runner checkpoint create --store .waza-artifacts < submission.json` and
+`waza runner checkpoint resume CHECKPOINT_SHA256 --store .waza-artifacts <
+submission.json`. They require a clean VCS-stamped owning CLI and preserve
+original terminal failures on finalized reuse. See the
+[checkpoint workflow, boundaries and troubleshooting](../site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
 ### `waza init [directory]`
 
@@ -677,6 +703,13 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 ---
 
+### Reports for failed evaluations
+
+Use `waza run eval.yaml --output results.json --reporter junit:results.xml`
+to save JSON and JUnit XML, including when a completed evaluation fails grading.
+The command retains its nonzero exit status; if writing the report also fails,
+the returned error includes both the grading failure and the write error.
+
 ### `waza dev <skill-name | skill-path>`
 
 Iteratively score and improve a skill's frontmatter. A single target can be a
@@ -785,6 +818,14 @@ unchanged; this is not a containment guarantee or a dashboard result change.
 - **Trends** — Pass rate and timing trends over time
 - **Live View** — Real-time results during active runs
 
+Expanded task rows show per-trial infrastructure errors even without grader results.
+Workspace-capture limits use bounded structured diagnostics; older or unrecognized
+errors are generic. Additional concurrent infrastructure failures are indicated
+without their raw details. User-input errors, transcript session errors, and
+session-digest errors are also generic in the dashboard API.
+Raw artifact error messages, user-input errors, and responder reasons are
+not displayed in these rows.
+
 **Examples:**
 
 Start the dashboard:
@@ -820,6 +861,11 @@ streams require **Reconnect stream** rather than claiming automatic retry.
 The configured local storage adapter refreshes too. Incomplete rewrites of known
 artifacts fail refresh without discarding cached evidence; successful scans still
 reflect intentional deletion and ignore unrelated malformed new files.
+Local dashboard refreshes reuse parsed artifacts only when their SHA-256 content
+digest is unchanged, with a detached snapshot on every successful refresh.
+Mutating a downloaded outcome or API projection cannot alter the retained parse
+used by a later refresh. Ordinary CLI, MCP, evidence, and assurance readers remain
+uncached; the cache lasts only for the dashboard store's lifetime.
 Missing directories remain empty while no artifacts have been admitted. New
 unrelated inaccessible paths are skipped; root and admitted-path failures remain
 explicit. Nonempty remote archives refresh on demand rather than every 15
@@ -1055,6 +1101,14 @@ expected:
 
 The `worktree` strategy uses `git worktree add --detach` against the local source clone — it shares the source repo's `.git` object store (so it's cheap, no network) and uses `--detach` so branch/tag names won't conflict with the source repo's current checkout. Worktrees are removed via `git worktree remove --force` when the engine shuts down. See `## Git Repository Resources` in the README for the full field reference.
 
+Post-turn workspace capture is bounded and fail-closed by default. To run an
+output/tool-only eval against a repository containing unrelated oversized files,
+set `config.workspace_capture: none`. Admission rejects workspace-dependent or
+unknown graders and checkpoints, outcome expectations, and `--snapshot-file`.
+This does not restrict the actor's access to the workspace. See the
+[schema reference](https://microsoft.github.io/waza/reference/schema/#workspace_capture)
+for the supported grader allowlist.
+
 For non-git fixture workspaces, set `inputs.context.fixture` to a file or directory relative to the eval spec directory. Directory fixture contents are copied into the fresh task workspace before the agent runs:
 
 ```yaml
@@ -1284,7 +1338,7 @@ Replay checks stored event sequencing and grader score/pass consistency without 
 
 Portable evidence (manifest `1.0`, snapshot `1.1`) keeps missing-version defaults
 for legacy eval/results readers at `1.4`, while results generated by current
-source use schema `1.8` (published `v0.39.1` writes `1.7`). Task YAML has no
+source use schema `1.9` (published `v0.39.1` writes `1.7`). Task YAML has no
 independent schema-version field or default.
 It describes every trial, full source origin, source/content
 digests, availability, completeness, redaction, unavailable versions, requested

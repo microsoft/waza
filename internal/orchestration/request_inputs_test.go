@@ -2,15 +2,44 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFreezeCapturedNativeRequestOptionalWorkspaceCapturePaths(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		paths []string
+	}{
+		{name: "nil"},
+		{name: "empty", paths: []string{}},
+		{name: "populated", paths: []string{"node_modules/result.txt"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := FreezeCapturedNativeRequest(&execution.ExecutionRequest{
+				NoSkills: true, SkipWorkspaceCapture: true,
+				ToolPolicy:            &execution.ToolPolicy{Mode: execution.ToolPolicyDenyAll},
+				WorkspaceCapturePaths: test.paths,
+			})
+			require.NoError(t, err)
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(raw, &fields))
+			if len(test.paths) == 0 {
+				require.NotContains(t, fields, "WorkspaceCapturePaths")
+			} else {
+				require.JSONEq(t, `["node_modules/result.txt"]`, string(fields["WorkspaceCapturePaths"]))
+			}
+		})
+	}
+}
 
 type observedRequestFiles struct {
 	RequestFiles

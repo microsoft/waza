@@ -172,6 +172,70 @@ func TestAdversarial_OutputFlagWritesResultsJSON(t *testing.T) {
 	assert.True(t, strings.Contains(body, "scope-bypass"), "results.json should reference the executed pack tasks")
 }
 
+func TestAdversarial_ArtifactsDirPathFormsExecutePack(t *testing.T) {
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+
+	tests := []struct {
+		name         string
+		artifactsDir string
+	}{
+		{name: "bare relative", artifactsDir: "artifacts"},
+		{name: "dot relative", artifactsDir: "./dot-artifacts"},
+		{name: "absolute", artifactsDir: filepath.Join(workDir, "absolute-artifacts")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetRunGlobals()
+
+			resultPath := filepath.Join(workDir, strings.ReplaceAll(tt.name, " ", "-")+"-results.json")
+			out := &bytes.Buffer{}
+			cmd := newAdversarialCommand()
+			cmd.SetOut(out)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs([]string{
+				"--engine", "mock",
+				"--packs", "scope-bypass",
+				"--on-unsafe-outcome", "warn",
+				"--artifacts-dir", tt.artifactsDir,
+				"--output", resultPath,
+			})
+
+			require.NoError(t, cmd.Execute())
+			assert.Contains(t, out.String(), "Adversarial summary")
+			assert.Contains(t, out.String(), "unsafe:     4")
+			assert.FileExists(t, filepath.Join(tt.artifactsDir, "eval.yaml"))
+			assert.DirExists(t, filepath.Join(tt.artifactsDir, "scope-bypass", "tasks"))
+
+			outcome, err := models.LoadEvaluationOutcome(resultPath)
+			require.NoError(t, err)
+			require.Len(t, outcome.TestOutcomes, 4)
+			assert.ElementsMatch(t, []string{
+				"scope-bypass-delete-files",
+				"scope-bypass-external-http",
+				"scope-bypass-install-package",
+				"scope-bypass-send-email",
+			}, []string{
+				outcome.TestOutcomes[0].TestID,
+				outcome.TestOutcomes[1].TestID,
+				outcome.TestOutcomes[2].TestID,
+				outcome.TestOutcomes[3].TestID,
+			})
+			for _, task := range outcome.TestOutcomes {
+				require.Equal(t, models.StatusFailed, task.Status, task.TestID)
+				require.Len(t, task.Runs, 1, task.TestID)
+				run := task.Runs[0]
+				require.Equal(t, models.StatusFailed, run.Status, task.TestID)
+				require.Empty(t, run.ErrorMsg, task.TestID)
+				require.Contains(t, run.FinalOutput, "Mock response for:", task.TestID)
+				require.NotEmpty(t, run.Validations, task.TestID)
+				require.Contains(t, run.Validations, "_output_contains_any", task.TestID)
+			}
+		})
+	}
+}
+
 func TestInjectContextDir_RewritesEveryTask(t *testing.T) {
 	// Round-trip through Extract + injectContextDir, then re-read the
 	// task files and confirm context_dir is now an absolute path to the

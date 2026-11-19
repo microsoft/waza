@@ -1592,3 +1592,28 @@
 .lab-runner-negotiation dl { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr; gap: 10px 24px; }
 .lab-runner-negotiation dt { font-weight: 600; }
 .lab-runner-negotiation dd { margin: 0; overflow-wrap: anywhere; }
+.lab-button.lab-manifest-pointer {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.lab-evidence-state {
+  border: 1px solid var(--lab-border);
+  border-radius: 4px;
+  color: var(--lab-muted);
+  padding: 0 4px;
+}
+.lab-evidence-present {
+  background: var(--lab-green-bg);
+  color: var(--lab-green);
+}
+.lab-evidence-redacted,
+.lab-evidence-incomplete {
+  background: var(--lab-blue-bg);
+  color: var(--lab-blue);
+}
+.lab-evidence-conflicting {
+  background: var(--lab-red-bg);
+  color: var(--lab-red);
+}
+.lab-execution-telemetry code { overflow-wrap: anywhere; }

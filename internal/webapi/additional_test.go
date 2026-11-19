@@ -171,6 +171,16 @@ func TestFileStoreGetRunSummaryAndReload(t *testing.T) {
 	if runs[1].ID != "nested/run-2" {
 		t.Errorf("expected second run nested/run-2, got %q", runs[1].ID)
 	}
+	summary, err = store.Summary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.TotalRuns != 2 || summary.TotalTasks != 3 {
+		t.Fatalf("unexpected summary after reload: %+v", summary)
+	}
+	if diff := summary.PassRate - (2.0 / 3.0 * 100); diff < -0.001 || diff > 0.001 {
+		t.Errorf("expected 66.67%% pass rate after reload, got %.2f", summary.PassRate)
+	}
 }
 
 func TestFileStoreSkipsIncompatibleResultJSON(t *testing.T) {
@@ -410,8 +420,8 @@ func TestOutcomeToDetailMapsResponder(t *testing.T) {
 	if responder.FollowupsSent != 2 {
 		t.Errorf("expected 2 followups sent, got %d", responder.FollowupsSent)
 	}
-	if responder.Reason != "too vague" {
-		t.Errorf("expected reason too vague, got %q", responder.Reason)
+	if responder.Reason != "" {
+		t.Errorf("expected responder reason to be withheld, got %q", responder.Reason)
 	}
 }
 

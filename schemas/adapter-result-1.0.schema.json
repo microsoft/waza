@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/adapter-result-1.0.schema.json",
+  "title": "Waza portable adapter result 1.0",
+  "description": "Status and returned manifest for one dispatched work descriptor. The public runner result is embedded verbatim; this projection adds no result semantics, retry advice or scheduling decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "adapter", "status", "exit_code", "descriptor_sha256", "dispatched", "provenance", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.adapter-result"},
+    "schema_version": {"const": "1.0"},
+    "adapter": {"$ref": "adapter-translation-1.0.schema.json#/$defs/adapter"},
+    "status": {
+      "description": "terminal: completed/reused public result; rejected: input not admitted; operation_error: public operation failed; observed: read-only status; contract_error: reply did not satisfy the public contract.",
+      "enum": ["terminal", "rejected", "operation_error", "observed", "contract_error"]
+    },
+    "exit_code": {"type": "integer", "minimum": 0, "maximum": 6, "description": "The public command exit code, unchanged; 6 for descriptor rejection and 2 for contract errors."},
+    "descriptor_sha256": {"$ref": "adapter-translation-1.0.schema.json#/$defs/digest"},
+    "work_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "operation": {"enum": ["submit", "checkpoint", "resume", "status"]},
+    "dispatched": {"type": "boolean", "description": "Whether the one public contract call was attempted. The adapter never makes more than one call and never retries."},
+    "call": {
+      "type": "object", "additionalProperties": false, "required": ["command", "http"],
+      "properties": {
+        "command": {"type": "array", "items": {"type": "string"}},
+        "http": {"$ref": "adapter-translation-1.0.schema.json#/$defs/call/properties/http"},
+        "input_sha256": {"$ref": "adapter-translation-1.0.schema.json#/$defs/digest"}
+      }
+    },
+    "public": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "schema_version"],
+      "properties": {
+        "kind": {"enum": ["waza.execution-submission-result", "waza.runner-checkpoint-result", "waza.execution-lineage"]},
+        "schema_version": {"type": "string"},
+        "status": {"type": "string"},
+        "exit_code": {"type": "integer"}
+      }
+    },
+    "outcome": {"type": "string", "description": "Terminal outcome copied from the public terminal envelope."},
+    "engine_calls": {"type": "integer", "minimum": 0},
+    "execution_id": {"$ref": "execution-attempt-1.0.schema.json#/$defs/execution_id"},
+    "logical": {"$ref": "execution-attempt-1.0.schema.json#/$defs/logical"},
+    "manifest_digest": {"$ref": "adapter-translation-1.0.schema.json#/$defs/digest"},
+    "checkpoint_sha256": {"$ref": "adapter-translation-1.0.schema.json#/$defs/digest"},
+    "provenance": {
+      "type": "object", "additionalProperties": false, "required": ["state"],
+      "properties": {
+        "state": {"enum": ["not_configured", "not_applicable", "verified", "failed", "unavailable"]},
+        "detail": {"type": "string", "maxLength": 4096}
+      }
+    },
+    "result": {"type": "object", "description": "Verbatim public contract JSON."},
+    "diagnostics": {"$ref": "adapter-translation-1.0.schema.json#/$defs/diagnostics"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"dispatched": {"const": true}}},
+      "then": {"required": ["work_id", "operation", "call"]},
+      "else": {"not": {"anyOf": [{"required": ["public"]}, {"required": ["result"]}, {"required": ["manifest_digest"]}]}}
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["terminal", "observed"]}}},
+      "then": {"required": ["public", "result"], "properties": {"dispatched": {"const": true}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "terminal"}}},
+      "then": {"required": ["execution_id", "logical", "manifest_digest", "outcome"]}
+    }
+  ]
+}

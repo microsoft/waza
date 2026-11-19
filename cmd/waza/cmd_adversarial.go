@@ -225,6 +225,11 @@ func runAdversarial(cmd *cobra.Command, opts *adversarialOptions) error {
 		}
 		artifactsRoot = dir
 	} else {
+		absoluteRoot, err := filepath.Abs(artifactsRoot)
+		if err != nil {
+			return fmt.Errorf("resolve artifacts dir: %w", err)
+		}
+		artifactsRoot = absoluteRoot
 		if err := os.MkdirAll(artifactsRoot, 0o755); err != nil {
 			return fmt.Errorf("create artifacts dir: %w", err)
 		}

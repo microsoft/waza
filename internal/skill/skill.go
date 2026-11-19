@@ -15,6 +15,8 @@ import (
 var (
 	_ encoding.TextMarshaler   = (*Skill)(nil)
 	_ encoding.TextUnmarshaler = (*Skill)(nil)
+
+	defaultTokenCounter = tokens.DefaultCounter
 )
 
 // Frontmatter holds parsed YAML frontmatter from SKILL.md.
@@ -105,6 +107,17 @@ func (s *Skill) MarshalText() ([]byte, error) {
 }
 
 func (s *Skill) UnmarshalText(text []byte) error {
+	return s.unmarshalText(text, true)
+}
+
+// UnmarshalTextWithoutTokenCount parses a skill without initializing the BPE
+// tokenizer. It is intended for callers that only need skill metadata or body.
+// A successful parse clears Tokens, including when the receiver is reused.
+func (s *Skill) UnmarshalTextWithoutTokenCount(text []byte) error {
+	return s.unmarshalText(text, false)
+}
+
+func (s *Skill) unmarshalText(text []byte, countTokens bool) error {
 	raw := string(text)
 	if strings.TrimSpace(raw) == "" {
 		return errors.New("SKILL.md is empty")
@@ -121,11 +134,15 @@ func (s *Skill) UnmarshalText(text []byte) error {
 	s.Body = body
 	s.RawContent = raw
 
-	counter, err := tokens.DefaultCounter()
-	if err != nil {
-		return err
+	if countTokens {
+		counter, err := defaultTokenCounter()
+		if err != nil {
+			return err
+		}
+		s.Tokens = counter.Count(raw)
+	} else {
+		s.Tokens = 0
 	}
-	s.Tokens = counter.Count(raw)
 	s.Characters = len(raw)
 	s.Lines = tokens.CountLines(raw)
 	return nil

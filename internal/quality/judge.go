@@ -36,7 +36,7 @@ func Judge(ctx context.Context, engine execution.AgentEngine, opts JudgeOptions)
 	}
 
 	var sk skill.Skill
-	if err := sk.UnmarshalText(content); err != nil {
+	if err := sk.UnmarshalTextWithoutTokenCount(content); err != nil {
 		return nil, fmt.Errorf("parsing SKILL.md: %w", err)
 	}
 

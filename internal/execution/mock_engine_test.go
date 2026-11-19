@@ -93,6 +93,30 @@ func TestMockEngine_Execute_WritesResources(t *testing.T) {
 	require.NoError(t, engine.Shutdown(context.Background()))
 }
 
+func TestMockEngine_Execute_UsesBoundedWorkspaceCapture(t *testing.T) {
+	engine := NewMockEngine("test-model")
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message: "hello",
+		Resources: []ResourceFile{
+			{Path: "src/main.go", Content: []byte("package main")},
+			{Path: ".git/config", Content: []byte("metadata")},
+			{Path: "node_modules/pkg/index.js", Content: []byte("dependency")},
+			{Path: "node_modules/generated/result.txt", Content: []byte("graded output")},
+		},
+		WorkspaceCapturePaths: []string{"node_modules/generated/result.txt"},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+	require.Equal(t, map[string][]byte{
+		"src/main.go":                       []byte("package main"),
+		"node_modules/generated/result.txt": []byte("graded output"),
+	}, resp.WorkspaceFiles)
+
+	require.NoError(t, engine.Shutdown(context.Background()))
+}
+
 func TestMockEngine_Execute_ReplacesWorkspace(t *testing.T) {
 	engine := NewMockEngine("test-model")
 

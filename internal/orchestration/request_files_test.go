@@ -174,3 +174,53 @@ func TestCapturedNativeRejectsLoaderSkippedResource(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeSnapshotRejectsNativeUserInput(t *testing.T) {
+	newSpec := func() *models.EvalSpec {
+		return &models.EvalSpec{Config: models.Config{EngineType: "copilot-sdk", ModelID: "offline-model",
+			DisabledSkills: []string{"*"}},
+			Graders: []models.GraderConfig{{Identifier: "text", Kind: models.GraderKindText, Parameters: models.TextGraderParameters{Contains: []string{"hello"}}}}}
+	}
+	newTask := func() *models.TestCase {
+		return &models.TestCase{TestID: "task", Stimulus: models.TaskStimulus{Message: "hello"}}
+	}
+	require.NoError(t, ValidateNativeSnapshotConfiguration(newSpec(), newTask()), "control: the baseline is admitted")
+
+	answer := "a"
+	for name, mutate := range map[string]func(*models.EvalSpec, *models.TestCase){
+		"empty script": func(_ *models.EvalSpec, tc *models.TestCase) {
+			tc.UserInputResponses = &[]models.UserInputResponseConfig{}
+		},
+		"scripted answer": func(_ *models.EvalSpec, tc *models.TestCase) {
+			tc.UserInputResponses = &[]models.UserInputResponseConfig{{Answer: &answer}}
+		},
+		"eval opt-in": func(spec *models.EvalSpec, _ *models.TestCase) { spec.Config.NativeUserInput = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec, task := newSpec(), newTask()
+			mutate(spec, task)
+			require.ErrorContains(t, ValidateNativeSnapshotConfiguration(spec, task), "unsupported native")
+			_, err := BuildCapturedNativeRequest(spec, task, t.TempDir(), t.TempDir(), inertRequestFixture{})
+			require.ErrorContains(t, err, "unsupported native")
+		})
+	}
+}
+
+func TestFreezeCapturedNativeRequestOmitsUserInput(t *testing.T) {
+	spec := &models.EvalSpec{Config: models.Config{EngineType: "copilot-sdk", ModelID: "offline-model",
+		DisabledSkills: []string{"*"}},
+		Graders: []models.GraderConfig{{Identifier: "text", Kind: models.GraderKindText, Parameters: models.TextGraderParameters{Contains: []string{"hello"}}}}}
+	task := &models.TestCase{TestID: "task", Stimulus: models.TaskStimulus{Message: "hello"}}
+	req, err := BuildCapturedNativeRequest(spec, task, t.TempDir(), t.TempDir(), inertRequestFixture{})
+	require.NoError(t, err)
+	disabled, err := FreezeCapturedNativeRequest(req)
+	require.NoError(t, err)
+	require.NotContains(t, string(disabled), "UserInput", "frozen native CLIENT bytes must not change for tasks without native questions")
+
+	script, err := execution.NewUserInputScript(nil)
+	require.NoError(t, err)
+	req.UserInput = script
+	withScript, err := FreezeCapturedNativeRequest(req)
+	require.NoError(t, err)
+	require.Equal(t, string(disabled), string(withScript), "runtime callback state is never serialized")
+}

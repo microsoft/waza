@@ -40,6 +40,7 @@ func calibrationRequestIdentity(request *execution.ExecutionRequest) (string, er
 		request.SessionID != "" || request.WorkspaceDir != "" || request.WorkDir != "" ||
 		request.SkillName != "" || len(request.SkillPaths) != 0 || len(request.Instructions) != 0 ||
 		len(request.Resources) != 0 || len(request.GitResources) != 0 || request.SourceDir != "" ||
+		len(request.WorkspaceCapturePaths) != 0 ||
 		request.SuppressSkillBody || request.TriggerSkillRouting || len(request.Context) != 0 ||
 		request.MessageMode != execution.MessageModeEnqueue || !request.Streaming {
 		return "", errors.New("assurance: native judge request violates the independent boundary")

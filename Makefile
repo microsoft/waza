@@ -1,21 +1,37 @@
 # Waza Build System
-.PHONY: all build build-web clean test test-compat lint fmt install help
+.PHONY: all build build-web web-deps web-deps-force clean test test-compat test-compat-inventory test-compat-prereqs lint fmt install help
 
 # Build configuration
 BINARY_NAME=waza
 BUILD_DIR=.
 GO_FILES=$(shell find . -name '*.go' -not -path './vendor/*' -not -path './*/node_modules/*')
 GO_PACKAGES=$(shell go list ./... | grep -v '/node_modules')
-VERSION?=0.1.0
+VERSION?=0.0.0-dev
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
+WEB_DEPS_STAMP=web/node_modules/.waza-deps-stamp
+WEB_DEPS_INPUTS=web/package.json web/package-lock.json
+COMPAT_PACKAGES=./cmd/waza/... ./internal/models ./internal/validation ./internal/graders/... ./internal/execution ./internal/orchestration ./internal/commandmock ./internal/mcpmock ./internal/cache ./internal/snapshot ./internal/registry ./internal/skill ./internal/checks ./internal/quality ./internal/responder ./internal/trigger ./internal/adversarial ./internal/scoring ./internal/workspace ./internal/webapi
 
 # Default target
 all: fmt lint build test
 
+# Install locked dashboard dependencies when the manifests change.
+web-deps: $(WEB_DEPS_STAMP)
+
+$(WEB_DEPS_STAMP): $(WEB_DEPS_INPUTS)
+	@echo "Installing web dashboard dependencies..."
+	@cd web && npm ci --silent
+	@touch $(WEB_DEPS_STAMP)
+
+# Force a clean dashboard dependency reinstall if node_modules is stale or corrupt.
+web-deps-force:
+	@rm -rf web/node_modules
+	@$(MAKE) --no-print-directory web-deps
+
 # Build the web dashboard (React SPA)
-build-web:
+build-web: web-deps
 	@echo "Building web dashboard..."
-	@cd web && npm ci --silent && npm run build
+	@cd web && npm run build
 
 # Build the binary (includes web dashboard)
 build: build-web
@@ -29,11 +45,17 @@ test: build-web
 	@go tool cover -func=coverage.out | tail -1
 
 # Run the offline corpus without building or installing frontend dependencies.
-test-compat:
-	@echo "Running offline compatibility corpus and package-owned preservation tests..."
+test-compat-prereqs:
 	@for tool in git node; do command -v "$$tool" >/dev/null 2>&1 || { echo "test-compat requires $$tool on PATH; no grader family may be silently skipped"; exit 1; }; done
 	@python3 --version >/dev/null 2>&1 || python --version >/dev/null 2>&1 || { echo "test-compat requires working python3 or python on PATH; no grader family may be silently skipped"; exit 1; }
-	@ENABLE_COPILOT_TESTS=false NO_COLOR=1 TZ=UTC LC_ALL=C go test -count=1 ./cmd/waza/... ./internal/models ./internal/validation ./internal/graders/... ./internal/execution ./internal/orchestration ./internal/commandmock ./internal/mcpmock ./internal/cache ./internal/snapshot ./internal/registry ./internal/skill ./internal/checks ./internal/quality ./internal/responder ./internal/trigger ./internal/adversarial ./internal/scoring ./internal/workspace ./internal/webapi
+
+test-compat-inventory: test-compat-prereqs
+	@echo "Compatibility packages subsumed by the uncached ordinary Go suite:"
+	@printf '  %s\n' $(COMPAT_PACKAGES)
+
+test-compat: test-compat-prereqs
+	@echo "Running offline compatibility corpus and package-owned preservation tests..."
+	@ENABLE_COPILOT_TESTS=false NO_COLOR=1 TZ=UTC LC_ALL=C go test -count=1 $(COMPAT_PACKAGES)
 
 # Run linter
 lint:
@@ -71,9 +93,12 @@ help:
 	@echo "  build    - Compile the binary"
 	@echo "  test     - Run all tests with coverage"
 	@echo "  test-compat - Run offline v1 compatibility corpus (see docs/COMPATIBILITY.md)"
+	@echo "  test-compat-inventory - Check prerequisites and list compatibility packages"
 	@echo "  lint     - Run golangci-lint"
 	@echo "  fmt      - Format Go code and tidy modules"
 	@echo "  install  - Install binary to GOPATH"
 	@echo "  build-web - Build the web dashboard (React SPA)"
+	@echo "  web-deps - Install dashboard dependencies when manifests change"
+	@echo "  web-deps-force - Force a clean dashboard dependency reinstall"
 	@echo "  clean    - Remove build artifacts"
 	@echo "  help     - Show this help message"

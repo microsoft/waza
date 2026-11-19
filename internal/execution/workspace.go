@@ -16,6 +16,9 @@ func setupWorkspaceResources(workspaceDir string, resources []ResourceFile) erro
 	}
 
 	baseWithSep := baseWorkspace + string(os.PathSeparator)
+	// This cache is confined to one synchronous staging call. No reference
+	// escapes, and no caller or resource write can mutate it.
+	createdDirs := make(map[string]struct{})
 
 	for _, res := range resources {
 		if res.Path == "" {
@@ -39,8 +42,11 @@ func setupWorkspaceResources(workspaceDir string, resources []ResourceFile) erro
 
 		dir := filepath.Dir(fullPathClean)
 
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("creating directory for resource %q: %w", res.Path, err)
+		if _, ok := createdDirs[dir]; !ok {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("creating directory for resource %q: %w", res.Path, err)
+			}
+			createdDirs[dir] = struct{}{}
 		}
 
 		if err := os.WriteFile(fullPathClean, res.Content, 0644); err != nil {

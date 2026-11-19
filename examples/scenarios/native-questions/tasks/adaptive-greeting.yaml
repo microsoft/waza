@@ -1,0 +1,36 @@
+id: adaptive-greeting
+name: Answer a scripted and an adaptive native question
+inputs:
+  prompt: >-
+    Before writing anything, use the ask_user tool twice. First ask which
+    environment to deploy to, offering exactly the choices "staging" and
+    "production". Then ask what name to put in the greeting, as a typed
+    answer. Finally write greeting.txt containing exactly "Hello <name> from
+    <environment>" and reply that you are done, without asking anything else.
+  responder:
+    instructions: |
+      You are the user. Your name is Ada. Answer only what the agent asks.
+      Stop once the agent says it is done and asks nothing else.
+      Abstain if a question cannot be answered from these facts.
+    max_followups: 1
+user_input_responses:
+  - question: "(?is).*environment.*"
+    answer: staging
+graders:
+  - name: scripted-then-responder
+    type: code
+    config:
+      language: javascript
+      assertions:
+        - >-
+          user_input_requests.length === 2 &&
+          user_input_requests.every(r => !r.error) &&
+          user_input_requests[0].source === 'script' && user_input_requests[0].answer === 'staging' &&
+          user_input_requests[1].source === 'responder' && /ada/i.test(user_input_requests[1].answer)
+  - name: used-answers
+    type: file
+    config:
+      must_exist: [greeting.txt]
+      content_patterns:
+        - path: greeting.txt
+          must_match: ['(?i)\AHello Ada from staging(?:\r?\n)?\z']

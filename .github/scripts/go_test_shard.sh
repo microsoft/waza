@@ -10,6 +10,7 @@ shard="$1"
 profile="$2"
 scripts="$(cd "$(dirname "$0")" && pwd)"
 package=github.com/microsoft/waza/internal/controlledcomparison
+node "$scripts/ci-evidence.cjs" init-go "$profile.evidence.json"
 inventory="$(go test -race -covermode=atomic -list . "$package")"
 names="$(printf '%s\n' "$inventory" |
   awk '/^(Test|Fuzz|Example)[^[:space:]]*$/ { print }' |
@@ -26,11 +27,22 @@ pattern=""
 while IFS= read -r name; do
   pattern="${pattern:+$pattern|}$name"
 done < "$profile.selected"
+node "$scripts/ci-evidence.cjs" finish-discovery "$profile.evidence.json" 0 0
 if [ -z "$pattern" ]; then
   echo "Native shard $shard has no tests; refusing to report success." >&2
   exit 1
 fi
 
 echo "Native shard $shard/4 selects $(wc -l < "$profile.selected") of $(wc -l < "$profile.all") discovered tests, examples, and fuzz targets."
-go test -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
-  -run "^($pattern)$" "$package"
+set +e
+go test -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
+  -run "^($pattern)$" "$package" |
+  CI_EVIDENCE_INVENTORY_SCOPE=names node "$scripts/ci-evidence.cjs" go \
+    "$profile.evidence.json" "$profile.all" "$profile.selected"
+status=("${PIPESTATUS[@]}")
+set -e
+finalization_status=0
+node "$scripts/ci-evidence.cjs" finish-go "$profile.evidence.json" "${status[0]}" "${status[1]}" || finalization_status=$?
+if [ "${status[0]}" -ne 0 ]; then exit "${status[0]}"; fi
+if [ "${status[1]}" -ne 0 ]; then exit "${status[1]}"; fi
+exit "$finalization_status"

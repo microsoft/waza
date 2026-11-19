@@ -72,6 +72,38 @@ availability and acceptance of a public image digest are separate gates.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
+The immutable publication profile (#763), released in v0.41.0, is an additive
+opt-in contract. A separate local
+or Azure store conditionally creates content-addressed blobs and manifests,
+verifies current content plus declared terminal context, and finalizes by
+manifest digest. Neither repeated publication nor shared logical identities
+overwrite evidence. Native API/Lab discovery lists persisted unverified pointers
+and separately inspects integrity; legacy mutable results are not relabeled as
+verified publications. Explicitly missing, corrupt and conflicting content
+cannot become a verified result. Adoption requires retained original artifacts
+and an explicit manifest; no billing, evidence or execution attestation is
+invented. Attempt ownership remains the separate #764 contract. See
+[publication and migration](IMMUTABLE_ARTIFACTS.md).
+
+The additive standalone aggregation profile (#766) consumes explicit completed
+public manifest/evidence references without agents or original worker state.
+It preserves repeated executions and compatible per-record views, distinguishes
+input-member/manifest/execution-record populations, and reports omissions and
+incompatible claims without selecting a winner or inventing usage. Lab exposes
+composition and downloads; supported legacy metadata remains explicitly
+unqualified. Aggregate schema 1.0 and complete historical usage are independent
+of terminal pass and execution attestation. This behavior was released in
+v0.41.0; it is not full platform acceptance.
+See [aggregation contracts and migration](MANIFEST_AGGREGATION.md).
+
+Released in v0.41.0, #765 adds protected checkpoint create/resume in the CLI,
+HTTP API and Lab. Lab displays original outcomes, retry/reuse references and
+explicitly unavailable progress, and downloads the unchanged protected result.
+Finalized restore preserves the original terminal with zero new calls;
+before-unit restore requires a stopped original worker and a fresh retry child.
+This does not complete #764 ordered lineage, native-platform acceptance or the
+v0.41 release. See [checkpoint guarantees and limits](EXECUTION_CHECKPOINTS.md).
+
 External-schema interoperability (#789) remains partial. The v0.40.0
 adapter projects one explicitly selected, commit-pinned AgentV case-sensitive
 `contains` assertion to a single native text grader and exports the same
@@ -104,7 +136,7 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
-Portable evaluation evidence (#663): independently versioned manifest `1.0` in ordinary snapshot `1.1`, retaining legacy task semantics and historical result versions while current source writes results `1.8` (published `v0.39.1` writes `1.7`), records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
+Portable evaluation evidence (#663): independently versioned manifest `1.0` in ordinary snapshot `1.1`, retaining legacy task semantics and historical result versions while current source writes results `1.9` (published `v0.39.1` writes `1.7`), records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
 
 Capture sanitizes typed JSON and structural sensitive keys before serialization, preserves numeric lexical tokens, rejects opaque bytes/unsafe identifiers/keys/duplicate or trailing JSON/excessive nesting, and isolates rule-match counters (including selected files). Pattern matching is not a confidentiality proof. Reviewed agent-visible UTF-8 regular-file capture is explicitly allow-listed, excludes evaluator-only files/credentials, bounded (1 MiB/file, 10 MiB total by default), private, non-overwriting, and supported only on Linux/macOS. Allow-listing is not authorization proof. Partial capture and publication failure have safe unavailable states; there is no automatic export/upload/path fetch.
 
@@ -120,6 +152,18 @@ Private-file cleanup failures preserve at most one independently verified comple
 
 `grade --evidence-snapshot` verifies one selected task/run's original full origin, manifest hash, and complete unredacted text/digests, then privately materializes only explicit required file-grader inputs. Other grader types, output-based expectations, wildcard/absence checks, ambiguous runs, and explicit `--workspace` combinations are rejected. Checks cover the materialized captured subset, not original-workspace absence; `must_not_match` checks complete verified text of a selected file. Regrading retains the original capture hash but invalidates original result/validation/grader-configuration/checkpoint links; existing workspace grading remains unchanged and may use a paid prompt judge. Offline replay checks event sequencing and stored score/pass consistency or bisects tapes; it does not rerun graders, reconstruct a workspace, or support live replay. See the [portable evidence guide](../site/src/content/docs/guides/snapshot-replay.mdx).
 
+Frozen judging supports evaluator-authored `evidence_context.non_secret_literals`
+for exact non-secret fixture identifiers and synthetic contacts (#898).
+Declarations are bounded, statically validated and unioned across final graders;
+only whole-token regex matches or exact structured sensitive-key string values
+are preserved. Neither shape nor field names confer trust. Actor/tool output
+cannot author declarations. Missing or redacted required evidence still fails
+before isolated judge startup; snapshots, origin/path admission and session/tool
+isolation are unchanged. Explicit declarations write independent judge bundle
+`1.1` with counts only; absent declarations retain bundle `1.0`. Saved regrading
+cannot restore previously withheld content. See the
+[fixture privacy contract](../site/src/content/docs/guides/graders.mdx#evaluator-controlled-non-secret-fixtures).
+
 Scenario evals with exact `schemaVersion: "2.0"` can define finite MCP and CLI
 response sequences. Each matching call consumes one step; sequences are bounded
 to 100 steps and delays to 300,000 ms. Unmatched calls and exhausted sequences
@@ -129,6 +173,14 @@ fail closed. Task-level CLI mock lists preserve replacement semantics, including
 transcript/checkpoint evidence. Results schema `1.7` records per-run configured
 dependency modes (`live` or `mocked`); this describes configuration, not proof
 of invocation. There is no recorded-replay mode.
+
+Scenario evals can opt in with `config.native_user_input` to answer native Copilot
+SDK user-input requests, using task `user_input_responses`. Waza registers `OnUserInputRequest` on the initial and
+every resumed session of a trial, uses entries (an `answer` plus an optional
+`question` regex) strictly in order, and fails closed on unexpected or unused entries. Results
+schema `1.9` records each request in `runs[].user_input_requests`. A task's
+adaptive responder answers questions the script does not match. This is
+distinct from MCP `ask_user` mocks and does not support structured elicitation.
 
 The private `internal/faultsequence` groundwork provides cross-process step
 reservation and cancellable, overflow-checked delays for the CLI shim. State
@@ -533,6 +585,12 @@ Skills are scored on frontmatter compliance. Target: **Medium-High** or better f
 ---
 
 ## Phased Roadmap
+
+The phases below are historical product context, not a live delivery checklist.
+See the [active feature tracker #657](https://github.com/microsoft/waza/issues/657)
+and [delivery tracker #866](https://github.com/microsoft/waza/issues/866).
+The original [platform roadmap #8](https://github.com/microsoft/waza/issues/8)
+is closed.
 
 ### Primary Phase (Core Features)
 | Epic | Description | Priority |

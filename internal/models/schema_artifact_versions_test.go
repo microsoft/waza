@@ -13,7 +13,7 @@ import (
 
 func TestArtifactVersionSeparation(t *testing.T) {
 	require.Equal(t, "1.4", CurrentSchemaVersion)
-	require.Equal(t, "1.8", CurrentResultSchemaVersion)
+	require.Equal(t, "1.9", CurrentResultSchemaVersion)
 	require.Equal(t, "2.0", ScenarioSchemaVersion)
 	require.Equal(t, "1.4", defaultSchemaVersion(""))
 
@@ -25,7 +25,7 @@ func TestArtifactVersionSeparation(t *testing.T) {
 		{"legacy-forward-minor", "skill: reader\nschemaVersion: \"1.5\"\n", "1.5", ""},
 		{"scenario", "scenario: inventory\nschemaVersion: \"2.0\"\n", "2.0", ""},
 		{"scenario-with-result-version", "scenario: inventory\nschemaVersion: \"1.5\"\n", "", "scenario requires"},
-		{"scenario-with-current-result-version", "scenario: inventory\nschemaVersion: \"1.8\"\n", "", "scenario requires"},
+		{"scenario-with-current-result-version", "scenario: inventory\nschemaVersion: \"1.9\"\n", "", "scenario requires"},
 		{"scenario-without-version", "scenario: inventory\n", "", "scenario requires"},
 		{"scenario-future-minor", "scenario: inventory\nschemaVersion: \"2.1\"\n", "", "scenario requires"},
 		{"legacy-with-scenario-version", "skill: reader\nschemaVersion: \"2.0\"\n", "", "schema major"},
@@ -70,7 +70,7 @@ func TestArtifactVersionSeparation(t *testing.T) {
 }
 
 func TestHistoricalResultVersionsSurviveWriterVersionBump(t *testing.T) {
-	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.5", "1.6", "1.7", "1.8", "1.99"} {
+	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.99"} {
 		t.Run("version="+version, func(t *testing.T) {
 			outcome, err := ParseEvaluationOutcome([]byte(minimalOutcomeJSON(version)), "historical.json")
 			require.NoError(t, err)

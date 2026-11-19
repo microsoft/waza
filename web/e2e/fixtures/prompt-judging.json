@@ -50,6 +50,23 @@
         "passed": 1,
         "total": 3
       },
+      "infrastructureRuns": [
+        {
+          "runNumber": 1,
+          "attempts": 1
+        },
+        {
+          "runNumber": 2,
+          "attempts": 1,
+          "diagnostic": {
+            "code": "infrastructure_error"
+          }
+        },
+        {
+          "runNumber": 3,
+          "attempts": 1
+        }
+      ],
       "promptJudgingRuns": [
         {
           "runNumber": 1,

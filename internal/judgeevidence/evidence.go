@@ -17,6 +17,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/evidence"
+	"github.com/microsoft/waza/internal/fixtureliterals"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/snapshot"
@@ -53,7 +54,8 @@ func selectionUnion(configs []models.GraderConfig, task *models.TestCase) (model
 			parameters = append(parameters, validator.Parameters)
 		}
 	}
-	files, excluded := map[string]bool{}, map[string]bool{}
+	files, excluded, literals := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	literalsPresent := false
 	for _, parameter := range parameters {
 		p, ok := parameter.(models.PromptGraderParameters)
 		if !ok || p.EvidenceContext == nil {
@@ -67,6 +69,12 @@ func selectionUnion(configs []models.GraderConfig, task *models.TestCase) (model
 		}
 		for _, name := range p.EvidenceContext.EvaluatorOnly {
 			excluded[name] = true
+		}
+		if p.EvidenceContext.NonSecretLiterals != nil {
+			literalsPresent = true
+			for _, value := range *p.EvidenceContext.NonSecretLiterals {
+				literals[value] = true
+			}
 		}
 	}
 	selection := models.PromptEvidenceContext{Files: []string{}, EvaluatorOnly: []string{}}
@@ -86,12 +94,32 @@ func selectionUnion(configs []models.GraderConfig, task *models.TestCase) (model
 	}
 	slices.Sort(selection.Files)
 	slices.Sort(selection.EvaluatorOnly)
+	if len(literals) > fixtureliterals.MaxCount {
+		return selection, errors.New("evidence_context: run union exceeds 64 non-secret literals")
+	}
+	if literalsPresent {
+		values := make([]string, 0, len(literals))
+		for value := range literals {
+			values = append(values, value)
+		}
+		slices.Sort(values)
+		selection.NonSecretLiterals = &values
+	}
 	return selection, nil
 }
 
 func CaptureFiles(root string, selection models.PromptEvidenceContext) *models.JudgeFileCapture {
 	capture := &models.JudgeFileCapture{Files: []models.JudgeEvidenceFile{},
 		Redaction: models.EvidenceRedaction{Policy: "default", Limitations: []string{"Redaction does not certify secret absence."}}}
+	var policy *snapshot.Policy
+	if selection.NonSecretLiterals != nil {
+		var err error
+		policy, err = capturePolicy(selection)
+		if err != nil {
+			capture.Diagnostics = []models.EvidenceDiagnostic{diagnostic("invalid_fixture_literals")}
+			return capture
+		}
+	}
 	if len(selection.Files) == 0 {
 		return capture
 	}
@@ -99,8 +127,9 @@ func CaptureFiles(root string, selection models.PromptEvidenceContext) *models.J
 		capture.Diagnostics = []models.EvidenceDiagnostic{diagnostic("unsupported_platform")}
 		return capture
 	}
-	files, accounting, err := snapshot.CaptureWorkspaceWithAccounting(root, selection.Files, selection.EvaluatorOnly, nil,
+	files, accounting, err := snapshot.CaptureWorkspaceWithAccounting(root, selection.Files, selection.EvaluatorOnly, policy,
 		snapshot.WorkspaceLimits{MaxFileBytes: models.JudgeEvidenceMaxFileBytes, MaxTotalBytes: models.JudgeEvidenceMaxBytes})
+	capture.PreservedLiterals = accounting.PreservedLiterals
 	capture.Redaction.MatchCount = accounting.RedactionCount
 	capture.Redaction.AppliedRules = accounting.AppliedRules
 	if err != nil {
@@ -117,6 +146,17 @@ func CaptureFiles(root string, selection models.PromptEvidenceContext) *models.J
 		capture.Files = append(capture.Files, models.JudgeEvidenceFile{Path: file.Path, Content: file.Content, SHA256: file.SHA256})
 	}
 	return capture
+}
+
+func capturePolicy(selection models.PromptEvidenceContext) (*snapshot.Policy, error) {
+	var values []string
+	if selection.NonSecretLiterals != nil {
+		if *selection.NonSecretLiterals == nil {
+			return nil, errors.New("non_secret_literals must be an array, not null")
+		}
+		values = *selection.NonSecretLiterals
+	}
+	return snapshot.DefaultPolicyWithNonSecretLiterals(values)
 }
 
 type CaptureInput struct {
@@ -151,11 +191,26 @@ func Capture(input CaptureInput) *models.JudgeEvidence {
 		Limits: models.JudgeEvidenceLimits{MaxFiles: models.JudgeEvidenceMaxFiles,
 			MaxFileBytes: models.JudgeEvidenceMaxFileBytes, MaxBundleBytes: models.JudgeEvidenceMaxBytes},
 	}
-	policy := snapshot.DefaultPolicy()
+	policy, policyErr := capturePolicy(input.Selection)
+	if policyErr != nil {
+		bundle.Origin.EvalID, bundle.Origin.TaskID = "", ""
+		bundle.Diagnostics = []models.EvidenceDiagnostic{diagnostic("invalid_fixture_literals")}
+		if err := seal(bundle); err != nil {
+			bundle.Diagnostics = append(bundle.Diagnostics, diagnostic("invalid_evidence"))
+		}
+		return bundle
+	}
+	if input.Selection.NonSecretLiterals != nil {
+		bundle.Version = models.JudgeEvidenceFixtureVersion
+		bundle.FixtureLiterals = &models.JudgeFixtureLiterals{DeclaredCount: len(*input.Selection.NonSecretLiterals)}
+	}
 	budget := projectionBudget{bytes: models.JudgeEvidenceMaxBytes, nodes: 16384}
+	// Only public selection metadata consumes projection budget. Fixture
+	// declarations are independently bounded and never enter the bundle.
+	publicSelection := struct{ Files, EvaluatorOnly []string }{input.Selection.Files, input.Selection.EvaluatorOnly}
 	if len(input.Selection.Files) > models.JudgeEvidenceMaxFiles ||
 		len(input.Selection.EvaluatorOnly) > models.JudgeEvidenceMaxFiles ||
-		budget.inspect(reflect.ValueOf(input.Selection), 0) != nil {
+		budget.inspect(reflect.ValueOf(publicSelection), 0) != nil {
 		bundle.Diagnostics = []models.EvidenceDiagnostic{diagnostic("limit_exceeded")}
 		if err := seal(bundle); err != nil {
 			bundle.Diagnostics = append(bundle.Diagnostics, diagnostic("invalid_evidence"))
@@ -194,8 +249,12 @@ func Capture(input CaptureInput) *models.JudgeEvidence {
 		return decoder.Decode(target)
 	}
 	identity := []string{input.Origin.EvalID, input.Origin.TaskID}
+	identityPolicy := policy
+	if input.Selection.NonSecretLiterals != nil {
+		identityPolicy = snapshot.DefaultPolicy()
+	}
 	for _, value := range identity {
-		if len(value) > 1024 || !utf8.ValidString(value) || policy.RedactString(value) != value {
+		if len(value) > 1024 || !utf8.ValidString(value) || identityPolicy.RedactString(value) != value {
 			bundle.Origin.EvalID, bundle.Origin.TaskID = "", ""
 			bundle.Diagnostics = append(bundle.Diagnostics, diagnostic("invalid_binding"))
 			break
@@ -250,12 +309,20 @@ func Capture(input CaptureInput) *models.JudgeEvidence {
 	if len(input.Selection.Files) == 0 {
 		bundle.Files = complete([]models.JudgeEvidenceFile{})
 	} else if input.Files != nil {
+		// Private accounting must not consume the historical capture budget.
+		publicFiles := &struct {
+			Files       []models.JudgeEvidenceFile
+			Diagnostics []models.EvidenceDiagnostic
+			Redaction   models.EvidenceRedaction
+		}{input.Files.Files, input.Files.Diagnostics, input.Files.Redaction}
 		valid := len(input.Files.Files) <= models.JudgeEvidenceMaxFiles &&
 			len(input.Files.Diagnostics) <= models.JudgeEvidenceMaxFiles &&
 			len(input.Files.Redaction.AppliedRules) <= len(policy.Rules)+1 &&
 			input.Files.Redaction.MatchCount >= 0 &&
 			input.Files.Redaction.MatchCount <= models.JudgeEvidenceMaxBytes &&
-			budget.inspect(reflect.ValueOf(input.Files), 0) == nil
+			input.Files.PreservedLiterals >= 0 &&
+			input.Files.PreservedLiterals <= models.JudgeEvidenceMaxBytes &&
+			budget.inspect(reflect.ValueOf(publicFiles), 0) == nil
 		if valid {
 			for _, file := range input.Files.Files {
 				if len(file.Content) > models.JudgeEvidenceMaxFileBytes {
@@ -288,6 +355,11 @@ func Capture(input CaptureInput) *models.JudgeEvidence {
 			}
 			bundle.Redaction.MatchCount += input.Files.Redaction.MatchCount
 			bundle.Redaction.AppliedRules = slices.Clone(input.Files.Redaction.AppliedRules)
+			if bundle.FixtureLiterals != nil {
+				bundle.FixtureLiterals.PreservedMatches += input.Files.PreservedLiterals
+			} else if input.Files.PreservedLiterals != 0 {
+				bundle.Diagnostics = append(bundle.Diagnostics, diagnostic("invalid_file_capture"))
+			}
 			if input.Files.Redaction.MatchCount > 0 && len(input.Files.Diagnostics) == 0 {
 				bundle.Diagnostics = append(bundle.Diagnostics, diagnostic("redacted_required"))
 			}
@@ -298,6 +370,9 @@ func Capture(input CaptureInput) *models.JudgeEvidence {
 		bundle.Diagnostics = append(bundle.Diagnostics, diagnostic("unobserved_file_capture"))
 	}
 	bundle.Redaction.MatchCount += policy.MatchCount()
+	if bundle.FixtureLiterals != nil {
+		bundle.FixtureLiterals.PreservedMatches += policy.PreservedCount()
+	}
 	bundle.Redaction.AppliedRules = append(bundle.Redaction.AppliedRules, policy.MatchedRules()...)
 	slices.Sort(bundle.Redaction.AppliedRules)
 	bundle.Redaction.AppliedRules = slices.Compact(bundle.Redaction.AppliedRules)
@@ -465,7 +540,7 @@ func VerifyIntegrity(bundle *models.JudgeEvidence, origin models.EvidenceOrigin)
 	if bundle == nil {
 		return errors.New("judge evidence is missing; record a new run with evidence_context enabled")
 	}
-	if bundle.Version != models.JudgeEvidenceVersion || bundle.Origin != origin || origin.EvalID == "" ||
+	if (bundle.Version != models.JudgeEvidenceVersion && bundle.Version != models.JudgeEvidenceFixtureVersion) || bundle.Origin != origin || origin.EvalID == "" ||
 		origin.TaskID == "" || origin.RunNumber < 1 || origin.AttemptCount < 1 || bundle.Boundary != "final" {
 		return errors.New("judge evidence: invalid_binding")
 	}

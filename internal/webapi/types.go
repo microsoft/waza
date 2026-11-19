@@ -1,7 +1,6 @@
 package webapi
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/microsoft/waza/internal/judgeevidence"
@@ -10,7 +9,6 @@ import (
 
 // RunSummary is the API response for a single run in the list.
 type RunSummary struct {
-	skillRecorded   bool
 	ID              string  `json:"id"`
 	Spec            string  `json:"spec"`
 	Model           string  `json:"model"`
@@ -36,9 +34,9 @@ type RunSummary struct {
 	Duration      float64   `json:"duration"`
 	Timestamp     time.Time `json:"timestamp"`
 	Source        string    `json:"source,omitempty"` // "local" or "azure-blob"
-	Skill         string    `json:"skill,omitempty"`
 	Repetitions   int       `json:"repetitions,omitempty"`
 	WeightedScore *float64  `json:"weightedScore,omitempty"`
+	Skill         *string   `json:"skill,omitempty"`
 }
 
 // RunDetail is the API response for a single run with per-task results.
@@ -47,32 +45,6 @@ type RunDetail struct {
 	Tasks        []TaskResult                `json:"tasks"`
 	Statistics   *ReliabilitySummaryResponse `json:"statistics,omitempty"`
 	RegradeUsage *PromptJudgeUsageResponse   `json:"regradeUsage,omitempty"`
-}
-
-type runSummaryJSON RunSummary
-
-func (s RunSummary) skillValue() *string {
-	if s.Skill == "" && !s.skillRecorded {
-		return nil
-	}
-	return &s.Skill
-}
-
-func (s RunSummary) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		runSummaryJSON
-		Skill *string `json:"skill,omitempty"`
-	}{runSummaryJSON(s), s.skillValue()})
-}
-
-func (d RunDetail) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		runSummaryJSON
-		Skill        *string                     `json:"skill,omitempty"`
-		Tasks        []TaskResult                `json:"tasks"`
-		Statistics   *ReliabilitySummaryResponse `json:"statistics,omitempty"`
-		RegradeUsage *PromptJudgeUsageResponse   `json:"regradeUsage,omitempty"`
-	}{runSummaryJSON(d.RunSummary), d.skillValue(), d.Tasks, d.Statistics, d.RegradeUsage})
 }
 
 // ReliabilitySummaryResponse carries recorded estimates, never reconstructed ones.
@@ -105,6 +77,7 @@ type TaskResult struct {
 	GraderResults      []GraderResult              `json:"graderResults"`
 	DependencyModes    []models.DependencyMode     `json:"dependencyModes,omitempty"`
 	CommandInvocations []models.CommandInvocation  `json:"commandInvocations,omitempty"`
+	UserInputRequests  *[]models.UserInputRecord   `json:"userInputRequests,omitempty"`
 	Transcript         []TranscriptEventResponse   `json:"transcript,omitempty"`
 	SessionDigest      *SessionDigestResponse      `json:"sessionDigest,omitempty"`
 	Responder          *ResponderInfoResponse      `json:"responder,omitempty"`
@@ -113,6 +86,13 @@ type TaskResult struct {
 	Trials             *TrialCountsResponse        `json:"trials,omitempty"`
 	EvidenceRuns       []EvidenceRunResponse       `json:"evidenceRuns,omitempty"`
 	PromptJudgingRuns  []PromptJudgingRunResponse  `json:"promptJudgingRuns,omitempty"`
+	InfrastructureRuns []InfrastructureRunResponse `json:"infrastructureRuns,omitempty"`
+}
+
+type InfrastructureRunResponse struct {
+	RunNumber  int                              `json:"runNumber"`
+	Attempts   int                              `json:"attempts,omitempty"`
+	Diagnostic *models.InfrastructureDiagnostic `json:"diagnostic,omitempty"`
 }
 
 type EvidenceRunResponse struct {
