@@ -43,7 +43,8 @@ func TestEvalSpec_Validate_FirstEventTimeout(t *testing.T) {
 func TestLoadEvalSpec_Sandbox(t *testing.T) {
 	tempDir := t.TempDir()
 	specPath := filepath.Join(tempDir, "spec.yaml")
-	err := os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
+	err := os.WriteFile(specPath, []byte(`schemaVersion: "2.0"
+scenario: sandboxed
 name: sandboxed
 skill: test-skill
 config:
@@ -103,7 +104,8 @@ func TestSandboxConfig_ResolvePaths_ExpandsBareHome(t *testing.T) {
 
 func TestLoadEvalSpec_RejectsUnknownSandboxFields(t *testing.T) {
 	specPath := filepath.Join(t.TempDir(), "spec.yaml")
-	err := os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
+	err := os.WriteFile(specPath, []byte(`schemaVersion: "2.0"
+scenario: sandboxed
 name: sandboxed
 skill: test-skill
 config:
@@ -122,7 +124,8 @@ config:
 
 func TestLoadEvalSpec_RequiresSandboxEnabled(t *testing.T) {
 	specPath := filepath.Join(t.TempDir(), "spec.yaml")
-	err := os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
+	err := os.WriteFile(specPath, []byte(`schemaVersion: "2.0"
+scenario: sandboxed
 name: sandboxed
 skill: test-skill
 config:
@@ -154,7 +157,8 @@ func TestLoadEvalSpec_SandboxEnabledMustBeBoolean(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			specPath := filepath.Join(t.TempDir(), "spec.yaml")
-			require.NoError(t, os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
+			require.NoError(t, os.WriteFile(specPath, []byte(`schemaVersion: "2.0"
+scenario: sandboxed
 name: sandboxed
 skill: test-skill
 config:
@@ -180,7 +184,8 @@ config:
 
 func TestLoadEvalSpec_AllowsExplicitlyDisabledSandbox(t *testing.T) {
 	specPath := filepath.Join(t.TempDir(), "spec.yaml")
-	err := os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
+	err := os.WriteFile(specPath, []byte(`schemaVersion: "2.0"
+scenario: sandboxed
 name: sandboxed
 skill: test-skill
 config:
@@ -199,46 +204,18 @@ config:
 	require.False(t, spec.Config.Sandbox.Enabled)
 }
 
-func TestEvalSpec_Validate_SandboxRequiresSchemaVersion13(t *testing.T) {
-	spec := &EvalSpec{
-		SchemaVersion: "1.2",
-		SpecIdentity:  SpecIdentity{Name: "sandboxed"},
-		Config: Config{
-			TrialsPerTask: 1,
-			TimeoutSec:    60,
-			Sandbox:       &SandboxConfig{Enabled: true},
-		},
-	}
-
-	err := spec.Validate()
-	require.ErrorContains(t, err, "sandbox requires schemaVersion 1.3 or newer")
-}
-
-func TestEvalSpec_Validate_SandboxRejectsUnsupportedSchemaMajor(t *testing.T) {
-	spec := &EvalSpec{
-		SchemaVersion: "3.0",
-		SpecIdentity:  SpecIdentity{Name: "sandboxed"},
-		Config: Config{
-			TrialsPerTask: 1,
-			TimeoutSec:    60,
-			EngineType:    "copilot-sdk",
-			Sandbox:       &SandboxConfig{Enabled: true},
-		},
-	}
-
-	err := spec.Validate()
-	require.ErrorContains(t, err, "sandbox does not support schemaVersion 3.0")
-}
-
 func TestEvalSpec_Validate_SandboxSchemaVersions(t *testing.T) {
 	for _, tc := range []struct {
 		name, version, scenario, wantErr string
 	}{
-		{name: "legacy current", version: "1.4"},
-		{name: "legacy introduced", version: "1.3"},
 		{name: "scenario", version: "2.0", scenario: "inventory"},
-		{name: "major two without scenario", version: "2.0", wantErr: "sandbox does not support schemaVersion 2.0"},
+		{name: "legacy current", version: "1.4", wantErr: "sandbox requires a scenario eval with schemaVersion 2.0"},
+		{name: "legacy former sandbox version", version: "1.3", wantErr: "sandbox requires a scenario eval with schemaVersion 2.0"},
+		{name: "legacy before sandbox", version: "1.2", wantErr: "sandbox requires a scenario eval with schemaVersion 2.0"},
+		{name: "legacy default", version: "", wantErr: "sandbox requires a scenario eval with schemaVersion 2.0"},
+		{name: "major two without scenario", version: "2.0", wantErr: "schemaVersion 2.0"},
 		{name: "future scenario minor", version: "2.1", scenario: "inventory", wantErr: "scenario requires explicit schemaVersion"},
+		{name: "unsupported major", version: "3.0", wantErr: "schemaVersion"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := &EvalSpec{
@@ -264,8 +241,9 @@ func TestEvalSpec_Validate_SandboxSchemaVersions(t *testing.T) {
 
 func TestEvalSpec_Validate_SandboxRequiresCopilotExecutor(t *testing.T) {
 	spec := &EvalSpec{
-		SchemaVersion: "1.3",
+		SchemaVersion: "2.0",
 		SpecIdentity:  SpecIdentity{Name: "sandboxed"},
+		Scenario:      "inventory",
 		Config: Config{
 			TrialsPerTask: 1,
 			TimeoutSec:    60,
@@ -289,8 +267,9 @@ func TestEvalSpec_Validate_EnabledSandboxRejectsCommandMocks(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := &EvalSpec{
-				SchemaVersion: "1.4",
+				SchemaVersion: "2.0",
 				SpecIdentity:  SpecIdentity{Name: "sandboxed"},
+				Scenario:      "inventory",
 				CommandMocks:  mocks,
 				Config: Config{
 					TrialsPerTask: 1,

@@ -595,12 +595,13 @@ config:
 
 **Type:** object
 **Default:** omitted
-**Requires:** legacy `schemaVersion: "1.3"` or newer, or a scenario eval with `schemaVersion: "2.0"`
+**Requires:** a scenario eval with `schemaVersion: "2.0"`; legacy `1.x` evals reject `sandbox`
 
 Enables Copilot CLI's native OS sandbox for model-visible tools. Waza derives filesystem access from the fresh task workspace and the concrete target and `required_skills` directories discovered beneath `skill_directories`. Discovery roots and undeclared sibling skills remain inaccessible; selected skill directories remain read-only and are loaded through Copilot's native skill mechanism. Optional path lists are reserved for narrow host prerequisites that cannot be materialised in the workspace.
 
 ```yaml
-schemaVersion: "1.3"
+schemaVersion: "2.0"
+scenario: my-workflow
 
 config:
   executor: copilot-sdk

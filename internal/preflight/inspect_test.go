@@ -346,8 +346,7 @@ mcp_mocks:
 }
 
 func TestInspectSandboxCapabilityIsRequestedNotVerified(t *testing.T) {
-	sandboxed := strings.ReplaceAll(validEval, "executor: mock", "executor: copilot-sdk")
-	sandboxed = strings.ReplaceAll(sandboxed, "  model: harness", "  model: harness\n  sandbox:\n    enabled: true")
+	sandboxed := strings.ReplaceAll(recoveryEval("2.0"), "  model: harness", "  model: harness\n  sandbox:\n    enabled: true")
 	for _, tc := range []struct {
 		name, eval string
 		capability State
@@ -371,8 +370,7 @@ func TestInspectSandboxCapabilityIsRequestedNotVerified(t *testing.T) {
 }
 
 func TestInspectSandboxRejectsTaskCommandMocks(t *testing.T) {
-	sandboxed := strings.ReplaceAll(validEval, "executor: mock", "executor: copilot-sdk")
-	sandboxed = strings.ReplaceAll(sandboxed, "  model: harness", "  model: harness\n  sandbox:\n    enabled: true")
+	sandboxed := strings.ReplaceAll(recoveryEval("2.0"), "  model: harness", "  model: harness\n  sandbox:\n    enabled: true")
 	mocked := validTask + "\ncommand_mocks:\n  - name: offline-tool\n    responses: [{args: []}]\n"
 	for _, tc := range []struct {
 		name, eval, task string
@@ -391,9 +389,16 @@ func TestInspectSandboxRejectsTaskCommandMocks(t *testing.T) {
 		})
 	}
 
-	evalMocks := sandboxed + "command_mocks:\n  - name: offline-tool\n    responses: [{args: []}]\n"
-	path, _ := writeSuite(t, evalMocks, validTask)
+	legacy := strings.ReplaceAll(sandboxed, "schemaVersion: \"2.0\"\nscenario: recovery", `schemaVersion: "1.4"`)
+	require.NotEqual(t, sandboxed, legacy, "fixture must switch to a legacy schema")
+	path, _ := writeSuite(t, legacy, validTask)
 	r := Inspect(path, Options{})
+	require.True(t, hasDiagnostic(r, "eval.configuration", Invalid), "legacy evals reject sandbox: %+v", r.Diagnostics)
+	require.True(t, r.Failed(false))
+
+	evalMocks := sandboxed + "command_mocks:\n  - name: offline-tool\n    responses: [{args: []}]\n"
+	path, _ = writeSuite(t, evalMocks, validTask)
+	r = Inspect(path, Options{})
 	require.True(t, hasDiagnostic(r, "eval.configuration", Invalid), "%+v", r.Diagnostics)
 	require.True(t, r.Failed(false))
 }

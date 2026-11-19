@@ -1038,10 +1038,11 @@ waza run evals/code-explainer/eval.yaml --cache --cache-dir ./my-cache
 
 ### Sandboxing Model-Visible Commands
 
-For `copilot-sdk` evaluations that allow shell or file tools, opt into Copilot CLI's native OS sandbox:
+For `copilot-sdk` scenario evaluations (`schemaVersion: "2.0"`) that allow shell or file tools, opt into Copilot CLI's native OS sandbox:
 
 ```yaml
-schemaVersion: "1.3"
+schemaVersion: "2.0"
+scenario: my-workflow
 
 config:
   executor: copilot-sdk

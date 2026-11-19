@@ -51,10 +51,11 @@ config:
 
 ### Native command sandbox
 
-Set `schemaVersion: "1.3"` or newer (or use a scenario eval with `schemaVersion: "2.0"`) and opt into Copilot CLI's native sandbox when an evaluation allows model-visible shell or file tools:
+Use a scenario eval (`schemaVersion: "2.0"`) and opt into Copilot CLI's native sandbox when an evaluation allows model-visible shell or file tools:
 
 ```yaml
-schemaVersion: "1.3"
+schemaVersion: "2.0"
+scenario: my-workflow
 
 config:
   executor: copilot-sdk

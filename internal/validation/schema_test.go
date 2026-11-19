@@ -385,8 +385,8 @@ func TestValidateEvalBytes_Invalid(t *testing.T) {
 
 func TestValidateEvalBytes_SandboxRequiresCopilotSDK(t *testing.T) {
 	yaml := `name: test-eval
-skill: test-skill
-schemaVersion: "1.3"
+scenario: inventory
+schemaVersion: "2.0"
 config:
   trials_per_task: 1
   timeout_seconds: 60
@@ -406,31 +406,10 @@ tasks:
 	require.Contains(t, joinErrs(errs), "copilot-sdk")
 }
 
-func TestValidateEvalBytes_SandboxRequiresSchemaVersion13(t *testing.T) {
-	yaml := `name: test-eval
-skill: test-skill
-schemaVersion: "1.2"
-config:
-  trials_per_task: 1
-  timeout_seconds: 60
-  executor: copilot-sdk
-  model: gpt-4o
-  sandbox:
-    enabled: true
-metrics:
-  - name: accuracy
-    weight: 1.0
-    threshold: 0.8
-tasks:
-  - "tasks/*.yaml"
-`
-	errs := ValidateEvalBytes([]byte(yaml))
-	require.NotEmpty(t, errs)
-	require.Contains(t, joinErrs(errs), "1.3")
-}
-
-func TestValidateEvalBytes_SandboxAcceptsSchemaVersion13OrNewer(t *testing.T) {
-	for _, version := range []string{"", "1.3", "1.10"} {
+func TestValidateEvalBytes_SandboxRejectsLegacySchemaVersions(t *testing.T) {
+	// Legacy 1.x versions are frozen; sandbox is scenario-only, including when
+	// schemaVersion is omitted and defaults to the legacy reader version.
+	for _, version := range []string{"", "1.2", "1.3", "1.4", "1.10"} {
 		t.Run(version, func(t *testing.T) {
 			versionLine := ""
 			if version != "" {
@@ -453,7 +432,8 @@ tasks:
   - "tasks/*.yaml"
 `, versionLine)
 			errs := ValidateEvalBytes([]byte(yaml))
-			require.Empty(t, errs)
+			require.NotEmpty(t, errs)
+			require.Contains(t, joinErrs(errs), "schemaVersion")
 		})
 	}
 }
@@ -497,8 +477,8 @@ tasks:
 
 func TestValidateEvalBytes_SandboxRequiresExplicitExecutor(t *testing.T) {
 	yaml := `name: test-eval
-skill: test-skill
-schemaVersion: "1.3"
+scenario: inventory
+schemaVersion: "2.0"
 config:
   trials_per_task: 1
   timeout_seconds: 60

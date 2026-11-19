@@ -26,10 +26,7 @@ const (
 	//       declaring fault-injection packs to run (#365). Both fields are
 	//       optional, so 1.0 and 1.1 artifacts continue to load without
 	//       migration.
-	// 1.3 — additive: Config.sandbox opts Copilot SDK evaluations into native
-	//       command isolation, and session_digest records tool_policy_mode and
-	//       tool_policy_denials (#585). These fields are optional, so older
-	//       artifacts retain their existing execution behavior.
+	// 1.3 — additive: session_digest tool_policy_mode and tool_policy_denials (#585).
 	// 1.4 — additive: run command_invocations records for declarative CLI mocks (#634).
 	CurrentSchemaVersion = "1.4"
 

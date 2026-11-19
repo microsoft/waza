@@ -833,23 +833,13 @@ func (s *EvalSpec) SkillsDisabledForTask(taskPaths []string) bool {
 		(s.Scenario != "" && strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(taskPaths) == 0)
 }
 
-// validateSandboxSchemaVersion accepts the legacy 1.3+ sandbox contract and the
-// exact scenario schema. The scenario header itself owns 2.0 admission.
+// validateSandboxSchemaVersion admits sandbox only in scenario evals. Legacy
+// 1.x schema versions are frozen, so new eval configuration is scenario-only.
 func validateSandboxSchemaVersion(version string, scenario bool) error {
 	if scenario && version == ScenarioSchemaVersion {
 		return nil
 	}
-	major, minor, err := parseSchemaVersion(version)
-	if err != nil {
-		return err
-	}
-	if major == 1 && minor >= 3 {
-		return nil
-	}
-	if major == 1 {
-		return fmt.Errorf("sandbox requires schemaVersion 1.3 or newer")
-	}
-	return fmt.Errorf("sandbox does not support schemaVersion %s; use legacy 1.3 or newer, or a scenario eval with schemaVersion %s", version, ScenarioSchemaVersion)
+	return fmt.Errorf("sandbox requires a scenario eval with schemaVersion %s", ScenarioSchemaVersion)
 }
 
 func validateGraderReasoningEffort(name string, parameters GraderParameters, executor string) error {
