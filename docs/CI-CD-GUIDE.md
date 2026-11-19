@@ -56,8 +56,9 @@ race/atomic durations and their source runs. Record run, attempt, and checkout
 SHA for every sample; document any aggregation and apply it consistently rather
 than cherry-picking runs. When independent cases are promoted from a parent,
 use each case's disjoint child PASS span, never both parent and child durations.
-The current table averages two successful main-push samples and retains prior
-estimates for tests skipped in both.
+The current table records one PR run for the bundled CLI 1.0.112 payload; its
+header identifies the shard that reached its deadline and the single projected
+cost, which should be replaced by successful main-push samples.
 Timing history affects placement only: discovery still determines the complete
 inventory, new tests receive the median historical duration, and removed tests
 are never resurrected. Python 3 (provided by the

@@ -23,7 +23,9 @@ This guide explains how to run real integration tests using the GitHub Copilot S
    including its embedded runtime payloads. Collection, wire mutations, and the
    frozen/current readers run in separate serial subprocesses so their
    race-detector shadow memory does not accumulate in the coordinating test.
-   Worker-local GC pacing also limits heap overlap; it is not a hard memory cap.
+   Collection uses worker-local GC pacing, while readers reclaim their Go heap
+   between independent observations without changing the default GC pacing.
+   Only mutations that use blob offsets scan the capture for those offsets.
    The full capture, selected/root/API observations, error classes, frozen source
    checksums, and race instrumentation remain part of the compatibility check.
    Current-reader subprocess counters feed the parent coverage profile; the

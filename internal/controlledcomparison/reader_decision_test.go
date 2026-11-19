@@ -87,13 +87,11 @@ func observeFrozenNativeDecision(t *testing.T, input frozenDecisionInput) frozen
 }
 
 func frozenNativeDecisionProcess(t *testing.T, raw []byte) {
-	// Race shadow memory is outside Go's heap pacing. Collect sooner while
-	// reconstructing full evaluator images, without changing admitted bytes.
-	previousGC := debug.SetGCPercent(20)
-	defer debug.SetGCPercent(previousGC)
 	var input frozenDecisionInput
 	require.NoError(t, json.Unmarshal(raw, &input))
 	if input.Collect != nil {
+		previousGC := debug.SetGCPercent(20)
+		defer debug.SetGCPercent(previousGC)
 		policy, err := controlledcomparison.PlanNative(t.Context(), *input.Collect, *input.Collect, nativeDesign(), nativeRequirements(), nil)
 		require.NoError(t, err)
 		policy = fixedNativePolicy(t, policy)
@@ -285,16 +283,21 @@ func writeFrozenNativeDecisionCase(t *testing.T, original, directory, name strin
 	path := filepath.Join(original, "native-capture.json")
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
-	start, end, found, err := jsonutil.ObjectMemberRange(raw, "blobs")
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, byte('{'), raw[start])
-	require.Equal(t, byte('}'), raw[end-1])
-	keyEnd := bytes.IndexByte(raw[start+2:], '"') + start + 2
-	require.Greater(t, keyEnd, start+2)
-	key := bytes.Clone(raw[start+1 : keyEnd+1])
-	before := bytes.TrimSpace(raw[1 : start-len(`"blobs":`)])
-	after := bytes.TrimSpace(raw[end : len(raw)-1])
+	var start, end int
+	var key, before, after []byte
+	if name == "member_order" || name == "duplicate_blob" {
+		var found bool
+		start, end, found, err = jsonutil.ObjectMemberRange(raw, "blobs")
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, byte('{'), raw[start])
+		require.Equal(t, byte('}'), raw[end-1])
+		keyEnd := bytes.IndexByte(raw[start+2:], '"') + start + 2
+		require.Greater(t, keyEnd, start+2)
+		key = bytes.Clone(raw[start+1 : keyEnd+1])
+		before = bytes.TrimSpace(raw[1 : start-len(`"blobs":`)])
+		after = bytes.TrimSpace(raw[end : len(raw)-1])
+	}
 	cases := []struct {
 		Name string
 		Raw  func() []byte
