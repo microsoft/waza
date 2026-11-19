@@ -33,10 +33,18 @@ func (e *TestFailureError) Error() string {
 // operational failure rather than a completed negative judgment.
 type BenchmarkError struct {
 	Message string
+	Cause   error
 }
 
 func (e *BenchmarkError) Error() string {
+	if e.Cause != nil {
+		return e.Message + ": " + e.Cause.Error()
+	}
 	return e.Message
+}
+
+func (e *BenchmarkError) Unwrap() error {
+	return e.Cause
 }
 
 func completedBenchmarkError(err error) bool {

@@ -79,8 +79,9 @@ type Context struct {
 	SessionID string
 
 	// BaselineOutput is the agent output from the baseline (no-skill) run.
-	// Populated when running in baseline mode; used by pairwise prompt grading.
-	BaselineOutput string
+	// BaselineOutputPresent distinguishes an observed empty output from missing evidence.
+	BaselineOutput        string
+	BaselineOutputPresent bool
 
 	// Executor runs model-backed grader prompts through the same execution layer
 	// as task prompts. Only prompt graders require it.

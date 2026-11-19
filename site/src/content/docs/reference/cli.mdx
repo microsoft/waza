@@ -2154,8 +2154,12 @@ graders:
 
 **Requirements:**
 - Pairwise mode requires the `--baseline` flag on `waza run`
-- Baseline execution must complete before pairwise comparison runs
+- The skills-disabled baseline pass completes before the skills-enabled pass
+- Outputs are matched by task ID and trial; the final retry attempt is compared
+- A successful empty output is valid, but a missing or failed baseline output stops the comparison
 - Each task is evaluated twice: once without the skill (baseline) and once with it (treatment)
+- Pairwise grading is not supported by saved-result `waza grade`; rerun with `waza run --baseline`
+- Pairwise judgments decide skill impact and the exit code: judged tasks contribute `(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and the run exits `1` unless the mean is positive (counts are saved in `skill_impact.pairwise_summary`)
 
 **Example:**
 ```bash

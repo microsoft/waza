@@ -128,7 +128,16 @@ func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*mod
 	if p.args.EvidenceContext != nil {
 		return p.gradeEvidence(ctx, gradingContext)
 	}
-	if p.args.Mode == models.PromptGraderModePairwise && gradingContext.BaselineOutput != "" {
+	if p.args.Mode == models.PromptGraderModePairwise {
+		if gradingContext == nil {
+			return nil, errors.New("pairwise prompt grading requires grading context")
+		}
+		if !gradingContext.OutputPresent {
+			return nil, errors.New("pairwise prompt grading requires an observed candidate output")
+		}
+		if !gradingContext.BaselineOutputPresent {
+			return nil, errors.New("pairwise prompt grading requires an observed baseline output")
+		}
 		return p.gradePairwise(ctx, gradingContext)
 	}
 	return p.gradeIndependent(ctx, gradingContext)
@@ -445,9 +454,9 @@ func (p *promptGrader) gradePairwise(ctx context.Context, gradingContext *Contex
 		finalMagnitude := resultAB.magnitude
 		finalReasoning := resultAB.reasoning
 		if !positionConsistent {
-			finalWinner = "tie"
+			finalWinner = "inconsistent"
 			finalMagnitude = "equal"
-			finalReasoning = fmt.Sprintf("Position-inconsistent: pass1=%s, pass2=%s. Defaulting to tie.", winnerAB, winnerBA)
+			finalReasoning = fmt.Sprintf("Position-inconsistent: pass1=%s, pass2=%s.", winnerAB, winnerBA)
 		}
 
 		score := pairwiseWinnerToScore(finalWinner)
@@ -462,10 +471,14 @@ func (p *promptGrader) gradePairwise(ctx context.Context, gradingContext *Contex
 
 		details := map[string]any{
 			"pairwise": pairwise,
-			"pass1":    resultAB,
-			"pass2":    resultBA,
-			"prompt":   p.args.Prompt,
-			"mode":     "pairwise",
+			"pass1": pairwiseJudgmentDetails{
+				Winner: resultAB.winner, Magnitude: resultAB.magnitude, Reasoning: resultAB.reasoning,
+			},
+			"pass2": pairwiseJudgmentDetails{
+				Winner: resultBA.winner, Magnitude: resultBA.magnitude, Reasoning: resultBA.reasoning,
+			},
+			"prompt": p.args.Prompt,
+			"mode":   "pairwise",
 		}
 		if p.rubric != nil {
 			details["rubric"] = map[string]any{
@@ -495,6 +508,12 @@ type pairwiseJudgment struct {
 	set       bool
 }
 
+type pairwiseJudgmentDetails struct {
+	Winner    string `json:"winner"`
+	Magnitude string `json:"magnitude"`
+	Reasoning string `json:"reasoning"`
+}
+
 const pairwisePickToolName = "set_pairwise_winner"
 
 func (p *promptGrader) runPairwiseOnce(
@@ -507,10 +526,7 @@ func (p *promptGrader) runPairwiseOnce(
 		return nil, errors.New("prompt grader requires grading context")
 	}
 
-	judgment := &pairwiseJudgment{
-		winner:    "tie",
-		magnitude: "equal",
-	}
+	judgment := &pairwiseJudgment{}
 
 	tools := []copilot.Tool{
 		{
@@ -544,6 +560,9 @@ func (p *promptGrader) runPairwiseOnce(
 				}
 				if err := mapstructure.Decode(invocation.Arguments, &args); err != nil {
 					return copilot.ToolResult{}, nil
+				}
+				if args.Winner != labelA && args.Winner != labelB && args.Winner != "tie" {
+					return copilot.ToolResult{}, fmt.Errorf("invalid pairwise winner %q; expected %q, %q, or tie", args.Winner, labelA, labelB)
 				}
 				judgment.winner = args.Winner
 				judgment.magnitude = args.Magnitude
@@ -579,6 +598,10 @@ func (p *promptGrader) runPairwiseOnce(
 		return nil, fmt.Errorf("failed to send pairwise prompt: %s", resp.ErrorMsg)
 	}
 
+	if !judgment.set {
+		return nil, errors.New("judge session completed without calling set_pairwise_winner with a valid verdict")
+	}
+
 	return judgment, nil
 }
 
@@ -601,8 +624,10 @@ func normalizePairwiseWinner(winner, labelA, labelB, semanticA, semanticB string
 		return semanticA
 	case labelB:
 		return semanticB
-	default:
+	case "tie":
 		return "tie"
+	default:
+		return "invalid"
 	}
 }
 

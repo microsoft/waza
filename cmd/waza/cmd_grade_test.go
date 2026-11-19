@@ -40,6 +40,36 @@ checkpoints:
 	require.Len(t, tasks, 1)
 }
 
+func TestGradeRejectsSavedResultPairwiseGradingBeforeWorkspaceOrResults(t *testing.T) {
+	dir := t.TempDir()
+	writeTaskFile(t, dir, "task.yaml", `id: task
+inputs:
+  prompt: compare
+graders:
+  - type: prompt
+    name: quality
+    config:
+      mode: pairwise
+      prompt: Compare the outputs.
+`)
+	spec := gradeSpec(t, dir, `name: pairwise-grade-test
+skill: test
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  executor: mock
+  model: test
+tasks:
+  - "tasks/*.yaml"
+`)
+
+	err := runGradeWithJudge(t.Context(), io.Discard, io.Discard, spec, "task",
+		filepath.Join(dir, "missing-results.json"), filepath.Join(dir, "missing-workspace"),
+		"", "", false, "", nil)
+	require.ErrorContains(t, err, "saved-result regrading is unsupported")
+}
+
 func gradeSpec(t *testing.T, dir string, specYAML string) string {
 	t.Helper()
 	p := filepath.Join(dir, "eval.yaml")

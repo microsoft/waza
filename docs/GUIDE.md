@@ -1253,6 +1253,22 @@ has neither the actor session nor its live workspace. Omission preserves legacy
 behavior; checkpoint, pairwise, continuation and `--evidence-snapshot` combinations
 are rejected. This requires the current implementation, not an older CLI that
 does not implement evidence context.
+Pairwise prompt grading runs the skills-disabled baseline first and compares the
+final attempt for each matching task/trial. All selected task IDs must
+be unique when pairwise grading is enabled. A final baseline attempt that fails
+execution makes its observation unavailable, even if an earlier attempt produced
+output. Saved-result `waza grade` does not
+support pairwise comparisons; rerun with `waza run --baseline`.
+Because the baseline pass cannot apply relative graders, pairwise judgments decide
+baseline impact and the exit code: each judged task contributes its preference
+`(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and
+the run exits `1` unless the mean is positive. Each task records the counts in
+`skill_impact.pairwise_summary`.
+Each judge pass must call `set_pairwise_winner` with a valid verdict, and
+pairwise grader names must not collide with another grader on that task.
+Position-inconsistent comparisons are counted separately, not as ties or
+preference-denominator entries; tasks with only inconsistent comparisons do not
+contribute positive impact.
 
 ```bash
 waza preflight examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures

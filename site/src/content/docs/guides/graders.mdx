@@ -601,10 +601,25 @@ This is the closest Waza match for OpenAI Evals `modelgraded` specs. See the eva
 | `model`            | `string` | eval `judge_model` | Optional per-grader judge model override. See evidence-model fallback below. |
 | `reasoning_effort` | `string` | eval `judge_reasoning_effort` | Judge effort: `low`, `medium`, `high`, `xhigh`, or `max`. Requires `executor: copilot-sdk`. |
 | `continue_session` | `bool`   | `false`      | Resume the agent's session (judge sees full context) |
-| `mode`             | `string` | `independent` | Judging mode: `independent` (standard) or `pairwise` (compare two, requires `--baseline`) |
+| `mode`             | `string` | `independent` | Judging mode: `independent` (standard) or `pairwise` (compare matched task/trial outputs; requires `--baseline`) |
 | `evidence_context` | `object` | omitted | Opt into bounded frozen evidence in a separately owned, fresh judge session; final eval/task graders only. |
 
 ¹ Either `prompt` or `rubric` is required. When only `rubric` is set, the rubric's body becomes the judge prompt. When both are set, the inline `prompt` wins (useful for ad-hoc overrides while keeping the rubric metadata attached for reporting).
+
+Pairwise comparisons require unique IDs across all selected tasks. Only the final
+baseline attempt supplies each task/trial's output; if that attempt fails execution,
+earlier output is not reused and the skills-enabled pass does not start.
+
+Because the baseline pass cannot apply relative graders, pairwise judgments decide
+baseline impact and the exit code: each judged task contributes its preference
+`(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and
+the run exits `1` unless the mean is positive. Each task records the counts in
+`skill_impact.pairwise_summary`.
+Every judge pass must return a valid `set_pairwise_winner` verdict. Grader names
+must not collide with another grader on a pairwise task. Position-inconsistent
+comparisons are reported separately and excluded from both the tie count and
+preference denominator; a task with no consistent judgments contributes no
+positive impact.
 
 Reasoning-effort overrides work on eval, task, and checkpoint prompt graders, including
 `continue_session` and pairwise judging. These are judge settings, not per-task agent

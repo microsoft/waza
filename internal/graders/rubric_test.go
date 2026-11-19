@@ -270,9 +270,11 @@ func TestPairwiseMode_IncludesRubricMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	results, err := grader.Grade(context.Background(), &Context{
-		Output:         "better output",
-		BaselineOutput: "worse output",
-		Executor:       executor,
+		Output:                "better output",
+		OutputPresent:         true,
+		BaselineOutput:        "worse output",
+		BaselineOutputPresent: true,
+		Executor:              executor,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, results)

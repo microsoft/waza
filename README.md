@@ -1626,6 +1626,18 @@ task/conversation/tool/output evidence in a fresh isolated session, without acto
 continuation or live workspace access. Add `files: [report.json]` inside that
 object for explicit selected-file evidence. Required evidence fails closed;
 checkpoint, pairwise, and continued-session evidence judging are unsupported.
+Pairwise prompt graders require an in-process `waza run --baseline` comparison;
+saved-result `waza grade` rejects them rather than substituting independent grading.
+All selected task IDs must be unique for pairwise comparisons. Only the final
+baseline attempt supplies evidence; an execution failure cannot reuse earlier output.
+Because the baseline pass cannot apply relative graders, pairwise judgments decide
+baseline impact and the exit code: each judged task contributes its preference
+`(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and
+the run exits `1` unless the mean is positive. Each task records the counts in
+`skill_impact.pairwise_summary`.
+Every judge pass must return a valid verdict, pairwise grader names must be
+unique on the task, and position-inconsistent comparisons are excluded from
+ties and the preference denominator.
 With fix #898 (not in published v0.41.0),
 `evidence_context.non_secret_literals` can preserve declared exact whole-token
 Git SHAs, synthetic contacts and tracker identifiers in evaluator-controlled
