@@ -406,7 +406,7 @@ requires source-bound receipts from the same workflow run and attempt.
 Preserve this wiring when changing CI: an unrelated green job, a stale receipt,
 or a skipped applicable family is not evidence that the current PR is complete.
 
-Linux executes `internal/controlledcomparison` in four deterministic shards
+Linux executes `internal/controlledcomparison` in five deterministic shards
 through `.github/workflows/go-native-shards.yml`, balanced longest-first using
 observed top-level durations in `.github/scripts/go_test_shard_durations.tsv`.
 Python 3 computes placement only; discovery remains authoritative and new tests
@@ -433,18 +433,18 @@ continues to execute the complete suite in one job.
 
 The required `ubuntu-latest` gate explicitly fails if the build, any native or
 remaining-package shard, or the coverage merger fails, is cancelled, or is
-skipped. It requires the four native profiles and the merged remaining profile
-(five atomic profiles total), identical native inventories, and exactly-once
+skipped. It requires the five native profiles and the merged remaining profile
+(six atomic profiles total), identical native inventories, and exactly-once
 native selection before uploading coverage. Do not replace it with a skipped
 dependent job or remove a package without providing exhaustive required shards.
 Exercise native and remaining-shard discovery, selection, failure handling, and
 coverage merging with `bash .github/scripts/go_test_shard_test.sh` and
 `bash .github/scripts/go_remaining_shard_test.sh`.
 
-Squad Release and Squad Insider Release reuse the same four native shards and
+Squad Release and Squad Insider Release reuse the same five native shards and
 30-minute race/atomic package deadline, running remaining validation in parallel.
 Their publication job explicitly rejects failed, cancelled, or skipped validation
-branches and verifies all five coverage profiles and exactly-once native selection
+branches and verifies all six coverage profiles and exactly-once native selection
 before publishing the tested binary artifact. Test the release wiring with
 `go test -count=1 ./.github/scripts` and the offline runtime/integration controls
 with `bash .github/scripts/release_gate_test.sh`. Release, ordinary Go, preview,

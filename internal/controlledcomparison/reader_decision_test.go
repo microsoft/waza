@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"testing"
 
 	"github.com/microsoft/waza/internal/controlledcomparison"
@@ -20,8 +23,17 @@ import (
 )
 
 type frozenDecisionInput struct {
-	Directory string `json:"directory"`
-	Policy    []byte `json:"policy"`
+	Directory string                       `json:"directory"`
+	Policy    []byte                       `json:"policy"`
+	Collect   *controlledcomparison.Source `json:"collect,omitempty"`
+	Mutate    string                       `json:"mutate,omitempty"`
+	Original  string                       `json:"original,omitempty"`
+}
+
+type frozenDecisionCapture struct {
+	Policy []byte `json:"policy"`
+	Bytes  int    `json:"bytes"`
+	SHA256 string `json:"sha256"`
 }
 
 type frozenDecisionObservation struct {
@@ -37,6 +49,9 @@ type frozenDecisionObservation struct {
 
 func observeFrozenNativeDecision(t *testing.T, input frozenDecisionInput) frozenDecisionObservation {
 	t.Helper()
+	// Each public reader reconstructs the full evaluator capture. Reclaim the
+	// previous reader's heap before the next, including in the frozen process.
+	debug.FreeOSMemory()
 	var result frozenDecisionObservation
 	var err error
 	require.NotPanics(t, func() {
@@ -46,6 +61,7 @@ func observeFrozenNativeDecision(t *testing.T, input frozenDecisionInput) frozen
 		result.SelectedError = err.Error()
 		result.SelectedClass = readeroracle.Describe(err)
 	}
+	debug.FreeOSMemory()
 	root, err := os.OpenRoot(input.Directory)
 	require.NoError(t, err)
 	require.NotPanics(t, func() {
@@ -56,6 +72,7 @@ func observeFrozenNativeDecision(t *testing.T, input frozenDecisionInput) frozen
 		result.RootClass = readeroracle.Describe(err)
 	}
 	require.NoError(t, root.Close())
+	debug.FreeOSMemory()
 	mux := http.NewServeMux()
 	webapi.RegisterReleaseRoutes(mux, filepath.Dir(input.Directory))
 	response := httptest.NewRecorder()
@@ -72,6 +89,27 @@ func observeFrozenNativeDecision(t *testing.T, input frozenDecisionInput) frozen
 func frozenNativeDecisionProcess(t *testing.T, raw []byte) {
 	var input frozenDecisionInput
 	require.NoError(t, json.Unmarshal(raw, &input))
+	if input.Collect != nil {
+		previousGC := debug.SetGCPercent(20)
+		defer debug.SetGCPercent(previousGC)
+		policy, err := controlledcomparison.PlanNative(t.Context(), *input.Collect, *input.Collect, nativeDesign(), nativeRequirements(), nil)
+		require.NoError(t, err)
+		policy = fixedNativePolicy(t, policy)
+		debug.FreeOSMemory()
+		calls := 0
+		require.NoError(t, controlledcomparison.CollectNativeWithOptions(t.Context(), policy, *input.Collect, *input.Collect, input.Directory,
+			controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls)}))
+		require.Equal(t, 2, calls)
+		capture, err := os.ReadFile(filepath.Join(input.Directory, "native-capture.json"))
+		require.NoError(t, err)
+		readeroracle.Output(t, frozenDecisionCapture{Policy: policy, Bytes: len(capture), SHA256: fmt.Sprintf("%x", sha256.Sum256(capture))})
+		return
+	}
+	if input.Mutate != "" {
+		writeFrozenNativeDecisionCase(t, input.Original, input.Directory, input.Mutate)
+		readeroracle.Output(t, nil)
+		return
+	}
 	result := observeFrozenNativeDecision(t, input)
 	readeroracle.Output(t, result)
 }
@@ -133,46 +171,146 @@ func testNativeReaderFrozen15cDecisionParity(t *testing.T, proofName string, pro
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("native durable creation requires Linux or macOS; supplied decision reading remains covered")
 	}
+	debug.FreeOSMemory()
 	oracle := readeroracle.Build(t, "controlledcomparison")
 	binaryBefore, err := os.Stat(oracle)
 	require.NoError(t, err)
-	source := nativeFixture(t, "fixed-model")
-	policy, err := controlledcomparison.PlanNative(t.Context(), source, source, nativeDesign(), nativeRequirements(), nil)
+	executable, err := os.Executable()
 	require.NoError(t, err)
-	policy = fixedNativePolicy(t, policy)
+	source := nativeFixture(t, "fixed-model")
 	directory := filepath.Join(t.TempDir(), "native")
-	calls := 0
-	require.NoError(t, controlledcomparison.CollectNativeWithOptions(t.Context(), policy, source, source, directory,
-		controlledcomparison.NativeCollectorOptions{NewCopilotClient: nativeFactory(t, &calls)}))
-	require.Equal(t, 2, calls)
-	path := filepath.Join(directory, "native-capture.json")
+	// Collection, mutation and each reader own separate serial processes:
+	// returning Go heap pages alone does not release the race detector's shadow
+	// memory. Keep the parent free of evaluator-sized allocations.
+	collected := readeroracle.Run(t, executable, "TestNativeReaderFrozen15cDecisionParity",
+		frozenDecisionInput{Directory: directory, Collect: &source})
+	var capture frozenDecisionCapture
+	require.NoError(t, json.Unmarshal(collected, &capture))
+	require.Positive(t, capture.Bytes)
+	t.Logf("same actual production capture bytes=%d sha256=%s", capture.Bytes, capture.SHA256)
+	policy := capture.Policy
+	cases := map[string]string{
+		"writer": "", "whitespace": "", "escaped_member": "", "member_order": "",
+		"trailing_document": "invalid JSON", "duplicate_blob": "duplicate JSON object key",
+		"unsafe_truncated_object": "invalid JSON", "unicode_before_syntax": "unpaired Unicode surrogate",
+		"blob_failure_before_unknown": "illegal base64", "unknown_before_blob_failure": `unknown field "unknown"`,
+	}
+	observations := map[string]frozenDecisionObservation{}
+	t.Run("cases", func(t *testing.T) {
+		for _, name := range selected {
+			want, ok := cases[name]
+			require.True(t, ok, "unknown frozen parity case %q", name)
+			t.Run(name, func(t *testing.T) {
+				caseDirectory := filepath.Join(t.TempDir(), "native")
+				readeroracle.Run(t, executable, "TestNativeReaderFrozen15cDecisionParity",
+					frozenDecisionInput{Directory: caseDirectory, Original: directory, Mutate: name})
+				caseInput := frozenDecisionInput{Directory: caseDirectory, Policy: policy}
+				frozen := readeroracle.Run(t, oracle, "TestNativeReaderFrozen15cDecisionParity", caseInput)
+				var expected frozenDecisionObservation
+				require.NoError(t, json.Unmarshal(frozen, &expected))
+				if want == "" {
+					require.Empty(t, expected.SelectedError)
+					require.Empty(t, expected.RootError)
+					require.Equal(t, "passed", expected.Selected.Golden.State)
+					require.Len(t, expected.Selected.Native.Attempts, 2)
+					for _, attempt := range expected.Selected.Native.Attempts {
+						require.Equal(t, "passed", attempt.Status)
+						require.NotNil(t, attempt.Output)
+						require.Equal(t, "hello", *attempt.Output)
+						require.True(t, attempt.UsageComplete)
+					}
+				} else {
+					require.Contains(t, expected.SelectedError, want)
+					require.Contains(t, expected.RootError, want)
+					require.False(t, expected.Selected.Accepted)
+					require.Equal(t, "invalid", expected.Selected.Compatibility.State)
+					require.Empty(t, expected.Selected.Native.Attempts)
+				}
+				current := readeroracle.Run(t, executable, "TestNativeReaderFrozen15cDecisionParity", caseInput)
+				var got frozenDecisionObservation
+				require.NoError(t, json.Unmarshal(current, &got))
+				expectedEncoded, err := json.Marshal(expected)
+				require.NoError(t, err)
+				gotEncoded, err := json.Marshal(got)
+				require.NoError(t, err)
+				require.Equal(t, expectedEncoded, gotEncoded, "selected/root/API actual decision payload and first error must match frozen15c")
+				var api []webapi.ReleaseCollection
+				require.NoError(t, json.Unmarshal(got.API, &api))
+				require.Len(t, api, 1)
+				require.Equal(t, got.Root.Accepted, api[0].Decision.Accepted)
+				require.Equal(t, got.Root.Golden, api[0].Decision.Golden)
+				require.Equal(t, got.Root.Native, api[0].Decision.Native)
+				if want == "" {
+					require.Empty(t, api[0].Error)
+				} else {
+					require.Equal(t, got.RootError, api[0].Error)
+				}
+				observations[name] = expected
+			})
+		}
+	})
+	require.Len(t, observations, len(selected))
+	controlRaw := readeroracle.Run(t, executable, "TestNativeReaderFrozen15cDecisionParity",
+		frozenDecisionInput{Directory: directory, Policy: policy})
+	var control frozenDecisionObservation
+	require.NoError(t, json.Unmarshal(controlRaw, &control))
+	require.Empty(t, control.SelectedError)
+	require.Equal(t, "passed", control.Selected.Golden.State)
+	binaryAfter, err := os.Stat(oracle)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(binaryBefore, binaryAfter))
+	require.Equal(t, binaryBefore.ModTime(), binaryAfter.ModTime())
+	if out := os.Getenv("WAZA_READER_PROOF_DIR"); out != "" {
+		encoded, err := json.Marshal(observations)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(out, proofName), encoded, 0600))
+		if proofCapture {
+			input, err := os.Open(filepath.Join(directory, "native-capture.json"))
+			require.NoError(t, err)
+			output, err := os.OpenFile(filepath.Join(out, "actual-production-capture.json"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+			require.NoError(t, err)
+			_, err = io.Copy(output, input)
+			require.NoError(t, input.Close())
+			require.NoError(t, output.Close())
+			require.NoError(t, err)
+		}
+	}
+}
+
+func writeFrozenNativeDecisionCase(t *testing.T, original, directory, name string) {
+	t.Helper()
+	require.NoError(t, os.CopyFS(directory, os.DirFS(original)))
+	path := filepath.Join(original, "native-capture.json")
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
-	t.Logf("same actual production capture bytes=%d sha256=%x", len(raw), sha256.Sum256(raw))
-	start, end, found, err := jsonutil.ObjectMemberRange(raw, "blobs")
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, byte('{'), raw[start])
-	require.Equal(t, byte('}'), raw[end-1])
-	keyEnd := bytes.IndexByte(raw[start+2:], '"') + start + 2
-	require.Greater(t, keyEnd, start+2)
-	key := bytes.Clone(raw[start+1 : keyEnd+1])
-	before := bytes.TrimSpace(raw[1 : start-len(`"blobs":`)])
-	after := bytes.TrimSpace(raw[end : len(raw)-1])
+	var start, end int
+	var key, before, after []byte
+	if name == "member_order" || name == "duplicate_blob" {
+		var found bool
+		start, end, found, err = jsonutil.ObjectMemberRange(raw, "blobs")
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, byte('{'), raw[start])
+		require.Equal(t, byte('}'), raw[end-1])
+		keyEnd := bytes.IndexByte(raw[start+2:], '"') + start + 2
+		require.Greater(t, keyEnd, start+2)
+		key = bytes.Clone(raw[start+1 : keyEnd+1])
+		before = bytes.TrimSpace(raw[1 : start-len(`"blobs":`)])
+		after = bytes.TrimSpace(raw[end : len(raw)-1])
+	}
 	cases := []struct {
 		Name string
 		Raw  func() []byte
-		Want string
 	}{
-		{"writer", func() []byte { return raw }, ""},
+		{"writer", func() []byte { return raw }},
 		{"whitespace", func() []byte {
 			return append(append(append([]byte(nil), " \r\n\t"...), raw...), "\r\n "...)
-		}, ""},
+		}},
 		{"escaped_member", func() []byte {
 			escaped := bytes.Replace(raw, []byte(`"blobs":`), []byte(`"\u0062lobs":`), 1)
 			require.NotEqual(t, raw, escaped)
 			return escaped
-		}, ""},
+		}},
 		{"member_order", func() []byte {
 			reordered := append([]byte(`{"blobs":`), raw[start:end]...)
 			reordered = append(reordered, ',')
@@ -185,100 +323,30 @@ func testNativeReaderFrozen15cDecisionParity(t *testing.T, proofName string, pro
 			reordered = append(reordered, '}')
 			require.True(t, json.Valid(reordered), "top-level member reorder must retain valid raw nested JSON")
 			return reordered
-		}, ""},
+		}},
 		{"trailing_document", func() []byte {
 			return append(bytes.Clone(raw), []byte("{}")...)
-		}, "invalid JSON"},
+		}},
 		{"duplicate_blob", func() []byte {
 			duplicate := append(bytes.Clone(raw[:end-1]), ',')
 			duplicate = append(duplicate, key...)
 			duplicate = append(duplicate, []byte(`:""`)...)
 			return append(duplicate, raw[end-1:]...)
-		}, "duplicate JSON object key"},
-		{"unsafe_truncated_object", func() []byte { return []byte(`{"blobs":{"a":"`) }, "invalid JSON"},
-		{"unicode_before_syntax", func() []byte { return []byte(`{"kind":"\ud800",`) }, "unpaired Unicode surrogate"},
+		}},
+		{"unsafe_truncated_object", func() []byte { return []byte(`{"blobs":{"a":"`) }},
+		{"unicode_before_syntax", func() []byte { return []byte(`{"kind":"\ud800",`) }},
 		{"blob_failure_before_unknown", func() []byte {
 			return []byte(`{"blobs":{"a":"!!!"},"unknown":true}`)
-		}, "illegal base64"},
+		}},
 		{"unknown_before_blob_failure", func() []byte {
 			return []byte(`{"unknown":true,"blobs":{"a":"!!!"}}`)
-		}, `unknown field "unknown"`},
+		}},
 	}
-	byName := map[string]int{}
-	for i, test := range cases {
-		byName[test.Name] = i
-	}
-	observations := map[string]frozenDecisionObservation{}
-	// Each case starts a race-instrumented oracle subprocess; keep them serial
-	// to bound the native shard's peak memory.
-	t.Run("cases", func(t *testing.T) {
-		for _, name := range selected {
-			index, ok := byName[name]
-			require.True(t, ok, "unknown frozen parity case %q", name)
-			test := cases[index]
-			t.Run(test.Name, func(t *testing.T) {
-				caseRoot := t.TempDir()
-				caseDirectory := filepath.Join(caseRoot, "native")
-				require.NoError(t, os.CopyFS(caseDirectory, os.DirFS(directory)))
-				require.NoError(t, os.WriteFile(filepath.Join(caseDirectory, "native-capture.json"), test.Raw(), 0600))
-				caseInput := frozenDecisionInput{Directory: caseDirectory, Policy: policy}
-				frozen := readeroracle.Run(t, oracle, "TestNativeReaderFrozen15cDecisionParity", caseInput)
-				var expected frozenDecisionObservation
-				require.NoError(t, json.Unmarshal(frozen, &expected))
-				if test.Want == "" {
-					require.Empty(t, expected.SelectedError)
-					require.Empty(t, expected.RootError)
-					require.Equal(t, "passed", expected.Selected.Golden.State)
-					require.Len(t, expected.Selected.Native.Attempts, 2)
-					for _, attempt := range expected.Selected.Native.Attempts {
-						require.Equal(t, "passed", attempt.Status)
-						require.NotNil(t, attempt.Output)
-						require.Equal(t, "hello", *attempt.Output)
-						require.True(t, attempt.UsageComplete)
-					}
-				} else {
-					require.Contains(t, expected.SelectedError, test.Want)
-					require.Contains(t, expected.RootError, test.Want)
-					require.False(t, expected.Selected.Accepted)
-					require.Equal(t, "invalid", expected.Selected.Compatibility.State)
-					require.Empty(t, expected.Selected.Native.Attempts)
-				}
-				got := observeFrozenNativeDecision(t, caseInput)
-				expectedEncoded, err := json.Marshal(expected)
-				require.NoError(t, err)
-				gotEncoded, err := json.Marshal(got)
-				require.NoError(t, err)
-				require.Equal(t, expectedEncoded, gotEncoded, "selected/root/API actual decision payload and first error must match frozen15c")
-				var api []webapi.ReleaseCollection
-				require.NoError(t, json.Unmarshal(got.API, &api))
-				require.Len(t, api, 1)
-				require.Equal(t, got.Root.Accepted, api[0].Decision.Accepted)
-				require.Equal(t, got.Root.Golden, api[0].Decision.Golden)
-				require.Equal(t, got.Root.Native, api[0].Decision.Native)
-				if test.Want == "" {
-					require.Empty(t, api[0].Error)
-				} else {
-					require.Equal(t, got.RootError, api[0].Error)
-				}
-				observations[test.Name] = expected
-			})
-		}
-	})
-	require.Len(t, observations, len(selected))
-	require.NoError(t, os.WriteFile(path, raw, 0600))
-	control := observeFrozenNativeDecision(t, frozenDecisionInput{Directory: directory, Policy: policy})
-	require.Empty(t, control.SelectedError)
-	require.Equal(t, "passed", control.Selected.Golden.State)
-	binaryAfter, err := os.Stat(oracle)
-	require.NoError(t, err)
-	require.True(t, os.SameFile(binaryBefore, binaryAfter))
-	require.Equal(t, binaryBefore.ModTime(), binaryAfter.ModTime())
-	if out := os.Getenv("WAZA_READER_PROOF_DIR"); out != "" {
-		encoded, err := json.Marshal(observations)
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(out, proofName), encoded, 0600))
-		if proofCapture {
-			require.NoError(t, os.WriteFile(filepath.Join(out, "actual-production-capture.json"), raw, 0600))
+	for _, test := range cases {
+		if test.Name == name {
+			require.NoError(t, os.WriteFile(filepath.Join(directory, "native-capture.json"), test.Raw(), 0600))
+			return
 		}
 	}
+	t.Fatalf("unknown frozen parity mutation %q", name)
 }

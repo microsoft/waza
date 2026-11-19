@@ -48,7 +48,7 @@ func TestPath(t *testing.T) {
 		require.NotNil(t, pong)
 		status, err := client.GetStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, "1.0.105", status.Version)
+		require.Equal(t, "1.0.112", status.Version)
 		schemaBytes, err := os.ReadFile(filepath.Join(filepath.Dir(path), "schemas", "session-events.schema.json"))
 		require.NoError(t, err)
 		var schema struct {
