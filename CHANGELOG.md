@@ -188,6 +188,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Strict offline snapshot replay now checks tool-event order and reconciles
+  passed status only against explicitly recorded final validations and failed
+  checkpoints; missing historical evidence remains unassessed (#1030).
 - `waza compare --format json` no longer fails when the compared files have
   different task sets. Unavailable task scores, pass rates and deltas are now
   `null` instead of non-finite or fabricated zero values, deltas are computed
