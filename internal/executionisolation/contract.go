@@ -3,8 +3,8 @@
 // prove they enforce, and the effective posture admitted before execution.
 //
 // Waza enforces no boundary itself. Providers (an outer host or container
-// runtime declared by the operator, or the Copilot-native sandbox tracked in
-// #544 when present) own enforcement; this package only discovers their
+// runtime declared by the operator, or the Copilot-native sandbox of evals
+// that enable config.sandbox) own enforcement; this package only discovers their
 // claims, runs a conformance probe that attempts each boundary violation, and
 // rejects requested boundaries that cannot be shown to hold.
 package executionisolation

@@ -16,24 +16,8 @@ import (
 	"time"
 )
 
-// NativeSandboxProviderName names the Copilot-native sandbox slot (#544).
-const NativeSandboxProviderName = "copilot-native-sandbox"
-
 // HostProviderName names the operator-declared host/runtime provider.
 const HostProviderName = "host-declaration"
-
-// NativeSandboxProvider represents the Copilot-native sandbox tracked in
-// #544. That integration is not part of this build, so the provider reports
-// itself absent and claims nothing. When it lands, it supplies claims with
-// probes that run inside the native sandbox; this contract does not duplicate
-// its enforcement.
-type NativeSandboxProvider struct{}
-
-func (NativeSandboxProvider) Name() string { return NativeSandboxProviderName }
-
-func (NativeSandboxProvider) Discover(context.Context) Discovery {
-	return Discovery{Status: ProviderAbsent, Reason: "Copilot-native sandbox integration (#544) is not present in this build; it claims no boundary"}
-}
 
 // Host performs the probe operations against the environment that encloses
 // the Waza process. Each field defaults to the real operating-system call.
@@ -319,7 +303,8 @@ func (h Host) probeSubprocess(ctx context.Context) ProbeResult {
 }
 
 // DefaultProviders returns the providers this build can discover: the
-// Copilot-native sandbox slot (absent) and the optional host declaration.
-func DefaultProviders(declaration *HostDeclaration, workspace string) []Provider {
-	return []Provider{NativeSandboxProvider{}, HostProvider{Declaration: declaration, Host: Host{Workspace: workspace}}}
+// Copilot-native sandbox for the selected evals' policies and the optional
+// host declaration.
+func DefaultProviders(declaration *HostDeclaration, workspace string, native NativeSandboxProvider) []Provider {
+	return []Provider{native, HostProvider{Declaration: declaration, Host: Host{Workspace: workspace}}}
 }

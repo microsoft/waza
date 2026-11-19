@@ -400,16 +400,20 @@ See [Optimizer Adapters](site/src/content/docs/guides/optimizer-adapters.mdx).
 
 ### `waza isolation preflight` (unreleased, v0.42.0)
 
-Probe the isolation boundaries a host declaration claims (filesystem,
-environment/secrets, network, subprocesses, remote tools) by attempting each
-violation, then match them against a request. Waza enforces nothing itself and
-reports a boundary as restricted only when a probe proved it; the Copilot-native
-sandbox (#544) is reported absent. The host provider can prove only off-host network
-and remote-tool boundaries; filesystem, environment and subprocess restrictions
-are reported unavailable. Exit 0 admitted, 1 rejected, 2 invalid input.
+Probe the isolation boundaries a host declaration or the Copilot-native sandbox
+claims (filesystem, environment/secrets, network, subprocesses, remote tools)
+by attempting each violation, then match them against a request. Waza enforces
+nothing itself and reports a boundary as restricted only when a probe proved
+it. The host provider can prove only off-host network and remote-tool
+boundaries. The Copilot-native sandbox provider probes the `config.sandbox`
+policy of evals passed with `--eval` (or selected by `run`) and can prove
+filesystem and non-loopback network boundaries; environment and subprocess
+restrictions are reported unavailable. Exit 0 admitted, 1 rejected, 2 invalid
+input.
 
 ```bash
 waza isolation preflight --request request.json --host host.json -o isolation.json
+waza isolation preflight --request request.json --eval eval.yaml
 waza run eval.yaml --isolation-request request.json --isolation-host host.json --isolation-report isolation.json
 ```
 

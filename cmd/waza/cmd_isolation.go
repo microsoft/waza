@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/copilotconfig"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionisolation"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/telemetry"
@@ -30,8 +31,8 @@ func newIsolationCommand() *cobra.Command {
 and reject requested boundaries that cannot be shown to hold before execution.
 
 Waza enforces no boundary itself. Enforcement belongs to an outer host or
-runtime declared with --host, or to the Copilot-native sandbox (#544) when
-that integration is present (absent in this build).`,
+runtime declared with --host, or to the Copilot-native sandbox of evals that
+enable config.sandbox.`,
 	}
 	cmd.AddCommand(newIsolationPreflightCommand())
 	return cmd
@@ -39,6 +40,7 @@ that integration is present (absent in this build).`,
 
 func newIsolationPreflightCommand() *cobra.Command {
 	var requestPath, hostPath, workspace, output string
+	var evalPaths []string
 	cmd := &cobra.Command{
 		Use:   "preflight",
 		Short: "Probe host isolation capabilities and match them against a request",
@@ -47,11 +49,17 @@ then match the results against an optional request. Prints the
 waza.execution-isolation-preflight 1.0 report as JSON.
 
 Without --request every dimension is unrestricted, which reports host
-discovery only. Exit code 1 means a requested boundary is unavailable; exit
-code 2 means invalid input.`,
+discovery only. --eval probes the Copilot-native sandbox policy of each named
+eval (sandboxed shell commands, no model turn); the native provider is absent
+without it. Exit code 1 means a requested boundary is unavailable; exit code 2
+means invalid input.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			report, err := isolationPreflight(cmd.Context(), requestPath, hostPath, workspace)
+			native, err := nativeSandboxProviderForEvals(evalPaths)
+			if err != nil {
+				return &ExitCodeError{Code: ExitError, Err: err}
+			}
+			report, err := isolationPreflight(cmd.Context(), requestPath, hostPath, workspace, native)
 			if err != nil {
 				return &ExitCodeError{Code: ExitError, Err: err}
 			}
@@ -60,7 +68,7 @@ code 2 means invalid input.`,
 				return &ExitCodeError{Code: ExitError, Err: err}
 			}
 			if output != "" {
-				if err := distinctReportPath(output, requestPath, hostPath); err != nil {
+				if err := distinctReportPath(output, append([]string{requestPath, hostPath}, evalPaths...)...); err != nil {
 					return &ExitCodeError{Code: ExitError, Err: err}
 				}
 				if err := writeIsolationReport(output, data); err != nil {
@@ -79,6 +87,7 @@ code 2 means invalid input.`,
 	cmd.Flags().StringVar(&requestPath, "request", "", "Isolation request JSON (waza.execution-isolation-request 1.0)")
 	cmd.Flags().StringVar(&hostPath, "host", "", "Host isolation declaration JSON (waza.execution-isolation-host 1.0)")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "Workspace the execution will use (default: a fresh temporary directory)")
+	cmd.Flags().StringArrayVar(&evalPaths, "eval", nil, "Eval YAML whose config.sandbox policy the Copilot-native provider probes (repeatable)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Also write the report to this file")
 	return cmd
 }
@@ -94,7 +103,7 @@ func readIsolationDocument(path, label string) ([]byte, error) {
 // isolationPreflight loads the request and host declaration and runs the
 // preflight against the default providers. An empty workspace is replaced by
 // a fresh temporary directory, matching how task workspaces are created.
-func isolationPreflight(ctx context.Context, requestPath, hostPath, workspace string) (*executionisolation.Report, error) {
+func isolationPreflight(ctx context.Context, requestPath, hostPath, workspace string, native executionisolation.NativeSandboxProvider) (*executionisolation.Report, error) {
 	request := executionisolation.Request{Kind: executionisolation.RequestKind, SchemaVersion: executionisolation.Version}
 	if requestPath != "" {
 		data, err := readIsolationDocument(requestPath, "request")
@@ -126,7 +135,7 @@ func isolationPreflight(ctx context.Context, requestPath, hostPath, workspace st
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	providers := isolationProviders(host, workspace)
+	providers := isolationProviders(host, workspace, native)
 	return executionisolation.Preflight(ctx, request, providers, isolationPreflightNow()), nil
 }
 
@@ -185,6 +194,38 @@ func canonicalPath(path string) (string, error) {
 
 // isolationProviders discovers the capability providers; tests replace it.
 var isolationProviders = executionisolation.DefaultProviders
+
+// nativeSandboxRunner runs native sandbox probes; tests replace it.
+var nativeSandboxRunner executionisolation.NativeSandboxRunner = execution.NativeSandboxProbeRunner{}
+
+// nativeSandboxProviderForEvals loads the eval specs and returns the native
+// provider for their sandbox policies.
+func nativeSandboxProviderForEvals(paths []string) (executionisolation.NativeSandboxProvider, error) {
+	specs := make([]*models.EvalSpec, 0, len(paths))
+	for _, path := range paths {
+		spec, err := models.LoadEvalSpec(path)
+		if err != nil {
+			return executionisolation.NativeSandboxProvider{}, fmt.Errorf("failed to load spec: %w", err)
+		}
+		specs = append(specs, spec)
+	}
+	return nativeSandboxProvider(paths, specs), nil
+}
+
+// nativeSandboxProvider builds the native provider from the selected evals:
+// every enabled sandbox policy is probed, and an eval without one makes the
+// native boundaries unavailable for the run.
+func nativeSandboxProvider(paths []string, specs []*models.EvalSpec) executionisolation.NativeSandboxProvider {
+	native := executionisolation.NativeSandboxProvider{Runner: nativeSandboxRunner}
+	for i, spec := range specs {
+		if sandbox := spec.Config.Sandbox; sandbox != nil && sandbox.Enabled {
+			native.Policies = append(native.Policies, *sandbox)
+		} else {
+			native.Unsandboxed = append(native.Unsandboxed, paths[i])
+		}
+	}
+	return native
+}
 
 // telemetryFilePath is the span file the OpenTelemetry file exporter will
 // truncate, or empty when no file exporter is configured.
@@ -328,20 +369,25 @@ func withIsolationEvidence(runErr error) error {
 // each eval spec is loaded.
 var admittedIsolation *executionisolation.Report
 
-// pendingIsolationReport holds an admitted report until every selected eval
-// spec has passed checkSpecIsolation, so the artifact never records an
-// admission that the run later withdraws.
-var pendingIsolationReport *struct {
-	path string
-	data []byte
+// pendingIsolationGate holds the validated isolation flags of `waza run`
+// until the selected eval specs are known; the preflight then runs before
+// execution, and the report is written only after every spec passes
+// checkSpecIsolation, so it never records an admission the run withdraws.
+type pendingIsolationGate struct {
+	ctx                           context.Context
+	requestPath, hostPath, report string
+	stderr                        io.Writer
 }
 
-// runIsolationGate runs the preflight for `waza run` before any execution.
-// It writes the report when requested and refuses to continue on rejection.
+var isolationGate *pendingIsolationGate
+
+// runIsolationGate validates the isolation flags of `waza run` before any
+// other work. The preflight itself runs in admitIsolationSpecs, once the
+// selected evals' sandbox policies are known and still before execution.
 // protected lists the run's inputs and outputs the report must not replace.
 func runIsolationGate(ctx context.Context, requestPath, hostPath, reportPath string, stderr io.Writer, protected ...string) error {
 	admittedIsolation = nil
-	pendingIsolationReport = nil
+	isolationGate = nil
 	if requestPath == "" && hostPath == "" {
 		if reportPath != "" {
 			return &ExitCodeError{Code: ExitError, Err: errors.New("--isolation-report requires --isolation-request or --isolation-host")}
@@ -356,67 +402,74 @@ func runIsolationGate(ctx context.Context, requestPath, hostPath, reportPath str
 			return &ExitCodeError{Code: ExitError, Err: err}
 		}
 	}
-	report, err := isolationPreflight(ctx, requestPath, hostPath, "")
+	isolationGate = &pendingIsolationGate{ctx, requestPath, hostPath, reportPath, stderr}
+	return nil
+}
+
+// admitIsolationSpecs runs the isolation preflight for the selected eval
+// specs, probing their native sandbox policies, and checks every spec against
+// the admitted isolation before the first one runs. It then writes the
+// pending report. It is a no-op without isolation flags.
+func admitIsolationSpecs(specPaths []string) error {
+	gate := isolationGate
+	isolationGate = nil
+	if gate == nil {
+		return nil
+	}
+	specs := make([]*models.EvalSpec, 0, len(specPaths))
+	for _, path := range specPaths {
+		spec, err := models.LoadEvalSpec(path)
+		if err != nil {
+			return fmt.Errorf("failed to load spec: %w", err)
+		}
+		specs = append(specs, spec)
+	}
+	report, err := isolationPreflight(gate.ctx, gate.requestPath, gate.hostPath, "", nativeSandboxProvider(specPaths, specs))
 	if err != nil {
 		return &ExitCodeError{Code: ExitError, Err: err}
 	}
 	var data []byte
-	if reportPath != "" {
+	if gate.report != "" {
 		if data, err = report.Encode(); err != nil {
 			return err
 		}
 	}
 	if err := report.Admit(); err != nil {
 		if data != nil {
-			if writeErr := writeIsolationReport(reportPath, data); writeErr != nil {
+			if err := distinctReportPath(gate.report, specPaths...); err != nil {
+				return &ExitCodeError{Code: ExitError, Err: err}
+			}
+			if writeErr := writeIsolationReport(gate.report, data); writeErr != nil {
 				return &ExitCodeError{Code: ExitError, Err: writeErr}
 			}
 		}
 		return &ExitCodeError{Code: ExitError, Err: err}
 	}
 	admittedIsolation = report
-	if data != nil {
-		pendingIsolationReport = &struct {
-			path string
-			data []byte
-		}{reportPath, data}
-	}
 	for _, capability := range report.Dimensions {
 		if capability.Effective == executionisolation.EffectiveRestricted {
-			_, _ = fmt.Fprintf(stderr, "isolation: %s restricted (enforced by %s)\n", capability.Dimension, capability.EnforcementSource) //nolint:errcheck // diagnostics only
+			_, _ = fmt.Fprintf(gate.stderr, "isolation: %s restricted (enforced by %s)\n", capability.Dimension, capability.EnforcementSource) //nolint:errcheck // diagnostics only
 		}
 	}
-	return nil
-}
-
-// admitIsolationSpecs checks every selected eval spec against the admitted
-// isolation before the first one runs, then writes the pending report. It is
-// a no-op without an isolation request.
-func admitIsolationSpecs(specPaths []string) error {
-	if admittedIsolation == nil {
-		return nil
-	}
-	for _, path := range specPaths {
-		spec, err := models.LoadEvalSpec(path)
-		if err != nil {
-			return fmt.Errorf("failed to load spec: %w", err)
-		}
+	for _, spec := range specs {
 		if err := checkSpecIsolation(spec); err != nil {
 			return err
 		}
 	}
-	if pending := pendingIsolationReport; pending != nil {
-		pendingIsolationReport = nil
-		if err := distinctReportPath(pending.path, specPaths...); err != nil {
+	if data != nil {
+		if err := distinctReportPath(gate.report, specPaths...); err != nil {
 			return &ExitCodeError{Code: ExitError, Err: err}
 		}
-		if err := reportClearOfRunOutputs(pending.path); err != nil {
+		if err := reportClearOfRunOutputs(gate.report); err != nil {
 			return &ExitCodeError{Code: ExitError, Err: err}
 		}
-		if err := writeIsolationReport(pending.path, pending.data); err != nil {
+		if err := writeIsolationReport(gate.report, data); err != nil {
 			return &ExitCodeError{Code: ExitError, Err: err}
 		}
-		publishedIsolationReport = pending
+		publishedIsolationReport = &struct {
+			path string
+			data []byte
+		}{gate.report, data}
 	}
 	return nil
 }

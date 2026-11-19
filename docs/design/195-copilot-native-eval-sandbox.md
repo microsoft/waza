@@ -104,6 +104,24 @@ Model-backed prompt-grader turns retain the evaluated task's sandbox configurati
 - The Copilot sandbox is a filesystem, network, and credential boundary; it does not impose CPU, memory, process-count, or output-size quotas. Run untrusted or adversarial evaluations inside an outer resource-limited environment.
 - Copilot's sandbox implementation is in public preview. Unsupported hosts and rejected policies fail the task rather than silently running unsandboxed.
 
+## Isolation preflight provider
+
+The portable execution isolation contract (#773) treats this sandbox as the
+`copilot-native-sandbox` provider. When `waza run --isolation-request` or
+`waza isolation preflight --eval` selects evals that enable `config.sandbox`,
+the provider probes each distinct policy through a sandboxed Copilot CLI
+session, using `session.shell.executeUserRequested` so the probe runs in the
+same sandboxed shell tool as model commands without a model turn.
+(`session.shell.exec` runs outside the sandbox and is not used.) Every claim
+is a differential with a host-side positive control and a blocked violation:
+`filesystem` when no selected policy grants writable paths outside the
+workspace, and `network` when every policy denies outbound and local network
+access. Environment withholding comes from Waza's allowlisted process
+environment rather than the native sandbox, so it is not claimed; nor are
+subprocesses or remote tools. A selected eval without an enabled sandbox makes
+the provider `unavailable` for the run. See
+[Execution isolation](../EXECUTION_ISOLATION.md).
+
 ## Verification
 
 Deterministic tests cover configuration parsing, workspace/skill policy derivation, safe defaults, explicit capability opt-ins, bypass rejection, configuration failure, unset path variables, opt-in environment sanitisation, no-op disabled configuration, canonical workspace/path and overlap validation, and capture-time exclusion of file, directory, chained, and dangling symlinks.

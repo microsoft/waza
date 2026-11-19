@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/config"
@@ -268,7 +270,7 @@ func TestCheckSpecIsolationRejectsMCPServerEnv(t *testing.T) {
 func TestRunChecksEverySpecIsolationBeforeExecution(t *testing.T) {
 	resetRunGlobals()
 	t.Cleanup(resetRunGlobals)
-	isolationProviders = func(*executionisolation.HostDeclaration, string) []executionisolation.Provider {
+	isolationProviders = func(*executionisolation.HostDeclaration, string, executionisolation.NativeSandboxProvider) []executionisolation.Provider {
 		return []executionisolation.Provider{stubIsolationProvider{executionisolation.Environment}}
 	}
 	dir := t.TempDir()
@@ -374,4 +376,177 @@ func TestIsolationReportAliasesAreRejectedBeforeExecution(t *testing.T) {
 	entries, readErr := os.ReadDir(work)
 	require.NoError(t, readErr)
 	require.Empty(t, entries, "no session log or report may be written")
+}
+
+// denyingNativeRunner reports what a working native sandbox reports for the
+// filesystem probe: the workspace write succeeds and every other write fails.
+type denyingNativeRunner struct{ policies []models.SandboxConfig }
+
+func (*denyingNativeRunner) HostSupport(context.Context) (bool, string, error) { return true, "", nil }
+
+func (r *denyingNativeRunner) RunShell(_ context.Context, _ string, policy models.SandboxConfig, script string) (string, error) {
+	r.policies = append(r.policies, policy)
+	var out strings.Builder
+	for _, line := range strings.Split(script, "\n") {
+		start := strings.Index(line, "else echo 'WAZA ")
+		if start < 0 {
+			continue
+		}
+		result := strings.TrimSuffix(line[start+len("else echo '"):], "'; fi")
+		if result == "WAZA inside fail" {
+			result = "WAZA inside ok"
+		}
+		out.WriteString(result + "\n")
+	}
+	out.WriteString("WAZA end\n")
+	return out.String(), nil
+}
+
+func writeSandboxEval(t *testing.T, sandbox string) string {
+	t.Helper()
+	return writeSandboxSkill(t, t.TempDir(), "sandboxed", sandbox)
+}
+
+// writeSandboxSkill writes a discoverable skill whose scenario eval uses the
+// given sandbox block and returns the eval path.
+func writeSandboxSkill(t *testing.T, root, name, sandbox string) string {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: test\n---\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tasks", "task.yaml"), []byte("id: task\nname: Task\ninputs:\n  prompt: hi\n"), 0o644))
+	spec := "schemaVersion: \"2.0\"\nscenario: " + name + "\nname: " + name + "\nskill: " + name + "\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n  executor: copilot-sdk\n  model: test-model\n" + sandbox + "tasks:\n  - \"tasks/*.yaml\"\n"
+	path := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(spec), 0o644))
+	return path
+}
+
+func nativeProviderReport(t *testing.T, report *executionisolation.Report) executionisolation.ProviderReport {
+	t.Helper()
+	for _, provider := range report.Providers {
+		if provider.Name == executionisolation.NativeSandboxProviderName {
+			return provider
+		}
+	}
+	t.Fatalf("no native provider in %+v", report.Providers)
+	return executionisolation.ProviderReport{}
+}
+
+func TestIsolationPreflightProbesEvalSandboxPolicy(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native probes run the macOS and Linux sandbox shells")
+	}
+	resetRunGlobals()
+	t.Cleanup(resetRunGlobals)
+	runner := &denyingNativeRunner{}
+	nativeSandboxRunner = runner
+	dir := t.TempDir()
+	request := writeIsolationFile(t, dir, "request.json",
+		`{"kind":"waza.execution-isolation-request","schema_version":"1.0","dimensions":{"filesystem":"restricted"}}`)
+	sandboxed := writeSandboxEval(t, "  sandbox:\n    enabled: true\n    readonly_paths: [\"~\"]\n")
+
+	cmd := newRootCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"isolation", "preflight", "--request", request, "--eval", sandboxed})
+	require.NoError(t, cmd.Execute())
+	report, err := executionisolation.ParseReport(out.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, executionisolation.Admitted, report.Decision)
+	require.Equal(t, executionisolation.ProviderAvailable, nativeProviderReport(t, report).Status)
+	require.Len(t, runner.policies, 1, "the probe must run under the eval's policy")
+	require.Equal(t, []string{"~"}, runner.policies[0].ReadonlyPaths)
+
+	// Without --eval no native policy is known, so the boundary is unavailable.
+	cmd = newRootCommand()
+	out.Reset()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"isolation", "preflight", "--request", request})
+	err = cmd.Execute()
+	exitErr, ok := err.(*ExitCodeError)
+	require.True(t, ok, "expected exit code error, got %v", err)
+	require.Equal(t, ExitTestFailed, exitErr.Code)
+	report, err = executionisolation.ParseReport(out.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, executionisolation.ProviderAbsent, nativeProviderReport(t, report).Status)
+}
+
+func TestRunAdmitsIsolationFromSelectedEvalSandboxes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native probes run the macOS and Linux sandbox shells")
+	}
+	request := func(t *testing.T, dir string) string {
+		return writeIsolationFile(t, dir, "request.json",
+			`{"kind":"waza.execution-isolation-request","schema_version":"1.0","dimensions":{"filesystem":"restricted"}}`)
+	}
+	sandboxed := writeSandboxEval(t, "  sandbox:\n    enabled: true\n")
+	errStop := errors.New("stop after admission")
+
+	t.Run("every selected eval sandboxed", func(t *testing.T) {
+		resetRunGlobals()
+		t.Cleanup(resetRunGlobals)
+		runner := &denyingNativeRunner{}
+		nativeSandboxRunner = runner
+		executed := false
+		newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
+			executed = true
+			return stoppingRunner{errStop}
+		}
+		dir := t.TempDir()
+		reportPath := filepath.Join(dir, "isolation.json")
+		cmd := newRootCommand()
+		var stderr bytes.Buffer
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&stderr)
+		cmd.SetArgs([]string{"run", sandboxed, "--isolation-request", request(t, dir), "--isolation-report", reportPath, "--output", filepath.Join(dir, "results.json")})
+		require.ErrorIs(t, cmd.Execute(), errStop)
+		require.True(t, executed, "an admitted run proceeds to execution")
+		require.Len(t, runner.policies, 1)
+		require.Contains(t, stderr.String(), "isolation: filesystem restricted (enforced by copilot-native-sandbox)")
+		data, err := os.ReadFile(reportPath)
+		require.NoError(t, err)
+		report, err := executionisolation.ParseReport(data)
+		require.NoError(t, err)
+		require.Equal(t, executionisolation.Admitted, report.Decision)
+	})
+
+	t.Run("an unsandboxed eval rejects the run before execution", func(t *testing.T) {
+		resetRunGlobals()
+		t.Cleanup(resetRunGlobals)
+		runner := &denyingNativeRunner{}
+		nativeSandboxRunner = runner
+		executed := false
+		newBenchmarkRunner = func(*config.EvalConfig, execution.AgentEngine, ...orchestration.RunnerOption) benchmarkRunner {
+			executed = true
+			return stoppingRunner{errStop}
+		}
+		dir := t.TempDir()
+		reportPath := filepath.Join(dir, "isolation.json")
+		root := t.TempDir()
+		writeSandboxSkill(t, root, "a-sandboxed", "  sandbox:\n    enabled: true\n")
+		unsandboxed := writeSandboxSkill(t, root, "b-plain", "")
+		cmd := newRootCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"run", "--discover", root, "--isolation-request", request(t, dir), "--isolation-report", reportPath})
+		err := cmd.Execute()
+		require.True(t, executionisolation.IsRejected(err), "expected rejection, got %v", err)
+		require.False(t, executed)
+		require.Empty(t, runner.policies, "an unavailable provider must not probe")
+		data, err := os.ReadFile(reportPath)
+		require.NoError(t, err)
+		report, err := executionisolation.ParseReport(data)
+		require.NoError(t, err)
+		require.Equal(t, executionisolation.Rejected, report.Decision)
+		native := nativeProviderReport(t, report)
+		require.Equal(t, executionisolation.ProviderUnavailable, native.Status)
+		require.Contains(t, native.Reason, filepath.Base(filepath.Dir(unsandboxed)))
+	})
+}
+
+type stoppingRunner struct{ err error }
+
+func (stoppingRunner) OnProgress(orchestration.ProgressListener) {}
+func (r stoppingRunner) RunBenchmark(context.Context) (*models.EvaluationOutcome, error) {
+	return nil, r.err
 }
