@@ -22,6 +22,7 @@ type pairwiseVerdictEngine struct {
 	mu             sync.Mutex
 	winner         string // "skill", "baseline", or "tie"
 	positionBiased bool
+	omitVerdict    bool
 	judges         int
 	actors         int
 	noSkill        int
@@ -41,6 +42,10 @@ func (e *pairwiseVerdictEngine) Execute(ctx context.Context, req *execution.Exec
 	// Pass 1 presents A=baseline, B=skill; pass 2 swaps the positions.
 	pass1 := e.judges%2 == 1
 	e.mu.Unlock()
+
+	if e.omitVerdict {
+		return &execution.ExecutionResponse{Success: true, ModelID: "mock", SessionID: "judge"}, nil
+	}
 
 	label := "tie"
 	if e.positionBiased {
@@ -67,15 +72,18 @@ func (e *pairwiseVerdictEngine) Execute(ctx context.Context, req *execution.Exec
 
 func TestRunCommand_PairwiseBaselineExitFollowsRelativeJudgments(t *testing.T) {
 	for _, tc := range []struct {
-		winner         string
-		positionBiased bool
-		wantFailure    bool
-		want           models.PairwiseSummary
+		winner               string
+		positionBiased       bool
+		wantFailure          bool
+		wantOperationalError bool
+		want                 models.PairwiseSummary
+		omitVerdict          bool
 	}{
 		{winner: "skill", want: models.PairwiseSummary{SkillWins: 2, Judgments: 2, Preference: 1}},
 		{winner: "tie", wantFailure: true, want: models.PairwiseSummary{Ties: 2, Judgments: 2}},
 		{winner: "baseline", wantFailure: true, want: models.PairwiseSummary{BaselineWins: 2, Judgments: 2, Preference: -1}},
 		{winner: "position-biased", positionBiased: true, wantFailure: true, want: models.PairwiseSummary{Inconsistent: 2}},
+		{winner: "no-verdict", omitVerdict: true, wantOperationalError: true},
 	} {
 		t.Run(tc.winner, func(t *testing.T) {
 			resetRunGlobals()
@@ -88,6 +96,7 @@ func TestRunCommand_PairwiseBaselineExitFollowsRelativeJudgments(t *testing.T) {
 				MockEngine:     execution.NewMockEngine("mock"),
 				winner:         tc.winner,
 				positionBiased: tc.positionBiased,
+				omitVerdict:    tc.omitVerdict,
 			}
 			newRunEngine = func(models.Config) (execution.AgentEngine, error) { return engine, nil }
 
@@ -108,6 +117,7 @@ skill: pairwise-skill
 version: "1.0"
 config:
   trials_per_task: 2
+  max_attempts: 1
   timeout_seconds: 30
   executor: mock
   model: mock
@@ -129,7 +139,12 @@ tasks:
 			command.SetOut(io.Discard)
 			command.SetErr(io.Discard)
 			err := command.Execute()
-			if tc.wantFailure {
+			if tc.wantOperationalError {
+				var operational *BenchmarkError
+				require.ErrorAs(t, err, &operational)
+				var testFailure *TestFailureError
+				require.NotErrorAs(t, err, &testFailure)
+			} else if tc.wantFailure {
 				var failure *TestFailureError
 				require.ErrorAs(t, err, &failure)
 				require.ErrorContains(t, err, "pairwise judgments show negative/neutral impact")
@@ -144,11 +159,31 @@ tasks:
 
 			require.Equal(t, 4, engine.actors)
 			require.Equal(t, 2, engine.noSkill)
-			require.Equal(t, 4, engine.judges)
+			if tc.wantOperationalError {
+				require.Equal(t, 2, engine.judges)
+			} else {
+				require.Equal(t, 4, engine.judges)
+			}
 			saved, err := models.LoadEvaluationOutcome(output)
 			require.NoError(t, err)
 			require.True(t, saved.IsBaseline)
 			require.NotNil(t, saved.BaselineOutcome)
+			if tc.wantOperationalError {
+				require.Greater(t, saved.Digest.Errors, 0)
+				require.Len(t, saved.TestOutcomes, 1)
+				require.Equal(t, models.StatusError, saved.TestOutcomes[0].Status)
+				require.Len(t, saved.TestOutcomes[0].Runs, 2)
+				for _, run := range saved.TestOutcomes[0].Runs {
+					require.Equal(t, models.StatusError, run.Status)
+					require.Contains(t, run.ErrorMsg, "judge session completed without calling set_pairwise_winner")
+					require.Contains(t, run.FinalOutput, "Mock response for:")
+					require.Len(t, run.GraderSessions, 1)
+					require.Equal(t, "judge", run.GraderSessions[0].SessionID)
+				}
+				require.NotNil(t, saved.BaselineOutcome)
+				require.NotEmpty(t, saved.BaselineOutcome.TestOutcomes[0].Runs[0].FinalOutput)
+				return
+			}
 			require.Zero(t, saved.Digest.Errors)
 			require.Equal(t, 1.0, saved.BaselineOutcome.Digest.SuccessRate,
 				"the baseline pass omits its sole pairwise grader, so absolute pass rates cannot express impact")

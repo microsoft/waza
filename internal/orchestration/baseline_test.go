@@ -843,6 +843,35 @@ func TestMergeBaselineOutcomes_RequiresExpectedPairwiseResult(t *testing.T) {
 	require.ErrorContains(t, err, `expected pairwise grader result missing for task "task-001"`)
 }
 
+func TestMergeBaselineOutcomes_PreservesOperationalErrorWithoutPairwiseResult(t *testing.T) {
+	runner := &EvalRunner{pairwiseTaskIDs: map[string]struct{}{"task-001": {}}}
+	candidateRun := models.RunResult{
+		RunNumber:   1,
+		Status:      models.StatusError,
+		ErrorMsg:    "judge session completed without a verdict",
+		FinalOutput: "candidate output",
+	}
+	withSkills := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{
+		TestID: "task-001",
+		Status: models.StatusError,
+		Runs:   []models.RunResult{candidateRun},
+	}}}
+	withoutSkills := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{
+		TestID: "task-001",
+		Runs:   []models.RunResult{{RunNumber: 1, Status: models.StatusPassed, FinalOutput: "baseline output"}},
+	}}}
+
+	merged, err := runner.mergeBaselineOutcomes(withSkills, withoutSkills)
+	require.NoError(t, err)
+	require.Same(t, withSkills, merged)
+	require.True(t, merged.IsBaseline)
+	require.Same(t, withoutSkills, merged.BaselineOutcome)
+	require.Equal(t, models.StatusError, merged.TestOutcomes[0].Status)
+	require.Equal(t, candidateRun, merged.TestOutcomes[0].Runs[0])
+	require.NotNil(t, merged.TestOutcomes[0].SkillImpact)
+	require.Nil(t, merged.TestOutcomes[0].SkillImpact.PairwiseSummary)
+}
+
 func TestSummarizePairwiseJudgmentsExcludesPositionInconsistentComparisons(t *testing.T) {
 	outcome := &models.TestOutcome{Runs: []models.RunResult{{
 		Validations: map[string]models.GraderResults{

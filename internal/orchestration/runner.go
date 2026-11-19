@@ -870,6 +870,9 @@ func (r *EvalRunner) mergeBaselineOutcomes(
 		if _, pairwise := r.pairwiseTaskIDs[testID]; pairwise {
 			summary := summarizePairwiseJudgments(withTo)
 			if summary == nil {
+				if hasOperationalError(withTo) {
+					continue
+				}
 				return nil, fmt.Errorf("expected pairwise grader result missing for task %q", testID)
 			}
 			withTo.SkillImpact.PairwiseSummary = summary
@@ -890,6 +893,18 @@ func (r *EvalRunner) mergeBaselineOutcomes(
 	withSkills.IsBaseline = true
 	withSkills.BaselineOutcome = withoutSkills
 	return withSkills, nil
+}
+
+func hasOperationalError(outcome *models.TestOutcome) bool {
+	if outcome.Status == models.StatusError {
+		return true
+	}
+	for _, run := range outcome.Runs {
+		if run.Status == models.StatusError {
+			return true
+		}
+	}
+	return false
 }
 
 // computeSkillImpact calculates per-task impact metric
