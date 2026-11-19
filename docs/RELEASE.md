@@ -148,7 +148,7 @@ Different or unprovable registry state fails closed.
 ## What the Workflow Does
 
 1. **qualification** — Calls the reusable release qualification workflow for the tag's
-   exact SHA. It requires the four native Linux race/atomic shards, the remaining
+   exact SHA. It requires the five native Linux race/atomic shards, the remaining
    Linux race/atomic suite, native Windows race tests, vet, the checksum-pinned
    lint schema, fail-closed offline integration, exhaustive shard inventories,
   and complete digest/source evidence. It also builds the six CLI binaries and

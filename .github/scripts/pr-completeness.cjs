@@ -16,6 +16,7 @@ const contracts = {
       'native-1': ['checkout', 'discovery_controls', 'guard', 'native_tests', 'coverage'],
       'native-2': ['checkout', 'discovery_controls', 'guard', 'native_tests', 'coverage'],
       'native-3': ['checkout', 'discovery_controls', 'guard', 'native_tests', 'coverage'],
+      'native-4': ['checkout', 'discovery_controls', 'guard', 'native_tests', 'coverage'],
       'linux-remaining-0': ['checkout', 'verify_modules', 'download', 'guard', 'web_dependencies', 'discovery_controls', 'remaining_tests', 'coverage_sources', 'no_launch', 'coverage', 'observation'],
       'linux-remaining-1': ['checkout', 'verify_modules', 'download', 'guard', 'web_dependencies', 'discovery_controls', 'remaining_tests', 'coverage_sources', 'no_launch', 'coverage', 'observation'],
       'linux-remaining-2': ['checkout', 'verify_modules', 'download', 'guard', 'web_dependencies', 'discovery_controls', 'remaining_tests', 'coverage_sources', 'no_launch', 'coverage', 'observation'],

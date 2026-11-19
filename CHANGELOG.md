@@ -177,7 +177,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Copilot runtime dependencies** — Go SDK to `1.0.34` and bundled CLI to `1.0.112`;
   projection accounting excludes SDK fields omitted
-  from serialized JSON while preserving the node limit.
+  from serialized JSON while preserving the node limit. Native Linux
+  race/atomic validation now uses five shards, keeping its 30-minute
+  per-shard deadline, for the larger bundled runtime.
 - Dashboard CI enforces a Playwright wall-time budget for the `Test dashboard`
   step: a 0.42 s per executed test median target with a 1.25× per-run ceiling,
   retry-disabled on two workers. The dashboard compiles Ajv validators on first

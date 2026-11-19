@@ -2217,7 +2217,7 @@ func validateReleaseValidation(source []byte) error {
 		nativeDownload.With["pattern"] != "go-coverage-native-*" || nativeDownload.With["merge-multiple"] != "true" ||
 		nativeDownload.With["path"] != "coverage-reports" ||
 		steps["Verify exhaustive native test selection and coverage"].Run != "cp coverage.txt coverage-reports/coverage.txt\nbash .github/scripts/go_test_shard_verify.sh coverage-reports\n" {
-		return fmt.Errorf("publication must verify all five atomic profiles and exhaustive native inventories")
+		return fmt.Errorf("publication must verify all six atomic profiles and exhaustive native inventories")
 	}
 	windowsSteps := releaseSteps(windows)
 	if windowsSteps["Run Go Vet"].Run != "go vet ./..." ||
@@ -2797,15 +2797,15 @@ func testReleaseCoverageEvidence(t *testing.T, script string) {
 			writeReleaseFile(t, filepath.Join(dir, ".github/scripts/go_test_shard_verify.sh"), verify)
 			coverage := []byte("mode: atomic\nexample.go:1.1,2.1 1 1\n")
 			writeReleaseFile(t, filepath.Join(dir, "coverage.txt"), coverage)
-			inventory := []byte("TestFour\nTestOne\nTestThree\nTestTwo\n")
-			selected := []string{"TestFour\n", "TestOne\n", "TestThree\n", "TestTwo\n"}
-			for shard := range 4 {
+			inventory := []byte("TestFive\nTestFour\nTestOne\nTestThree\nTestTwo\n")
+			selected := []string{"TestFive\n", "TestFour\n", "TestOne\n", "TestThree\n", "TestTwo\n"}
+			for shard := range 5 {
 				profile := filepath.Join(dir, "coverage-reports", fmt.Sprintf("coverage-native-%d.txt", shard))
 				writeReleaseFile(t, profile, coverage)
 				writeReleaseFile(t, profile+".all", inventory)
 				writeReleaseFile(t, profile+".selected", []byte(selected[shard]))
 			}
-			profile := filepath.Join(dir, "coverage-reports", "coverage-native-3.txt")
+			profile := filepath.Join(dir, "coverage-reports", "coverage-native-4.txt")
 			switch mutation {
 			case "missing-main-profile", "missing-native-profile", "missing-discovery", "missing-selection":
 				path := map[string]string{
