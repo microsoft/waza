@@ -18,7 +18,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/azure/azure-dev/cli/azd v1.37.3
 	github.com/charmbracelet/huh v1.0.0
-	github.com/github/copilot-sdk/go v1.0.28
+	github.com/github/copilot-sdk/go v1.0.34
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.20.4
@@ -87,7 +87,7 @@ require (
 	github.com/dlclark/regexp2/v2 v2.9.1 // indirect
 	github.com/drone/envsubst v1.0.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.11.2 // indirect
+	github.com/ebitengine/purego v0.11.3 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect

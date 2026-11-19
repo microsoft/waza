@@ -1910,6 +1910,24 @@ test("production artifact collection retains malformed expansion charges and rej
   assert.equal(retained.reports.length, 1, "a later valid artifact remains admissible when budget permits");
   assert.equal(enough.expanded, 2 * malformed.length + Buffer.byteLength(JSON.stringify(report)));
 });
+test("production artifact collection binds native evidence to the five native shards", () => {
+  const report = parseGo(successful);
+  report.selected = ["example/p::TestA"]; report.discovered = report.selected;
+  report.identity.source_sha = run.head_sha;
+  const fixture = artifactFixture(report);
+  for (const [shard, admitted] of [["4", true], ["5", false]]) {
+    const zip = archive(report, `coverage-native-${shard}.txt.evidence.json`, { deflate: true });
+    const artifacts = [{
+      id: 100, name: `ci-evidence-go-native-10-1-${shard}`, size_in_bytes: zip.length,
+      expired: false, digest: `sha256:${createHash("sha256").update(zip).digest("hex")}`,
+      workflow_run: { id: 10, head_sha: run.head_sha },
+    }];
+    const api = (endpoint) => endpoint.includes("/artifacts") ? { total_count: 1, artifacts } : fixture.api(endpoint);
+    const observed = collectObservations("10", api, () => zip, { compressed: 0, expanded: 0, reports: 0 });
+    assert.equal(observed.reports.length, admitted ? 1 : 0, `native shard ${shard}`);
+    assert.equal(observed.diagnostics.includes("evidence-artifact-invalid-or-unverified"), !admitted, `native shard ${shard}`);
+  }
+});
 test("native Go capture validates probe output while historical unknown runtimes remain retained but ineligible", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waza-ci-go-version-"));
   t.after(() => fs.rmSync(dir, { recursive: true }));

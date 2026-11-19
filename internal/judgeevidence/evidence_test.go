@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -26,10 +27,19 @@ func observedInput() CaptureInput {
 	}
 }
 
-func TestFixtureAccountingPreservesLegacyCaptureBudget(t *testing.T) {
-	// Frozen using unmodified capture/model source from commit 5bb43e31.
-	const legacyMaximumItems = 16333
-	for _, count := range []int{legacyMaximumItems - 1, legacyMaximumItems, legacyMaximumItems + 1} {
+func TestFixtureAccountingHonorsSerializedProjectionBudget(t *testing.T) {
+	// The 16,384-node cap is unchanged; fields omitted by SDK JSON tags do not consume it.
+	tests := []struct {
+		count        int
+		wantCaptured bool
+	}{
+		{16333, true},
+		{16334, true},
+		{16343, true},
+		{16344, false},
+	}
+	for _, test := range tests {
+		count := test.count
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			input := observedInput()
 			input.Selection.Files = []string{"report.txt"}
@@ -47,7 +57,7 @@ func TestFixtureAccountingPreservesLegacyCaptureBudget(t *testing.T) {
 			)
 			bundle := Capture(input)
 			err := Verify(bundle, input.Origin)
-			if count <= legacyMaximumItems {
+			if test.wantCaptured {
 				require.NoError(t, err)
 				require.NotNil(t, bundle.Files.Items)
 				require.Len(t, *bundle.Files.Items, 1)
@@ -57,6 +67,31 @@ func TestFixtureAccountingPreservesLegacyCaptureBudget(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProjectionBudgetMatchesJSONOmissionSemantics(t *testing.T) {
+	type fields struct {
+		EmptyOmitted string `json:"emptyOmitted,omitempty"`
+		ZeroOmitted  int    `json:"zeroOmitted,omitzero"`
+		Ignored      string `json:"-"`
+		Content      string `json:"content"`
+	}
+
+	budget := projectionBudget{bytes: 64, nodes: 8}
+	require.NoError(t, budget.inspect(reflect.ValueOf(fields{}), 0))
+	require.Equal(t, 6, budget.nodes, "empty omitempty, zero omitzero, and json- fields do not consume nodes")
+	require.Equal(t, 64, budget.bytes)
+	encoded, err := json.Marshal(fields{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"content":""}`, string(encoded))
+
+	budget = projectionBudget{bytes: 64, nodes: 8}
+	require.NoError(t, budget.inspect(reflect.ValueOf(fields{EmptyOmitted: "x", ZeroOmitted: 1}), 0))
+	require.Equal(t, 4, budget.nodes, "non-empty fields still consume projection nodes")
+	require.Equal(t, 31, budget.bytes)
+	encoded, err = json.Marshal(fields{EmptyOmitted: "x", ZeroOmitted: 1})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"emptyOmitted":"x","zeroOmitted":1,"content":""}`, string(encoded))
 }
 
 func TestFixtureLiteralSelectionUnionIsBoundedDetachedAndNotSerialized(t *testing.T) {

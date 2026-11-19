@@ -33,7 +33,7 @@ a context with a required name, so the results from the last push stand.
 
 This is an ordinary `pull_request` workflow with `contents: read`, not
 `pull_request_target` or release/dispatch workflows. The existing `Lint`,
-`ubuntu-latest`, and `windows-latest` jobs, four native Linux shards, exhaustive
+`ubuntu-latest`, and `windows-latest` jobs, five native Linux shards, exhaustive
 test-selection/coverage verification, and pinned lint-schema checks remain
 required; enabling triggers is not evidence that native tests passed.
 
@@ -50,14 +50,15 @@ actual workflow sources. Shard and lint failure-handling checks use
 `bash .github/scripts/go_remaining_shard_test.sh`, and
 `bash .github/scripts/lint_test.sh`.
 
-The four native Linux shards use deterministic longest-first duration balancing.
+The five native Linux shards use deterministic longest-first duration balancing.
 `.github/scripts/go_test_shard_durations.tsv` records observed top-level
 race/atomic durations and their source runs. Record run, attempt, and checkout
 SHA for every sample; document any aggregation and apply it consistently rather
 than cherry-picking runs. When independent cases are promoted from a parent,
 use each case's disjoint child PASS span, never both parent and child durations.
-The current table averages two successful main-push samples and retains prior
-estimates for tests skipped in both.
+The current table records one PR run for the bundled CLI 1.0.112 payload; its
+header identifies the shard that reached its deadline and the single projected
+cost, which should be replaced by successful main-push samples.
 Timing history affects placement only: discovery still determines the complete
 inventory, new tests receive the median historical duration, and removed tests
 are never resurrected. Python 3 (provided by the
@@ -66,8 +67,14 @@ deadline, atomic coverage, full discovery inventory, and selected test names;
 the aggregate gate verifies identical inventories and exactly-once selection.
 Planner estimates and replayed assignments are diagnostics only; acceptance
 depends on measured workflow runs.
+The bundled CLI 1.0.112 payload raised the native total to about 6,400
+seconds; four shards then averaged about 1,600 seconds against the
+1,800-second deadline, so a runner only 13% slower timed out. Five shards keep
+the planned maximum near 1,300 seconds without raising the deadline or
+dropping tests. Add shards rather than relaxing the deadline when measured
+totals grow again.
 The planner places whole top-level tests, so a single long test bounds every
-shard. Keep each native top-level test well under a quarter of the total; split
+shard. Keep each native top-level test well under a fifth of the total; split
 long table-driven tests into independently measured top-level groups of complete
 cases (as the frozen 15c parity, observed-failure, and public-payload tests are)
 rather than relying on subtests. Preserve every case once when regrouping.
@@ -102,7 +109,7 @@ restores the source artifact for selected shard 0 before validating the
 combined profile. Missing or failed workers, different inventories,
 duplicate/missing package or test selections, invalid profiles, or mismatched
 run/source identities fail closed; the merger combines the four remaining
-profiles into the one main profile, preserving four native profiles plus one
+profiles into the one main profile, preserving five native profiles plus one
 remaining-suite profile for the final gate. The cost table is placement data,
 not acceptance evidence. Downstream timing history validates all four worker
 observations and their shard identities before admitting a successful sample.
@@ -142,7 +149,7 @@ selection are dropped to meet timing targets.
 
 Squad Release and Squad Insider Release run remaining-package validation in
 parallel with these shards. Publication waits for both branches to succeed,
-verifies all five coverage profiles and native selection, and downloads the
+verifies all six coverage profiles and native selection, and downloads the
 binary produced by the validated build rather than rebuilding it. Failed,
 cancelled, skipped, or missing evidence must prevent publication.
 
@@ -229,7 +236,7 @@ caller cannot cancel or be cancelled by a standalone run.
 
 On `pull_request` events `go-ci.yml` runs `pr-scope` (the plan workflow), then:
 
-- Every native Go job (`Lint`, Linux, Windows, the four native shards and the
+- Every native Go job (`Lint`, Linux, Windows, the five native shards and the
   coverage `linux-gate`) records its tested checkout and captures a `go` receipt
   for its contract unit in an `always()` final step. Each job regenerates the
   deterministic plan locally, so the required native jobs keep their existing
