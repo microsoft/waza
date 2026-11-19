@@ -57,7 +57,7 @@ expect_status() {
   fi
 }
 
-for shard in 0 1 2 3; do
+for shard in 0 1 2 3 4; do
   profile="$scratch/reports/coverage-native-$shard.txt"
   bash "$scripts/go_test_shard.sh" "$shard" "$profile"
   for flag in -count=1 -json -v -race -timeout=30m -covermode=atomic "-coverprofile=$profile"; do
@@ -74,7 +74,7 @@ bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
 
 cp "$INVENTORY" "$scratch/order-inventory"
 LC_ALL=C sort -r "$INVENTORY" -o "$INVENTORY"
-for shard in 0 1 2 3; do
+for shard in 0 1 2 3 4; do
   bash "$scripts/go_test_shard.sh" "$shard" "$scratch/reordered-profile"
   cmp "$scratch/reports/coverage-native-$shard.txt.all" "$scratch/reordered-profile.all"
   cmp "$scratch/reports/coverage-native-$shard.txt.selected" "$scratch/reordered-profile.selected"
@@ -92,7 +92,7 @@ expect_status 13 env FAIL_FINALIZER=finish-go bash "$scripts/go_test_shard.sh" 0
 expect_status 9 env TEST_STATUS=9 FAIL_FINALIZER=finish-go bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
 expect_status 11 env FAIL_COLLECTOR=go FAIL_FINALIZER=finish-go bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
 expect_status 9 env TEST_STATUS=9 FAIL_COLLECTOR=go FAIL_FINALIZER=finish-go bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
-expect_status 2 bash "$scripts/go_test_shard.sh" 4 "$scratch/profile"
+expect_status 2 bash "$scripts/go_test_shard.sh" 5 "$scratch/profile"
 expect_status 2 bash "$scripts/go_test_shard.sh" -1 "$scratch/profile"
 expect_status 2 bash "$scripts/go_test_shard.sh" '0;exit 0' "$scratch/profile"
 expect_status 2 bash "$scripts/go_test_shard.sh" 0
@@ -102,10 +102,10 @@ cp "$INVENTORY" "$scratch/saved-inventory"
 : > "$INVENTORY"
 expect_status 1 bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
 printf 'TestOnly\n' > "$INVENTORY"
-expect_status 1 bash "$scripts/go_test_shard.sh" 3 "$scratch/profile"
+expect_status 1 bash "$scripts/go_test_shard.sh" 4 "$scratch/profile"
 cp "$scratch/saved-inventory" "$INVENTORY"
 
-profile="$scratch/reports/coverage-native-3.txt"
+profile="$scratch/reports/coverage-native-4.txt"
 mv "$profile" "$scratch/saved-profile"
 expect_status 1 bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
 printf 'mode: set\n' > "$profile"

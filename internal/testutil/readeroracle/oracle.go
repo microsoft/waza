@@ -8,6 +8,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -103,6 +104,15 @@ func Run(t testing.TB, executable, testName string, value any) []byte {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(input, raw, 0600))
 	command := exec.CommandContext(t.Context(), executable, "-test.run=^"+testName+"$", "-test.count=1")
+	if directory := flag.Lookup("test.gocoverdir").Value.String(); directory != "" {
+		current, err := os.Executable()
+		require.NoError(t, err)
+		if executable == current {
+			// Test binaries need the flag, not just GOCOVERDIR. Only the
+			// current reader may contribute; the frozen overlay is uncovered.
+			command.Args = append(command.Args, "-test.gocoverdir="+directory)
+		}
+	}
 	command.Env = append(os.Environ(), "WAZA_NATIVE_READER_ORACLE_INPUT="+input,
 		"WAZA_NATIVE_READER_ORACLE_OUTPUT="+output, "ENABLE_COPILOT_TESTS=false",
 		"ENABLE_COPILOT_SDK_TESTS=false", "ENABLE_LIVE_COPILOT_TESTS=false", "ENABLE_LIVE_TESTS=false",

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 2 ] || [[ ! "$1" =~ ^[0-3]$ ]] || [ -z "$2" ]; then
-  echo "Usage: bash go_test_shard.sh <shard 0-3> <coverage profile>" >&2
+if [ "$#" -ne 2 ] || [[ ! "$1" =~ ^[0-4]$ ]] || [ -z "$2" ]; then
+  echo "Usage: bash go_test_shard.sh <shard 0-4> <coverage profile>" >&2
   exit 2
 fi
 
@@ -33,7 +33,7 @@ if [ -z "$pattern" ]; then
   exit 1
 fi
 
-echo "Native shard $shard/4 selects $(wc -l < "$profile.selected") of $(wc -l < "$profile.all") discovered tests, examples, and fuzz targets."
+echo "Native shard $shard/5 selects $(wc -l < "$profile.selected") of $(wc -l < "$profile.all") discovered tests, examples, and fuzz targets."
 set +e
 go test -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
   -run "^($pattern)$" "$package" |
