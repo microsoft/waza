@@ -228,6 +228,72 @@ func TestReplayStrictValidationDoesNotInferMissingScore(t *testing.T) {
 	require.Empty(t, report.Issues)
 }
 
+func TestSnapshotWriterPreservesUnavailableValidationFields(t *testing.T) {
+	tests := []struct {
+		name        string
+		snapshot    string
+		field       string
+		wantRaw     string
+		wantPresent bool
+	}{
+		{
+			name:        "omitted passed",
+			snapshot:    `{"schemaVersion":"1.1","kind":"task-snapshot","task":{"testId":"task","runNumber":1},"result":{"status":"passed","validations":{"quality":{"score":0,"weight":1}}}}`,
+			field:       "passed",
+			wantPresent: false,
+		},
+		{
+			name:        "null passed",
+			snapshot:    `{"schemaVersion":"1.1","kind":"task-snapshot","task":{"testId":"task","runNumber":1},"result":{"status":"passed","validations":{"quality":{"passed":null,"score":0,"weight":1}}}}`,
+			field:       "passed",
+			wantRaw:     "null",
+			wantPresent: true,
+		},
+		{
+			name:        "omitted score",
+			snapshot:    `{"schemaVersion":"1.1","kind":"task-snapshot","task":{"testId":"task","runNumber":1},"result":{"status":"passed","validations":{"quality":{"passed":true,"weight":1}}}}`,
+			field:       "score",
+			wantPresent: false,
+		},
+		{
+			name:        "null score",
+			snapshot:    `{"schemaVersion":"1.1","kind":"task-snapshot","task":{"testId":"task","runNumber":1},"result":{"status":"passed","validations":{"quality":{"passed":true,"score":null,"weight":1}}}}`,
+			field:       "score",
+			wantRaw:     "null",
+			wantPresent: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := snapshot.ParseSnapshot([]byte(tt.snapshot), tt.name)
+			require.NoError(t, err)
+			path, err := snapshot.NewWriter(t.TempDir()).Write(parsed)
+			require.NoError(t, err)
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			var roundTrip struct {
+				Result struct {
+					Validations map[string]map[string]json.RawMessage `json:"validations"`
+				} `json:"result"`
+			}
+			require.NoError(t, json.Unmarshal(data, &roundTrip))
+			raw, present := roundTrip.Result.Validations["quality"][tt.field]
+			require.Equal(t, tt.wantPresent, present)
+			if tt.wantPresent {
+				require.Equal(t, tt.wantRaw, string(raw))
+			}
+
+			reloaded, err := snapshot.ParseSnapshot(data, tt.name+"-round-trip")
+			require.NoError(t, err)
+			report := buildModelReplayReport(reloaded, true)
+			require.True(t, report.Pass)
+			require.Empty(t, report.Issues)
+		})
+	}
+}
+
 func TestReplayStrictConsistencyCLIUsesOnlyRecordedEvidence(t *testing.T) {
 	tests := []struct {
 		name      string
