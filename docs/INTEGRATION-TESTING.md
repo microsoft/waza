@@ -19,6 +19,16 @@ This guide explains how to run real integration tests using the GitHub Copilot S
 
    When updating the Copilot SDK, run `go generate ./internal/embedded/generate` to regenerate all platform bundles. The SDK tag determines its compatible CLI version from `nodejs/package.json`; for example, SDK v1.0.34 pins CLI v1.0.112. Keep the generated bundles and the native startup test's `status.Version` assertion aligned with that pairing. The generator has six Go OS/architecture targets; each Linux target also emits the musl companions, for eight runtime platform sets. Commit the generated Go files, six license files, and LFS-tracked `.zst` and runtime-assets `.tgz` files, and remove obsolete versioned artifacts. Run `go tool bundler -check-only -output internal/embedded -platform <os>/<arch>` for each Go target to check embedded CLI-version metadata; this does not execute or integrity-check the bundle payloads. Run `git lfs fsck` to verify local LFS object hashes, then run `go test ./internal/embedded/...` on native CI runners for the supported platforms claimed; these checks are not substitutes for one another.
 
+   Native decision-reader parity tests retain the actual evaluator executable,
+   including its embedded runtime payloads. Collection, wire mutations, and the
+   frozen/current readers run in separate serial subprocesses so their
+   race-detector shadow memory does not accumulate in the coordinating test.
+   Worker-local GC pacing also limits heap overlap; it is not a hard memory cap.
+   The full capture, selected/root/API observations, error classes, frozen source
+   checksums, and race instrumentation remain part of the compatibility check.
+   Current-reader subprocess counters feed the parent coverage profile; the
+   checksum-pinned frozen overlay remains deliberately uncovered.
+
 ## Configuration
 
 ### Eval Spec Configuration
