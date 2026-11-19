@@ -1254,7 +1254,10 @@ behavior; checkpoint, pairwise, continuation and `--evidence-snapshot` combinati
 are rejected. This requires the current implementation, not an older CLI that
 does not implement evidence context.
 Pairwise prompt grading runs the skills-disabled baseline first and compares the
-final attempt for each matching task/trial. Saved-result `waza grade` does not
+final attempt for each matching task/trial. All selected task IDs must
+be unique when pairwise grading is enabled. A final baseline attempt that fails
+execution makes its observation unavailable, even if an earlier attempt produced
+output. Saved-result `waza grade` does not
 support pairwise comparisons; rerun with `waza run --baseline`.
 
 ```bash

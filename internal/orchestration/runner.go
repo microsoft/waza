@@ -784,6 +784,13 @@ func (r *EvalRunner) preparePairwiseTasks() error {
 		return errors.New("pairwise prompt grading requires a baseline comparison with configured skills")
 	}
 	if len(pairwiseTasks) > 0 {
+		selectedIDs := make(map[string]struct{}, len(testCases))
+		for _, tc := range testCases {
+			if _, duplicate := selectedIDs[tc.TestID]; duplicate {
+				return fmt.Errorf("pairwise prompt grading requires unique task IDs: duplicate selected task ID %q", tc.TestID)
+			}
+			selectedIDs[tc.TestID] = struct{}{}
+		}
 		r.pairwiseTaskIDs = pairwiseTasks
 	}
 	return nil
@@ -1450,6 +1457,11 @@ type attemptResult struct {
 }
 
 func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) attemptResult {
+	if r.capturePairwiseBaseline {
+		if _, ok := r.pairwiseTaskIDs[tc.TestID]; ok {
+			r.recordPairwiseBaselineOutput(tc.TestID, runNum, attempt, "", false)
+		}
+	}
 	startTime := time.Now()
 	var req *execution.ExecutionRequest
 	var resp *execution.ExecutionResponse

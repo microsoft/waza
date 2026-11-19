@@ -606,6 +606,10 @@ This is the closest Waza match for OpenAI Evals `modelgraded` specs. See the eva
 
 ¹ Either `prompt` or `rubric` is required. When only `rubric` is set, the rubric's body becomes the judge prompt. When both are set, the inline `prompt` wins (useful for ad-hoc overrides while keeping the rubric metadata attached for reporting).
 
+Pairwise comparisons require unique IDs across all selected tasks. Only the final
+baseline attempt supplies each task/trial's output; if that attempt fails execution,
+earlier output is not reused and the skills-enabled pass does not start.
+
 Reasoning-effort overrides work on eval, task, and checkpoint prompt graders, including
 `continue_session` and pairwise judging. These are judge settings, not per-task agent
 settings. Pin the agent effort once per eval to compare the same suite consistently:

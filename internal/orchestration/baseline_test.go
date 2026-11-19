@@ -12,6 +12,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -614,13 +615,14 @@ func TestRunBenchmark_BaselineIgnoresUnselectedTaskSkills(t *testing.T) {
 type pairwiseCaptureEngine struct {
 	*execution.MockEngine
 
-	mu               sync.Mutex
-	initializeCalls  int
-	baselineOutputs  []string
-	treatmentOutputs []string
-	judgePrompts     []string
-	actorNoSkills    []bool
-	failBaseline     bool
+	mu                 sync.Mutex
+	initializeCalls    int
+	baselineOutputs    []string
+	treatmentOutputs   []string
+	judgePrompts       []string
+	actorNoSkills      []bool
+	failBaseline       bool
+	errorBaselineRetry bool
 }
 
 func (e *pairwiseCaptureEngine) Initialize(ctx context.Context) error {
@@ -653,6 +655,9 @@ func (e *pairwiseCaptureEngine) Execute(_ context.Context, req *execution.Execut
 	e.actorNoSkills = append(e.actorNoSkills, req.NoSkills)
 	if req.NoSkills {
 		e.baselineOutputs = append(e.baselineOutputs, "")
+		if e.errorBaselineRetry && len(e.baselineOutputs) == 2 {
+			return nil, fmt.Errorf("baseline retry execution failed")
+		}
 		if e.failBaseline {
 			return &execution.ExecutionResponse{Success: false, ErrorMsg: "baseline unavailable"}, nil
 		}
@@ -791,6 +796,84 @@ func TestRunBenchmark_PairwiseRejectsMissingBaselineOutputBeforeTreatment(t *tes
 	_, err := runner.RunBenchmark(t.Context())
 	require.ErrorContains(t, err, "final baseline attempt")
 	require.Len(t, engine.actorNoSkills, 2)
+	require.Empty(t, engine.treatmentOutputs)
+	require.Empty(t, engine.judgePrompts)
+}
+
+func TestRunBenchmark_PairwiseRejectsDuplicateSelectedTaskIDs(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		ids         []string
+		pairwise    bool
+		filter      []string
+		duplicateID string
+	}{
+		{name: "pairwise and independent task", ids: []string{"same", "same"}, pairwise: true, duplicateID: "same"},
+		{name: "independent tasks also collide", ids: []string{"pairwise", "same", "same"}, pairwise: true, duplicateID: "same"},
+		{name: "unique IDs", ids: []string{"pairwise", "other"}, pairwise: true},
+		{name: "unselected duplicate", ids: []string{"same", "same"}, pairwise: true, filter: []string{"task-0"}},
+		{name: "legacy nonpairwise duplicates", ids: []string{"same", "same"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			spec := pairwiseTestSpec(true)
+			spec.Tasks = []string{"task-*.yaml"}
+			spec.Graders = nil
+			spec.Config.TrialsPerTask = 1
+			spec.Config.MaxAttempts = 1
+			for i, id := range tt.ids {
+				task := fmt.Sprintf("id: %s\nname: task-%d\ninputs:\n  prompt: compare\n", id, i)
+				if i == 0 && tt.pairwise {
+					task += "graders:\n  - name: quality\n    type: prompt\n    config:\n      mode: pairwise\n      prompt: Choose the better output.\n"
+				}
+				require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("task-%d.yaml", i)), []byte(task), 0o600))
+			}
+			engine := &pairwiseCaptureEngine{MockEngine: execution.NewMockEngine("mock")}
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine, WithTaskFilters(tt.filter...))
+			selected, err := runner.admissionTestCases()
+			require.NoError(t, err)
+			require.NotEmpty(t, selected)
+			require.Equal(t, tt.pairwise, graders.HasPairwisePromptGraders(nil, selected[0]))
+
+			outcome, err := runner.RunBenchmark(t.Context())
+			if tt.duplicateID != "" {
+				require.ErrorContains(t, err, fmt.Sprintf("duplicate selected task ID %q", tt.duplicateID))
+				require.Nil(t, outcome)
+				require.Zero(t, engine.initializeCalls)
+				require.Empty(t, engine.actorNoSkills)
+				return
+			}
+			require.NoError(t, err)
+			expectedTasks := len(tt.ids)
+			if len(tt.filter) > 0 {
+				expectedTasks = 1
+			}
+			require.Len(t, outcome.TestOutcomes, expectedTasks)
+			require.NotEmpty(t, engine.actorNoSkills)
+		})
+	}
+}
+
+func TestRunBenchmark_PairwiseRejectsDiscardedOutputAfterRetryExecutionError(t *testing.T) {
+	dir := t.TempDir()
+	writePairwiseTask(t, dir)
+	spec := pairwiseTestSpec(true)
+	spec.Config.TrialsPerTask = 1
+	engine := &pairwiseCaptureEngine{
+		MockEngine:         execution.NewMockEngine("mock"),
+		errorBaselineRetry: true,
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine)
+
+	_, err := runner.RunBenchmark(t.Context())
+	require.ErrorContains(t, err, "final baseline attempt 2 produced no successful output")
+	require.Equal(t, []string{"baseline-stale", ""}, engine.baselineOutputs)
+	require.Equal(t, []bool{true, true}, engine.actorNoSkills)
+	baseline, found := runner.pairwiseBaselineOutput("task-001", 1)
+	require.True(t, found)
+	require.Equal(t, 2, baseline.attempt)
+	require.False(t, baseline.present)
+	require.Empty(t, baseline.output)
 	require.Empty(t, engine.treatmentOutputs)
 	require.Empty(t, engine.judgePrompts)
 }
