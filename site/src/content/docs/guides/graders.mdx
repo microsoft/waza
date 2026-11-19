@@ -615,6 +615,11 @@ baseline impact and the exit code: each judged task contributes its preference
 `(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and
 the run exits `1` unless the mean is positive. Each task records the counts in
 `skill_impact.pairwise_summary`.
+Every judge pass must return a valid `set_pairwise_winner` verdict. Grader names
+must not collide with another grader on a pairwise task. Position-inconsistent
+comparisons are reported separately and excluded from both the tie count and
+preference denominator; a task with no consistent judgments contributes no
+positive impact.
 
 Reasoning-effort overrides work on eval, task, and checkpoint prompt graders, including
 `continue_session` and pairwise judging. These are judge settings, not per-task agent

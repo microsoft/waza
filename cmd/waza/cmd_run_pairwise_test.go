@@ -19,11 +19,12 @@ import (
 type pairwiseVerdictEngine struct {
 	*execution.MockEngine
 
-	mu      sync.Mutex
-	winner  string // "skill", "baseline", or "tie"
-	judges  int
-	actors  int
-	noSkill int
+	mu             sync.Mutex
+	winner         string // "skill", "baseline", or "tie"
+	positionBiased bool
+	judges         int
+	actors         int
+	noSkill        int
 }
 
 func (e *pairwiseVerdictEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
@@ -42,11 +43,15 @@ func (e *pairwiseVerdictEngine) Execute(ctx context.Context, req *execution.Exec
 	e.mu.Unlock()
 
 	label := "tie"
-	switch e.winner {
-	case "skill":
-		label = map[bool]string{true: "B", false: "A"}[pass1]
-	case "baseline":
-		label = map[bool]string{true: "A", false: "B"}[pass1]
+	if e.positionBiased {
+		label = "A"
+	} else {
+		switch e.winner {
+		case "skill":
+			label = map[bool]string{true: "B", false: "A"}[pass1]
+		case "baseline":
+			label = map[bool]string{true: "A", false: "B"}[pass1]
+		}
 	}
 	for _, tool := range req.Tools {
 		if tool.Name == "set_pairwise_winner" {
@@ -62,13 +67,15 @@ func (e *pairwiseVerdictEngine) Execute(ctx context.Context, req *execution.Exec
 
 func TestRunCommand_PairwiseBaselineExitFollowsRelativeJudgments(t *testing.T) {
 	for _, tc := range []struct {
-		winner      string
-		wantFailure bool
-		want        models.PairwiseSummary
+		winner         string
+		positionBiased bool
+		wantFailure    bool
+		want           models.PairwiseSummary
 	}{
 		{winner: "skill", want: models.PairwiseSummary{SkillWins: 2, Judgments: 2, Preference: 1}},
 		{winner: "tie", wantFailure: true, want: models.PairwiseSummary{Ties: 2, Judgments: 2}},
 		{winner: "baseline", wantFailure: true, want: models.PairwiseSummary{BaselineWins: 2, Judgments: 2, Preference: -1}},
+		{winner: "position-biased", positionBiased: true, wantFailure: true, want: models.PairwiseSummary{Inconsistent: 2}},
 	} {
 		t.Run(tc.winner, func(t *testing.T) {
 			resetRunGlobals()
@@ -77,7 +84,11 @@ func TestRunCommand_PairwiseBaselineExitFollowsRelativeJudgments(t *testing.T) {
 				newRunEngine = oldFactory
 				resetRunGlobals()
 			})
-			engine := &pairwiseVerdictEngine{MockEngine: execution.NewMockEngine("mock"), winner: tc.winner}
+			engine := &pairwiseVerdictEngine{
+				MockEngine:     execution.NewMockEngine("mock"),
+				winner:         tc.winner,
+				positionBiased: tc.positionBiased,
+			}
 			newRunEngine = func(models.Config) (execution.AgentEngine, error) { return engine, nil }
 
 			dir := t.TempDir()
@@ -122,6 +133,9 @@ tasks:
 				var failure *TestFailureError
 				require.ErrorAs(t, err, &failure)
 				require.ErrorContains(t, err, "pairwise judgments show negative/neutral impact")
+				if tc.positionBiased {
+					require.ErrorContains(t, err, "2 position-inconsistent")
+				}
 				var operational *BenchmarkError
 				require.NotErrorAs(t, err, &operational)
 			} else {

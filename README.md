@@ -1635,6 +1635,9 @@ baseline impact and the exit code: each judged task contributes its preference
 `(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and
 the run exits `1` unless the mean is positive. Each task records the counts in
 `skill_impact.pairwise_summary`.
+Every judge pass must return a valid verdict, pairwise grader names must be
+unique on the task, and position-inconsistent comparisons are excluded from
+ties and the preference denominator.
 With fix #898 (not in published v0.41.0),
 `evidence_context.non_secret_literals` can preserve declared exact whole-token
 Git SHAs, synthetic contacts and tracker identifiers in evaluator-controlled

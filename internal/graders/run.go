@@ -71,7 +71,41 @@ func WithoutPairwisePromptValidators(configs []models.ValidatorInline) []models.
 	return filtered
 }
 
+// ValidatePairwiseGraderNames rejects result-name collisions involving a
+// pairwise grader, since RunAll stores results by their effective name.
+func ValidatePairwiseGraderNames(specGraders []models.GraderConfig, tc *models.TestCase) error {
+	type namedGrader struct {
+		pairwise bool
+		scope    string
+	}
+	names := make(map[string]namedGrader)
+	add := func(name string, pairwise bool, scope string) error {
+		if previous, ok := names[name]; ok && (pairwise || previous.pairwise) {
+			return fmt.Errorf("pairwise grader name collision %q between %s and %s graders", name, previous.scope, scope)
+		}
+		names[name] = namedGrader{pairwise: pairwise, scope: scope}
+		return nil
+	}
+	for _, cfg := range specGraders {
+		if err := add(cfg.Identifier, IsPairwisePromptGrader(cfg.Kind, cfg.Parameters), "eval-level"); err != nil {
+			return err
+		}
+	}
+	if tc != nil {
+		for _, cfg := range tc.Validators {
+			if err := add(cfg.Identifier, IsPairwisePromptGrader(cfg.Kind, cfg.Parameters), "task-level"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func runAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel, judgeReasoningEffort string, updateSnapshots bool, create func(string, models.GraderParameters) (Grader, error)) (map[string]models.GraderResults, error) {
+	if err := ValidatePairwiseGraderNames(specGraders, tc); err != nil {
+		return nil, err
+	}
+
 	results := make(map[string]models.GraderResults)
 
 	for _, vCfg := range specGraders {

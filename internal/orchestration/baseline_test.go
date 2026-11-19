@@ -800,6 +800,65 @@ func TestRunBenchmark_PairwiseRejectsMissingBaselineOutputBeforeTreatment(t *tes
 	require.Empty(t, engine.judgePrompts)
 }
 
+func TestRunBenchmark_PairwiseRejectsNameCollisionBeforeEngineInitialization(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`
+id: task-001
+name: Pairwise task
+inputs:
+  prompt: compare these outputs
+graders:
+  - name: quality
+    type: text
+    config:
+      contains: ["final"]
+`), 0o600))
+	spec := pairwiseTestSpec(true)
+	engine := &pairwiseCaptureEngine{MockEngine: execution.NewMockEngine("mock")}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine)
+
+	_, err := runner.RunBenchmark(t.Context())
+	require.ErrorContains(t, err, `pairwise grader name collision "quality"`)
+	require.Zero(t, engine.initializeCalls)
+	require.Empty(t, engine.actorNoSkills)
+	require.Empty(t, engine.judgePrompts)
+}
+
+func TestMergeBaselineOutcomes_RequiresExpectedPairwiseResult(t *testing.T) {
+	runner := &EvalRunner{pairwiseTaskIDs: map[string]struct{}{"task-001": {}}}
+	withSkills := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{
+		TestID: "task-001",
+		Runs: []models.RunResult{{
+			RunNumber: 1,
+			Validations: map[string]models.GraderResults{
+				"quality": {Name: "quality", Details: map[string]any{"mode": "pairwise"}},
+			},
+		}},
+	}}}
+	withoutSkills := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{
+		TestID: "task-001",
+	}}}
+
+	_, err := runner.mergeBaselineOutcomes(withSkills, withoutSkills)
+	require.ErrorContains(t, err, `expected pairwise grader result missing for task "task-001"`)
+}
+
+func TestSummarizePairwiseJudgmentsExcludesPositionInconsistentComparisons(t *testing.T) {
+	outcome := &models.TestOutcome{Runs: []models.RunResult{{
+		Validations: map[string]models.GraderResults{
+			"consistent-tie": {Details: map[string]any{
+				"pairwise": &models.PairwiseResult{Winner: "tie", PositionConsistent: true},
+			}},
+			"inconsistent": {Details: map[string]any{
+				"pairwise": &models.PairwiseResult{Winner: "inconsistent", PositionConsistent: false},
+			}},
+		},
+	}}}
+
+	summary := summarizePairwiseJudgments(outcome)
+	require.Equal(t, &models.PairwiseSummary{Ties: 1, Inconsistent: 1, Judgments: 1}, summary)
+}
+
 func TestRunBenchmark_PairwiseRejectsDuplicateSelectedTaskIDs(t *testing.T) {
 	for _, tt := range []struct {
 		name        string

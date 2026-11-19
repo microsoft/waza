@@ -901,7 +901,7 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 	if spec.Config.WorkspaceCapture == "none" && len(snapshotFiles) > 0 {
 		return nil, fmt.Errorf("workspace_capture none cannot be used with --snapshot-file")
 	}
-	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, usesEvalMCP)
+	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, usesEvalMCP, skipGradersFlag)
 	if err := errors.Join(triggerErr, admissionErr); err != nil {
 		return nil, err
 	}
@@ -1225,8 +1225,8 @@ func runSingleModelWithPartialPath(cmd *cobra.Command, spec *models.EvalSpec, sp
 		if impact.Pairwise {
 			if impact.Score <= 0 {
 				return outcome, &TestFailureError{
-					Message: fmt.Sprintf("baseline comparison: pairwise judgments show negative/neutral impact (%d skill wins, %d ties, %d baseline wins)",
-						impact.SkillWins, impact.Ties, impact.BaselineWins),
+					Message: fmt.Sprintf("baseline comparison: pairwise judgments show negative/neutral impact (%d skill wins, %d ties, %d baseline wins, %d position-inconsistent)",
+						impact.SkillWins, impact.Ties, impact.BaselineWins, impact.Inconsistent),
 				}
 			}
 			return outcome, nil

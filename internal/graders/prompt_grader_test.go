@@ -512,6 +512,86 @@ func TestPairwiseMode_UsesExecutorTool(t *testing.T) {
 	require.Equal(t, "skill", pairwise.Winner)
 }
 
+func TestPairwiseMode_RequiresValidVerdictOnEachPass(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		missingPass int
+		invalidPass int
+		wantError   string
+	}{
+		{name: "missing first pass", missingPass: 1, wantError: "judge session completed without calling"},
+		{name: "missing second pass", missingPass: 2, wantError: "judge session completed without calling"},
+		{name: "invalid winner", invalidPass: 1, wantError: "invalid pairwise winner"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			executor := &fakePromptExecutor{}
+			executor.execute = func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				pass := executor.calls
+				if pass == tt.missingPass {
+					return &execution.ExecutionResponse{Success: true}, nil
+				}
+				winner := "B"
+				if pass == tt.invalidPass {
+					winner = "C"
+				} else if pass == 2 {
+					winner = "A"
+				}
+				_, err := req.Tools[0].Handler(copilot.ToolInvocation{Arguments: map[string]any{
+					"winner": winner, "magnitude": "much-better", "reasoning": "selected candidate",
+				}})
+				if err != nil {
+					return nil, err
+				}
+				return &execution.ExecutionResponse{Success: true}, nil
+			}
+			grader, err := NewPromptGrader("pairwise-grader", models.PromptGraderParameters{
+				Prompt: "Compare the outputs.",
+				Mode:   models.PromptGraderModePairwise,
+			})
+			require.NoError(t, err)
+
+			_, err = grader.Grade(context.Background(), &Context{
+				Output:                "candidate",
+				OutputPresent:         true,
+				BaselineOutput:        "baseline",
+				BaselineOutputPresent: true,
+				Executor:              executor,
+			})
+			require.ErrorContains(t, err, tt.wantError)
+		})
+	}
+}
+
+func TestPairwiseMode_PositionInconsistencyIsNotTie(t *testing.T) {
+	executor := &fakePromptExecutor{execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		_, err := req.Tools[0].Handler(copilot.ToolInvocation{Arguments: map[string]any{
+			"winner": "A", "magnitude": "much-better", "reasoning": "selected position A",
+		}})
+		require.NoError(t, err)
+		return &execution.ExecutionResponse{Success: true}, nil
+	}}
+	grader, err := NewPromptGrader("pairwise-grader", models.PromptGraderParameters{
+		Prompt: "Compare the outputs.",
+		Mode:   models.PromptGraderModePairwise,
+	})
+	require.NoError(t, err)
+
+	result, err := grader.Grade(context.Background(), &Context{
+		Output:                "candidate",
+		OutputPresent:         true,
+		BaselineOutput:        "baseline",
+		BaselineOutputPresent: true,
+		Executor:              executor,
+	})
+	require.NoError(t, err)
+	require.False(t, result.Passed)
+	require.Zero(t, result.Score)
+	pairwise, ok := result.Details["pairwise"].(*models.PairwiseResult)
+	require.True(t, ok)
+	require.Equal(t, "inconsistent", pairwise.Winner)
+	require.False(t, pairwise.PositionConsistent)
+}
+
 func TestNormalizePairwiseWinner(t *testing.T) {
 	tests := []struct {
 		winner   string
@@ -520,7 +600,7 @@ func TestNormalizePairwiseWinner(t *testing.T) {
 		{"A", "baseline"},
 		{"B", "skill"},
 		{"tie", "tie"},
-		{"unknown", "tie"},
+		{"unknown", "invalid"},
 	}
 
 	for _, tt := range tests {

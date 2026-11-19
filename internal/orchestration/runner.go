@@ -868,7 +868,11 @@ func (r *EvalRunner) mergeBaselineOutcomes(
 
 		withTo.SkillImpact = computeSkillImpact(withTo, withoutTo)
 		if _, pairwise := r.pairwiseTaskIDs[testID]; pairwise {
-			withTo.SkillImpact.PairwiseSummary = summarizePairwiseJudgments(withTo)
+			summary := summarizePairwiseJudgments(withTo)
+			if summary == nil {
+				return nil, fmt.Errorf("expected pairwise grader result missing for task %q", testID)
+			}
+			withTo.SkillImpact.PairwiseSummary = summary
 		}
 	}
 
@@ -921,16 +925,21 @@ func summarizePairwiseJudgments(outcome *models.TestOutcome) *models.PairwiseSum
 				summary.Ties++
 			case "baseline":
 				summary.BaselineWins++
+			case "inconsistent":
+				summary.Inconsistent++
+				continue
 			default:
 				continue
 			}
 			summary.Judgments++
 		}
 	}
-	if summary.Judgments == 0 {
+	if summary.Judgments == 0 && summary.Inconsistent == 0 {
 		return nil
 	}
-	summary.Preference = float64(summary.SkillWins-summary.BaselineWins) / float64(summary.Judgments)
+	if summary.Judgments > 0 {
+		summary.Preference = float64(summary.SkillWins-summary.BaselineWins) / float64(summary.Judgments)
+	}
 	return summary
 }
 
@@ -938,11 +947,20 @@ func pairwiseWinner(detail any) string {
 	switch v := detail.(type) {
 	case *models.PairwiseResult:
 		if v != nil {
+			if !v.PositionConsistent {
+				return "inconsistent"
+			}
 			return v.Winner
 		}
 	case models.PairwiseResult:
+		if !v.PositionConsistent {
+			return "inconsistent"
+		}
 		return v.Winner
 	case map[string]any:
+		if consistent, ok := v["position_consistent"].(bool); !ok || !consistent {
+			return "inconsistent"
+		}
 		if winner, ok := v["winner"].(string); ok {
 			return winner
 		}
@@ -993,7 +1011,8 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	}
 	if verdict.Pairwise {
 		fmt.Printf("Pairwise Judgments (decide impact; baseline pass omits relative graders):\n")
-		fmt.Printf("  Skill wins: %d  Ties: %d  Baseline wins: %d\n\n", verdict.SkillWins, verdict.Ties, verdict.BaselineWins)
+		fmt.Printf("  Skill wins: %d  Ties: %d  Baseline wins: %d  Position-inconsistent: %d\n\n",
+			verdict.SkillWins, verdict.Ties, verdict.BaselineWins, verdict.Inconsistent)
 	}
 
 	fmt.Println("Per-Task Breakdown:")
@@ -1024,8 +1043,8 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 		}
 
 		if p := impact.PairwiseSummary; p != nil {
-			fmt.Printf("  • %-30s %s  pairwise: %d win / %d tie / %d loss\n",
-				to.DisplayName, status, p.SkillWins, p.Ties, p.BaselineWins)
+			fmt.Printf("  • %-30s %s  pairwise: %d win / %d tie / %d loss / %d inconsistent\n",
+				to.DisplayName, status, p.SkillWins, p.Ties, p.BaselineWins, p.Inconsistent)
 			continue
 		}
 		fmt.Printf("  • %-30s %s  %.0f%% → %.0f%% (%+.0fpp)\n",
@@ -1059,8 +1078,11 @@ func AdmitEvalMCPMocks(cfg *config.EvalConfig, taskFilters, tagFilters []string)
 
 // AdmitEvalMCPMocksForPhases includes eval dependencies consumed by a caller's
 // supplemental phase. Standalone EvalRunner executes only task phases.
-func AdmitEvalMCPMocksForPhases(cfg *config.EvalConfig, taskFilters, tagFilters []string, usesEvalMCP bool) error {
+func AdmitEvalMCPMocksForPhases(cfg *config.EvalConfig, taskFilters, tagFilters []string, usesEvalMCP bool, skipGraders ...bool) error {
 	r := &EvalRunner{cfg: cfg, taskFilters: taskFilters, tagFilters: tagFilters}
+	if len(skipGraders) > 0 {
+		r.skipGraders = skipGraders[0]
+	}
 	return r.admitMCPMocksForPhases(usesEvalMCP)
 }
 
@@ -1070,15 +1092,26 @@ func (r *EvalRunner) admitEvalMCPMocks() error {
 
 func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 	testCases, selectionErr := r.admissionTestCases()
+	var pairwiseErr error
+	if !r.skipGraders {
+		for _, tc := range testCases {
+			if !graders.HasPairwisePromptGraders(r.cfg.Spec().Graders, tc) {
+				continue
+			}
+			if err := graders.ValidatePairwiseGraderNames(r.cfg.Spec().Graders, tc); err != nil {
+				pairwiseErr = errors.Join(pairwiseErr, fmt.Errorf("task %q: %w", tc.TestID, err))
+			}
+		}
+	}
 	// Failed selection cannot establish task overrides, but must not hide
 	// independent eval mock errors or allow engine initialization.
 	if err := mcpmock.ValidateMCPMocksForPhases(r.cfg.Spec(), testCases, r.cfg.SpecDir(), usesEvalMCP); err != nil {
-		return errors.Join(selectionErr, fmt.Errorf("MCP mock admission: %w", err))
+		return errors.Join(selectionErr, pairwiseErr, fmt.Errorf("MCP mock admission: %w", err))
 	}
 	if r.cfg.Spec().Config.WorkspaceCapture == "none" && len(r.snapshotWorkspacePaths) > 0 {
-		return errors.Join(selectionErr, fmt.Errorf("workspace_capture none cannot be used with workspace snapshot files"))
+		return errors.Join(selectionErr, pairwiseErr, fmt.Errorf("workspace_capture none cannot be used with workspace snapshot files"))
 	}
-	return errors.Join(selectionErr, models.ValidateWorkspaceCapture(r.cfg.Spec(), testCases))
+	return errors.Join(selectionErr, pairwiseErr, models.ValidateWorkspaceCapture(r.cfg.Spec(), testCases))
 }
 
 // admissionTestCases selects the active tasks a run would execute, after task

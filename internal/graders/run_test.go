@@ -77,6 +77,26 @@ func TestRunAllMissingTaskKindRemainsClassifiable(t *testing.T) {
 	require.Empty(t, failure.Kind)
 }
 
+func TestRunAllRejectsPairwiseNameCollisionBeforeCreatingGraders(t *testing.T) {
+	pairwise := models.GraderConfig{
+		Identifier: "quality",
+		Kind:       models.GraderKindPrompt,
+		Parameters: models.PromptGraderParameters{Mode: models.PromptGraderModePairwise},
+	}
+	task := &models.TestCase{Validators: []models.ValidatorInline{{
+		Identifier: "quality",
+		Kind:       models.GraderKindText,
+	}}}
+	createCalls := 0
+	_, err := runAll(t.Context(), []models.GraderConfig{pairwise}, task, &Context{}, "", "", false,
+		func(string, models.GraderParameters) (Grader, error) {
+			createCalls++
+			return nil, errors.New("must not create graders")
+		})
+	require.ErrorContains(t, err, `pairwise grader name collision "quality"`)
+	require.Zero(t, createCalls)
+}
+
 func TestApplyDefaults_PromptGrader(t *testing.T) {
 	t.Run("sets judge model when empty", func(t *testing.T) {
 		p := models.PromptGraderParameters{Prompt: "check"}

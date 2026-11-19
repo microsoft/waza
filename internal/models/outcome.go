@@ -643,6 +643,7 @@ type PairwiseSummary struct {
 	SkillWins    int     `json:"skill_wins"`
 	Ties         int     `json:"ties"`
 	BaselineWins int     `json:"baseline_wins"`
+	Inconsistent int     `json:"inconsistent"`
 	Judgments    int     `json:"judgments"`
 	Preference   float64 `json:"preference"`
 }
@@ -657,6 +658,7 @@ type BaselineImpactSummary struct {
 	SkillWins    int
 	Ties         int
 	BaselineWins int
+	Inconsistent int
 }
 
 // BaselineImpact computes the overall baseline-comparison verdict. Without
@@ -677,12 +679,15 @@ func BaselineImpact(withSkills, baseline *EvaluationOutcome) BaselineImpactSumma
 			continue
 		}
 		tasks++
-		if p := impact.PairwiseSummary; p != nil && p.Judgments > 0 {
+		if p := impact.PairwiseSummary; p != nil && (p.Judgments > 0 || p.Inconsistent > 0) {
 			summary.Pairwise = true
 			summary.SkillWins += p.SkillWins
 			summary.Ties += p.Ties
 			summary.BaselineWins += p.BaselineWins
-			total += p.Preference
+			summary.Inconsistent += p.Inconsistent
+			if p.Judgments > 0 {
+				total += p.Preference
+			}
 			continue
 		}
 		total += impact.Delta
@@ -697,7 +702,7 @@ func BaselineImpact(withSkills, baseline *EvaluationOutcome) BaselineImpactSumma
 
 // PairwiseResult captures the outcome of a pairwise LLM judge comparison.
 type PairwiseResult struct {
-	Winner             string `json:"winner"`    // "baseline", "skill", or "tie"
+	Winner             string `json:"winner"`    // "baseline", "skill", "tie", or "inconsistent"
 	Magnitude          string `json:"magnitude"` // "much-better", "slightly-better", "equal", etc.
 	Reasoning          string `json:"reasoning"`
 	PositionConsistent bool   `json:"position_consistent"` // true if result held after position swap

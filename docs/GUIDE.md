@@ -1264,6 +1264,11 @@ baseline impact and the exit code: each judged task contributes its preference
 `(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and
 the run exits `1` unless the mean is positive. Each task records the counts in
 `skill_impact.pairwise_summary`.
+Each judge pass must call `set_pairwise_winner` with a valid verdict, and
+pairwise grader names must not collide with another grader on that task.
+Position-inconsistent comparisons are counted separately, not as ties or
+preference-denominator entries; tasks with only inconsistent comparisons do not
+contribute positive impact.
 
 ```bash
 waza preflight examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures
