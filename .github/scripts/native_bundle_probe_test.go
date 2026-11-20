@@ -111,7 +111,7 @@ func main() {
 			if err := os.Remove(marker); err != nil {
 				require.ErrorIs(t, err, os.ErrNotExist, "reset launch log")
 			}
-			probeRoot := t.TempDir()
+			probeRoot := filepath.Join(t.TempDir(), "probe root with spaces")
 			cache := filepath.Join(probeRoot, "home", ".copilot", "cache", "copilot-sdk")
 			candidates := control.setup(t, cache)
 
@@ -141,10 +141,12 @@ func main() {
 				return
 			}
 			require.NoError(t, readErr, "probe did not launch the selected CLI: %s", output)
-			lines := strings.Fields(string(launches))
-			require.NotEmpty(t, lines)
-			for _, launched := range lines {
-				require.True(t, strings.HasPrefix(launched, candidates[0]), "launched %q, want %q", launched, candidates[0])
+			require.NotEmpty(t, launches)
+			for _, launched := range strings.Split(strings.TrimSuffix(string(launches), "\n"), "\n") {
+				if runtime.GOOS == "windows" && launched == candidates[0]+".exe" {
+					continue
+				}
+				require.Equal(t, candidates[0], launched)
 			}
 		})
 	}
