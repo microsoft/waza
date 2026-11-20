@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -28,6 +29,7 @@ import (
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
 	protocommon "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
 	protorekor "github.com/sigstore/protobuf-specs/gen/pb-go/rekor/v1"
+	rekorclient "github.com/sigstore/rekor/pkg/client"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/sign"
 	"github.com/sigstore/sigstore-go/pkg/testing/ca"
@@ -465,6 +467,203 @@ func TestGitHubOIDCRejectsUntrustedEndpoints(t *testing.T) {
 		_, err := requestGithubOIDCToken(t.Context(), func(key string) string { return env[key] }, client)
 		require.ErrorIs(t, err, ErrSignerUnavailable)
 		require.NotContains(t, err.Error(), "fake-secret")
+	}
+}
+
+func TestGitHubOIDCRejectsRedirects(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://oidc.actions.githubusercontent.com")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "fake-request-secret")
+	for _, status := range []int{301, 302, 303, 307, 308} {
+		for _, target := range []string{
+			"http://oidc.actions.githubusercontent.com/redirected",
+			"https://attacker.oidc.actions.githubusercontent.com/redirected",
+			"https://attacker.example/redirected",
+		} {
+			t.Run(fmt.Sprintf("%d/%s", status, target), func(t *testing.T) {
+				requests := 0
+				original := http.DefaultTransport
+				http.DefaultTransport = tokenTransport(func(request *http.Request) (*http.Response, error) {
+					requests++
+					require.Equal(t, "https://oidc.actions.githubusercontent.com?audience=sigstore", request.URL.String())
+					require.Equal(t, "Bearer fake-request-secret", request.Header.Get("Authorization"))
+					return &http.Response{
+						StatusCode: status, Header: http.Header{"Location": []string{target}},
+						Body: http.NoBody, Request: request,
+					}, nil
+				})
+				t.Cleanup(func() { http.DefaultTransport = original })
+				token, err := githubOIDCToken(t.Context())
+				require.ErrorIs(t, err, ErrSignerUnavailable)
+				require.NotContains(t, err.Error(), "fake-request-secret")
+				require.Empty(t, token)
+				require.Equal(t, 1, requests, "the production OIDC client must not follow redirects")
+			})
+		}
+	}
+}
+
+func TestKeylessFulcioRedirectPolicy(t *testing.T) {
+	type redirectCase struct {
+		name      string
+		locations []string
+		allowed   bool
+	}
+	cases := []redirectCase{
+		{"ordinary", nil, true},
+		{"relative", []string{"/redirected"}, true},
+		{"same origin", []string{"https://fulcio.sigstore.dev/redirected"}, true},
+		{"explicit default port", []string{"https://fulcio.sigstore.dev:443/redirected"}, true},
+		{"downgrade", []string{"http://fulcio.sigstore.dev/redirected"}, false},
+		{"subdomain", []string{"https://attacker.fulcio.sigstore.dev/redirected"}, false},
+		{"different port", []string{"https://fulcio.sigstore.dev:444/redirected"}, false},
+		{"different host", []string{"https://attacker.example/redirected"}, false},
+		{"credentials", []string{"https://fake-secret@fulcio.sigstore.dev/redirected"}, false},
+		{"later downgrade", []string{"/redirected", "http://fulcio.sigstore.dev/final"}, false},
+	}
+	for _, status := range []int{301, 302, 303, 307, 308} {
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("%d/%s", status, tc.name), func(t *testing.T) {
+				signer, trust, fulcio, rekor := fakeKeyless(t)
+				input := newFixture(t).input
+				certificate := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: fulcio.cert.Raw}))
+				response, err := json.Marshal(map[string]any{
+					"signedCertificateDetachedSct": map[string]any{
+						"chain": map[string]any{"certificates": []string{certificate}},
+					},
+				})
+				require.NoError(t, err)
+				type observedRequest struct {
+					URL           string
+					Method        string
+					Authorization string
+					Body          string
+				}
+				var requests []observedRequest
+				signer.options.CertificateProvider = &keylessFulcio{
+					baseURL: "https://fulcio.sigstore.dev",
+					transport: tokenTransport(func(request *http.Request) (*http.Response, error) {
+						var body []byte
+						if request.Body != nil {
+							body, err = io.ReadAll(request.Body)
+							require.NoError(t, err)
+							require.NoError(t, request.Body.Close())
+						}
+						requests = append(requests, observedRequest{
+							request.URL.String(), request.Method, request.Header.Get("Authorization"), string(body),
+						})
+						if len(requests) <= len(tc.locations) {
+							return &http.Response{
+								StatusCode: status, Header: http.Header{"Location": []string{tc.locations[len(requests)-1]}},
+								Body: http.NoBody, Request: request,
+							}, nil
+						}
+						return &http.Response{
+							StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(response)), Request: request,
+						}, nil
+					}),
+				}
+				token := "fake." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"local-test"}`)) + ".fake-secret"
+				signer.token = func(context.Context) (string, error) { return token, nil }
+				bundle, err := Generate(t.Context(), input, signer)
+				if !tc.allowed {
+					require.Len(t, requests, len(tc.locations), "unsafe redirect reached the transport: %+v", requests)
+					require.ErrorIs(t, err, ErrSignerUnavailable)
+					require.NotContains(t, err.Error(), token)
+					require.NotContains(t, err.Error(), "fake-secret")
+					require.Nil(t, bundle)
+					require.Zero(t, rekor.calls)
+					return
+				}
+				require.NoError(t, err)
+				require.Len(t, requests, len(tc.locations)+1)
+				for i, request := range requests {
+					require.Equal(t, "Bearer "+token, request.Authorization)
+					require.NotContains(t, request.Body, token, "Fulcio uses the ID token in the header, not the JSON body")
+					if i == 0 || status == 307 || status == 308 {
+						require.Equal(t, http.MethodPost, request.Method)
+						require.JSONEq(t, requests[0].Body, request.Body)
+					} else {
+						require.Equal(t, http.MethodGet, request.Method)
+						require.Empty(t, request.Body)
+					}
+				}
+				require.Equal(t, 1, rekor.calls)
+				verifier, err := NewKeylessVerifier(trust, testWorkflowIdentity, "", testOIDCIssuer)
+				require.NoError(t, err)
+				report := verifyFiles(t, bundle.Files, Options{Verifier: verifier})
+				require.Equal(t, "verified", report.Status, "%+v", report.Failures())
+			})
+		}
+	}
+}
+
+func TestKeylessRekorRedirectDoesNotCarryOIDCToken(t *testing.T) {
+	for _, status := range []int{301, 302, 303, 307, 308} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			signer, _, fulcio, _ := fakeKeyless(t)
+			input := newFixture(t).input
+			type observedRequest struct {
+				plaintext     bool
+				method        string
+				path          string
+				authorization string
+				body          []byte
+				readError     error
+			}
+			requests := make(chan observedRequest, 2)
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				body, err := io.ReadAll(request.Body)
+				requests <- observedRequest{true, request.Method, request.URL.Path, request.Header.Get("Authorization"), body, err}
+				w.WriteHeader(http.StatusBadRequest)
+			}))
+			defer target.Close()
+			source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				body, err := io.ReadAll(request.Body)
+				requests <- observedRequest{false, request.Method, request.URL.Path, request.Header.Get("Authorization"), body, err}
+				w.Header().Set("Location", target.URL)
+				w.WriteHeader(status)
+			}))
+			defer source.Close()
+			pool := x509.NewCertPool()
+			pool.AddCert(source.Certificate())
+			client, err := rekorclient.GetRekorClient(source.URL,
+				rekorclient.WithTLSConfig(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}),
+				rekorclient.WithRetryCount(0),
+			)
+			require.NoError(t, err)
+			signer.options.TransparencyLogs = []sign.Transparency{sign.NewRekor(&sign.RekorOptions{
+				BaseURL: source.URL, Version: 1, Timeout: keylessRequestTimeout, Client: client.Entries,
+			})}
+			bundle, err := Generate(t.Context(), input, signer)
+			require.ErrorIs(t, err, ErrSignerUnavailable, "the fake destination intentionally returns no log evidence")
+			require.Nil(t, bundle)
+			require.Equal(t, 1, fulcio.calls)
+			require.Len(t, requests, 2, "both HTTPS and redirected plaintext requests must be exercised")
+			initial, redirected := <-requests, <-requests
+			require.False(t, initial.plaintext)
+			require.True(t, redirected.plaintext)
+			require.Equal(t, http.MethodPost, initial.method)
+			require.Equal(t, "/api/v1/log/entries", initial.path)
+			require.NotEmpty(t, initial.body)
+			var proposed struct {
+				Kind string `json:"kind"`
+			}
+			require.NoError(t, json.Unmarshal(initial.body, &proposed))
+			require.Equal(t, "dsse", proposed.Kind)
+			for _, request := range []observedRequest{initial, redirected} {
+				require.NoError(t, request.readError)
+				require.Empty(t, request.authorization)
+				require.NotContains(t, string(request.body), "fake-oidc-token")
+			}
+			if status == 307 || status == 308 {
+				require.Equal(t, http.MethodPost, redirected.method)
+				require.JSONEq(t, string(initial.body), string(redirected.body))
+			} else {
+				require.Equal(t, http.MethodGet, redirected.method)
+				require.Empty(t, redirected.body)
+			}
+		})
 	}
 }
 

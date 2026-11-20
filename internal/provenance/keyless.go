@@ -169,6 +169,14 @@ type keylessFulcio struct {
 }
 
 func (f *keylessFulcio) GetCertificate(ctx context.Context, key sign.Keypair, opts *sign.CertificateProviderOptions) ([]byte, error) {
+	origin, err := url.Parse(f.baseURL)
+	if err != nil || origin.Scheme != "https" || origin.Hostname() == "" || origin.User != nil {
+		return nil, errors.New("keyless Fulcio endpoint must use an HTTPS origin without credentials")
+	}
+	port := origin.Port()
+	if port == "" {
+		port = "443"
+	}
 	// Fulcio v1.3.0 ignores ctx on HTTP requests. Bind the transport per call,
 	// retaining the request timeout through reading the response body.
 	ctx, cancel := context.WithTimeout(ctx, keylessRequestTimeout)
@@ -179,17 +187,28 @@ func (f *keylessFulcio) GetCertificate(ctx context.Context, key sign.Keypair, op
 	}
 	provider := sign.NewFulcio(&sign.FulcioOptions{
 		BaseURL: f.baseURL, Timeout: keylessRequestTimeout,
-		Transport: keylessFulcioTransport{context: ctx, base: transport},
+		Transport: keylessFulcioTransport{context: ctx, base: transport, hostname: origin.Hostname(), port: port},
 	})
 	return provider.GetCertificate(ctx, key, opts)
 }
 
 type keylessFulcioTransport struct {
-	context context.Context
-	base    http.RoundTripper
+	context  context.Context
+	base     http.RoundTripper
+	hostname string
+	port     string
 }
 
 func (t keylessFulcioTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	port := request.URL.Port()
+	if port == "" {
+		port = "443"
+	}
+	// Check every redirect hop before the bearer token reaches the transport.
+	if request.URL.Scheme != "https" || request.URL.User != nil ||
+		!strings.EqualFold(request.URL.Hostname(), t.hostname) || port != t.port {
+		return nil, errors.New("keyless Fulcio request destination must match its HTTPS origin")
+	}
 	return t.base.RoundTrip(request.Clone(t.context))
 }
 

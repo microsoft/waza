@@ -114,7 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Fulcio and Rekor v1, saving `sigstore.bundle.json` beside the unchanged DSSE
   statement. Both signing and offline verification require an independently
   approved `--trusted-root`; signing rejects missing CA/log material before
-  service calls and honors caller cancellation while queued or calling Fulcio.
+  service calls, honors caller cancellation while queued or calling Fulcio,
+  and confines Fulcio bearer-token requests to the service's HTTPS origin.
   Verification also requires the exact OIDC issuer
   and an exact workflow identity or anchored identity regexp. Documents
   permissions, egress, public-log disclosure, TUF root acquisition and a
