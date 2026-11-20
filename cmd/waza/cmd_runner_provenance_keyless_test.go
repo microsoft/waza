@@ -31,6 +31,27 @@ import (
 const cliWorkflowIdentity = "https://github.com/example/waza/.github/workflows/sign.yml@refs/heads/main"
 const cliOIDCIssuer = "https://token.actions.githubusercontent.com"
 
+func TestRunnerProvenanceKeylessEmptyTrustCLI(t *testing.T) {
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "trusted-root.json")
+	require.NoError(t, os.WriteFile(rootPath, []byte(`{"mediaType":"application/vnd.dev.sigstore.trustedroot+json;version=0.1"}`), 0o600))
+	command := newRunnerCommand()
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(&output)
+	command.SetArgs([]string{"provenance", "generate", "--signer", "sigstore-keyless", "--trusted-root", rootPath,
+		"--request", "unused-request.json", "--manifest", "unused-manifest.json", "--artifacts", dir,
+		"--policy", "unused-policy.json", "--image-reference", "ghcr.io/example/runner:test",
+		"--image-digest", "sha256:" + strings.Repeat("a", 64), "--out", filepath.Join(dir, "bundle")})
+	err := command.Execute()
+	var exit *ExitCodeError
+	require.ErrorAs(t, err, &exit)
+	require.Equal(t, 2, exit.Code)
+	require.ErrorContains(t, err, "at least one Fulcio CA and one Rekor log")
+	_, err = os.Stat(filepath.Join(dir, "bundle"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 // The CLI fixture substitutes only the network signer. Certificates, DSSE
 // signatures, checkpoints and SETs are real; verification is not substituted.
 type fixtureKeylessSigner struct {

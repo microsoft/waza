@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -327,6 +328,56 @@ func TestKeylessTrustPolicyRequired(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestKeylessSigningTrustAdmission(t *testing.T) {
+	for _, name := range []string{"matching", "no CA", "no log", "empty"} {
+		t.Run(name, func(t *testing.T) {
+			signer, trustJSON, fulcio, rekor := fakeKeyless(t)
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(trustJSON, &fields))
+			if name == "no CA" || name == "empty" {
+				fields["certificateAuthorities"] = json.RawMessage("[]")
+			}
+			if name == "no log" || name == "empty" {
+				fields["tlogs"] = json.RawMessage("[]")
+			}
+			trustJSON, err := json.Marshal(fields)
+			require.NoError(t, err)
+			trust, err := root.NewTrustedRootFromJSON(trustJSON)
+			require.NoError(t, err, "the negative control must still be a correctly typed root")
+			created, err := NewKeylessSigner(trustJSON)
+			if name == "matching" {
+				require.NoError(t, err)
+				require.NotNil(t, created)
+			} else {
+				require.ErrorContains(t, err, "at least one Fulcio CA and one Rekor log")
+				require.Nil(t, created)
+				_, err = NewKeylessVerifier(trustJSON, testWorkflowIdentity, "", testOIDCIssuer)
+				require.NoError(t, err, "signing admission must not tighten offline root parsing")
+			}
+			signer.options.TrustedRoot = trust
+			tokenCalls := 0
+			signer.token = func(context.Context) (string, error) {
+				tokenCalls++
+				return "fake-oidc-token", nil
+			}
+			bundle, err := Generate(t.Context(), newFixture(t).input, signer)
+			if name == "matching" {
+				require.NoError(t, err)
+				require.NotNil(t, bundle)
+				require.Equal(t, 1, tokenCalls)
+				require.Equal(t, 1, fulcio.calls)
+				require.Equal(t, 1, rekor.calls)
+			} else {
+				require.ErrorContains(t, err, "at least one Fulcio CA and one Rekor log")
+				require.Nil(t, bundle)
+				require.Zero(t, tokenCalls)
+				require.Zero(t, fulcio.calls)
+				require.Zero(t, rekor.calls)
+			}
+		})
+	}
+}
+
 func TestGitHubOIDCTokenRequest(t *testing.T) {
 	for _, name := range []string{"success", "denied", "empty token", "oversized", "redirect"} {
 		t.Run(name, func(t *testing.T) {
@@ -445,6 +496,129 @@ func TestKeylessSignerConcurrentReuse(t *testing.T) {
 		seen[report.Predicate.Waza.Version] = true
 	}
 	require.Len(t, seen, 3)
+}
+
+func TestKeylessSignerCanceledQueuedCall(t *testing.T) {
+	signer, _, fulcio, rekor := fakeKeyless(t)
+	input := newFixture(t).input
+	entered, release := make(chan struct{}), make(chan struct{})
+	firstContext, cancelFirst := context.WithCancel(t.Context())
+	defer cancelFirst()
+	tokenCalls := 0
+	signer.token = func(ctx context.Context) (string, error) {
+		tokenCalls++
+		if tokenCalls == 1 {
+			close(entered)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+		return "fake-oidc-token", nil
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := Generate(firstContext, input, signer)
+		firstDone <- err
+	}()
+	<-entered
+	queuedContext, cancelQueued := context.WithCancel(t.Context())
+	defer cancelQueued()
+	queuedDone := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		_, err := Generate(queuedContext, input, signer)
+		queuedDone <- err
+	}()
+	<-started
+	cancelQueued()
+	select {
+	case err := <-queuedDone:
+		require.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, ErrSignerUnavailable)
+	case <-time.After(2 * time.Second):
+		cancelFirst()
+		<-firstDone
+		<-queuedDone
+		t.Fatal("canceled caller remained queued behind the active signer")
+	}
+	close(release)
+	require.NoError(t, <-firstDone, "canceling a queued caller must not cancel the active caller")
+	_, err := Generate(t.Context(), input, signer)
+	require.NoError(t, err, "the signer must remain usable after cancellation")
+	require.Equal(t, 2, tokenCalls)
+	require.Equal(t, 2, fulcio.calls)
+	require.Equal(t, 2, rekor.calls)
+}
+
+func TestKeylessSignerCancelsFulcioRequest(t *testing.T) {
+	signer, _, fulcio, rekor := fakeKeyless(t)
+	input := newFixture(t).input
+	certificate := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: fulcio.cert.Raw}))
+	response, err := json.Marshal(map[string]any{
+		"signedCertificateDetachedSct": map[string]any{
+			"chain": map[string]any{"certificates": []string{certificate}},
+		},
+	})
+	require.NoError(t, err)
+	entered := make(chan *http.Request, 1)
+	testContext := t.Context()
+	calls := 0
+	signer.options.CertificateProvider = &keylessFulcio{
+		baseURL: "https://fulcio.sigstore.dev",
+		transport: tokenTransport(func(request *http.Request) (*http.Response, error) {
+			calls++
+			if calls == 1 {
+				entered <- request
+				select {
+				case <-request.Context().Done():
+					return nil, request.Context().Err()
+				case <-testContext.Done():
+					return nil, testContext.Err()
+				}
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(response))}, nil
+		}),
+	}
+	token := "fake." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"local-test"}`)) + ".fake-secret"
+	signer.token = func(context.Context) (string, error) { return token, nil }
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		bundle, err := Generate(ctx, input, signer)
+		if bundle != nil {
+			done <- errors.New("canceled signing emitted a bundle")
+			return
+		}
+		done <- err
+	}()
+	request := <-entered
+	require.Equal(t, "https://fulcio.sigstore.dev/api/v2/signingCert", request.URL.String())
+	require.Equal(t, "Bearer "+token, request.Header.Get("Authorization"))
+	require.NoError(t, request.Context().Err())
+	deadline, ok := request.Context().Deadline()
+	require.True(t, ok, "the context-bound request must retain its timeout")
+	require.Greater(t, time.Until(deadline), time.Duration(0))
+	require.LessOrEqual(t, time.Until(deadline), keylessRequestTimeout)
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, ErrSignerUnavailable)
+		require.NotContains(t, err.Error(), token)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Fulcio request did not abort on cancellation")
+	}
+	require.Equal(t, 1, calls)
+	require.Zero(t, rekor.calls)
+	bundle, err := Generate(t.Context(), input, signer)
+	require.NoError(t, err, "the next call must use a fresh Fulcio context")
+	require.NotNil(t, bundle)
+	require.Equal(t, 2, calls)
+	require.Equal(t, 1, rekor.calls)
 }
 
 func TestKeylessUnavailableBeforeSigning(t *testing.T) {

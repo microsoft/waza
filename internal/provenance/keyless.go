@@ -14,7 +14,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
@@ -26,15 +25,16 @@ import (
 )
 
 const (
-	SigstoreEvidencePath = "sigstore.bundle.json"
-	MaxTrustedRootBytes  = 1 << 20
-	maxOIDCResponseBytes = 64 << 10
-	keylessTimeout       = 90 * time.Second
-	keylessMediaType     = "application/vnd.dev.sigstore.bundle.v0.3+json"
+	SigstoreEvidencePath  = "sigstore.bundle.json"
+	MaxTrustedRootBytes   = 1 << 20
+	maxOIDCResponseBytes  = 64 << 10
+	keylessTimeout        = 90 * time.Second
+	keylessRequestTimeout = 30 * time.Second
+	keylessMediaType      = "application/vnd.dev.sigstore.bundle.v0.3+json"
 )
 
 type keylessSigner struct {
-	mu      sync.Mutex
+	gate    chan struct{}
 	key     sign.Keypair
 	keyID   string
 	options sign.BundleOptions
@@ -49,6 +49,9 @@ func NewKeylessSigner(trustedRootJSON []byte) (Signer, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSigningTrust(trust); err != nil {
+		return nil, err
+	}
 	key, err := sign.NewEphemeralKeypair(nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: creating ephemeral signing key: %v", ErrSignerUnavailable, err)
@@ -58,14 +61,12 @@ func NewKeylessSigner(trustedRootJSON []byte) (Signer, error) {
 		return nil, fmt.Errorf("encoding ephemeral public key: %w", err)
 	}
 	return &keylessSigner{
-		key: key, keyID: "sha256:" + sha256Hex(der), token: githubOIDCToken,
+		gate: make(chan struct{}, 1), key: key, keyID: "sha256:" + sha256Hex(der), token: githubOIDCToken,
 		options: sign.BundleOptions{
-			TrustedRoot: trust,
-			CertificateProvider: sign.NewFulcio(&sign.FulcioOptions{
-				BaseURL: "https://fulcio.sigstore.dev", Timeout: 30 * time.Second,
-			}),
+			TrustedRoot:         trust,
+			CertificateProvider: &keylessFulcio{baseURL: "https://fulcio.sigstore.dev"},
 			TransparencyLogs: []sign.Transparency{sign.NewRekor(&sign.RekorOptions{
-				BaseURL: "https://rekor.sigstore.dev", Version: 1, Timeout: 30 * time.Second,
+				BaseURL: "https://rekor.sigstore.dev", Version: 1, Timeout: keylessRequestTimeout,
 			})},
 		},
 	}, nil
@@ -90,11 +91,21 @@ func (s *keylessSigner) Sign(ctx context.Context, message []byte) ([]byte, error
 }
 
 func (s *keylessSigner) signEvidence(ctx context.Context, message []byte) ([]byte, []byte, error) {
-	// sigstore-go's service clients lazily initialize shared client state.
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, keylessTimeout)
 	defer cancel()
+	// sigstore-go's Rekor client lazily initializes shared client state.
+	select {
+	case s.gate <- struct{}{}:
+		defer func() { <-s.gate }()
+	case <-ctx.Done():
+		return nil, nil, keylessContextError(ctx)
+	}
+	if err := keylessContextError(ctx); err != nil {
+		return nil, nil, err
+	}
+	if err := validateSigningTrust(s.options.TrustedRoot); err != nil {
+		return nil, nil, err
+	}
 	// The Signer contract receives PAE, whereas sigstore-go accepts its payload.
 	prefix := "DSSEv1 " + strconv.Itoa(len(PayloadType)) + " " + PayloadType + " "
 	if !bytes.HasPrefix(message, []byte(prefix)) {
@@ -113,6 +124,9 @@ func (s *keylessSigner) signEvidence(ctx context.Context, message []byte) ([]byt
 	opts.Context = ctx
 	opts.CertificateProviderOptions = &sign.CertificateProviderOptions{IDToken: token}
 	b, err := sign.Bundle(&sign.DSSEData{Data: payload, PayloadType: PayloadType}, s.key, opts)
+	if contextErr := keylessContextError(ctx); contextErr != nil {
+		return nil, nil, contextErr
+	}
 	if err != nil {
 		// Provider errors may contain JWTs or HTTP authorization data.
 		return nil, nil, fmt.Errorf("%w: Fulcio/Rekor signing or trust validation failed (check OIDC permissions, egress and trusted root)", ErrSignerUnavailable)
@@ -135,9 +149,53 @@ func (s *keylessSigner) signEvidence(ctx context.Context, message []byte) ([]byt
 	return bytes.Clone(envelope.Signatures[0].Sig), evidence, nil
 }
 
+func keylessContextError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: keyless signing canceled: %w", ErrSignerUnavailable, err)
+	}
+	return nil
+}
+
+func validateSigningTrust(trust root.TrustedMaterial) error {
+	if trust == nil || len(trust.FulcioCertificateAuthorities()) == 0 || len(trust.RekorLogs()) == 0 {
+		return errors.New("keyless signing trusted root requires at least one Fulcio CA and one Rekor log")
+	}
+	return nil
+}
+
+type keylessFulcio struct {
+	baseURL   string
+	transport http.RoundTripper
+}
+
+func (f *keylessFulcio) GetCertificate(ctx context.Context, key sign.Keypair, opts *sign.CertificateProviderOptions) ([]byte, error) {
+	// Fulcio v1.3.0 ignores ctx on HTTP requests. Bind the transport per call,
+	// retaining the request timeout through reading the response body.
+	ctx, cancel := context.WithTimeout(ctx, keylessRequestTimeout)
+	defer cancel()
+	transport := f.transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	provider := sign.NewFulcio(&sign.FulcioOptions{
+		BaseURL: f.baseURL, Timeout: keylessRequestTimeout,
+		Transport: keylessFulcioTransport{context: ctx, base: transport},
+	})
+	return provider.GetCertificate(ctx, key, opts)
+}
+
+type keylessFulcioTransport struct {
+	context context.Context
+	base    http.RoundTripper
+}
+
+func (t keylessFulcioTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return t.base.RoundTrip(request.Clone(t.context))
+}
+
 func githubOIDCToken(ctx context.Context) (string, error) {
 	return requestGithubOIDCToken(ctx, os.Getenv, &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: keylessRequestTimeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

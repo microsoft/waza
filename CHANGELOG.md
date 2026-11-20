@@ -113,7 +113,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Opt-in `--signer sigstore-keyless` uses GitHub Actions OIDC, public-good
   Fulcio and Rekor v1, saving `sigstore.bundle.json` beside the unchanged DSSE
   statement. Both signing and offline verification require an independently
-  approved `--trusted-root`; verification also requires the exact OIDC issuer
+  approved `--trusted-root`; signing rejects missing CA/log material before
+  service calls and honors caller cancellation while queued or calling Fulcio.
+  Verification also requires the exact OIDC issuer
   and an exact workflow identity or anchored identity regexp. Documents
   permissions, egress, public-log disclosure, TUF root acquisition and a
   complete operator workflow example. No automatic signing or new release
