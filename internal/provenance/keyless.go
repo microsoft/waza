@@ -158,7 +158,7 @@ func keylessContextError(ctx context.Context) error {
 
 func validateSigningTrust(trust root.TrustedMaterial) error {
 	if trust == nil || len(trust.FulcioCertificateAuthorities()) == 0 || len(trust.RekorLogs()) == 0 {
-		return errors.New("keyless signing trusted root requires at least one Fulcio CA and one Rekor log")
+		return fmt.Errorf("%w: keyless signing trusted root requires at least one Fulcio CA and one Rekor log", ErrSignerUnavailable)
 	}
 	return nil
 }

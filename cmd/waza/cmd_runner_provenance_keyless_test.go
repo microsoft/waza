@@ -46,7 +46,7 @@ func TestRunnerProvenanceKeylessEmptyTrustCLI(t *testing.T) {
 	err := command.Execute()
 	var exit *ExitCodeError
 	require.ErrorAs(t, err, &exit)
-	require.Equal(t, 2, exit.Code)
+	require.Equal(t, 5, exit.Code)
 	require.ErrorContains(t, err, "at least one Fulcio CA and one Rekor log")
 	_, err = os.Stat(filepath.Join(dir, "bundle"))
 	require.ErrorIs(t, err, os.ErrNotExist)

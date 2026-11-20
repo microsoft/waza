@@ -306,7 +306,7 @@ Messages below may have additional command/error context:
 | `GitHub Actions OIDC request failed` / `GitHub Actions OIDC request returned HTTP ...` | 5 (generate) | Check OIDC egress, job credentials and permissions without logging tokens. |
 | `Fulcio/Rekor signing or trust validation failed (check OIDC permissions, egress and trusted root)` | 5 (generate) | Check both service endpoints, approved current TUF trust and OIDC audience/permissions. |
 | `reading --trusted-root ...` / `invalid Sigstore trusted root: ...` | 2 | Supply a readable approved Sigstore trusted-root JSON, not TUF `root.json`. |
-| `keyless signing trusted root requires at least one Fulcio CA and one Rekor log` | 2 (generate) | Obtain independently authenticated trust containing both CA and Rekor material. Waza rejects this incomplete root before requesting OIDC or calling signing services. |
+| `keyless signing trusted root requires at least one Fulcio CA and one Rekor log` | 5 (generate) | Obtain independently authenticated trust containing both CA and Rekor material. Waza rejects this incomplete root before requesting OIDC or calling signing services. |
 | `keyless signing canceled: ...` | 5 (generate) | The caller canceled signing or its context deadline expired. No bundle is emitted; a previously submitted Rekor entry may remain public. |
 | `keyless verification requires --certificate-oidc-issuer and exactly one of --certificate-identity or --certificate-identity-regexp` | 2 | Supply the issuer and exactly one identity policy. |
 | `--certificate-identity-regexp must be anchored with ^ and $` | 2 | Anchor and narrowly scope the regexp. |

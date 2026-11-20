@@ -349,6 +349,7 @@ func TestKeylessSigningTrustAdmission(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, created)
 			} else {
+				require.ErrorIs(t, err, ErrSignerUnavailable)
 				require.ErrorContains(t, err, "at least one Fulcio CA and one Rekor log")
 				require.Nil(t, created)
 				_, err = NewKeylessVerifier(trustJSON, testWorkflowIdentity, "", testOIDCIssuer)
@@ -368,6 +369,7 @@ func TestKeylessSigningTrustAdmission(t *testing.T) {
 				require.Equal(t, 1, fulcio.calls)
 				require.Equal(t, 1, rekor.calls)
 			} else {
+				require.ErrorIs(t, err, ErrSignerUnavailable)
 				require.ErrorContains(t, err, "at least one Fulcio CA and one Rekor log")
 				require.Nil(t, bundle)
 				require.Zero(t, tokenCalls)
