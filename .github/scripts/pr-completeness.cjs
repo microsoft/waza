@@ -139,7 +139,7 @@ function applicability(paths) {
     go: true,
     dashboard: all || backend || modules || matches('web', 'examples/runner') ||
       paths.some((file) => /^\.github\/scripts\/ci-evidence[^/]*$/.test(file)),
-    site: all || matches('site', 'docs', 'README.md', 'CHANGELOG.md', 'version.txt', 'registry.json', 'go.mod', 'cmd/waza/cmd_serve.go', 'schemas', 'internal/embedded',
+    site: all || matches('site', 'docs', 'README.md', 'CHANGELOG.md', 'version.txt', 'extension.yaml', 'registry.json', 'go.mod', 'cmd/waza/cmd_serve.go', 'schemas', 'internal/embedded',
       'internal/models', 'internal/runneridentity/testdata', 'internal/runnerunit/testdata', 'internal/runnerterminal/testdata',
       'examples', 'Makefile', 'web/playwright.config.ts', 'web/package.json', 'web/package-lock.json', 'web/e2e/runner-negotiation.spec.ts',
       'web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',

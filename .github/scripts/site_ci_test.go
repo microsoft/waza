@@ -13,7 +13,7 @@ import (
 )
 
 var siteFilterPaths = []string{
-	"site/**", "docs/**", "README.md", "CHANGELOG.md", "version.txt", "registry.json", "go.mod",
+	"site/**", "docs/**", "README.md", "CHANGELOG.md", "version.txt", "extension.yaml", "registry.json", "go.mod",
 	"cmd/waza/cmd_serve.go",
 	"internal/embedded/**", "internal/models/outcome.go", "internal/models/schema_version.go",
 	"internal/runneridentity/testdata/**", "internal/runnerunit/testdata/**", "internal/runnerterminal/testdata/**",
@@ -30,7 +30,7 @@ var exampleFilterPaths = []string{
 }
 
 var sitePushPaths = []string{
-	"site/**", "docs/**", "examples/interop/**", "README.md", "CHANGELOG.md", "version.txt", "registry.json",
+	"site/**", "docs/**", "examples/interop/**", "README.md", "CHANGELOG.md", "version.txt", "extension.yaml", "registry.json",
 	"cmd/waza/**", "internal/**", "schemas/**", "go.mod", "go.sum", "Makefile", "web/**",
 	".github/workflows/site-ci.yml", ".github/workflows/web-ci.yml", ".github/workflows/docker-ci.yml",
 	".github/workflows/release-qualification.yml", ".github/workflows/publish-runner-reference.yml",
@@ -170,8 +170,10 @@ func TestSiteWorkflowParallelChecks(t *testing.T) {
 		{"filtered-completeness-scope", "        if: inputs.pr_completeness_plan == ''\n        uses: dorny", "        uses: dorny"},
 		{"stale-filter-step", "if: needs.changes.outputs.site", "if: steps.filter.outputs.site"},
 		{"push-path-regression", "      - 'examples/interop/**'\n", ""},
+		{"missing-release-manifest-push", "      - 'extension.yaml'\n", ""},
 		{"example-filter-regression", "              - 'examples/interop/**'\n", ""},
 		{"site-filter-regression", "              - 'internal/models/outcome.go'\n", ""},
+		{"missing-release-manifest-site", "              - 'extension.yaml'\n", ""},
 		{"missing-dashboard-media-input", "              - 'web/package.json'\n", ""},
 		{"missing-dashboard-workflow-push", "      - '.github/workflows/web-ci.yml'\n", ""},
 		{"broad-dashboard-site-selection", "              - 'web/package.json'\n", "              - 'web/**'\n"},
@@ -292,6 +294,8 @@ func testSiteFilterSelection(t *testing.T, source []byte) {
 		{"examples/interop/tasks/example.yaml", false, true},
 		{"web/src/App.tsx", false, true},
 		{"CHANGELOG.md", true, false},
+		{"extension.yaml", true, false},
+		{"extension.yaml.backup", false, false},
 		{".github/workflows/pages.yml", true, false},
 		{"AGENTS.md", false, false},
 		{"site-near-miss/file", false, false},

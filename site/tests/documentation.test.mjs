@@ -26,7 +26,7 @@ const embeddedAssets = embeddedFiles.flatMap((path) =>
   [...read(path).matchAll(/^\/\/go:embed (\S+)$/gm)]
     .map((match) => `internal/embedded/${match[1]}`));
 const releaseInputs = [
-  'version.txt', 'registry.json', 'go.mod', 'CHANGELOG.md',
+  'version.txt', 'extension.yaml', 'registry.json', 'go.mod', 'CHANGELOG.md',
   'internal/models/schema_version.go', ...embeddedFiles, ...embeddedAssets,
 ];
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
@@ -314,6 +314,20 @@ test('every catalog, release, Docker and dashboard media input enables PR site c
   assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
     [...Object.values(catalogInputs).flat(), ...releaseInputs, ...dashboardMediaInputs,
       '.github/workflows/docker-ci.yml', serveCommandInput]);
+});
+
+test('release manifest discovery rejects omission from either production selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const input = 'extension.yaml';
+  assertSiteDiscovery(workflow, [input]);
+  for (const [selector, line, diagnostic] of [
+    ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+    ['main push', `      - '${input}'\n`, /main push gate excludes documentation input/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
+    assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
 });
 
 test('dashboard media guard discovery rejects removal from either production selector', () => {
@@ -623,7 +637,7 @@ test('v0.41.0 article is a published release record with its limits', () => {
 });
 
 test('v0.42.0 tag metadata retains the preview article and production integration limits', () => {
-  const article = read('site/src/content/docs/releases/v0-42-0.mdx');
+  const article = read('site/src/content/docs/releases/v0-42-0.mdx').replace(/\r\n/g, '\n');
   const visible = article.replace(/<!--[\s\S]*?-->/g, '');
   assert.match(visible, /\*\*Draft - publication pending\. Release date 2026-11-20\.\*\*/);
   assert.match(read('version.txt'), /^0\.42\.0\s*$/);
