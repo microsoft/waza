@@ -91,8 +91,6 @@ func (s *keylessSigner) Sign(ctx context.Context, message []byte) ([]byte, error
 }
 
 func (s *keylessSigner) signEvidence(ctx context.Context, message []byte) ([]byte, []byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, keylessTimeout)
-	defer cancel()
 	// sigstore-go's Rekor client lazily initializes shared client state.
 	select {
 	case s.gate <- struct{}{}:
@@ -103,6 +101,8 @@ func (s *keylessSigner) signEvidence(ctx context.Context, message []byte) ([]byt
 	if err := keylessContextError(ctx); err != nil {
 		return nil, nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, keylessTimeout)
+	defer cancel()
 	if err := validateSigningTrust(s.options.TrustedRoot); err != nil {
 		return nil, nil, err
 	}

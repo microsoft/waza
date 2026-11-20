@@ -500,6 +500,68 @@ func TestKeylessSignerConcurrentReuse(t *testing.T) {
 	require.Len(t, seen, 3)
 }
 
+type observedSigningContext struct {
+	context.Context
+	doneCalled     chan struct{}
+	deadlineCalled chan struct{}
+}
+
+func (c *observedSigningContext) Done() <-chan struct{} {
+	select {
+	case c.doneCalled <- struct{}{}:
+	default:
+	}
+	return c.Context.Done()
+}
+
+func (c *observedSigningContext) Deadline() (time.Time, bool) {
+	select {
+	case c.deadlineCalled <- struct{}{}:
+	default:
+	}
+	return c.Context.Deadline()
+}
+
+func TestKeylessSignerTimeoutStartsAfterQueue(t *testing.T) {
+	signer, _, fulcio, rekor := fakeKeyless(t)
+	input := newFixture(t).input
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	observed := &observedSigningContext{
+		Context: ctx, doneCalled: make(chan struct{}, 1), deadlineCalled: make(chan struct{}, 1),
+	}
+	signer.gate <- struct{}{}
+	done := make(chan error, 1)
+	go func() {
+		_, err := Generate(observed, input, signer)
+		done <- err
+	}()
+	select {
+	case <-observed.doneCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("signer did not start waiting for the gate")
+	}
+	select {
+	case <-observed.deadlineCalled:
+		t.Fatal("signer started its timeout before acquiring the gate")
+	default:
+	}
+	<-signer.gate
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("signer did not finish after acquiring the gate")
+	}
+	select {
+	case <-observed.deadlineCalled:
+	default:
+		t.Fatal("signer did not start its timeout after acquiring the gate")
+	}
+	require.Equal(t, 1, fulcio.calls)
+	require.Equal(t, 1, rekor.calls)
+}
+
 func TestKeylessSignerCanceledQueuedCall(t *testing.T) {
 	signer, _, fulcio, rekor := fakeKeyless(t)
 	input := newFixture(t).input
