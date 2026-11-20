@@ -336,7 +336,8 @@ Verification fails closed:
 
 | Code | Meaning | Action |
 | --- | --- | --- |
-| `trust_anchor_missing` | No public key supplied | Pass `--public-key` |
+| `trust_anchor_missing` | No public key supplied, or a keyless bundle verified without keyless trust and identity policy | Pass `--public-key`, or for keyless `--trusted-root`, `--certificate-oidc-issuer` and one identity flag |
+| `sigstore_evidence_missing` | Keyless bundle lacks a readable `sigstore.bundle.json` | Obtain the complete original bundle |
 | `key_untrusted` | Signed by a key you did not trust | Obtain the signer's public key out of band |
 | `signature_invalid` | Envelope or payload altered | Treat the bundle as tampered |
 | `signer_unavailable` | Managed-KMS bundle | Not verifiable by this build |
