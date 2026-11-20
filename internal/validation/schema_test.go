@@ -383,6 +383,120 @@ func TestValidateEvalBytes_Invalid(t *testing.T) {
 	require.Contains(t, joined, "threshold")
 }
 
+func TestValidateEvalBytes_SandboxRequiresCopilotSDK(t *testing.T) {
+	yaml := `name: test-eval
+scenario: inventory
+schemaVersion: "2.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+  sandbox:
+    enabled: true
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	errs := ValidateEvalBytes([]byte(yaml))
+	require.NotEmpty(t, errs)
+	require.Contains(t, joinErrs(errs), "copilot-sdk")
+}
+
+func TestValidateEvalBytes_SandboxRejectsLegacySchemaVersions(t *testing.T) {
+	// Legacy 1.x versions are frozen; sandbox is scenario-only, including when
+	// schemaVersion is omitted and defaults to the legacy reader version.
+	for _, version := range []string{"", "1.2", "1.3", "1.4", "1.10"} {
+		t.Run(version, func(t *testing.T) {
+			versionLine := ""
+			if version != "" {
+				versionLine = fmt.Sprintf("schemaVersion: %q\n", version)
+			}
+			yaml := fmt.Sprintf(`name: test-eval
+skill: test-skill
+%sconfig:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: copilot-sdk
+  model: gpt-4o
+  sandbox:
+    enabled: true
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`, versionLine)
+			errs := ValidateEvalBytes([]byte(yaml))
+			require.NotEmpty(t, errs)
+			require.Contains(t, joinErrs(errs), "schemaVersion")
+		})
+	}
+}
+
+func TestValidateEvalBytes_SandboxScenarioSchemaVersion(t *testing.T) {
+	for name, tc := range map[string]struct {
+		header  string
+		valid   bool
+		wantErr string
+	}{
+		"scenario 2.0":             {header: "scenario: inventory\nschemaVersion: \"2.0\"\n", valid: true},
+		"skill with major two":     {header: "skill: test-skill\nschemaVersion: \"2.0\"\n", wantErr: "scenario"},
+		"scenario future minor":    {header: "scenario: inventory\nschemaVersion: \"2.1\"\n", wantErr: "schemaVersion"},
+		"skill future major three": {header: "skill: test-skill\nschemaVersion: \"3.0\"\n", wantErr: "schemaVersion"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			yaml := "name: test-eval\n" + tc.header + `config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: copilot-sdk
+  model: gpt-4o
+  sandbox:
+    enabled: true
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+			errs := ValidateEvalBytes([]byte(yaml))
+			if tc.valid {
+				require.Empty(t, errs)
+				return
+			}
+			require.NotEmpty(t, errs)
+			require.Contains(t, joinErrs(errs), tc.wantErr)
+		})
+	}
+}
+
+func TestValidateEvalBytes_SandboxRequiresExplicitExecutor(t *testing.T) {
+	yaml := `name: test-eval
+scenario: inventory
+schemaVersion: "2.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  model: gpt-4o
+  sandbox:
+    enabled: true
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	errs := ValidateEvalBytes([]byte(yaml))
+	require.NotEmpty(t, errs)
+	require.Contains(t, joinErrs(errs), "executor")
+}
+
 func TestValidateTaskBytes_Valid(t *testing.T) {
 	errs := ValidateTaskBytes([]byte(validTaskYAML))
 	require.Empty(t, errs, "valid task should have no errors")

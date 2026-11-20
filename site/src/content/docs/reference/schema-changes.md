@@ -294,6 +294,7 @@ promised stable across runs.
 - Finite MCP/CLI response `sequence` fields are admitted only for scenario evals. Each matching call consumes one bounded step; sequence exhaustion and unmatched calls fail closed. This does not add automatic retries, transport cancellation or host isolation.
 - Target-free scenarios without effective explicit skill directories disable native SDK skill discovery; disabling the last eval directory preserves that isolation. Explicit task directories still opt in, empty task directories disable discovery, and `--no-skills` overrides opt-ins.
 - Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
+- Added optional `config.sandbox` (scenario evals only, `copilot-sdk` executor) to enable Copilot CLI's native OS sandbox for model-visible evaluation tools. Waza derives workspace and skill-directory access from existing eval declarations, supports narrowly declared host prerequisites, and defaults network, developer-tool cache, and credential access off. Legacy `1.x` evals reject the field.
 - Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
 
 ### Frozen judge fixture declarations (#898)

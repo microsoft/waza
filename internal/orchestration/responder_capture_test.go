@@ -31,6 +31,9 @@ type responderCaptureSession struct {
 }
 
 func (s *responderCaptureSession) SessionID() string { return "capture-session" }
+func (s *responderCaptureSession) ConfigureSandbox(context.Context, string, []string, models.SandboxConfig) error {
+	return nil
+}
 func (s *responderCaptureSession) Disconnect() error {
 	if s.calls == 2 && s.cancelDuringCleanup {
 		s.cancel()

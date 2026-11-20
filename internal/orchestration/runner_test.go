@@ -64,6 +64,20 @@ inputs:
 		tasks, err := runner.loadTestCases()
 		require.NoError(t, err)
 		require.Len(t, tasks, 1)
+
+		spec.Config.Sandbox = &models.SandboxConfig{Enabled: true}
+		tasks, err = runner.loadTestCases()
+		if commandMocks == "command_mocks: []" {
+			require.NoError(t, err, "an explicit empty list disables mocks")
+			require.Len(t, tasks, 1)
+		} else {
+			require.ErrorContains(t, err, "sandbox does not support command_mocks")
+		}
+
+		spec.Config.Sandbox.Enabled = false
+		tasks, err = runner.loadTestCases()
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
 	}
 }
 
@@ -173,9 +187,13 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 		SkillName: "my-skill",
 		Config: models.Config{
-			EngineType: "mock",
+			EngineType: "copilot-sdk",
 			ModelID:    "gpt-4",
 			TimeoutSec: 120,
+			Sandbox: &models.SandboxConfig{
+				Enabled:              true,
+				AllowOutboundNetwork: true,
+			},
 		},
 	}
 
@@ -202,6 +220,9 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	assert.Equal(t, "my-skill", req.SkillName)
 	assert.Equal(t, "value", req.Context["key"])
 	assert.False(t, req.SuppressSkillBody)
+	require.NotNil(t, req.Sandbox)
+	assert.True(t, req.Sandbox.Enabled)
+	assert.True(t, req.Sandbox.AllowOutboundNetwork)
 }
 
 func TestBuildExecutionRequest_MCPMocks(t *testing.T) {
@@ -812,6 +833,9 @@ func TestBuildExecutionRequest_InstructionFilesUseTaskContextRoot(t *testing.T) 
 
 func TestBuildExecutionRequest_InstructionFileErrors(t *testing.T) {
 	fixtureDir := t.TempDir()
+	outsideDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outsideDir, "secret.instructions.md"), []byte("secret"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Join(outsideDir, "secret.instructions.md"), filepath.Join(fixtureDir, "linked.instructions.md")))
 	spec := &models.EvalSpec{
 		SkillName: "test-skill",
 		Config: models.Config{
@@ -831,6 +855,7 @@ func TestBuildExecutionRequest_InstructionFileErrors(t *testing.T) {
 		{name: "missing", path: "missing.instructions.md", want: "reading instruction file"},
 		{name: "absolute", path: filepath.Join(fixtureDir, "absolute.instructions.md"), want: "must be relative"},
 		{name: "traversal", path: "../escape.instructions.md", want: "must not contain path traversal"},
+		{name: "symlink", path: "linked.instructions.md", want: "contains symlink"},
 	}
 
 	for _, tt := range tests {

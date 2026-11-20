@@ -16,6 +16,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	rpc "github.com/github/copilot-sdk/go/rpc"
 	execution "github.com/microsoft/waza/internal/execution"
+	models "github.com/microsoft/waza/internal/models"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -41,6 +42,20 @@ func NewMockCopilotSession(ctrl *gomock.Controller) *MockCopilotSession {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockCopilotSession) EXPECT() *MockCopilotSessionMockRecorder {
 	return m.recorder
+}
+
+// ConfigureSandbox mocks base method.
+func (m *MockCopilotSession) ConfigureSandbox(ctx context.Context, workspaceDir string, readonlyDirs []string, config models.SandboxConfig) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConfigureSandbox", ctx, workspaceDir, readonlyDirs, config)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ConfigureSandbox indicates an expected call of ConfigureSandbox.
+func (mr *MockCopilotSessionMockRecorder) ConfigureSandbox(ctx, workspaceDir, readonlyDirs, config any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConfigureSandbox", reflect.TypeOf((*MockCopilotSession)(nil).ConfigureSandbox), ctx, workspaceDir, readonlyDirs, config)
 }
 
 // Disconnect mocks base method.

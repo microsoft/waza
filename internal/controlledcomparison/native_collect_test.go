@@ -21,6 +21,7 @@ import (
 	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/controlledcomparison"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/nativetask"
 	"github.com/microsoft/waza/internal/releasepolicy"
 	"github.com/microsoft/waza/internal/utils"
@@ -165,6 +166,9 @@ type nativeTestSession struct {
 }
 
 func (s *nativeTestSession) SessionID() string { return s.id }
+func (s *nativeTestSession) ConfigureSandbox(context.Context, string, []string, models.SandboxConfig) error {
+	return nil
+}
 func (s *nativeTestSession) Disconnect() error { return s.disconnectErr }
 func (s *nativeTestSession) On(handler copilot.SessionEventHandler) func() {
 	s.handlers = append(s.handlers, handler)

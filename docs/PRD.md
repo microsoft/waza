@@ -444,6 +444,7 @@ Cross-model testing and comprehensive metrics.
 | E3-09 | As a developer, I can reuse shared evals and graders from a registry | Registry design covers search/add/get UX, versioned refs, lockfile reproducibility, and safe plugin extensibility ([design](research/waza-eval-registry-design.md)) |
 | E3-10 | As a developer, I can verify eval coverage against SKILL.md requirements | `waza spec verify` maps description, trigger, anti-trigger, and parameter requirements to task coverage with CI-gateable output |
 | E3-11 | As a developer, I can judge recorded actor evidence independently (#702) | Opt-in final eval/task prompt graders freeze required bounded evidence before final grading; use a fresh isolated pinned-runtime judge with only grade tools; regrade without actor/workspace access; preserve failed-attempt observations and separate new billing. Reject unsupported scopes and unusable evidence. Metadata-only run/grader reporting distinguishes submission from unobservable inspection; no accuracy, bias, authenticity or OS-sandbox claim. |
+| E3-12 | As a developer, I can isolate model-visible commands during an evaluation | The Copilot SDK executor can opt into Copilot's native sandbox; Waza grants task-workspace read/write and declared-skill read-only access through Copilot's native skill directories, rejects bypass requests, and defaults risky capabilities off ([design](design/195-copilot-native-eval-sandbox.md)) |
 
 ### Epic 4: Token Management (P1)
 

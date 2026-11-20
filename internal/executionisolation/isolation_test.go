@@ -65,10 +65,10 @@ func fixed(outcome Outcome) func(context.Context) ProbeResult {
 }
 
 func TestDefaultProvidersClaimNothingWithoutHostDeclaration(t *testing.T) {
-	report := Preflight(context.Background(), restrict(Dimensions...), DefaultProviders(nil, t.TempDir()), checkedAt)
+	report := Preflight(context.Background(), restrict(Dimensions...), DefaultProviders(nil, t.TempDir(), NativeSandboxProvider{}), checkedAt)
 	require.Equal(t, Rejected, report.Decision)
 	require.Equal(t, []ProviderReport{
-		{Name: NativeSandboxProviderName, Status: ProviderAbsent, Reason: "Copilot-native sandbox integration (#544) is not present in this build; it claims no boundary"},
+		{Name: NativeSandboxProviderName, Status: ProviderAbsent, Reason: "no selected eval enables config.sandbox"},
 		{Name: HostProviderName, Status: ProviderAbsent, Reason: "no host isolation declaration was supplied"},
 	}, report.Providers)
 	for _, dimension := range Dimensions {
@@ -84,7 +84,7 @@ func TestDefaultProvidersClaimNothingWithoutHostDeclaration(t *testing.T) {
 }
 
 func TestUnrestrictedRequestPreservesExistingBehavior(t *testing.T) {
-	report := Preflight(context.Background(), restrict(), DefaultProviders(nil, t.TempDir()), checkedAt)
+	report := Preflight(context.Background(), restrict(), DefaultProviders(nil, t.TempDir(), NativeSandboxProvider{}), checkedAt)
 	require.Equal(t, Admitted, report.Decision)
 	require.NoError(t, report.Admit())
 	for _, entry := range report.Dimensions {

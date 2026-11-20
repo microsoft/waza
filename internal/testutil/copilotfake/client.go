@@ -9,6 +9,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
 )
 
 // Client drives the production CopilotEngine without launching a CLI or model.
@@ -52,6 +53,14 @@ type session struct {
 }
 
 func (s *session) SessionID() string { return s.id }
+
+// ConfigureSandbox fails closed: the fake has no runtime to enforce a sandbox.
+func (s *session) ConfigureSandbox(_ context.Context, _ string, _ []string, config models.SandboxConfig) error {
+	if !config.Enabled {
+		return nil
+	}
+	return fmt.Errorf("copilotfake does not support native sandboxing")
+}
 func (s *session) On(handler copilot.SessionEventHandler) func() {
 	s.mu.Lock()
 	index := len(s.handlers)

@@ -204,6 +204,11 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 				if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
 					r.add("task.version", Invalid, path, task.TestID, "", "Task command mocks require a supported enclosing schemaVersion.", "Select schemaVersion 1.3 or newer for legacy command mocks.")
 				}
+				if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled && len(*task.CommandMocks) > 0 {
+					r.add("sandbox.command_mocks", Invalid, path, task.TestID, "",
+						"Command mocks are not supported when the Copilot-native sandbox is enabled.",
+						"Remove task command_mocks or run this evaluation without the sandbox.")
+				}
 			}
 			inspectTaskUserInput(r, spec, task, path)
 			if len(task.MCPMocks) > 0 {
@@ -286,13 +291,19 @@ func inspectCapabilities(r *Report, spec *models.EvalSpec) {
 		r.add("runtime.executor", Unsupported, r.Source, "", "", meaning, "Select an implemented executor or a reader that explicitly supports this backend.")
 	}
 	r.Capabilities = append(r.Capabilities, Capability{Name: "task_execution", State: state, Meaning: meaning})
-	for _, name := range []string{"mcp_servers", "command_mocks", "runtime_tool_boundary"} {
+	for _, name := range []string{"mcp_servers", "command_mocks", "runtime_tool_boundary", "native_sandbox"} {
 		support := Unsupported
 		if spec.Config.EngineType == "copilot-sdk" {
 			support = Verified
 		}
 		r.Capabilities = append(r.Capabilities, Capability{Name: name, State: support,
 			Meaning: "Static capability only; not proof of configuration enforcement or task success."})
+	}
+	if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled {
+		r.Dependencies = append(r.Dependencies, Dependency{Kind: "boundary", Name: "native_sandbox", Mode: "requested-native-sandbox", State: Unresolved})
+		r.add("sandbox.requested_policy", Unresolved, r.Source, "", "",
+			"Copilot-native sandbox policy is requested; host support, the Copilot runtime version and actual enforcement are not checked offline.",
+			"Run the evaluation on a supported host; sandbox configuration failures fail the task instead of running unsandboxed.")
 	}
 	if spec.Config.EngineType != "copilot-sdk" && (len(spec.MCPMocks) > 0 || len(spec.Config.ServerConfigs) > 0) {
 		r.add("runtime.mcp", Unsupported, r.Source, "", "", "Configured MCP dependencies require an executor with MCP support.", "Use copilot-sdk for MCP execution.")

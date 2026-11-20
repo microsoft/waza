@@ -354,6 +354,9 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 func TestLoadResources_PathValidation(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "ok.txt"), []byte("ok"), 0o644))
+	outsideDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("secret"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Join(outsideDir, "secret.txt"), filepath.Join(fixtureDir, "escape.txt")))
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "record..json"), []byte("{}"), 0o644))
 	require.NoError(t, os.Mkdir(filepath.Join(fixtureDir, "records..archive"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "records..archive", "record.json"), []byte("{}"), 0o644))
@@ -369,6 +372,7 @@ func TestLoadResources_PathValidation(t *testing.T) {
 				{Location: "ok.txt"},
 				{Location: filepath.Join(fixtureDir, "absolute.txt")},
 				{Location: "../escape.txt"},
+				{Location: "escape.txt"},
 				{Location: "missing.txt"},
 				{Location: "record..json"},
 				{Location: "records..archive/record.json"},
@@ -377,7 +381,8 @@ func TestLoadResources_PathValidation(t *testing.T) {
 		},
 	}
 
-	resources := runner.loadResources(testCase)
+	resources, err := runner.loadResources(testCase)
+	require.NoError(t, err)
 	require.Len(t, resources, 3)
 	assert.Equal(t, "inline.txt", resources[0].Path)
 	assert.Equal(t, []byte("inline"), resources[0].Content)

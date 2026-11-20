@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/schemas"
@@ -32,11 +33,13 @@ func TestScenarioVersionBoundary(t *testing.T) {
 		{"unknown-scenario-field", "scenario: inventory\nschemaVersion: \"2.0\"\ncontext: {agent: reader}\n", "field context not found"},
 		{"legacy-unknown-field", "skill: reader\nschemaVersion: \"1.99\"\nfuture_metadata: safe\n", ""},
 		{"required-without-context", "scenario: inventory\nschemaVersion: \"2.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n  required_skills: [reader]\n", "explicit skill_directories"},
+		{"scenario-sandbox", "scenario: inventory\nschemaVersion: \"2.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n  executor: copilot-sdk\n  sandbox:\n    enabled: true\n", ""},
+		{"scenario-sandbox-mock-executor", "scenario: inventory\nschemaVersion: \"2.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n  executor: mock\n  sandbox:\n    enabled: true\n", "sandbox requires executor copilot-sdk"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			data := "name: suite\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n" + tt.fields
 			// Avoid duplicate config mappings for the invalid-context case.
-			if tt.name == "required-without-context" {
+			if strings.Contains(tt.fields, "config:") {
 				data = "name: suite\n" + tt.fields
 			}
 

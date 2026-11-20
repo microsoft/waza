@@ -2,10 +2,15 @@ package execution
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,17 +21,21 @@ import (
 )
 
 // SharedClientOptions configures a lazily-constructed process-wide Copilot SDK
-// client returned by [SharedClient]. Clients are shared by CLIArgs key; within
-// each key, only the first call wins and subsequent calls receive the
-// already-built client regardless of options.
+// client returned by [SharedClient]. Clients are shared by startup-compatibility
+// key, including the effective environment and authentication for sandboxed
+// clients. Within each key, the first LogLevel wins.
 type SharedClientOptions struct {
 	// LogLevel passed through to the underlying copilot.Client. Defaults to
 	// "error" when blank.
 	LogLevel string
 	// CLIArgs passed through to the underlying copilot.Client. Calls with the
-	// same CLIArgs share one process; calls with different CLIArgs get separate
-	// processes because CLIArgs are startup-only.
+	// same CLIArgs and compatible environment share one process; calls with
+	// different CLIArgs get separate processes because CLIArgs are startup-only.
 	CLIArgs []string
+	// SanitizeEnvironment gives the Copilot CLI process only the operational
+	// variables needed by a sandboxed evaluation. It is part of the client key
+	// because a process environment cannot vary between sessions.
+	SanitizeEnvironment bool
 }
 
 var (
@@ -62,7 +71,7 @@ var errSharedClientClosed = errors.New("shared Copilot client has been shut down
 // [newCopilotClient] (package-private) or pass a custom NewCopilotClient
 // factory via [CopilotEngineBuilderOptions].
 func SharedClient(opts SharedClientOptions) CopilotClient {
-	key := sharedClientKey(opts.CLIArgs)
+	key := sharedClientKey(opts.CLIArgs, opts.SanitizeEnvironment)
 
 	sharedMu.Lock()
 	defer sharedMu.Unlock()
@@ -73,25 +82,59 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 	if sharedClosed {
 		return &startupErrorClient{err: errSharedClientClosed}
 	}
-	if client := sharedClients[key]; client != nil {
-		if managed, ok := client.(*startupClient); !ok || !managed.replaceable() {
+	if !opts.SanitizeEnvironment {
+		if client, ok := reusableSharedClient(key); ok {
 			return client
 		}
-		delete(sharedClients, key)
 	}
 
 	logLevel := opts.LogLevel
 	if logLevel == "" {
 		logLevel = "error"
 	}
-	clientOptions, err := sharedClientOptions(logLevel, opts.CLIArgs)
+	clientOptions, err := sharedClientOptions(logLevel, opts.CLIArgs, opts.SanitizeEnvironment)
 	if err != nil {
 		slog.Warn("Copilot CLI path resolution failed; refusing PATH fallback", "error", err)
-		sharedClients[key] = &startupErrorClient{err: err}
-		return sharedClients[key]
+		client := &startupErrorClient{err: err}
+		if !opts.SanitizeEnvironment {
+			sharedClients[key] = client
+		}
+		return client
+	}
+	if opts.SanitizeEnvironment {
+		conn, ok := clientOptions.Connection.(copilot.StdioConnection)
+		if !ok {
+			err := fmt.Errorf("sandboxed shared client requires a stdio connection, got %T", clientOptions.Connection)
+			slog.Error("invalid sandboxed Copilot client configuration", "error", err)
+			return &startupErrorClient{err: err}
+		}
+		environ := slices.Clone(conn.Env)
+		slices.Sort(environ)
+		// Hash the exact startup snapshot passed to the SDK, never raw secrets
+		// or a second read of the host environment.
+		fingerprint := sha256.Sum256(fmt.Appendf(nil, "%q\x00%q\x00%q", conn.Path, environ, clientOptions.GitHubToken))
+		key += fmt.Sprintf("\x00%x", fingerprint)
+		if client, ok := reusableSharedClient(key); ok {
+			return client
+		}
 	}
 	sharedClients[key] = manageStartup(sharedConstruct(clientOptions))
 	return sharedClients[key]
+}
+
+// reusableSharedClient returns the client cached under key unless its startup
+// failed in a replaceable way, in which case the entry is dropped. Callers
+// must hold sharedMu.
+func reusableSharedClient(key string) (CopilotClient, bool) {
+	client := sharedClients[key]
+	if client == nil {
+		return nil, false
+	}
+	if managed, ok := client.(*startupClient); !ok || !managed.replaceable() {
+		return client, true
+	}
+	delete(sharedClients, key)
+	return nil, false
 }
 
 func retireSharedClient(client CopilotClient) {
@@ -110,17 +153,22 @@ func retireSharedClient(client CopilotClient) {
 	}
 }
 
-func sharedClientKey(cliArgs []string) string {
-	return strings.Join(cliArgs, "\x00")
+func sharedClientKey(cliArgs []string, sanitizeEnvironment bool) string {
+	return fmt.Sprintf("%t\x00%s", sanitizeEnvironment, strings.Join(cliArgs, "\x00"))
 }
 
-func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOptions, error) {
+func sharedClientOptions(logLevel string, cliArgs []string, sanitizeEnvironment bool) (*copilot.ClientOptions, error) {
 	conn, err := clientConnection(cliArgs)
 	if err != nil {
 		return nil, err
 	}
-	// Client environments are startup-only; later task sessions may create
-	// command mocks even when the first eval or grader does not use them.
+	if sanitizeEnvironment {
+		// Sandboxed clients keep their explicit environment allowlist and never
+		// receive the command-mock shim environment.
+		return copilotClientOptions(logLevel, cliArgs, conn.Path, true), nil
+	}
+	// Client environments are startup-only; later unsandboxed task sessions may
+	// create command mocks even when the first eval or grader does not use them.
 	env, err := commandmock.RuntimeEnvironment()
 	if err != nil {
 		return nil, err
@@ -129,10 +177,13 @@ func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOpti
 	return &copilot.ClientOptions{LogLevel: logLevel, Connection: conn}, nil
 }
 
-func clientOptions(logLevel string, cliArgs []string) (*copilot.ClientOptions, error) {
+func clientOptions(logLevel string, cliArgs []string, sanitizeEnvironment bool) (*copilot.ClientOptions, error) {
 	conn, err := clientConnection(cliArgs)
 	if err != nil {
 		return nil, err
+	}
+	if sanitizeEnvironment {
+		return copilotClientOptions(logLevel, cliArgs, conn.Path, true), nil
 	}
 	return &copilot.ClientOptions{LogLevel: logLevel, Connection: conn}, nil
 }
@@ -167,6 +218,86 @@ func clientConnection(cliArgs []string) (copilot.StdioConnection, error) {
 	conn.Path = cliPath
 	slog.Info("using Copilot CLI", "source", "embedded", "path", cliPath)
 	return conn, nil
+}
+
+func copilotClientOptions(logLevel string, cliArgs []string, cliPath string, sanitizeEnvironment bool) *copilot.ClientOptions {
+	conn := copilot.StdioConnection{
+		Path: cliPath,
+		Args: append([]string{}, cliArgs...),
+	}
+	opts := &copilot.ClientOptions{
+		LogLevel:   logLevel,
+		Connection: conn,
+	}
+	if sanitizeEnvironment {
+		// Environment belongs to the CLI process, not a session. Construct it at
+		// this boundary so sandboxed clients cannot expose arbitrary Waza host
+		// secrets to model-visible tools. GitHub authentication is passed through
+		// the SDK's dedicated channel; persisted login remains available via HOME.
+		conn.Env = sanitizedCLIEnv(os.Environ())
+		opts.Connection = conn
+		opts.GitHubToken = envFirst("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
+	}
+	return opts
+}
+
+func sanitizedCLIEnv(environ []string) []string {
+	allowed := map[string]bool{
+		"PATH": true, "HOME": true, "USER": true, "USERNAME": true,
+		"LOGNAME": true, "SHELL": true, "TERM": true, "COLORTERM": true,
+		"TMPDIR": true, "TEMP": true, "TMP": true, "LANG": true, "TZ": true,
+		"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true, "NO_PROXY": true,
+		"SSL_CERT_FILE": true, "SSL_CERT_DIR": true, "NODE_EXTRA_CA_CERTS": true,
+		"REQUESTS_CA_BUNDLE": true, "CURL_CA_BUNDLE": true, "NIX_SSL_CERT_FILE": true,
+		"GIT_SSL_CAINFO": true, "COPILOT_HOME": true,
+		"LC_ALL": true, "LC_COLLATE": true, "LC_CTYPE": true, "LC_MESSAGES": true,
+		"LC_MONETARY": true, "LC_NUMERIC": true, "LC_TIME": true, "LC_PAPER": true,
+		"LC_NAME": true, "LC_ADDRESS": true, "LC_TELEPHONE": true,
+		"LC_MEASUREMENT": true, "LC_IDENTIFICATION": true,
+		"XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true, "XDG_DATA_HOME": true,
+		"XDG_STATE_HOME": true, "XDG_RUNTIME_DIR": true,
+		"XDG_DATA_DIRS": true, "XDG_CONFIG_DIRS": true,
+		"SYSTEMROOT": true, "COMSPEC": true, "PATHEXT": true, "USERPROFILE": true,
+		"APPDATA": true, "LOCALAPPDATA": true,
+	}
+	proxyVariables := map[string]bool{"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true}
+	lowercaseProxyVariables := map[string]bool{"http_proxy": true, "https_proxy": true, "all_proxy": true, "no_proxy": true}
+
+	result := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		upper := strings.ToUpper(name)
+		allowedName := allowed[name] || lowercaseProxyVariables[name]
+		if runtime.GOOS == "windows" {
+			allowedName = allowed[upper]
+		}
+		if (upper == "TMPDIR" || upper == "TEMP" || upper == "TMP") && !validTemporaryDirectory(value) {
+			continue
+		}
+		if allowedName && (!proxyVariables[upper] || safeProxyURL(value)) {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+func validTemporaryDirectory(path string) bool {
+	if path == "" || !filepath.IsAbs(path) {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func safeProxyURL(value string) bool {
+	if strings.ContainsAny(value, "@?#") {
+		return false
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme != "" && parsed.Host != "" && parsed.User == nil && (parsed.Path == "" || parsed.Path == "/")
 }
 
 type startupErrorClient struct {
