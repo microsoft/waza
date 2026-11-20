@@ -256,3 +256,35 @@ func TestSkillImpactMetric_PairwiseIncluded(t *testing.T) {
 	assert.Equal(t, "much-better", decoded.Pairwise.Magnitude)
 	assert.True(t, decoded.Pairwise.PositionConsistent)
 }
+
+func TestBaselineImpact_PairwiseAndLegacyRules(t *testing.T) {
+	task := func(delta float64, pairwise *PairwiseSummary) TestOutcome {
+		return TestOutcome{SkillImpact: &SkillImpactMetric{Delta: delta, PairwiseSummary: pairwise}}
+	}
+	withDigest := func(rate float64, tasks ...TestOutcome) *EvaluationOutcome {
+		return &EvaluationOutcome{Digest: OutcomeDigest{SuccessRate: rate}, TestOutcomes: tasks}
+	}
+	baseline := withDigest(0.5)
+
+	legacy := BaselineImpact(withDigest(0.75, task(-1, nil)), baseline)
+	assert.False(t, legacy.Pairwise)
+	assert.InDelta(t, 0.25, legacy.Score, 1e-9, "without judgments the success-rate rule is unchanged")
+
+	noJudgments := BaselineImpact(withDigest(0.5, task(0, &PairwiseSummary{})), baseline)
+	assert.False(t, noJudgments.Pairwise, "missing judgments are not a tie")
+
+	mixed := BaselineImpact(withDigest(0, // absolute rates must not decide pairwise impact
+		task(0, &PairwiseSummary{SkillWins: 1, Ties: 1, Judgments: 2, Preference: 0.5}),
+		task(-0.25, nil),
+	), baseline)
+	assert.True(t, mixed.Pairwise)
+	assert.Equal(t, 1, mixed.SkillWins)
+	assert.Equal(t, 1, mixed.Ties)
+	assert.InDelta(t, 0.125, mixed.Score, 1e-9)
+
+	regressed := BaselineImpact(withDigest(1,
+		task(0, &PairwiseSummary{SkillWins: 1, Judgments: 2, BaselineWins: 1}),
+		task(-0.5, nil),
+	), baseline)
+	assert.Less(t, regressed.Score, 0.0, "a non-pairwise regression outweighs a pairwise tie")
+}

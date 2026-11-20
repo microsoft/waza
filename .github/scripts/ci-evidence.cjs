@@ -750,7 +750,7 @@ function collectObservations(runID, api, download = (id) => {
     if (budget.compressed > LIMITS.aggregateBytes || budget.reports >= LIMITS.reports) { diagnostics.push("evidence-artifact-cap"); break; }
     budget.reports++;
     try {
-      if ((match[1] === "go-native" && !/^[0-3]$/.test(match[4] || "")) ||
+      if ((match[1] === "go-native" && !/^[0-4]$/.test(match[4] || "")) ||
           (match[1] === "go-remaining" && !/^[0-3]$/.test(match[4] || "")) ||
           (match[1] === "browser" && match[4] !== undefined) ||
           (match[1] === "go-run" && !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(match[4] || ""))) throw new Error("artifact-name-binding");

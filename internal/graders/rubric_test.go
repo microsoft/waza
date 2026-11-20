@@ -192,7 +192,7 @@ func TestRenderJudgePrompt_InjectsOutputWhenNotContinueSession(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got := g.renderJudgePrompt(&Context{Output: "candidate-marker-xyz"})
+	got := g.renderJudgePrompt(&Context{Output: "candidate-marker-xyz", OutputPresent: true})
 	require.Contains(t, got, "candidate-marker-xyz")
 	require.Contains(t, got, "## Candidate output")
 }
@@ -270,9 +270,11 @@ func TestPairwiseMode_IncludesRubricMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	results, err := grader.Grade(context.Background(), &Context{
-		Output:         "better output",
-		BaselineOutput: "worse output",
-		Executor:       executor,
+		Output:                "better output",
+		OutputPresent:         true,
+		BaselineOutput:        "worse output",
+		BaselineOutputPresent: true,
+		Executor:              executor,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, results)
@@ -342,8 +344,9 @@ func TestRubricGoldens_OracleJudge(t *testing.T) {
 					}
 
 					results, err := grader.Grade(context.Background(), &Context{
-						Output:   golden.Output,
-						Executor: executor,
+						Output:        golden.Output,
+						OutputPresent: true,
+						Executor:      executor,
 					})
 					require.NoError(t, err)
 					require.NotNil(t, results)

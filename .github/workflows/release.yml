@@ -356,15 +356,63 @@ jobs:
           git add registry.json version.txt extension.yaml
           git commit -m "chore: Update registry and sync versions for v${VERSION}" \
             -m "Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>"
-          # The empty expected value permits creation only, never replacement.
-          push_receipt="$(git push --porcelain --force-with-lease="refs/heads/$BRANCH:" origin "HEAD:refs/heads/$BRANCH")" || {
-            echo "Cannot create exclusive registry-sync branch $BRANCH. Existing or concurrently created refs were not replaced; inspect publication state before retrying." >&2
-            exit 1
-          }
-          if ! printf '%s\n' "$push_receipt" | awk -F '\t' -v ref="HEAD:refs/heads/$BRANCH" \
-            '$1 == "*" && $2 == ref && $3 == "[new branch]" {created++} END {if (created != 1) exit 1}'; then
-            echo "Registry-sync branch creation was not confirmed. An up-to-date competing ref is not owned by this invocation; inspect without replacing it." >&2
-            exit 1
+
+          # The branch identity is immutable per version. An existing branch is
+          # reused only when it is the same sync (parent and tree); otherwise stop.
+          ls_status=0
+          remote_refs="$(git ls-remote --exit-code origin "refs/heads/$BRANCH")" || ls_status=$?
+          existing_sha=""
+          case "$ls_status" in
+            0)
+              existing_sha="$(printf '%s\n' "$remote_refs" | awk -F '\t' -v ref="refs/heads/$BRANCH" \
+                '$2 == ref {sha = $1; n++} END {if (n != 1) exit 1; print sha}')" || {
+                echo "Cannot identify the existing registry-sync branch $BRANCH; it was not replaced." >&2
+                exit 1
+              }
+              ;;
+            2) ;;
+            *)
+              echo "Cannot inspect remote registry-sync branch $BRANCH; nothing was pushed." >&2
+              exit 1
+              ;;
+          esac
+
+          if [ -n "$existing_sha" ]; then
+            git fetch --quiet --no-tags origin "refs/heads/$BRANCH" || {
+              echo "Cannot fetch existing registry-sync branch $BRANCH for comparison; it was not replaced." >&2
+              exit 1
+            }
+            fetched_sha="$(git rev-parse FETCH_HEAD)"
+            existing_parents="$(git rev-list --parents -n 1 "$existing_sha")"
+            existing_tree="$(git rev-parse "$existing_sha^{tree}")"
+            intended_tree="$(git rev-parse 'HEAD^{tree}')"
+            if [ "$fetched_sha" != "$existing_sha" ] || \
+              [ "$existing_parents" != "$existing_sha $GITHUB_SHA" ] || \
+              [ "$existing_tree" != "$intended_tree" ]; then
+              echo "Registry-sync branch $BRANCH already exists at $existing_sha and is not the registry sync of $GITHUB_SHA. It was not replaced; inspect it, or release a new version." >&2
+              exit 1
+            fi
+            echo "Registry-sync branch $BRANCH already holds this sync at $existing_sha; reusing it without pushing."
+            existing_pr="$(gh pr list --repo "${{ github.repository }}" --head "$BRANCH" --base main --state all \
+              --json url,isCrossRepository --jq '[.[] | select(.isCrossRepository | not) | .url] | first // empty')" || {
+              echo "Cannot check for an existing release PR from $BRANCH." >&2
+              exit 1
+            }
+            if [ -n "$existing_pr" ]; then
+              echo "Release PR already exists: $existing_pr"
+              exit 0
+            fi
+          else
+            # The empty expected value permits creation only, never replacement.
+            push_receipt="$(git push --porcelain --force-with-lease="refs/heads/$BRANCH:" origin "HEAD:refs/heads/$BRANCH")" || {
+              echo "Cannot create exclusive registry-sync branch $BRANCH. Existing or concurrently created refs were not replaced; inspect publication state before retrying." >&2
+              exit 1
+            }
+            if ! printf '%s\n' "$push_receipt" | awk -F '\t' -v ref="HEAD:refs/heads/$BRANCH" \
+              '$1 == "*" && $2 == ref && $3 == "[new branch]" {created++} END {if (created != 1) exit 1}'; then
+              echo "Registry-sync branch creation was not confirmed. An up-to-date competing ref is not owned by this invocation; inspect without replacing it." >&2
+              exit 1
+            fi
           fi
 
           PR_BODY="$(mktemp)"

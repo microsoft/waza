@@ -1,6 +1,6 @@
 ---
 title: Product Usage Telemetry
-description: Waza's opt-out product usage telemetry client, what it would collect, how to opt out, and why it is currently inert.
+description: Waza's opt-out product usage telemetry client, what it collects, how it protects privacy, and how to opt out.
 ---
 
 Waza includes an opt-out product usage telemetry client (#1045) so the Waza team
@@ -17,24 +17,33 @@ and which platforms to support. It is separate from:
 None of these are product usage telemetry, and product usage telemetry never
 reads or forwards their data.
 
-## Current status: inert
+## Telemetry and privacy
 
-> **No usage data is sent by this build.** The client ships complete but
-> inactive. No collector endpoint is compiled in, so Waza makes zero usage
-> telemetry network requests, creates no installation identifier, and keeps no
-> event queue.
+Product usage telemetry is **enabled by default** in released Waza builds on
+developer machines. It is **never collected in CI**: when a CI environment is
+detected, Waza sends nothing and creates no installation identifier.
 
-Activation is gated on all of the following, none of which is part of this
-change:
+Telemetry records which commands and features are used, command and
+evaluation outcomes, bucketed durations and task counts, and basic version,
+OS, architecture, and distribution information. Events from developer machines
+include a random, resettable installation identifier. This identifier is
+pseudonymous, not anonymous: it is not derived from your machine or account,
+but it links events from the same installation.
 
-1. Microsoft privacy and security approval.
-2. A ready team collector with approved ingress and retention.
-3. An explicit decision on the collection default and on CI collection.
-4. A coordinated live smoke test against that collector.
+Telemetry never includes source code, prompts, model outputs, skill or file
+names, paths, repository names, command arguments or flag values, raw error
+messages, environment values, URLs, hashes, or OpenTelemetry attributes.
+Evaluation results, transcripts, and artifacts stay local and are never sent as
+product usage telemetry.
 
-Until then, collection is off by default, CI collection is off, and the
-endpoint can only be set at build time. Waza never prompts you to opt in.
-`waza telemetry status` reports why collection is inactive.
+To turn it off, use any one of the controls in [Opting out](#opting-out), for
+example `WAZA_TELEMETRY_OPTOUT=1`, `DO_NOT_TRACK=1`, or `waza telemetry disable`.
+Turning off telemetry does not change any other Waza behavior.
+
+Events are sent over HTTPS to a Microsoft-operated Azure collector that accepts
+only the closed schema below, does not log request bodies, masks client IP
+addresses, and retains events for 30 days. See the
+[Microsoft Privacy Statement](https://go.microsoft.com/fwlink/?LinkId=521839).
 
 ## Opting out
 
@@ -63,12 +72,12 @@ themselves collected.
 |---------|--------|
 | `waza telemetry status` | Show whether collection is active, why, the persistent setting, and whether an installation ID exists |
 | `waza telemetry disable` | Persistently disable collection, delete the installation ID, and discard pending events |
-| `waza telemetry enable` | Remove a persistent disable; opt-outs and activation gates still apply |
+| `waza telemetry enable` | Remove a persistent disable; other opt-outs still apply |
 | `waza telemetry reset-id` | Delete the installation ID |
 
 Settings are stored in `~/.waza/telemetry.json`. Updates are serialized across waza processes with a short-lived `telemetry.json.lock` file. Other running waza processes re-check these settings before every request, so a `disable` or `reset-id` also stops their pending events.
 
-## What would be collected
+## What is collected
 
 Every event follows the closed v1 contract
 [`schemas/usage-telemetry-1.0.schema.json`](/waza/schemas/usage-telemetry-1.0.schema.json).
@@ -118,10 +127,8 @@ events silently. Telemetry never changes results, output, exit status, or
 diagnostic tracing.
 
 Known limitation: a CI system that Waza does not detect is treated as a
-developer machine.
+developer machine. Set `WAZA_TELEMETRY_OPTOUT=1` in such environments.
 
-## Retention and privacy
-
-The collector owner will define retention when the collector is approved; it is
-not decided yet. See the
-[Microsoft Privacy Statement](https://go.microsoft.com/fwlink/?LinkId=521839).
+Source and development builds, including `go build` and `make build`
+output, never collect; only release builds stamped with a plain `X.Y.Z`
+version do.

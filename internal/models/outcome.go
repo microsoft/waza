@@ -632,11 +632,77 @@ type SkillImpactMetric struct {
 	Delta              float64         `json:"delta"`
 	PercentChange      float64         `json:"percent_change"`
 	Pairwise           *PairwiseResult `json:"pairwise,omitempty"`
+	// PairwiseSummary aggregates the observed pairwise judgments for the task.
+	// Absent when the task has no pairwise prompt graders or no judgments.
+	PairwiseSummary *PairwiseSummary `json:"pairwise_summary,omitempty"`
+}
+
+// PairwiseSummary counts the relative verdicts of pairwise prompt graders
+// across a task's runs. Preference is (skill_wins - baseline_wins) / judgments.
+type PairwiseSummary struct {
+	SkillWins    int     `json:"skill_wins"`
+	Ties         int     `json:"ties"`
+	BaselineWins int     `json:"baseline_wins"`
+	Inconsistent int     `json:"inconsistent"`
+	Judgments    int     `json:"judgments"`
+	Preference   float64 `json:"preference"`
+}
+
+// BaselineImpactSummary is the overall verdict of a baseline comparison.
+type BaselineImpactSummary struct {
+	// Score is positive when skills improved results, zero when neutral, and
+	// negative when skills regressed results.
+	Score float64
+	// Pairwise reports whether relative pairwise judgments determined Score.
+	Pairwise     bool
+	SkillWins    int
+	Ties         int
+	BaselineWins int
+	Inconsistent int
+}
+
+// BaselineImpact computes the overall baseline-comparison verdict. Without
+// pairwise judgments it is the success-rate difference between the runs. With
+// pairwise judgments, absolute pass rates are not comparable (the baseline pass
+// cannot evaluate relative graders), so the score is the mean per-task signal:
+// the pairwise preference for judged tasks and the pass-rate delta otherwise.
+func BaselineImpact(withSkills, baseline *EvaluationOutcome) BaselineImpactSummary {
+	var summary BaselineImpactSummary
+	if withSkills == nil || baseline == nil {
+		return summary
+	}
+	var total float64
+	var tasks int
+	for i := range withSkills.TestOutcomes {
+		impact := withSkills.TestOutcomes[i].SkillImpact
+		if impact == nil {
+			continue
+		}
+		tasks++
+		if p := impact.PairwiseSummary; p != nil && (p.Judgments > 0 || p.Inconsistent > 0) {
+			summary.Pairwise = true
+			summary.SkillWins += p.SkillWins
+			summary.Ties += p.Ties
+			summary.BaselineWins += p.BaselineWins
+			summary.Inconsistent += p.Inconsistent
+			if p.Judgments > 0 {
+				total += p.Preference
+			}
+			continue
+		}
+		total += impact.Delta
+	}
+	if !summary.Pairwise {
+		summary.Score = withSkills.Digest.SuccessRate - baseline.Digest.SuccessRate
+		return summary
+	}
+	summary.Score = total / float64(tasks)
+	return summary
 }
 
 // PairwiseResult captures the outcome of a pairwise LLM judge comparison.
 type PairwiseResult struct {
-	Winner             string `json:"winner"`    // "baseline", "skill", or "tie"
+	Winner             string `json:"winner"`    // "baseline", "skill", "tie", or "inconsistent"
 	Magnitude          string `json:"magnitude"` // "much-better", "slightly-better", "equal", etc.
 	Reasoning          string `json:"reasoning"`
 	PositionConsistent bool   `json:"position_consistent"` // true if result held after position swap

@@ -9,18 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Product usage telemetry client, inert (#1045).** Added an opt-out product
-  usage telemetry client with a closed v1 event contract
+- **Product usage telemetry (#1045).** Added opt-out product
+  usage telemetry with a closed v1 event contract
   (`schemas/usage-telemetry-1.0.schema.json`, 4 KiB max) for
   `command_completed`, `execution_completed`, and `feature_used`, using only
   enums, buckets, booleans, and random UUIDv4s. Added `waza telemetry
   status|disable|enable|reset-id` (local-only), the global `--no-telemetry`
   flag, `WAZA_TELEMETRY_OPTOUT`, and project `telemetry.disabled` in
   `.waza.yaml`; `DO_NOT_TRACK` and azd's telemetry denial are honored, and any
-  opt-out wins. No collector endpoint is configured, so this build sends
-  nothing, creates no installation identifier, and writes no queue. Activation
-  awaits privacy/security approval, collector readiness, the collection default
-  and CI policy decision, and a live smoke test. See
+  opt-out wins. Collection is on by default on developer machines and never
+  runs in CI. Events go to a Microsoft-operated collector that does not log
+  request bodies, masks client IPs, and retains data for 30 days. See
   [docs/USAGE-TELEMETRY.md](docs/USAGE-TELEMETRY.md).
 
 - **Release qualification and attestations (#756).** The manual
@@ -176,6 +175,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Copilot runtime dependencies** — Go SDK to `1.0.34` and bundled CLI to `1.0.112`;
+  projection accounting excludes SDK fields omitted
+  from serialized JSON while preserving the node limit. Native Linux
+  race/atomic validation now uses five shards, keeping its 30-minute
+  per-shard deadline, for the larger bundled runtime.
 - Dashboard CI enforces a Playwright wall-time budget for the `Test dashboard`
   step: a 0.42 s per executed test median target with a 1.25× per-run ceiling,
   retry-disabled on two workers. The dashboard compiles Ajv validators on first
@@ -184,11 +188,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Strict offline snapshot replay now checks tool-event order and reconciles
+  passed status only against explicitly recorded final validations and failed
+  checkpoints; missing historical evidence remains unassessed (#1030).
+- `waza compare --format json` no longer fails when the compared files have
+  different task sets. Unavailable task scores, pass rates and deltas are now
+  `null` instead of non-finite or fabricated zero values, deltas are computed
+  only when both operands exist, and the additive per-task `availability`
+  array reports `task_missing` or `stats_missing`. Results declaring schema
+  1.0 report `null` tool metrics with `tool_metrics_availability` rather than
+  measured zero calls. Fully observed comparisons keep their previous shape
+  (#1029).
+
+- Result cache keys now include the bytes of consumed inputs: every file in
+  the configured skill directories (following symlinks; skipping `.git`, the
+  run's cache, transcript and snapshot locations, and the generated
+  `--output` files, JUnit reporter files, `--output-dir` run directories and
+  session logs), the selected skill or agent definition with its directory and
+  absolute path, instruction files, and `inputs.context.fixture` contents. Editing a skill, instruction file or
+  context fixture without renaming it no longer returns a stale cached result,
+  and an unreadable consumed input runs the task uncached. Existing cache
+  entries miss once after upgrading, because earlier keys did not record
+  consumed inputs such as eval-level instruction files (#1025).
+
 - The Lab checkpoint result reader re-encodes retained runner-unit reports in
   1.0 results like the native canonical writer, so reordered properties,
   noncanonical escapes and unknown fields are rejected and canonical reports are
   verified instead of labeled unverified; reports with evidence the browser
   cannot re-encode stay unverified (#964).
+- Re-dispatching a release no longer moves an existing `release/vX.Y.Z`
+  registry-sync branch. The extension release job never pushes to an existing
+  branch: it reuses one whose tip is the same sync of the validated commit
+  (same parent and tree) and fails clearly, leaving it unchanged, when the
+  branch points elsewhere (#937).
+- `waza run --baseline` now runs the baseline pass with skills explicitly
+  disabled (the existing `skill_directories: [none]` override), so task-level
+  `skill_directories`, ambient skill discovery and ambient agent definitions no
+  longer leak into the skills-disabled phase. Evals that configure skills only
+  at the task level now run the baseline comparison instead of skipping it. The
+  skills-enabled phase and the original configuration are unchanged (#1024).
+- Independent inline prompt graders now receive task input and candidate output
+  after a successful eval run. Judges that return no pass/fail verdict report
+  that state instead of claiming all prompts passed. Task-level prompt
+  graders bypass cached outcomes so stale pre-fix results cannot hide a rerun
+  (#1071).
 
 ## [0.41.0] - 2026-11-13
 

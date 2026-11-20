@@ -6,7 +6,7 @@ BINARY_NAME=waza
 BUILD_DIR=.
 GO_FILES=$(shell find . -name '*.go' -not -path './vendor/*' -not -path './*/node_modules/*')
 GO_PACKAGES=$(shell go list ./... | grep -v '/node_modules')
-VERSION?=0.1.0
+VERSION?=0.0.0-dev
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 WEB_DEPS_STAMP=web/node_modules/.waza-deps-stamp
 WEB_DEPS_INPUTS=web/package.json web/package-lock.json

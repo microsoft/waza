@@ -17,9 +17,10 @@ func newTelemetryCommand() *cobra.Command {
 		Long: `Manage Waza product usage telemetry.
 
 Product usage telemetry is separate from OpenTelemetry tracing (--otel-*) and
-execution telemetry exports. This build has no approved collector endpoint,
-so no usage data is sent. These commands only change local settings in
-~/.waza/telemetry.json and never send data.
+execution telemetry exports. Released builds send a small set of allowlisted,
+pseudonymous usage events from developer machines; CI environments are never
+collected. These commands only change local settings in ~/.waza/telemetry.json
+and never send data. See https://github.com/microsoft/waza/blob/main/docs/USAGE-TELEMETRY.md.
 
 Opt out at any time with WAZA_TELEMETRY_OPTOUT=1, --no-telemetry, DO_NOT_TRACK=1,
 or 'waza telemetry disable'. Any opt-out wins over every other setting.`,
@@ -30,7 +31,7 @@ or 'waza telemetry disable'. Any opt-out wins over every other setting.`,
 		Short: "Show whether product usage telemetry is active and why",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			policy := usagetelemetry.ResolveProcess(os.Args[1:], true)
+			policy := usagetelemetry.ResolveProcess(os.Args[1:], true, version)
 			settings, settingsErr := usagetelemetry.LoadSettings(usagetelemetry.DefaultSettingsPath())
 			out := cmd.OutOrStdout()
 			state := "inactive"
@@ -85,9 +86,8 @@ or 'waza telemetry disable'. Any opt-out wins over every other setting.`,
 		Short: "Remove a persistent disable choice",
 		Long: `Record that product usage telemetry may be collected on this machine.
 
-Collection still requires an approved collector endpoint in the build, and any
-opt-out (WAZA_TELEMETRY_OPTOUT, --no-telemetry, DO_NOT_TRACK, project denial,
-or a hosting tool's denial) continues to win.`,
+Any opt-out (WAZA_TELEMETRY_OPTOUT, --no-telemetry, DO_NOT_TRACK, project
+denial, or a hosting tool's denial) continues to win, and CI is never collected.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := usagetelemetry.Enable(usagetelemetry.DefaultSettingsPath()); err != nil {

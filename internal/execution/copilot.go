@@ -1733,6 +1733,16 @@ func ResolveAgentDefinition(skillDirs []string, skillName string) (string, *skil
 	return sd.Path, fm, nil
 }
 
+// ResolveSkillDefinitionPath returns the SKILL.md or agent file selected for
+// skillName with the same discovery used for system-message injection.
+func ResolveSkillDefinitionPath(skillDirs []string, skillName string) (string, error) {
+	sd, err := findSkillDefinitionWithLogging(skillDirs, skillName, false)
+	if err != nil || sd == nil {
+		return "", err
+	}
+	return sd.Path, nil
+}
+
 // IsSkillAvailable reports whether the target skill can be discovered from the
 // effective skill directories passed to the engine.
 func IsSkillAvailable(skillDirs []string, skillName string) bool {

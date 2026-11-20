@@ -77,6 +77,55 @@ func TestRunAllMissingTaskKindRemainsClassifiable(t *testing.T) {
 	require.Empty(t, failure.Kind)
 }
 
+func TestRunAllRejectsPairwiseNameCollisionBeforeCreatingGraders(t *testing.T) {
+	pairwise := models.GraderConfig{
+		Identifier: "quality",
+		Kind:       models.GraderKindPrompt,
+		Parameters: models.PromptGraderParameters{Mode: models.PromptGraderModePairwise},
+	}
+	task := &models.TestCase{Validators: []models.ValidatorInline{{
+		Identifier: "quality",
+		Kind:       models.GraderKindText,
+	}}}
+	createCalls := 0
+	_, err := runAll(t.Context(), []models.GraderConfig{pairwise}, task, &Context{}, "", "", false,
+		func(string, models.GraderParameters) (Grader, error) {
+			createCalls++
+			return nil, errors.New("must not create graders")
+		})
+	require.ErrorContains(t, err, `pairwise grader name collision "quality"`)
+	require.Zero(t, createCalls)
+}
+
+func TestRunAllRejectsPairwiseExpectationNameCollisionBeforeCreatingGraders(t *testing.T) {
+	tests := []struct {
+		name        string
+		expectation models.TaskExpectation
+	}{
+		{name: "_output_contains", expectation: models.TaskExpectation{MustInclude: []string{"required"}}},
+		{name: "_output_not_contains", expectation: models.TaskExpectation{MustExclude: []string{"forbidden"}}},
+		{name: "_output_contains_any", expectation: models.TaskExpectation{MayInclude: []string{"accepted"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pairwise := models.GraderConfig{
+				Identifier: tt.name,
+				Kind:       models.GraderKindPrompt,
+				Parameters: models.PromptGraderParameters{Mode: models.PromptGraderModePairwise},
+			}
+			createCalls := 0
+			_, err := runAll(t.Context(), []models.GraderConfig{pairwise},
+				&models.TestCase{Expectation: tt.expectation}, &Context{}, "", "", false,
+				func(string, models.GraderParameters) (Grader, error) {
+					createCalls++
+					return nil, errors.New("must not create graders")
+				})
+			require.ErrorContains(t, err, fmt.Sprintf("pairwise grader name collision %q", tt.name))
+			require.Zero(t, createCalls)
+		})
+	}
+}
+
 func TestApplyDefaults_PromptGrader(t *testing.T) {
 	t.Run("sets judge model when empty", func(t *testing.T) {
 		p := models.PromptGraderParameters{Prompt: "check"}

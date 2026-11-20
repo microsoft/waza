@@ -269,7 +269,7 @@ func TestBenchmarkBaselineOnlyOperationalErrorClassification(t *testing.T) {
 	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
 		client := &copilotfake.Client{Send: func(cfg *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 			sessionSkills = append(sessionSkills, append([]string(nil), cfg.SkillDirectories...))
-			if len(cfg.SkillDirectories) == 1 {
+			if len(cfg.SkillDirectories) == 0 {
 				withoutSkills++
 				return nil, errors.New("baseline operational failure")
 			}
@@ -305,7 +305,7 @@ func TestBenchmarkBaselineOnlyOperationalErrorClassification(t *testing.T) {
 	require.ErrorContains(t, err, "baseline benchmark completed: 0 failed and 1 error(s)")
 	require.Equal(t, 1, withSkills)
 	require.Equal(t, 1, withoutSkills)
-	require.Equal(t, [][]string{{dir, filepath.Join(dir, "synthetic")}, {dir}}, sessionSkills)
+	require.Equal(t, [][]string{{dir, filepath.Join(dir, "synthetic")}, nil}, sessionSkills)
 	outcome, err := models.LoadEvaluationOutcome(output)
 	require.NoError(t, err)
 	require.True(t, outcome.IsBaseline)

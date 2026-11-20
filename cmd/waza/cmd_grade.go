@@ -49,6 +49,8 @@ actor or following snapshot_path. Evidence-only grading does not inspect
 New judge usage is recorded separately as regrade_usage; original billing stays
 unchanged. Ordinary failed judgments retain exit 0; operational errors return
 nonzero and omit overall_score in the stdout summary.
+Pairwise prompt graders require an in-process waza run --baseline comparison
+and are not supported by saved-result regrading with waza grade.
 --evidence-snapshot is available only on Linux/macOS and supports verified file
 checks without output-based expectations; it does not certify absence from the
 original workspace.
@@ -106,6 +108,11 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 			return fmt.Errorf("task %q not found in spec or is disabled", taskID)
 		}
 		return errors.New("no tasks found in spec")
+	}
+	for _, task := range allTasks {
+		if graders.HasPairwisePromptGraders(spec.Graders, task) {
+			return errors.New("pairwise prompt graders require an in-process `waza run --baseline` comparison; saved-result regrading is unsupported")
+		}
 	}
 	evidenceRequested, evidenceOnly := false, true
 	for _, task := range allTasks {

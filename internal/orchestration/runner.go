@@ -120,15 +120,33 @@ type EvalRunner struct {
 	// benchmark run; empty for code paths that bypass the orchestrator.
 	evalRunID string
 
-	partialMu       sync.Mutex
-	partialWriteMu  sync.Mutex
-	partialWriter   func(*models.EvaluationOutcome) error
-	partialOutcomes []models.TestOutcome
-	partialStart    time.Time
-	partialUsage    *execution.UsageScope
-	partialErr      error
-	partialCancel   context.CancelCauseFunc
-	partialPrimary  *models.EvaluationOutcome
+	partialMu            sync.Mutex
+	partialWriteMu       sync.Mutex
+	partialWriter        func(*models.EvaluationOutcome) error
+	partialOutcomes      []models.TestOutcome
+	partialStart         time.Time
+	partialUsage         *execution.UsageScope
+	partialErr           error
+	partialCancel        context.CancelCauseFunc
+	partialPrimary       *models.EvaluationOutcome
+	partialBaseline      *models.EvaluationOutcome
+	partialBaselinePhase bool
+
+	pairwiseTaskIDs         map[string]struct{}
+	pairwiseBaselineMu      sync.RWMutex
+	pairwiseBaselineOutputs map[pairwiseBaselineKey]pairwiseBaselineOutput
+	capturePairwiseBaseline bool
+}
+
+type pairwiseBaselineKey struct {
+	testID string
+	runNum int
+}
+
+type pairwiseBaselineOutput struct {
+	output  string
+	present bool
+	attempt int
 }
 
 // ProgressListener receives progress updates
@@ -431,6 +449,9 @@ func (r *EvalRunner) runBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	if err := r.admitEvalMCPMocks(); err != nil {
 		return nil, err
 	}
+	if err := r.preparePairwiseTasks(); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -439,6 +460,9 @@ func (r *EvalRunner) runBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	}
 	// Initialization can change task inputs; re-admit without repeating setup.
 	if err := r.admitEvalMCPMocks(); err != nil {
+		return nil, err
+	}
+	if err := r.preparePairwiseTasks(); err != nil {
 		return nil, err
 	}
 
@@ -609,10 +633,13 @@ func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 // runBaselineComparison orchestrates A/B testing: skills-enabled vs skills-disabled
 func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.EvaluationOutcome, error) {
 	spec := r.cfg.Spec()
+	if len(r.pairwiseTaskIDs) > 0 {
+		return r.runPairwiseBaselineComparison(ctx, spec)
+	}
 
-	// Validation: eval must have skills configured
-	if len(spec.Config.SkillPaths) == 0 && len(spec.Config.RequiredSkills) == 0 {
-		fmt.Println("[WARN] --baseline specified but eval has no skills configured (skill_directories, required_skills empty). Skipping baseline comparison.")
+	// Validation: eval or at least one task must have skills configured
+	if !r.hasConfiguredSkills() {
+		fmt.Println("[WARN] --baseline specified but eval has no skills configured (skill_directories, required_skills and task skill paths empty). Skipping baseline comparison.")
 		return r.runNormalBenchmark(ctx)
 	}
 
@@ -633,10 +660,12 @@ func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 		r.partialMu.Unlock()
 	}()
 
-	// PASS 2: Skills Disabled (baseline)
+	// PASS 2: Skills Disabled (baseline). The "none" sentinel is the existing
+	// disable-all override, so task-level skill paths and ambient discovery are
+	// suppressed too, and the baseline keeps a distinct cache identity.
 	savedSkillPaths := spec.Config.SkillPaths
 	savedRequiredSkills := spec.Config.RequiredSkills
-	spec.Config.SkillPaths = []string{}
+	spec.Config.SkillPaths = []string{"none"}
 	spec.Config.RequiredSkills = []string{}
 	defer func() {
 		spec.Config.SkillPaths = savedSkillPaths
@@ -657,6 +686,206 @@ func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 
 	// PASS 3: Compare and merge results
 	return r.mergeBaselineOutcomes(outcomesWithSkills, outcomesWithoutSkills)
+}
+
+func (r *EvalRunner) runPairwiseBaselineComparison(ctx context.Context, spec *models.EvalSpec) (*models.EvaluationOutcome, error) {
+	savedSkillPaths := spec.Config.SkillPaths
+	savedRequiredSkills := spec.Config.RequiredSkills
+	restoreSkills := func() {
+		spec.Config.SkillPaths = savedSkillPaths
+		spec.Config.RequiredSkills = savedRequiredSkills
+	}
+	defer restoreSkills()
+
+	r.pairwiseBaselineMu.Lock()
+	r.pairwiseBaselineOutputs = make(map[pairwiseBaselineKey]pairwiseBaselineOutput)
+	r.pairwiseBaselineMu.Unlock()
+	r.capturePairwiseBaseline = true
+	r.partialMu.Lock()
+	r.partialPrimary = nil
+	r.partialBaseline = nil
+	r.partialBaselinePhase = true
+	r.partialMu.Unlock()
+	defer func() {
+		r.capturePairwiseBaseline = false
+		r.partialMu.Lock()
+		r.partialBaseline = nil
+		r.partialBaselinePhase = false
+		r.partialMu.Unlock()
+	}()
+
+	// Pairwise graders need a successful baseline output before the treatment
+	// task can be graded. Capture the final attempt for each task/trial first.
+	spec.Config.SkillPaths = []string{"none"}
+	spec.Config.RequiredSkills = []string{}
+	fmt.Println("\n════════════════════════════════════════════════════════════════")
+	fmt.Println("PASS 1: Skills Baseline (captured for pairwise grading)")
+	fmt.Println("════════════════════════════════════════════════════════════════")
+	withoutSkills, err := r.runNormalBenchmark(ctx)
+	if err != nil {
+		markIncompleteBaselineOutcome(withoutSkills)
+		return withoutSkills, fmt.Errorf("baseline run (skills disabled) failed: %w", err)
+	}
+	if err := r.validatePairwiseBaselineOutputs(); err != nil {
+		markIncompleteBaselineOutcome(withoutSkills)
+		if withoutSkills != nil && withoutSkills.Digest.Errors > 0 && ctx.Err() == nil {
+			return withoutSkills, &BaselineExecutionError{Err: err}
+		}
+		return withoutSkills, err
+	}
+
+	restoreSkills()
+	r.capturePairwiseBaseline = false
+	r.partialMu.Lock()
+	r.partialBaseline = withoutSkills
+	r.partialBaselinePhase = false
+	r.partialMu.Unlock()
+
+	fmt.Println("\n════════════════════════════════════════════════════════════════")
+	fmt.Println("PASS 2: Skills-Enabled Run (pairwise grading)")
+	fmt.Println("════════════════════════════════════════════════════════════════")
+	withSkills, err := r.runNormalBenchmark(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("skills-enabled run failed: %w", err)
+	}
+
+	return r.mergeBaselineOutcomes(withSkills, withoutSkills)
+}
+
+func (r *EvalRunner) preparePairwiseTasks() error {
+	r.pairwiseTaskIDs = nil
+	if r.skipGraders {
+		return nil
+	}
+	testCases, err := r.admissionTestCases()
+	if err != nil {
+		return err
+	}
+	return r.preparePairwiseTasksFor(testCases)
+}
+
+func (r *EvalRunner) preparePairwiseTasksFor(testCases []*models.TestCase) error {
+	r.pairwiseTaskIDs = nil
+	if r.skipGraders {
+		return nil
+	}
+	spec := r.cfg.Spec()
+	var hasSkills bool
+	if len(spec.Config.SkillPaths) > 0 || len(spec.Config.RequiredSkills) > 0 {
+		hasSkills = true
+	}
+	pairwiseTasks := make(map[string]struct{})
+	for _, tc := range testCases {
+		if len(tc.SkillPaths) > 0 {
+			hasSkills = true
+		}
+		for _, checkpoint := range tc.Checkpoints {
+			if graders.HasPairwisePromptGraders(nil, &models.TestCase{Validators: checkpoint.Graders}) {
+				return fmt.Errorf("pairwise prompt graders are not supported in checkpoints for task %q", tc.TestID)
+			}
+		}
+		if !graders.HasPairwisePromptGraders(spec.Graders, tc) {
+			continue
+		}
+		effectiveGraders, err := r.effectiveGraders(tc)
+		if err != nil {
+			return fmt.Errorf("task %q: %w", tc.TestID, err)
+		}
+		if err := graders.ValidatePairwiseGraderNames(effectiveGraders, tc); err != nil {
+			return fmt.Errorf("task %q: %w", tc.TestID, err)
+		}
+		if !spec.Baseline {
+			return fmt.Errorf("pairwise prompt grading requires --baseline for task %q", tc.TestID)
+		}
+		pairwiseTasks[tc.TestID] = struct{}{}
+	}
+	if len(pairwiseTasks) > 0 && !hasSkills {
+		return errors.New("pairwise prompt grading requires a baseline comparison with configured skills")
+	}
+	if len(pairwiseTasks) > 0 {
+		if spec.Config.StopOnError {
+			return errors.New("pairwise prompt grading is not supported with fail_fast because all selected tasks must run for comparison")
+		}
+		selectedIDs := make(map[string]struct{}, len(testCases))
+		for _, tc := range testCases {
+			if _, duplicate := selectedIDs[tc.TestID]; duplicate {
+				return fmt.Errorf("pairwise prompt grading requires unique task IDs: duplicate selected task ID %q", tc.TestID)
+			}
+			selectedIDs[tc.TestID] = struct{}{}
+		}
+		r.pairwiseTaskIDs = pairwiseTasks
+	}
+	return nil
+}
+
+func markIncompleteBaselineOutcome(outcome *models.EvaluationOutcome) {
+	if outcome == nil {
+		return
+	}
+	outcome.IsBaseline = true
+	if outcome.Metadata == nil {
+		outcome.Metadata = make(map[string]any)
+	}
+	outcome.Metadata["incomplete"] = true
+}
+
+type BaselineExecutionError struct {
+	Err error
+}
+
+func (e *BaselineExecutionError) Error() string {
+	return fmt.Sprintf("baseline execution completed with errors: %v", e.Err)
+}
+
+func (e *BaselineExecutionError) Unwrap() error {
+	return e.Err
+}
+
+func (r *EvalRunner) recordPairwiseBaselineOutput(testID string, runNum, attempt int, output string, present bool) {
+	key := pairwiseBaselineKey{testID: testID, runNum: runNum}
+	r.pairwiseBaselineMu.Lock()
+	defer r.pairwiseBaselineMu.Unlock()
+	if previous, ok := r.pairwiseBaselineOutputs[key]; ok && attempt < previous.attempt {
+		return
+	}
+	r.pairwiseBaselineOutputs[key] = pairwiseBaselineOutput{
+		output: output, present: present, attempt: attempt,
+	}
+}
+
+func (r *EvalRunner) validatePairwiseBaselineOutputs() error {
+	r.pairwiseBaselineMu.RLock()
+	defer r.pairwiseBaselineMu.RUnlock()
+	for testID := range r.pairwiseTaskIDs {
+		for runNum := 1; runNum <= r.cfg.Spec().Config.TrialsPerTask; runNum++ {
+			output, ok := r.pairwiseBaselineOutputs[pairwiseBaselineKey{testID: testID, runNum: runNum}]
+			if !ok {
+				return fmt.Errorf("pairwise baseline output missing for task %q run %d", testID, runNum)
+			}
+			if !output.present {
+				return fmt.Errorf("final baseline attempt %d produced no successful output for pairwise task %q run %d", output.attempt, testID, runNum)
+			}
+		}
+	}
+	return nil
+}
+
+// hasConfiguredSkills reports whether the eval or any selected task configures skills.
+func (r *EvalRunner) hasConfiguredSkills() bool {
+	spec := r.cfg.Spec()
+	if len(spec.Config.SkillPaths) > 0 || len(spec.Config.RequiredSkills) > 0 {
+		return true
+	}
+	testCases, err := r.admissionTestCases()
+	if err != nil {
+		return false
+	}
+	for _, tc := range testCases {
+		if len(tc.SkillPaths) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeBaselineOutcomes pairs task results and computes skill impact
@@ -683,6 +912,16 @@ func (r *EvalRunner) mergeBaselineOutcomes(
 		}
 
 		withTo.SkillImpact = computeSkillImpact(withTo, withoutTo)
+		if _, pairwise := r.pairwiseTaskIDs[testID]; pairwise {
+			summary := summarizePairwiseJudgments(withTo)
+			if summary == nil {
+				if hasOperationalError(withTo) {
+					continue
+				}
+				return nil, fmt.Errorf("expected pairwise grader result missing for task %q", testID)
+			}
+			withTo.SkillImpact.PairwiseSummary = summary
+		}
 	}
 
 	// Check for extra tasks in baseline
@@ -699,6 +938,18 @@ func (r *EvalRunner) mergeBaselineOutcomes(
 	withSkills.IsBaseline = true
 	withSkills.BaselineOutcome = withoutSkills
 	return withSkills, nil
+}
+
+func hasOperationalError(outcome *models.TestOutcome) bool {
+	if outcome.Status == models.StatusError {
+		return true
+	}
+	for _, run := range outcome.Runs {
+		if run.Status == models.StatusError {
+			return true
+		}
+	}
+	return false
 }
 
 // computeSkillImpact calculates per-task impact metric
@@ -718,6 +969,63 @@ func computeSkillImpact(withSkills, without *models.TestOutcome) *models.SkillIm
 		Delta:              delta,
 		PercentChange:      percentImprovement,
 	}
+}
+
+// summarizePairwiseJudgments counts the pairwise prompt grader verdicts
+// recorded on the skills-enabled runs. It returns nil when no run carries a
+// judgment, so missing evidence is never reported as a tie.
+func summarizePairwiseJudgments(outcome *models.TestOutcome) *models.PairwiseSummary {
+	summary := &models.PairwiseSummary{}
+	for i := range outcome.Runs {
+		for _, result := range outcome.Runs[i].Validations {
+			switch pairwiseWinner(result.Details["pairwise"]) {
+			case "skill":
+				summary.SkillWins++
+			case "tie":
+				summary.Ties++
+			case "baseline":
+				summary.BaselineWins++
+			case "inconsistent":
+				summary.Inconsistent++
+				continue
+			default:
+				continue
+			}
+			summary.Judgments++
+		}
+	}
+	if summary.Judgments == 0 && summary.Inconsistent == 0 {
+		return nil
+	}
+	if summary.Judgments > 0 {
+		summary.Preference = float64(summary.SkillWins-summary.BaselineWins) / float64(summary.Judgments)
+	}
+	return summary
+}
+
+func pairwiseWinner(detail any) string {
+	switch v := detail.(type) {
+	case *models.PairwiseResult:
+		if v != nil {
+			if !v.PositionConsistent {
+				return "inconsistent"
+			}
+			return v.Winner
+		}
+	case models.PairwiseResult:
+		if !v.PositionConsistent {
+			return "inconsistent"
+		}
+		return v.Winner
+	case map[string]any:
+		if consistent, ok := v["position_consistent"].(bool); !ok || !consistent {
+			return "inconsistent"
+		}
+		if winner, ok := v["winner"].(string); ok {
+			return winner
+		}
+	}
+	return ""
 }
 
 func computePassRate(outcome *models.TestOutcome) float64 {
@@ -746,6 +1054,7 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	withPassRate := withSkills.Digest.SuccessRate
 	withoutPassRate := withoutSkills.Digest.SuccessRate
 	delta := withPassRate - withoutPassRate
+	verdict := models.BaselineImpact(withSkills, withoutSkills)
 
 	fmt.Printf("Overall Performance Delta:\n")
 	fmt.Printf("  With Skills:    %.1f%% (%d/%d tasks passed)\n",
@@ -760,6 +1069,11 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	} else {
 		fmt.Printf("  Impact:         no change\n\n")
 	}
+	if verdict.Pairwise {
+		fmt.Printf("Pairwise Judgments (decide impact; baseline pass omits relative graders):\n")
+		fmt.Printf("  Skill wins: %d  Ties: %d  Baseline wins: %d  Position-inconsistent: %d\n\n",
+			verdict.SkillWins, verdict.Ties, verdict.BaselineWins, verdict.Inconsistent)
+	}
 
 	fmt.Println("Per-Task Breakdown:")
 	improved := 0
@@ -773,17 +1087,26 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 		}
 
 		impact := to.SkillImpact
+		signal := impact.Delta
+		if p := impact.PairwiseSummary; p != nil {
+			signal = p.Preference
+		}
 		status := "[NEUTRAL]"
-		if impact.Delta > 0 {
+		if signal > 0 {
 			status = "[IMPROVED]"
 			improved++
-		} else if impact.Delta < 0 {
+		} else if signal < 0 {
 			status = "[REGRESSED]"
 			regressed++
 		} else {
 			neutral++
 		}
 
+		if p := impact.PairwiseSummary; p != nil {
+			fmt.Printf("  • %-30s %s  pairwise: %d win / %d tie / %d loss / %d inconsistent\n",
+				to.DisplayName, status, p.SkillWins, p.Ties, p.BaselineWins, p.Inconsistent)
+			continue
+		}
 		fmt.Printf("  • %-30s %s  %.0f%% → %.0f%% (%+.0fpp)\n",
 			to.DisplayName,
 			status,
@@ -794,9 +1117,9 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	}
 
 	fmt.Println()
-	if delta > 0 {
+	if verdict.Score > 0 {
 		fmt.Printf("Verdict: Skills have POSITIVE IMPACT (improved %d/%d tasks)\n", improved, len(withSkills.TestOutcomes))
-	} else if delta < 0 {
+	} else if verdict.Score < 0 {
 		fmt.Printf("Verdict: Skills have NEGATIVE IMPACT (regressed %d/%d tasks)\n", regressed, len(withSkills.TestOutcomes))
 	} else {
 		fmt.Printf("Verdict: Skills have NEUTRAL IMPACT (no net change)\n")
@@ -815,8 +1138,11 @@ func AdmitEvalMCPMocks(cfg *config.EvalConfig, taskFilters, tagFilters []string)
 
 // AdmitEvalMCPMocksForPhases includes eval dependencies consumed by a caller's
 // supplemental phase. Standalone EvalRunner executes only task phases.
-func AdmitEvalMCPMocksForPhases(cfg *config.EvalConfig, taskFilters, tagFilters []string, usesEvalMCP bool) error {
+func AdmitEvalMCPMocksForPhases(cfg *config.EvalConfig, taskFilters, tagFilters []string, usesEvalMCP bool, skipGraders ...bool) error {
 	r := &EvalRunner{cfg: cfg, taskFilters: taskFilters, tagFilters: tagFilters}
+	if len(skipGraders) > 0 {
+		r.skipGraders = skipGraders[0]
+	}
 	return r.admitMCPMocksForPhases(usesEvalMCP)
 }
 
@@ -826,15 +1152,16 @@ func (r *EvalRunner) admitEvalMCPMocks() error {
 
 func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 	testCases, selectionErr := r.admissionTestCases()
+	pairwiseErr := r.preparePairwiseTasksFor(testCases)
 	// Failed selection cannot establish task overrides, but must not hide
 	// independent eval mock errors or allow engine initialization.
 	if err := mcpmock.ValidateMCPMocksForPhases(r.cfg.Spec(), testCases, r.cfg.SpecDir(), usesEvalMCP); err != nil {
-		return errors.Join(selectionErr, fmt.Errorf("MCP mock admission: %w", err))
+		return errors.Join(selectionErr, pairwiseErr, fmt.Errorf("MCP mock admission: %w", err))
 	}
 	if r.cfg.Spec().Config.WorkspaceCapture == "none" && len(r.snapshotWorkspacePaths) > 0 {
-		return errors.Join(selectionErr, fmt.Errorf("workspace_capture none cannot be used with workspace snapshot files"))
+		return errors.Join(selectionErr, pairwiseErr, fmt.Errorf("workspace_capture none cannot be used with workspace snapshot files"))
 	}
-	return errors.Join(selectionErr, models.ValidateWorkspaceCapture(r.cfg.Spec(), testCases))
+	return errors.Join(selectionErr, pairwiseErr, models.ValidateWorkspaceCapture(r.cfg.Spec(), testCases))
 }
 
 // admissionTestCases selects the active tasks a run would execute, after task
@@ -1093,8 +1420,12 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 	if r.cache != nil && spec.Scenario != "" {
 		fmt.Fprintf(os.Stderr, "[WARN] Scenario caching disabled for test %q: external workflow dependencies are not fully fingerprinted\n", tc.DisplayName)
 	}
-	if r.cache != nil && spec.Scenario == "" && !models.UsesJudgeEvidence(spec.Graders, tc) {
-		cacheKey, err := cache.CacheKeyWithSpecDir(spec, tc, r.cfg.FixtureDir(), r.cfg.SpecDir())
+	if r.cache != nil && spec.Scenario == "" && !cache.HasNonDeterministicGraders(spec) &&
+		!cache.HasNonDeterministicTaskGraders(tc) && !models.UsesJudgeEvidence(spec.Graders, tc) {
+		cacheKey, err := r.taskCacheKey(spec, tc)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[WARN] Caching disabled for test %q: %v\n", tc.DisplayName, err)
+		}
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found && cache.RecordedMCPMocksMatch(cachedOutcome, models.EffectiveMCPMocks(spec, tc)) {
 				if cachedOutcome.Status == models.StatusError || OverallStatus(cachedOutcome.Runs) == models.StatusError {
@@ -1269,6 +1600,11 @@ type attemptResult struct {
 }
 
 func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) attemptResult {
+	if r.capturePairwiseBaseline {
+		if _, ok := r.pairwiseTaskIDs[tc.TestID]; ok {
+			r.recordPairwiseBaselineOutput(tc.TestID, runNum, attempt, "", false)
+		}
+	}
 	startTime := time.Now()
 	var req *execution.ExecutionRequest
 	var resp *execution.ExecutionResponse
@@ -1553,6 +1889,16 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 
 	// Build validation context
 	vCtx := r.buildGraderContext(tc, resp, sdkEvents)
+	if r.capturePairwiseBaseline {
+		if _, ok := r.pairwiseTaskIDs[tc.TestID]; ok {
+			r.recordPairwiseBaselineOutput(tc.TestID, runNum, attempt, vCtx.Output, vCtx.OutputPresent)
+		}
+	} else if _, ok := r.pairwiseTaskIDs[tc.TestID]; ok {
+		if baseline, found := r.pairwiseBaselineOutput(tc.TestID, runNum); found {
+			vCtx.BaselineOutput = baseline.output
+			vCtx.BaselineOutputPresent = baseline.present
+		}
+	}
 	if resp.WorkspaceCaptureError == "" && !r.skipGraders && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
 		selection, selectionErr := judgeevidence.Selection(r.cfg.Spec().Graders, tc)
 		if selectionErr != nil {
@@ -1570,9 +1916,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		}
 		frozenJudgeEvidence = judgeevidence.Capture(judgeevidence.CaptureInput{
 			Origin: origin, Task: req.Message, Output: resp.FinalOutput,
-			OutputPresent: resp.Success && resp.ErrorMsg == "" && originErr == nil,
+			OutputPresent: candidateOutputPresent(resp, originErr),
 			Events:        sdkEvents, Files: resp.JudgeFiles, Selection: selection, ExecutionMode: mode,
 		})
+		vCtx.OutputPresent = candidateOutputPresent(resp, originErr)
 		vCtx.JudgeEvidence, vCtx.JudgeOrigin = frozenJudgeEvidence, origin
 		vCtx.EvidenceExecutor = r.evidenceExecutor
 		if vCtx.EvidenceExecutor == nil {
@@ -1725,6 +2072,13 @@ func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.T
 		copy.Metadata = maps.Clone(r.partialPrimary.Metadata)
 		primary = &copy
 	}
+	var baseline *models.EvaluationOutcome
+	if r.partialBaseline != nil {
+		copy := *r.partialBaseline
+		copy.Metadata = maps.Clone(r.partialBaseline.Metadata)
+		baseline = &copy
+	}
+	baselinePhase := r.partialBaselinePhase
 	r.partialMu.Unlock()
 
 	outcome := r.buildOutcome(testOutcomes, start, usage.Snapshot())
@@ -1733,6 +2087,11 @@ func (r *EvalRunner) publishPartialTestOutcome(testNum int, testOutcome models.T
 		primary.IsBaseline = true
 		primary.BaselineOutcome = outcome
 		outcome = primary
+	} else if baseline != nil {
+		outcome.IsBaseline = true
+		outcome.BaselineOutcome = baseline
+	} else if baselinePhase {
+		outcome.IsBaseline = true
 	}
 	if outcome.Metadata == nil {
 		outcome.Metadata = make(map[string]any)
@@ -2858,6 +3217,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		TestCase:           tc,
 		Transcript:         transcriptEntries,
 		Output:             resp.FinalOutput,
+		OutputPresent:      candidateOutputPresent(resp, nil),
 		Outcome:            make(map[string]any),
 		DurationMS:         resp.DurationMs,
 		Metadata:           make(map[string]any),
@@ -2887,13 +3247,38 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 	}
 }
 
+func (r *EvalRunner) pairwiseBaselineOutput(testID string, runNum int) (pairwiseBaselineOutput, bool) {
+	r.pairwiseBaselineMu.RLock()
+	defer r.pairwiseBaselineMu.RUnlock()
+	output, ok := r.pairwiseBaselineOutputs[pairwiseBaselineKey{testID: testID, runNum: runNum}]
+	return output, ok
+}
+
+func candidateOutputPresent(resp *execution.ExecutionResponse, originErr error) bool {
+	return resp.Success && resp.ErrorMsg == "" && originErr == nil
+}
+
 func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
+	spec := r.cfg.Spec()
+	effective, err := r.effectiveGraders(tc)
+	if err != nil {
+		return nil, err
+	}
+	if r.capturePairwiseBaseline {
+		effective = graders.WithoutPairwisePromptGraders(effective)
+		taskCopy := *tc
+		taskCopy.Validators = graders.WithoutPairwisePromptValidators(tc.Validators)
+		tc = &taskCopy
+	}
+	return graders.RunAll(ctx, effective, tc, gradersContext, spec.Config.JudgeModel, spec.Config.JudgeReasoningEffort, r.updateSnapshots)
+}
+
+func (r *EvalRunner) effectiveGraders(tc *models.TestCase) ([]models.GraderConfig, error) {
 	spec := r.cfg.Spec()
 	agentPath, fm, err := r.resolveTaskAgent(tc)
 	if err != nil {
 		return nil, err
 	}
-	effective := spec.Graders
 	hasTaskConstraint := false
 	for _, v := range tc.Validators {
 		if v.Kind == models.GraderKindToolConstraint {
@@ -2901,9 +3286,9 @@ func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 		}
 	}
 	if !hasTaskConstraint {
-		effective = augmentGradersFromAgent(append([]models.GraderConfig(nil), effective...), agentPath, fm)
+		return augmentGradersFromAgent(append([]models.GraderConfig(nil), spec.Graders...), agentPath, fm), nil
 	}
-	return graders.RunAll(ctx, effective, tc, gradersContext, spec.Config.JudgeModel, spec.Config.JudgeReasoningEffort, r.updateSnapshots)
+	return spec.Graders, nil
 }
 
 // mergeToolPolicyResult folds a follow-up/responder turn's tool-policy

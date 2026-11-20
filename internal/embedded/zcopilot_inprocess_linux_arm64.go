@@ -8,112 +8,112 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/base64"
+	"errors"
 	"io"
 
 	"github.com/github/copilot-sdk/go/embeddedcli"
 	"github.com/klauspost/compress/zstd"
 )
 
-//go:embed zcopilot_1.0.105_linux_arm64.zst
+//go:embed zcopilot_1.0.112_linux_arm64.zst
 var localEmbeddedCopilotCLI []byte
 
-//go:embed zcopilot_1.0.105_linux_arm64.license
+//go:embed zcopilot_1.0.112_linux_arm64.license
 var localEmbeddedCopilotCLILicense []byte
 
-//go:embed zcopilotruntime_1.0.105_linux-arm64.so.zst
+//go:embed zcopilotruntime_1.0.112_linux-arm64.so.zst
 var localEmbeddedCopilotRuntimeLib []byte
 
-//go:embed zcopilotruntimewrapper_1.0.105_linux-arm64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.112_linux-arm64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutable []byte
 
-//go:embed zcopilotruntimeassets_1.0.105_linux-arm64.tgz
+//go:embed zcopilotruntimeassets_1.0.112_linux-arm64.tgz
 var localEmbeddedCopilotRuntimeAssets []byte
 
-//go:embed zcopilot_1.0.105_linuxmusl_arm64.zst
+//go:embed zcopilot_1.0.112_linuxmusl_arm64.zst
 var localEmbeddedCopilotCLILinuxMusl []byte
 
-//go:embed zcopilotruntime_1.0.105_linuxmusl-arm64.so.zst
+//go:embed zcopilotruntime_1.0.112_linuxmusl-arm64.so.zst
 var localEmbeddedCopilotRuntimeLibLinuxMusl []byte
 
-//go:embed zcopilotruntimewrapper_1.0.105_linuxmusl-arm64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.112_linuxmusl-arm64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutableLinuxMusl []byte
 
-//go:embed zcopilotruntimeassets_1.0.105_linuxmusl-arm64.tgz
+//go:embed zcopilotruntimeassets_1.0.112_linuxmusl-arm64.tgz
 var localEmbeddedCopilotRuntimeAssetsLinuxMusl []byte
 
 func init() {
 	embeddedcli.Setup(embeddedcli.Config{
 		Cli:                            cliReader(),
 		License:                        localEmbeddedCopilotCLILicense,
-		Version:                        "1.0.105",
-		CliHash:                        mustDecodeBase64("uJbfQ6HnUtoVtK72eVBUFHY2XlzvZoOujISnHk8bLtc="),
+		Version:                        "1.0.112",
+		CliHash:                        mustDecodeBase64("zC9Sm8edHOkQ5xgFzMMj++AOMb4JOFh+sXjfGO/XWcY="),
 		RuntimeLib:                     runtimeLibReader(),
-		RuntimeLibHash:                 mustDecodeBase64("ePWWSUF3o7in4+MCnRnHbWTVoXC0WYMwrT9t1s3GgLM="),
+		RuntimeLibHash:                 mustDecodeBase64("9vyKk0dHJDVQDksoz31j7OxjTGfxusl7eYSoW1isBbI="),
 		RuntimeNode:                    runtimeLibReader(),
-		RuntimeNodeHash:                mustDecodeBase64("ePWWSUF3o7in4+MCnRnHbWTVoXC0WYMwrT9t1s3GgLM="),
+		RuntimeNodeHash:                mustDecodeBase64("9vyKk0dHJDVQDksoz31j7OxjTGfxusl7eYSoW1isBbI="),
 		RuntimeExecutable:              runtimeExecutableReader(),
-		RuntimeExecutableHash:          mustDecodeBase64("uJbfQ6HnUtoVtK72eVBUFHY2XlzvZoOujISnHk8bLtc="),
+		RuntimeExecutableHash:          mustDecodeBase64("zC9Sm8edHOkQ5xgFzMMj++AOMb4JOFh+sXjfGO/XWcY="),
 		RuntimeAssets:                  bytes.NewReader(localEmbeddedCopilotRuntimeAssets),
-		RuntimeAssetsHash:              mustDecodeBase64("wx5EIC106WcnmSzuqqHxwkWCsue1u6LCTvQDqxM3Yq0="),
+		RuntimeAssetsHash:              mustDecodeBase64("MR0vNuIZQCAEMFd8+tB7hZkyp/7/6ar9YuC6hJJFtMM="),
 		LinuxMuslCli:                   linuxMuslCLIReader(),
-		LinuxMuslCliHash:               mustDecodeBase64("63/2BMXe3TaP53exBth2E/sblWMoSLEbKKUascZzaU4="),
+		LinuxMuslCliHash:               mustDecodeBase64("6TEVGQ397BK5/LwFmycWV+WHaLAR5JcHrTlxOQ+xcXk="),
 		LinuxMuslRuntimeLib:            linuxMuslRuntimeLibReader(),
-		LinuxMuslRuntimeLibHash:        mustDecodeBase64("5lQN1Axz+CBcfb6oQFhop1ywp+ktakIP1u3Lqc5FaxM="),
+		LinuxMuslRuntimeLibHash:        mustDecodeBase64("Idz5JEXl3Jhu7edn9EaU4RxL1uwpvYjiLoel9mARbIk="),
 		LinuxMuslRuntimeNode:           linuxMuslRuntimeLibReader(),
-		LinuxMuslRuntimeNodeHash:       mustDecodeBase64("5lQN1Axz+CBcfb6oQFhop1ywp+ktakIP1u3Lqc5FaxM="),
+		LinuxMuslRuntimeNodeHash:       mustDecodeBase64("Idz5JEXl3Jhu7edn9EaU4RxL1uwpvYjiLoel9mARbIk="),
 		LinuxMuslRuntimeExecutable:     linuxMuslRuntimeExecutableReader(),
-		LinuxMuslRuntimeExecutableHash: mustDecodeBase64("63/2BMXe3TaP53exBth2E/sblWMoSLEbKKUascZzaU4="),
+		LinuxMuslRuntimeExecutableHash: mustDecodeBase64("6TEVGQ397BK5/LwFmycWV+WHaLAR5JcHrTlxOQ+xcXk="),
 		LinuxMuslRuntimeAssets:         bytes.NewReader(localEmbeddedCopilotRuntimeAssetsLinuxMusl),
-		LinuxMuslRuntimeAssetsHash:     mustDecodeBase64("764YirsG0DW49Ft7zQ8hhVc1ZGiJKckpfnVy1nardSs="),
+		LinuxMuslRuntimeAssetsHash:     mustDecodeBase64("po1FDA9AzFLa3fwW4cAIo/eCN8UmWcNJ9HdWuirZZDU="),
 	})
 }
 
 func cliReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotCLI))
-	if err != nil {
-		panic("failed to create zstd reader: " + err.Error())
-	}
-	return r
+	return newZstdReader(localEmbeddedCopilotCLI)
 }
 
 func runtimeLibReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotRuntimeLib))
-	if err != nil {
-		panic("failed to create zstd reader: " + err.Error())
-	}
-	return r
+	return newZstdReader(localEmbeddedCopilotRuntimeLib)
 }
 
 func runtimeExecutableReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotRuntimeExecutable))
-	if err != nil {
-		panic("failed to create zstd reader: " + err.Error())
-	}
-	return r
+	return newZstdReader(localEmbeddedCopilotRuntimeExecutable)
 }
 
 func linuxMuslCLIReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotCLILinuxMusl))
-	if err != nil {
-		panic("failed to create zstd reader: " + err.Error())
-	}
-	return r
+	return newZstdReader(localEmbeddedCopilotCLILinuxMusl)
 }
 
 func linuxMuslRuntimeLibReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotRuntimeLibLinuxMusl))
-	if err != nil {
-		panic("failed to create zstd reader: " + err.Error())
-	}
-	return r
+	return newZstdReader(localEmbeddedCopilotRuntimeLibLinuxMusl)
 }
 
 func linuxMuslRuntimeExecutableReader() io.Reader {
-	r, err := zstd.NewReader(bytes.NewReader(localEmbeddedCopilotRuntimeExecutableLinuxMusl))
+	return newZstdReader(localEmbeddedCopilotRuntimeExecutableLinuxMusl)
+}
+
+// zstdReader decompresses an embedded artifact. Seek(0, io.SeekStart) restarts
+// it, so an installation that fails part-way can be retried without keeping the
+// decompressed artifact in memory.
+type zstdReader struct {
+	*zstd.Decoder
+	compressed []byte
+}
+
+func newZstdReader(compressed []byte) io.Reader {
+	decoder, err := zstd.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		panic("failed to create zstd reader: " + err.Error())
 	}
-	return r
+	return &zstdReader{Decoder: decoder, compressed: compressed}
+}
+
+func (r *zstdReader) Seek(offset int64, whence int) (int64, error) {
+	if offset != 0 || whence != io.SeekStart {
+		return 0, errors.New("only Seek(0, io.SeekStart) is supported")
+	}
+	return 0, r.Decoder.Reset(bytes.NewReader(r.compressed))
 }
 
 func mustDecodeBase64(s string) []byte {

@@ -111,6 +111,9 @@ type Snapshot struct {
 	WorkspaceFiles            []WorkspaceFile            `json:"workspaceFiles,omitempty"`
 	rawWorkspaceFiles         []json.RawMessage
 	workspaceCaptureRequested bool
+	recordedValidationPasses  map[string]bool
+	recordedValidationScores  map[string]float64
+	recordedValidationFields  map[string]snapshotValidationFieldState
 }
 
 // SnapshotTask carries identifying task metadata.
@@ -201,14 +204,80 @@ type SnapshotRedaction struct {
 // SnapshotResult mirrors the relevant subset of models.RunResult so a
 // snapshot can be replayed without also loading results.json.
 type SnapshotResult struct {
-	Status      models.Status                   `json:"status"`
-	FinalOutput string                          `json:"finalOutput,omitempty"`
-	ErrorMsg    string                          `json:"errorMsg,omitempty"`
-	DurationMs  int64                           `json:"durationMs,omitempty"`
-	Validations map[string]models.GraderResults `json:"validations,omitempty"`
+	Status                   models.Status                   `json:"status"`
+	FinalOutput              string                          `json:"finalOutput,omitempty"`
+	ErrorMsg                 string                          `json:"errorMsg,omitempty"`
+	DurationMs               int64                           `json:"durationMs,omitempty"`
+	Validations              map[string]models.GraderResults `json:"validations,omitempty"`
+	recordedValidationFields map[string]snapshotValidationFieldState
 }
 
-// MarshalJSON ensures SchemaVersion and Kind are always populated.
+type snapshotValidationFieldState struct {
+	passed        json.RawMessage
+	score         json.RawMessage
+	decodedPassed bool
+	decodedScore  float64
+}
+
+func (r SnapshotResult) MarshalJSON() ([]byte, error) {
+	type validation struct {
+		Name       string            `json:"identifier"`
+		Type       models.GraderKind `json:"type"`
+		Score      json.RawMessage   `json:"score,omitempty"`
+		Weight     float64           `json:"weight"`
+		Passed     json.RawMessage   `json:"passed,omitempty"`
+		Feedback   string            `json:"feedback"`
+		Details    map[string]any    `json:"details,omitempty"`
+		DurationMs int64             `json:"duration_ms"`
+	}
+	validations := make(map[string]validation, len(r.Validations))
+	for name, result := range r.Validations {
+		score, err := json.Marshal(result.Score)
+		if err != nil {
+			return nil, err
+		}
+		passed, err := json.Marshal(result.Passed)
+		if err != nil {
+			return nil, err
+		}
+		if state, ok := r.recordedValidationFields[name]; ok {
+			if result.Score == state.decodedScore {
+				score = state.score
+			}
+			if result.Passed == state.decodedPassed {
+				passed = state.passed
+			}
+		}
+		validations[name] = validation{
+			Name:       result.Name,
+			Type:       result.Type,
+			Score:      score,
+			Weight:     result.Weight,
+			Passed:     passed,
+			Feedback:   result.Feedback,
+			Details:    result.Details,
+			DurationMs: result.DurationMs,
+		}
+	}
+
+	type result struct {
+		Status      models.Status         `json:"status"`
+		FinalOutput string                `json:"finalOutput,omitempty"`
+		ErrorMsg    string                `json:"errorMsg,omitempty"`
+		DurationMs  int64                 `json:"durationMs,omitempty"`
+		Validations map[string]validation `json:"validations,omitempty"`
+	}
+	return json.Marshal(result{
+		Status:      r.Status,
+		FinalOutput: r.FinalOutput,
+		ErrorMsg:    r.ErrorMsg,
+		DurationMs:  r.DurationMs,
+		Validations: validations,
+	})
+}
+
+// MarshalJSON ensures SchemaVersion and Kind are populated and preserves
+// validation field presence when a parsed snapshot is written again.
 func (s Snapshot) MarshalJSON() ([]byte, error) {
 	type alias Snapshot
 	if s.SchemaVersion == "" {
@@ -217,6 +286,7 @@ func (s Snapshot) MarshalJSON() ([]byte, error) {
 	if s.Kind == "" {
 		s.Kind = Kind
 	}
+	s.Result.recordedValidationFields = s.recordedValidationFields
 	return json.Marshal(alias(s))
 }
 
@@ -237,7 +307,65 @@ func (s *Snapshot) UnmarshalJSON(data []byte) error {
 		}
 	}
 	*s = Snapshot(decoded)
+	var validationEvidence struct {
+		Result struct {
+			Validations map[string]map[string]json.RawMessage `json:"validations"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &validationEvidence); err != nil {
+		return err
+	}
+	if len(validationEvidence.Result.Validations) > 0 {
+		s.recordedValidationPasses = make(map[string]bool, len(validationEvidence.Result.Validations))
+		s.recordedValidationScores = make(map[string]float64, len(validationEvidence.Result.Validations))
+		s.recordedValidationFields = make(map[string]snapshotValidationFieldState, len(validationEvidence.Result.Validations))
+		for name, validation := range validationEvidence.Result.Validations {
+			state := snapshotValidationFieldState{
+				passed: bytes.Clone(validation["passed"]),
+				score:  bytes.Clone(validation["score"]),
+			}
+			if result, ok := s.Result.Validations[name]; ok {
+				state.decodedPassed = result.Passed
+				state.decodedScore = result.Score
+			}
+			s.recordedValidationFields[name] = state
+			if len(state.passed) > 0 && string(state.passed) != "null" {
+				var passed bool
+				if err := json.Unmarshal(state.passed, &passed); err != nil {
+					return err
+				}
+				s.recordedValidationPasses[name] = passed
+			}
+			if len(state.score) > 0 && string(state.score) != "null" {
+				var score float64
+				if err := json.Unmarshal(state.score, &score); err != nil {
+					return err
+				}
+				s.recordedValidationScores[name] = score
+			}
+		}
+	}
 	return nil
+}
+
+// RecordedValidationPass returns the pass verdict only when the snapshot
+// explicitly recorded a non-null "passed" field for the named validation.
+func (s *Snapshot) RecordedValidationPass(name string) (bool, bool) {
+	if s == nil {
+		return false, false
+	}
+	passed, ok := s.recordedValidationPasses[name]
+	return passed, ok
+}
+
+// RecordedValidationScore returns the score only when the snapshot explicitly
+// recorded a non-null "score" field for the named validation.
+func (s *Snapshot) RecordedValidationScore(name string) (float64, bool) {
+	if s == nil {
+		return 0, false
+	}
+	score, ok := s.recordedValidationScores[name]
+	return score, ok
 }
 
 // ParseSnapshot decodes a snapshot from bytes and validates its schema

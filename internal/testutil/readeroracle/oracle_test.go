@@ -4,12 +4,42 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestRunCurrentProcess(t *testing.T) {
+	type observation struct {
+		Value string
+		PID   int
+	}
+	if raw, subprocess := Input(t); subprocess {
+		var value string
+		require.NoError(t, json.Unmarshal(raw, &value))
+		Output(t, observation{Value: value, PID: os.Getpid()})
+		return
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	raw := Run(t, executable, "TestRunCurrentProcess", "current reader")
+	var got observation
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.Equal(t, "current reader", got.Value)
+	require.NotEqual(t, os.Getpid(), got.PID)
+	if testing.CoverMode() != "" {
+		directory := flag.Lookup("test.gocoverdir").Value.String()
+		require.NotEmpty(t, directory, "run covered regression through go test")
+		counters, err := filepath.Glob(filepath.Join(directory, fmt.Sprintf("covcounters.*.%d.*", got.PID)))
+		require.NoError(t, err)
+		require.Len(t, counters, 1, "current reader coverage must reach the parent's exported profile")
+	}
+}
 
 func TestDescribe(t *testing.T) {
 	require.Nil(t, Describe(nil))

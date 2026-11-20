@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -21,11 +23,39 @@ import (
 type Cache struct {
 	dir string
 	mu  sync.Mutex
+	// runOutputs are per-run output names, written outside the runner, that
+	// must not enter the key when they sit beneath a skill directory.
+	runOutputs []ExcludeEntry
 }
 
 // New creates a new cache instance with the specified directory
 func New(dir string) *Cache {
 	return &Cache{dir: dir}
+}
+
+// ExcludeRunOutputs records generated output names, such as timestamped
+// result directories and session logs, to skip when fingerprinting skill
+// directories for this cache.
+func (c *Cache) ExcludeRunOutputs(entries ...ExcludeEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.runOutputs = append(c.runOutputs, entries...)
+}
+
+// RunOutputs returns the entries recorded by ExcludeRunOutputs; a nil cache
+// has none.
+func (c *Cache) RunOutputs() []ExcludeEntry {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.runOutputs)
+}
+
+// Dir returns the directory cache entries are written to.
+func (c *Cache) Dir() string {
+	return c.dir
 }
 
 // CacheKey generates a unique cache key for a test case run
@@ -36,6 +66,7 @@ func New(dir string) *Cache {
 // - fixture file hashes
 // - the task's effective MCP mocks, with fixture contents resolved
 // - lifecycle hooks and eval inputs when hooks are configured
+// - consumed skill, agent, instruction and context bytes (CacheKeyWithInputs)
 // MCP fixtures use fixtureDir as their base; use CacheKeyWithSpecDir when the
 // eval and task resource directories differ.
 func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (string, error) {
@@ -45,6 +76,85 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 // CacheKeyWithSpecDir resolves MCP fixtures relative to the eval directory,
 // independently of the task resource directory.
 func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDir, specDir string) (string, error) {
+	return CacheKeyWithInputs(spec, task, fixtureDir, specDir, nil)
+}
+
+// ConsumedInputs are the bytes request construction reads beyond the
+// declarations hashed by CacheKeyWithSpecDir: context fixtures, instruction
+// files, the selected skill or agent definition, and skill directory trees.
+type ConsumedInputs struct {
+	// Files are fingerprinted in order, since order can change the request.
+	Files []ConsumedFile
+	// SkillDirs are hashed recursively, in precedence order.
+	SkillDirs []string
+	// ExcludePaths are run outputs (cache, transcripts, snapshots) that may
+	// live beneath a skill directory and must not feed back into the key.
+	ExcludePaths []string
+	// ExcludeEntries are run outputs whose names are generated per run (such
+	// as timestamped results), matched by name only within one directory.
+	ExcludeEntries []ExcludeEntry
+}
+
+// ExcludeEntry skips entries directly inside Dir whose base name matches the
+// filepath.Match pattern NamePattern, leaving other content in Dir hashed.
+type ExcludeEntry struct {
+	Dir         string
+	NamePattern string
+}
+
+// treeExclusions are the resolved run outputs skipped while hashing skill trees.
+type treeExclusions struct {
+	paths   map[string]bool
+	entries map[string][]string
+}
+
+func newTreeExclusions(inputs *ConsumedInputs) *treeExclusions {
+	ex := &treeExclusions{paths: map[string]bool{}, entries: map[string][]string{}}
+	for _, path := range inputs.ExcludePaths {
+		if path != "" {
+			ex.paths[canonicalPath(path)] = true
+		}
+	}
+	for _, entry := range inputs.ExcludeEntries {
+		if entry.Dir != "" && entry.NamePattern != "" {
+			dir := canonicalPath(entry.Dir)
+			ex.entries[dir] = append(ex.entries[dir], entry.NamePattern)
+		}
+	}
+	return ex
+}
+
+func (ex *treeExclusions) skip(dir, name string) bool {
+	if ex.paths[filepath.Join(dir, name)] {
+		return true
+	}
+	for _, pattern := range ex.entries[dir] {
+		if ok, err := filepath.Match(pattern, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+// ConsumedFile is one file's content as consumed by request construction.
+type ConsumedFile struct {
+	Role    string
+	Path    string
+	Content []byte
+}
+
+// skipSkillTreeDir reports directories not fingerprinted inside skill trees.
+// Only VCS metadata is skipped: it changes with ordinary git use and is not
+// skill content. Run outputs are excluded by path instead.
+func skipSkillTreeDir(name string) bool {
+	return name == ".git"
+}
+
+// CacheKeyWithInputs extends CacheKeyWithSpecDir with the content of consumed
+// inputs, so editing a skill, instruction file or context fixture in place
+// does not reuse an outcome produced from the previous bytes. Any unreadable
+// input returns an error, which callers treat as "do not cache".
+func CacheKeyWithInputs(spec *models.EvalSpec, task *models.TestCase, fixtureDir, specDir string, inputs *ConsumedInputs) (string, error) {
 	h := sha256.New()
 
 	// Include spec identity
@@ -190,7 +300,167 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 		}
 	}
 
+	// Always salted: earlier keys ignored consumed inputs (including eval-level
+	// instruction files), so no earlier entry can be shown to match them.
+	if err := hashConsumedInputs(h, inputs); err != nil {
+		return "", fmt.Errorf("hashing consumed inputs: %w", err)
+	}
+
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func hashConsumedInputs(h io.Writer, inputs *ConsumedInputs) error {
+	if err := writeString(h, "consumed-inputs-v1"); err != nil {
+		return err
+	}
+	if inputs == nil {
+		return nil
+	}
+	for _, file := range inputs.Files {
+		sum := sha256.Sum256(file.Content)
+		for _, s := range []string{"file", file.Role, file.Path, hex.EncodeToString(sum[:])} {
+			if err := writeString(h, s); err != nil {
+				return err
+			}
+		}
+	}
+	excluded := newTreeExclusions(inputs)
+	for i, dir := range inputs.SkillDirs {
+		if err := writeString(h, "skill-dir"); err != nil {
+			return err
+		}
+		if err := writeInt(h, i); err != nil {
+			return err
+		}
+		if err := hashSkillTree(h, dir, excluded); err != nil {
+			return fmt.Errorf("skill directory %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// canonicalPath resolves symlinks when the path exists, so exclusions match
+// the resolved paths visited by hashSkillTree.
+func canonicalPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return filepath.Clean(abs)
+}
+
+// hashSkillTree writes each entry's slash-separated relative path and file
+// content digest in lexical order. Symlinks are followed, with directory
+// cycles recorded rather than revisited, so linked content is fingerprinted.
+func hashSkillTree(h io.Writer, root string, excluded *treeExclusions) error {
+	resolved, err := filepath.EvalSymlinks(root)
+	if os.IsNotExist(err) {
+		return writeString(h, "missing")
+	}
+	if err != nil {
+		return err
+	}
+	resolved = canonicalPath(resolved)
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		if err := writeString(h, "file"); err != nil {
+			return err
+		}
+		return hashFileDigest(h, resolved)
+	}
+	return hashSkillDir(h, resolved, "", map[string]bool{resolved: true}, excluded)
+}
+
+func hashSkillDir(h io.Writer, dir, rel string, active map[string]bool, excluded *treeExclusions) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		entryRel := entry.Name()
+		if rel != "" {
+			entryRel = rel + "/" + entry.Name()
+		}
+		if excluded.skip(dir, entry.Name()) {
+			continue
+		}
+		target := path
+		if entry.Type()&fs.ModeSymlink != 0 {
+			target, err = filepath.EvalSymlinks(path)
+			if os.IsNotExist(err) {
+				if err := writeString(h, entryRel); err != nil {
+					return err
+				}
+				if err := writeString(h, "dangling-symlink"); err != nil {
+					return err
+				}
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if excluded.skip(filepath.Dir(target), filepath.Base(target)) {
+				continue
+			}
+		}
+		info, err := os.Stat(target)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && skipSkillTreeDir(entry.Name()) {
+			continue
+		}
+		// Directories are not recorded on their own: run outputs may create
+		// them (and their ancestors) after the first run, while every
+		// retained file still enters the key under its relative path.
+		if info.IsDir() {
+			if active[target] {
+				if err := writeString(h, entryRel); err != nil {
+					return err
+				}
+				if err := writeString(h, "symlink-cycle"); err != nil {
+					return err
+				}
+				continue
+			}
+			active[target] = true
+			err := hashSkillDir(h, target, entryRel, active, excluded)
+			delete(active, target)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if err := writeString(h, entryRel); err != nil {
+			return err
+		}
+		switch {
+		case info.Mode().IsRegular():
+			if err := hashFileDigest(h, target); err != nil {
+				return err
+			}
+		default:
+			if err := writeString(h, "irregular"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func hashFileDigest(h io.Writer, path string) error {
+	digest := sha256.New()
+	if err := hashFile(digest, path); err != nil {
+		return err
+	}
+	return writeString(h, hex.EncodeToString(digest.Sum(nil)))
 }
 
 // RecordedMCPMocksMatch reports whether a cached outcome is safe to reuse for
@@ -320,11 +590,36 @@ func (c *Cache) cachePath(key string) string {
 // Non-deterministic graders include: behavior and prompt
 func HasNonDeterministicGraders(spec *models.EvalSpec) bool {
 	for _, g := range spec.Graders {
-		if g.Kind == models.GraderKindBehavior || g.Kind == models.GraderKindPrompt {
+		if isNonDeterministicGrader(g.Kind) {
 			return true
 		}
 	}
 	return false
+}
+
+// HasNonDeterministicTaskGraders checks task and checkpoint graders that must
+// be run each time instead of reusing a cached outcome.
+func HasNonDeterministicTaskGraders(task *models.TestCase) bool {
+	if task == nil {
+		return false
+	}
+	for _, grader := range task.Validators {
+		if isNonDeterministicGrader(grader.Kind) {
+			return true
+		}
+	}
+	for _, checkpoint := range task.Checkpoints {
+		for _, grader := range checkpoint.Graders {
+			if isNonDeterministicGrader(grader.Kind) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isNonDeterministicGrader(kind models.GraderKind) bool {
+	return kind == models.GraderKindBehavior || kind == models.GraderKindPrompt
 }
 
 // Helper functions

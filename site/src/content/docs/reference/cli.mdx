@@ -121,7 +121,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 | `--format` | `-f` | string | `default` | Output format: `default`, `github-comment` |
 | `--reporter` | | string[] | | Output reporters: `json`, `junit:<path>` (repeatable) |
 | `--timeout` | | int | 300 | Task timeout in seconds |
-| `--baseline` | | bool | false | A/B testing mode — runs each task twice (without skill = baseline, with skill = normal) and computes improvement scores |
+| `--baseline` | | bool | false | A/B testing mode — runs each task twice (baseline with all skills explicitly disabled, including task-level `skill_directories` and ambient discovery; then with skills = normal) and computes improvement scores. Isolates skill loading only; model outputs can still vary between passes |
 | `--update-snapshots` | | bool | false | Update or create `diff` grader snapshot files to match current workspace output |
 | `--discover` | | string | | Auto skill discovery — walks directory tree for SKILL.md + eval.yaml (root/tests/evals) |
 | `--strict` | | bool | false | Fail if any SKILL.md lacks eval coverage (use with `--discover`) |
@@ -565,11 +565,16 @@ Linux/macOS only; Windows reader checks do not certify writing. Do not adopt
 historical outcomes as fresh evidence.
 See [controlled comparisons](/waza/guides/controlled-comparisons/).
 
-**Existing legacy JSON limitation:** when task sets differ, missing-task score
-and pass-rate entries use non-finite values internally, so `compare --format
-json` fails to encode the report. Table output still displays those entries as
-`n/a`. This predates controlled-policy selection; no missing-task JSON fix or
-change to legacy task-set semantics is included here.
+**Changing task sets:** `compare --format json` emits valid JSON when task sets
+differ. Unavailable values are `null`, never `0`: a task absent from a file has
+a `null` score and pass rate (status `n/a`), and a task present without
+statistics also has `null` values. `score_delta` and `pass_rate_delta` are
+computed only when both the first and last files have a value; otherwise they
+are `null`. Observed zero stays `0`. When any value in a task entry is
+unavailable, the additive `availability` array gives a per-file reason:
+`observed`, `task_missing` or `stats_missing`. Fully observed entries keep the
+previous shape and numeric values. Table output shows unavailable values and
+deltas as `n/a`.
 
 ### Examples
 
@@ -577,6 +582,19 @@ change to legacy task-set semantics is included here.
 waza compare gpt4.json sonnet.json
 waza compare gpt4.json sonnet.json opus.json
 waza compare results-*.json --format json
+```
+
+```json
+{
+  "task_id": "task-b",
+  "display_name": "Task B",
+  "scores": [null, 0.5],
+  "pass_rates": [null, 1],
+  "statuses": ["n/a", "passed"],
+  "score_delta": null,
+  "pass_rate_delta": null,
+  "availability": ["task_missing", "observed"]
+}
 ```
 
 ### Tool-use metrics (schema 1.1+)
@@ -593,6 +611,13 @@ When the input files include the `tool_events[]` array (`results.json` schema 1.
 | `call_count_histogram` | Distribution of per-task call counts in buckets `0`, `1`, `2`, `3+` |
 
 The section is suppressed when none of the compared files contain tool data, so legacy 1.0 results remain unchanged.
+
+Results that declare `schemaVersion` `1.0` predate `tool_events[]` and cannot
+distinguish absent tool evidence from zero calls. In JSON output, their
+`tool_metrics` entry is `null` and the additive `tool_metrics_availability`
+array reports `tool_events_not_recorded` for that file (`observed` for the
+others); the table shows `n/a`. The array is omitted when every file records
+tool events.
 
 ## waza compare-plan
 
@@ -709,11 +734,11 @@ waza replay <snapshot.json> [flags]
 | `--mode` | string | `model-replay` | Offline consistency check. `live` is unsupported and returns exit code `2`. |
 | `--bisect` | string | | Path to a second snapshot to compare against the primary. Reports the first divergent turn. |
 | `--json` | bool | false | Emit machine-readable JSON to stdout instead of a human summary. |
-| `--strict` | bool | true | In `model-replay` mode, also re-check final status and grader outcome consistency. |
+| `--strict` | bool | true | In `model-replay` mode, also re-check final status against explicitly recorded grader and checkpoint outcomes. |
 
 ### Modes
 
-- **`model-replay`** — Re-checks the snapshot's grader outcomes and tool-event tape for internal consistency (monotonic sequence, validation/score agreement). Fast, fully offline, ideal for CI.
+- **`model-replay`** — Checks the stored tool-event array in its existing order for out-of-order, duplicate, and missing sequence numbers, plus validation/score agreement. In strict mode, a passed status also diverges when an explicitly recorded final validation failed or a checkpoint has failed/error status. Missing `passed`/`score` fields and omitted checkpoint records are not treated as failures; skipped/error result statuses are not reinterpreted. Fast, fully offline, ideal for CI.
 - **`live`** — Unsupported; returns exit code `2`. No live replay behavior or delivery date is promised.
 
 ### Exit codes
@@ -1303,7 +1328,7 @@ waza cache clear [--cache-dir=.waza-cache]
 
 Clear all cached evaluation results.
 
-The cache stores test outcomes to speed up repeated evaluations with the same inputs. Cached results are keyed by spec configuration, task definition, model, and fixture file contents.
+The cache stores test outcomes to speed up repeated evaluations with the same inputs. Cached results are keyed by spec configuration, task definition, model, fixture file contents, and the bytes of consumed inputs: every file under the configured skill directories, by relative path and content (following symlinks; skipping `.git`, the run's cache, transcript and snapshot locations, the `--output` file and its per-model, per-skill and summary variants, JUnit reporter files, the timestamped run directories and `.partial` files of `--output-dir`, and session log files), the selected skill or agent definition and its directory, instruction files, and `inputs.context.fixture` contents. Editing any of them in place causes a cache miss; if one cannot be read, the task runs uncached.
 
 ```bash
 waza cache clear
@@ -2049,13 +2074,14 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 | `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
-The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Standalone v0.40.0 uses `github.com/github/copilot-sdk/go` v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
+The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. The current source uses `github.com/github/copilot-sdk/go` v1.0.34 with bundled CLI 1.0.112. Standalone v0.40.0 uses SDK v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
 ## waza telemetry
 
 Manage product usage telemetry. Every subcommand is local-only, sends nothing,
-and is never itself collected. This build has no approved collector endpoint,
-so no usage data is sent; see [Product Usage Telemetry](/waza/guides/usage-telemetry/).
+and is never itself collected. Released builds collect allowlisted, pseudonymous
+usage events on developer machines and never in CI; see
+[Product Usage Telemetry](/waza/guides/usage-telemetry/) to opt out.
 
 ```bash
 waza telemetry status    # Show whether collection is active and why
@@ -2128,8 +2154,12 @@ graders:
 
 **Requirements:**
 - Pairwise mode requires the `--baseline` flag on `waza run`
-- Baseline execution must complete before pairwise comparison runs
+- The skills-disabled baseline pass completes before the skills-enabled pass
+- Outputs are matched by task ID and trial; the final retry attempt is compared
+- A successful empty output is valid, but a missing or failed baseline output stops the comparison
 - Each task is evaluated twice: once without the skill (baseline) and once with it (treatment)
+- Pairwise grading is not supported by saved-result `waza grade`; rerun with `waza run --baseline`
+- Pairwise judgments decide skill impact and the exit code: judged tasks contribute `(skill_wins - baseline_wins) / judgments`, other tasks their pass-rate delta, and the run exits `1` unless the mean is positive (counts are saved in `skill_impact.pairwise_summary`)
 
 **Example:**
 ```bash

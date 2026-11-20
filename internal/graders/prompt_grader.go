@@ -19,6 +19,7 @@ import (
 )
 
 const AllPromptsPassed = "All prompts passed"
+const noPromptVerdict = "Judge returned no verdict"
 const wazaPassToolName = "set_waza_grade_pass"
 const wazaFailToolName = "set_waza_grade_fail"
 
@@ -127,7 +128,16 @@ func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*mod
 	if p.args.EvidenceContext != nil {
 		return p.gradeEvidence(ctx, gradingContext)
 	}
-	if p.args.Mode == models.PromptGraderModePairwise && gradingContext.BaselineOutput != "" {
+	if p.args.Mode == models.PromptGraderModePairwise {
+		if gradingContext == nil {
+			return nil, errors.New("pairwise prompt grading requires grading context")
+		}
+		if !gradingContext.OutputPresent {
+			return nil, errors.New("pairwise prompt grading requires an observed candidate output")
+		}
+		if !gradingContext.BaselineOutputPresent {
+			return nil, errors.New("pairwise prompt grading requires an observed baseline output")
+		}
 		return p.gradePairwise(ctx, gradingContext)
 	}
 	return p.gradeIndependent(ctx, gradingContext)
@@ -230,6 +240,8 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 
 		if len(wazaTools.Failures) > 0 {
 			feedback = strings.Join(wazaTools.Failures, ";")
+		} else if len(wazaTools.Passes) == 0 {
+			feedback = noPromptVerdict
 		}
 
 		return &models.GraderResults{
@@ -264,11 +276,9 @@ func (p *promptGrader) detailsWith(prompt, response string, passes, failures []s
 }
 
 // renderJudgePrompt returns the final prompt to send to the judge. When the
-// grader was configured with a rubric *and* the grading context carries a
-// candidate output (i.e. the judge will not be resuming the agent's session),
-// the rubric template is expanded with the candidate output so the judge has
-// something to evaluate. Otherwise the configured prompt is returned as-is to
-// preserve the existing inline-prompt behavior.
+// grading context carries a candidate output (i.e. the judge will not be
+// resuming the agent's session), the configured prompt is expanded with the
+// task input and candidate output so the judge has something to evaluate.
 //
 // With continue_session: true, the judge resumes the agent's live session and
 // reads the conversation directly — injecting Output here would be redundant
@@ -289,14 +299,18 @@ func (p *promptGrader) renderJudgePrompt(gradingContext *Context) string {
 	if p.args.ContinueSession {
 		return p.args.Prompt
 	}
-	if strings.TrimSpace(gradingContext.Output) == "" {
+	output := ""
+	if gradingContext.OutputPresent {
+		output = gradingContext.Output
+	}
+	if strings.TrimSpace(output) == "" {
 		return p.args.Prompt
 	}
 	taskInput := ""
 	if gradingContext.TestCase != nil {
 		taskInput = gradingContext.TestCase.Stimulus.Message
 	}
-	return p.rubric.RenderPrompt(taskInput, "", gradingContext.Output)
+	return p.rubric.RenderPrompt(taskInput, "", output)
 }
 
 func executePromptGrader(ctx context.Context, gradingContext *Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
@@ -440,9 +454,9 @@ func (p *promptGrader) gradePairwise(ctx context.Context, gradingContext *Contex
 		finalMagnitude := resultAB.magnitude
 		finalReasoning := resultAB.reasoning
 		if !positionConsistent {
-			finalWinner = "tie"
+			finalWinner = "inconsistent"
 			finalMagnitude = "equal"
-			finalReasoning = fmt.Sprintf("Position-inconsistent: pass1=%s, pass2=%s. Defaulting to tie.", winnerAB, winnerBA)
+			finalReasoning = fmt.Sprintf("Position-inconsistent: pass1=%s, pass2=%s.", winnerAB, winnerBA)
 		}
 
 		score := pairwiseWinnerToScore(finalWinner)
@@ -457,10 +471,14 @@ func (p *promptGrader) gradePairwise(ctx context.Context, gradingContext *Contex
 
 		details := map[string]any{
 			"pairwise": pairwise,
-			"pass1":    resultAB,
-			"pass2":    resultBA,
-			"prompt":   p.args.Prompt,
-			"mode":     "pairwise",
+			"pass1": pairwiseJudgmentDetails{
+				Winner: resultAB.winner, Magnitude: resultAB.magnitude, Reasoning: resultAB.reasoning,
+			},
+			"pass2": pairwiseJudgmentDetails{
+				Winner: resultBA.winner, Magnitude: resultBA.magnitude, Reasoning: resultBA.reasoning,
+			},
+			"prompt": p.args.Prompt,
+			"mode":   "pairwise",
 		}
 		if p.rubric != nil {
 			details["rubric"] = map[string]any{
@@ -490,6 +508,12 @@ type pairwiseJudgment struct {
 	set       bool
 }
 
+type pairwiseJudgmentDetails struct {
+	Winner    string `json:"winner"`
+	Magnitude string `json:"magnitude"`
+	Reasoning string `json:"reasoning"`
+}
+
 const pairwisePickToolName = "set_pairwise_winner"
 
 func (p *promptGrader) runPairwiseOnce(
@@ -502,10 +526,7 @@ func (p *promptGrader) runPairwiseOnce(
 		return nil, errors.New("prompt grader requires grading context")
 	}
 
-	judgment := &pairwiseJudgment{
-		winner:    "tie",
-		magnitude: "equal",
-	}
+	judgment := &pairwiseJudgment{}
 
 	tools := []copilot.Tool{
 		{
@@ -539,6 +560,9 @@ func (p *promptGrader) runPairwiseOnce(
 				}
 				if err := mapstructure.Decode(invocation.Arguments, &args); err != nil {
 					return copilot.ToolResult{}, nil
+				}
+				if args.Winner != labelA && args.Winner != labelB && args.Winner != "tie" {
+					return copilot.ToolResult{}, fmt.Errorf("invalid pairwise winner %q; expected %q, %q, or tie", args.Winner, labelA, labelB)
 				}
 				judgment.winner = args.Winner
 				judgment.magnitude = args.Magnitude
@@ -574,6 +598,10 @@ func (p *promptGrader) runPairwiseOnce(
 		return nil, fmt.Errorf("failed to send pairwise prompt: %s", resp.ErrorMsg)
 	}
 
+	if !judgment.set {
+		return nil, errors.New("judge session completed without calling set_pairwise_winner with a valid verdict")
+	}
+
 	return judgment, nil
 }
 
@@ -596,8 +624,10 @@ func normalizePairwiseWinner(winner, labelA, labelB, semanticA, semanticB string
 		return semanticA
 	case labelB:
 		return semanticB
-	default:
+	case "tie":
 		return "tie"
+	default:
+		return "invalid"
 	}
 }
 

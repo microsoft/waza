@@ -33,10 +33,18 @@ func (e *TestFailureError) Error() string {
 // operational failure rather than a completed negative judgment.
 type BenchmarkError struct {
 	Message string
+	Cause   error
 }
 
 func (e *BenchmarkError) Error() string {
+	if e.Cause != nil {
+		return e.Message + ": " + e.Cause.Error()
+	}
 	return e.Message
+}
+
+func (e *BenchmarkError) Unwrap() error {
+	return e.Cause
 }
 
 func completedBenchmarkError(err error) bool {
@@ -60,7 +68,7 @@ func main() {
 // only after the status and diagnostics are final, so it cannot change them.
 func runMain(diagnostics io.Writer, args []string) int {
 	started := time.Now()
-	policy := usagetelemetry.ResolveProcess(args, false)
+	policy := usagetelemetry.ResolveProcess(args, false, version)
 	usagetelemetry.Propagate(policy)
 	usagetelemetry.Start(policy, version)
 
