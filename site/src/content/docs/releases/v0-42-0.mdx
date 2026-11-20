@@ -1,0 +1,154 @@
+---
+title: "Waza v0.42.0 preview: verifiable production integration"
+description: Pending v0.42.0 release scope, production integration contracts, evaluation fixes and explicit migration and verification limits.
+---
+
+**Draft - publication pending. Release date 2026-11-20.**
+
+Waza v0.42.0 prepares the production-integration layer above the exact runner
+contract and durable execution shipped in v0.40.0 and v0.41.0. It adds signed
+execution provenance, component inventories, correlated telemetry, resource
+budgets, isolation capability declarations, portable adapters and an
+evidence-linked operator assurance package. These are bounded contracts, not a
+universal deployment or security approval.
+
+The version files are prepared for 0.42.0, but this article does not establish a
+tag, published binaries, extension registry synchronization, public image,
+attestations or successful release qualification. Use the
+[current published standalone and azd releases](../../reference/releases/).
+The download reference identifies the tag's standalone assets separately from
+extension registry synchronization and native execution evidence.
+
+## Source scope and release admission
+
+This inventory covers the v0.42.0 milestone (milestone 2), whose issues were
+closed when inspected on November 20, 2026. The merged-main source
+frontier is `__FRONTIER__`, including the readiness fixes in
+[PR #1084](https://github.com/microsoft/waza/pull/1084) and the opt-in keyless
+execution signer in [PR #1086](https://github.com/microsoft/waza/pull/1086).
+Use the [source comparison](https://github.com/microsoft/waza/compare/v0.41.0..__FRONTIER__)
+and [changelog](https://github.com/microsoft/waza/blob/main/CHANGELOG.md)
+for the complete change history, including dependency and documentation updates.
+Issue closure is not evidence of candidate qualification or publication.
+
+[Roadmap #756](https://github.com/microsoft/waza/issues/756) ties the seven
+production-integration contracts together. Before tagging, confirm this
+inventory against the actual reviewed source SHA and review a successful
+exact-commit qualification.
+The [release procedure](https://github.com/microsoft/waza/blob/main/docs/RELEASE.md)
+requires source-bound evidence; a different or stale green run is not sufficient.
+After publication, record the tag/SHA, binaries/checksums, image digest,
+attestation verification and independent extension registry synchronization.
+
+## Production-integration contracts
+
+| Milestone work | Included source behavior | Adoption and verification boundary |
+| --- | --- | --- |
+| [#769 execution provenance](https://github.com/microsoft/waza/issues/769), [PR #1000](https://github.com/microsoft/waza/pull/1000), [PR #1086](https://github.com/microsoft/waza/pull/1086) | `runner provenance generate`, `verify` and `keygen`; in-toto v1 statements in DSSE bind canonical inputs, API/Waza/image identities, policy, runtime/model claims, artifact chain and terminal outcome. Opt-in `--signer sigstore-keyless` signs in GitHub Actions. Lab verifies local-key bundles. | Local Ed25519 remains the default; its trust anchors must be supplied out of band. Keyless signing is optional and needs a verifier-supplied trusted root plus issuer/identity policy. Managed-KMS signing is unavailable (exit 5). GitHub build attestations are separate, not execution-outcome signatures. |
+| [#770 component inventory](https://github.com/microsoft/waza/issues/770), [PR #1008](https://github.com/microsoft/waza/pull/1008) | `runner inventory generate|verify`, deterministic CycloneDX 1.6 component inventory bound to image/plugin digests, provenance bindings and Lab verification. | Verify signed inventory and the actual consumed digest. Publication is restricted to the qualified tag-release path; previously published images are unqualified until republished and verified. Inventories are not vulnerability or license assessments. |
+| [#771 correlated execution telemetry](https://github.com/microsoft/waza/issues/771), [PR #997](https://github.com/microsoft/waza/pull/997) | `runner telemetry` derives deterministic trace/span IDs, bounded metrics/logs and external scheduler correlation from retained runner documents; Lab exposes correlation. | Signals are post-run, payload-free by default, with optional digest/length surrogates. OTLP/JSON files and OTLP/HTTP JSON are supported; live hot-path emission, OTLP gRPC/protobuf and raw payload export are not. |
+| [#772 resource budgets](https://github.com/microsoft/waza/issues/772), [PR #1002](https://github.com/microsoft/waza/pull/1002) | Optional runner request budgets, pre-execution capability admission, terminal budget reports, `runner budgets` and Lab inspection. | Wall time/model turns/tool calls are enforced. CPU and supported peak-memory usage are measured, not enforced. Disk/process count and Windows peak memory are unsupported; reject is default, report explicitly allows unenforced limits. Older runners reject budget-bearing requests. |
+| [#773 portable isolation](https://github.com/microsoft/waza/issues/773), [PR #999](https://github.com/microsoft/waza/pull/999) | Requested/available/effective capability declarations, `isolation preflight`, run admission and Lab diagnostics probe boundary violations. | Waza enforces no sandbox itself. Native sandbox provider work [#544](https://github.com/microsoft/waza/issues/544)/[#545](https://github.com/microsoft/waza/issues/545) is not in v0.42.0. Host probes cannot prove filesystem, secret or subprocess confinement; off-host network proof requires no external interfaces and does not cover loopback. |
+| [#774 portable adapters](https://github.com/microsoft/waza/issues/774), [PR #1001](https://github.com/microsoft/waza/pull/1001) | `runner adapter translate|dispatch` maps one vendor-neutral descriptor to one runner submit/checkpoint/lineage call; Lab translates offline. | Request/policy bytes are preserved; ambiguous, lossy or scheduler input is rejected. External schedulers own queueing, placement, retries and fleets. Operators configure the bounded provenance-verifier hook and its trust policy; dispatch alone does not verify provenance. |
+| [#775 assurance package](https://github.com/microsoft/waza/issues/775), [PR #1023](https://github.com/microsoft/waza/pull/1023) | Versioned production-integration assurance 1.0 package, offline `runner assurance build`, generated conformance matrix, threat model, readiness checklist, migration and evidence links. | Candidate guidance records unavailable states and links existing Lab views; it adds no new dashboard view and is not a deployment-specific approval. Reassess the exact released version and image digest. |
+
+Read the [provenance](../../guides/execution-provenance/),
+[inventory](../../guides/component-inventory/),
+[telemetry](../../guides/execution-telemetry/),
+[budgets](../../guides/execution-budgets/),
+[isolation](../../guides/execution-isolation/),
+[adapters](../../guides/runner-adapters/) and
+[assurance package](../../guides/production-integration-assurance/) guides
+for contracts, safe examples, verification and troubleshooting.
+
+### Opt-in keyless execution signing
+
+[PR #1086](https://github.com/microsoft/waza/pull/1086) adds opt-in
+`--signer sigstore-keyless` for `runner provenance generate`. It uses GitHub
+Actions OIDC with public-good Fulcio and Rekor v1, and saves a Sigstore bundle
+beside the unchanged DSSE statement. Keyless signing is optional and is not a
+release requirement; local Ed25519 remains the default signer. Signing and
+offline verification need a verifier-supplied Sigstore trusted root, and
+verification also needs the exact OIDC issuer and workflow identity policy.
+
+Not included: managed-KMS signing (still unavailable), certificate-transparency
+SCT and revocation checks, Lab/API keyless verification, GitHub Enterprise
+Server or custom OIDC issuers, and live public-good acceptance testing. See the
+[execution provenance guide](../../guides/execution-provenance/) for
+permissions, egress, trust-root acquisition and public-log disclosure.
+
+## Evaluation and evidence fixes
+
+| Milestone issue | Included fix |
+| --- | --- |
+| [#1071 inline prompt input](https://github.com/microsoft/waza/issues/1071), [commit 7cb755f](https://github.com/microsoft/waza/commit/7cb755fda5b84dba88ffc606ee9817de11121cd2) | Independent inline prompt judges receive candidate output and task input; missing verdicts no longer claim all prompts passed. Task prompt graders bypass stale cached outcomes. |
+| [#1027 pairwise grading](https://github.com/microsoft/waza/issues/1027), [PR #1081](https://github.com/microsoft/waza/pull/1081) | Successful skills-enabled and baseline outputs are compared as pairs; relative judgments drive impact and exit status. Wins/ties/losses and position inconsistencies are recorded. Offline saved-result pairwise regrading is rejected when baseline evidence is unavailable. |
+| [#1024 skill-disabled baseline](https://github.com/microsoft/waza/issues/1024), [PR #1073](https://github.com/microsoft/waza/pull/1073) | Task overrides and ambient skills/agent definitions no longer leak into the disabled baseline. Task-only skill selection still runs the comparison. |
+| [#1025 consumed-input cache keys](https://github.com/microsoft/waza/issues/1025), [PR #1074](https://github.com/microsoft/waza/pull/1074) | Consumed skill, instruction and fixture bytes affect cache identity. Unreadable consumed inputs run uncached; old entries miss once after upgrade. |
+| [#1029 changing task sets](https://github.com/microsoft/waza/issues/1029), [PR #1075](https://github.com/microsoft/waza/pull/1075) | JSON comparisons preserve unavailable scores, rates and deltas as `null` with reasons, rather than inventing zero or emitting non-finite values. |
+| [#1030 strict replay](https://github.com/microsoft/waza/issues/1030), [PR #1080](https://github.com/microsoft/waza/pull/1080) | Offline replay validates stored event order and supported status consistency; absent historical validation evidence remains unassessed. |
+| [#1057 repository capture](https://github.com/microsoft/waza/issues/1057), [PR #1061](https://github.com/microsoft/waza/pull/1061) | Output-only runs can disable workspace capture only after admission proves no consumer needs file evidence. Run/trigger/optimizer and cache modes agree; capture stays enabled by default. |
+| [#1056 infrastructure errors](https://github.com/microsoft/waza/issues/1056), [PR #1060](https://github.com/microsoft/waza/pull/1060) | Lab shows allowlisted per-trial infrastructure diagnostics even without grader results, without exposing raw session/responder/input errors. Closed release-artifact exports retain their existing contract. |
+| [#898 frozen judge evidence](https://github.com/microsoft/waza/issues/898), [PR #1065](https://github.com/microsoft/waza/pull/1065) | Opt-in judge-evidence 1.1 preserves declared fixture literals through capture/regrade. Undeclared sensitive values remain redacted; fixture declarations are not public evidence. |
+| [#964 Lab checkpoint validation](https://github.com/microsoft/waza/issues/964), [PR #990](https://github.com/microsoft/waza/pull/990) | The browser matches native canonical report validation; unverifiable evidence remains explicitly unverified. |
+| [#984 orphan journal race](https://github.com/microsoft/waza/issues/984), [PR #1072](https://github.com/microsoft/waza/pull/1072) | The Linux regression waits for observed owner journal state before asserting orphan/retry behavior. |
+
+## Qualification, CI and performance
+
+- [#905 native platform evidence](https://github.com/microsoft/waza/issues/905)
+  ([PR #1007](https://github.com/microsoft/waza/pull/1007)) separates native,
+  cross-built, emulated and unavailable evidence for six targets. Native package
+  smoke checks exact distributed binaries/extension packages and rejects
+  architecture/digest mismatches and runtime launches. Published-package smoke
+  is reported evidence, not yet a publication gate.
+- [#937 immutable release retry](https://github.com/microsoft/waza/issues/937)
+  ([PR #1076](https://github.com/microsoft/waza/pull/1076)) reuses an existing
+  registry-sync branch only when parent/tree match the validated sync; it never
+  force-pushes a different tip.
+- [#981 completeness gate follow-ups](https://github.com/microsoft/waza/issues/981)
+  ([PR #1003](https://github.com/microsoft/waza/pull/1003)) cover PR retargeting,
+  source-bound receipt races and consolidated Docker validation.
+- [#974 dashboard performance](https://github.com/microsoft/waza/issues/974)
+  ([PR #1005](https://github.com/microsoft/waza/pull/1005)) restores the
+  retry-disabled Playwright wall-time budget with lazy Ajv compilation and
+  direct-route rendering.
+- [#835 container Go caches](https://github.com/microsoft/waza/issues/835)
+  ([PR #836](https://github.com/microsoft/waza/pull/836)) reuses module/build
+  caches without changing the runtime contract. Related measured CI work under
+  [#825](https://github.com/microsoft/waza/issues/825) balances native and
+  remaining-package shards; this does not claim that the broader open issue is complete.
+- [#756 qualification](https://github.com/microsoft/waza/issues/756) adds
+  exact-current-main candidate qualification with binaries, OCI image archive,
+  CycloneDX inventory, GitHub provenance/SBOM attestations and offline
+  verification. Candidate runs publish no tag, release or registry image. The
+  tag path publishes the qualified artifacts without rebuilding binaries.
+  Readiness fixes add public-adapter signed-provenance verification and
+  decouple native probe behavior from a hard-coded bundled CLI version
+  ([#876](https://github.com/microsoft/waza/issues/876)).
+
+## Other included source changes
+
+[Product usage telemetry #1045](https://github.com/microsoft/waza/issues/1045)
+([PR #1069](https://github.com/microsoft/waza/pull/1069)) is separate from
+runner execution telemetry: allowlisted pseudonymous events are collected by
+default on developer machines, never in CI or development builds, with
+30-day retention. Every opt-out wins: `--no-telemetry`,
+`WAZA_TELEMETRY_OPTOUT=1`, `DO_NOT_TRACK=1`, `waza telemetry disable`,
+project denial and azd denial. See the [usage telemetry guide](../../guides/usage-telemetry/).
+
+Dependency updates include Copilot Go SDK 1.0.34 and bundled CLI 1.0.112,
+coordinated site/dashboard updates, and expanded native shard coverage.
+Documentation/sample readiness fixes align production commands, examples,
+provenance hook responsibilities and the generated assurance page with this
+candidate. Historical v0.41.0 publication records and pinned downloads remain
+unchanged.
+
+## Release media
+
+Release media is pending in the planning-only
+[#1085 v0.42.0 media task](https://github.com/microsoft/waza/issues/1085). It is
+blocked on release readiness; no capture or publication is authorized yet, and
+no v0.42.0 screenshots or videos are part of this preparation. Follow the
+[release-media procedure](https://github.com/microsoft/waza/blob/main/docs/RELEASE-MEDIA.md)
+after exact-source scope and deterministic capture paths are verified; drafts
+are not publication permission.

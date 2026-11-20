@@ -17,13 +17,24 @@ Function key in the browser. See [scope, privacy, and integration handoff](site/
 → [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
 Mock success checks the harness, not agent quality or live service safety.
 
-**Version boundary (November 13, 2026):** the published standalone CLI is
-`v0.41.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.41.0)). Scenario authoring, preflight, selected-file evidence,
+**Version boundary (November 20, 2026):** the published standalone CLI is
+`v0.42.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.42.0)). Scenario authoring, preflight, selected-file evidence,
 assurance profiles, controlled release policies, recorded reliability, and the
 opt-in dashboard Lab were introduced in `v0.39.0` and remain included.
 Install the published binary or run `waza update`; a source build is optional.
 Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
 [feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
+
+**v0.42.0 adds** execution
+provenance, component inventories, post-run telemetry, resource-budget and
+isolation contracts, portable external adapters, and an operator assurance
+package. It also includes opt-out product usage telemetry and evaluation fixes.
+Read the [v0.42.0 preview and migration limits](https://microsoft.github.io/waza/releases/v0-42-0/),
+[changelog](CHANGELOG.md#0420---2026-11-20) and
+[release reference](site/src/content/docs/reference/releases.mdx).
+Native sandbox providers (#544/#545) are not included; local signing and host
+capabilities retain explicit unavailable states. Extension registry availability
+follows the separate registry-sync pull request.
 
 Released in v0.41.0, the [logical execution-attempt embedding API](docs/EXECUTION_ATTEMPTS.md)
 adds immutable reservations and explicit verified reuse without changing
@@ -101,21 +112,21 @@ Requires Go 1.26+, Git LFS, Make, Node.js 22.23.4+ on the 22.x line or Node.js 2
 Note: due to the use of LFS artifacts you cannot install waza using `go install`. To install waza outside of a normal release, clone the repository:
 
 ```bash
-git clone --branch v0.41.0 https://github.com/microsoft/waza.git
+git clone --branch v0.42.0 https://github.com/microsoft/waza.git
 cd waza
 
 # ensure git LFS-based artifacts are available (for embedded copilot binaries)
 git lfs install
 git lfs pull
 
-make build VERSION=0.41.0
+make build VERSION=0.42.0
 ./waza <waza command line>
 ```
 
-The verified `v0.41.0` tag resolves to
-`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`. Unlike the historical v0.40.1 tags, the
-tag's `version.txt` and `extension.yaml` already carry `0.41.0`.
-`make build` defaults to `VERSION=0.0.0-dev`, so pass `VERSION=0.41.0` explicitly
+The `v0.42.0` tag carries `0.42.0` in `version.txt` and `extension.yaml`,
+unlike the historical v0.40.1 tags. The previous verified `v0.41.0` tag resolves
+to `d537bf00d4d442a1935ceba2fbc664b9ccb497b2`.
+`make build` defaults to `VERSION=0.0.0-dev`, so pass `VERSION=0.42.0` explicitly
 when building this tag. Official release builds inject the version from the
 tag with linker flags. A locally stamped binary is not a verified release asset,
 and does not prove extension registry synchronization.

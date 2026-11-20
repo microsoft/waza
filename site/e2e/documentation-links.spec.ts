@@ -82,11 +82,29 @@ test('all built internal page routes, fragments and image assets resolve under t
   expect(failures).toEqual([]);
 });
 
-test('published release navigation links the v0.41.0 article and downloads', async ({ page }) => {
+test('v0.42.0 downloads retain navigation to the bounded preview article', async ({ page }) => {
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
-  await expect(main).toContainText('Current published standalone release: v0.41.0');
-  const downloads = main.locator('a[href*="/releases/download/v0.41.0/waza-"]');
+  await expect(main).toContainText('Released: November 20, 2026.');
+  await expect(main).toContainText('Current published standalone release: v0.42.0');
+  await expect(main.locator('a[href*="/releases/download/v0.42.0/waza-"]')).toHaveCount(6);
+  await main.getByRole('link', { name: 'Waza v0.42.0 preview: verifiable production integration', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/releases\/v0-42-0\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.42.0 preview: verifiable production integration');
+  await expect(page.locator('main')).toContainText('Draft - publication pending. Release date 2026-11-20.');
+  await expect(page.locator('main')).toContainText('Native sandbox provider work');
+  await expect(page.locator('main')).toContainText('Managed-KMS signing is unavailable (exit 5)');
+  await page.locator('#starlight__sidebar').getByRole('link', { name: 'Waza v0.42.0 (pending)', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/releases\/v0-42-0\/$/);
+  await page.locator('main').getByRole('link', { name: 'current published standalone and azd releases', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/reference\/releases\/$/);
+});
+
+test('current downloads retain the historical v0.41.0 publication record', async ({ page }) => {
+  await page.goto('/waza/reference/releases/');
+  const main = page.locator('main');
+  await expect(main).toContainText('Current published standalone release: v0.42.0');
+  const downloads = main.locator('a[href*="/releases/download/v0.42.0/waza-"]');
   await expect(downloads).toHaveCount(6);
   await main.getByRole('link', { name: 'Waza v0.41.0: recover durable work, keep the evidence', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
