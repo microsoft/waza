@@ -3,7 +3,6 @@
 **PR Title**: `feat(assurance): Author 12-scenario Grader Assurance benchmark corpus (#661)`
 **Branch**: `feat/issue-661-grader-assurance-corpus`
 **Base Branch**: `main`
-**Commit**: `149125c3`
 
 ---
 
@@ -22,8 +21,8 @@ This pull request establishes an offline preserved-replay benchmark corpus exten
   Authored the offline grader assurance benchmark corpus generator, static reference fixture, and mechanical evaluation harness extending the 12 canonical scenarios across 3 primary domains (4 MCP, 4 CLI, 4 Repository), providing 48 labeled cases total (12 known-good, 12 alternative-valid, 12 bad-wrong-state, and 12 bad-forbidden-action).
 
 - **Key files changed**:
-  - `internal/assurance/benchmark_corpus.go`: Core domain definitions, `BenchmarkScenario`, `BenchmarkCaseKind`, `BenchmarkCase`, regex pattern generators, execution context builders, and `BuildBenchmarkCorpus()` snapshot/manifest generation logic.
-  - `internal/assurance/benchmark_corpus_test.go`: 8 test suites verifying structural validity, 96 mechanical observation evaluations (both direct `ObserveMechanical` and `ObserveDeclaredMechanical`), reference document admission via `ParseReferences()`, fixture round-trip persistence, cross-platform preserved mechanical grading, `VerifyPreserved` preserved replay, single-requirement failure discrimination, missing/unreadable evidence rejection, and complete-but-empty tape boundary limitations.
+  - `internal/assurance/benchmark_corpus_generator_test.go`: Core domain definitions, `BenchmarkScenario`, `BenchmarkCaseKind`, `BenchmarkCase`, regex pattern generators, execution context builders, and `BuildBenchmarkCorpus()` snapshot/manifest generation logic.
+  - `internal/assurance/benchmark_corpus_test.go`: 11 test suites verifying structural validity, 96 mechanical observation evaluations (both direct `ObserveMechanical` and `ObserveDeclaredMechanical`), reference document admission via `ParseReferences()`, fixture round-trip persistence, cross-platform preserved mechanical grading, `VerifyPreserved` preserved replay, single-requirement failure discrimination, missing/unreadable evidence rejection, and complete-but-empty tape boundary limitations.
   - `internal/assurance/testdata/benchmark_corpus.json`: Sealed, self-contained reference document containing 48 cases with cryptographic digests (`SHA-256`) and schema compliance.
 
 - **Important decisions & Scope Clarifications**:
@@ -133,7 +132,7 @@ flowchart TD
   - The changes are strictly additive within the `internal/assurance/` package and its test data.
   - No existing core execution pipelines, engine drivers, CLI interfaces, or production grader logic are modified.
 - **Rollback plan**:
-  - Can be reverted cleanly with `git revert 4333bef6` without affecting any other repository components or workflows.
+  - Can be reverted cleanly by reverting the merge commit without affecting any other repository components or workflows.
 
 ## Notes for reviewers
 
@@ -145,4 +144,4 @@ flowchart TD
 - **Cryptographic Sealing**:
   Manifests and task declarations are hashed using SHA-256 canonical JSON representations via `evidence.JSONDigest` and sealed with `evidence.Seal()`.
 - **Review Checkpoint**:
-  Reviewers can focus on `internal/assurance/benchmark_corpus.go` for the scenario configuration table and regex assertions, and `internal/assurance/benchmark_corpus_test.go` for the mechanical evaluation assertions.
+  Reviewers can focus on `internal/assurance/benchmark_corpus_generator_test.go` for the scenario configuration table and regex assertions, and `internal/assurance/benchmark_corpus_test.go` for the mechanical evaluation assertions.
