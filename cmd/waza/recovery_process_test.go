@@ -27,7 +27,9 @@ import (
 
 func buildRecoveryCLI(t *testing.T) string {
 	t.Helper()
-	return buildRecoveryCLIFromDirectory(t, ".")
+	binary := buildRecoveryCLIFromDirectory(t, ".")
+	admitCompiledCLI(t, binary)
+	return binary
 }
 
 func buildRecoveryCLIFromDirectory(t *testing.T, directory string) string {
@@ -45,6 +47,39 @@ func buildRecoveryCLIFromDirectory(t *testing.T, directory string) string {
 	require.NoError(t, err)
 	t.Logf("production CLI build: elapsed=%s; bytes=%d", time.Since(started), info.Size())
 	return binary
+}
+
+// firstExecAdmissionTimeout bounds the one-time OS admission of a freshly
+// linked executable (for example, Windows real-time scanning on first launch).
+// It is deliberately separate from per-invocation CLI behavior budgets.
+const firstExecAdmissionTimeout = 2 * time.Minute
+
+// admitCompiledCLI launches a freshly built CLI once so that first-exec
+// admission latency is recorded as its own phase instead of consuming the
+// deadline of the first behavioral invocation.
+func admitCompiledCLI(t *testing.T, binary string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), firstExecAdmissionTimeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, binary, "--version")
+	command.Dir = t.TempDir()
+	command.WaitDelay = time.Second
+	var output bytes.Buffer
+	command.Stdout, command.Stderr = &output, &output
+	started := time.Now()
+	err := command.Start()
+	startElapsed, postStartContextErr := time.Since(started), ctx.Err()
+	var waitElapsed time.Duration
+	if err == nil {
+		waitStarted := time.Now()
+		err = command.Wait()
+		waitElapsed = time.Since(waitStarted)
+	}
+	t.Logf("production CLI first exec: process_start_elapsed=%s post_start_ctx_err=%v wait_elapsed=%s ctx_err=%v",
+		startElapsed, postStartContextErr, waitElapsed, ctx.Err())
+	require.NoError(t, ctx.Err(), "first-exec admission of %s did not complete: %v; output: %s", binary, err, output.String())
+	require.NoError(t, err, "%s", output.String())
+	require.Contains(t, output.String(), "waza version", "warm-up must execute the built CLI")
 }
 
 // Keep observation on the caller goroutine: an asynchronous predicate may
