@@ -31,6 +31,27 @@ import (
 const cliWorkflowIdentity = "https://github.com/example/waza/.github/workflows/sign.yml@refs/heads/main"
 const cliOIDCIssuer = "https://token.actions.githubusercontent.com"
 
+func TestRunnerProvenanceKeylessEmptyTrustCLI(t *testing.T) {
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "trusted-root.json")
+	require.NoError(t, os.WriteFile(rootPath, []byte(`{"mediaType":"application/vnd.dev.sigstore.trustedroot+json;version=0.1"}`), 0o600))
+	command := newRunnerCommand()
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(&output)
+	command.SetArgs([]string{"provenance", "generate", "--signer", "sigstore-keyless", "--trusted-root", rootPath,
+		"--request", "unused-request.json", "--manifest", "unused-manifest.json", "--artifacts", dir,
+		"--policy", "unused-policy.json", "--image-reference", "ghcr.io/example/runner:test",
+		"--image-digest", "sha256:" + strings.Repeat("a", 64), "--out", filepath.Join(dir, "bundle")})
+	err := command.Execute()
+	var exit *ExitCodeError
+	require.ErrorAs(t, err, &exit)
+	require.Equal(t, 5, exit.Code)
+	require.ErrorContains(t, err, "at least one Fulcio CA and one Rekor log")
+	_, err = os.Stat(filepath.Join(dir, "bundle"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 // The CLI fixture substitutes only the network signer. Certificates, DSSE
 // signatures, checkpoints and SETs are real; verification is not substituted.
 type fixtureKeylessSigner struct {
@@ -175,6 +196,27 @@ func TestRunnerProvenanceKeylessCLI(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(output), &report))
 	require.Equal(t, "failed", report.Status)
 	require.False(t, report.Signer.Trusted)
+	evidencePath := filepath.Join(bundle, provenance.SigstoreEvidencePath)
+	originalEvidence, err := os.ReadFile(evidencePath)
+	require.NoError(t, err)
+	var downgraded protobundle.Bundle
+	require.NoError(t, protojson.Unmarshal(originalEvidence, &downgraded))
+	require.Equal(t, "application/vnd.dev.sigstore.bundle.v0.3+json", downgraded.GetMediaType())
+	require.Len(t, downgraded.GetVerificationMaterial().GetTlogEntries(), 1)
+	require.NotNil(t, downgraded.GetVerificationMaterial().GetTlogEntries()[0].GetInclusionProof())
+	downgraded.MediaType = "application/vnd.dev.sigstore.bundle+json;version=0.1"
+	downgraded.VerificationMaterial.TlogEntries[0].InclusionProof = nil
+	downgradedBytes, err := protojson.Marshal(&downgraded)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(evidencePath, downgradedBytes, 0o600))
+	output, code = runProvenanceCLI(t, verify...)
+	require.Equal(t, 1, code, "legacy media type and absent proof must fail: %s", output)
+	report = provenance.Report{}
+	require.NoError(t, json.Unmarshal([]byte(output), &report))
+	require.Equal(t, "failed", report.Status)
+	require.False(t, report.Signer.Trusted)
+	require.Nil(t, report.Predicate)
+	require.NoError(t, os.WriteFile(evidencePath, originalEvidence, 0o600))
 	regexVerify := append([]string(nil), verify[:len(verify)-2]...)
 	regexVerify = append(regexVerify, "--certificate-identity-regexp", `^never$|main$`)
 	output, code = runProvenanceCLI(t, regexVerify...)

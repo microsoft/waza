@@ -137,6 +137,12 @@ material; retain approved historical trust needed for older bundles. A hash
 identifies the reviewed bytes, but is not itself root authentication. Root
 acquisition needs network access; subsequent Waza verification does not.
 
+The operator must **authenticate the trusted root independently** before using
+it. Waza checks the JSON and requires at least one Fulcio CA and one Rekor log
+for signing, before requesting OIDC or contacting either service. This
+non-empty check is **not authentication**, proof of current validity, or proof
+that the root matches the public services.
+
 ### Example GitHub Actions signing job
 
 **Documentation example only, not an installed Waza release requirement.**
@@ -266,14 +272,22 @@ The sidecar is signature evidence, not a root obtained from the bundle.
 Short-lived certificates are checked at the authenticated signing time;
 verification needs neither a fresh OIDC token nor live Fulcio/Rekor access.
 This profile does **not** verify certificate-transparency SCTs. Its standard
-Sigstore v0.3 sidecar requires Rekor v1 inclusion proof/checkpoint and SET;
-it must not be described as independently verifying CT log inclusion.
+Sigstore sidecar must use the exact v0.3 media type
+`application/vnd.dev.sigstore.bundle.v0.3+json`; each Rekor v1 entry must include
+an inclusion proof, checkpoint and SET. Legacy sidecars are rejected. This
+must not be described as independently verifying CT log inclusion.
 
 Image/version remain **declared** claims unless independently pinned with
 `--expect-image-digest` / `--expect-waza-version`; keyless signing does not
 turn them into measured deployment evidence. There is no managed-KMS support
 or key-revocation workflow. Waza uses sigstore-go v1.3.0 to retain Go 1.26.4
 compatibility (v1.4.0 requires Go 1.27).
+
+Signing requests use 30-second service timeouts and a 90-second signer context.
+Queued callers and Fulcio requests honor caller context cancellation; these
+settings are **not a hard overall wall-clock guarantee**. A failed or canceled
+signing attempt may already have created a **public Rekor entry**, even though
+Waza emits no bundle: service submission precedes final trust verification.
 
 ### Keyless troubleshooting
 
@@ -287,6 +301,8 @@ Messages below may have additional command/error context:
 | `GitHub Actions OIDC request failed` / `GitHub Actions OIDC request returned HTTP ...` | 5 (generate) | Check OIDC egress, job credentials and permissions without logging tokens. |
 | `Fulcio/Rekor signing or trust validation failed (check OIDC permissions, egress and trusted root)` | 5 (generate) | Check both service endpoints, approved current TUF trust and OIDC audience/permissions. |
 | `reading --trusted-root ...` / `invalid Sigstore trusted root: ...` | 2 | Supply a readable approved Sigstore trusted-root JSON, not TUF `root.json`. |
+| `keyless signing trusted root requires at least one Fulcio CA and one Rekor log` | 5 (generate) | Obtain independently authenticated trust containing both CA and Rekor material. Waza rejects this incomplete root before requesting OIDC or calling signing services. |
+| `keyless signing canceled: ...` | 5 (generate) | The caller canceled signing or its context deadline expired. No bundle is emitted; a previously submitted Rekor entry may remain public. |
 | `keyless verification requires --certificate-oidc-issuer and exactly one of --certificate-identity or --certificate-identity-regexp` | 2 | Supply the issuer and exactly one identity policy. |
 | `--certificate-identity-regexp must be anchored with ^ and $` | 2 | Anchor and narrowly scope the regexp. |
 | `--public-key cannot be combined with keyless trust flags` | 2 | Select either local-key verification or the keyless policy. |
@@ -336,7 +352,7 @@ Verification fails closed:
 | `trust_anchor_missing` | No public key supplied, or a keyless bundle verified without keyless trust and identity policy | Pass `--public-key`, or for keyless `--trusted-root`, `--certificate-oidc-issuer` and one identity flag |
 | `sigstore_evidence_missing` | Keyless bundle lacks a readable `sigstore.bundle.json` | Obtain the complete original bundle |
 | `key_untrusted` | Signed by a key you did not trust | Obtain the signer's public key out of band |
-| `signature_invalid` | Envelope or payload altered | Treat the bundle as tampered |
+| `signature_invalid` | Invalid signature, identity, trust, sidecar version or transparency evidence | Reject the bundle and check the verifier policy and original evidence |
 | `signer_unavailable` | Managed-KMS bundle | Not verifiable by this build |
 | `input_digest_mismatch`, `input_identity_mismatch` | Request altered or claim false | Treat as tampered |
 | `input_not_admitted` | Request is not an admissible runner unit | Regenerate from the admitted request |
