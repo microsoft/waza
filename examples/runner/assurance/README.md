@@ -28,9 +28,10 @@ scheduler you operate.
      --image-reference ghcr.io/microsoft/waza-runner-reference
    ```
 
-   Check the separate registry attestation as well. The reference image
-   publication workflow is manually triggered; older images do not gain an
-   inventory attestation retroactively.
+   Check the separate registry attestation as well. Reference-image publication
+   is callable only from the qualified tag-release path. Candidate qualification
+   keeps evidence in workflow-run artifacts and publishes no registry image;
+   older images do not gain an inventory attestation retroactively.
 
 3. Verify completed-run provenance with an operator-managed public key:
 
@@ -61,7 +62,10 @@ scheduler you operate.
 
 6. Keep scheduling outside Waza. An adapter translates one descriptor to one
    public runner call; the external scheduler owns delivery, retry, placement,
-   and leases. The optional provenance hook is not configured in the CLI.
+   and leases. Configure the optional provenance hook with
+   `--provenance-verifier PATH` on `waza runner adapter dispatch`; without it,
+   the result is `not_configured`. The operator must trust the executable and
+   its key source; its reported state does not change the runner outcome.
 
 For detailed requirements and existing Lab evidence views, use the
 [production integration assurance guide](https://microsoft.github.io/waza/guides/production-integration-assurance/).
