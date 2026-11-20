@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -43,8 +44,12 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 		t.Fatal("Docker context must explicitly admit both native bundle probe sources")
 	}
 	positiveProbe := read(".github/scripts/testdata/native-bundle-probe/positive/main.go")
-	if !strings.Contains(positiveProbe, "copilot-sdk/1.0.112/") {
-		t.Fatal("native bundle positive control must launch the SDK 1.0.34 bundled CLI 1.0.112")
+	if regexp.MustCompile(`copilot-sdk/[0-9]`).MatchString(positiveProbe) || !strings.Contains(positiveProbe, "bundledCLI(") {
+		t.Fatal("native bundle positive control must discover the extracted bundled CLI rather than pin its version")
+	}
+	harnessProbe := read(".github/scripts/testdata/native-bundle-probe/harness/main.go")
+	if !strings.Contains(harnessProbe, `maps.Equal(runnerExecutables, positiveExecutables)`) {
+		t.Fatal("native bundle harness must prove the positive control launched the runner's bundled executable")
 	}
 	if data := read("examples/runner/unit.json"); len(data) == 0 {
 		t.Fatal("runner example is empty")

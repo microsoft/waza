@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,12 +14,13 @@ func TestRunPublication(t *testing.T) {
 	const invocation = "https://github.com/microsoft/waza/actions/runs/42/attempts/2"
 	const endpoint = "repos/microsoft/waza/actions/runs/42/attempts/2"
 	for _, name := range []string{
-		"valid", "valid release tag", "valid release retry", "skipped release provenance",
-		"skipped copy without digest admission", "failed finalization", "canceled run",
+		"valid", "valid release tag", "valid release retry", "skipped release provenance", "failed release provenance",
+		"skipped copy without digest admission", "failed copy admission", "failed finalization", "canceled run",
 		"publisher complete while downstream jobs run", "later failed unrelated job", "later successful attempt",
 		"wrong source", "wrong repository", "wrong workflow", "wrong branch", "wrong event",
 		"missing publisher job", "skipped publisher job", "missing final guard", "failed final guard",
-		"skipped attestation", "skipped summary", "skipped inventory", "duplicate publisher job",
+		"skipped attestation", "skipped summary", "skipped inventory", "failed attestation", "failed summary",
+		"failed inventory", "duplicate publisher job",
 		"wrong digest", "wrong subject", "wrong predicate", "missing invocation", "foreign invocation",
 		"invalid JSON", "no attestations", "API failure", "invalid run JSON", "invalid jobs JSON",
 	} {
@@ -51,7 +53,8 @@ func TestRunPublication(t *testing.T) {
 				Digest: map[string]string{"sha256": strings.TrimPrefix(candidate.ImageDigest, "sha256:")},
 			})
 			switch name {
-			case "valid release tag", "valid release retry", "skipped release provenance", "skipped copy without digest admission":
+			case "valid release tag", "valid release retry", "skipped release provenance", "failed release provenance",
+				"skipped copy without digest admission", "failed copy admission":
 				run.HeadBranch = "v0.42.0"
 				run.Path = releaseWorkflowPath
 				run.Event = "push"
@@ -69,7 +72,7 @@ func TestRunPublication(t *testing.T) {
 							{"name": "Record published release digest", "status": "completed", "conclusion": "success"}
 						]}]}
 				]`
-				if name == "skipped release provenance" || name == "valid release retry" || name == "skipped copy without digest admission" {
+				if name != "valid release tag" {
 					var pages []publicationJobs
 					if err := json.Unmarshal([]byte(jobsJSON), &pages); err != nil {
 						t.Fatal(err)
@@ -77,15 +80,21 @@ func TestRunPublication(t *testing.T) {
 					for i := range pages[1].Jobs[0].Steps {
 						switch pages[1].Jobs[0].Steps[i].Name {
 						case "Publish the exact qualified OCI image digest":
-							if name == "valid release retry" || name == "skipped copy without digest admission" {
+							if name == "valid release retry" || name == "skipped copy without digest admission" || name == "failed copy admission" {
 								pages[1].Jobs[0].Steps[i].Conclusion = "skipped"
 							}
 						case "Admit existing release image only at the qualified digest":
-							if name == "skipped copy without digest admission" {
+							switch name {
+							case "skipped copy without digest admission":
+								pages[1].Jobs[0].Steps[i].Conclusion = "skipped"
+							case "failed copy admission":
 								pages[1].Jobs[0].Steps[i].Conclusion = "failure"
 							}
 						case "Attest published runner image provenance":
-							if name == "skipped release provenance" {
+							switch name {
+							case "skipped release provenance":
+								pages[1].Jobs[0].Steps[i].Conclusion = "skipped"
+							case "failed release provenance":
 								pages[1].Jobs[0].Steps[i].Conclusion = "failure"
 							}
 						}
@@ -131,13 +140,21 @@ func TestRunPublication(t *testing.T) {
 				jobsJSON = strings.ReplaceAll(jobsJSON, `"conclusion": "success"`, `"conclusion": "skipped"`)
 			case "missing final guard":
 				jobsJSON = strings.ReplaceAll(jobsJSON, "Revalidate protected main after push and attestation", "other step")
-			case "failed final guard", "skipped attestation", "skipped summary", "skipped inventory":
+			case "failed final guard", "skipped attestation", "skipped summary", "skipped inventory",
+				"failed attestation", "failed summary", "failed inventory":
 				var pages []publicationJobs
 				if err := json.Unmarshal([]byte(jobsJSON), &pages); err != nil {
 					t.Fatal(err)
 				}
-				index := map[string]int{"failed final guard": 2, "skipped attestation": 0, "skipped inventory": 1, "skipped summary": 3}[name]
-				pages[1].Jobs[0].Steps[index].Conclusion = "failure"
+				index := map[string]int{
+					"failed final guard": 2, "skipped attestation": 0, "skipped inventory": 1, "skipped summary": 3,
+					"failed attestation": 0, "failed inventory": 1, "failed summary": 3,
+				}[name]
+				conclusion := "failure"
+				if strings.HasPrefix(name, "skipped ") {
+					conclusion = "skipped"
+				}
+				pages[1].Jobs[0].Steps[index].Conclusion = conclusion
 				encoded, err := json.Marshal(pages)
 				if err != nil {
 					t.Fatal(err)
@@ -211,6 +228,22 @@ func TestRunPublication(t *testing.T) {
 			}
 			if name == "failed finalization" && !strings.Contains(err.Error(), "publisher finalization step") {
 				t.Fatalf("signed digest must be rejected specifically for failed publisher finalization: %v", err)
+			}
+			step := map[string]string{
+				"skipped release provenance":            "Attest published runner image provenance",
+				"failed release provenance":             "Attest published runner image provenance",
+				"skipped copy without digest admission": "Admit existing release image only at the qualified digest",
+				"failed copy admission":                 "Admit existing release image only at the qualified digest",
+				"failed final guard":                    "Revalidate protected main after push and attestation",
+				"skipped attestation":                   "Attest published image digest",
+				"failed attestation":                    "Attest published image digest",
+				"skipped inventory":                     "Attest runner image component inventory",
+				"failed inventory":                      "Attest runner image component inventory",
+				"skipped summary":                       "Record pushed candidate digest",
+				"failed summary":                        "Record pushed candidate digest",
+			}[name]
+			if step != "" && !strings.Contains(err.Error(), fmt.Sprintf("publisher finalization step %q did not succeed", step)) {
+				t.Fatalf("publication must be rejected for the injected %s step state: %v", step, err)
 			}
 		})
 	}

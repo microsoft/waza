@@ -63,20 +63,35 @@ The adapter refuses input that it cannot translate without loss or guessing:
 
 ## Commands
 
+Run these examples from the repository root. The checked-in
+`examples/runner/adapter/submit.json` uses the mock executor and does not permit
+paid execution.
+
 ```bash
 # Offline: no store, no engine, no call. Emits adapter-translation 1.0.
-waza runner adapter translate < descriptor.json
+waza runner adapter translate < examples/runner/adapter/submit.json
 
+# Create a private filesystem store directory before dispatch; it must exist.
+mkdir -m700 ./store
 # Exactly one public call. Emits adapter-result 1.0 with the returned manifest.
-waza runner adapter dispatch --store ./store < descriptor.json
-waza runner adapter dispatch --azure-container-url https://ACCOUNT.blob.core.windows.net/CONTAINER < descriptor.json
-waza runner adapter dispatch --endpoint http://127.0.0.1:3000 < descriptor.json
+waza runner adapter dispatch --store ./store < examples/runner/adapter/submit.json
+
+# Alternatives: an existing Azure container, or an already configured API server.
+waza runner adapter dispatch --azure-container-url https://ACCOUNT.blob.core.windows.net/CONTAINER < examples/runner/adapter/submit.json
+waza runner adapter dispatch --endpoint http://127.0.0.1:3000 < examples/runner/adapter/submit.json
 ```
+
+The filesystem backend opens an existing directory; dispatch does not create
+the store root. If reusing a store, keep its existing contents and verify its
+access permissions instead of recreating it. `mkdir -m700` is a POSIX example;
+on Windows, create the directory and restrict its ACL to the intended operator.
+Azure dispatch requires existing credentials and an accessible container; HTTP
+dispatch uses the server's store.
 
 `dispatch` forwards the store flags verbatim to the public subcommand that this
 same `waza` binary runs (or to `--waza PATH`). With `--endpoint`, it uses the
 public HTTP route and reads the `X-Waza-Exit-Code` header. Combining
-`--endpoint` with store flags is rejected.
+`--endpoint` with store flags or `--waza` is rejected.
 
 ## Status and returned manifest
 
@@ -119,10 +134,25 @@ The [reference container](../examples/runner/container/Dockerfile) already has
 can use it:
 
 ```bash
-docker run --rm -i --network=none --read-only \
-  --mount type=bind,source="$PWD/store",target=/store \
-  IMAGE runner adapter dispatch --store /store < descriptor.json
+# POSIX hosts: run as the non-root operator who owns the private 0700 store
+# created above. The image's default UID 65532 cannot open that store.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "run as a non-root operator" >&2
+else
+  docker run --rm -i --network=none --read-only \
+    --user "$(id -u):$(id -g)" \
+    --tmpfs /tmp:rw,noexec,nosuid,size=32m,mode=1777 \
+    --mount type=bind,source="$PWD/store",target=/store \
+    IMAGE runner adapter dispatch --store /store < examples/runner/adapter/submit.json
+fi
 ```
+
+The root filesystem stays read-only. The mock executor creates its temporary
+workspace under `/tmp`, so the run needs the writable `--tmpfs /tmp` mount used
+by `examples/runner/container/test.mjs`. Do not relax the store to `0777` or
+change its owner to 65532 to make the default user work; if the container must
+run as another UID, provision the store with private ownership or ACLs for
+exactly that UID.
 
 `examples/runner/container/test.mjs` runs `translate` and `dispatch` against the
 built image, including a refused descriptor that carries a scheduler field.
@@ -136,10 +166,11 @@ runner contract:
 
 ```bash
 waza runner adapter dispatch \
+  --store ./store \
   --provenance-verifier ./verify-manifest \
   --provenance-verifier-arg=--offline \
   --provenance-verifier-arg=--public-key=trusted.pub \
-  < descriptor.json
+  < examples/runner/adapter/submit.json
 ```
 
 The verifier receives one JSON object on stdin with `manifest_digest` and the

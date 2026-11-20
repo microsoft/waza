@@ -295,7 +295,7 @@
       "acceptance": "Keep the verifier report and attestation result for the digest actually consumed. For images without an inventory, republish explicitly or record that the evidence is unavailable.",
       "evidence": [
         { "label": "Inventory generation, verification, and image attestation", "path": "docs/COMPONENT_INVENTORY.md" },
-        { "label": "Manual reference-image publication workflow", "path": ".github/workflows/publish-runner-reference.yml" },
+        { "label": "Qualified tag-release reference-image publication workflow", "path": ".github/workflows/publish-runner-reference.yml" },
         { "label": "Operator example", "path": "examples/runner/assurance/README.md" }
       ]
     },

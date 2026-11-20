@@ -188,6 +188,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pairwise prompt grading now compares each skills-enabled output with its
+  matching successful baseline output instead of grading without baseline
+  evidence. Relative judgments determine baseline impact and its exit status;
+  additive `skill_impact.pairwise_summary` records wins, ties, losses and
+  position-inconsistent comparisons. Offline saved-result pairwise regrading
+  is rejected because it cannot reconstruct both execution phases (#1081).
+- Output-only evaluations may explicitly disable workspace capture after
+  validation proves no selected consumer requires workspace evidence. Run,
+  trigger and optimizer paths apply the admission checks, and cache entries
+  distinguish capture modes; capture remains enabled by default (#1061).
+- Dashboard trial diagnostics now expose allowlisted infrastructure failure
+  codes and applicable capture limits without displaying raw session,
+  responder or user-input errors. Normal artifacts retain their recorded
+  diagnostics; closed release-artifacts 1.0 exports omit the additive field
+  rather than silently changing that contract (#1060).
+- Frozen judge evidence preserves explicitly declared fixture literals through
+  capture and regrading using the opt-in judge-evidence 1.1 profile. Undeclared
+  sensitive values remain subject to redaction, and fixture declarations are
+  withheld from public evidence and grader projections (#1065).
 - Strict offline snapshot replay now checks tool-event order and reconciles
   passed status only against explicitly recorded final validations and failed
   checkpoints; missing historical evidence remains unassessed (#1030).

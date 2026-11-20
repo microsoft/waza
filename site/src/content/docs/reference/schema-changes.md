@@ -110,6 +110,25 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
 
+### Pairwise baseline summaries (additive results 1.9, v0.42.0 source)
+
+- With `waza run --baseline` and pairwise prompt grading, a task's optional
+  `skill_impact.pairwise_summary` counts observed judgments across its
+  skills-enabled runs. It contains `skill_wins`, `ties`, `baseline_wins`,
+  `inconsistent`, `judgments`, and `preference`.
+- `judgments` is the sum of wins, ties, and losses; position-inconsistent
+  comparisons are counted separately and excluded from that denominator.
+  `preference` is `(skill_wins - baseline_wins) / judgments`, or zero when
+  only inconsistent comparisons were recorded. No judgments or inconsistent
+  comparisons means the summary is omitted, not a measured tie.
+- Relative judgments determine skill impact for judged tasks; other tasks
+  contribute their pass-rate delta. The mean must be positive for the baseline
+  comparison to exit successfully. Baseline absolute pass rates omit relative
+  graders and must not be interpreted as a like-for-like comparison.
+- This is an optional addition, not a writer-version bump or a migration of
+  historical results. Existing `skill_impact.pairwise` data is not synthesized
+  into a summary. See [pairwise grading](../cli/#prompt-grader-with-pairwise-mode).
+
 ### Execution evidence 1.0 and aggregate lineage (v0.41.0, #768)
 
 - Evidence sidecars (`kind: waza.execution-evidence`, `schema_version: "1.0"`)

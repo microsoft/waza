@@ -160,7 +160,9 @@ checks the mock profile in the former, and exercises the actual bundled native
 CLI in the latter against an in-container synthetic HTTP provider while Docker
 networking is disabled. A direct SDK positive control must discover synthetic
 home/ancestor instructions and run both hook sentinels; the production runner
-must suppress those same canaries. The suite also verifies exact selection,
+must suppress those same canaries. The positive control locates the single
+bundled CLI version the runner extracted rather than pinning a version, and the
+harness requires it to launch the same native executable as the runner. The suite also verifies exact selection,
 one request per invocation, success/timeout/SIGTERM outcomes, forced cleanup of
 a stopped native child, and cross-UID readability of the two evidence files.
 The test rejects a daemon/image architecture mismatch. Docker CI uses

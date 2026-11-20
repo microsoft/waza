@@ -182,8 +182,18 @@ my-eval-suite/
 │           └── sample.py
 ├── .github/workflows/
 │   └── eval.yml
-└── .gitignore
+├── .waza.yaml
+├── .gitignore
+└── README.md
 ```
+
+Review the generated `eval.yml` before committing it. Its default trigger is
+pull requests to `main` changing `evals/**` or `skills/**`, and it installs from
+the mutable `main/registry.json`, not a pinned release. It does not configure
+runtime credentials or grant PRs access to secrets. Adapt its paths, release
+source and authentication to your project; see the
+[init reference](../reference/cli/#waza-init) and
+[CI/CD security guidance](../guides/ci-cd/).
 
 Skip the prompt with `--no-skill`:
 
