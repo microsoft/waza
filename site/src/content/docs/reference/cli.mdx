@@ -1971,17 +1971,63 @@ statement binds the canonical request digest, runner API version, runner image
 digest, Waza version, policy, runtime and model identity, artifact manifest and
 objects, and the terminal outcome. Every claim is required; generation exits 2
 rather than emit a bundle with an unavailable claim. `--signer` defaults to
-`local-ed25519`; `sigstore-keyless` and `managed-kms` exit 5 (signer unavailable)
-in this build. `--bind kind=path` adds a member bound by digest for a registered
+`local-ed25519` (unchanged). Opt-in `sigstore-keyless` uses GitHub Actions OIDC
+and public-good Fulcio/Rekor v1; `managed-kms` remains unavailable (exit 5).
+Keyless generation requires `--trusted-root FILE` and job permissions
+`id-token: write` / `contents: read`, GitHub's ambient OIDC URL/token and HTTPS
+egress. Missing OIDC or signing-service failure exits 5; bad inputs/root exit 2.
+`--bind kind=path` adds a member bound by digest for a registered
 binding kind.
 
 `verify` runs offline and prints one
 [`waza.provenance-verification`](/waza/schemas/provenance-verification-1.0.schema.json)
 report: exit 0 when every check passed, 1 when any check failed (altered,
 missing or unbound member, untrusted key, false claim), 2 for invalid flags or
-keys. Trust comes only from `--public-key`; `--expect-image-digest`,
+keys or trust/identity policy. Local-key trust comes from `--public-key`.
+Keyless verification requires the trusted root, exact issuer, and **exactly
+one** of the two identity flags:
+
+| Flag | Keyless contract |
+| --- | --- |
+| `--trusted-root FILE` | Verifier-owned Sigstore trusted-root JSON acquired separately through authenticated TUF; also required for keyless generation |
+| `--certificate-oidc-issuer ISSUER` | Exact issuer; GitHub is `https://token.actions.githubusercontent.com` |
+| `--certificate-identity IDENTITY` | Exact workflow certificate SAN, including repository, workflow path and ref |
+| `--certificate-identity-regexp REGEXP` | Alternative to exact identity, not an additional flag; must be anchored with `^` and `$` and narrowly scoped |
+
+```bash
+waza runner provenance generate --signer sigstore-keyless \
+  --trusted-root trust/sigstore-trusted-root.json \
+  --request unit.json --manifest manifest.json --artifacts objects/ \
+  --policy release-policy.json --image-reference "$RUNNER_IMAGE_REFERENCE" \
+  --image-digest "$RUNNER_IMAGE_DIGEST" --waza-version "$WAZA_VERSION" \
+  --out provenance/
+waza runner provenance verify --bundle provenance/ \
+  --trusted-root trust/sigstore-trusted-root.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity 'https://github.com/OWNER/REPO/.github/workflows/execution-provenance.yml@refs/heads/main' \
+  --expect-image-digest "$EXPECTED_RUNNER_IMAGE_DIGEST" \
+  --expect-waza-version "$EXPECTED_WAZA_VERSION"
+```
+
+These commands consume the actual completed request/manifest/objects/policy;
+set the image/version values from actual execution records and the verifier's
+independent expectations. Keyless generation runs **in Actions**, not a local
+terminal. Do not combine `--public-key` with keyless flags (exit 2).
+Waza never downloads a root or trusts one from the execution bundle.
+`sigstore.bundle.json` retains the certificate, matching DSSE and transparency
+evidence for network-free verification. Invalid evidence exits 1 with a failed
+report; invalid root/flags exit 2. The exact identity rejects other repositories,
+workflow paths and refs; use `@refs/tags/TAG` for a separately approved tag policy.
+
+`--expect-image-digest`,
 `--expect-waza-version` and `--expect-policy-sha256` pin declared claims. See
-[execution provenance](../../guides/execution-provenance/).
+[execution provenance](../../guides/execution-provenance/) for the prerequisite
+checklist, authenticated TUF acquisition commands, full workflow, scoped
+regexp example and troubleshooting. Public-good signing publishes certificate
+identity and digests in Rekor and sends the statement to the service; do not
+sign secrets/private artifacts. Signing stays opt-in, is not a release
+requirement, and adds no pipeline automatically. Lab/API verification remains
+local-key only.
 
 `--bind component-inventory=runner.cdx.json` binds a runner image component
 inventory; `verify --require-inventory` fails with `binding_required_missing`

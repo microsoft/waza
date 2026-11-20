@@ -40,7 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   conformance matrix, threat model, production-readiness checklist, evidence
   links, migration notes, and verification limits. The package links existing
   Lab views for #769–#774; it adds no dashboard view. Its v0.42.0 candidate
-  explicitly records unavailable Waza-local keyless/KMS signing, unqualified
+  explicitly records opt-in CLI keyless signing with operator-managed trust,
+  unavailable managed-KMS signing, unqualified
   legacy image inventories, post-run-only telemetry, unsupported OS resource
   accounting, the limited off-host isolation proof, and the adapter's lack of a
   scheduler. The adapter now supports a bounded operator-configured provenance
@@ -105,10 +106,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   statement in a DSSE envelope that binds the canonical request digest, runner
   API version, runner image digest, Waza version, policy, runtime and model
   identity, artifact manifest and objects, and terminal outcome. `verify` checks
-  bundles offline against verifier-supplied keys only and reports stable failure
+  bundles offline against verifier-supplied keys or Sigstore trust/identity policy
+  and reports stable failure
   codes for altered artifacts, inputs, outcomes, signatures, digests and unbound
-  members. `keygen` creates a local Ed25519 key; `sigstore-keyless` and
-  `managed-kms` report an explicit unavailable state (exit 5). New
+  members. `keygen` creates a local Ed25519 key (unchanged default).
+  Opt-in `--signer sigstore-keyless` uses GitHub Actions OIDC, public-good
+  Fulcio and Rekor v1, saving `sigstore.bundle.json` beside the unchanged DSSE
+  statement. Both signing and offline verification require an independently
+  approved `--trusted-root`; verification also requires the exact OIDC issuer
+  and an exact workflow identity or anchored identity regexp. Documents
+  permissions, egress, public-log disclosure, TUF root acquisition and a
+  complete operator workflow example. No automatic signing or new release
+  requirement; Lab/API verification remains local-key only. Managed-KMS
+  remains unavailable (exit 5). New
   `provenance-statement`, `provenance-bundle` and `provenance-verification` 1.0
   schemas, `POST /api/v1/provenance/verify`, and a Lab **Execution provenance**
   panel. `predicate.bindings` is the extension point for digest-bound members
