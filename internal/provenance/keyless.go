@@ -198,16 +198,16 @@ type keylessVerifier struct {
 
 func validateKeylessEvidence(b *protobundle.Bundle) error {
 	if b.GetMediaType() != keylessMediaType {
-		return errors.New("Sigstore evidence must use bundle media type v0.3")
+		return errors.New("sigstore evidence must use bundle media type v0.3")
 	}
 	entries := b.GetVerificationMaterial().GetTlogEntries()
 	if len(entries) == 0 {
-		return errors.New("Sigstore evidence has no transparency log entries")
+		return errors.New("sigstore evidence has no transparency log entries")
 	}
 	for i, entry := range entries {
 		if entry.GetInclusionProof() == nil || entry.GetInclusionProof().GetCheckpoint().GetEnvelope() == "" ||
 			len(entry.GetInclusionPromise().GetSignedEntryTimestamp()) == 0 {
-			return fmt.Errorf("Sigstore transparency log entry %d requires an inclusion proof, checkpoint and signed entry timestamp", i)
+			return fmt.Errorf("sigstore transparency log entry %d requires an inclusion proof, checkpoint and signed entry timestamp", i)
 		}
 	}
 	return nil
