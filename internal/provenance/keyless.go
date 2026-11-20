@@ -211,6 +211,10 @@ func NewKeylessVerifier(trustedRootJSON []byte, identity, identityRegexp, issuer
 	if identityRegexp != "" && (!strings.HasPrefix(identityRegexp, "^") || !strings.HasSuffix(identityRegexp, "$")) {
 		return nil, errors.New("--certificate-identity-regexp must be anchored with ^ and $")
 	}
+	if identityRegexp != "" {
+		// Anchor the complete expression, including all top-level alternatives.
+		identityRegexp = "^(?:" + identityRegexp + ")$"
+	}
 	trust, err := parseTrustedRoot(trustedRootJSON)
 	if err != nil {
 		return nil, err

@@ -253,7 +253,9 @@ replace `--certificate-identity` with this scoped regexp (not both):
 
 Escape any regexp metacharacters in your own owner/repository names too.
 Both anchors are mandatory; avoid `.*`, unescaped dots and organization-wide
-patterns. The issuer remains an exact match. Do not combine `--public-key`
+patterns. Waza also anchors the entire expression, including alternatives, so
+each match must cover the complete certificate identity. The issuer remains an
+exact match. Do not combine `--public-key`
 with any keyless trust/identity flags.
 
 Waza verifies the Fulcio chain and certificate identity/issuer,
