@@ -33,6 +33,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/tlog"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -82,9 +83,10 @@ func (f *fakeFulcio) GetCertificate(_ context.Context, key sign.Keypair, opts *s
 }
 
 type fakeRekor struct {
-	ca    *ca.VirtualSigstore
-	cert  *x509.Certificate
-	calls int
+	ca     *ca.VirtualSigstore
+	cert   *x509.Certificate
+	calls  int
+	mutate func(*protobundle.Bundle)
 }
 
 func (r *fakeRekor) GetTransparencyLogEntry(_ context.Context, _ []byte, b *protobundle.Bundle) error {
@@ -113,6 +115,9 @@ func (r *fakeRekor) GetTransparencyLogEntry(_ context.Context, _ []byte, b *prot
 	}
 	logEntry.InclusionPromise = &protorekor.InclusionPromise{SignedEntryTimestamp: set}
 	b.VerificationMaterial.TlogEntries = append(b.VerificationMaterial.TlogEntries, logEntry)
+	if r.mutate != nil {
+		r.mutate(b)
+	}
 	return nil
 }
 
@@ -158,6 +163,14 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 	require.Equal(t, 1, fulcio.calls)
 	require.Equal(t, 1, rekor.calls)
 	require.NotEmpty(t, bundle.Files[SigstoreEvidencePath])
+	var original protobundle.Bundle
+	require.NoError(t, protojson.Unmarshal(bundle.Files[SigstoreEvidencePath], &original))
+	require.Equal(t, "application/vnd.dev.sigstore.bundle.v0.3+json", original.GetMediaType())
+	require.Len(t, original.GetVerificationMaterial().GetTlogEntries(), 1)
+	entry := original.GetVerificationMaterial().GetTlogEntries()[0]
+	require.NotNil(t, entry.GetInclusionProof())
+	require.NotEmpty(t, entry.GetInclusionProof().GetCheckpoint().GetEnvelope())
+	require.NotEmpty(t, entry.GetInclusionPromise().GetSignedEntryTimestamp())
 
 	verifier, err := NewKeylessVerifier(trust, testWorkflowIdentity, "", testOIDCIssuer)
 	require.NoError(t, err)
@@ -191,7 +204,7 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 			require.Equal(t, "signature_invalid", failure(r, "signature").Code)
 		})
 	}
-	for _, name := range []string{"missing evidence", "missing log", "missing proof", "bad checkpoint", "bad SET", "tampered payload", "tampered both payloads", "substituted evidence", "tampered terminal"} {
+	for _, name := range []string{"missing evidence", "missing log", "legacy media type", "legacy media type without proof", "missing proof", "missing checkpoint", "empty checkpoint", "bad checkpoint", "missing SET", "empty SET", "bad SET", "second entry missing proof", "second entry missing checkpoint", "second entry missing SET", "tampered payload", "tampered both payloads", "substituted evidence", "tampered terminal"} {
 		t.Run(name, func(t *testing.T) {
 			files := maps.Clone(bundle.Files)
 			var evidence protobundle.Bundle
@@ -201,12 +214,36 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 				delete(files, SigstoreEvidencePath)
 			case "missing log":
 				evidence.VerificationMaterial.TlogEntries = nil
+			case "legacy media type", "legacy media type without proof":
+				evidence.MediaType = "application/vnd.dev.sigstore.bundle+json;version=0.1"
+				if name == "legacy media type without proof" {
+					evidence.VerificationMaterial.TlogEntries[0].InclusionProof = nil
+				}
 			case "missing proof":
 				evidence.VerificationMaterial.TlogEntries[0].InclusionProof = nil
+			case "missing checkpoint":
+				evidence.VerificationMaterial.TlogEntries[0].InclusionProof.Checkpoint = nil
+			case "empty checkpoint":
+				evidence.VerificationMaterial.TlogEntries[0].InclusionProof.Checkpoint.Envelope = ""
 			case "bad checkpoint":
 				evidence.VerificationMaterial.TlogEntries[0].InclusionProof.Checkpoint.Envelope += "wrong"
+			case "missing SET":
+				evidence.VerificationMaterial.TlogEntries[0].InclusionPromise = nil
+			case "empty SET":
+				evidence.VerificationMaterial.TlogEntries[0].InclusionPromise.SignedEntryTimestamp = nil
 			case "bad SET":
 				evidence.VerificationMaterial.TlogEntries[0].InclusionPromise.SignedEntryTimestamp[0] ^= 1
+			case "second entry missing proof", "second entry missing checkpoint", "second entry missing SET":
+				second := proto.CloneOf(evidence.VerificationMaterial.TlogEntries[0])
+				switch name {
+				case "second entry missing proof":
+					second.InclusionProof = nil
+				case "second entry missing checkpoint":
+					second.InclusionProof.Checkpoint = nil
+				case "second entry missing SET":
+					second.InclusionPromise = nil
+				}
+				evidence.VerificationMaterial.TlogEntries = append(evidence.VerificationMaterial.TlogEntries, second)
 			case "tampered payload", "tampered both payloads":
 				var envelope Envelope
 				require.NoError(t, json.Unmarshal(files[EnvelopePath], &envelope))
@@ -238,6 +275,9 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 				require.Equal(t, "failed", failure(r, "outcome").Status)
 			} else {
 				require.Equal(t, "failed", failure(r, "signature").Status)
+				if name != "missing evidence" {
+					require.Equal(t, "signature_invalid", failure(r, "signature").Code)
+				}
 				require.Nil(t, r.Predicate, "unverified claims must not appear as verified evidence")
 			}
 		})
@@ -246,6 +286,31 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 	regex, err := NewKeylessVerifier(trust, "", `^https://github\.com/example/waza/\.github/workflows/sign\.yml@refs/heads/main$`, testOIDCIssuer)
 	require.NoError(t, err)
 	require.Equal(t, "verified", verifyFiles(t, bundle.Files, Options{Verifier: regex}).Status)
+}
+
+func TestKeylessRejectsIncompleteEvidenceAtGeneration(t *testing.T) {
+	for name, mutate := range map[string]func(*protobundle.Bundle){
+		"legacy media type": func(b *protobundle.Bundle) {
+			b.MediaType = "application/vnd.dev.sigstore.bundle+json;version=0.1"
+		},
+		"missing proof": func(b *protobundle.Bundle) {
+			b.VerificationMaterial.TlogEntries[0].InclusionProof = nil
+		},
+		"missing checkpoint": func(b *protobundle.Bundle) {
+			b.VerificationMaterial.TlogEntries[0].InclusionProof.Checkpoint = nil
+		},
+		"missing SET": func(b *protobundle.Bundle) {
+			b.VerificationMaterial.TlogEntries[0].InclusionPromise = nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			signer, _, _, rekor := fakeKeyless(t)
+			rekor.mutate = mutate
+			bundle, err := Generate(t.Context(), newFixture(t).input, signer)
+			require.ErrorIs(t, err, ErrSignerUnavailable)
+			require.Nil(t, bundle)
+		})
+	}
 }
 
 func TestKeylessTrustPolicyRequired(t *testing.T) {

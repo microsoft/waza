@@ -266,8 +266,10 @@ The sidecar is signature evidence, not a root obtained from the bundle.
 Short-lived certificates are checked at the authenticated signing time;
 verification needs neither a fresh OIDC token nor live Fulcio/Rekor access.
 This profile does **not** verify certificate-transparency SCTs. Its standard
-Sigstore v0.3 sidecar requires Rekor v1 inclusion proof/checkpoint and SET;
-it must not be described as independently verifying CT log inclusion.
+Sigstore sidecar must use the exact v0.3 media type
+`application/vnd.dev.sigstore.bundle.v0.3+json`; each Rekor v1 entry must include
+an inclusion proof, checkpoint and SET. Legacy sidecars are rejected. This
+must not be described as independently verifying CT log inclusion.
 
 Image/version remain **declared** claims unless independently pinned with
 `--expect-image-digest` / `--expect-waza-version`; keyless signing does not
@@ -336,7 +338,7 @@ Verification fails closed:
 | `trust_anchor_missing` | No public key supplied, or a keyless bundle verified without keyless trust and identity policy | Pass `--public-key`, or for keyless `--trusted-root`, `--certificate-oidc-issuer` and one identity flag |
 | `sigstore_evidence_missing` | Keyless bundle lacks a readable `sigstore.bundle.json` | Obtain the complete original bundle |
 | `key_untrusted` | Signed by a key you did not trust | Obtain the signer's public key out of band |
-| `signature_invalid` | Envelope or payload altered | Treat the bundle as tampered |
+| `signature_invalid` | Invalid signature, identity, trust, sidecar version or transparency evidence | Reject the bundle and check the verifier policy and original evidence |
 | `signer_unavailable` | Managed-KMS bundle | Not verifiable by this build |
 | `input_digest_mismatch`, `input_identity_mismatch` | Request altered or claim false | Treat as tampered |
 | `input_not_admitted` | Request is not an admissible runner unit | Regenerate from the admitted request |

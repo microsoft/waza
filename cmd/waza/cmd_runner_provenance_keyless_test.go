@@ -175,6 +175,27 @@ func TestRunnerProvenanceKeylessCLI(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(output), &report))
 	require.Equal(t, "failed", report.Status)
 	require.False(t, report.Signer.Trusted)
+	evidencePath := filepath.Join(bundle, provenance.SigstoreEvidencePath)
+	originalEvidence, err := os.ReadFile(evidencePath)
+	require.NoError(t, err)
+	var downgraded protobundle.Bundle
+	require.NoError(t, protojson.Unmarshal(originalEvidence, &downgraded))
+	require.Equal(t, "application/vnd.dev.sigstore.bundle.v0.3+json", downgraded.GetMediaType())
+	require.Len(t, downgraded.GetVerificationMaterial().GetTlogEntries(), 1)
+	require.NotNil(t, downgraded.GetVerificationMaterial().GetTlogEntries()[0].GetInclusionProof())
+	downgraded.MediaType = "application/vnd.dev.sigstore.bundle+json;version=0.1"
+	downgraded.VerificationMaterial.TlogEntries[0].InclusionProof = nil
+	downgradedBytes, err := protojson.Marshal(&downgraded)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(evidencePath, downgradedBytes, 0o600))
+	output, code = runProvenanceCLI(t, verify...)
+	require.Equal(t, 1, code, "legacy media type and absent proof must fail: %s", output)
+	report = provenance.Report{}
+	require.NoError(t, json.Unmarshal([]byte(output), &report))
+	require.Equal(t, "failed", report.Status)
+	require.False(t, report.Signer.Trusted)
+	require.Nil(t, report.Predicate)
+	require.NoError(t, os.WriteFile(evidencePath, originalEvidence, 0o600))
 	regexVerify := append([]string(nil), verify[:len(verify)-2]...)
 	regexVerify = append(regexVerify, "--certificate-identity-regexp", `^never$|main$`)
 	output, code = runProvenanceCLI(t, regexVerify...)

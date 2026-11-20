@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
 	sigbundle "github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/sign"
@@ -29,6 +30,7 @@ const (
 	MaxTrustedRootBytes  = 1 << 20
 	maxOIDCResponseBytes = 64 << 10
 	keylessTimeout       = 90 * time.Second
+	keylessMediaType     = "application/vnd.dev.sigstore.bundle.v0.3+json"
 )
 
 type keylessSigner struct {
@@ -117,8 +119,11 @@ func (s *keylessSigner) signEvidence(ctx context.Context, message []byte) ([]byt
 	}
 	envelope := b.GetDsseEnvelope()
 	if envelope == nil || envelope.PayloadType != PayloadType || !bytes.Equal(envelope.Payload, payload) ||
-		len(envelope.Signatures) != 1 || len(envelope.Signatures[0].Sig) == 0 || len(b.GetVerificationMaterial().GetTlogEntries()) == 0 {
+		len(envelope.Signatures) != 1 || len(envelope.Signatures[0].Sig) == 0 {
 		return nil, nil, fmt.Errorf("%w: Sigstore returned incomplete or inconsistent signature or transparency evidence", ErrSignerUnavailable)
+	}
+	if err := validateKeylessEvidence(b); err != nil {
+		return nil, nil, fmt.Errorf("%w: Sigstore returned invalid evidence: %v", ErrSignerUnavailable, err)
 	}
 	evidence, err := protojson.Marshal(b)
 	if err != nil {
@@ -191,6 +196,23 @@ type keylessVerifier struct {
 	identity sigverify.CertificateIdentity
 }
 
+func validateKeylessEvidence(b *protobundle.Bundle) error {
+	if b.GetMediaType() != keylessMediaType {
+		return errors.New("Sigstore evidence must use bundle media type v0.3")
+	}
+	entries := b.GetVerificationMaterial().GetTlogEntries()
+	if len(entries) == 0 {
+		return errors.New("Sigstore evidence has no transparency log entries")
+	}
+	for i, entry := range entries {
+		if entry.GetInclusionProof() == nil || entry.GetInclusionProof().GetCheckpoint().GetEnvelope() == "" ||
+			len(entry.GetInclusionPromise().GetSignedEntryTimestamp()) == 0 {
+			return fmt.Errorf("Sigstore transparency log entry %d requires an inclusion proof, checkpoint and signed entry timestamp", i)
+		}
+	}
+	return nil
+}
+
 func parseTrustedRoot(data []byte) (*root.TrustedRoot, error) {
 	if len(data) == 0 || len(data) > MaxTrustedRootBytes {
 		return nil, errors.New("keyless signing/verification requires a verifier-owned Sigstore trusted-root JSON file (at most 1 MiB)")
@@ -240,6 +262,9 @@ func (v *keylessVerifier) VerifyEvidence(keyID string, message, signature, evide
 	var b sigbundle.Bundle
 	if err := b.UnmarshalJSON(evidence); err != nil {
 		return fmt.Errorf("invalid Sigstore evidence: %w", err)
+	}
+	if err := validateKeylessEvidence(b.Bundle); err != nil {
+		return err
 	}
 	envelope := b.GetDsseEnvelope()
 	if envelope == nil || len(envelope.Signatures) != 1 || envelope.PayloadType != PayloadType ||
