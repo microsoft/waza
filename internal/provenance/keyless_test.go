@@ -816,6 +816,53 @@ func TestKeylessSignerCanceledQueuedCall(t *testing.T) {
 	require.Equal(t, 2, rekor.calls)
 }
 
+func TestKeylessGeneratePreservesOIDCCancellation(t *testing.T) {
+	signer, _, fulcio, rekor := fakeKeyless(t)
+	input := newFixture(t).input
+	signer.token = githubOIDCToken
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://oidc.actions.githubusercontent.com")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "fake-request-secret")
+
+	originalTransport := http.DefaultTransport
+	entered := make(chan struct{})
+	http.DefaultTransport = tokenTransport(func(request *http.Request) (*http.Response, error) {
+		close(entered)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		bundle, err := Generate(ctx, input, signer)
+		if bundle != nil {
+			done <- errors.New("canceled OIDC acquisition emitted a bundle")
+			return
+		}
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OIDC request did not start")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrSignerUnavailable)
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotContains(t, err.Error(), "fake-request-secret")
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled OIDC acquisition did not stop")
+	}
+	require.Zero(t, fulcio.calls)
+	require.Zero(t, rekor.calls)
+}
+
 func TestKeylessSignerCancelsFulcioRequest(t *testing.T) {
 	signer, _, fulcio, rekor := fakeKeyless(t)
 	input := newFixture(t).input
