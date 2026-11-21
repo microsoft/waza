@@ -561,8 +561,14 @@ generate` writes a signed in-toto/DSSE bundle binding the canonical request,
 runner image digest, Waza version, runner API, policy, runtime/model, artifact
 chain and terminal outcome; `waza runner provenance verify --bundle DIR
 --public-key KEY.pem` checks it offline (exit 0 verified, 1 failed).
-`waza runner provenance keygen` creates a local Ed25519 key; keyless and
-managed-KMS signing report an explicit unavailable state (exit 5). See
+`waza runner provenance keygen` creates a local Ed25519 key (unchanged default).
+Opt-in `--signer sigstore-keyless` uses GitHub Actions OIDC and public-good
+Fulcio/Rekor; **both generation and offline verification require an independently
+approved `--trusted-root`**, and verification also requires an exact issuer
+and workflow identity policy. The guide includes permissions, root acquisition,
+egress, privacy and a complete workflow example. Signing is not automatic or a
+release requirement; Lab/API verification remains local-key only. Managed-KMS
+signing remains unavailable (exit 5). See
 [execution provenance](docs/EXECUTION_PROVENANCE.md).
 
 **Component inventory commands (unreleased, planned for v0.42.0):** `waza runner

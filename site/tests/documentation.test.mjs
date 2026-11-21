@@ -1152,7 +1152,18 @@ test('production integration assurance package, site navigation and schema route
     assert.ok(page.includes(`#${issue}`), `missing rendered evidence link for #${issue}`);
   }
   assert.match(page, /no new Lab dashboard view/i);
-  assert.match(page, /Waza execution-provenance CLI has no Sigstore keyless or managed-KMS signer/i);
+  assert.match(page, /CLI supports opt-in Sigstore keyless signing using GitHub Actions OIDC/i);
+  assert.match(page, /Waza execution-provenance CLI has no managed-KMS signer/i);
+  for (const path of ['docs/EXECUTION_PROVENANCE.md', 'site/src/content/docs/guides/execution-provenance.mdx']) {
+    const provenance = read(path);
+    for (const requirement of ['id-token: write', 'contents: read', '--trusted-root',
+      '--certificate-identity', '--certificate-oidc-issuer', 'https://fulcio.sigstore.dev',
+      'https://rekor.sigstore.dev', 'cosign initialize', 'publicly recorded']) {
+      assert.ok(provenance.includes(requirement), `${path} must explain ${requirement}`);
+    }
+    assert.match(provenance, /not an installed Waza release requirement/i);
+    assert.match(provenance, /does \*\*not\*\* verify certificate-transparency SCTs/i);
+  }
   assert.match(page, /Candidate qualification retains inventory and attestation evidence in workflow-run artifacts only/i);
   assert.match(page, /Registry publication and inventory attestation occur only in the qualified tag-release path/i);
   assert.match(page, /no live execution-path telemetry emission/i);

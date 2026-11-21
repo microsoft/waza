@@ -16,6 +16,8 @@ import (
 
 const maxProvenanceKeyBytes = 64 << 10
 
+var provenanceKeylessSigner = provenance.NewKeylessSigner
+
 func newRunnerProvenanceCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "provenance",
@@ -82,6 +84,7 @@ func newProvenanceGenerateCommand() *cobra.Command {
 	var requestPath, manifestPath, artifactsDir, policyPath, policyMediaType string
 	var imageReference, imageDigest, signerMode, signingKey, outDir, wazaVersion string
 	var binds []string
+	var trustedRootPath string
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Assemble and sign a provenance bundle for one completed execution",
@@ -102,7 +105,17 @@ mode is unavailable in this build.`,
 				}
 				signingPEM = data
 			}
-			signer, err := provenance.NewSigner(signerMode, signingPEM)
+			var signer provenance.Signer
+			var err error
+			if signerMode == provenance.ModeSigstoreKeyless {
+				data, readErr := readArtifactFile(trustedRootPath, provenance.MaxTrustedRootBytes)
+				if readErr != nil {
+					return fail(2, "reading --trusted-root (required for keyless signing): %w", readErr)
+				}
+				signer, err = provenanceKeylessSigner(data)
+			} else {
+				signer, err = provenance.NewSigner(signerMode, signingPEM)
+			}
 			if errors.Is(err, provenance.ErrSignerUnavailable) {
 				return fail(5, "%w", err)
 			}
@@ -148,6 +161,9 @@ mode is unavailable in this build.`,
 			}
 			bundle, err := provenance.Generate(cmd.Context(), in, signer)
 			if err != nil {
+				if errors.Is(err, provenance.ErrSignerUnavailable) {
+					return fail(5, "generating provenance: %w", err)
+				}
 				return fail(2, "generating provenance: %w", err)
 			}
 			if err := bundle.WriteDir(outDir); err != nil {
@@ -169,6 +185,7 @@ mode is unavailable in this build.`,
 	f.StringVar(&wazaVersion, "waza-version", version, "Waza version claim (defaults to this binary's version)")
 	f.StringVar(&signerMode, "signer", provenance.ModeLocalEd25519, "Signer mode: local-ed25519, sigstore-keyless or managed-kms")
 	f.StringVar(&signingKey, "signing-key", "", "PKCS#8 PEM Ed25519 private key for local-ed25519")
+	f.StringVar(&trustedRootPath, "trusted-root", "", "Verifier-owned Sigstore trusted-root JSON (required for sigstore-keyless)")
 	f.StringVar(&outDir, "out", "", "New or empty directory for the bundle")
 	f.StringArrayVar(&binds, "bind", nil, "Additional member bound by digest as kind=path (kind must have a registered verifier)")
 	for _, name := range []string{"request", "manifest", "artifacts", "policy", "image-reference", "image-digest", "out"} {
@@ -182,6 +199,7 @@ func newProvenanceVerifyCommand() *cobra.Command {
 	var publicKeys []string
 	var opts provenance.Options
 	var requireInventory bool
+	var trustedRootPath, certificateIdentity, certificateIdentityRegexp, certificateIssuer string
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify a provenance bundle offline and print a verification report",
@@ -192,6 +210,20 @@ bind declared claims to what the verifier consumed.`,
 		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts.Verifier = nil
+			if trustedRootPath != "" || certificateIdentity != "" || certificateIdentityRegexp != "" || certificateIssuer != "" {
+				if len(publicKeys) != 0 {
+					return &ExitCodeError{Code: 2, Err: errors.New("--public-key cannot be combined with keyless trust flags")}
+				}
+				data, err := readArtifactFile(trustedRootPath, provenance.MaxTrustedRootBytes)
+				if err != nil {
+					return &ExitCodeError{Code: 2, Err: fmt.Errorf("reading --trusted-root: %w", err)}
+				}
+				opts.Verifier, err = provenance.NewKeylessVerifier(data, certificateIdentity, certificateIdentityRegexp, certificateIssuer)
+				if err != nil {
+					return &ExitCodeError{Code: 2, Err: err}
+				}
+			}
 			var pems [][]byte
 			for _, path := range publicKeys {
 				data, err := readArtifactFile(path, maxProvenanceKeyBytes)
@@ -228,6 +260,10 @@ bind declared claims to what the verifier consumed.`,
 	f := cmd.Flags()
 	f.StringVar(&bundleDir, "bundle", "", "Provenance bundle directory")
 	f.StringArrayVar(&publicKeys, "public-key", nil, "Trusted PKIX PEM Ed25519 public key (repeatable); never read from the bundle")
+	f.StringVar(&trustedRootPath, "trusted-root", "", "Verifier-owned Sigstore trusted-root JSON; never read from the bundle or fetched online")
+	f.StringVar(&certificateIdentity, "certificate-identity", "", "Exact trusted workflow certificate SAN, including workflow path and ref")
+	f.StringVar(&certificateIdentityRegexp, "certificate-identity-regexp", "", "Trusted workflow SAN regexp, anchored with ^ and $ (alternative to exact identity)")
+	f.StringVar(&certificateIssuer, "certificate-oidc-issuer", "", "Exact trusted certificate OIDC issuer (GitHub: https://token.actions.githubusercontent.com)")
 	f.StringVar(&opts.ExpectImageDigest, "expect-image-digest", "", "Require the signed runner image digest to equal this consumed digest")
 	f.StringVar(&opts.ExpectWazaVersion, "expect-waza-version", "", "Require the signed Waza version to equal this value")
 	f.StringVar(&opts.ExpectPolicySHA256, "expect-policy-sha256", "", "Require the signed policy digest to equal this hex sha256")

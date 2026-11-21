@@ -13,10 +13,8 @@ import (
 	"strconv"
 )
 
-// Signer modes. Only ModeLocalEd25519 is implemented in this build; keyless
-// (Sigstore) and managed (KMS/HSM) signing are represented by the same
-// interfaces and report an explicit unavailable state until an integration is
-// configured.
+// Signer modes. Local Ed25519 is the default; keyless uses GitHub Actions OIDC.
+// Managed (KMS/HSM) signing remains unavailable.
 const (
 	ModeLocalEd25519    = "local-ed25519"
 	ModeSigstoreKeyless = "sigstore-keyless"
@@ -110,7 +108,8 @@ type localSigner struct {
 }
 
 // NewSigner selects a signer mode. Local mode requires a PEM PKCS#8 Ed25519
-// private key; keyless and managed modes return ErrSignerUnavailable.
+// private key. Keyless requires NewKeylessSigner with separately supplied trust;
+// managed mode remains unavailable.
 func NewSigner(mode string, privatePEM []byte) (Signer, error) {
 	switch mode {
 	case ModeLocalEd25519:
