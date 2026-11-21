@@ -168,7 +168,7 @@ func TestBuildRejectsUnknownStateAndStaleEvidence(t *testing.T) {
 	var promotedState Package
 	require.NoError(t, json.Unmarshal(input, &promotedState))
 	for i := range promotedState.ConformanceMatrix {
-		if promotedState.ConformanceMatrix[i].ID == "provenance-keyless-kms" {
+		if promotedState.ConformanceMatrix[i].ID == "provenance-managed-kms" {
 			promotedState.ConformanceMatrix[i].State = "supported"
 		}
 	}

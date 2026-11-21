@@ -35,7 +35,8 @@ var ErrInvalid = errors.New("invalid production integration assurance package")
 
 var expectedCapabilityStates = map[string]string{
 	"provenance-local-signing":                    "supported",
-	"provenance-keyless-kms":                      "unavailable",
+	"provenance-keyless-signing":                  "supported",
+	"provenance-managed-kms":                      "unavailable",
 	"image-inventory-generation-verification":     "supported",
 	"inventory-refresh-and-legacy-images":         "unavailable",
 	"post-run-telemetry":                          "supported",

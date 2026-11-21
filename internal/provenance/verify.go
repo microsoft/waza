@@ -258,8 +258,8 @@ func (v *verification) verifyEnvelope() *Statement {
 	v.report.Statement = &ReportEnvelope{Path: EnvelopePath, EnvelopeSHA256: sha256Hex(envelopeData)}
 
 	switch index.Signer.Mode {
-	case ModeLocalEd25519:
-	case ModeSigstoreKeyless, ModeManagedKMS:
+	case ModeLocalEd25519, ModeSigstoreKeyless:
+	case ModeManagedKMS:
 		v.set("signature", "failed", "signer_unavailable", "%s verification has no configured integration in this build", index.Signer.Mode)
 		return nil
 	}
@@ -300,7 +300,34 @@ func (v *verification) verifyEnvelope() *Statement {
 		return nil
 	}
 	v.report.Statement.PayloadSHA256 = sha256Hex(payload)
-	if err := v.opts.Verifier.Verify(sig.KeyID, PAE(envelope.PayloadType, payload), signature); err != nil {
+	var verificationErr error
+	if index.Signer.Mode == ModeSigstoreKeyless {
+		evidence, readErr := v.src.ReadFile(SigstoreEvidencePath, maxEnvelopeBytes)
+		v.read += int64(len(evidence))
+		member := &Member{Path: SigstoreEvidencePath, Role: "envelope", Status: "unreadable"}
+		v.members[SigstoreEvidencePath] = member
+		if readErr != nil {
+			v.set("signature", "failed", "sigstore_evidence_missing", "Sigstore evidence is missing or unreadable")
+			return nil
+		}
+		member.SHA256 = sha256Hex(evidence)
+		verifier, ok := v.opts.Verifier.(interface {
+			VerifyEvidence(string, []byte, []byte, []byte) error
+		})
+		if !ok {
+			v.set("signature", "failed", "trust_anchor_missing", "keyless verification requires Sigstore trust and identity policy")
+			return nil
+		}
+		verificationErr = verifier.VerifyEvidence(sig.KeyID, PAE(envelope.PayloadType, payload), signature, evidence)
+		if verificationErr == nil {
+			member.Status = "verified"
+		} else {
+			member.Status = "mismatch"
+		}
+	} else {
+		verificationErr = v.opts.Verifier.Verify(sig.KeyID, PAE(envelope.PayloadType, payload), signature)
+	}
+	if err := verificationErr; err != nil {
 		code := "signature_invalid"
 		if errors.Is(err, ErrKeyUntrusted) {
 			code = "key_untrusted"
