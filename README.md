@@ -17,7 +17,7 @@ Function key in the browser. See [scope, privacy, and integration handoff](site/
 → [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
 Mock success checks the harness, not agent quality or live service safety.
 
-**Version boundary (November 20, 2026):** the published standalone CLI is
+**Version boundary (November 21, 2026):** the published standalone CLI is
 `v0.42.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.42.0)). Scenario authoring, preflight, selected-file evidence,
 assurance profiles, controlled release policies, recorded reliability, and the
 opt-in dashboard Lab were introduced in `v0.39.0` and remain included.
@@ -30,7 +30,7 @@ provenance, component inventories, post-run telemetry, resource-budget and
 isolation contracts, portable external adapters, and an operator assurance
 package. It also includes opt-out product usage telemetry and evaluation fixes.
 Read the [v0.42.0 preview and migration limits](https://microsoft.github.io/waza/releases/v0-42-0/),
-[changelog](CHANGELOG.md#0420---2026-11-20) and
+[changelog](CHANGELOG.md#0420---2026-11-21) and
 [release reference](site/src/content/docs/reference/releases.mdx).
 Native sandbox providers (#544/#545) are not included; local signing and host
 capabilities retain explicit unavailable states. Extension registry availability

@@ -639,19 +639,19 @@ test('v0.41.0 article is a published release record with its limits', () => {
 test('v0.42.0 tag metadata retains the preview article and production integration limits', () => {
   const article = read('site/src/content/docs/releases/v0-42-0.mdx').replace(/\r\n/g, '\n');
   const visible = article.replace(/<!--[\s\S]*?-->/g, '');
-  assert.match(visible, /\*\*Draft - publication pending\. Release date 2026-11-20\.\*\*/);
+  assert.match(visible, /\*\*Draft - publication pending\. Release date 2026-11-21\.\*\*/);
   assert.match(read('version.txt'), /^0\.42\.0\s*$/);
   assert.match(read('extension.yaml'), /^version: 0\.42\.0$/m);
   const changelog = read('CHANGELOG.md');
-  const candidate = changelog.split('## [0.42.0] - 2026-11-20')[1]?.split('## [0.41.0]')[0];
+  const candidate = changelog.split('## [0.42.0] - 2026-11-21')[1]?.split('## [0.41.0]')[0];
   assert.ok(candidate, 'candidate must own the folded Unreleased entries');
   assert.doesNotMatch(candidate, /pending|preparation only|downloads remain/i);
   for (const link of ['releases/tag/v0.42.0', 'releases/tag/azd-ext-microsoft-azd-waza_0.42.0',
     'site/src/content/docs/releases/v0-42-0.mdx', 'site/src/content/docs/reference/releases.mdx']) {
     assert.ok(candidate.includes(link), `tagged changelog must link ${link}`);
   }
-  const frontier = candidate.match(/scope merged on current `main`\s+`(__FRONTIER__|[a-f0-9]{40})`, compared with published v0\.41\.0/)?.[1];
-  assert.ok(frontier, 'release frontier must be the staging placeholder or a full commit SHA');
+  const frontier = candidate.match(/scope merged on current `main`\s+`([a-f0-9]{40})`, compared with published v0\.41\.0/)?.[1];
+  assert.ok(frontier, 'release frontier must be a full commit SHA');
   assert.ok(visible.includes(`frontier is \`${frontier}\``), 'article and changelog frontiers must agree');
   assert.ok(visible.includes(`compare/v0.41.0..${frontier})`), 'comparison must use the same source frontier');
   assert.equal(changelog.split('## [Unreleased]')[1]?.split('## [0.42.0]')[0].trim(), '');

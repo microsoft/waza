@@ -9,7 +9,7 @@ then the [offline Quick Start](../site/src/content/docs/quick-start.mdx).
 Mock trials prove harness wiring, not agent quality. Read the
 [authentication and usage prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution)
 before model-backed runs. Scenario/preflight/evidence features were introduced in
-`v0.39.0` and remain in published `v0.42.0` (November 20, 2026); install the
+`v0.39.0` and remain in published `v0.42.0` (November 21, 2026); install the
 current release or run `waza update`.
 Explicit opt-in and platform limits still apply; see
 [availability](../site/src/content/docs/reference/releases.mdx).

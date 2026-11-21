@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.42.0] - 2026-11-20
+## [0.42.0] - 2026-11-21
 
 The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.42.0)
 and separately versioned
@@ -16,7 +16,7 @@ are published from the `v0.42.0` tag. See the
 [release article](site/src/content/docs/releases/v0-42-0.mdx) and
 [download reference](site/src/content/docs/reference/releases.mdx).
 This entry covers the v0.42.0 milestone scope merged on current `main`
-`__FRONTIER__`, compared with published v0.41.0
+`2dd5a32a20ffbb1ebc421e870386d9ab109e5fdc`, compared with published v0.41.0
 (`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`), including the readiness fixes in
 #1084 and opt-in keyless signer in #1086. Entries previously listed under
 Unreleased are folded in here. Registry availability follows the separate
