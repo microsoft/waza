@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
@@ -435,6 +436,48 @@ func TestGitHubOIDCTokenRequest(t *testing.T) {
 type tokenTransport func(*http.Request) (*http.Response, error)
 
 func (f tokenTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestKeylessGenerateOIDCContextError(t *testing.T) {
+	for _, want := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(want.Error(), func(t *testing.T) {
+			signer, _, fulcio, rekor := fakeKeyless(t)
+			input := newFixture(t).input
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				const secret = "fake-request-secret"
+				env := map[string]string{
+					"GITHUB_ACTIONS": "true", "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.actions.githubusercontent.com",
+					"ACTIONS_ID_TOKEN_REQUEST_TOKEN": secret,
+				}
+				calls := 0
+				client := &http.Client{Transport: tokenTransport(func(req *http.Request) (*http.Response, error) {
+					calls++
+					require.NoError(t, req.Context().Err())
+					require.Equal(t, "Bearer "+secret, req.Header.Get("Authorization"))
+					if want == context.Canceled {
+						cancel()
+					}
+					<-req.Context().Done()
+					require.ErrorIs(t, req.Context().Err(), want)
+					return nil, fmt.Errorf("transport detail %s: %w", secret, req.Context().Err())
+				})}
+				signer.token = func(ctx context.Context) (string, error) {
+					return requestGithubOIDCToken(ctx, func(key string) string { return env[key] }, client)
+				}
+
+				bundle, err := Generate(ctx, input, signer)
+				require.Equal(t, 1, calls)
+				require.Nil(t, bundle)
+				require.Zero(t, fulcio.calls)
+				require.Zero(t, rekor.calls)
+				require.ErrorIs(t, err, ErrSignerUnavailable)
+				require.NotContains(t, err.Error(), secret)
+				require.ErrorIs(t, err, want)
+			})
+		})
+	}
+}
 
 type tokenBody struct{ *strings.Reader }
 
