@@ -25,7 +25,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/stretchr/testify v1.12.1
 	github.com/yuin/goldmark v1.8.7
 	go.opentelemetry.io/otel v1.47.0
