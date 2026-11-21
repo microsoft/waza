@@ -189,12 +189,31 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 
 	otherSigner, untrustedRoot, _, _ := fakeKeyless(t)
 	require.NotEqual(t, signer.KeyID(), otherSigner.KeyID())
+	// Swap only the Fulcio CA so certificate-chain rejection is covered independently of log trust.
+	originalTrust, err := root.NewTrustedRootFromJSON(trust)
+	require.NoError(t, err)
+	otherTrust, err := root.NewTrustedRootFromJSON(untrustedRoot)
+	require.NoError(t, err)
+	rebuildRoot := func(cas []root.CertificateAuthority) []byte {
+		t.Helper()
+		rebuilt, err := root.NewTrustedRoot(root.TrustedRootMediaType01, cas, nil, nil, originalTrust.RekorLogs())
+		require.NoError(t, err)
+		data, err := rebuilt.MarshalJSON()
+		require.NoError(t, err)
+		return data
+	}
+	rebuiltVerifier, err := NewKeylessVerifier(rebuildRoot(originalTrust.FulcioCertificateAuthorities()), testWorkflowIdentity, "", testOIDCIssuer)
+	require.NoError(t, err)
+	rebuiltReport := verifyFiles(t, bundle.Files, Options{Verifier: rebuiltVerifier})
+	require.Equal(t, "verified", rebuiltReport.Status, "%+v", rebuiltReport.Failures())
+	wrongCARoot := rebuildRoot(otherTrust.FulcioCertificateAuthorities())
 	for name, test := range map[string]struct {
-		root, identity, regexp, issuer string
+		root, identity, regexp, issuer, reason string
 	}{
 		"wrong identity": {identity: testWorkflowIdentity + "-wrong", issuer: testOIDCIssuer},
 		"wrong issuer":   {identity: testWorkflowIdentity, issuer: "https://wrong.example"},
 		"wrong root":     {root: string(untrustedRoot), identity: testWorkflowIdentity, issuer: testOIDCIssuer},
+		"wrong CA only":  {root: string(wrongCARoot), identity: testWorkflowIdentity, issuer: testOIDCIssuer, reason: "failed to verify leaf certificate"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rootData := trust
@@ -206,6 +225,9 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 			r := verifyFiles(t, bundle.Files, Options{Verifier: v})
 			require.Equal(t, "failed", r.Status)
 			require.Equal(t, "signature_invalid", failure(r, "signature").Code)
+			if test.reason != "" {
+				require.Contains(t, failure(r, "signature").Message, test.reason)
+			}
 		})
 	}
 	for _, name := range []string{"missing evidence", "missing log", "legacy media type", "legacy media type without proof", "missing proof", "missing checkpoint", "empty checkpoint", "bad checkpoint", "missing SET", "empty SET", "bad SET", "second entry missing proof", "second entry missing checkpoint", "second entry missing SET", "tampered payload", "tampered both payloads", "substituted evidence", "tampered terminal"} {
