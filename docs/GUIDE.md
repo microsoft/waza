@@ -273,6 +273,7 @@ my-eval-suite/
 │           └── sample.py
 ├── .github/workflows/
 │   └── eval.yml                # CI/CD pipeline
+├── .waza.yaml                  # Project paths and defaults
 ├── .gitignore
 └── README.md
 ```
@@ -531,13 +532,33 @@ Initialize a waza project with directory structure.
 
 **Flags:**
 - `--no-skill` — Skip the first-skill creation prompt
+- `--skills-dir` — Override detection/defaults with a project-relative skills path
+- `--evals-dir` — Override detection/defaults with a project-relative evals path
+- `--results-dir` — Set the results path recorded in newly created configuration
 
 **What it creates:**
 - `skills/` — Skill definitions directory
 - `evals/` — Evaluation suites directory
+- `.waza.yaml` — Project paths and engine/model defaults
 - `.github/workflows/eval.yml` — CI/CD pipeline
 - `.gitignore` — With waza-specific entries
 - `README.md` — Getting started guide
+
+Existing project files, including `.waza.yaml` and the workflow, are not
+overwritten. The results path is configured but its directory is not created
+by the scaffold.
+
+**Review the generated CI workflow before enabling it.** Its default
+`pull_request` trigger targets `main` and changes under `evals/**` or `skills/**`;
+custom path flags do not update those filters. It grants `contents: read`,
+installs the extension using the mutable
+`https://raw.githubusercontent.com/microsoft/waza/main/registry.json` source,
+runs `azd waza run --output-dir ./results`, and uploads results for 30 days.
+This is not release pinning or runtime authentication: select a trusted pinned
+release source and configure authentication separately. `init` does not
+configure credentials or grant PRs access to secrets. Preserve fork-PR and
+untrusted-input safeguards described in the
+[CI/CD guide](../site/src/content/docs/guides/ci-cd.mdx).
 
 **Example:**
 ```bash

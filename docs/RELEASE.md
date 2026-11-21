@@ -541,9 +541,9 @@ go run ./cmd/waza runner assurance build --format markdown
 
 The package records contract evidence and unsupported/unavailable states; it is
 not a blanket deployment approval. Release and migration notes must retain the
-documented gaps for keyless/KMS signing, manually triggered inventory
-publication and previously published images, post-run telemetry, OS resource
-accounting, host-enforced isolation, and external scheduler/provenance-hook
+documented gaps for keyless/KMS signing, inventory publication restricted to the
+qualified tag-release path and unqualified previously published images, post-run
+telemetry, OS resource accounting, host-enforced isolation, and external scheduler/provenance-hook
 responsibilities. Operators reassess against the exact released Waza version
 and image digest after upgrades. See
 [`docs/PRODUCTION_INTEGRATION_ASSURANCE.md`](PRODUCTION_INTEGRATION_ASSURANCE.md).

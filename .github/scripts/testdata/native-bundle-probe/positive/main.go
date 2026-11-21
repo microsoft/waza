@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -32,8 +33,12 @@ func run() error {
 	if libc == "linux" {
 		directory = ""
 	}
+	cli, err := bundledCLI(root+"/home/.copilot/cache/copilot-sdk", directory)
+	if err != nil {
+		return err
+	}
 	client := copilot.NewClient(&copilot.ClientOptions{
-		Connection:      copilot.StdioConnection{Path: root + "/home/.copilot/cache/copilot-sdk/1.0.112/" + directory + "copilot"},
+		Connection:      copilot.StdioConnection{Path: cli},
 		UseLoggedInUser: copilot.Bool(false),
 	})
 	if err := client.Start(ctx); err != nil {
@@ -64,4 +69,34 @@ func run() error {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(response)
+}
+
+// bundledCLI locates the single version directory the runner extracted, so the
+// control follows the embedded bundle without pinning its version.
+func bundledCLI(cacheRoot, directory string) (string, error) {
+	entries, err := os.ReadDir(cacheRoot)
+	if err != nil {
+		return "", fmt.Errorf("read bundled CLI cache: %w", err)
+	}
+	var candidates []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(cacheRoot, entry.Name(), directory+"copilot")
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("inspect bundled CLI candidate: %w", err)
+		}
+		if info.Mode().IsRegular() {
+			candidates = append(candidates, path)
+		}
+	}
+	if len(candidates) != 1 {
+		return "", fmt.Errorf("expected exactly one extracted bundled CLI under %s, found %q", cacheRoot, candidates)
+	}
+	return candidates[0], nil
 }

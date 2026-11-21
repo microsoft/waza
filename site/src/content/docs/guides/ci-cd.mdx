@@ -7,95 +7,6 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Automate waza evaluations in your CI/CD pipeline to catch regressions early and validate agent behavior across models.
 
-## Explicit fixed-design release assessment
-
-Ordinary `gate` defaults and exits stay unchanged. Explicitly select a new
-protocol collection with:
-
-```bash
-waza gate --release-policy policy.json --collection-dir new-collection --format github-actions
-```
-
-Selected invalid, rejected, incomplete or inconclusive evidence exits `1`.
-Do not combine this mode with legacy gate policy flags or manufacture receipts
-from historical result files. Use `compare-plan` and `compare-collect` before
-assessment. They default to the supported offline mock path; a mock run is not
-agent-quality evidence.
-
-Design sampling clusters, retry policy, weights, independent-execution
-justification, endpoint, family bound and precision **before collection**.
-Retries/tasks inside a cluster are not extra independent samples. Required
-golden tasks must pass their first attempt in both arms, even when retry
-recovery is the selected endpoint. Required unavailable billing or assurance
-cannot strict-pass. See [controlled comparisons](/waza/guides/controlled-comparisons/).
-
-### Explicit native Copilot collection
-
-The native SDK collector is never selected by default. Opt in on both planning
-and collection only when provider usage is intended:
-
-Do not run these native commands as part of offline example checks; collection
-may incur provider usage.
-
-```bash
-waza compare-plan --collector native-copilot \
-  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
-  --design design.json --requirements requirements.json \
-  --output native-policy.json
-waza compare-collect --collector native-copilot \
-  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
-  --release-policy native-policy.json --collection-dir new-native-collection
-waza gate --release-policy native-policy.json \
-  --collection-dir new-native-collection --format json
-```
-
-This profile supports fixed named models, one turn, no skills, deny-all client
-tools and native text/string checks only. It may incur provider usage; token
-and AI-credit limits are final-observation budgets with best-effort start
-checks, not a hard spend cap, and asynchronous overshoot is possible. Unknown
-required prior usage stops later starts. Runtime version, provider currency
-and authenticated assurance are unavailable. Native durable collection is
-supported only on Linux/macOS. Client-side tool denial is not server isolation.
-The bundled mock example is intentionally not runnable with this collector.
-
-### Independent offline assurance in CI
-
-Required assurance remains nonpassing in the **frozen base 1.0** decision and
-API/dashboard. To select the independent outer profile, first create a new
-exclusive contract with `compare-assurance-plan --output ... --release-policy
-...`, current per-arm `--baseline-eval` / `--candidate-eval`, and
-`--baseline-references` / `--candidate-references`. Optional context overrides
-retain their existing resolution. Collect with explicit `--assurance-contract`
-plus `--release-policy`, then assess with those flags, `--collection-dir` and
-current per-arm inputs.
-
-```bash
-# Illustrative authored source paths; not a ready-to-pass bundled fixture.
-waza gate --release-policy policy.json \
-  --assurance-contract assurance-contract.json \
-  --collection-dir new-assured-collection \
-  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
-  --baseline-references baseline/references.json \
-  --candidate-references candidate/references.json --format json
-```
-
-Use JSON for the outer machine-readable contract or default human output;
-do not assume selected assurance reproduces legacy CI annotation/markdown
-layouts. Selected nonpass exits `1`. Both fresh exact offline1.0 reports,
-deterministic regrading of retained actual responses and every base
-non-assurance condition must pass. A saved report label is not current evidence.
-Recheck current source/evidence/review after verify and before publication/
-assessment; use the same bound executable throughout.
-
-Per-arm `--review` files and `--accept-review-source` acceptance are separate
-current inputs, not authenticated human review. Supply selected inputs at each
-stage; examples stay unreviewed and test reviews are explicitly synthetic.
-Only mock/no-skills/native-text/finite-authored-output qualification is
-supported. No live SDK assurance, calibration, paid1.1/billing support or automatic paid
-validation. Local hashes establish consistency, not authenticity or globally
-witnessed precommitment. See the
-[profile limits](/waza/guides/controlled-comparisons/#opt-in-separately-to-offline-assurance).
-
 ## Installation in CI
 
 ### Via azd Extension (Recommended)
@@ -128,7 +39,7 @@ For Windows, download `waza.exe` from the latest GitHub release assets and add i
 
 ### Via Source
 
-Requires Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+. Generate the real dashboard
+Requires Go 1.26.4+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+. Generate the real dashboard
 assets before Go embedding; `go build` alone is not a fresh-checkout setup:
 
 ```bash
@@ -159,6 +70,27 @@ requirement-enforcement policy and does not change existing `run`/`gate` exits.
 See [Offline Eval Preflight](../preflight/) for diagnostics and limitations.
 
 ## GitHub Actions
+
+### Quick Start — Scaffold with waza init
+
+The `waza init` command generates a workflow starting point:
+
+```bash
+waza init my-project
+```
+
+This creates `.github/workflows/eval.yml`. Its default PR filters target `main`
+and changes to `evals/**` or `skills/**`; installation uses the mutable
+`main/registry.json`, not a pinned release. It does not configure runtime
+credentials or grant PRs access to secrets. Review the
+[init reference](../../reference/cli/#waza-init), adapt the filters and release
+source, and review authentication and the [security guidance](#8-secure-secrets)
+for your trust model before enabling real evaluations.
+
+For a hand-written pipeline, continue with the
+[complete example](#complete-example-multi-model-testing-on-pr). The repository
+performance evidence and offline challenge assessment below are optional
+specialist paths, not setup requirements.
 
 ### Repository CI performance evidence
 
@@ -514,6 +446,9 @@ which measures browser tests only.
 
 ### Offline challenge assessment
 
+**Optional, explicit opt-in:** add this independent challenge gate only when
+you need grader qualification beyond the ordinary evaluation pipeline.
+
 Use `waza assure eval.yaml --references labels.json` as a separate strict
 file-content challenge gate. It does not change `grade`, `gate`, golden-task or
 evaluation exits. Its standalone report preserves actual observations, scoped
@@ -556,16 +491,6 @@ receipt/clock tests exercise the accepted local implementation and injected
 authority seams; they do not authenticate human review, establish global
 reservation or authorize a native lifecycle. Unsupported backend platforms must
 remain explicit nonpass, not successful durability fallbacks.
-
-### Quick Start — Scaffold with waza init
-
-The `waza init` command generates a ready-to-use workflow:
-
-```bash
-waza init my-project
-```
-
-This creates `.github/workflows/eval.yml` with sensible defaults.
 
 ### Complete Example: Multi-Model Testing on PR
 
@@ -1133,6 +1058,98 @@ config:
 ```
 
 Or use `--workers 1` in your CI command.
+
+## Explicit fixed-design release assessment
+
+**Optional, explicit opt-in:** the release, native collection and independent
+assurance profiles below are not prerequisites for the basic CI pipeline.
+
+Ordinary `gate` defaults and exits stay unchanged. Explicitly select a new
+protocol collection with:
+
+```bash
+waza gate --release-policy policy.json --collection-dir new-collection --format github-actions
+```
+
+Selected invalid, rejected, incomplete or inconclusive evidence exits `1`.
+Do not combine this mode with legacy gate policy flags or manufacture receipts
+from historical result files. Use `compare-plan` and `compare-collect` before
+assessment. They default to the supported offline mock path; a mock run is not
+agent-quality evidence.
+
+Design sampling clusters, retry policy, weights, independent-execution
+justification, endpoint, family bound and precision **before collection**.
+Retries/tasks inside a cluster are not extra independent samples. Required
+golden tasks must pass their first attempt in both arms, even when retry
+recovery is the selected endpoint. Required unavailable billing or assurance
+cannot strict-pass. See [controlled comparisons](/waza/guides/controlled-comparisons/).
+
+### Explicit native Copilot collection
+
+The native SDK collector is never selected by default. Opt in on both planning
+and collection only when provider usage is intended:
+
+Do not run these native commands as part of offline example checks; collection
+may incur provider usage.
+
+```bash
+waza compare-plan --collector native-copilot \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --design design.json --requirements requirements.json \
+  --output native-policy.json
+waza compare-collect --collector native-copilot \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --release-policy native-policy.json --collection-dir new-native-collection
+waza gate --release-policy native-policy.json \
+  --collection-dir new-native-collection --format json
+```
+
+This profile supports fixed named models, one turn, no skills, deny-all client
+tools and native text/string checks only. It may incur provider usage; token
+and AI-credit limits are final-observation budgets with best-effort start
+checks, not a hard spend cap, and asynchronous overshoot is possible. Unknown
+required prior usage stops later starts. Runtime version, provider currency
+and authenticated assurance are unavailable. Native durable collection is
+supported only on Linux/macOS. Client-side tool denial is not server isolation.
+The bundled mock example is intentionally not runnable with this collector.
+
+### Independent offline assurance in CI
+
+Required assurance remains nonpassing in the **frozen base 1.0** decision and
+API/dashboard. To select the independent outer profile, first create a new
+exclusive contract with `compare-assurance-plan --output ... --release-policy
+...`, current per-arm `--baseline-eval` / `--candidate-eval`, and
+`--baseline-references` / `--candidate-references`. Optional context overrides
+retain their existing resolution. Collect with explicit `--assurance-contract`
+plus `--release-policy`, then assess with those flags, `--collection-dir` and
+current per-arm inputs.
+
+```bash
+# Illustrative authored source paths; not a ready-to-pass bundled fixture.
+waza gate --release-policy policy.json \
+  --assurance-contract assurance-contract.json \
+  --collection-dir new-assured-collection \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json --format json
+```
+
+Use JSON for the outer machine-readable contract or default human output;
+do not assume selected assurance reproduces legacy CI annotation/markdown
+layouts. Selected nonpass exits `1`. Both fresh exact offline1.0 reports,
+deterministic regrading of retained actual responses and every base
+non-assurance condition must pass. A saved report label is not current evidence.
+Recheck current source/evidence/review after verify and before publication/
+assessment; use the same bound executable throughout.
+
+Per-arm `--review` files and `--accept-review-source` acceptance are separate
+current inputs, not authenticated human review. Supply selected inputs at each
+stage; examples stay unreviewed and test reviews are explicitly synthetic.
+Only mock/no-skills/native-text/finite-authored-output qualification is
+supported. No live SDK assurance, calibration, paid1.1/billing support or automatic paid
+validation. Local hashes establish consistency, not authenticity or globally
+witnessed precommitment. See the
+[profile limits](/waza/guides/controlled-comparisons/#opt-in-separately-to-offline-assurance).
 
 ## Advanced Workflows
 

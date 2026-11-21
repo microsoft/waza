@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -71,6 +72,7 @@ func run() error {
 	var child *exec.Cmd
 	var requests []map[string]any
 	var nativePIDs []int
+	nativeExecutables := map[string]map[string]bool{}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
 		if err != nil {
@@ -87,6 +89,10 @@ func run() error {
 		for pid, command := range procs {
 			if strings.Contains(command, "/cache/copilot-sdk/") {
 				nativePIDs = append(nativePIDs, pid)
+				if nativeExecutables[current] == nil {
+					nativeExecutables[current] = map[string]bool{}
+				}
+				nativeExecutables[current][strings.Fields(command)[0]] = true
 			}
 		}
 		mu.Unlock()
@@ -252,6 +258,12 @@ func run() error {
 		if name == "sdk-positive" {
 			if code != 0 || string(hook) != "sessionStart\nuserPromptSubmitted\n" {
 				return fmt.Errorf("positive canary control failed: code=%d hooks=%q", code, hook)
+			}
+			mu.Lock()
+			runnerExecutables, positiveExecutables := nativeExecutables["reply"], nativeExecutables["sdk-positive"]
+			mu.Unlock()
+			if len(runnerExecutables) != 1 || len(positiveExecutables) != 1 || !maps.Equal(runnerExecutables, positiveExecutables) {
+				return fmt.Errorf("positive control must launch the runner's bundled executable: runner=%v positive=%v", runnerExecutables, positiveExecutables)
 			}
 			continue
 		}

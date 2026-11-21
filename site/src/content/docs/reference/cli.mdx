@@ -239,6 +239,9 @@ waza init [directory]
 | Flag | Description |
 |------|-------------|
 | `--no-skill` | Skip first skill creation prompt |
+| `--skills-dir` | Project-relative skills directory; overrides detection and defaults |
+| `--evals-dir` | Project-relative evals directory; overrides detection and defaults |
+| `--results-dir` | Project-relative results directory recorded in new configuration |
 
 ### Creates
 
@@ -246,10 +249,25 @@ waza init [directory]
 project-root/
 ├── skills/
 ├── evals/
+├── .waza.yaml
 ├── .github/workflows/eval.yml
 ├── .gitignore
 └── README.md
 ```
+
+Existing project files are preserved. Missing `.waza.yaml` configuration records
+the selected paths and engine/model defaults; an existing configuration is not
+rewritten. The results directory is configured, not created by this scaffold.
+
+The generated workflow is a starting point, not a release-pinned or authenticated
+CI setup. It runs on `pull_request` events targeting `main` that change `evals/**`
+or `skills/**`, uses `contents: read`, installs the extension from the mutable
+`main/registry.json`, runs `azd waza run --output-dir ./results`, and uploads
+results with 30-day retention. Custom path flags do not rewrite its path filters.
+Review the workflow, pin the desired release source, and configure runtime
+authentication for your trust model before enabling real evaluations. `init`
+does not configure credentials or grant pull requests access to secrets; see
+the [CI/CD guide](../../guides/ci-cd/) for credential and fork-PR safeguards.
 
 ### Examples
 
