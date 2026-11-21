@@ -117,6 +117,9 @@ func (s *keylessSigner) signEvidence(ctx context.Context, message []byte) ([]byt
 		return nil, nil, errors.New("keyless signer received invalid DSSE payload length")
 	}
 	token, err := s.token(ctx)
+	if contextErr := keylessContextError(ctx); contextErr != nil {
+		return nil, nil, contextErr
+	}
 	if err != nil {
 		return nil, nil, err
 	}

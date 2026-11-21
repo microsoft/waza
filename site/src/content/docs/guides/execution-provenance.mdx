@@ -289,8 +289,9 @@ or key-revocation workflow. Waza uses sigstore-go v1.3.0 to retain Go 1.26.4
 compatibility (v1.4.0 requires Go 1.27).
 
 Signing requests use 30-second service timeouts and a 90-second signer context.
-Queued callers and Fulcio requests honor caller context cancellation; these
-settings are **not a hard overall wall-clock guarantee**. A failed or canceled
+Queued callers, GitHub OIDC token requests, and Fulcio requests honor caller
+context cancellation; these settings are **not a hard overall wall-clock
+guarantee**. A failed or canceled
 signing attempt may already have created a **public Rekor entry**, even though
 Waza emits no bundle: service submission precedes final trust verification.
 

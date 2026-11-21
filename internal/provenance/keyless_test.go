@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
@@ -188,12 +189,31 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 
 	otherSigner, untrustedRoot, _, _ := fakeKeyless(t)
 	require.NotEqual(t, signer.KeyID(), otherSigner.KeyID())
+	// Swap only the Fulcio CA so certificate-chain rejection is covered independently of log trust.
+	originalTrust, err := root.NewTrustedRootFromJSON(trust)
+	require.NoError(t, err)
+	otherTrust, err := root.NewTrustedRootFromJSON(untrustedRoot)
+	require.NoError(t, err)
+	rebuildRoot := func(cas []root.CertificateAuthority) []byte {
+		t.Helper()
+		rebuilt, err := root.NewTrustedRoot(root.TrustedRootMediaType01, cas, nil, nil, originalTrust.RekorLogs())
+		require.NoError(t, err)
+		data, err := rebuilt.MarshalJSON()
+		require.NoError(t, err)
+		return data
+	}
+	rebuiltVerifier, err := NewKeylessVerifier(rebuildRoot(originalTrust.FulcioCertificateAuthorities()), testWorkflowIdentity, "", testOIDCIssuer)
+	require.NoError(t, err)
+	rebuiltReport := verifyFiles(t, bundle.Files, Options{Verifier: rebuiltVerifier})
+	require.Equal(t, "verified", rebuiltReport.Status, "%+v", rebuiltReport.Failures())
+	wrongCARoot := rebuildRoot(otherTrust.FulcioCertificateAuthorities())
 	for name, test := range map[string]struct {
-		root, identity, regexp, issuer string
+		root, identity, regexp, issuer, reason string
 	}{
 		"wrong identity": {identity: testWorkflowIdentity + "-wrong", issuer: testOIDCIssuer},
 		"wrong issuer":   {identity: testWorkflowIdentity, issuer: "https://wrong.example"},
 		"wrong root":     {root: string(untrustedRoot), identity: testWorkflowIdentity, issuer: testOIDCIssuer},
+		"wrong CA only":  {root: string(wrongCARoot), identity: testWorkflowIdentity, issuer: testOIDCIssuer, reason: "failed to verify leaf certificate"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rootData := trust
@@ -205,6 +225,9 @@ func TestKeylessGenerateVerifyOffline(t *testing.T) {
 			r := verifyFiles(t, bundle.Files, Options{Verifier: v})
 			require.Equal(t, "failed", r.Status)
 			require.Equal(t, "signature_invalid", failure(r, "signature").Code)
+			if test.reason != "" {
+				require.Contains(t, failure(r, "signature").Message, test.reason)
+			}
 		})
 	}
 	for _, name := range []string{"missing evidence", "missing log", "legacy media type", "legacy media type without proof", "missing proof", "missing checkpoint", "empty checkpoint", "bad checkpoint", "missing SET", "empty SET", "bad SET", "second entry missing proof", "second entry missing checkpoint", "second entry missing SET", "tampered payload", "tampered both payloads", "substituted evidence", "tampered terminal"} {
@@ -435,6 +458,48 @@ func TestGitHubOIDCTokenRequest(t *testing.T) {
 type tokenTransport func(*http.Request) (*http.Response, error)
 
 func (f tokenTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestKeylessGenerateOIDCContextError(t *testing.T) {
+	for _, want := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(want.Error(), func(t *testing.T) {
+			signer, _, fulcio, rekor := fakeKeyless(t)
+			input := newFixture(t).input
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				const secret = "fake-request-secret"
+				env := map[string]string{
+					"GITHUB_ACTIONS": "true", "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.actions.githubusercontent.com",
+					"ACTIONS_ID_TOKEN_REQUEST_TOKEN": secret,
+				}
+				calls := 0
+				client := &http.Client{Transport: tokenTransport(func(req *http.Request) (*http.Response, error) {
+					calls++
+					require.NoError(t, req.Context().Err())
+					require.Equal(t, "Bearer "+secret, req.Header.Get("Authorization"))
+					if want == context.Canceled {
+						cancel()
+					}
+					<-req.Context().Done()
+					require.ErrorIs(t, req.Context().Err(), want)
+					return nil, fmt.Errorf("transport detail %s: %w", secret, req.Context().Err())
+				})}
+				signer.token = func(ctx context.Context) (string, error) {
+					return requestGithubOIDCToken(ctx, func(key string) string { return env[key] }, client)
+				}
+
+				bundle, err := Generate(ctx, input, signer)
+				require.Equal(t, 1, calls)
+				require.Nil(t, bundle)
+				require.Zero(t, fulcio.calls)
+				require.Zero(t, rekor.calls)
+				require.ErrorIs(t, err, ErrSignerUnavailable)
+				require.NotContains(t, err.Error(), secret)
+				require.ErrorIs(t, err, want)
+			})
+		})
+	}
+}
 
 type tokenBody struct{ *strings.Reader }
 
@@ -814,6 +879,53 @@ func TestKeylessSignerCanceledQueuedCall(t *testing.T) {
 	require.Equal(t, 2, tokenCalls)
 	require.Equal(t, 2, fulcio.calls)
 	require.Equal(t, 2, rekor.calls)
+}
+
+func TestKeylessGeneratePreservesOIDCCancellation(t *testing.T) {
+	signer, _, fulcio, rekor := fakeKeyless(t)
+	input := newFixture(t).input
+	signer.token = githubOIDCToken
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://oidc.actions.githubusercontent.com")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "fake-request-secret")
+
+	originalTransport := http.DefaultTransport
+	entered := make(chan struct{})
+	http.DefaultTransport = tokenTransport(func(request *http.Request) (*http.Response, error) {
+		close(entered)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		bundle, err := Generate(ctx, input, signer)
+		if bundle != nil {
+			done <- errors.New("canceled OIDC acquisition emitted a bundle")
+			return
+		}
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OIDC request did not start")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrSignerUnavailable)
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotContains(t, err.Error(), "fake-request-secret")
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled OIDC acquisition did not stop")
+	}
+	require.Zero(t, fulcio.calls)
+	require.Zero(t, rekor.calls)
 }
 
 func TestKeylessSignerCancelsFulcioRequest(t *testing.T) {
