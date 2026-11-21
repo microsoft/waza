@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-11-20
+
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.42.0)
+and separately versioned
+[azd extension](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.42.0)
+are published from the `v0.42.0` tag. See the
+[release article](site/src/content/docs/releases/v0-42-0.mdx) and
+[download reference](site/src/content/docs/reference/releases.mdx).
+This entry covers the v0.42.0 milestone scope merged on current `main`
+`__FRONTIER__`, compared with published v0.41.0
+(`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`), including the readiness fixes in
+#1084 and opt-in keyless signer in #1086. Entries previously listed under
+Unreleased are folded in here. Registry availability follows the separate
+registry-sync pull request; publication does not establish native execution
+on every platform or deployment-specific assurance.
+
 ### Added
 
 - **Product usage telemetry (#1045).** Added opt-out product
@@ -101,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Lab **External adapter dispatch** view uses the new offline
   `POST /api/v1/adapter/translate` route. See
   [portable external execution adapters](site/src/content/docs/guides/runner-adapters.mdx).
-- **Signed execution provenance (planned for v0.42.0, #769)** -
+- **Signed execution provenance (#769)** -
   `waza runner provenance generate` writes a bundle holding an in-toto v1
   statement in a DSSE envelope that binds the canonical request digest, runner
   API version, runner image digest, Waza version, policy, runtime and model
@@ -110,7 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and reports stable failure
   codes for altered artifacts, inputs, outcomes, signatures, digests and unbound
   members. `keygen` creates a local Ed25519 key (unchanged default).
-  Opt-in `--signer sigstore-keyless` uses GitHub Actions OIDC, public-good
+  Opt-in `--signer sigstore-keyless` (#1086) uses GitHub Actions OIDC, public-good
   Fulcio and Rekor v1, saving `sigstore.bundle.json` beside the unchanged DSSE
   statement. Both signing and offline verification require an independently
   approved `--trusted-root`; signing rejects missing CA/log material before
@@ -264,6 +280,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that state instead of claiming all prompts passed. Task-level prompt
   graders bypass cached outcomes so stale pre-fix results cannot hide a rerun
   (#1071).
+
+### Migration and verification limits
+
+- New provenance, inventory, telemetry, budget, isolation and adapter contracts
+  are additive; their document versions are independent of the CLI version.
+  Older runners reject budget-bearing requests; telemetry is derived post-run,
+  not live hot-path emission. CPU/peak-memory measurement is not enforcement;
+  disk/process-count budgets and Windows peak-memory accounting are unsupported.
+- Native sandbox/provider work (#544/#545) is not in v0.42.0. Host probes do not
+  establish filesystem, secret or subprocess confinement; off-host network
+  proof does not cover loopback. Waza does not enforce a sandbox itself.
+- Keyless execution signing is opt-in and optional, not a release requirement;
+  local Ed25519 remains the default. It needs a verifier-supplied trusted root
+  plus exact OIDC issuer and workflow identity policy. Managed-KMS signing is
+  unavailable. Certificate-transparency SCT and revocation checks, Lab/API
+  keyless verification, GHES/custom OIDC issuers and live public-good
+  acceptance testing are not included. GitHub build attestations do not sign
+  execution outcomes. Inventory publication is restricted to the qualified tag-release path; old published images remain
+  unqualified until republished and verified. External schedulers retain
+  queueing, placement, retries and provenance-hook trust responsibilities.
+  The assurance package is guidance, not deployment approval.
 
 ## [0.41.0] - 2026-11-13
 
@@ -1278,7 +1315,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.41.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.42.0...HEAD
+[0.42.0]: https://github.com/microsoft/waza/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/microsoft/waza/compare/v0.40.1...v0.41.0
 [0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
 [0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5

@@ -1,6 +1,6 @@
 # Execution isolation capabilities
 
-**Unreleased; targeted for v0.42.0 (#773).** Schema:
+**Available in v0.42.0 (#773).** Schema:
 [`schemas/execution-isolation-1.0.schema.json`](../schemas/execution-isolation-1.0.schema.json)
 (`$id` `https://microsoft.github.io/waza/schemas/execution-isolation-1.0.schema.json`).
 

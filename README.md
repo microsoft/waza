@@ -17,13 +17,24 @@ Function key in the browser. See [scope, privacy, and integration handoff](site/
 → [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
 Mock success checks the harness, not agent quality or live service safety.
 
-**Version boundary (November 13, 2026):** the published standalone CLI is
-`v0.41.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.41.0)). Scenario authoring, preflight, selected-file evidence,
+**Version boundary (November 20, 2026):** the published standalone CLI is
+`v0.42.0` ([release](https://github.com/microsoft/waza/releases/tag/v0.42.0)). Scenario authoring, preflight, selected-file evidence,
 assurance profiles, controlled release policies, recorded reliability, and the
 opt-in dashboard Lab were introduced in `v0.39.0` and remain included.
 Install the published binary or run `waza update`; a source build is optional.
 Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
-[feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
+[feature/platform matrix](site/src/content/docs/reference/releases.mdx#feature-availability).
+
+**v0.42.0 adds** execution
+provenance, component inventories, post-run telemetry, resource-budget and
+isolation contracts, portable external adapters, and an operator assurance
+package. It also includes opt-out product usage telemetry and evaluation fixes.
+Read the [v0.42.0 preview and migration limits](https://microsoft.github.io/waza/releases/v0-42-0/),
+[changelog](CHANGELOG.md#0420---2026-11-20) and
+[release reference](site/src/content/docs/reference/releases.mdx).
+Native sandbox providers (#544/#545) are not included; local signing and host
+capabilities retain explicit unavailable states. Extension registry availability
+follows the separate registry-sync pull request.
 
 Released in v0.41.0, the [logical execution-attempt embedding API](docs/EXECUTION_ATTEMPTS.md)
 adds immutable reservations and explicit verified reuse without changing
@@ -31,7 +42,7 @@ adds immutable reservations and explicit verified reuse without changing
 record distinct, retry and reuse attempts and print ordered lineage with
 derived [lifecycle state](docs/EXECUTION_LIFECYCLE.md) (cancellation, deadline,
 orphan detection and advisory retry eligibility).
-The main-branch command `runner telemetry` (not yet in a release) derives correlated, payload-free
+The v0.42.0 command `runner telemetry` derives correlated, payload-free
 OpenTelemetry traces, metrics and logs from those documents and exports them as
 OTLP/JSON files or to any OTLP/HTTP collector; see
 [execution telemetry](docs/EXECUTION_TELEMETRY.md).
@@ -101,21 +112,21 @@ Requires Go 1.26+, Git LFS, Make, Node.js 22.23.4+ on the 22.x line or Node.js 2
 Note: due to the use of LFS artifacts you cannot install waza using `go install`. To install waza outside of a normal release, clone the repository:
 
 ```bash
-git clone --branch v0.41.0 https://github.com/microsoft/waza.git
+git clone --branch v0.42.0 https://github.com/microsoft/waza.git
 cd waza
 
 # ensure git LFS-based artifacts are available (for embedded copilot binaries)
 git lfs install
 git lfs pull
 
-make build VERSION=0.41.0
+make build VERSION=0.42.0
 ./waza <waza command line>
 ```
 
-The verified `v0.41.0` tag resolves to
-`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`. Unlike the historical v0.40.1 tags, the
-tag's `version.txt` and `extension.yaml` already carry `0.41.0`.
-`make build` defaults to `VERSION=0.0.0-dev`, so pass `VERSION=0.41.0` explicitly
+The `v0.42.0` tag carries `0.42.0` in `version.txt` and `extension.yaml`,
+unlike the historical v0.40.1 tags. The previous verified `v0.41.0` tag resolves
+to `d537bf00d4d442a1935ceba2fbc664b9ccb497b2`.
+`make build` defaults to `VERSION=0.0.0-dev`, so pass `VERSION=0.42.0` explicitly
 when building this tag. Official release builds inject the version from the
 tag with linker flags. A locally stamped binary is not a verified release asset,
 and does not prove extension registry synchronization.
@@ -405,7 +416,7 @@ stdin and stdout) and `copilot-reflect` (paid). Paid adapters and non-mock
 executors require `--allow-paid-calls`. Spend is reported, never capped.
 See [Optimizer Adapters](site/src/content/docs/guides/optimizer-adapters.mdx).
 
-### `waza isolation preflight` (unreleased, v0.42.0)
+### `waza isolation preflight` (available in v0.42.0)
 
 Probe the isolation boundaries a host declaration claims (filesystem,
 environment/secrets, network, subprocesses, remote tools) by attempting each
@@ -456,7 +467,7 @@ waza runner capabilities
 waza runner negotiate < examples/runner/negotiation.json
 waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
-waza runner budgets   # main-only, after v0.41.0: per-OS budget matrix
+waza runner budgets   # v0.42.0: per-OS budget matrix
 waza runner assurance build  # validate and print the versioned production-integration package
 ```
 
@@ -467,7 +478,7 @@ the package schema, contract schemas, evidence files, and existing Lab guides;
 maintainer guide](docs/PRODUCTION_INTEGRATION_ASSURANCE.md) and [production
 integration assurance site page](https://microsoft.github.io/waza/guides/production-integration-assurance/).
 
-Builds from `main` (after v0.41.0) accept optional request `budgets` (wall time, model
+The v0.42.0 CLI accepts optional request `budgets` (wall time, model
 turns, tool calls, CPU, memory, disk, process count). Limits the host cannot
 enforce are rejected before execution (exit 5, `unsupported_budget`); enforced
 limits that are exceeded end the attempt (`budget_exceeded`), and the terminal
@@ -537,7 +548,7 @@ top-level exit `2` while the preserved completed or reused submission still has
 nested exit `0`.
 See the [checkpoint workflow and limits](site/src/content/docs/guides/immutable-artifacts.mdx#checkpoint-public-source-preview).
 
-**External execution adapters (unreleased, v0.42.0):** `waza runner adapter
+**External execution adapters (available in v0.42.0):** `waza runner adapter
 translate < descriptor.json` translates one external work descriptor offline
 into exactly one public runner call, and `waza runner adapter dispatch --store
 .waza-artifacts < descriptor.json` (or `--endpoint URL`) performs that call once
@@ -548,7 +559,7 @@ configured verifier after a terminal response; the adapter records its state
 but does not authenticate its assertion or change the execution outcome. See
 [portable external execution adapters](site/src/content/docs/guides/runner-adapters.mdx).
 
-**Release qualification (planned for v0.42.0):** the manual `Release
+**Release qualification (available in v0.42.0):** the manual `Release
 Qualification` workflow accepts only the exact current `main` commit and
 uploads evidence and an assurance package to that workflow run. It creates no
 version tag, GitHub Release, or public registry image. The tag release path
@@ -556,7 +567,7 @@ reuses the same validation, binary/image build, attestations, offline
 verification, and evidence packaging before publication. Only the tag-release
 path publishes a versioned runner image and inventory to GHCR.
 
-**Provenance commands (unreleased, planned for v0.42.0):** `waza runner provenance
+**Provenance commands (available in v0.42.0):** `waza runner provenance
 generate` writes a signed in-toto/DSSE bundle binding the canonical request,
 runner image digest, Waza version, runner API, policy, runtime/model, artifact
 chain and terminal outcome; `waza runner provenance verify --bundle DIR
@@ -571,7 +582,7 @@ release requirement; Lab/API verification remains local-key only. Managed-KMS
 signing remains unavailable (exit 5). See
 [execution provenance](docs/EXECUTION_PROVENANCE.md).
 
-**Component inventory commands (unreleased, planned for v0.42.0):** `waza runner
+**Component inventory commands (available in v0.42.0):** `waza runner
 inventory generate` writes a CycloneDX inventory bound to a runner image or
 plugin sha256 digest; `waza runner inventory verify --inventory FILE
 --image-digest sha256:<hex>` (or `--plugin FILE`) checks offline that it

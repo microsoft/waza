@@ -26,7 +26,7 @@ const embeddedAssets = embeddedFiles.flatMap((path) =>
   [...read(path).matchAll(/^\/\/go:embed (\S+)$/gm)]
     .map((match) => `internal/embedded/${match[1]}`));
 const releaseInputs = [
-  'version.txt', 'registry.json', 'go.mod', 'CHANGELOG.md',
+  'version.txt', 'extension.yaml', 'registry.json', 'go.mod', 'CHANGELOG.md',
   'internal/models/schema_version.go', ...embeddedFiles, ...embeddedAssets,
 ];
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
@@ -316,6 +316,20 @@ test('every catalog, release, Docker and dashboard media input enables PR site c
       '.github/workflows/docker-ci.yml', serveCommandInput]);
 });
 
+test('release manifest discovery rejects omission from either production selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const input = 'extension.yaml';
+  assertSiteDiscovery(workflow, [input]);
+  for (const [selector, line, diagnostic] of [
+    ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+    ['main push', `      - '${input}'\n`, /main push gate excludes documentation input/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
+    assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
+});
+
 test('dashboard media guard discovery rejects removal from either production selector', () => {
   const workflow = read('.github/workflows/site-ci.yml');
   assertSiteDiscovery(workflow, dashboardMediaInputs);
@@ -568,12 +582,12 @@ test('concepts distinguish repeated trials from discarded retry outputs', () => 
 });
 
 test('release articles are linked from Releases and retain their existing screenshot assets', () => {
-  for (const slug of ['v0-41-0', 'v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
+  for (const slug of ['v0-42-0', 'v0-41-0', 'v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
     const article = read(`site/src/content/docs/releases/${slug}.mdx`);
     assert.ok(read('site/astro.config.mjs').includes(`slug: 'releases/${slug}'`));
     assert.ok(read('site/src/content/docs/reference/releases.mdx').includes(`](../../releases/${slug}/)`));
     const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
-    assert.equal(screenshots.length, /^v0-(?:40|41)-/.test(slug) ? 0 : 3, slug);
+    assert.equal(screenshots.length, /^v0-(?:40|41|42)-/.test(slug) ? 0 : 3, slug);
     for (const [, source] of screenshots) {
       assert.match(source, /^\/images\/.+\.png$/);
       assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);
@@ -619,7 +633,82 @@ test('v0.41.0 article is a published release record with its limits', () => {
   const changelog = read('CHANGELOG.md');
   assert.match(changelog, /historical v0\.40\.1 tags retain `0\.39\.1`/);
   assert.match(changelog.split('## [0.41.0]')[1]?.split('## [0.40.1]')[0] ?? '', /### Moved to v0\.42\.0[\s\S]*#825[\s\S]*#835[\s\S]*#974[\s\S]*#981/);
-  assert.doesNotMatch(read('site/astro.config.mjs'), /\(pending\)/);
+  assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.41.0', slug: 'releases/v0-41-0' }"));
+});
+
+test('v0.42.0 tag metadata retains the preview article and production integration limits', () => {
+  const article = read('site/src/content/docs/releases/v0-42-0.mdx').replace(/\r\n/g, '\n');
+  const visible = article.replace(/<!--[\s\S]*?-->/g, '');
+  assert.match(visible, /\*\*Draft - publication pending\. Release date 2026-11-20\.\*\*/);
+  assert.match(read('version.txt'), /^0\.42\.0\s*$/);
+  assert.match(read('extension.yaml'), /^version: 0\.42\.0$/m);
+  const changelog = read('CHANGELOG.md');
+  const candidate = changelog.split('## [0.42.0] - 2026-11-20')[1]?.split('## [0.41.0]')[0];
+  assert.ok(candidate, 'candidate must own the folded Unreleased entries');
+  assert.doesNotMatch(candidate, /pending|preparation only|downloads remain/i);
+  for (const link of ['releases/tag/v0.42.0', 'releases/tag/azd-ext-microsoft-azd-waza_0.42.0',
+    'site/src/content/docs/releases/v0-42-0.mdx', 'site/src/content/docs/reference/releases.mdx']) {
+    assert.ok(candidate.includes(link), `tagged changelog must link ${link}`);
+  }
+  const frontier = candidate.match(/scope merged on current `main`\s+`(__FRONTIER__|[a-f0-9]{40})`, compared with published v0\.41\.0/)?.[1];
+  assert.ok(frontier, 'release frontier must be the staging placeholder or a full commit SHA');
+  assert.ok(visible.includes(`frontier is \`${frontier}\``), 'article and changelog frontiers must agree');
+  assert.ok(visible.includes(`compare/v0.41.0..${frontier})`), 'comparison must use the same source frontier');
+  assert.equal(changelog.split('## [Unreleased]')[1]?.split('## [0.42.0]')[0].trim(), '');
+  assert.match(candidate, /Product usage telemetry/);
+  assert.match(candidate, /Independent inline prompt graders/);
+  assert.match(changelog, /^\[0\.42\.0\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.41\.0\.\.\.v0\.42\.0$/m);
+  for (const issue of [756, 769, 770, 771, 772, 773, 774, 775, 835, 898, 905,
+    937, 964, 974, 981, 984, 1024, 1025, 1027, 1029, 1030, 1056, 1057, 1071]) {
+    assert.ok(visible.includes(`issues/${issue})`), `milestone issue #${issue} must be inventoried`);
+  }
+  for (const limit of ['#544', '#545', 'loopback', 'post-run', 'managed-KMS',
+    'Windows peak memory', 'External schedulers', 'previously published images']) {
+    assert.ok(visible.includes(limit), `retain limit: ${limit}`);
+  }
+  assert.match(visible, /Managed-KMS signing is unavailable \(exit 5\)/);
+  assert.match(visible, /Keyless signing is optional and is not a\s+release requirement; local Ed25519 remains the default signer/);
+  for (const gap of ['verifier-supplied Sigstore trusted root', 'certificate-transparency', 'Lab/API keyless verification',
+    'GitHub Enterprise\nServer or custom OIDC issuers', 'live public-good acceptance testing', 'pull/1086)']) {
+    assert.ok(visible.includes(gap), `keyless release note must state: ${gap}`);
+  }
+  assert.match(candidate, /Keyless execution signing is opt-in and optional, not a release requirement/);
+  assert.match(candidate, /Managed-KMS signing\s+is\s+unavailable/);
+  assert.doesNotMatch(visible, /releases\/download\/v0\.42\.0|releases\/tag\/v0\.42\.0/);
+  assert.doesNotMatch(changelog + article, /PENDING SIGNER FOLLOW-UP|Date TBD|## \[0\.42\.0\] - TBD/);
+  assert.match(read('README.md'), /\*\*v0\.42\.0 adds\*\*/);
+  assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.42.0 (pending)', slug: 'releases/v0-42-0' }"));
+});
+
+test('v0.42.0 availability labels and Pages publication gate are consistent', () => {
+  for (const path of [
+    'README.md',
+    'docs/COMPONENT_INVENTORY.md',
+    'docs/EXECUTION_BUDGETS.md',
+    'docs/EXECUTION_ISOLATION.md',
+    'docs/EXECUTION_PROVENANCE.md',
+    'docs/EXECUTION_TELEMETRY.md',
+    'site/src/content/docs/guides/component-inventory.mdx',
+    'site/src/content/docs/guides/execution-budgets.mdx',
+    'site/src/content/docs/guides/execution-isolation.mdx',
+    'site/src/content/docs/guides/execution-provenance.mdx',
+    'site/src/content/docs/guides/execution-telemetry.mdx',
+    'site/src/content/docs/guides/runner-adapters.mdx',
+    'site/src/content/docs/reference/cli.mdx',
+    'site/src/content/docs/reference/releases.mdx',
+  ]) {
+    const text = read(path);
+    assert.doesNotMatch(text,
+      /unreleased,? (?:planned|targeted) for v0\.42\.0|main-only,? after v0\.41\.0|main branch, not yet released|available on main; not yet in a release/i,
+      path);
+  }
+  assert.match(read('site/src/content/docs/reference/releases.mdx'), /Capabilities available in v0\.42\.0/);
+
+  const pages = read('.github/workflows/pages.yml');
+  assert.match(pages, /publication_ready: \$\{\{ steps\.publication\.outputs\.ready \}\}/);
+  assert.match(pages, /git ls-remote origin "refs\/tags\/v\$\{version\}"/);
+  assert.match(pages, /actions\/workflows\/release\.yml\/runs\?head_sha=/);
+  assert.match(pages, /if: needs\.build\.outputs\.publication_ready == 'true'/);
 });
 
 test('v0.41 features are labeled as released in v0.41.0', () => {
@@ -707,14 +796,14 @@ test('Dashboard Lab article distinguishes saved results, synthetic examples, and
 
 test('release overview identifies the published version and retains the former availability anchor', () => {
   const overview = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(overview, /## Current published standalone release: v0\.41\.0/);
+  assert.match(overview, /## Current published standalone release: v0\.42\.0/);
   assert.match(overview, /id="upcoming-main-only-capabilities"/);
-  const downloads = [...overview.matchAll(/releases\/download\/v0\.41\.0\/(waza-[^)\s]+)/g)].map((match) => match[1]);
+  const downloads = [...overview.matchAll(/releases\/download\/v0\.42\.0\/(waza-[^)\s]+)/g)].map((match) => match[1]);
   assert.deepEqual(downloads.toSorted(), [
     'waza-darwin-amd64', 'waza-darwin-arm64', 'waza-linux-amd64',
     'waza-linux-arm64', 'waza-windows-amd64.exe', 'waza-windows-arm64.exe',
   ]);
-  assert.match(overview, /releases\/download\/v0\.41\.0\/checksums\.txt/);
+  assert.match(overview, /releases\/download\/v0\.42\.0\/checksums\.txt/);
   assert.match(overview, /publication does not\s+by itself establish execution on every platform/);
   assert.doesNotMatch(overview, /releases\/(?:download|tag)\/v0\.38\.10/);
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
@@ -883,19 +972,20 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
     assert.doesNotMatch(text, /remains open\/backlogged/, path);
   }
   const changelog = read('CHANGELOG.md');
-  const unreleased = changelog.split('## [Unreleased]')[1]?.split('## [0.40.1]')[0];
+  const laterReleases = changelog.split('## [0.42.0]')[1]?.split('## [0.40.1]')[0];
   const hotfix = changelog.split('## [0.40.1]')[1]?.split('## [0.40.0]')[0];
-  assert.match(unreleased ?? '', /Trial timeout recovery and result persistence/);
-  assert.match(unreleased ?? '', /pull\/870/);
-  assert.doesNotMatch(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(laterReleases ?? '', /Trial timeout recovery and result persistence/);
+  assert.match(laterReleases ?? '', /pull\/870/);
+  assert.doesNotMatch(laterReleases ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(hotfix ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(hotfix ?? '', /pull\/882/);
-  assert.match(changelog, /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.41\.0\.\.\.HEAD$/m);
+  const candidateVersion = read('version.txt').trim().replaceAll('.', '\\.');
+  assert.match(changelog, new RegExp(`^\\[Unreleased\\]: https://github\\.com/microsoft/waza/compare/v${candidateVersion}\\.\\.\\.HEAD$`, 'm'));
   const published = changelog.split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
   assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following cleanup notes describe/);
-  assert.match(unreleased ?? '', /\*\*Cancellation force-stop join\*\*/);
+  assert.match(laterReleases ?? '', /\*\*Cancellation force-stop join\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*Cancellation force-stop join\*\*/);
 });
 
@@ -960,8 +1050,8 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
   assert.match(release, /-ldflags "-X main\.version=\$\{VERSION\}"/);
   for (const path of ['README.md', 'site/src/content/docs/reference/releases.mdx']) {
     const text = read(path);
-    assert.match(text, /git clone --branch v0\.41\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
-    assert.match(text, /make build VERSION=0\.41\.0/, path);
+    assert.match(text, /git clone --branch v0\.42\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
+    assert.match(text, /make build VERSION=0\.42\.0/, path);
     assert.match(text, /`version\.txt` and `extension\.yaml`/, path);
     assert.match(text, /defaults to `VERSION=0\.0\.0-dev`/, path);
     assert.match(text, /`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`/, path);
@@ -1034,7 +1124,7 @@ test('published workflow guides do not require unreleased main for v0.39.0 featu
     const text = read(path);
     assert.match(text, /v0\.39\.0/, path);
     assert.doesNotMatch(text, /(?:upcoming|current source)\/main-only|source-build-only|require upcoming main|build upcoming main/i, path);
-    assert.match(text, /reference\/releases|releases\/#upcoming-main-only-capabilities/, path);
+    assert.match(text, /reference\/releases|releases\/#(?:upcoming-main-only-capabilities|feature-availability)/, path);
   }
 });
 
