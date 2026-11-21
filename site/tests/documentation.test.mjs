@@ -680,6 +680,37 @@ test('v0.42.0 tag metadata retains the preview article and production integratio
   assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.42.0 (pending)', slug: 'releases/v0-42-0' }"));
 });
 
+test('v0.42.0 availability labels and Pages publication gate are consistent', () => {
+  for (const path of [
+    'README.md',
+    'docs/COMPONENT_INVENTORY.md',
+    'docs/EXECUTION_BUDGETS.md',
+    'docs/EXECUTION_ISOLATION.md',
+    'docs/EXECUTION_PROVENANCE.md',
+    'docs/EXECUTION_TELEMETRY.md',
+    'site/src/content/docs/guides/component-inventory.mdx',
+    'site/src/content/docs/guides/execution-budgets.mdx',
+    'site/src/content/docs/guides/execution-isolation.mdx',
+    'site/src/content/docs/guides/execution-provenance.mdx',
+    'site/src/content/docs/guides/execution-telemetry.mdx',
+    'site/src/content/docs/guides/runner-adapters.mdx',
+    'site/src/content/docs/reference/cli.mdx',
+    'site/src/content/docs/reference/releases.mdx',
+  ]) {
+    const text = read(path);
+    assert.doesNotMatch(text,
+      /unreleased,? (?:planned|targeted) for v0\.42\.0|main-only,? after v0\.41\.0|main branch, not yet released|available on main; not yet in a release/i,
+      path);
+  }
+  assert.match(read('site/src/content/docs/reference/releases.mdx'), /Capabilities available in v0\.42\.0/);
+
+  const pages = read('.github/workflows/pages.yml');
+  assert.match(pages, /publication_ready: \$\{\{ steps\.publication\.outputs\.ready \}\}/);
+  assert.match(pages, /git ls-remote origin "refs\/tags\/v\$\{version\}"/);
+  assert.match(pages, /actions\/workflows\/release\.yml\/runs\?head_sha=/);
+  assert.match(pages, /if: needs\.build\.outputs\.publication_ready == 'true'/);
+});
+
 test('v0.41 features are labeled as released in v0.41.0', () => {
   const paths = ['README.md', 'docs/EXECUTION_ATTEMPTS.md', 'docs/EXECUTION_CHECKPOINTS.md',
     'docs/EXECUTION_LIFECYCLE.md', 'docs/MANIFEST_AGGREGATION.md', 'docs/GUIDE.md', 'docs/PRD.md',
@@ -1093,7 +1124,7 @@ test('published workflow guides do not require unreleased main for v0.39.0 featu
     const text = read(path);
     assert.match(text, /v0\.39\.0/, path);
     assert.doesNotMatch(text, /(?:upcoming|current source)\/main-only|source-build-only|require upcoming main|build upcoming main/i, path);
-    assert.match(text, /reference\/releases|releases\/#upcoming-main-only-capabilities/, path);
+    assert.match(text, /reference\/releases|releases\/#(?:upcoming-main-only-capabilities|feature-availability)/, path);
   }
 });
 

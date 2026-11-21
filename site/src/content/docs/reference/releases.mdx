@@ -151,7 +151,27 @@ ships offline `fake`, external `command` and paid `copilot-reflect` adapters.
 Existing runs and result schemas are unchanged, and Lab does not display
 optimizer reports. See [#790](https://github.com/microsoft/waza/issues/790).
 
+<span id="feature-availability"></span>
 <span id="upcoming-main-only-capabilities"></span>
+
+## Capabilities available in v0.42.0
+
+The following features are included in the standalone v0.42.0 CLI. Their
+opt-in, trust, platform and evidence boundaries remain in force.
+
+| Capability | Availability | Platform and scope |
+| --- | --- | --- |
+| Execution provenance | v0.42.0; local Ed25519 default, keyless opt-in | Offline verification; keyless needs GitHub Actions OIDC and independently trusted root/identity policy. No managed KMS, CT SCT verification or revocation. |
+| Component inventory | v0.42.0 | Digest-bound CycloneDX evidence; not a vulnerability or license scanner. |
+| Execution telemetry | v0.42.0 | Post-run, payload-free output by default; exports do not add runtime authority. |
+| Resource budgets | v0.42.0 | Rejects unsupported limits; actual enforcement depends on host capabilities. |
+| Isolation preflight | v0.42.0 | Fails closed for unproved boundaries; Waza provides no native sandbox (#544/#545). |
+| External execution adapters | v0.42.0 | Translates and invokes one public runner call; no scheduling, queueing, placement or retry. |
+| Release qualification | v0.42.0 | Exact-main candidate evidence only; creates no tag or publication. |
+| Product usage telemetry | v0.42.0, opt-out | Developer CLI usage only; CI is excluded. |
+
+The separately versioned azd extension and runner image have their own
+publication and acceptance gates. See the [v0.42.0 release record](../../releases/v0-42-0/).
 
 ## Capabilities introduced in v0.39.0
 

@@ -15,6 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -29,9 +30,47 @@ jobs:
     runs-on: ubuntu-latest
     name: Build
     timeout-minutes: 20
+    outputs:
+      publication_ready: ${{ steps.publication.outputs.ready }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check release publication before deploying Pages
+        id: publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          version="$(tr -d '\r\n' < version.txt)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version in version.txt: $version" >&2
+            exit 1
+          fi
+
+          tag_sha="$(git ls-remote origin "refs/tags/v${version}" "refs/tags/v${version}^{}" |
+            awk '$2 ~ /\^\{\}$/ { peeled = $1 } $2 !~ /\^\{\}$/ { direct = $1 } END { print peeled != "" ? peeled : direct }')"
+          if [[ -z "$tag_sha" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Pages deploy: v${version} is not tagged." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          successful_release="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?head_sha=${tag_sha}&status=success&per_page=100" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")] | length > 0')"
+          if [[ "$successful_release" != "true" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Pages deploy: no successful Release run for v${version}." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -56,6 +95,7 @@ jobs:
 
   deploy:
     needs: build
+    if: needs.build.outputs.publication_ready == 'true'
     runs-on: ubuntu-latest
     name: Deploy
     timeout-minutes: 15
