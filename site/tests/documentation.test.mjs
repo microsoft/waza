@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -736,6 +738,93 @@ test('Pages publication checks the checked-out release before admitting every ev
   assert.notEqual(mutated, pages, 'mutation must restore the bypass in the actual workflow');
   assert.throws(() => assertPublicationGate(mutated),
     /every event must start by checking the checked-out version/);
+});
+
+test('checkpoint command warning preserves the v0.41.0 release boundary', () => {
+  const cli = read('site/src/content/docs/reference/cli.mdx');
+  const checkpoint = cli.split('### Checkpoint commands (v0.41.0+)')[1]?.split('\n### ')[0];
+  assert.ok(checkpoint, 'expected the checkpoint command section');
+  assert.match(checkpoint, /^Installed v0\.40\.x artifacts do not contain these commands\.$/m);
+  assert.doesNotMatch(checkpoint, /Installed v0\.41\.x artifacts do not contain these commands/);
+});
+
+test('Pages shell admits only a successful Release for the checked-out version tag', () => {
+  const workflow = read('.github/workflows/pages.yml').replace(/\r\n/g, '\n');
+  const extractShell = (source) => {
+    const step = source.match(/id: publication\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+    const shell = step?.split('        run: |\n')[1]?.replace(/^          /gm, '');
+    assert.ok(shell, 'expected the actual Pages publication shell step');
+    return shell;
+  };
+  const script = extractShell(workflow);
+  const tagSha = 'a'.repeat(40);
+  const otherSha = 'b'.repeat(40);
+  const cases = [
+    { name: 'absent tag', tag: '', release: tagSha, conclusion: 'success', ready: false },
+    { name: 'failed release', tag: tagSha, release: tagSha, conclusion: 'failure', ready: false },
+    { name: 'mismatched release', tag: tagSha, release: otherSha, conclusion: 'success', ready: false },
+    { name: 'matching successful release', tag: tagSha, release: tagSha, conclusion: 'success', ready: true },
+    { name: 'older workflow_run after main advances', tag: '', release: otherSha,
+      conclusion: 'success', event: 'workflow_run', ready: false },
+    { name: 'workflow_run matching current release', tag: tagSha, release: tagSha,
+      conclusion: 'success', event: 'workflow_run', ready: true },
+  ];
+  const stubs = `
+git() {
+  printf '%s\\n' "$*" >> calls
+  [[ "$*" == "ls-remote origin refs/tags/v0.42.0 refs/tags/v0.42.0^{}" ]] || return 91
+  if [[ -n "$FAKE_TAG_SHA" ]]; then
+    printf '%s\\trefs/tags/v0.42.0\\n%s\\trefs/tags/v0.42.0^{}\\n' "$FAKE_TAG_OBJECT" "$FAKE_TAG_SHA"
+  fi
+}
+gh() {
+  printf '%s\\n' "$*" >> calls
+  [[ "$1" == api && "$2" == "repos/microsoft/waza/actions/workflows/release.yml/runs?head_sha=$FAKE_TAG_SHA&status=success&per_page=100" ]] || return 92
+  [[ "$3" == --jq && "$4" == '[.workflow_runs[] | select(.conclusion == "success")] | length > 0' ]] || return 93
+  if [[ "$FAKE_RELEASE_SHA" == "$FAKE_TAG_SHA" && "$FAKE_RELEASE_CONCLUSION" == success ]]; then
+    echo true
+  else
+    echo false
+  fi
+}
+`;
+  const assertCase = (shell, scenario) => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'waza-pages-'));
+    try {
+      writeFileSync(resolve(dir, 'version.txt'), '0.42.0\r\n');
+      writeFileSync(resolve(dir, 'output'), '');
+      writeFileSync(resolve(dir, 'summary'), '');
+      writeFileSync(resolve(dir, 'calls'), '');
+      const result = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail'], {
+        cwd: dir, input: stubs + shell, encoding: 'utf8', timeout: 10_000,
+        env: { ...process.env, BASH_ENV: '', GH_TOKEN: 'offline-test',
+          GITHUB_REPOSITORY: 'microsoft/waza', GITHUB_OUTPUT: 'output', GITHUB_STEP_SUMMARY: 'summary',
+          EVENT_NAME: scenario.event ?? 'push', GITHUB_EVENT_NAME: scenario.event ?? 'push',
+          FAKE_TAG_OBJECT: otherSha, FAKE_TAG_SHA: scenario.tag,
+          FAKE_RELEASE_SHA: scenario.release, FAKE_RELEASE_CONCLUSION: scenario.conclusion },
+      });
+      assert.ifError(result.error);
+      assert.equal(result.status, 0, `${scenario.name}: ${result.stderr}`);
+      assert.equal(readFileSync(resolve(dir, 'output'), 'utf8'), `ready=${scenario.ready}\n`, scenario.name);
+      const calls = readFileSync(resolve(dir, 'calls'), 'utf8').trim().split('\n');
+      assert.equal(calls.length, scenario.tag ? 2 : 1, `${scenario.name}: release prerequisites must execute`);
+      assert.match(calls[0], /^ls-remote origin refs\/tags\/v0\.42\.0 refs\/tags\/v0\.42\.0\^\{\}$/);
+      const summary = readFileSync(resolve(dir, 'summary'), 'utf8');
+      if (!scenario.ready) {
+        assert.ok(summary.includes(scenario.tag ? 'no successful Release run for v0.42.0' : 'v0.42.0 is not tagged.'),
+          `${scenario.name}: withheld publication must be explained`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  for (const scenario of cases) assertCase(script, scenario);
+  const mutated = workflow.replace('        run: |\n', `        run: |
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          exit 0
+`);
+  assert.notEqual(mutated, workflow, 'mutation must force admission in the actual workflow');
+  assert.throws(() => assertCase(extractShell(mutated), cases[4]), /older workflow_run after main advances/);
 });
 
 test('v0.41 features are labeled as released in v0.41.0', () => {
