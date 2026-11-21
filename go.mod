@@ -16,7 +16,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.3
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/azure/azure-dev/cli/azd v1.37.3
+	github.com/azure/azure-dev/cli/azd v1.38.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/github/copilot-sdk/go v1.0.34
 	github.com/go-viper/mapstructure/v2 v2.5.0
@@ -29,7 +29,7 @@ require (
 	github.com/sigstore/rekor v1.5.3
 	github.com/sigstore/sigstore-go v1.3.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/stretchr/testify v1.12.1
 	github.com/yuin/goldmark v1.8.7
 	go.opentelemetry.io/otel v1.47.0
