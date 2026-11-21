@@ -40,13 +40,7 @@ jobs:
         id: publication
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           version="$(tr -d '\r\n' < version.txt)"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid release version in version.txt: $version" >&2

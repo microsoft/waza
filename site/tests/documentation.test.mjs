@@ -711,6 +711,33 @@ test('v0.42.0 availability labels and Pages publication gate are consistent', ()
   assert.match(pages, /if: needs\.build\.outputs\.publication_ready == 'true'/);
 });
 
+test('Pages publication checks the checked-out release before admitting every event', () => {
+  const pages = read('.github/workflows/pages.yml');
+  const assertPublicationGate = (workflow) => {
+    const gate = workflow.match(/id: publication\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+    assert.ok(gate, 'expected the production publication step');
+    assert.match(gate, /run: \|\n +version="\$\(tr -d '\\r\\n' < version\.txt\)"/,
+      'every event must start by checking the checked-out version');
+    assert.equal((gate.match(/echo "ready=true"/g) ?? []).length, 1,
+      'publication must have only one successful admission');
+    assert.match(gate, /if \[\[ "\$successful_release" != "true" \]\]; then[\s\S]*?exit 0\n +fi\n\n +echo "ready=true"/,
+      'successful admission must follow the Release result check');
+    assert.doesNotMatch(gate, /EVENT_NAME|github\.event_name/,
+      'publication must not bypass release checks based on event type');
+  };
+  assertPublicationGate(pages);
+  const mutated = pages.replace('        run: |\n', `        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+`);
+  assert.notEqual(mutated, pages, 'mutation must restore the bypass in the actual workflow');
+  assert.throws(() => assertPublicationGate(mutated),
+    /every event must start by checking the checked-out version/);
+});
+
 test('v0.41 features are labeled as released in v0.41.0', () => {
   const paths = ['README.md', 'docs/EXECUTION_ATTEMPTS.md', 'docs/EXECUTION_CHECKPOINTS.md',
     'docs/EXECUTION_LIFECYCLE.md', 'docs/MANIFEST_AGGREGATION.md', 'docs/GUIDE.md', 'docs/PRD.md',
