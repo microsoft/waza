@@ -961,8 +961,17 @@ test('v0.40.1 article owns hotfix detail while the homepage leads with the curre
   const homepage = read('site/src/content/docs/index.mdx');
   const intro = homepage.split('## What can waza do?')[0];
   assert.doesNotMatch(intro, /<Aside\b/);
-  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-41-0\/\)/g) ?? []).length, 1);
-  assert.match(intro, /\*\*New in v0\.41\.0:\*\*/);
+  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-42-0\/\)/g) ?? []).length, 1);
+  assert.match(intro, /\*\*New in v0\.42\.0:\*\*/);
+  assert.doesNotMatch(intro, /New in v0\.41\.0/);
+  const announcement = intro.replace(/\s+/g, ' ');
+  for (const boundary of [
+    'post-run telemetry',
+    'Keyless signing is opt-in',
+    'trusted roots are required',
+    'Windows peak memory is unsupported',
+    'not a sandbox or deployment approval',
+  ]) assert.ok(announcement.includes(boundary), boundary);
   assert.match(homepage, /A mock pass proves harness wiring, not agent quality/);
   assert.match(homepage, /authentication, permissions and possible-cost prerequisites/);
   assert.match(read('README.md'), /https:\/\/microsoft\.github\.io\/waza\/releases\/v0-40-1\//);
