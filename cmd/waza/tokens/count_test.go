@@ -282,3 +282,9 @@ func TestCount_NonexistentPath(t *testing.T) {
 	cmd.SetArgs([]string{"no-such-dir"})
 	require.ErrorContains(t, cmd.Execute(), "no-such-dir")
 }
+
+func TestCountRejectsInvalidFormat(t *testing.T) {
+	cmd := newCountCmd()
+	cmd.SetArgs([]string{"testdata/count", "--format", "bad"})
+	require.ErrorContains(t, cmd.Execute(), "invalid format")
+}
