@@ -499,12 +499,17 @@ historical inspection dates. Keep draft/pending labels out of shared navigation.
 
 `web/dist/index.html` and its favicon must match a clean dashboard build for
 the release source. Web dependency changes can stale the tracked entrypoint and
-fail exact-source qualification. Compare it with the current-main CI dashboard
-artifact and land the generated result when needed; never hand-write hashed
-asset names.
+fail exact-source qualification. If stale, rebuild with the locked dependencies
+using `npm ci && npm run build` in `web/` with Node 22 as in release CI. Review
+and land the generated tracked output, validate the PR in CI, and let release
+qualification verify the clean-source match. Never hand-write hashed asset names.
 
-Dispatch Release Qualification for the exact current `main` SHA and tag only
-that qualified commit. Any later source change invalidates that evidence.
+Before dispatching Release Qualification, verify that the manual candidate
+version in `.github/workflows/release-qualification.yml` matches the committed
+`version.txt` and `extension.yaml`. The manual path currently hard-codes
+`0.42.0`; for a different version, update and test its resolution in a reviewed
+workflow change before qualification. Dispatch for the exact current `main` SHA
+and tag only that qualified commit. Any later source change invalidates that evidence.
 Inspect each publisher and its artifacts independently: a failed overall
 workflow can follow successful external publication. If the workflow did not
 create the registry-sync PR because policy denied permission, open it manually

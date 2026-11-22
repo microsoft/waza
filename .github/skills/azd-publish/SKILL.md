@@ -26,10 +26,10 @@ metadata:
 ## Workflow
 
 Follow these steps **in order**. Ask the user for input at each decision point.
-This skill prepares release metadata; before starting, follow
+This skill prepares release metadata. Consult the preparation steps in
 [the repository release checklist](../../../AGENTS.md#releasing) and
-[`docs/RELEASE.md`](../../../docs/RELEASE.md), which are authoritative for
-qualification, tagging, publication and verification.
+[`docs/RELEASE.md`](../../../docs/RELEASE.md); qualification, tagging,
+publication and verification follow after the metadata PR merges.
 
 ### Step 1: Gather Changes and Update Changelog
 
@@ -112,8 +112,10 @@ Show the user a summary of all changes made:
 - Whether README, release pages/articles, samples, tests, and the packaged dashboard entrypoint need synchronized updates
 - Show the diff with `git diff`
 
-Before creating a PR, complete the release checklist and confirm that the
-metadata, docs, tests, and CI-built dashboard index are consistent. Never
+Before creating a PR, complete the preparation checks and confirm that the
+metadata, docs, tests, and dashboard index are consistent. If the tracked
+dashboard output is stale, rebuild with `npm ci && npm run build` in `web/`
+using Node 22, review the generated changes, and validate the PR in CI. Never
 hand-edit hashed dashboard asset names.
 
 ### Step 5: Ask About PR Creation
@@ -123,8 +125,8 @@ hand-edit hashed dashboard asset names.
 If **yes**:
 
 Stage only the reviewed release metadata and documentation paths. Include the
-packaged dashboard entrypoint only when its CI-built content is part of the
-release change.
+generated dashboard entrypoint and favicon when they are part of the release
+change.
 
 1. Create a feature branch:
    ```bash
@@ -177,4 +179,5 @@ If **no**:
 - The changelog format must follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - Version numbering must follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The prep PR branch is `chore/prepare-v{VERSION}`; `release/v{VERSION}` is reserved for the registry-sync PR that `release.yml` pushes
+- Before qualification, verify that the manual candidate version in `.github/workflows/release-qualification.yml` matches the committed release metadata; the current manual path hard-codes `0.42.0` and must be updated and tested for a different version
 - After the PR is merged, follow [Releasing](../../../AGENTS.md#releasing) and `docs/RELEASE.md`: qualify the exact `main` SHA, then push the `vX.Y.Z` tag so `release.yml` publishes the CLI and extension
