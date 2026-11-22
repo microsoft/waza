@@ -197,7 +197,7 @@ stage only the intended paths.
 
 Before preparing, tagging, or publishing a release, follow
 [Releasing](../AGENTS.md#releasing) and [docs/RELEASE.md](../docs/RELEASE.md).
-In particular, sync `web/dist/index.html` with a CI dashboard build before
-qualification, qualify the exact `main` SHA you tag, and expect to open the
-`release/vX.Y.Z` registry-sync PR manually because the workflow token cannot
-create PRs.
+In particular, sync `web/dist/index.html` with the current CI dashboard build
+before qualification, qualify the exact `main` SHA you tag, and check whether
+the release workflow created the registry-sync PR. If enterprise policy denied
+PR creation, open it manually from the pushed `release/vX.Y.Z` branch.

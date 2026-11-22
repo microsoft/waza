@@ -486,62 +486,49 @@ version check, upstream release commit, and schema checksum together.
 
 ## Releasing
 
-[docs/RELEASE.md](docs/RELEASE.md) is the authoritative procedure and the
-`azd-publish` skill drives it. These checks remove the rework v0.42.0 hit; do
-them in order:
+[docs/RELEASE.md](docs/RELEASE.md) is the authoritative release procedure.
+The `azd-publish` skill prepares metadata only; it does not replace the
+qualification, tagging, publication, and verification gates in that procedure.
 
-1. **Settle the milestone.** Every release issue is closed with evidence or
-   moved to the backlog with a reason, and the release tracking/roadmap issues
-   say what shipped and what was deferred.
-2. **Keep the packaged dashboard index current.** `web/dist/index.html` must
-   equal a clean CI dashboard build. Dependency bumps under `web/` (for example
-   [#1101](https://github.com/microsoft/waza/pull/1101)) silently stale it, and
-   qualification then fails the exact-source check
-   (`.github/scripts/release_source_check.sh`). Before qualifying, compare the
-   tracked index with the `Dashboard Build and Test` output for current `main`; when it
-   differs, land a CI-built "sync packaged dashboard entrypoint" PR
-   ([#1102](https://github.com/microsoft/waza/pull/1102)). Never hand-write
-   hashed asset names.
-3. **Make one dated release-metadata PR the tag commit**
-   ([#1087](https://github.com/microsoft/waza/pull/1087)): `version.txt`,
-   `extension.yaml`, `CHANGELOG.md`, README, the release article and releases
-   page, and the docs-test/e2e expectations. The changelog and article must
-   cite the same full 40-hex frontier SHA (the squash commit of the last
-   feature PR); docs tests reject anything else. A date change touches about ten
-   files: grep the old date, but keep dates that record when something was
-   inspected. Keep "pending"/"Draft" labels out of shared navigation such as
-   the sidebar, which renders on every page.
-4. **Qualify the exact tag commit.** After the metadata PR merges, dispatch
-   Release Qualification with `candidate_sha` set to current `main` HEAD, then
-   tag that SHA. A later push to `main` invalidates that evidence.
-5. **Expect the registry-PR denial.** Enterprise policy stops the workflow token
-   from creating PRs, so `Release Extension` fails at `Create Release PR` after
-   the extension is published and the Release run concludes `failure`. Do not
-   rerun it: the extension tag is reserved and reruns use the tag's workflow.
-   Instead:
-   - Open the `release/vX.Y.Z` registry-sync PR manually from the pushed branch,
-     and update the "registry lists through" wording in README and the site that
-     docs tests tie to `registry.json` in the same PR
-     ([#1104](https://github.com/microsoft/waza/pull/1104)).
-   - Dispatch `Native platform evidence` (`native-platform.yml`) for the tag, because
-     `Native package smoke` is skipped. Record it as a same-source rebuild, not
-     a test of the published bytes.
-   - Pages publishes through the narrow `pages.yml` fallback on the next `main`
-     push touching `site/**` or a `workflow_dispatch`, not from the failed
-     Release completion.
-6. **Relabel the article only after publication is verified** (release assets
-   and checksums, extension release, registry merge, runner image, native
-   evidence), and add a publication record with run IDs and the tag SHA.
+Before qualification, settle the milestone and backlog, then make the dated
+release-metadata change the exact commit intended for the tag. Keep
+`version.txt`, `extension.yaml`, changelog, README, release pages, samples,
+documentation tests, and e2e expectations consistent. Use the same full
+40-character source frontier in the changelog and release article; preserve
+historical inspection dates. Keep draft/pending labels out of shared navigation.
 
-Release PR mechanics: `main` is squash-only and its required checks expire
-when `main` advances. Refresh a stale or stacked PR head by merging the current
-base normally, never by rebasing or force-pushing pushed history; a stale event
-base fails PR-scope admission with "Merge parents do not match event base and
-head". On Windows, run the site docs tests from an LF export
-(`git archive HEAD | tar -x -C <dir>`) because a CRLF checkout fails them, use
-`git -c core.longpaths=true status` to avoid phantom `testdata` changes, and
-leave site/dashboard builds to CI when the npm feed cannot restore their
-packages; report those as not run.
+`web/dist/index.html` and its favicon must match a clean dashboard build for
+the release source. Web dependency changes can stale the tracked entrypoint and
+fail exact-source qualification. Compare it with the current-main CI dashboard
+artifact and land the generated result when needed; never hand-write hashed
+asset names.
+
+Dispatch Release Qualification for the exact current `main` SHA and tag only
+that qualified commit. Any later source change invalidates that evidence.
+Inspect each publisher and its artifacts independently: a failed overall
+workflow can follow successful external publication. If the workflow did not
+create the registry-sync PR because policy denied permission, open it manually
+from the pushed `release/vX.Y.Z` branch. Before any retry, inspect existing
+tags, releases, registry state, and artifacts; do not assume a rerun is safe.
+If native smoke was skipped, dispatch native-platform evidence separately and
+describe a same-source rebuild as such, not as testing the published bytes.
+Update registry-version guidance with the registry entry, and relabel the
+release article only after publication is verified. Record source/tag SHA,
+asset details, and relevant run IDs. The Pages fallback and its trigger
+conditions are documented in [docs/RELEASE.md](docs/RELEASE.md).
+
+Main is squash-only; required checks must pass on the current PR head. When
+main advances, refresh a stale or stacked PR by merging the current base
+normally. Never rebase or force-push pushed history. A PR-scope error saying
+"Merge parents do not match event base and head" indicates stale event-base
+evidence; refresh the head rather than weakening admission.
+
+On Windows, if documentation tests fail only on CRLF input, rerun them from an
+LF `git archive` export before attributing the failure to the source. Use
+`git -c core.longpaths=true status` to avoid path-length artifacts. If the
+configured npm feed cannot restore locked packages, report site/dashboard
+builds and Playwright as not run locally and rely on required CI; do not claim
+unexecuted checks passed.
 
 ## Fixture Isolation
 

@@ -26,6 +26,10 @@ metadata:
 ## Workflow
 
 Follow these steps **in order**. Ask the user for input at each decision point.
+This skill prepares release metadata; before starting, follow
+[the repository release checklist](../../../AGENTS.md#releasing) and
+[`docs/RELEASE.md`](../../../docs/RELEASE.md), which are authoritative for
+qualification, tagging, publication and verification.
 
 ### Step 1: Gather Changes and Update Changelog
 
@@ -34,11 +38,11 @@ Get the current version from `version.txt` and `extension.yaml`, then collect co
 ```bash
 cat version.txt
 
-# Find the latest azd extension version tags
-git tag --list 'azd-ext-microsoft-azd-waza_*' --sort=-v:refname | head -5
+# Find the latest Waza source release tags
+git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -5
 
-# Get commits since last azd extension tag
-last_tag=$(git tag --list 'azd-ext-microsoft-azd-waza_*' --sort=-v:refname | head -1)
+# Get commits since the last Waza source release
+last_tag=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
 git log "${last_tag}..HEAD" --oneline --no-decorate
 ```
 
@@ -87,8 +91,8 @@ Then finalize the changelog:
 
 3. **Update comparison links** at the bottom of the file:
    ```markdown
-   [Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_X.Y.Z...HEAD
-   [X.Y.Z]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_PREVIOUS...azd-ext-microsoft-azd-waza_X.Y.Z
+   [Unreleased]: https://github.com/microsoft/waza/compare/vX.Y.Z...HEAD
+   [X.Y.Z]: https://github.com/microsoft/waza/compare/vPREVIOUS...vX.Y.Z
    ```
 
 4. **Clear the Unreleased section**: Leave `## [Unreleased]` with empty subsections or blank.
@@ -103,15 +107,24 @@ Update these files with the new version:
 ### Step 4: Review Changes
 
 Show the user a summary of all changes made:
-- New version number
-- Files modified: `version.txt`, `extension.yaml`, `CHANGELOG.md`
+- New version number and the candidate commit
+- Files modified, including `version.txt`, `extension.yaml`, and `CHANGELOG.md`
+- Whether README, release pages/articles, samples, tests, and the packaged dashboard entrypoint need synchronized updates
 - Show the diff with `git diff`
+
+Before creating a PR, complete the release checklist and confirm that the
+metadata, docs, tests, and CI-built dashboard index are consistent. Never
+hand-edit hashed dashboard asset names.
 
 ### Step 5: Ask About PR Creation
 
 **ASK THE USER**: Should I create a PR with these changes?
 
 If **yes**:
+
+Stage only the reviewed release metadata and documentation paths. Include the
+packaged dashboard entrypoint only when its CI-built content is part of the
+release change.
 
 1. Create a feature branch:
    ```bash
@@ -120,7 +133,6 @@ If **yes**:
 
 2. Stage and commit all changes:
    ```bash
-   git add version.txt extension.yaml CHANGELOG.md
    git commit -m "chore: Prepare release v{VERSION}"
    ```
 
