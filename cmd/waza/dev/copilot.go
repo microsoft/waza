@@ -75,7 +75,7 @@ func runDevCopilot(cfg *devConfig) error {
 		}
 	}()
 
-	triggerSpec, triggerErr := discoverTriggerSpec(sk.Frontmatter.Name)
+	triggerSpec, triggerErr := discoverTriggerSpec(sk.Frontmatter.Name, cfg.SkillDir)
 	if triggerErr != nil {
 		if errOut != nil {
 			fprintf(errOut, "⚠️  %s\n", "Failed to load trigger prompts: "+triggerErr.Error())
@@ -107,16 +107,14 @@ func runDevCopilot(cfg *devConfig) error {
 	return nil
 }
 
-func discoverTriggerSpec(skillName string) (*trigger.TestSpec, error) {
-	evalDir := resolveWorkspaceEvalDir(skillName)
-	if evalDir == "" {
-		return nil, nil
+func discoverTriggerSpec(skillName, skillDir string) (*trigger.TestSpec, error) {
+	if evalDir := resolveWorkspaceEvalDir(skillName); evalDir != "" {
+		spec, err := trigger.Discover(evalDir)
+		if err != nil || spec != nil {
+			return spec, err
+		}
 	}
-	spec, err := trigger.Discover(evalDir)
-	if err != nil {
-		return nil, err
-	}
-	return spec, nil
+	return trigger.Discover(filepath.Join(skillDir, "tests"))
 }
 
 func resolveWorkspaceEvalDir(skillName string) string {
