@@ -26,6 +26,10 @@ metadata:
 ## Workflow
 
 Follow these steps **in order**. Ask the user for input at each decision point.
+This skill prepares release metadata. Consult the preparation steps in
+[the repository release checklist](../../../AGENTS.md#releasing) and
+[`docs/RELEASE.md`](../../../docs/RELEASE.md); qualification, tagging,
+publication and verification follow after the metadata PR merges.
 
 ### Step 1: Gather Changes and Update Changelog
 
@@ -34,11 +38,11 @@ Get the current version from `version.txt` and `extension.yaml`, then collect co
 ```bash
 cat version.txt
 
-# Find the latest azd extension version tags
-git tag --list 'azd-ext-microsoft-azd-waza_*' --sort=-v:refname | head -5
+# Find the latest Waza source release tags
+git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -5
 
-# Get commits since last azd extension tag
-last_tag=$(git tag --list 'azd-ext-microsoft-azd-waza_*' --sort=-v:refname | head -1)
+# Get commits since the last Waza source release
+last_tag=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
 git log "${last_tag}..HEAD" --oneline --no-decorate
 ```
 
@@ -87,8 +91,8 @@ Then finalize the changelog:
 
 3. **Update comparison links** at the bottom of the file:
    ```markdown
-   [Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_X.Y.Z...HEAD
-   [X.Y.Z]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_PREVIOUS...azd-ext-microsoft-azd-waza_X.Y.Z
+   [Unreleased]: https://github.com/microsoft/waza/compare/vX.Y.Z...HEAD
+   [X.Y.Z]: https://github.com/microsoft/waza/compare/vPREVIOUS...vX.Y.Z
    ```
 
 4. **Clear the Unreleased section**: Leave `## [Unreleased]` with empty subsections or blank.
@@ -103,9 +107,16 @@ Update these files with the new version:
 ### Step 4: Review Changes
 
 Show the user a summary of all changes made:
-- New version number
-- Files modified: `version.txt`, `extension.yaml`, `CHANGELOG.md`
+- New version number and the candidate commit
+- Files modified, including `version.txt`, `extension.yaml`, and `CHANGELOG.md`
+- Whether README, release pages/articles, samples, tests, and the packaged dashboard entrypoint need synchronized updates
 - Show the diff with `git diff`
+
+Before creating a PR, complete the preparation checks and confirm that the
+metadata, docs, tests, and dashboard index are consistent. If the tracked
+dashboard output is stale, rebuild with `npm ci && npm run build` in `web/`
+using Node 22, review the generated changes, and validate the PR in CI. Never
+hand-edit hashed dashboard asset names.
 
 ### Step 5: Ask About PR Creation
 
@@ -113,20 +124,23 @@ Show the user a summary of all changes made:
 
 If **yes**:
 
+Stage only the reviewed release metadata and documentation paths. Include the
+generated dashboard entrypoint and favicon when they are part of the release
+change.
+
 1. Create a feature branch:
    ```bash
-   git checkout -b release/v{VERSION}
+   git checkout -b chore/prepare-v{VERSION}
    ```
 
 2. Stage and commit all changes:
    ```bash
-   git add version.txt extension.yaml CHANGELOG.md
    git commit -m "chore: Prepare release v{VERSION}"
    ```
 
 3. Push the branch:
    ```bash
-   git push origin release/v{VERSION}
+   git push origin chore/prepare-v{VERSION}
    ```
 
 4. Create a PR using the GitHub CLI:
@@ -142,9 +156,9 @@ If **yes**:
    - [ ] Version bumped in version.txt and extension.yaml
    - [ ] CHANGELOG.md updated
    - [ ] CI passes
-   - [ ] Ready to publish via 'Publish azd Extension' workflow" \
+   - [ ] Ready to qualify and tag per docs/RELEASE.md" \
      --base main \
-     --head release/v{VERSION}
+     --head chore/prepare-v{VERSION}
    ```
 
 If **no**:
@@ -164,5 +178,6 @@ If **no**:
 - Always use **conventional commit** prefixes (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`) when interpreting git history
 - The changelog format must follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - Version numbering must follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
-- The PR branch naming convention is `release/v{VERSION}`
-- After the PR is merged, the user should trigger the **Publish azd Extension** workflow (`azd-ext-release.yml`) to build, pack, and publish the extension
+- The prep PR branch is `chore/prepare-v{VERSION}`; `release/v{VERSION}` is reserved for the registry-sync PR that `release.yml` pushes
+- Before qualification, verify that the manual candidate version in `.github/workflows/release-qualification.yml` matches the committed release metadata; the current manual path hard-codes `0.42.0` and must be updated and tested for a different version
+- After the PR is merged, follow [Releasing](../../../AGENTS.md#releasing) and `docs/RELEASE.md`: qualify the exact `main` SHA, then push the `vX.Y.Z` tag so `release.yml` publishes the CLI and extension
