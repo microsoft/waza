@@ -151,14 +151,13 @@ azd waza --help
 The extension has its own version and artifact history; a command prefix does
 not establish parity with standalone main. Check `azd waza --version` and
 `azd waza --help` before following examples. The registry currently lists
-through `0.41.0`, matching the separately published `0.41.0` extension artifact.
-The [separate v0.41.0 extension artifact](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0)
-is published with six platform archives, and this repository's registry and
-version metadata are synchronized to `0.41.0`. The standalone v0.41.0 additions
-are not included in a v0.40.1 extension installation. Artifact publication
-and registry synchronization are separate gates; check the installed version.
-The source URL above follows `main`. The v0.41.0 registry update merged in
-[release-sync PR #987](https://github.com/microsoft/waza/pull/987).
+through `0.42.0`, matching the
+[separately published v0.42.0 extension](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.42.0).
+The source URL above follows `main`. The v0.42.0 registry update is tracked in
+[release-sync PR #1104](https://github.com/microsoft/waza/pull/1104).
+The registry's six URLs and SHA-256 values match the published archives; this
+does not prove execution on all platforms. Publication and registry
+synchronization are separate gates; check the installed version.
 For supported commands, for example:
 
 ```bash

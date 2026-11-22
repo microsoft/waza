@@ -75,9 +75,8 @@ test('release separates standalone assets, extension sync and image acceptance',
   await expect(main.getByRole('link', { name: '#865', exact: true }))
     .toHaveAttribute('href', 'https://github.com/microsoft/waza/issues/865');
   await expect(main.getByRole('link', { name: 'published extension release', exact: true }))
-    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0');
-  await expect(main).toContainText('The repository registry lists through 0.41.0.');
-  await expect(main).toContainText('generated registry/version updates on release/v0.41.0');
-  await expect(main).toContainText('The v0.41.0 registry update merged in release-sync PR #987.');
-  await expect(main).not.toContainText('still serves 0.40.1; after the merge it includes 0.41.0');
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.42.0');
+  await expect(main).toContainText('The repository registry lists through 0.42.0.');
+  await expect(main.getByRole('link', { name: 'release-sync PR #1104', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/pull/1104');
 });

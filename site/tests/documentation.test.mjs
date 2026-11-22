@@ -677,7 +677,15 @@ test('v0.42.0 published article retains production integration limits', () => {
   }
   assert.match(candidate, /Keyless execution signing is opt-in and optional, not a release requirement/);
   assert.match(candidate, /Managed-KMS signing\s+is\s+unavailable/);
-  assert.doesNotMatch(visible, /releases\/download\/v0\.42\.0|releases\/tag\/v0\.42\.0/);
+  const publication = visible.split('## Publication record')[1]?.split('\n## ')[0];
+  assert.ok(publication, 'release evidence must be recorded separately from the source frontier');
+  for (const evidence of ['releases/tag/v0.42.0', 'releases/download/v0.42.0/checksums.txt',
+    'releases/tag/azd-ext-microsoft-azd-waza_0.42.0', '0dffb882834bedd3c798ca9d2917a2bf20b353cf',
+    'actions/runs/44981911687', 'pull/1104', 'actions/runs/44986511723']) {
+    assert.ok(publication.includes(evidence), `missing publication evidence: ${evidence}`);
+  }
+  assert.match(publication, /policy\s+denied its registry PR creation[\s\S]*manually/);
+  assert.match(publication, /passed its native smoke matrix using a same-source rebuild, not the published bytes/);
   assert.doesNotMatch(changelog + article, /PENDING SIGNER FOLLOW-UP|Date TBD|## \[0\.42\.0\] - TBD/);
   assert.match(read('README.md'), /\*\*v0\.42\.0 adds\*\*/);
   assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.42.0', slug: 'releases/v0-42-0' }"));
@@ -723,12 +731,13 @@ test('Pages publication checks the checked-out release before admitting every ev
     workflow = workflow.replace(/\r\n/g, '\n');
     const gate = workflow.match(/id: publication\n([\s\S]*?)(?=^      - name:)/m)?.[1];
     assert.ok(gate, 'expected the production publication step');
+    assert.match(gate, /^ +shell: bash$/m, 'GitHub Actions must enable pipefail for the API pipelines');
     assert.match(gate, /run: \|\n +version="\$\(tr -d '\\r\\n' < version\.txt\)"/,
       'every event must start by checking the checked-out version');
     assert.equal((gate.match(/echo "ready=true"/g) ?? []).length, 1,
       'publication must have only one successful admission');
-    assert.match(gate, /if \[\[ "\$successful_release" != "true" \]\]; then[\s\S]*?exit 0\n +fi\n\n +echo "ready=true"/,
-      'successful admission must follow the Release result check');
+    assert.match(gate, /if \[\[ "\$successful_release" != "true" \]\]; then[\s\S]*?if \[\[ "\$published_release" != "true" \]\]; then\s+echo "ready=false"/,
+      'a non-successful Release must pass the publication fallback');
     assert.doesNotMatch(gate, /EVENT_NAME|github\.event_name/,
       'publication must not bypass release checks based on event type');
   };
@@ -756,7 +765,7 @@ test('checkpoint command warning preserves the v0.41.0 release boundary', () => 
   assert.doesNotMatch(checkpoint, /Installed v0\.41\.x artifacts do not contain these commands/);
 });
 
-test('Pages shell admits only a successful Release for the checked-out version tag', () => {
+test('Pages shell requires a successful Release or verified publication fallback for the checked-out tag', () => {
   const workflow = read('.github/workflows/pages.yml').replace(/\r\n/g, '\n');
   const extractShell = (source) => {
     const step = source.match(/id: publication\n([\s\S]*?)(?=^      - name:)/m)?.[1];
@@ -767,6 +776,18 @@ test('Pages shell admits only a successful Release for the checked-out version t
   const script = extractShell(workflow);
   const tagSha = 'a'.repeat(40);
   const otherSha = 'b'.repeat(40);
+  const failedPush = { id: 42, run_attempt: 2, head_sha: tagSha, head_branch: 'v0.42.0',
+    event: 'push', status: 'completed', conclusion: 'failure' };
+  const step = (name, conclusion) => ({ name, conclusion });
+  const steps = [step('Publish Extension', 'success'), step('Publish Extension Provenance', 'success'),
+    step('Create Release PR', 'failure')];
+  const extensionJob = { name: 'Release Extension', conclusion: 'failure', steps };
+  const jobs = [{ name: 'Release CLI', conclusion: 'success' }, extensionJob,
+    { name: 'Native package smoke', conclusion: 'skipped' }];
+  const published = { tag_name: 'v0.42.0', draft: false, assets: [{ name: 'checksums.txt' }] };
+  const fallback = { tag: tagSha, release: tagSha, conclusion: 'failure', runs: [failedPush], jobs, published };
+  const wrongStep = { ...fallback, name: 'different failed step', ready: false,
+    jobs: [jobs[0], { ...extensionJob, steps: [...steps.slice(0, 2), step('Pack Extension', 'failure')] }, jobs[2]] };
   const cases = [
     { name: 'absent tag', tag: '', release: tagSha, conclusion: 'success', ready: false },
     { name: 'failed release', tag: tagSha, release: tagSha, conclusion: 'failure', ready: false },
@@ -776,6 +797,25 @@ test('Pages shell admits only a successful Release for the checked-out version t
       conclusion: 'success', event: 'workflow_run', ready: false },
     { name: 'workflow_run matching current release', tag: tagSha, release: tagSha,
       conclusion: 'success', event: 'workflow_run', ready: true },
+    { ...fallback, name: 'registry PR only failed', ready: true, usedFallback: true },
+    wrongStep,
+    { ...fallback, name: 'different failed job', ready: false, jobs: [{ ...extensionJob, name: 'Release CLI' }] },
+    { ...fallback, name: 'additional failed job', ready: false,
+      jobs: [...jobs, { name: 'Publish image', conclusion: 'failure' }] },
+    { ...fallback, name: 'additional failed step', ready: false,
+      jobs: [jobs[0], { ...extensionJob, steps: [...steps, step('Cleanup', 'failure')] }, jobs[2]] },
+    { ...fallback, name: 'extension publish skipped', ready: false,
+      jobs: [jobs[0], { ...extensionJob, steps: [step('Publish Extension', 'skipped'), ...steps.slice(1)] }, jobs[2]] },
+    { ...fallback, name: 'extension provenance skipped', ready: false,
+      jobs: [jobs[0], { ...extensionJob, steps: [steps[0], step('Publish Extension Provenance', 'skipped'), steps[2]] }, jobs[2]] },
+    { ...fallback, name: 'draft release', ready: false, published: { ...published, draft: true } },
+    { ...fallback, name: 'release has no checksums', ready: false, published: { ...published, assets: [] } },
+    { ...fallback, name: 'missing release', ready: false, published: null, apiError: true },
+    { ...fallback, name: 'API fails after returning a page', ready: false, runsApiError: true, apiError: true },
+    { ...fallback, name: 'another source SHA', ready: false, runs: [{ ...failedPush, head_sha: otherSha }] },
+    { ...fallback, name: 'another tag', ready: false, runs: [{ ...failedPush, head_branch: 'v0.41.0' }] },
+    { ...fallback, name: 'manual dispatch', ready: false, runs: [{ ...failedPush, event: 'workflow_dispatch' }] },
+    { ...fallback, name: 'job inventory truncated', ready: false, jobTotal: jobs.length + 1 },
   ];
   const stubs = `
 git() {
@@ -787,13 +827,25 @@ git() {
 }
 gh() {
   printf '%s\\n' "$*" >> calls
-  [[ "$1" == api && "$2" == "repos/microsoft/waza/actions/workflows/release.yml/runs?head_sha=$FAKE_TAG_SHA&status=success&per_page=100" ]] || return 92
-  [[ "$3" == --jq && "$4" == '[.workflow_runs[] | select(.conclusion == "success")] | length > 0' ]] || return 93
-  if [[ "$FAKE_RELEASE_SHA" == "$FAKE_TAG_SHA" && "$FAKE_RELEASE_CONCLUSION" == success ]]; then
-    echo true
-  else
-    echo false
-  fi
+  case "$*" in
+    "api repos/microsoft/waza/actions/workflows/release.yml/runs?head_sha=$FAKE_TAG_SHA&status=success&per_page=100 --jq "*)
+      printf '%s\\n' "$FAKE_SUCCESS_RUNS" | jq "$4" ;;
+    "api --paginate repos/microsoft/waza/actions/workflows/release.yml/runs?head_sha=$FAKE_TAG_SHA&event=push&branch=v0.42.0&status=failure&per_page=100")
+      printf '%s\\n' "$FAKE_FAILED_RUNS"
+      if [[ "$FAKE_RUNS_API_ERROR" == true ]]; then
+        echo 'gh: Failed to fetch next page (HTTP 500)' >&2
+        return 1
+      fi ;;
+    "api --paginate --slurp repos/microsoft/waza/actions/runs/42/attempts/2/jobs?per_page=100")
+      printf '%s\\n' "$FAKE_JOBS" ;;
+    "api repos/microsoft/waza/releases/tags/v0.42.0")
+      if [[ "$FAKE_PUBLISHED" == null ]]; then
+        echo 'gh: Not Found (HTTP 404)' >&2
+        return 1
+      fi
+      printf '%s\\n' "$FAKE_PUBLISHED" ;;
+    *) echo "Unexpected GitHub API call: $*" >&2; return 92 ;;
+  esac
 }
 `;
   const assertCase = (shell, scenario) => {
@@ -809,17 +861,32 @@ gh() {
           GITHUB_REPOSITORY: 'microsoft/waza', GITHUB_OUTPUT: 'output', GITHUB_STEP_SUMMARY: 'summary',
           EVENT_NAME: scenario.event ?? 'push', GITHUB_EVENT_NAME: scenario.event ?? 'push',
           FAKE_TAG_OBJECT: otherSha, FAKE_TAG_SHA: scenario.tag,
-          FAKE_RELEASE_SHA: scenario.release, FAKE_RELEASE_CONCLUSION: scenario.conclusion },
+          FAKE_SUCCESS_RUNS: JSON.stringify({ workflow_runs: scenario.release === scenario.tag
+            && scenario.conclusion === 'success' ? [{ conclusion: 'success' }] : [] }),
+          FAKE_FAILED_RUNS: JSON.stringify({ workflow_runs: scenario.runs ?? [] }),
+          FAKE_RUNS_API_ERROR: String(scenario.runsApiError ?? false),
+          FAKE_JOBS: JSON.stringify([{ total_count: scenario.jobTotal ?? scenario.jobs?.length ?? 0,
+            jobs: scenario.jobs ?? [] }]),
+          FAKE_PUBLISHED: JSON.stringify(scenario.published ?? null) },
       });
       assert.ifError(result.error);
-      assert.equal(result.status, 0, `${scenario.name}: ${result.stderr}`);
+      assert.equal(result.status, scenario.apiError ? 1 : 0, `${scenario.name}: ${result.stderr}`);
+      if (scenario.apiError) {
+        assert.equal(readFileSync(resolve(dir, 'output'), 'utf8'), '', scenario.name);
+        assert.match(result.stderr, scenario.runsApiError ? /HTTP 500/ : /HTTP 404/);
+        return;
+      }
       assert.equal(readFileSync(resolve(dir, 'output'), 'utf8'), `ready=${scenario.ready}\n`, scenario.name);
       const calls = readFileSync(resolve(dir, 'calls'), 'utf8').trim().split('\n');
-      assert.equal(calls.length, scenario.tag ? 2 : 1, `${scenario.name}: release prerequisites must execute`);
+      if (!scenario.tag || scenario.conclusion === 'success' && scenario.release === scenario.tag) {
+        assert.equal(calls.length, scenario.tag ? 2 : 1, `${scenario.name}: preserve the original admission path`);
+      }
       assert.match(calls[0], /^ls-remote origin refs\/tags\/v0\.42\.0 refs\/tags\/v0\.42\.0\^\{\}$/);
       const summary = readFileSync(resolve(dir, 'summary'), 'utf8');
-      if (!scenario.ready) {
-        assert.ok(summary.includes(scenario.tag ? 'no successful Release run for v0.42.0' : 'v0.42.0 is not tagged.'),
+      if (scenario.usedFallback) {
+        assert.match(summary, /fallback used for v0\.42\.0: Release run 42/);
+      } else if (!scenario.ready) {
+        assert.ok(summary.includes(scenario.tag ? 'no successful Release run or verified publication fallback' : 'v0.42.0 is not tagged.'),
           `${scenario.name}: withheld publication must be explained`);
       }
     } finally {
@@ -833,6 +900,10 @@ gh() {
 `);
   assert.notEqual(mutated, workflow, 'mutation must force admission in the actual workflow');
   assert.throws(() => assertCase(extractShell(mutated), cases[4]), /older workflow_run after main advances/);
+  const noStepName = script.replace(' | .name] == ["Create Release PR"]', '] | length == 1');
+  assert.notEqual(noStepName, script, 'mutation must remove the actual failed-step name check');
+  assertCase(noStepName, { ...wrongStep, ready: true, usedFallback: true });
+  assert.throws(() => assertCase(noStepName, wrongStep), /different failed step/);
 });
 
 test('v0.41 features are labeled as released in v0.41.0', () => {
@@ -948,19 +1019,18 @@ test('extension installation guidance identifies the current registry version', 
   assert.match(section, /azd waza --version/);
   assert.match(section, /azd waza <command> --help/);
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
-  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.41\.0/);
-  assert.match(section, /registry and version metadata are synchronized\s+to `0\.41\.0`/);
-  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.41\.0/);
+  assert.match(section, /existing source or installation\s+may need updating before it selects v0\.42\.0/);
   const release = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(release, /commit `c385f6d12d393e9c23c54b2cc19478936604cd86`/);
+  assert.match(release, /commit `00c037e76ec1797b53722c01f2a8cab3c2cf86aa`/);
   assert.match(release, /exactly six platform URLs, entrypoints and SHA-256 values matching the\s+published archives/);
-  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.41\.0/);
-  assert.match(release, /repository registry lists through `0\.41\.0`/);
+  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.42\.0/);
+  assert.match(release, /repository registry lists through `0\.42\.0`/);
   assert.doesNotMatch(section + release, /not yet merged to main|merge to main\s+remains pending|registry still lists through `0\.39\.1`/);
   for (const text of [read('README.md'), section, release]) {
     assert.match(text, /source (?:URL above|below) follows `main`/);
-    assert.match(text, /release-sync PR #987/);
-    assert.doesNotMatch(text, /before (?:the\s+)?(?:\[release-sync PR #987\][^\n]*|merge)|after the merge it includes/i);
+    assert.ok(text.includes('releases/tag/azd-ext-microsoft-azd-waza_0.42.0)'));
+    assert.ok(text.includes('[release-sync PR #1104](https://github.com/microsoft/waza/pull/1104)'));
+    assert.doesNotMatch(text, /before (?:the\s+)?(?:\[release-sync PR #1104\][^\n]*|merge)|after the merge it includes/i);
   }
 });
 

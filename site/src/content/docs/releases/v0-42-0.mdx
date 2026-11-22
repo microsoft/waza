@@ -33,13 +33,24 @@ for the complete change history, including dependency and documentation updates.
 Issue closure is not evidence of candidate qualification or publication.
 
 [Roadmap #756](https://github.com/microsoft/waza/issues/756) ties the seven
-production-integration contracts together. Before tagging, confirm this
-inventory against the actual reviewed source SHA and review a successful
-exact-commit qualification.
+production-integration contracts together.
 The [release procedure](https://github.com/microsoft/waza/blob/main/docs/RELEASE.md)
 requires source-bound evidence; a different or stale green run is not sufficient.
-After publication, record the tag/SHA, binaries/checksums, image digest,
-attestation verification and independent extension registry synchronization.
+
+## Publication record
+
+- The [standalone v0.42.0 release](https://github.com/microsoft/waza/releases/tag/v0.42.0)
+  is tagged at `0dffb882834bedd3c798ca9d2917a2bf20b353cf` and contains six binaries
+  and [checksums.txt](https://github.com/microsoft/waza/releases/download/v0.42.0/checksums.txt).
+  The [separate azd extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.42.0)
+  contains six platform packages and `release-provenance.txt`.
+- [Release run 44981911687](https://github.com/microsoft/waza/actions/runs/44981911687)
+  published both releases but concluded with a failure: GitHub Actions policy
+  denied its registry PR creation. A maintainer opened
+  [release-sync PR #1104](https://github.com/microsoft/waza/pull/1104) manually.
+- The Release run skipped its downstream native package smoke.
+  [Native-platform run 44986511723](https://github.com/microsoft/waza/actions/runs/44986511723)
+  passed its native smoke matrix using a same-source rebuild, not the published bytes.
 
 ## Production-integration contracts
 

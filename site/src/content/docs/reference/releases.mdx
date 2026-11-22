@@ -352,21 +352,20 @@ waza --version
 
 Install waza as an [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/) extension.
 
-The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.41.0)
-is `0.41.0`, published November 13, 2026 with six platform archives, separate from
-the standalone release. The repository registry lists through `0.41.0`.
-The [release workflow](https://github.com/microsoft/waza/actions/runs/43417374149)
-published both releases and generated registry/version updates on `release/v0.41.0`;
-only its final automated PR-creation step failed, so the PR was opened manually. Artifact publication and registry
-synchronization remain separate gates; publishing archives alone does not
-update the registry.
-The installation source below follows `main`. The v0.41.0 registry update
-merged in [release-sync PR #987](https://github.com/microsoft/waza/pull/987).
-The generated entry at commit `c385f6d12d393e9c23c54b2cc19478936604cd86`
+The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.42.0)
+is `0.42.0`, with six platform archives, separate from the standalone release.
+The repository registry lists through `0.42.0`. Artifact publication and
+registry synchronization remain separate gates; publishing archives alone
+does not update the registry.
+The installation source below follows `main`. The v0.42.0 registry update is
+tracked in [release-sync PR #1104](https://github.com/microsoft/waza/pull/1104),
+opened manually after [the Release run](https://github.com/microsoft/waza/actions/runs/44981911687)
+published the archives but was denied permission to create the PR.
+The generated entry at commit `00c037e76ec1797b53722c01f2a8cab3c2cf86aa`
 has exactly six platform URLs, entrypoints and SHA-256 values matching the
 published archives, with prior registry data unchanged. That registry comparison
 does not establish execution on all six platforms or prove that an existing
-installation has updated to v0.41.0.
+installation has updated to v0.42.0.
 Check the installed version after adding the source:
 
 ```bash
