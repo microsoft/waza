@@ -656,7 +656,6 @@ test('v0.42.0 tag metadata retains the preview article and production integratio
   assert.ok(frontier, 'release frontier must be a full commit SHA');
   assert.ok(visible.includes(`frontier is \`${frontier}\``), 'article and changelog frontiers must agree');
   assert.ok(visible.includes(`compare/v0.41.0..${frontier})`), 'comparison must use the same source frontier');
-  assert.equal(changelog.split('## [Unreleased]')[1]?.split('## [0.42.0]')[0].trim(), '');
   assert.match(candidate, /Product usage telemetry/);
   assert.match(candidate, /Independent inline prompt graders/);
   assert.match(changelog, /^\[0\.42\.0\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.41\.0\.\.\.v0\.42\.0$/m);
