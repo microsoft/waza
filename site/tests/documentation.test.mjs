@@ -638,10 +638,12 @@ test('v0.41.0 article is a published release record with its limits', () => {
   assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.41.0', slug: 'releases/v0-41-0' }"));
 });
 
-test('v0.42.0 tag metadata retains the preview article and production integration limits', () => {
+test('v0.42.0 published article retains production integration limits', () => {
   const article = read('site/src/content/docs/releases/v0-42-0.mdx').replace(/\r\n/g, '\n');
   const visible = article.replace(/<!--[\s\S]*?-->/g, '');
-  assert.match(visible, /\*\*Draft - publication pending\. Release date 2026-11-21\.\*\*/);
+  assert.match(article, /^title: "Waza v0\.42\.0: verifiable production integration"$/m);
+  assert.match(visible, /\*\*Released November 21, 2026\.\*\*/);
+  assert.doesNotMatch(visible, /publication pending|\*\*Draft|preview|is pending/i);
   assert.match(read('version.txt'), /^0\.42\.0\s*$/);
   assert.match(read('extension.yaml'), /^version: 0\.42\.0$/m);
   const changelog = read('CHANGELOG.md');
@@ -678,7 +680,10 @@ test('v0.42.0 tag metadata retains the preview article and production integratio
   assert.doesNotMatch(visible, /releases\/download\/v0\.42\.0|releases\/tag\/v0\.42\.0/);
   assert.doesNotMatch(changelog + article, /PENDING SIGNER FOLLOW-UP|Date TBD|## \[0\.42\.0\] - TBD/);
   assert.match(read('README.md'), /\*\*v0\.42\.0 adds\*\*/);
-  assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.42.0 (pending)', slug: 'releases/v0-42-0' }"));
+  assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.42.0', slug: 'releases/v0-42-0' }"));
+  const reference = read('site/src/content/docs/reference/releases.mdx');
+  assert.ok(reference.includes('[**Waza v0.42.0: verifiable production integration**](../../releases/v0-42-0/)'));
+  assert.doesNotMatch(reference + read('README.md'), /v0\.42\.0 preview|still being finalized/);
 });
 
 test('v0.42.0 availability labels and Pages publication gate are consistent', () => {

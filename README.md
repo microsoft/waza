@@ -29,7 +29,7 @@ Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See
 provenance, component inventories, post-run telemetry, resource-budget and
 isolation contracts, portable external adapters, and an operator assurance
 package. It also includes opt-out product usage telemetry and evaluation fixes.
-Read the [v0.42.0 preview and migration limits](https://microsoft.github.io/waza/releases/v0-42-0/),
+Read the [v0.42.0 release notes and migration limits](https://microsoft.github.io/waza/releases/v0-42-0/),
 [changelog](CHANGELOG.md#0420---2026-11-21) and
 [release reference](site/src/content/docs/reference/releases.mdx).
 Native sandbox providers (#544/#545) are not included; local signing and host
