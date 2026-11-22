@@ -124,7 +124,8 @@ test('current downloads retain the historical v0.41.0 publication record', async
 
 test('beginner learning order and published release availability are visible', async ({ page }) => {
   await page.goto('/waza/');
-  await expect(page.locator('main')).toContainText('New in v0.41.0');
+  await expect(page.locator('main')).toContainText('New in v0.42.0');
+  await expect(page.locator('main')).not.toContainText('New in v0.41.0');
   await expect(page.locator('main')).not.toContainText('building upcoming main');
   await page.goto('/waza/quick-start/');
   const navigation = page.getByRole('navigation', { name: 'Main' });
@@ -153,8 +154,8 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.goto('/waza/');
     const main = page.locator('main');
     await expect(main.locator('.starlight-aside')).toHaveCount(0);
-    const announcement = main.getByRole('link', { name: 'Read the release article', exact: true });
-    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-41-0/');
+    const announcement = main.getByRole('link', { name: 'Release article', exact: true });
+    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-42-0/');
     await expect(announcement).toBeInViewport();
     await expect(main.getByRole('heading', { name: 'What can waza do?', exact: true })).toBeInViewport();
     const paragraph = announcement.locator('..');
@@ -167,6 +168,12 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     }
 
     await announcement.click();
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-42-0\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.42.0: verifiable production integration');
+    await expect(page.locator('main')).toContainText('Native sandbox provider work');
+    await expect(page.locator('main')).toContainText('Managed-KMS signing is unavailable (exit 5)');
+
+    await page.goto('/waza/releases/v0-41-0/');
     await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0: recover durable work, keep the evidence');
     for (const text of [
