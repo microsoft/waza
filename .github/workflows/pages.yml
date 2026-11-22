@@ -77,6 +77,13 @@ jobs:
                   (map(.jobs[])) as $jobs |
                   ([.[] | .total_count] | unique) == [($jobs | length)] and
                   all($jobs[]; .conclusion == "success" or .conclusion == "skipped" or .conclusion == "failure") and
+                  all(("Setup Version",
+                    "Shared candidate and release qualification / Run exact-source release validation / Complete exact-source release validation",
+                    "Shared candidate and release qualification / Build, attest, verify and package qualification evidence",
+                    "Publish qualified release runner image / Publish Linux AMD64 release image",
+                    "Release CLI"); . as $name |
+                    [$jobs[] | select(.name == $name) | .conclusion] == ["success"]) and
+                  all($jobs[] | select(.conclusion == "skipped"); .name == "Native package smoke") and
                   ([$jobs[] | select(.conclusion == "failure")] |
                     length == 1 and .[0].name == "Release Extension" and
                     (.[0].steps |

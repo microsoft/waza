@@ -782,12 +782,35 @@ test('Pages shell requires a successful Release or verified publication fallback
   const steps = [step('Publish Extension', 'success'), step('Publish Extension Provenance', 'success'),
     step('Create Release PR', 'failure')];
   const extensionJob = { name: 'Release Extension', conclusion: 'failure', steps };
-  const jobs = [{ name: 'Release CLI', conclusion: 'success' }, extensionJob,
-    { name: 'Native package smoke', conclusion: 'skipped' }];
+  const qualification = 'Shared candidate and release qualification';
+  const validation = `${qualification} / Run exact-source release validation`;
+  const requiredJobs = ['Setup Version', `${validation} / Complete exact-source release validation`,
+    `${qualification} / Build, attest, verify and package qualification evidence`,
+    'Publish qualified release runner image / Publish Linux AMD64 release image', 'Release CLI'];
+  // Job inventory of Release run 44981911687 (latest attempt).
+  const jobs = [
+    'Setup Version', `${qualification} / Resolve exact candidate or tag source`,
+    `${validation} / Release lint`, `${validation} / Windows release validation`,
+    `${validation} / Release build and remaining tests`,
+    ...[2, 3, 1, 4, 0].map((shard) => `${validation} / native-test-shards / Native regression shard ${shard}`),
+    `${validation} / Complete exact-source release validation`,
+    `${qualification} / Build, attest, verify and package qualification evidence`,
+    'Publish qualified release runner image / Validate exact release tag',
+    'Publish qualified release runner image / Publish Linux AMD64 release image', 'Release CLI',
+  ].map((name) => ({ name, conclusion: 'success' }))
+    .concat([extensionJob, { name: 'Native package smoke', conclusion: 'skipped' }]);
+  assert.equal(jobs.length, 17);
+  const withExtension = (job) => jobs.map((entry) => entry.name === 'Release Extension' ? job : entry);
   const published = { tag_name: 'v0.42.0', draft: false, assets: [{ name: 'checksums.txt' }] };
   const fallback = { tag: tagSha, release: tagSha, conclusion: 'failure', runs: [failedPush], jobs, published };
   const wrongStep = { ...fallback, name: 'different failed step', ready: false,
-    jobs: [jobs[0], { ...extensionJob, steps: [...steps.slice(0, 2), step('Pack Extension', 'failure')] }, jobs[2]] };
+    jobs: withExtension({ ...extensionJob, steps: [...steps.slice(0, 2), step('Pack Extension', 'failure')] }) };
+  const skippedRequired = requiredJobs.map((required) => ({ ...fallback, name: `${required} skipped`, ready: false,
+    jobs: jobs.map((job) => job.name === required ? { ...job, conclusion: 'skipped' } : job) }));
+  const missingRequired = requiredJobs.map((required) => ({ ...fallback, name: `${required} missing`, ready: false,
+    jobs: jobs.filter((job) => job.name !== required) }));
+  const duplicateRequired = requiredJobs.map((required) => ({ ...fallback, name: `${required} duplicated`, ready: false,
+    jobs: [...jobs, { name: required, conclusion: 'success' }] }));
   const cases = [
     { name: 'absent tag', tag: '', release: tagSha, conclusion: 'success', ready: false },
     { name: 'failed release', tag: tagSha, release: tagSha, conclusion: 'failure', ready: false },
@@ -799,15 +822,22 @@ test('Pages shell requires a successful Release or verified publication fallback
       conclusion: 'success', event: 'workflow_run', ready: true },
     { ...fallback, name: 'registry PR only failed', ready: true, usedFallback: true },
     wrongStep,
-    { ...fallback, name: 'different failed job', ready: false, jobs: [{ ...extensionJob, name: 'Release CLI' }] },
+    { ...fallback, name: 'different failed job', ready: false,
+      jobs: jobs.map((job) => job.name === 'Release CLI' ? { ...extensionJob, name: 'Release CLI' }
+        : job.name === 'Release Extension' ? { ...job, conclusion: 'success' } : job) },
     { ...fallback, name: 'additional failed job', ready: false,
       jobs: [...jobs, { name: 'Publish image', conclusion: 'failure' }] },
+    { ...fallback, name: 'additional skipped job', ready: false,
+      jobs: [...jobs, { name: 'Publish image', conclusion: 'skipped' }] },
+    ...skippedRequired,
+    ...missingRequired,
+    ...duplicateRequired,
     { ...fallback, name: 'additional failed step', ready: false,
-      jobs: [jobs[0], { ...extensionJob, steps: [...steps, step('Cleanup', 'failure')] }, jobs[2]] },
+      jobs: withExtension({ ...extensionJob, steps: [...steps, step('Cleanup', 'failure')] }) },
     { ...fallback, name: 'extension publish skipped', ready: false,
-      jobs: [jobs[0], { ...extensionJob, steps: [step('Publish Extension', 'skipped'), ...steps.slice(1)] }, jobs[2]] },
+      jobs: withExtension({ ...extensionJob, steps: [step('Publish Extension', 'skipped'), ...steps.slice(1)] }) },
     { ...fallback, name: 'extension provenance skipped', ready: false,
-      jobs: [jobs[0], { ...extensionJob, steps: [steps[0], step('Publish Extension Provenance', 'skipped'), steps[2]] }, jobs[2]] },
+      jobs: withExtension({ ...extensionJob, steps: [steps[0], step('Publish Extension Provenance', 'skipped'), steps[2]] }) },
     { ...fallback, name: 'draft release', ready: false, published: { ...published, draft: true } },
     { ...fallback, name: 'release has no checksums', ready: false, published: { ...published, assets: [] } },
     { ...fallback, name: 'missing release', ready: false, published: null, apiError: true },
@@ -904,6 +934,14 @@ gh() {
   assert.notEqual(noStepName, script, 'mutation must remove the actual failed-step name check');
   assertCase(noStepName, { ...wrongStep, ready: true, usedFallback: true });
   assert.throws(() => assertCase(noStepName, wrongStep), /different failed step/);
+  const noRequiredJobs = script.replace(
+    /\n +all\(\("Setup Version",[\s\S]*?== \["success"\]\) and\n +all\(\$jobs\[\] \| select\(\.conclusion == "skipped"\); \.name == "Native package smoke"\) and/,
+    '');
+  assert.notEqual(noRequiredJobs, script, 'mutation must remove the actual required-job and skip checks');
+  for (const scenario of [...skippedRequired, ...missingRequired]) {
+    assertCase(noRequiredJobs, { ...scenario, ready: true, usedFallback: true });
+    assert.throws(() => assertCase(noRequiredJobs, scenario), new RegExp(scenario.name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')));
+  }
 });
 
 test('v0.41 features are labeled as released in v0.41.0', () => {
