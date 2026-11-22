@@ -506,6 +506,17 @@ write access must select **Approve workflows to run** in the PR's merge box.
 Approving workflow execution does not replace the required code review or
 passing checks.
 
+Pages normally requires a successful Release run for the checked-out version's
+tag. Its fallback requires a completed tag-push Release run for the exact tag
+SHA and name. In the latest attempt, all jobs must be successful or skipped
+except `Release Extension`, whose only failed step must be `Create Release PR`;
+both `Publish Extension` and `Publish Extension Provenance` must have succeeded.
+The matching GitHub Release must also be non-draft and include `checksums.txt`.
+The fallback is recorded in the Pages job summary; it does not synchronize the
+registry. The Release workflow's downstream `Native package smoke` job is
+skipped in this case, so record native smoke evidence separately and distinguish
+a same-source rebuild from tests of the published bytes.
+
 ## Release Media (Every Release)
 
 Plan a release-media task for **every** release, including patch releases. This
