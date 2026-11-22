@@ -154,7 +154,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.goto('/waza/');
     const main = page.locator('main');
     await expect(main.locator('.starlight-aside')).toHaveCount(0);
-    const announcement = main.getByRole('link', { name: 'Read the release article', exact: true });
+    const announcement = main.getByRole('link', { name: 'Release article', exact: true });
     await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-42-0/');
     await expect(announcement).toBeInViewport();
     await expect(main.getByRole('heading', { name: 'What can waza do?', exact: true })).toBeInViewport();

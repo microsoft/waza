@@ -966,11 +966,11 @@ test('v0.40.1 article owns hotfix detail while the homepage leads with the curre
   assert.doesNotMatch(intro, /New in v0\.41\.0/);
   const announcement = intro.replace(/\s+/g, ' ');
   for (const boundary of [
-    'post-run telemetry',
-    'Keyless signing is opt-in',
-    'trusted roots are required',
-    'Windows peak memory is unsupported',
-    'not a sandbox or deployment approval',
+    'Provenance.',
+    'Keyless signing: opt-in',
+    'trusted roots',
+    'Windows peak memory unsupported',
+    'No sandbox or deployment approval',
   ]) assert.ok(announcement.includes(boundary), boundary);
   assert.match(homepage, /A mock pass proves harness wiring, not agent quality/);
   assert.match(homepage, /authentication, permissions and possible-cost prerequisites/);
