@@ -115,7 +115,7 @@ If **yes**:
 
 1. Create a feature branch:
    ```bash
-   git checkout -b release/v{VERSION}
+   git checkout -b chore/prepare-v{VERSION}
    ```
 
 2. Stage and commit all changes:
@@ -126,7 +126,7 @@ If **yes**:
 
 3. Push the branch:
    ```bash
-   git push origin release/v{VERSION}
+   git push origin chore/prepare-v{VERSION}
    ```
 
 4. Create a PR using the GitHub CLI:
@@ -142,9 +142,9 @@ If **yes**:
    - [ ] Version bumped in version.txt and extension.yaml
    - [ ] CHANGELOG.md updated
    - [ ] CI passes
-   - [ ] Ready to publish via 'Publish azd Extension' workflow" \
+   - [ ] Ready to qualify and tag per docs/RELEASE.md" \
      --base main \
-     --head release/v{VERSION}
+     --head chore/prepare-v{VERSION}
    ```
 
 If **no**:
@@ -164,5 +164,5 @@ If **no**:
 - Always use **conventional commit** prefixes (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`) when interpreting git history
 - The changelog format must follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - Version numbering must follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
-- The PR branch naming convention is `release/v{VERSION}`
-- After the PR is merged, the user should trigger the **Publish azd Extension** workflow (`azd-ext-release.yml`) to build, pack, and publish the extension
+- The prep PR branch is `chore/prepare-v{VERSION}`; `release/v{VERSION}` is reserved for the registry-sync PR that `release.yml` pushes
+- After the PR is merged, follow [Releasing](../../../AGENTS.md#releasing) and `docs/RELEASE.md`: qualify the exact `main` SHA, then push the `vX.Y.Z` tag so `release.yml` publishes the CLI and extension

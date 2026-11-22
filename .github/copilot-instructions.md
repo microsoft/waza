@@ -192,3 +192,12 @@ git diff --check
 Remove only identified scratch artifacts created by this task, not pre-existing
 work or installed dependencies indiscriminately. Avoid root-level `git add -A`;
 stage only the intended paths.
+
+### 5. Releases follow the AGENTS.md checklist
+
+Before preparing, tagging, or publishing a release, follow
+[Releasing](../AGENTS.md#releasing) and [docs/RELEASE.md](../docs/RELEASE.md).
+In particular, sync `web/dist/index.html` with a CI dashboard build before
+qualification, qualify the exact `main` SHA you tag, and expect to open the
+`release/vX.Y.Z` registry-sync PR manually because the workflow token cannot
+create PRs.
