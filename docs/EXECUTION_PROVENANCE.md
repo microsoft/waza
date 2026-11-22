@@ -1,6 +1,6 @@
 # Execution provenance
 
-> Unreleased, planned for v0.42.0 (#769). Installed v0.41.0 artifacts do not include these commands.
+> Available in v0.42.0 (#769). Installed v0.41.0 artifacts do not include these commands.
 
 `waza runner provenance` generates a signed, offline-verifiable provenance
 bundle for one completed runner execution. It answers: which exact inputs ran,
@@ -65,8 +65,8 @@ the payload type `application/vnd.in-toto+json`.
 
 ### Keyless prerequisites: complete these before signing
 
-- [ ] Use a Waza build containing these unreleased commands. Installed v0.41.0
-  does not have them. Local Ed25519 remains the default; select
+- [ ] Use the v0.42.0 CLI or later. Installed v0.41.0 does not have these
+  commands. Local Ed25519 remains the default; select
   `--signer sigstore-keyless` explicitly. No local private-key file is needed.
 - [ ] Run generation **inside GitHub Actions** (`GITHUB_ACTIONS=true`), with
   job permissions `id-token: write` and `contents: read`. GitHub must provide

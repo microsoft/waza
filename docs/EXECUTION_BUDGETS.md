@@ -1,6 +1,6 @@
 # Execution Budgets
 
-> Main-only, after v0.41.0 (#772). Not available in installed v0.41.0 artifacts.
+> Available in v0.42.0 (#772). Installed v0.41.0 artifacts do not include these commands.
 
 A runner request can declare **execution budgets**: upper bounds on wall time,
 model turns, tool calls, CPU time, memory, disk and process count for the one

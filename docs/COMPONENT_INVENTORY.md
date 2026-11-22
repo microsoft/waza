@@ -1,5 +1,8 @@
 # Runner image and plugin component inventories
 
+**Available in v0.42.0 (#770).** Installed v0.41.0 artifacts do not include
+the inventory commands.
+
 A component inventory lists the software inside one runner image or plugin and
 is bound to that artifact's immutable sha256 digest. Waza publishes an
 inventory for every reference runner image, binds it into execution provenance

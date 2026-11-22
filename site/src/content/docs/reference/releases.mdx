@@ -7,6 +7,12 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## Release articles
 
+[**Waza v0.42.0 preview: verifiable production integration**](../../releases/v0-42-0/)
+describes the merged provenance, inventory, telemetry, budget, isolation,
+adapter and assurance contracts, evaluation fixes and migration limits.
+The article is still being finalized with release media; current standalone
+downloads and independent azd registry availability are listed below.
+
 [**Waza v0.41.0: recover durable work, keep the evidence**](../../releases/v0-41-0/)
 explains execution attempts and lineage, checkpoints, lifecycle semantics,
 evidence states, standalone aggregation, the optimizer adapter contract and
@@ -31,25 +37,25 @@ is listed separately below.
 takes a closer look at `waza serve --lab`: finding failures, inspecting task
 evidence, comparing saved runs, and sharing reports.
 
-## Current published standalone release: v0.41.0
+## Current published standalone release: v0.42.0
 
-**Released:** November 13, 2026.
+**Released:** November 21, 2026.
 
-The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.41.0)
+The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.42.0)
 is published, with six platform binaries and `checksums.txt`.
 The installers select published standalone releases, not unreleased main.
 Run `waza update` to upgrade an existing standalone installation.
-See the [full comparison](https://github.com/microsoft/waza/compare/v0.40.1...v0.41.0)
-and the [v0.41.0 changelog entry](https://github.com/microsoft/waza/blob/main/CHANGELOG.md#0410---2026-11-13).
+See the [full comparison](https://github.com/microsoft/waza/compare/v0.41.0...v0.42.0)
+and the [v0.42.0 changelog entry](https://github.com/microsoft/waza/blob/main/CHANGELOG.md#0420---2026-11-21).
 The release assets expose GitHub-computed SHA-256 digests in
-[checksums.txt](https://github.com/microsoft/waza/releases/download/v0.41.0/checksums.txt);
+[checksums.txt](https://github.com/microsoft/waza/releases/download/v0.42.0/checksums.txt);
 publication does not by itself establish execution on every platform.
-Unlike the historical v0.40.1 tags, the `v0.41.0` tag carries `0.41.0` in
+Unlike the historical v0.40.1 tags, the `v0.42.0` tag carries `0.42.0` in
 `version.txt` and `extension.yaml`.
 
-## v0.42.0 qualification (not released)
+## v0.42.0 qualification and publication boundaries
 
-The v0.42.0 work is not a release approval or publication claim. A manual
+Source metadata alone is not release qualification. A manual
 **Release Qualification** run accepts only the exact current `main` commit and
 stores its binaries, runner image archive, inventory, attestations, verification
 reports and assurance package as workflow-run artifacts. It creates no version
@@ -145,11 +151,31 @@ ships offline `fake`, external `command` and paid `copilot-reflect` adapters.
 Existing runs and result schemas are unchanged, and Lab does not display
 optimizer reports. See [#790](https://github.com/microsoft/waza/issues/790).
 
+<span id="feature-availability"></span>
 <span id="upcoming-main-only-capabilities"></span>
+
+## Capabilities available in v0.42.0
+
+The following features are included in the standalone v0.42.0 CLI. Their
+opt-in, trust, platform and evidence boundaries remain in force.
+
+| Capability | Availability | Platform and scope |
+| --- | --- | --- |
+| Execution provenance | v0.42.0; local Ed25519 default, keyless opt-in | Offline verification; keyless needs GitHub Actions OIDC and independently trusted root/identity policy. No managed KMS, CT SCT verification or revocation. |
+| Component inventory | v0.42.0 | Digest-bound CycloneDX evidence; not a vulnerability or license scanner. |
+| Execution telemetry | v0.42.0 | Post-run, payload-free output by default; exports do not add runtime authority. |
+| Resource budgets | v0.42.0 | Rejects unsupported limits; actual enforcement depends on host capabilities. |
+| Isolation preflight | v0.42.0 | Fails closed for unproved boundaries; Waza provides no native sandbox (#544/#545). |
+| External execution adapters | v0.42.0 | Translates and invokes one public runner call; no scheduling, queueing, placement or retry. |
+| Release qualification | v0.42.0 | Exact-main candidate evidence only; creates no tag or publication. |
+| Product usage telemetry | v0.42.0, opt-out | Developer CLI usage only; CI is excluded. |
+
+The separately versioned azd extension and runner image have their own
+publication and acceptance gates. See the [v0.42.0 release record](../../releases/v0-42-0/).
 
 ## Capabilities introduced in v0.39.0
 
-The following workflows were introduced in `v0.39.0` and remain included in `v0.41.0`.
+The following workflows were introduced in `v0.39.0` and remain included in `v0.42.0`.
 Their opt-in, platform, and evidence boundaries still apply.
 
 | Capability | Availability | Platform and scope |
@@ -166,20 +192,21 @@ Their opt-in, platform, and evidence boundaries still apply.
 Build the tagged release source with **Go 1.26+, Git LFS, Make, Node.js 22.23.4+ (22.x) or 24+ (recommended), and npm 9.6.5+**:
 
 ```bash
-git clone --branch v0.41.0 https://github.com/microsoft/waza.git
+git clone --branch v0.42.0 https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-make build VERSION=0.41.0
+make build VERSION=0.42.0
 ./waza --version
 ```
 
 `make build` generates dashboard assets before embedding. Bare `go install`
 does not fetch LFS artifacts or build the dashboard.
 See [Quick Start](../../quick-start/) for offline validation before credentials.
-The `v0.41.0` tag resolves to `d537bf00d4d442a1935ceba2fbc664b9ccb497b2`
-and already carries `0.41.0` in `version.txt` and `extension.yaml`, unlike the
-historical v0.40.1 tags. The Makefile defaults to `VERSION=0.0.0-dev`; pass `VERSION=0.41.0`
+The `v0.42.0` tag carries `0.42.0` in `version.txt` and `extension.yaml`,
+unlike the historical v0.40.1 tags. The previous verified `v0.41.0` tag resolves
+to `d537bf00d4d442a1935ceba2fbc664b9ccb497b2`.
+The Makefile defaults to `VERSION=0.0.0-dev`; pass `VERSION=0.42.0`
 for this source build. Official release binaries use the tag version injected
 with linker flags. This local version label does not verify asset publication
 or extension/registry availability.
@@ -274,12 +301,12 @@ Pre-built binaries for all major platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-darwin-arm64) |
-| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-darwin-amd64) |
-| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-linux-amd64) |
-| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-linux-arm64) |
-| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-windows-amd64.exe) |
-| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.41.0/waza-windows-arm64.exe) |
+| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.42.0/waza-darwin-arm64) |
+| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.42.0/waza-darwin-amd64) |
+| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.42.0/waza-linux-amd64) |
+| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.42.0/waza-linux-arm64) |
+| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.42.0/waza-windows-amd64.exe) |
+| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.42.0/waza-windows-arm64.exe) |
 
 All six targets are cross-built on Linux. Native execution evidence, covering
 version, help, an offline mock run and the embedded dashboard, comes from a
@@ -308,7 +335,7 @@ On Windows, use this command only from Git Bash, MSYS2, or Cygwin. If PowerShell
 irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
 ```
 
-The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.41.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.42.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 </TabItem>
 </Tabs>

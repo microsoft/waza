@@ -94,7 +94,7 @@ partial lineage. **Download lineage JSON** saves the exact response. The view is
 read-only and unavailable in the synthetic demo. See
 [logical attempts](../immutable-artifacts/#logical-attempts-embedding-preview).
 
-**External adapter dispatch** (unreleased, v0.42.0) in **Runner contract**
+**External adapter dispatch** (available in v0.42.0) in **Runner contract**
 translates a pasted work descriptor offline through
 `POST /api/v1/adapter/translate` and shows either the rejection diagnostics or
 the exact public call. **Dispatch through public contract** sends that call once
@@ -116,7 +116,7 @@ unbound or untrusted bundles show as failed, never partially verified. The view
 is unavailable in the synthetic demo. See
 [execution provenance](../execution-provenance/).
 
-**Inspect execution isolation** (unreleased; targeted for v0.42.0) in **Runner
+**Inspect execution isolation** (available in v0.42.0) in **Runner
 contract** reads a pasted `waza isolation preflight` or
 `waza run --isolation-report` JSON report. It shows the admitted or rejected
 decision, a table of requested, available and effective isolation per boundary
