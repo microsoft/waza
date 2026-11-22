@@ -714,8 +714,9 @@ test('v0.42.0 availability labels and Pages publication gate are consistent', ()
 });
 
 test('Pages publication checks the checked-out release before admitting every event', () => {
-  const pages = read('.github/workflows/pages.yml');
+  const pages = read('.github/workflows/pages.yml').replace(/\r\n/g, '\n');
   const assertPublicationGate = (workflow) => {
+    workflow = workflow.replace(/\r\n/g, '\n');
     const gate = workflow.match(/id: publication\n([\s\S]*?)(?=^      - name:)/m)?.[1];
     assert.ok(gate, 'expected the production publication step');
     assert.match(gate, /run: \|\n +version="\$\(tr -d '\\r\\n' < version\.txt\)"/,
@@ -728,6 +729,7 @@ test('Pages publication checks the checked-out release before admitting every ev
       'publication must not bypass release checks based on event type');
   };
   assertPublicationGate(pages);
+  assertPublicationGate(pages.replace(/\n/g, '\r\n'));
   const mutated = pages.replace('        run: |\n', `        run: |
           if [[ "$EVENT_NAME" == "workflow_run" ]]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -737,6 +739,8 @@ test('Pages publication checks the checked-out release before admitting every ev
 `);
   assert.notEqual(mutated, pages, 'mutation must restore the bypass in the actual workflow');
   assert.throws(() => assertPublicationGate(mutated),
+    /every event must start by checking the checked-out version/);
+  assert.throws(() => assertPublicationGate(mutated.replace(/\n/g, '\r\n')),
     /every event must start by checking the checked-out version/);
 });
 
