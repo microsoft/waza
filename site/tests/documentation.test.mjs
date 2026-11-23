@@ -611,6 +611,14 @@ test('release articles are linked from Releases and retain their existing screen
   assert.match(article, /Fixture-backed native-profile view/);
 });
 
+test('the unpublished hotfix article stays out of shared release navigation', () => {
+  const article = read('site/src/content/docs/releases/v0-42-1.mdx');
+  assert.match(article, /^\*\*Release candidate, November 23, 2026\.\*\*/m);
+  assert.match(article, /Publication and package verification\s+are pending/);
+  assert.doesNotMatch(read('site/astro.config.mjs'), /Waza v0\.42\.1.*releases\/v0-42-1/);
+  assert.doesNotMatch(read('site/src/content/docs/reference/releases.mdx'), /v0\.42\.1: close the dogfood loop/);
+});
+
 test('v0.41.0 article is a published release record with its limits', () => {
   const article = read('site/src/content/docs/releases/v0-41-0.mdx');
   const text = article.replace(/\s+/g, ' ');
