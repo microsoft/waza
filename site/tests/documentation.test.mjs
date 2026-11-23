@@ -31,6 +31,15 @@ const releaseInputs = [
   'version.txt', 'extension.yaml', 'registry.json', 'go.mod', 'CHANGELOG.md',
   'internal/models/schema_version.go', ...embeddedFiles, ...embeddedAssets,
 ];
+function publishedReleaseVersion(changelog, reference) {
+  const published = reference.match(/^## Current published standalone release: v(\d+\.\d+\.\d+)\s*$/m)?.[1];
+  assert.ok(published, 'the download reference must explicitly identify the published release');
+  const entry = changelog.split(/^## /m).find((section) => section.startsWith(`[${published}] - `));
+  assert.ok(entry, 'the published version must have a dated changelog entry');
+  assert.match(entry, /^\[[\d.]+\] - \d{4}-\d{2}-\d{2}\s*$/m);
+  assert.doesNotMatch(entry, /^(?:\*\*)?(?:Hotfix|Release) candidate\b/im, 'a candidate is not a publication record');
+  return published;
+}
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
@@ -644,8 +653,6 @@ test('v0.42.0 published article retains production integration limits', () => {
   assert.match(article, /^title: "Waza v0\.42\.0: verifiable production integration"$/m);
   assert.match(visible, /\*\*Released November 21, 2026\.\*\*/);
   assert.doesNotMatch(visible, /publication pending|\*\*Draft|preview|is pending/i);
-  assert.match(read('version.txt'), /^0\.42\.0\s*$/);
-  assert.match(read('extension.yaml'), /^version: 0\.42\.0$/m);
   const changelog = read('CHANGELOG.md');
   const candidate = changelog.split('## [0.42.0] - 2026-11-21')[1]?.split('## [0.41.0]')[0];
   assert.ok(candidate, 'candidate must own the folded Unreleased entries');
@@ -1082,10 +1089,10 @@ test('extension installation guidance identifies the current registry version', 
 });
 
 test('release entry points agree on published versions and the current runner result writer', () => {
-  const release = read('CHANGELOG.md').match(/^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/m);
-  assert.ok(release, 'a dated release entry, not post-tag synchronization metadata, identifies the published version');
-  const published = release[1];
-  assert.match(read('version.txt').trim(), /^\d+\.\d+\.\d+$/);
+  const published = publishedReleaseVersion(read('CHANGELOG.md'), read('site/src/content/docs/reference/releases.mdx'));
+  const sourceVersion = read('version.txt').trim();
+  assert.match(sourceVersion, /^\d+\.\d+\.\d+$/);
+  assert.equal(read('extension.yaml').match(/^version: (\S+)\s*$/m)?.[1], sourceVersion);
   const readme = read('README.md').replace(/\s+/g, ' ');
   assert.equal(readme.match(/published standalone CLI is `v([^`]+)`/)?.[1], published);
   assert.equal(
@@ -1312,8 +1319,7 @@ function taggedBuildVersions(text) {
 }
 
 test('current onboarding uses matching published source tags and build stamps', () => {
-  const published = read('CHANGELOG.md').match(/^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$/m)?.[1];
-  assert.ok(published);
+  const published = publishedReleaseVersion(read('CHANGELOG.md'), read('site/src/content/docs/reference/releases.mdx'));
   for (const path of ['README.md', 'docs/GUIDE.md', 'site/src/content/docs/quick-start.mdx',
     'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/reference/releases.mdx']) {
     assert.ok(taggedBuildVersions(read(path)).includes(published), `${path} must show the published release`);
@@ -1330,6 +1336,21 @@ test('current onboarding uses matching published source tags and build stamps', 
   assert.deepEqual(taggedBuildVersions(historical), ['0.40.0']);
   assert.throws(() => taggedBuildVersions(historical.replace('VERSION=0.40.0', 'VERSION=0.41.0')));
   assert.throws(() => taggedBuildVersions(historical.replace(' VERSION=0.40.0', '')));
+});
+
+test('a dated candidate cannot replace the verified published download version', () => {
+  const changelog = read('CHANGELOG.md');
+  const reference = read('site/src/content/docs/reference/releases.mdx');
+  const published = publishedReleaseVersion(changelog, reference);
+  const [major, minor, patch] = published.split('.').map(Number);
+  const candidate = `${major}.${minor}.${patch + 1}`;
+  const staged = `## [${candidate}] - 2026-11-23\n\nHotfix candidate; qualification and publication are pending.\n\n${changelog}`;
+  assert.equal(publishedReleaseVersion(staged, reference), published);
+  const promoted = reference.replace(
+    `## Current published standalone release: v${published}`,
+    `## Current published standalone release: v${candidate}`,
+  );
+  assert.throws(() => publishedReleaseVersion(staged, promoted), /a candidate is not a publication record/);
 });
 
 function assertSchemaAttribution(text, sourceWriter) {
