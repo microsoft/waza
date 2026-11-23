@@ -42,7 +42,8 @@ if [ "${discovery_status[1]}" -ne 0 ]; then exit "${discovery_status[1]}"; fi
 if [ "$finalization_status" -ne 0 ]; then exit "$finalization_status"; fi
 cp "$profile.all" "$profile.selected"
 set +e
-go test "${test_parallelism[@]}" -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
+# Preserve framed test output when spinner writes do not end in a newline.
+go test "${test_parallelism[@]}" -count=1 -json -v=test2json -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
   "${selected[@]}" |
   node "$scripts/ci-evidence.cjs" go "$profile.evidence.json" "$profile.all" "$profile.selected"
 status=("${PIPESTATUS[@]}")

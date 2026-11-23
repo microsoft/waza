@@ -56,7 +56,8 @@ fi
 mapfile -t selected_packages < "$profile.packages.selected"
 echo "Remaining shard $shard/4 selects $(wc -l < "$profile.packages.selected") of $(wc -l < "$profile.packages.all") packages and $(wc -l < "$profile.selected") of $(wc -l < "$profile.all") discovered tests."
 set +e
-go test -p=4 -count=1 -json -v -race -timeout=30m \
+# Preserve framed test output when spinner writes do not end in a newline.
+go test -p=4 -count=1 -json -v=test2json -race -timeout=30m \
   -coverprofile="$profile" -covermode=atomic "${selected_packages[@]}" |
   CI_EVIDENCE_INVENTORY_SCOPE=qualified node "$scripts/ci-evidence.cjs" go \
     "$profile.evidence.json" "$profile.all" "$profile.selected"
