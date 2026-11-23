@@ -425,6 +425,33 @@ func TestNewTaskFromPromptCommand_FailedExecutionDoesNotCreateTask(t *testing.T)
 	require.NoFileExists(t, outputPath)
 }
 
+func TestNewTaskFromPromptCommand_MissingAssistantResponseDoesNotCreateTask(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := newClientMock(ctrl)
+	session := newSessionMock(ctrl)
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	session.EXPECT().On(gomock.Any()).Return(func() {}).Times(3)
+	session.EXPECT().SessionID().Return("missing-response-session")
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(nil, nil)
+	session.EXPECT().Disconnect().Return(nil)
+	client.EXPECT().DeleteSession(gomock.Any(), "missing-response-session").Return(nil)
+
+	outputPath := filepath.Join(t.TempDir(), "generated-task.yaml")
+	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
+		NewTaskList:      func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
+		NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
+		DetectContext: func(string, ...workspace.DetectOption) (*workspace.WorkspaceContext, error) {
+			return &workspace.WorkspaceContext{}, nil
+		},
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"my prompt", outputPath})
+
+	require.EqualError(t, cmd.Execute(), "no assistant response was captured; refusing to generate an always-passing response check")
+	require.NoFileExists(t, outputPath)
+}
+
 func newClientMock(ctrl *gomock.Controller) *MockCopilotClient {
 	clientMock := NewMockCopilotClient(ctrl)
 
