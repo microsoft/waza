@@ -117,9 +117,14 @@ func initCIShell(t *testing.T, dir, script string, env map[string]string) (strin
 func initCIWriteEval(t *testing.T, dir, grader string) string {
 	t.Helper()
 	evalDir := filepath.Join(dir, "evals", "reviewed suite")
+	return initCIWriteEvalAt(t, evalDir, "eval.yaml", grader)
+}
+
+func initCIWriteEvalAt(t *testing.T, evalDir, evalFile, grader string) string {
+	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Join(evalDir, "fixtures"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "task.yaml"), []byte("id: task\nname: Task\ninputs: {prompt: ready}\n"), 0o600))
-	path := filepath.Join(evalDir, "eval.yaml")
+	path := filepath.Join(evalDir, evalFile)
 	spec := "schemaVersion: '1.4'\nname: reviewed\nskill: reviewed\nversion: '1.0'\nconfig: {executor: copilot-sdk, model: never-call, trials_per_task: 1, timeout_seconds: 5}\nmetrics: [{name: accuracy, weight: 1, threshold: 0.8}]\ntasks: [task.yaml]\n" + grader
 	require.NoError(t, os.WriteFile(path, []byte(spec), 0o600))
 	return filepath.ToSlash(path)
@@ -395,6 +400,79 @@ func TestInitCI_CustomEvalPaths(t *testing.T) {
 	require.Error(t, err, out)
 	require.NotContains(t, out, "No evaluation files found")
 	require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+}
+
+func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		evalFile         string
+		configured       string
+		legacy           string
+		globDecoy        string
+		wantPreflightErr bool
+	}{
+		{
+			name:             "legacy fallback when configured file is absent",
+			evalFile:         "suite.yml",
+			legacy:           "config: [invalid]\n",
+			wantPreflightErr: true,
+		},
+		{
+			name:             "metacharacters are literal in configured filename",
+			evalFile:         "suite[1].yml",
+			configured:       "config: [invalid]\n",
+			globDecoy:        "valid",
+			wantPreflightErr: true,
+		},
+		{
+			name:       "configured file takes precedence over legacy fallback",
+			evalFile:   "suite.yml",
+			configured: "valid",
+			legacy:     "config: [invalid]\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, _ := initCIFixture(t)
+			cfg := projectconfig.New()
+			cfg.Paths.Evals = "custom suites"
+			cfg.Files.EvalFile = tc.evalFile
+			config, err := yaml.Marshal(cfg)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), config, 0o600))
+			workflowPath := filepath.Join(dir, ".github", "workflows", "eval.yml")
+			require.NoError(t, os.Remove(workflowPath))
+			cmd := newInitCommand()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetArgs([]string{dir, "--no-skill"})
+			require.NoError(t, cmd.Execute())
+			data, err := os.ReadFile(workflowPath)
+			require.NoError(t, err)
+			var workflow initCIWorkflowSpec
+			require.NoError(t, yaml.Unmarshal(data, &workflow))
+			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+			step.Env["WAZA_INIT_CI_MODE"] = "reject"
+
+			evalDir := filepath.Join(dir, "custom suites", "reviewed")
+			if tc.configured == "valid" {
+				initCIWriteEvalAt(t, evalDir, tc.evalFile, "")
+			} else if tc.configured != "" {
+				require.NoError(t, os.MkdirAll(evalDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(evalDir, tc.evalFile), []byte(tc.configured), 0o600))
+			}
+			if tc.legacy != "" {
+				require.NoError(t, os.MkdirAll(evalDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte(tc.legacy), 0o600))
+			}
+			if tc.globDecoy == "valid" {
+				initCIWriteEvalAt(t, evalDir, "suite1.yml", "")
+			}
+
+			out, err := initCIShell(t, dir, step.Run, step.Env)
+			require.Equal(t, tc.wantPreflightErr, err != nil, out)
+			require.NotContains(t, out, "No evaluation files found")
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+		})
+	}
 }
 
 func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {

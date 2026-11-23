@@ -656,10 +656,16 @@ jobs:
           fi
           count=0
           status=0
-          while IFS= read -r -d '' eval_file; do
-            count=$((count + 1))
-            waza preflight "$eval_file" || status=1
-          done < <(find "./$EVALS_PATH" -type f -name "$EVAL_FILE" -print0)
+          while IFS= read -r -d '' eval_dir; do
+            configured_file="$eval_dir/$EVAL_FILE"
+            if [ -f "$configured_file" ]; then
+              count=$((count + 1))
+              waza preflight "$configured_file" || status=1
+            elif [ "$EVAL_FILE" != "eval.yaml" ] && [ -f "$eval_dir/eval.yaml" ]; then
+              count=$((count + 1))
+              waza preflight "$eval_dir/eval.yaml" || status=1
+            fi
+          done < <(find "./$EVALS_PATH" -type d -print0)
           if [ "$count" -eq 0 ]; then
             echo "::notice::No evaluation files found; agent evaluation not run."
           fi
