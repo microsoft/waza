@@ -145,6 +145,9 @@ func runProfile(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if format != "text" && format != "json" {
+		return fmt.Errorf("invalid format %q: expected text or json", format)
+	}
 	tokenizer, err := cmd.Flags().GetString("tokenizer")
 	if err != nil {
 		return err

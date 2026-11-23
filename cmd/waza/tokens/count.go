@@ -60,6 +60,9 @@ func runCount(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if format != "table" && format != "json" {
+		return fmt.Errorf("invalid format %q: expected table or json", format)
+	}
 	sortBy, err := cmd.Flags().GetString("sort")
 	if err != nil {
 		return err

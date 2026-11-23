@@ -484,6 +484,57 @@ validation against a checksum-pinned upstream release schema before running lint
 When upgrading golangci-lint, update the workflow version and the script's
 version check, upstream release commit, and schema checksum together.
 
+## Releasing
+
+[docs/RELEASE.md](docs/RELEASE.md) is the authoritative release procedure.
+The `azd-publish` skill prepares metadata only; it does not replace the
+qualification, tagging, publication, and verification gates in that procedure.
+
+Before qualification, settle the milestone and backlog, then make the dated
+release-metadata change the exact commit intended for the tag. Keep
+`version.txt`, `extension.yaml`, changelog, README, release pages, samples,
+documentation tests, and e2e expectations consistent. Use the same full
+40-character source frontier in the changelog and release article; preserve
+historical inspection dates. Keep draft/pending labels out of shared navigation.
+
+`web/dist/index.html` and its favicon must match a clean dashboard build for
+the release source. Web dependency changes can stale the tracked entrypoint and
+fail exact-source qualification. If stale, rebuild with the locked dependencies
+using `npm ci && npm run build` in `web/` with Node 22 as in release CI. Review
+and land the generated tracked output, validate the PR in CI, and let release
+qualification verify the clean-source match. Never hand-write hashed asset names.
+
+Before dispatching Release Qualification, verify that the manual candidate
+version in `.github/workflows/release-qualification.yml` matches the committed
+`version.txt` and `extension.yaml`. The manual path currently hard-codes
+`0.42.0`; for a different version, update and test its resolution in a reviewed
+workflow change before qualification. Dispatch for the exact current `main` SHA
+and tag only that qualified commit. Any later source change invalidates that evidence.
+Inspect each publisher and its artifacts independently: a failed overall
+workflow can follow successful external publication. If the workflow did not
+create the registry-sync PR because policy denied permission, open it manually
+from the pushed `release/vX.Y.Z` branch. Before any retry, inspect existing
+tags, releases, registry state, and artifacts; do not assume a rerun is safe.
+If native smoke was skipped, dispatch native-platform evidence separately and
+describe a same-source rebuild as such, not as testing the published bytes.
+Update registry-version guidance with the registry entry, and relabel the
+release article only after publication is verified. Record source/tag SHA,
+asset details, and relevant run IDs. The Pages fallback and its trigger
+conditions are documented in [docs/RELEASE.md](docs/RELEASE.md).
+
+Main is squash-only; required checks must pass on the current PR head. When
+main advances, refresh a stale or stacked PR by merging the current base
+normally. Never rebase or force-push pushed history. A PR-scope error saying
+"Merge parents do not match event base and head" indicates stale event-base
+evidence; refresh the head rather than weakening admission.
+
+On Windows, if documentation tests fail only on CRLF input, rerun them from an
+LF `git archive` export before attributing the failure to the source. Use
+`git -c core.longpaths=true status` to avoid path-length artifacts. If the
+configured npm feed cannot restore locked packages, report site/dashboard
+builds and Playwright as not run locally and rely on required CI; do not claim
+unexecuted checks passed.
+
 ## Fixture Isolation
 
 Each task execution gets a **fresh temp workspace** with fixtures copied in:
