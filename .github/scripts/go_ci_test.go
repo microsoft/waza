@@ -516,7 +516,7 @@ func checkOrdinaryTestSelection(t *testing.T, command, platform string, packages
 	if err != nil {
 		return err
 	}
-	requiredFlags := []string{"-count=1", "-json", "-v", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
+	requiredFlags := []string{"-count=1", "-json", "-v=test2json", "-race", "-timeout=30m", "-coverprofile=coverage.txt", "-covermode=atomic"}
 	if sharded {
 		requiredFlags = append(requiredFlags, "-p=4")
 	}
@@ -853,6 +853,7 @@ func TestOrdinaryCICaptureRejectsWeakenedDiscoveryExecutionAndInventory(t *testi
 		t.Fatal(err)
 	}
 	for _, mutation := range [][2]string{
+		{"-v=test2json", "-v"},
 		{"-count=1 -json", "-json"},
 		{"-count=1 -json", "-count=2 -json"},
 		{"-count=1 -json", "-count=1"},
@@ -1374,7 +1375,7 @@ func TestGoRemainingShardWorkflowContract(t *testing.T) {
 	for _, required := range []string{
 		"go_remaining_package_durations.tsv",
 		"go_remaining_shard_plan.py",
-		"go test -p=4 -count=1 -json -v -race -timeout=30m",
+		"go test -p=4 -count=1 -json -v=test2json -race -timeout=30m",
 		"-covermode=atomic",
 		"CI_EVIDENCE_INVENTORY_SCOPE=qualified",
 	} {

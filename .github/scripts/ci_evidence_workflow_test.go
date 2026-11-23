@@ -308,7 +308,7 @@ func checkNativeEvidence(source, script []byte) error {
 	for _, required := range []string{
 		`node "$scripts/ci-evidence.cjs" init-go "$profile.evidence.json"`,
 		`go test -race -covermode=atomic -list . "$package"`,
-		`go test -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic`,
+		`go test -count=1 -json -v=test2json -race -timeout=30m -coverprofile="$profile" -covermode=atomic`,
 		`-run "^($pattern)$" "$package" |`,
 		`CI_EVIDENCE_INVENTORY_SCOPE=names node "$scripts/ci-evidence.cjs" go`,
 		`"$profile.evidence.json" "$profile.all" "$profile.selected"`,
@@ -590,6 +590,7 @@ func TestCIEvidenceWorkflowContracts(t *testing.T) {
 		}
 	}
 	for _, mutation := range [][2]string{
+		{"-v=test2json", "-v"},
 		{"-count=1 -json", "-json"},
 		{"-count=1 -json", "-count=1"},
 		{`-run "^($pattern)$"`, `-run "^TestOnly$"`},

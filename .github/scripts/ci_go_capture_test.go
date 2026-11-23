@@ -3,14 +3,151 @@ package scripts
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestCIGoCaptureSpinnerTerminalEvidence(t *testing.T) {
+	dir, err := os.MkdirTemp(".", ".ci-spinner-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Error(err)
+		}
+	})
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"go.mod": "module example/spinner\n\ngo 1.26\n",
+		"spinner_test.go": `package spinner
+import ("fmt"; "os"; "testing")
+func TestSpinner(t *testing.T) {
+  for _, name := range []string{"standalone", "workspace"} {
+    t.Run(name, func(t *testing.T) {
+      fmt.Fprint(os.Stderr, "\r    \r")
+      if os.Getenv("SPINNER_FAIL") == "1" { t.Fatal("intentional failure") }
+    })
+  }
+}
+`,
+		"all": "example/spinner::TestSpinner\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	collector, err := filepath.Abs("ci-evidence.cjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type captureCase struct {
+		name, verbose  string
+		fail, complete bool
+	}
+	cases := []captureCase{
+		{name: "unframed reproduces missing terminals", verbose: "-v"},
+	}
+	for _, script := range []string{"ci_go_test_capture.sh", "go_remaining_test_shard.sh", "go_test_shard.sh"} {
+		source, err := os.ReadFile(script)
+		if err != nil {
+			t.Fatal(err)
+		}
+		match := regexp.MustCompile(`-count=1 -json (-v\S*)`).FindSubmatch(source)
+		if len(match) != 2 {
+			t.Fatalf("%s has no explicit JSON execution verbosity", script)
+		}
+		cases = append(cases, captureCase{name: script, verbose: string(match[1]), complete: true})
+	}
+	cases = append(cases, captureCase{name: "framed failure retains failed verdict", verbose: "-v=test2json", fail: true, complete: true})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			producer := exec.CommandContext(t.Context(), "go", "test", "-count=1", "-json", tc.verbose,
+				"-race", "-timeout=60s", "-coverprofile=coverage.txt", "-covermode=atomic", ".")
+			producer.Dir = dir
+			producer.Env = append(os.Environ(), "SPINNER_FAIL=0")
+			if tc.fail {
+				producer.Env = append(producer.Env, "SPINNER_FAIL=1")
+			}
+			stream, err := producer.Output()
+			exit := 0
+			if err != nil {
+				failure, ok := err.(*exec.ExitError)
+				if !ok {
+					t.Fatal(err)
+				}
+				exit = failure.ExitCode()
+			}
+			if (exit != 0) != tc.fail {
+				t.Fatalf("producer exit=%d, want failure=%t\n%s", exit, tc.fail, stream)
+			}
+			reportPath := filepath.Join(dir, "report.json")
+			capture := exec.CommandContext(t.Context(), "node", collector, "go", reportPath,
+				filepath.Join(dir, "all"), filepath.Join(dir, "all"))
+			capture.Dir, capture.Stdin = dir, bytes.NewReader(stream)
+			capture.Env = append(os.Environ(), "CI_EVIDENCE_COLD_REQUESTED=false")
+			if output, err := capture.CombinedOutput(); err != nil {
+				t.Fatalf("capture: %v\n%s", err, output)
+			}
+			finalize := exec.CommandContext(t.Context(), "node", collector, "finish-go", reportPath, fmt.Sprint(exit), "0")
+			if output, err := finalize.CombinedOutput(); err != nil {
+				t.Fatalf("finalize: %v\n%s", err, output)
+			}
+			raw, err := os.ReadFile(reportPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var report struct {
+				Complete    bool
+				Diagnostics []string
+				Targets     []struct {
+					Name, Status string
+					Seconds      *float64
+				}
+			}
+			if err := json.Unmarshal(raw, &report); err != nil {
+				t.Fatal(err)
+			}
+			wantTargets := 3
+			if !tc.complete {
+				wantTargets = 2
+			}
+			if report.Complete != tc.complete || len(report.Targets) != wantTargets {
+				t.Fatalf("spinner terminal evidence: %s", raw)
+			}
+			if !tc.complete {
+				if !slices.Contains(report.Diagnostics, "unterminated-target") {
+					t.Fatalf("unframed fixture did not reproduce terminal loss: %s", raw)
+				}
+				for _, target := range report.Targets {
+					if target.Status != "" || target.Seconds != nil {
+						t.Fatalf("unframed fixture invented a terminal verdict/timing: %s", raw)
+					}
+				}
+				return
+			}
+			want := "pass"
+			if tc.fail {
+				want = "fail"
+			}
+			for _, target := range report.Targets {
+				if target.Status != want || target.Seconds == nil {
+					t.Fatalf("%s lost actual terminal verdict/timing: %s", target.Name, raw)
+				}
+			}
+		})
+	}
+}
 
 func TestCIGoCaptureActualMockCommandTerminals(t *testing.T) {
 	root, err := filepath.Abs("../..")
@@ -40,7 +177,7 @@ func TestCIGoCaptureActualMockCommandTerminals(t *testing.T) {
 	assertNoReleaseRuntime(t, guard)
 	t.Cleanup(func() { assertNoReleaseRuntime(t, guard) })
 	names := []string{"TestSuggest_CopilotJSON", "TestSuggest_CopilotModel", "TestSuggest_CopilotMultipleFiles", "TestSuggest_CopilotText"}
-	producer := exec.CommandContext(t.Context(), "go", "test", "-count=1", "-json", "-v", "-timeout=60s",
+	producer := exec.CommandContext(t.Context(), "go", "test", "-count=1", "-json", "-v=test2json", "-timeout=60s",
 		"./cmd/waza/tokens", "-run", "^("+strings.Join(names, "|")+")$")
 	producer.Dir, producer.Env = root, env
 	stderr.Reset()
@@ -256,7 +393,7 @@ if [ "$FAIL_PHASE" = execution ] && [ "$phase" = execution ]; then exit 9; fi
 				}
 				if count == 2 {
 					execution := append([]string{"test"}, testParallelism...)
-					execution = append(execution, "-count=1", "-json", "-v", "-race", "-timeout=30m",
+					execution = append(execution, "-count=1", "-json", "-v=test2json", "-race", "-timeout=30m",
 						"-coverprofile=coverage.txt", "-covermode=atomic")
 					execution = append(execution, selector...)
 					if !reflect.DeepEqual(strings.Fields(commands[1]), execution) {
