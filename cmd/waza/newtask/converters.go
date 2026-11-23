@@ -1,6 +1,7 @@
 package newtask
 
 import (
+	"errors"
 	"iter"
 	"regexp"
 	"strings"
@@ -167,6 +168,10 @@ func createTestCaseFromCopilotEvents(events iter.Seq2[copilot.SessionEvent, erro
 				})
 			}
 		}
+	}
+
+	if responses.Len() == 0 {
+		return nil, errors.New("no assistant response was captured; refusing to generate an always-passing response check")
 	}
 
 	if len(skills) > 0 {
